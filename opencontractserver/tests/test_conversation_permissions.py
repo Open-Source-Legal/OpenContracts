@@ -15,6 +15,7 @@ Key test scenarios:
 """
 
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser, Group
@@ -760,6 +761,74 @@ class TestConversationGroupGrants(TestCase):
         )
         # Outsider (not in the group) still cannot see it.
         self.assertNotIn(message, ChatMessage.objects.visible_to_user(self.outsider))
+
+    def test_missing_conversation_group_table_falls_back_gracefully(self):
+        """Defensive branch (issue #1986 item 3): if the conversation
+        group-permission model can't be resolved, the `except LookupError`
+        must degrade to user-level grants only — no crash, group grant simply
+        ignored. Mirrors the `BaseVisibilityManager` group-table fallback."""
+        import django.apps
+
+        chat = Conversation.objects.create(
+            title="Owner's Chat",
+            creator=self.owner,
+            conversation_type=ConversationTypeChoices.CHAT,
+        )
+        # A real group grant exists, but the simulated missing table means it
+        # cannot be consulted on this call.
+        assign_perm("read_conversation", self.group, chat)
+
+        real_get_model = django.apps.apps.get_model
+
+        def fake_get_model(app_label, model_name=None, *args, **kwargs):
+            name = model_name if model_name is not None else app_label
+            # Surgically fail ONLY the conversation group-permission lookup so
+            # the user-level lookup (and Corpus/Document visibility) stay real.
+            if isinstance(name, str) and name == "conversationgroupobjectpermission":
+                raise LookupError("simulated missing group permission table")
+            return real_get_model(app_label, model_name, *args, **kwargs)
+
+        with patch.object(django.apps.apps, "get_model", side_effect=fake_get_model):
+            visible = list(Conversation.objects.visible_to_user(self.member))
+
+        # No crash; the un-consultable group grant is ignored, so the member
+        # does not see the chat. The owner still sees their own (no patch).
+        self.assertNotIn(chat, visible)
+        self.assertIn(chat, Conversation.objects.visible_to_user(self.owner))
+
+    def test_missing_message_group_table_falls_back_gracefully(self):
+        """Defensive branch (issue #1986 item 3): the message-level
+        `except LookupError` for the chat-message group-permission model must
+        degrade gracefully (group grant ignored, no crash)."""
+        import django.apps
+
+        chat = Conversation.objects.create(
+            title="Owner's Chat",
+            creator=self.owner,
+            conversation_type=ConversationTypeChoices.CHAT,
+        )
+        message = ChatMessage.objects.create(
+            conversation=chat,
+            creator=self.owner,
+            msg_type=MessageTypeChoices.HUMAN,
+            content="group-shared message",
+        )
+        assign_perm("read_chatmessage", self.group, message)
+
+        real_get_model = django.apps.apps.get_model
+
+        def fake_get_model(app_label, model_name=None, *args, **kwargs):
+            name = model_name if model_name is not None else app_label
+            if isinstance(name, str) and name == "chatmessagegroupobjectpermission":
+                raise LookupError("simulated missing group permission table")
+            return real_get_model(app_label, model_name, *args, **kwargs)
+
+        with patch.object(django.apps.apps, "get_model", side_effect=fake_get_model):
+            visible = list(ChatMessage.objects.visible_to_user(self.member))
+
+        # The message group grant cannot be consulted and the parent CHAT is
+        # hidden, so the member does not see the message — and nothing raised.
+        self.assertNotIn(message, visible)
 
 
 class TestConversationService(TestCase):
