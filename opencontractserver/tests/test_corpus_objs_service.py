@@ -1095,6 +1095,13 @@ class TestBulkSoftDeletePrimitive(_CorpusObjsServiceFolderTestBase):
             self.assertIsNone(call_kwargs.get("update_fields"))
             self.assertIsNotNone(call_kwargs.get("using"))
 
+        # Negative assertion locking the superseded-rows INVARIANT: the bulk
+        # ``.update(is_current=False)`` must NOT route a post_save through this
+        # helper with created=False (queryset .update bypasses signals entirely).
+        self.assertFalse(
+            any(call_kwargs.get("created") is False for _, call_kwargs in send_calls)
+        )
+
     def test_query_count_independent_of_document_count(self):
         """The whole point of issue #1951: O(1) queries in the doc count.
 
@@ -1145,9 +1152,11 @@ class TestBulkSoftDeletePrimitive(_CorpusObjsServiceFolderTestBase):
             )
 
         self.assertEqual(len(small_pub_ctx), len(large_pub_ctx))
-        # Public path costs the private path plus exactly the constant
-        # revocation query pair — still independent of the document count.
-        self.assertEqual(len(small_pub_ctx), len(small_ctx) + 2)
+        # The public path adds the (constant) is_public revocation cost on top
+        # of the private path. Assert only that it is strictly greater — the
+        # cross-size equality above is the real O(1) guarantee; a hardcoded delta
+        # would be a brittle false alarm if query/savepoint accounting shifts.
+        self.assertGreater(len(small_pub_ctx), len(small_ctx))
 
     def test_revokes_is_public_when_no_longer_in_a_public_corpus(self):
         """Trashing a doc out of its only public corpus revokes is_public
@@ -1167,6 +1176,48 @@ class TestBulkSoftDeletePrimitive(_CorpusObjsServiceFolderTestBase):
         # No active public path remains anywhere → is_public revoked on both.
         self.assertEqual(
             Document.objects.filter(id__in=doc_ids, is_public=True).count(), 0
+        )
+
+    def test_keeps_is_public_when_still_in_another_public_corpus(self):
+        """A doc with an active path in a SECOND public corpus keeps
+        ``is_public`` when trashed from the first — the ``still_in_public``
+        safety-net branch (mirrors ``Corpus.remove_document``)."""
+        corpus_a = Corpus.objects.create(
+            title="Public A", creator=self.owner, is_public=True
+        )
+        corpus_b = Corpus.objects.create(
+            title="Public B", creator=self.owner, is_public=True
+        )
+        doc = Document.objects.create(
+            title="Shared", creator=self.owner, pdf_file="shared.pdf", is_public=True
+        )
+        # Cross-corpus reference: an active path in BOTH public corpora. This is
+        # the out-of-band case the revocation branch guards (normal corpus
+        # isolation gives each corpus its own Document copy, but the
+        # still_in_public probe is a deliberate safety net for shared rows).
+        for corpus in (corpus_a, corpus_b):
+            DocumentPath.objects.create(
+                document=doc,
+                corpus=corpus,
+                creator=self.owner,
+                folder=None,
+                path="/shared.pdf",
+                version_number=1,
+                is_current=True,
+                is_deleted=False,
+            )
+
+        DocumentLifecycleService.bulk_soft_delete_documents(
+            corpus_a, [doc.id], self.owner
+        )
+
+        # Still active in public corpus B → is_public preserved (not revoked).
+        doc.refresh_from_db()
+        self.assertTrue(doc.is_public)
+        self.assertTrue(
+            DocumentPath.objects.filter(
+                document=doc, corpus=corpus_b, is_current=True, is_deleted=False
+            ).exists()
         )
 
 

@@ -496,6 +496,12 @@ class DocumentLifecycleService(BaseService):
             # ``select_related("document")`` caches ``document`` so the replayed
             # embedding signal (which reads ``instance.document``) doesn't issue
             # a query per row.
+            #
+            # ``document_ids`` is a caller-supplied snapshot (e.g. empty_corpus's
+            # ``values_list``); this locked SELECT re-validates active state, so a
+            # document concurrently trashed/removed after the snapshot is simply
+            # absent here (skipped, never double-trashed) and one added after it
+            # is left alone — the same semantics as the prior per-document loop.
             active_paths = list(
                 DocumentPath.objects.select_for_update(of=("self",))
                 .select_related("document")
@@ -545,7 +551,11 @@ class DocumentLifecycleService(BaseService):
 
             # 3) bulk_create bypasses per-row post_save; replay it so the
             #    embedding + CAML-cache side-effects fire (same helper the bulk
-            #    move/reconcile paths use).
+            #    move/reconcile paths use). Both receivers defer their actual
+            #    work via ``transaction.on_commit``, so dispatching here (before
+            #    commit / before the step-4 revocation) is rollback-safe: if this
+            #    atomic block rolls back, Django discards those on_commit
+            #    callbacks and no embedding job runs for uncommitted rows.
             CorpusPathService._dispatch_document_path_created_signals(created)
 
             trashed_doc_ids = {p.document_id for p in active_paths}
