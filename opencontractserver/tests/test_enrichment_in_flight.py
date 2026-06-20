@@ -251,6 +251,46 @@ class WriterClaimRuleTests(_InFlightBase):
         assert ref.is_provisional is False
         assert ref.created_by_analysis_id == a2.id
 
+    def test_finalized_row_with_null_analysis_is_left_intact_on_rerun(self):
+        """Orphan case: a finalized row whose ``created_by_analysis`` is NULL must
+        survive a re-run untouched — never downgraded to provisional, never
+        re-stamped, never duplicated. The claim rule only re-stamps *provisional*
+        rows, so a finalized NULL-analysis row is inert.
+
+        The NULL state is set directly here rather than by deleting the producing
+        Analysis: ``created_by_analysis`` is SET_NULL, but deleting the Analysis
+        also cascades the backing mention annotation it created, which CASCADEs
+        the CorpusReference away entirely — so deletion leaves no orphan to
+        handle. This simulates the SET_NULL having fired while the row survives.
+        """
+        a1 = self._make_analysis()
+        res = self._resolution()
+
+        # Write a row, finalize it, then null its analysis (simulating SET_NULL).
+        EnrichmentWriter(self.corpus, self.user.id, analysis=a1).write(
+            [res], provisional=True, reconcile_graph=False
+        )
+        ref = CorpusReference.objects.get(canonical_key="faketest:1")
+        CorpusReference.objects.filter(pk=ref.pk).update(
+            is_provisional=False, created_by_analysis=None
+        )
+        ref.refresh_from_db()
+        assert ref.created_by_analysis_id is None
+        assert ref.is_provisional is False
+
+        # A later run re-detects the same key. get_or_create finds the existing
+        # row (lookup is source_annotation+type+key, NOT analysis), and the
+        # finalized-row guard leaves it completely alone — no duplicate row, no
+        # downgrade, no re-stamp onto the new analysis.
+        a2 = self._make_analysis()
+        EnrichmentWriter(self.corpus, self.user.id, analysis=a2).write(
+            [res], provisional=True, reconcile_graph=False
+        )
+        assert CorpusReference.objects.filter(canonical_key="faketest:1").count() == 1
+        ref.refresh_from_db()
+        assert ref.is_provisional is False  # never downgraded
+        assert ref.created_by_analysis_id is None  # finalized NULL-analysis untouched
+
 
 class ConcurrentLLMApplyTests(TestCase):
     """The LLM apply path runs the concurrent cross-document orchestrator
@@ -316,6 +356,80 @@ class ConcurrentLLMApplyTests(TestCase):
         # post-loop flip finalizes them) and attributed to the producing run.
         assert llm_ref.is_provisional is False
         assert llm_ref.created_by_analysis_id == out["analysis_id"]
+
+
+class ConcurrentLLMFailureIsolationTests(TestCase):
+    """One document's LLM failure must not abort the whole concurrent run.
+
+    ``_aresolve_documents`` fans out across documents under one ``gather``;
+    without per-document error isolation a single transient provider error would
+    cancel every other document's in-flight work — the opposite of the in-flight
+    persistence resilience this path exists for. An *all-documents-failed* run is
+    still surfaced as a run-level failure so a systemic error (bad API key,
+    provider outage) is never silently finalized as an empty result.
+    """
+
+    TEXT_OK = "This filing is clean and uneventful."
+    TEXT_BOOM = "This filing triggers a provider error mid-extraction."
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="llm-iso", password="p")
+        self.corpus = Corpus.objects.create(title="Iso Corpus", creator=self.user)
+        self.ok_doc = Document.objects.create(title="ok", creator=self.user)
+        self.ok_doc.txt_extract_file.save(
+            "ok.txt", ContentFile(self.TEXT_OK.encode("utf-8"))
+        )
+        self.corpus.add_document(document=self.ok_doc, user=self.user)
+        self.boom_doc = Document.objects.create(title="boom", creator=self.user)
+        self.boom_doc.txt_extract_file.save(
+            "boom.txt", ContentFile(self.TEXT_BOOM.encode("utf-8"))
+        )
+        self.corpus.add_document(document=self.boom_doc, user=self.user)
+
+    def _apply_with_aextract(self, aextract):
+        """Run an LLM-tier apply with ``LLMCitationExtractor.aextract`` replaced.
+
+        ``abuild_agent_model`` is stubbed so the orchestrator's one-time model
+        build succeeds without a provider call; the patched ``aextract`` then
+        controls which documents succeed vs. raise.
+        """
+        from pydantic_ai.models.test import TestModel
+
+        from opencontractserver.enrichment.llm_citation_extractor import (
+            LLMCitationExtractor,
+        )
+
+        async def fake_build(spec):
+            return TestModel(custom_output_args={"citations": []})
+
+        with patch(
+            "opencontractserver.enrichment.llm_citation_extractor.abuild_agent_model",
+            fake_build,
+        ), patch.object(LLMCitationExtractor, "aextract", aextract):
+            return EnrichmentService().apply(
+                corpus_id=self.corpus.id,
+                creator_id=self.user.id,
+                extra_tiers=[C.DETECTION_TIER_LLM],
+            )
+
+    def test_single_document_failure_does_not_abort_the_run(self):
+        async def flaky(_self, text, *, model=None, semaphore=None):
+            if "provider error" in text:
+                raise RuntimeError("injected single-document LLM failure")
+            return []
+
+        out = self._apply_with_aextract(flaky)  # must NOT raise
+        analysis = Analysis.objects.get(pk=out["analysis_id"])
+        assert analysis.status == JobStatus.COMPLETED.value
+
+    def test_all_documents_failing_fails_the_run(self):
+        async def always_boom(_self, text, *, model=None, semaphore=None):
+            raise RuntimeError("injected systemic LLM failure")
+
+        with self.assertRaises(RuntimeError):
+            self._apply_with_aextract(always_boom)
+        analysis = Analysis.objects.filter(analyzed_corpus=self.corpus).latest("id")
+        assert analysis.status == JobStatus.FAILED.value
 
 
 class CrawlSeedFinalizedOnlyTests(_InFlightBase):

@@ -234,6 +234,15 @@ class EnrichmentService:
         # Build the model once (through the extractor's own build seam, so test
         # patches apply to this path too) and share it — together with a single
         # GLOBAL chunk semaphore — across every document's extraction.
+        #
+        # Sharing one model object across concurrent coroutines is safe: the
+        # model is a stateless pydantic-ai model wrapper (it holds only a
+        # reusable async HTTP client; no per-request buffers), and every call
+        # gets its OWN Agent — `_one_shot_structured` builds a fresh
+        # `make_pydantic_ai_agent(model, ...)` per chunk. The same model is
+        # already shared across this document's concurrent CHUNK extractions
+        # (`aextract` gathers chunks under one model); the orchestrator merely
+        # extends that proven sharing across documents.
         model = None
         if llm_extractor is not None:
             model = await llm_extractor._abuild_model()
@@ -247,55 +256,88 @@ class EnrichmentService:
 
         agg = WriteResult()
         documents_total = len(documents)
-        counters = {"total": 0, "done": 0}
+        counters = {"total": 0, "done": 0, "attempted": 0}
+        # Per-document failures captured here instead of propagating out of the
+        # gather (see below) so one document's error can't discard the rest.
+        failures: list[tuple[int, BaseException]] = []
 
         async def _process(doc) -> None:
             text = doc_texts.get(doc.id)
             if not text:
                 return
             async with doc_sem:
-                llm_cands = (
-                    await llm_extractor.aextract(text, model=model, semaphore=chunk_sem)
-                    if llm_extractor is not None
-                    else []
-                )
-
-                def _detect_and_write():
-                    doc_res = self._resolve_doc(
-                        doc,
-                        text,
-                        wanted=wanted,
-                        resolver=resolver,
-                        extractor=extractor,
-                        generic=generic,
-                        sections_by_doc=sections_by_doc,
-                        llm_cands=llm_cands,
-                    )
-                    doc_res = [
-                        r
-                        for r in doc_res
-                        if not (r.candidate.normalized_data or {}).get("needs_review")
-                    ]
-                    return (
-                        writer.write(doc_res, provisional=True, reconcile_graph=False),
-                        len(doc_res),
+                counters["attempted"] += 1
+                try:
+                    llm_cands = (
+                        await llm_extractor.aextract(
+                            text, model=model, semaphore=chunk_sem
+                        )
+                        if llm_extractor is not None
+                        else []
                     )
 
-                res, n = await sync_to_async(_detect_and_write)()
-                # Back in the single-threaded event loop: accumulation is
-                # race-free.
-                self._accumulate(agg, res)
-                counters["total"] += n
-                counters["done"] += 1
-                logger.info(
-                    "Enrichment apply: doc %s/%s (corpus %s) — refs so far=%s",
-                    counters["done"],
-                    documents_total,
-                    corpus.id,
-                    agg.references_created,
-                )
+                    def _detect_and_write():
+                        doc_res = self._resolve_doc(
+                            doc,
+                            text,
+                            wanted=wanted,
+                            resolver=resolver,
+                            extractor=extractor,
+                            generic=generic,
+                            sections_by_doc=sections_by_doc,
+                            llm_cands=llm_cands,
+                        )
+                        doc_res = [
+                            r
+                            for r in doc_res
+                            if not (r.candidate.normalized_data or {}).get(
+                                "needs_review"
+                            )
+                        ]
+                        return (
+                            writer.write(
+                                doc_res, provisional=True, reconcile_graph=False
+                            ),
+                            len(doc_res),
+                        )
+
+                    res, n = await sync_to_async(_detect_and_write)()
+                    # Back in the single-threaded event loop: accumulation is
+                    # race-free.
+                    self._accumulate(agg, res)
+                    counters["total"] += n
+                    counters["done"] += 1
+                    logger.info(
+                        "Enrichment apply: doc %s/%s (corpus %s) — refs so far=%s",
+                        counters["done"],
+                        documents_total,
+                        corpus.id,
+                        agg.references_created,
+                    )
+                except Exception as exc:
+                    # Isolate per-document failures. asyncio.gather() propagates
+                    # the FIRST exception and cancels every other in-flight
+                    # coroutine, so without this one transient provider error
+                    # (LLM timeout, network blip) on a single document would
+                    # discard the whole corpus's concurrent work — the opposite
+                    # of the in-flight-persistence resilience this path exists
+                    # for. The failed document's references simply aren't written
+                    # this run; any provisional rows it left are reclaimed and
+                    # finalized by a later successful run.
+                    failures.append((doc.id, exc))
+                    logger.exception(
+                        "Enrichment apply: doc %s (corpus %s) failed — skipping",
+                        doc.id,
+                        corpus.id,
+                    )
 
         await asyncio.gather(*(_process(doc) for doc in documents))
+        # If EVERY attempted document failed it is almost certainly a systemic
+        # error (bad API key, provider outage) rather than isolated flakiness.
+        # Re-raise so apply() marks the run FAILED and leaves rows provisional,
+        # instead of silently finalizing an empty result.
+        if failures and len(failures) == counters["attempted"]:
+            raise failures[0][1]
         return agg, counters["total"]
 
     def _resolutions(
