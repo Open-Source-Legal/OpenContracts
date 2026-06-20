@@ -20,8 +20,9 @@ methods that live on ``DocumentService`` rather than the corpus services.
 from unittest.mock import patch
 
 from django.contrib.auth.models import AnonymousUser
-from django.db import IntegrityError
+from django.db import IntegrityError, connection
 from django.test import TestCase, TransactionTestCase
+from django.test.utils import CaptureQueriesContext
 
 from opencontractserver.constants.document_processing import (
     MAX_PATH_CREATE_RETRIES,
@@ -920,6 +921,189 @@ class TestEmptyCorpus(_CorpusObjsServiceFolderTestBase):
             DocumentPath.objects.filter(
                 corpus=self.corpus, is_current=True, is_deleted=False
             ).exists()
+        )
+
+
+class TestBulkSoftDeletePrimitive(_CorpusObjsServiceFolderTestBase):
+    """
+    SCENARIO: the shared bulk-trash primitive
+    ``DocumentLifecycleService.bulk_soft_delete_documents`` that ``empty_corpus``
+    and folder cascade-delete now route through (issue #1951).
+
+    BUSINESS RULE: trashing many documents must produce the same restorable
+    soft-delete history nodes + signals as the single-document
+    ``Corpus.remove_document`` path, but in a fixed number of queries
+    independent of the document count.
+    """
+
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username="bulk_trash_owner",
+            email="bulk_trash_owner@test.com",
+            password="test",
+        )
+        self.corpus = Corpus.objects.create(
+            title="Bulk Trash Corpus", creator=self.owner, is_public=False
+        )
+
+    def _seed_docs(self, corpus, count, *, is_public=False):
+        """Create ``count`` docs, each with one active root path; return ids."""
+        doc_ids = []
+        for i in range(count):
+            doc = Document.objects.create(
+                title=f"Doc {i}",
+                creator=corpus.creator,
+                pdf_file=f"bulk{i}.pdf",
+                is_public=is_public,
+            )
+            DocumentPath.objects.create(
+                document=doc,
+                corpus=corpus,
+                creator=corpus.creator,
+                folder=None,
+                path=f"/bulk{i}.pdf",
+                version_number=1,
+                is_current=True,
+                is_deleted=False,
+            )
+            doc_ids.append(doc.id)
+        return doc_ids
+
+    def test_creates_restorable_soft_delete_history_nodes(self):
+        """Each trashed doc gets an immutable soft-delete successor node."""
+        doc_ids = self._seed_docs(self.corpus, 3)
+
+        trashed = DocumentLifecycleService.bulk_soft_delete_documents(
+            self.corpus, doc_ids, self.owner
+        )
+        self.assertEqual(trashed, 3)
+
+        for doc_id in doc_ids:
+            # Old head superseded (no active, non-deleted path remains).
+            self.assertFalse(
+                DocumentPath.objects.filter(
+                    document_id=doc_id,
+                    corpus=self.corpus,
+                    is_current=True,
+                    is_deleted=False,
+                ).exists()
+            )
+            # New current node is a soft-delete parented to the superseded row.
+            head = DocumentPath.objects.get(
+                document_id=doc_id, corpus=self.corpus, is_current=True
+            )
+            self.assertTrue(head.is_deleted)
+            self.assertIsNotNone(head.parent)
+            self.assertEqual(head.version_number, 1)
+            self.assertEqual(head.creator_id, self.owner.id)
+            # Two rows total: original + soft-delete successor (history kept).
+            self.assertEqual(
+                DocumentPath.objects.filter(
+                    document_id=doc_id, corpus=self.corpus
+                ).count(),
+                2,
+            )
+            # Document itself survives — restorable from trash.
+            self.assertTrue(Document.objects.filter(id=doc_id).exists())
+
+    def test_returns_distinct_document_count(self):
+        """Count is distinct documents trashed; re-trashing trashed ids is 0."""
+        doc_ids = self._seed_docs(self.corpus, 4)
+
+        trashed_first = DocumentLifecycleService.bulk_soft_delete_documents(
+            self.corpus, doc_ids, self.owner
+        )
+        trashed_second = DocumentLifecycleService.bulk_soft_delete_documents(
+            self.corpus, doc_ids, self.owner
+        )
+
+        self.assertEqual(trashed_first, 4)
+        self.assertEqual(trashed_second, 0)
+
+    def test_empty_input_short_circuits_without_db_access(self):
+        """Empty id list returns 0 before opening a transaction or querying."""
+        with CaptureQueriesContext(connection) as ctx:
+            trashed = DocumentLifecycleService.bulk_soft_delete_documents(
+                self.corpus, [], self.owner
+            )
+        self.assertEqual(trashed, 0)
+        self.assertEqual(len(ctx), 0)
+
+    def test_documents_without_active_paths_are_noop(self):
+        """Ids with no active path in this corpus are skipped, not errors."""
+        stranger = Document.objects.create(
+            title="Stranger", creator=self.owner, pdf_file="x.pdf"
+        )
+        trashed = DocumentLifecycleService.bulk_soft_delete_documents(
+            self.corpus, [stranger.id], self.owner
+        )
+        self.assertEqual(trashed, 0)
+
+    @patch("opencontractserver.corpuses.services.paths.post_save")
+    def test_dispatches_post_save_for_each_created_path(self, mock_signal):
+        """bulk_create bypasses signals; verify the manual replay fires once
+        per soft-deleted node (the 'signals preserved' acceptance criterion)."""
+        doc_ids = self._seed_docs(self.corpus, 3)
+
+        DocumentLifecycleService.bulk_soft_delete_documents(
+            self.corpus, doc_ids, self.owner
+        )
+
+        send_calls = mock_signal.send.call_args_list
+        self.assertEqual(len(send_calls), 3)
+        for call in send_calls:
+            _, call_kwargs = call
+            self.assertEqual(call_kwargs["sender"], DocumentPath)
+            self.assertTrue(call_kwargs["created"])
+            self.assertFalse(call_kwargs["raw"])
+            self.assertIsNone(call_kwargs.get("update_fields"))
+            self.assertIsNotNone(call_kwargs.get("using"))
+
+    def test_query_count_independent_of_document_count(self):
+        """The whole point of issue #1951: O(1) queries in the doc count.
+
+        The old per-document ``remove_document`` loop issued several queries
+        each (O(N)); the batched primitive must issue the SAME number of
+        queries for 2 docs as for 6.
+        """
+        small = Corpus.objects.create(
+            title="Small", creator=self.owner, is_public=False
+        )
+        large = Corpus.objects.create(
+            title="Large", creator=self.owner, is_public=False
+        )
+        small_ids = self._seed_docs(small, 2)
+        large_ids = self._seed_docs(large, 6)
+
+        with CaptureQueriesContext(connection) as small_ctx:
+            DocumentLifecycleService.bulk_soft_delete_documents(
+                small, small_ids, self.owner
+            )
+        with CaptureQueriesContext(connection) as large_ctx:
+            DocumentLifecycleService.bulk_soft_delete_documents(
+                large, large_ids, self.owner
+            )
+
+        self.assertEqual(len(small_ctx), len(large_ctx))
+
+    def test_revokes_is_public_when_no_longer_in_a_public_corpus(self):
+        """Trashing a doc out of its only public corpus revokes is_public
+        (the batched equivalent of ``Corpus.remove_document``'s tail)."""
+        public_corpus = Corpus.objects.create(
+            title="Public", creator=self.owner, is_public=True
+        )
+        doc_ids = self._seed_docs(public_corpus, 2, is_public=True)
+        self.assertEqual(
+            Document.objects.filter(id__in=doc_ids, is_public=True).count(), 2
+        )
+
+        DocumentLifecycleService.bulk_soft_delete_documents(
+            public_corpus, doc_ids, self.owner
+        )
+
+        # No active public path remains anywhere → is_public revoked on both.
+        self.assertEqual(
+            Document.objects.filter(id__in=doc_ids, is_public=True).count(), 0
         )
 
 

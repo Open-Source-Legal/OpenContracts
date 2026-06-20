@@ -13,6 +13,7 @@ Split out of the former ``corpus_objs_service.py`` monolith — see
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any
 
 from django.db import IntegrityError, transaction
@@ -365,9 +366,10 @@ class DocumentLifecycleService(BaseService):
         permanently delete anything — call :meth:`empty_trash` afterwards for
         that.
 
-        Reuses ``Corpus.remove_document`` per document — the same soft-delete
-        primitive 'Remove from corpus' uses — so trashed documents get
-        identical history nodes + signals and remain restorable.
+        Delegates the soft-delete to :meth:`bulk_soft_delete_documents`, the
+        shared bulk-trash primitive (the batched counterpart of
+        ``Corpus.remove_document``), so trashed documents get identical history
+        nodes + signals and remain restorable.
 
         Args:
             user: User performing the operation
@@ -381,7 +383,7 @@ class DocumentLifecycleService(BaseService):
             Requires corpus DELETE permission
         """
         from opencontractserver.corpuses.models import CorpusFolder
-        from opencontractserver.documents.models import Document, DocumentPath
+        from opencontractserver.documents.models import DocumentPath
 
         # Permission check
         if not corpus.user_can(user, PermissionTypes.DELETE, request=request):
@@ -403,20 +405,13 @@ class DocumentLifecycleService(BaseService):
                 .distinct()
             )
 
-            trashed = 0
-            # TODO(perf, deferred): batch this for large corpora —
-            # ``remove_document`` issues several queries per document (history
-            # row, signals, path update) and holds row locks for the whole loop
-            # inside this single transaction, so a multi-thousand-document
-            # corpus can hit the DB statement/connection timeout. This is the
-            # same per-document-loop pattern as the legacy "empty trash" path
-            # and ``FolderCRUDService._trash_documents_in_subtree`` (folder
-            # cascade-delete); all three want one shared bulk-trash primitive
-            # (tracked in issue #1951). Fine for typical corpus sizes; batch via
-            # that primitive before raising the interactive document-count ceiling.
-            for document in Document.objects.filter(pk__in=doc_ids):
-                if corpus.remove_document(document=document, user=user):
-                    trashed += 1
+            # Batched soft-delete: a fixed handful of queries regardless of the
+            # document count, replacing the old per-document ``remove_document``
+            # loop that issued several queries each and held row locks for the
+            # whole loop inside this single transaction — a multi-thousand-
+            # document corpus could hit the DB statement/connection timeout
+            # (issue #1951).
+            trashed = cls.bulk_soft_delete_documents(corpus, doc_ids, user)
 
             # Remove the whole folder tree; the just-trashed paths' folder FK is
             # SET_NULL by this delete, so the trashed documents simply show no
@@ -431,3 +426,142 @@ class DocumentLifecycleService(BaseService):
             user.id,
         )
         return trashed, ""
+
+    @classmethod
+    def bulk_soft_delete_documents(
+        cls,
+        corpus: Corpus,
+        document_ids: Iterable[int],
+        user: User,
+    ) -> int:
+        """Bulk soft-delete (move to Trash) every active path of the given docs.
+
+        This is the shared **bulk-trash primitive** behind
+        :meth:`empty_corpus` and
+        ``FolderCRUDService._trash_documents_in_subtree`` (folder cascade-delete)
+        — the batched counterpart of ``Corpus.remove_document(document=...)``.
+        For every active, non-deleted ``DocumentPath`` of the in-scope documents
+        it:
+
+        1. flips the current row to ``is_current=False`` (one bulk ``UPDATE``),
+        2. inserts an immutable soft-delete history node
+           (``is_deleted=True, is_current=True``, parented to the superseded
+           row) via a single ``bulk_create``, then
+        3. replays the ``post_save(created=True)`` signal for each new row — the
+           same mechanism the bulk move/reconcile paths use — so the
+           document-text embedding and ``Readme.CAML`` cache-refresh
+           side-effects fire exactly as they do on the per-document path, and
+        4. revokes ``is_public`` on documents no longer in any public corpus
+           (the batched equivalent of ``Corpus.remove_document``'s tail).
+
+        The query count is independent of the document count (a fixed handful of
+        statements instead of several per document), so it stays well clear of
+        the statement/connection timeout the per-document loop risked on
+        multi-thousand-document corpora (issue #1951). Restorability is
+        unchanged: the history nodes are identical to those
+        ``Corpus.remove_document`` produces, so trashed documents stay in the
+        trash listing and remain restorable.
+
+        NOTE: This is an internal primitive that performs **no permission
+        check** — callers (``empty_corpus``, folder cascade-delete) must already
+        have verified corpus DELETE permission. It does not touch the folder
+        tree; folder teardown stays with the caller.
+
+        Args:
+            corpus: Corpus the documents live in.
+            document_ids: Documents whose active paths should be trashed. ALL
+                active, non-deleted paths of each document in this corpus are
+                soft-deleted (matching ``remove_document(document=...)``).
+            user: User performing the operation (creator/audit on the new
+                history nodes).
+
+        Returns:
+            Number of distinct documents moved to trash.
+        """
+        from opencontractserver.corpuses.services.paths import CorpusPathService
+        from opencontractserver.documents.models import Document, DocumentPath
+
+        document_ids = list(document_ids)
+        if not document_ids:
+            return 0
+
+        with transaction.atomic():
+            # Lock + load the active head paths in one query. ``of=("self",)``
+            # locks only the DocumentPath rows (not the joined Document), and
+            # ``select_related("document")`` caches ``document`` so the replayed
+            # embedding signal (which reads ``instance.document``) doesn't issue
+            # a query per row.
+            active_paths = list(
+                DocumentPath.objects.select_for_update(of=("self",))
+                .select_related("document")
+                .filter(
+                    corpus=corpus,
+                    document_id__in=document_ids,
+                    is_current=True,
+                    is_deleted=False,
+                )
+                .order_by("pk")
+            )
+            if not active_paths:
+                return 0
+
+            # 1) Supersede every current head in a single UPDATE.
+            DocumentPath.objects.filter(pk__in=[p.pk for p in active_paths]).update(
+                is_current=False
+            )
+
+            # 2) Insert the soft-delete successor nodes in a single bulk_create.
+            #    Passing ``document=p.document`` / ``corpus=corpus`` keeps those
+            #    related objects cached on the new rows for the signal replay
+            #    below (no per-row dereference query). The fields mirror exactly
+            #    what ``Corpus.remove_document`` writes for a soft delete.
+            deleted_rows = [
+                DocumentPath(
+                    document=p.document,
+                    corpus=corpus,
+                    folder_id=p.folder_id,
+                    path=p.path,
+                    version_number=p.version_number,
+                    parent=p,
+                    is_deleted=True,
+                    is_current=True,
+                    creator=user,
+                )
+                for p in active_paths
+            ]
+            created = DocumentPath.objects.bulk_create(deleted_rows)
+
+            # 3) bulk_create bypasses per-row post_save; replay it so the
+            #    embedding + CAML-cache side-effects fire (same helper the bulk
+            #    move/reconcile paths use).
+            CorpusPathService._dispatch_document_path_created_signals(created)
+
+            trashed_doc_ids = {p.document_id for p in active_paths}
+
+            # 4) Revoke is_public for documents no longer in any public corpus —
+            #    one query pair for the whole batch (mirrors the tail of
+            #    ``Corpus.remove_document``). Runs after the writes above so the
+            #    just-trashed heads are already ``is_current=False`` and are
+            #    correctly excluded from the "still public" probe.
+            if corpus.is_public:
+                still_in_public = set(
+                    DocumentPath.objects.filter(
+                        document_id__in=trashed_doc_ids,
+                        corpus__is_public=True,
+                        is_current=True,
+                        is_deleted=False,
+                    ).values_list("document_id", flat=True)
+                )
+                revoke_ids = [d for d in trashed_doc_ids if d not in still_in_public]
+                if revoke_ids:
+                    Document.objects.filter(id__in=revoke_ids, is_public=True).update(
+                        is_public=False
+                    )
+
+        logger.info(
+            "Bulk soft-deleted %s document(s) in corpus %s by user %s",
+            len(trashed_doc_ids),
+            corpus.id,
+            user.id,
+        )
+        return len(trashed_doc_ids)
