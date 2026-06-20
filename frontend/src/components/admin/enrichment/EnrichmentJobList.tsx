@@ -1,5 +1,6 @@
 import React from "react";
 import { Table } from "@os-legal/ui";
+import type { ApolloError } from "@apollo/client";
 import styled from "styled-components";
 
 import { EnrichmentAnalysisRow } from "../../../graphql/mutations";
@@ -13,16 +14,18 @@ import {
 } from "../../layout/SharedSegments";
 import { LoadingState, ErrorMessage } from "../../widgets/feedback";
 import { formatDateTime } from "../../../utils/formatters";
-import { useEnrichmentJobs } from "./useEnrichmentJobs";
 
 // ---------------------------------------------------------------------------
 // Props
 // ---------------------------------------------------------------------------
 
 export interface EnrichmentJobListProps {
-  corpusId: string;
-  /** Optional backend status filter (e.g. "RUNNING", "COMPLETED"). */
-  statusFilter?: string | null;
+  /** Server-fetched analysis rows, sourced from `useOptimisticRows`. */
+  jobs: EnrichmentAnalysisRow[];
+  /** Query in flight — renders the loading state. */
+  loading?: boolean;
+  /** Query error — renders the error state. */
+  error?: ApolloError;
   /**
    * Optimistic rows to prepend before the server-fetched list.
    * Rows already present (matched by id) in the fetched data are deduplicated.
@@ -187,16 +190,11 @@ function elapsedLabel(
 // ---------------------------------------------------------------------------
 
 export const EnrichmentJobList: React.FC<EnrichmentJobListProps> = ({
-  corpusId,
-  statusFilter,
+  jobs: fetchedJobs,
+  loading,
+  error,
   extraJobs = [],
 }) => {
-  const {
-    jobs: fetchedJobs,
-    loading,
-    error,
-  } = useEnrichmentJobs(corpusId, statusFilter);
-
   if (loading) {
     return <LoadingState message="Loading enrichment jobs…" />;
   }
