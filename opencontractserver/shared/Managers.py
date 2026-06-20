@@ -338,8 +338,19 @@ class BaseVisibilityManager(UserCanMixin, Manager):
 
             return queryset
 
-        except (ImportError, Exception) as e:
-            # Fall back to creator/public check only if Guardian not available or error
+        except (ImportError, LookupError) as e:
+            # Narrow, intentional fallback (issue #1986 item 4): degrade to
+            # creator/public filtering ONLY when the guardian permission tables
+            # are genuinely absent for this model — ``ImportError`` (guardian /
+            # an app not installed) or ``LookupError`` (``apps.get_model`` cannot
+            # resolve the permission model). The previous ``(ImportError,
+            # Exception)`` envelope was equivalent to a bare ``except Exception``
+            # (``ImportError`` ⊂ ``Exception``): ANY error — a programming bug, a
+            # database error, a malformed grant row — was swallowed and the
+            # queryset silently dropped every guardian-granted row, UNDER-
+            # disclosing (a fail-open-to-less-data security smell) while hiding
+            # the defect. Such errors now propagate so they surface in tests and
+            # monitoring instead of quietly narrowing a user's visible set.
             logger.debug(
                 f"Could not use Guardian permissions for {self.model.__name__}: {e}. "
                 f"Using creator/public filtering only."
