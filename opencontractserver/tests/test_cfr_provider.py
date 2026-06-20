@@ -6,14 +6,14 @@ from ``opencontractserver/tests/fixtures/authority_sources/``.
 Test coverage:
   - _locate_impl: URL, params, citation, and extra derivation (pure).
   - can_handle: matching and non-matching prefixes.
-  - _fetch_impl: patched requests.get → parse GPO XML fixture → AuthoritySection.
+  - _fetch_impl: patched safe_fetch_bytes → parse GPO XML fixture → AuthoritySection.
   - Registry discovery: cfr handler visible via get_all_authority_source_providers_cached().
 """
 
 from __future__ import annotations
 
 import pathlib
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
@@ -136,107 +136,82 @@ class TestCFRCanHandle(SimpleTestCase):
         self.assertFalse(self.provider.can_handle("cfr-abc:1.1"))
 
 
+_SAFE_FETCH_PATH = "opencontractserver.pipeline.authority_source_providers.cfr_provider.safe_fetch_bytes"
+
+
 class TestCFRFetchImpl(SimpleTestCase):
-    """Tests for _fetch_impl with mocked HTTP."""
+    """Tests for _fetch_impl with mocked HTTP (patching safe_fetch_bytes)."""
 
-    def _make_mock_response(self) -> MagicMock:
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.content = _FIXTURE_XML
-        mock_resp.raise_for_status = MagicMock()
-        return mock_resp
+    def _patch_fetch(self, fixture_bytes: bytes = _FIXTURE_XML):
+        """Return a patcher that makes safe_fetch_bytes return *fixture_bytes*."""
+        return patch(_SAFE_FETCH_PATH, return_value=(fixture_bytes, "www.ecfr.gov"))
 
-    @patch(
-        "opencontractserver.pipeline.authority_source_providers.cfr_provider.requests.get"
-    )
-    def test_fetch_returns_one_section(self, mock_get: MagicMock):
-        mock_get.return_value = self._make_mock_response()
-        provider = CFRAuthoritySourceProvider()
-        req = provider._locate_impl("cfr-40:261.4")
-        sections = provider._fetch_impl(req)
+    def test_fetch_returns_one_section(self):
+        with self._patch_fetch():
+            provider = CFRAuthoritySourceProvider()
+            req = provider._locate_impl("cfr-40:261.4")
+            sections = provider._fetch_impl(req)
         self.assertEqual(len(sections), 1)
 
-    @patch(
-        "opencontractserver.pipeline.authority_source_providers.cfr_provider.requests.get"
-    )
-    def test_fetch_section_type(self, mock_get: MagicMock):
-        mock_get.return_value = self._make_mock_response()
-        provider = CFRAuthoritySourceProvider()
-        req = provider._locate_impl("cfr-40:261.4")
-        sections = provider._fetch_impl(req)
+    def test_fetch_section_type(self):
+        with self._patch_fetch():
+            provider = CFRAuthoritySourceProvider()
+            req = provider._locate_impl("cfr-40:261.4")
+            sections = provider._fetch_impl(req)
         self.assertIsInstance(sections[0], AuthoritySection)
 
-    @patch(
-        "opencontractserver.pipeline.authority_source_providers.cfr_provider.requests.get"
-    )
-    def test_fetch_section_key(self, mock_get: MagicMock):
-        mock_get.return_value = self._make_mock_response()
-        provider = CFRAuthoritySourceProvider()
-        req = provider._locate_impl("cfr-40:261.4")
-        sections = provider._fetch_impl(req)
+    def test_fetch_section_key(self):
+        with self._patch_fetch():
+            provider = CFRAuthoritySourceProvider()
+            req = provider._locate_impl("cfr-40:261.4")
+            sections = provider._fetch_impl(req)
         self.assertEqual(sections[0].key, "cfr-40:261.4")
 
-    @patch(
-        "opencontractserver.pipeline.authority_source_providers.cfr_provider.requests.get"
-    )
-    def test_fetch_heading_contains_exclusions(self, mock_get: MagicMock):
-        mock_get.return_value = self._make_mock_response()
-        provider = CFRAuthoritySourceProvider()
-        req = provider._locate_impl("cfr-40:261.4")
-        sections = provider._fetch_impl(req)
+    def test_fetch_heading_contains_exclusions(self):
+        with self._patch_fetch():
+            provider = CFRAuthoritySourceProvider()
+            req = provider._locate_impl("cfr-40:261.4")
+            sections = provider._fetch_impl(req)
         self.assertIn("Exclusions", sections[0].heading)
 
-    @patch(
-        "opencontractserver.pipeline.authority_source_providers.cfr_provider.requests.get"
-    )
-    def test_fetch_text_starts_with_a(self, mock_get: MagicMock):
-        mock_get.return_value = self._make_mock_response()
-        provider = CFRAuthoritySourceProvider()
-        req = provider._locate_impl("cfr-40:261.4")
-        sections = provider._fetch_impl(req)
+    def test_fetch_text_starts_with_a(self):
+        with self._patch_fetch():
+            provider = CFRAuthoritySourceProvider()
+            req = provider._locate_impl("cfr-40:261.4")
+            sections = provider._fetch_impl(req)
         self.assertTrue(sections[0].text.startswith("(a)"))
 
-    @patch(
-        "opencontractserver.pipeline.authority_source_providers.cfr_provider.requests.get"
-    )
-    def test_fetch_text_contains_solid_wastes(self, mock_get: MagicMock):
-        mock_get.return_value = self._make_mock_response()
-        provider = CFRAuthoritySourceProvider()
-        req = provider._locate_impl("cfr-40:261.4")
-        sections = provider._fetch_impl(req)
+    def test_fetch_text_contains_solid_wastes(self):
+        with self._patch_fetch():
+            provider = CFRAuthoritySourceProvider()
+            req = provider._locate_impl("cfr-40:261.4")
+            sections = provider._fetch_impl(req)
         self.assertIn("solid wastes", sections[0].text)
 
-    @patch(
-        "opencontractserver.pipeline.authority_source_providers.cfr_provider.requests.get"
-    )
-    def test_fetch_source_url_set(self, mock_get: MagicMock):
-        mock_get.return_value = self._make_mock_response()
-        provider = CFRAuthoritySourceProvider()
-        req = provider._locate_impl("cfr-40:261.4")
-        sections = provider._fetch_impl(req)
+    def test_fetch_source_url_set(self):
+        with self._patch_fetch():
+            provider = CFRAuthoritySourceProvider()
+            req = provider._locate_impl("cfr-40:261.4")
+            sections = provider._fetch_impl(req)
         self.assertIn("section-261.4", sections[0].source_url or "")
 
-    @patch(
-        "opencontractserver.pipeline.authority_source_providers.cfr_provider.requests.get"
-    )
-    def test_fetch_passes_params(self, mock_get: MagicMock):
-        mock_get.return_value = self._make_mock_response()
-        provider = CFRAuthoritySourceProvider()
-        req = provider._locate_impl("cfr-40:261.4")
-        provider._fetch_impl(req)
-        call_kwargs = mock_get.call_args
-        self.assertEqual(call_kwargs[1]["params"], {"part": "261", "section": "261.4"})
+    def test_fetch_passes_params(self):
+        with patch(
+            _SAFE_FETCH_PATH, return_value=(_FIXTURE_XML, "www.ecfr.gov")
+        ) as mock_fetch:
+            provider = CFRAuthoritySourceProvider()
+            req = provider._locate_impl("cfr-40:261.4")
+            provider._fetch_impl(req)
+        _call_kwargs = mock_fetch.call_args
+        self.assertEqual(_call_kwargs[1]["params"], {"part": "261", "section": "261.4"})
 
-    @patch(
-        "opencontractserver.pipeline.authority_source_providers.cfr_provider.requests.get"
-    )
-    def test_fetch_section_not_found_returns_empty(self, mock_get: MagicMock):
+    def test_fetch_section_not_found_returns_empty(self):
         """If the section attribute is absent in the XML, return []."""
-        mock_get.return_value = self._make_mock_response()
-        provider = CFRAuthoritySourceProvider()
-        # Request a non-existent section.
-        req = provider._locate_impl("cfr-40:999.1")
-        sections = provider._fetch_impl(req)
+        with self._patch_fetch():
+            provider = CFRAuthoritySourceProvider()
+            # Request a non-existent section.
+            req = provider._locate_impl("cfr-40:999.1")
+            sections = provider._fetch_impl(req)
         self.assertEqual(sections, [])
 
 
@@ -305,50 +280,45 @@ class TestCFRValidation(SimpleTestCase):
         with self.assertRaises(ValueError):
             self.provider._locate_impl("cfr-40:261.4'/etc")
 
-    def test_fetch_allow_redirects_false(self):
-        """_fetch_impl must pass allow_redirects=False to requests.get."""
-        import pathlib
-        from unittest.mock import MagicMock, patch
-
-        fixture_xml = (
-            pathlib.Path(__file__).parent
-            / "fixtures"
-            / "authority_sources"
-            / "cfr_title40_261.4.xml"
-        ).read_bytes()
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.content = fixture_xml
-        mock_resp.raise_for_status = MagicMock()
+    def test_fetch_ssrf_error_propagates(self):
+        """An SSRFValidationError from safe_fetch_bytes must propagate out of _fetch_impl."""
+        from opencontractserver.utils.safe_http import SSRFValidationError
 
         with patch(
-            "opencontractserver.pipeline.authority_source_providers.cfr_provider.requests.get",
-            return_value=mock_resp,
-        ) as mock_get:
-            provider = CFRAuthoritySourceProvider()
-            req = provider._locate_impl("cfr-40:261.4")
-            provider._fetch_impl(req)
-
-        call_kwargs = mock_get.call_args[1]
-        self.assertFalse(
-            call_kwargs.get("allow_redirects", True),
-            "requests.get must be called with allow_redirects=False",
-        )
-
-    def test_fetch_http_error_propagates(self):
-        """An HTTP error from requests.get must propagate out of _fetch_impl."""
-        from unittest.mock import MagicMock, patch
-
-        import requests as req_lib
-
-        mock_resp = MagicMock()
-        mock_resp.raise_for_status.side_effect = req_lib.HTTPError("500 Server Error")
-
-        with patch(
-            "opencontractserver.pipeline.authority_source_providers.cfr_provider.requests.get",
-            return_value=mock_resp,
+            _SAFE_FETCH_PATH,
+            side_effect=SSRFValidationError("host not on allowlist"),
         ):
             provider = CFRAuthoritySourceProvider()
             req = provider._locate_impl("cfr-40:261.4")
-            with self.assertRaises(req_lib.HTTPError):
+            with self.assertRaises(SSRFValidationError):
                 provider._fetch_impl(req)
+
+    def test_fetch_http_error_propagates(self):
+        """An HTTP status error from safe_fetch_bytes must propagate out of _fetch_impl."""
+        import httpx
+
+        with patch(
+            _SAFE_FETCH_PATH,
+            side_effect=httpx.HTTPStatusError(
+                "500 Server Error",
+                request=httpx.Request("GET", "https://www.ecfr.gov/"),
+                response=httpx.Response(500),
+            ),
+        ):
+            provider = CFRAuthoritySourceProvider()
+            req = provider._locate_impl("cfr-40:261.4")
+            with self.assertRaises(httpx.HTTPStatusError):
+                provider._fetch_impl(req)
+
+    def test_fetch_uses_safe_fetch_bytes(self):
+        """safe_fetch_bytes must be invoked during _fetch_impl (not raw requests/httpx)."""
+        with patch(
+            _SAFE_FETCH_PATH, return_value=(_FIXTURE_XML, "www.ecfr.gov")
+        ) as mock_safe:
+            provider = CFRAuthoritySourceProvider()
+            req = provider._locate_impl("cfr-40:261.4")
+            provider._fetch_impl(req)
+        self.assertTrue(
+            mock_safe.called,
+            "safe_fetch_bytes must be called by _fetch_impl; raw HTTP must not be used",
+        )

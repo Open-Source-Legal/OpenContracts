@@ -6,11 +6,14 @@ All HTTP is mocked — no network calls are made.  Fixtures are loaded from
 Test coverage:
   - _locate_impl: URL, citation, and extra derivation (pure).
   - can_handle: matching and non-matching prefixes.
-  - _fetch_impl: three mocked requests.get calls in sequence:
-      (1) citation redirect (302 + Location header),
-      (2) document JSON,
-      (3) raw-text body.
-  - Fall-back to ``abstract`` when the raw-text GET raises.
+  - _fetch_impl: step 1 mocked via requests.get (no-follow redirect); step 2
+    mocked via safe_fetch_bytes; step 3 mocked via safe_fetch_text (both
+    SSRF-safe helpers that re-validate every redirect hop):
+      (1) citation redirect (302 + Location header) — requests.get,
+      (2) document JSON — safe_fetch_bytes,
+      (3) raw-text body — safe_fetch_text.
+  - Fall-back to ``abstract`` when step-3 safe_fetch_text raises.
+  - Step-2 SSRF block (off-allowlist redirect hop) propagates, not swallowed.
   - Registry discovery: fedreg handler visible via
     get_all_authority_source_providers_cached().
 """
@@ -58,28 +61,9 @@ def _make_redirect_mock() -> MagicMock:
     return m
 
 
-def _make_json_mock() -> MagicMock:
-    """Return a mock simulating the document JSON response."""
-    m = MagicMock()
-    m.status_code = 200
-    m.json.return_value = _FIXTURE_JSON
-    m.raise_for_status = MagicMock()
-    return m
-
-
-def _make_raw_text_mock() -> MagicMock:
-    """Return a mock simulating the raw plain-text body response.
-
-    The provider streams the body via ``iter_content`` (so a size cap can be
-    enforced as chunks arrive), so the mock exposes a chunked iterator and an
-    ``encoding`` rather than a single ``.text`` read.
-    """
-    m = MagicMock()
-    m.status_code = 200
-    m.encoding = "utf-8"
-    m.iter_content.return_value = iter([_FIXTURE_BODY.encode("utf-8")])
-    m.raise_for_status = MagicMock()
-    return m
+def _json_bytes(doc: dict = _FIXTURE_JSON) -> tuple[bytes, str]:
+    """Return a ``(body_bytes, host)`` pair as ``safe_fetch_bytes`` would for step 2."""
+    return json.dumps(doc).encode("utf-8"), "www.federalregister.gov"
 
 
 class TestFederalRegisterLocateImpl(SimpleTestCase):
@@ -140,182 +124,129 @@ class TestFederalRegisterCanHandle(SimpleTestCase):
         self.assertFalse(self.provider.can_handle("dgcl:145"))
 
 
-class TestFederalRegisterFetchImpl(SimpleTestCase):
-    """Tests for _fetch_impl with three mocked requests.get calls."""
+_REQUESTS_GET_PATH = (
+    "opencontractserver.pipeline.authority_source_providers."
+    "federal_register_provider.requests.get"
+)
+_SAFE_FETCH_BYTES_PATH = (
+    "opencontractserver.pipeline.authority_source_providers."
+    "federal_register_provider.safe_fetch_bytes"
+)
+_SAFE_FETCH_TEXT_PATH = (
+    "opencontractserver.pipeline.authority_source_providers."
+    "federal_register_provider.safe_fetch_text"
+)
 
-    @patch(
-        "opencontractserver.pipeline.authority_source_providers."
-        "federal_register_provider.requests.get"
-    )
-    def test_fetch_returns_one_section(self, mock_get: MagicMock):
-        mock_get.side_effect = [
-            _make_redirect_mock(),
-            _make_json_mock(),
-            _make_raw_text_mock(),
-        ]
+
+@patch(_SAFE_FETCH_TEXT_PATH, return_value=(_FIXTURE_BODY, "www.federalregister.gov"))
+@patch(_SAFE_FETCH_BYTES_PATH, return_value=_json_bytes())
+@patch(_REQUESTS_GET_PATH, return_value=_make_redirect_mock())
+class TestFederalRegisterFetchImpl(SimpleTestCase):
+    """Tests for _fetch_impl.
+
+    Step 1 (citation redirect) uses requests.get with ``allow_redirects=False``.
+    Step 2 (doc JSON) uses safe_fetch_bytes (re-validates redirect hops).
+    Step 3 (raw_text_url body) uses safe_fetch_text.
+
+    Class-level @patch decorators supply the default happy-path mocks; tests that
+    need a variant override the relevant mock's ``return_value`` in the body. The
+    decorator-injected args arrive innermost-first: requests.get, safe_fetch_bytes,
+    safe_fetch_text.
+    """
+
+    def test_fetch_returns_one_section(self, _mock_get, _mock_bytes, _mock_text):
         provider = FederalRegisterAuthoritySourceProvider()
         req = provider._locate_impl("fedreg:88.1722")
         sections = provider._fetch_impl(req)
         self.assertEqual(len(sections), 1)
 
-    @patch(
-        "opencontractserver.pipeline.authority_source_providers."
-        "federal_register_provider.requests.get"
-    )
-    def test_fetch_section_type(self, mock_get: MagicMock):
-        mock_get.side_effect = [
-            _make_redirect_mock(),
-            _make_json_mock(),
-            _make_raw_text_mock(),
-        ]
+    def test_fetch_section_type(self, _mock_get, _mock_bytes, _mock_text):
         provider = FederalRegisterAuthoritySourceProvider()
         req = provider._locate_impl("fedreg:88.1722")
         sections = provider._fetch_impl(req)
         self.assertIsInstance(sections[0], AuthoritySection)
 
-    @patch(
-        "opencontractserver.pipeline.authority_source_providers."
-        "federal_register_provider.requests.get"
-    )
-    def test_fetch_key_from_json_citation(self, mock_get: MagicMock):
+    def test_fetch_key_from_json_citation(self, _mock_get, _mock_bytes, _mock_text):
         """Key is derived from the JSON citation field (authoritative page)."""
-        mock_get.side_effect = [
-            _make_redirect_mock(),
-            _make_json_mock(),
-            _make_raw_text_mock(),
-        ]
         provider = FederalRegisterAuthoritySourceProvider()
         req = provider._locate_impl("fedreg:88.1722")
         sections = provider._fetch_impl(req)
         # JSON fixture has citation "88 FR 2371" → key "fedreg:88.2371"
         self.assertEqual(sections[0].key, "fedreg:88.2371")
 
-    @patch(
-        "opencontractserver.pipeline.authority_source_providers."
-        "federal_register_provider.requests.get"
-    )
-    def test_fetch_heading_matches_json_title(self, mock_get: MagicMock):
-        mock_get.side_effect = [
-            _make_redirect_mock(),
-            _make_json_mock(),
-            _make_raw_text_mock(),
-        ]
+    def test_fetch_heading_matches_json_title(self, _mock_get, _mock_bytes, _mock_text):
         provider = FederalRegisterAuthoritySourceProvider()
         req = provider._locate_impl("fedreg:88.1722")
         sections = provider._fetch_impl(req)
         self.assertEqual(sections[0].heading, _FIXTURE_JSON["title"])
 
-    @patch(
-        "opencontractserver.pipeline.authority_source_providers."
-        "federal_register_provider.requests.get"
-    )
-    def test_fetch_text_from_raw_body(self, mock_get: MagicMock):
-        mock_get.side_effect = [
-            _make_redirect_mock(),
-            _make_json_mock(),
-            _make_raw_text_mock(),
-        ]
+    def test_fetch_text_from_raw_body(self, _mock_get, _mock_bytes, _mock_text):
         provider = FederalRegisterAuthoritySourceProvider()
         req = provider._locate_impl("fedreg:88.1722")
         sections = provider._fetch_impl(req)
         self.assertEqual(sections[0].text, _FIXTURE_BODY)
 
-    @patch(
-        "opencontractserver.pipeline.authority_source_providers."
-        "federal_register_provider.requests.get"
-    )
-    def test_fetch_source_url_is_html_url(self, mock_get: MagicMock):
-        mock_get.side_effect = [
-            _make_redirect_mock(),
-            _make_json_mock(),
-            _make_raw_text_mock(),
-        ]
+    def test_fetch_source_url_is_html_url(self, _mock_get, _mock_bytes, _mock_text):
         provider = FederalRegisterAuthoritySourceProvider()
         req = provider._locate_impl("fedreg:88.1722")
         sections = provider._fetch_impl(req)
         self.assertEqual(sections[0].source_url, _FIXTURE_JSON["html_url"])
 
-    @patch(
-        "opencontractserver.pipeline.authority_source_providers."
-        "federal_register_provider.requests.get"
-    )
-    def test_fetch_three_requests_made(self, mock_get: MagicMock):
-        """Exactly three GET calls should be made for a successful fetch."""
-        mock_get.side_effect = [
-            _make_redirect_mock(),
-            _make_json_mock(),
-            _make_raw_text_mock(),
-        ]
+    def test_fetch_one_requests_get_call_made(
+        self, mock_get: MagicMock, mock_bytes: MagicMock, _mock_text
+    ):
+        """Step 1 uses requests.get (once); step 2 uses safe_fetch_bytes (once)."""
         provider = FederalRegisterAuthoritySourceProvider()
         req = provider._locate_impl("fedreg:88.1722")
         provider._fetch_impl(req)
-        self.assertEqual(mock_get.call_count, 3)
+        self.assertEqual(mock_get.call_count, 1)
+        self.assertEqual(mock_bytes.call_count, 1)
 
-    @patch(
-        "opencontractserver.pipeline.authority_source_providers."
-        "federal_register_provider.requests.get"
-    )
-    def test_fetch_fallback_to_abstract_on_raw_text_failure(self, mock_get: MagicMock):
-        """If the raw-text GET raises, text should fall back to the abstract."""
-        # side_effect list entries are either return values (MagicMock instances)
-        # or exceptions to raise.  Use the exception class/instance directly so
-        # mock_get raises it on the third call.
-        mock_get.side_effect = [
-            _make_redirect_mock(),
-            _make_json_mock(),
-            Exception("connection error"),
-        ]
+    def test_fetch_fallback_to_abstract_on_raw_text_failure(
+        self, _mock_get, _mock_bytes, mock_text: MagicMock
+    ):
+        """If safe_fetch_text raises, text should fall back to the abstract."""
+        mock_text.side_effect = Exception("connection error")
         provider = FederalRegisterAuthoritySourceProvider()
         req = provider._locate_impl("fedreg:88.1722")
         sections = provider._fetch_impl(req)
         self.assertEqual(len(sections), 1)
         self.assertEqual(sections[0].text, _FIXTURE_JSON["abstract"])
 
-    @patch(
-        "opencontractserver.pipeline.authority_source_providers."
-        "federal_register_provider._MAX_BODY_BYTES",
-        8,
-    )
-    @patch(
-        "opencontractserver.pipeline.authority_source_providers."
-        "federal_register_provider.requests.get"
-    )
-    def test_fetch_oversize_raw_text_falls_back_to_abstract(self, mock_get: MagicMock):
-        """A raw-text body exceeding the size cap aborts streaming and falls
-        back to the abstract rather than buffering the whole response."""
-        oversize_mock = MagicMock()
-        oversize_mock.status_code = 200
-        oversize_mock.encoding = "utf-8"
-        # Two 8-byte chunks → 16 bytes, over the patched 8-byte cap.
-        oversize_mock.iter_content.return_value = iter([b"AAAAAAAA", b"BBBBBBBB"])
-        oversize_mock.raise_for_status = MagicMock()
-
-        mock_get.side_effect = [
-            _make_redirect_mock(),
-            _make_json_mock(),
-            oversize_mock,
-        ]
-        provider = FederalRegisterAuthoritySourceProvider()
-        req = provider._locate_impl("fedreg:88.1722")
-        sections = provider._fetch_impl(req)
-        self.assertEqual(len(sections), 1)
-        self.assertEqual(sections[0].text, _FIXTURE_JSON["abstract"])
-
-    @patch(
-        "opencontractserver.pipeline.authority_source_providers."
-        "federal_register_provider.requests.get"
-    )
-    def test_fetch_raises_on_bad_redirect_location(self, mock_get: MagicMock):
+    def test_fetch_raises_on_bad_redirect_location(
+        self, mock_get: MagicMock, _mock_bytes, _mock_text
+    ):
         """A Location header with no recognisable document_number raises ValueError."""
         bad_redirect = MagicMock()
         bad_redirect.status_code = 302
         bad_redirect.headers = {"Location": "/unrecognised/path"}
         bad_redirect.raise_for_status = MagicMock()
 
-        mock_get.side_effect = [bad_redirect]
+        mock_get.return_value = bad_redirect
         provider = FederalRegisterAuthoritySourceProvider()
         req = provider._locate_impl("fedreg:88.1722")
         with self.assertRaises(ValueError):
+            provider._fetch_impl(req)
+
+    def test_step2_ssrf_block_propagates(
+        self, _mock_get, mock_bytes: MagicMock, _mock_text
+    ):
+        """A blocked step-2 redirect hop (safe_fetch_bytes raises) must propagate.
+
+        Regression for the HIGH review finding: step 2 previously used
+        redirect-following requests.get, which would silently follow a redirect
+        to a private/internal host. Routing step 2 through safe_fetch_bytes means
+        an off-allowlist hop raises SSRFValidationError — and, unlike the step-3
+        body fetch, it is NOT swallowed into an abstract fallback.
+        """
+        from opencontractserver.utils.safe_http import SSRFValidationError
+
+        mock_bytes.side_effect = SSRFValidationError(
+            "host '169.254.169.254' resolves to non-public address"
+        )
+        provider = FederalRegisterAuthoritySourceProvider()
+        req = provider._locate_impl("fedreg:88.1722")
+        with self.assertRaises(SSRFValidationError):
             provider._fetch_impl(req)
 
 
@@ -363,14 +294,13 @@ class TestFederalRegisterSecurity(SimpleTestCase):
         req = self.provider._locate_impl("fedreg:88.2371")  # must not raise
         self.assertEqual(req.canonical_key, "fedreg:88.2371")
 
-    @patch(
-        "opencontractserver.pipeline.authority_source_providers."
-        "federal_register_provider.requests.get"
-    )
-    def test_raw_text_url_offhost_falls_back_to_abstract(self, mock_get: MagicMock):
-        """raw_text_url on a non-federalregister.gov host must NOT be fetched."""
+    def test_raw_text_url_offhost_falls_back_to_abstract(self):
+        """safe_fetch_text raises SSRFValidationError for off-host raw_text_url;
+        _fetch_impl must fall back to the abstract instead of propagating."""
         import json
         import pathlib
+
+        from opencontractserver.utils.safe_http import SSRFValidationError
 
         fixture_json = json.loads(
             (
@@ -384,30 +314,24 @@ class TestFederalRegisterSecurity(SimpleTestCase):
         fixture_json_offhost = dict(fixture_json)
         fixture_json_offhost["raw_text_url"] = "https://evil.attacker.example.com/steal"
 
-        redirect_mock = _make_redirect_mock()
-        json_mock = MagicMock()
-        json_mock.status_code = 200
-        json_mock.json.return_value = fixture_json_offhost
-        json_mock.raise_for_status = MagicMock()
+        with patch(_REQUESTS_GET_PATH, return_value=_make_redirect_mock()):
+            with patch(
+                _SAFE_FETCH_BYTES_PATH, return_value=_json_bytes(fixture_json_offhost)
+            ):
+                with patch(
+                    _SAFE_FETCH_TEXT_PATH,
+                    side_effect=SSRFValidationError(
+                        "host 'evil.attacker.example.com' not on "
+                        "public-domain allowlist"
+                    ),
+                ):
+                    req = self.provider._locate_impl("fedreg:88.1722")
+                    sections = self.provider._fetch_impl(req)
 
-        # Only 2 calls should be made (redirect + JSON); NOT 3.
-        mock_get.side_effect = [redirect_mock, json_mock]
-
-        req = self.provider._locate_impl("fedreg:88.1722")
-        sections = self.provider._fetch_impl(req)
-
-        # Must have fallen back to abstract (no 3rd request made).
-        self.assertEqual(
-            mock_get.call_count, 2, "should not fetch off-host raw_text_url"
-        )
         self.assertEqual(len(sections), 1)
         self.assertEqual(sections[0].text, fixture_json_offhost["abstract"])
 
-    @patch(
-        "opencontractserver.pipeline.authority_source_providers."
-        "federal_register_provider.requests.get"
-    )
-    def test_malformed_citation_falls_back_to_request_key(self, mock_get: MagicMock):
+    def test_malformed_citation_falls_back_to_request_key(self):
         """If JSON citation doesn't match FR regex, key falls back to request key."""
         import json
         import pathlib
@@ -423,16 +347,15 @@ class TestFederalRegisterSecurity(SimpleTestCase):
         fixture_json_bad = dict(fixture_json)
         fixture_json_bad["citation"] = "MALFORMED CITATION"
 
-        redirect_mock = _make_redirect_mock()
-        json_mock = MagicMock()
-        json_mock.status_code = 200
-        json_mock.json.return_value = fixture_json_bad
-        json_mock.raise_for_status = MagicMock()
-        raw_mock = _make_raw_text_mock()
-
-        mock_get.side_effect = [redirect_mock, json_mock, raw_mock]
-
-        req = self.provider._locate_impl("fedreg:88.1722")
-        sections = self.provider._fetch_impl(req)
+        with patch(_REQUESTS_GET_PATH, return_value=_make_redirect_mock()):
+            with patch(
+                _SAFE_FETCH_BYTES_PATH, return_value=_json_bytes(fixture_json_bad)
+            ):
+                with patch(
+                    _SAFE_FETCH_TEXT_PATH,
+                    return_value=(_FIXTURE_BODY, "www.federalregister.gov"),
+                ):
+                    req = self.provider._locate_impl("fedreg:88.1722")
+                    sections = self.provider._fetch_impl(req)
 
         self.assertEqual(sections[0].key, "fedreg:88.1722")

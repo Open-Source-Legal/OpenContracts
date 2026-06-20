@@ -323,3 +323,101 @@ class AuthorityFrontierServiceDequeueMarkTests(TestCase):
         self.assertEqual(row.discovery_state, "failed")
         self.assertEqual(row.last_error, "Timeout fetching USLM")
         self.assertIsNotNone(row.last_attempt)
+
+    def test_mark_with_candidate_record_appends_to_audit_trail(self):
+        """mark() with candidate_record= sets state AND appends the record."""
+        row = self._make_row(
+            "usc-15:78j-audit", provider="TestProv", state="in_progress"
+        )
+        record = {
+            "provider": "TestProv",
+            "license": "proprietary",
+            "source_domain": "evil.example.com",
+            "verify": "skipped",
+            "outcome": "blocked_license",
+            "error": "license not public-domain",
+            "attempted_at": "2026-06-15T00:00:00Z",
+        }
+
+        AuthorityFrontierService.mark(
+            row,
+            "blocked_license",
+            error="license not public-domain",
+            candidate_record=record,
+        )
+
+        row.refresh_from_db()
+        self.assertEqual(row.discovery_state, "blocked_license")
+        self.assertEqual(row.last_error, "license not public-domain")
+        self.assertEqual(len(row.candidate_sources), 1)
+        self.assertEqual(row.candidate_sources[0]["outcome"], "blocked_license")
+
+    def test_mark_candidate_record_is_append_only(self):
+        """A second mark() with a candidate_record appends, not overwrites."""
+        row = self._make_row(
+            "usc-15:78j-append", provider="TestProv", state="in_progress"
+        )
+        first_record = {
+            "outcome": "blocked_license",
+            "attempted_at": "2026-06-15T00:00:00Z",
+        }
+        second_record = {"outcome": "ingested", "attempted_at": "2026-06-15T01:00:00Z"}
+
+        AuthorityFrontierService.mark(
+            row, "blocked_license", candidate_record=first_record
+        )
+        row.refresh_from_db()
+        self.assertEqual(len(row.candidate_sources), 1)
+
+        AuthorityFrontierService.mark(row, "ingested", candidate_record=second_record)
+        row.refresh_from_db()
+        self.assertEqual(len(row.candidate_sources), 2)
+        self.assertEqual(row.candidate_sources[0]["outcome"], "blocked_license")
+        self.assertEqual(row.candidate_sources[1]["outcome"], "ingested")
+
+    def test_mark_without_candidate_record_leaves_sources_unchanged(self):
+        """mark() without candidate_record= must not alter candidate_sources."""
+        row = self._make_row(
+            "usc-15:78j-norecord", provider="TestProv", state="in_progress"
+        )
+        # Pre-populate candidate_sources
+        row.candidate_sources = [{"outcome": "prior"}]
+        row.save(update_fields=["candidate_sources"])
+
+        AuthorityFrontierService.mark(row, "failed", error="network error")
+
+        row.refresh_from_db()
+        # Only the pre-existing record should remain
+        self.assertEqual(len(row.candidate_sources), 1)
+        self.assertEqual(row.candidate_sources[0]["outcome"], "prior")
+
+
+class AuthorityFrontierGateStateTests(TestCase):
+    """Tests that the Phase-4 gate discovery_state values are accepted."""
+
+    def _make_row(self, key, state):
+        return AuthorityFrontier.objects.create(
+            canonical_key=key,
+            authority=key.split(":")[0],
+            discovery_state=state,
+        )
+
+    def test_pending_approval_state_accepted(self):
+        row = self._make_row("usc-15:78j-pending", "pending_approval")
+        row.refresh_from_db()
+        self.assertEqual(row.discovery_state, "pending_approval")
+
+    def test_blocked_license_state_accepted(self):
+        row = self._make_row("usc-15:78j-blocked", "blocked_license")
+        row.refresh_from_db()
+        self.assertEqual(row.discovery_state, "blocked_license")
+
+    def test_blocked_domain_state_accepted(self):
+        row = self._make_row("usc-15:78j-blocked-domain", "blocked_domain")
+        row.refresh_from_db()
+        self.assertEqual(row.discovery_state, "blocked_domain")
+
+    def test_unlocated_state_accepted(self):
+        row = self._make_row("usc-15:78j-unlocated", "unlocated")
+        row.refresh_from_db()
+        self.assertEqual(row.discovery_state, "unlocated")

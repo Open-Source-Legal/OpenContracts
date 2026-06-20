@@ -7,6 +7,8 @@ inline Tier-0 ORM fusions.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from django.utils import timezone
 
 from opencontractserver.annotations.models import AuthorityFrontier
@@ -81,8 +83,18 @@ class AuthorityFrontierService(BaseService):
         *,
         document_id: int | None = None,
         error: str | None = None,
+        candidate_record: Mapping[str, object] | None = None,
     ) -> None:
-        """Transition ``row`` to ``state``, optionally recording a document or error."""
+        """Transition ``row`` to ``state``, optionally recording a document or error.
+
+        Args:
+            row: The ``AuthorityFrontier`` instance to update.
+            state: New ``discovery_state`` value.
+            document_id: If provided, set ``ingested_document_id`` to this value.
+            error: If provided, set ``last_error`` to this message.
+            candidate_record: If provided, APPEND to ``candidate_sources`` (append-only
+                audit trail — earlier attempts are never overwritten).
+        """
         row.discovery_state = state
         row.last_attempt = timezone.now()
         # Only touch ingested_document / last_error when the caller actually
@@ -95,4 +107,10 @@ class AuthorityFrontierService(BaseService):
         if error is not None:
             row.last_error = error
             update_fields.append("last_error")
+        if candidate_record is not None:
+            # Append-only audit trail; never overwrite prior attempts.
+            row.candidate_sources = list(row.candidate_sources or []) + [
+                candidate_record
+            ]
+            update_fields.append("candidate_sources")
         row.save(update_fields=update_fields)

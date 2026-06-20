@@ -15,7 +15,7 @@ migration forces convergence everywhere without re-touching the recorded state
 of 0082/0085. Idempotent on an already-seeded DB, so it is a no-op in production
 where the table is already populated.
 
-Chained on top of the Phase 3 frontier/key-equivalence migrations so the whole
+Chained on top of the Phase 3/4 frontier/gate migrations so the whole
 authority-discovery stack keeps a single linear migration leaf; the re-seed only
 touches ``AuthorityNamespace`` and is order-independent of those migrations.
 
@@ -41,7 +41,11 @@ def reseed(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("annotations", "0087_seed_authority_key_equivalence"),
+        # 0088_authorityfrontier_gate_states is the Phase 4 leaf; it transitively
+        # pulls in 0087_seed_authority_key_equivalence (and below). 0086_reseed is
+        # the parallel re-seed leaf that reached main independently. Depending on
+        # both collapses the two leaves into this single one after merging main.
+        ("annotations", "0088_authorityfrontier_gate_states"),
         ("annotations", "0086_reseed_authority_namespaces_v2"),
     ]
 

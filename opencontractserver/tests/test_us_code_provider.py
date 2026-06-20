@@ -311,41 +311,56 @@ class TestUSCodeValidation(SimpleTestCase):
             self.provider.locate("usc-15:78j/../../etc")
 
     def test_size_cap_raises_on_oversized_download(self):
-        """_load_title_xml must raise ValueError when download exceeds cap."""
-        import io
-        import zipfile
+        """_load_title_xml must raise when safe_fetch_bytes reports oversized response."""
         from unittest.mock import patch
 
-        from opencontractserver.pipeline.authority_source_providers.us_code_provider import (
-            _MAX_DOWNLOAD_BYTES,
-        )
-
-        # Build a minimal ZIP in memory containing a file larger than the cap.
-        oversized_content = b"x" * (_MAX_DOWNLOAD_BYTES + 1)
-        buf = io.BytesIO()
-        with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as zf:
-            zf.writestr("usc15.xml", oversized_content)
-        zip_bytes = buf.getvalue()
-
-        # Patch requests.get to stream back the oversized zip in chunks.
-        class _FakeResp:
-            def __init__(self, data):
-                self._data = data
-
-            def raise_for_status(self):
-                pass
-
-            def iter_content(self, chunk_size):
-                for i in range(0, len(self._data), chunk_size):
-                    yield self._data[i : i + chunk_size]
+        from opencontractserver.utils.safe_http import SSRFValidationError
 
         req = self.provider.locate("usc-15:2")
         with patch(
             "opencontractserver.pipeline.authority_source_providers."
-            "us_code_provider.requests.get",
-            return_value=_FakeResp(zip_bytes),
+            "us_code_provider.safe_fetch_bytes",
+            side_effect=SSRFValidationError("response exceeded size cap"),
         ):
             with self.assertRaises(
-                ValueError, msg="Expected ValueError for oversized download"
+                SSRFValidationError,
+                msg="Expected SSRFValidationError for oversized download",
             ):
                 self.provider._load_title_xml(req)
+
+    def test_load_title_xml_uses_safe_fetch_bytes(self):
+        """safe_fetch_bytes must be invoked during _load_title_xml (not raw HTTP)."""
+        import io
+        import zipfile
+        from unittest.mock import patch
+
+        # Build a minimal ZIP in-memory containing the expected XML member.
+        padded = "15"
+        member_name = f"usc{padded}.xml"
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr(member_name, b"<root/>")
+        zip_bytes = buf.getvalue()
+
+        req = self.provider.locate("usc-15:2")
+
+        with patch(
+            "opencontractserver.pipeline.authority_source_providers."
+            "us_code_provider.safe_fetch_bytes",
+            return_value=(zip_bytes, "uscode.house.gov"),
+        ) as mock_safe:
+            self.provider._load_title_xml(req)
+
+        self.assertTrue(
+            mock_safe.called,
+            "safe_fetch_bytes must be called by _load_title_xml; raw HTTP must not be used",
+        )
+        # Title ZIPs exceed the 50 MB default body cap, so the loader must pass
+        # the dedicated larger override rather than relying on the default.
+        from opencontractserver.constants.safe_http import OLRC_TITLE_ZIP_MAX_BYTES
+
+        self.assertEqual(
+            mock_safe.call_args.kwargs.get("max_bytes"),
+            OLRC_TITLE_ZIP_MAX_BYTES,
+            "_load_title_xml must request the OLRC title-ZIP size override",
+        )

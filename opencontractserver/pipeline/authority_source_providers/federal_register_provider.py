@@ -12,6 +12,7 @@ Examples: ``fedreg:88.1722``, ``fedreg:88.2371``.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from typing import ClassVar
@@ -22,6 +23,12 @@ from opencontractserver.enrichment.authorities import AuthoritySection
 from opencontractserver.pipeline.base.base_authority_source_provider import (
     AuthorityRequest,
     BaseAuthoritySourceProvider,
+)
+from opencontractserver.utils.safe_http import (
+    SSRFValidationError,
+    safe_fetch_bytes,
+    safe_fetch_text,
+    validate_url,
 )
 
 logger = logging.getLogger(__name__)
@@ -50,15 +57,6 @@ _USER_AGENT = (
     "(https://github.com/Open-Source-Legal/OpenContracts; "
     "contact: opensource@opencontracts.dev)"
 )
-
-# Allowed host for the raw-text body URL returned by the FR API.
-_FR_ALLOWED_HOST = "federalregister.gov"
-
-# Maximum allowed size of the raw-text body (bytes) — 64 MiB. FR rules are
-# plain text and rarely exceed a few MB; this cap mirrors the streaming
-# size-guard the US Code provider applies to its title-XML download so a
-# pathologically large (or malicious) response can't exhaust memory.
-_MAX_BODY_BYTES = 64 * 1024 * 1024
 
 # Regex for parsing a Federal Register citation to derive volume and page.
 # Matches e.g. "88 FR 2371" and "88 FR 12345".
@@ -141,7 +139,8 @@ class FederalRegisterAuthoritySourceProvider(BaseAuthoritySourceProvider):
         Step 1: GET the citation redirect URL (expecting a 302).  Parse the
         ``Location`` header to extract the ``document_number``.
 
-        Step 2: GET ``/api/v1/documents/{document_number}.json`` for metadata.
+        Step 2: GET ``/api/v1/documents/{document_number}.json`` for metadata
+        via ``safe_fetch_bytes`` (re-validates every redirect hop).
 
         Step 3: GET ``raw_text_url`` for the full plain-text body; fall back
         to ``abstract`` if that GET raises any exception.
@@ -155,14 +154,32 @@ class FederalRegisterAuthoritySourceProvider(BaseAuthoritySourceProvider):
             :class:`~opencontractserver.enrichment.authorities.AuthoritySection`.
 
         Raises:
-            :exc:`requests.HTTPError`: If steps 1 or 2 return non-200/302
-                status codes.
+            :exc:`requests.HTTPError`: If step 1 returns a non-200/302 status.
+            :exc:`opencontractserver.utils.safe_http.SSRFValidationError`: If the
+                step-2 JSON URL (or any of its redirect hops) fails the
+                scheme/allowlist/public-IP check.
+            :exc:`httpx.HTTPError`: If step 2 returns a non-2xx status.
             :exc:`ValueError`: If the document number cannot be parsed from
                 the redirect Location.
         """
         headers = {"User-Agent": _USER_AGENT}
 
+        # Step 1 uses raw requests with ``allow_redirects=False``: it needs the
+        # 302 Location header WITHOUT following it (the redirect target IS the
+        # data we want — the document slug). Because redirects are not followed
+        # and ``validate_url`` vets the template-constructed URL up front, there
+        # is no SSRF-via-redirect surface on this hop. (The same DNS TOCTOU
+        # window documented in safe_http applies, mitigated by the fixed
+        # federalregister.gov allowlist; shared DNS pinning is the tracked fix.)
+        #
+        # Step 2 previously also used requests.get, which silently follows
+        # redirects — a real SSRF gap, since the document_number embedded in the
+        # step-2 URL is parsed from the step-1 response (externally influenced).
+        # Step 2 now goes through safe_fetch_bytes, which re-validates every
+        # redirect hop against the allowlist + public-IP check.
+
         # --- Step 1: citation redirect → document_number --------------------
+        validate_url(request.url)
         step1_resp = requests.get(
             request.url,
             allow_redirects=False,
@@ -182,14 +199,16 @@ class FederalRegisterAuthoritySourceProvider(BaseAuthoritySourceProvider):
             )
         document_number = match.group(1)
 
-        # --- Step 2: fetch document JSON ------------------------------------
+        # --- Step 2: fetch document JSON (SSRF-safe, re-validates redirects) -
         doc_json_url = _FR_DOC_JSON_URL_TEMPLATE.format(
             base=_FR_API_BASE,
             document_number=document_number,
         )
-        doc_resp = requests.get(doc_json_url, headers=headers, timeout=30)
-        doc_resp.raise_for_status()
-        doc = doc_resp.json()
+        # safe_fetch_bytes validates the URL itself (no separate validate_url
+        # needed) and re-checks every redirect hop. The JSON body is tiny, so
+        # the default 50 MB cap is ample.
+        doc_bytes, _ = safe_fetch_bytes(doc_json_url, headers=headers)
+        doc = json.loads(doc_bytes)
 
         heading: str = doc.get("title", "")
         html_url: str = doc.get("html_url", "")
@@ -205,54 +224,33 @@ class FederalRegisterAuthoritySourceProvider(BaseAuthoritySourceProvider):
             key = request.canonical_key
 
         # --- Step 3: fetch full plain-text body (fall back to abstract) -----
+        # safe_fetch_text enforces the allowlist + IP validation centrally;
+        # SSRFValidationError is raised for any non-allowlisted/private host,
+        # which the except block catches and degrades gracefully to abstract.
         text = abstract
         if raw_text_url:
-            import urllib.parse
-
-            parsed_host = urllib.parse.urlparse(raw_text_url).hostname or ""
-            host_ok = parsed_host == _FR_ALLOWED_HOST or parsed_host.endswith(
-                f".{_FR_ALLOWED_HOST}"
-            )
-            if not host_ok:
+            try:
+                text, _ = safe_fetch_text(raw_text_url, headers=headers)
+            except SSRFValidationError:
+                # An SSRF block (off-allowlist/private host) is a SECURITY signal,
+                # not a transient network error — log it distinctly so it is not
+                # buried among ordinary fetch failures. We still degrade to the
+                # abstract (rather than re-raising) so an FR doc whose raw_text_url
+                # points off-host still yields its summary; see
+                # test_raw_text_url_offhost_falls_back_to_abstract.
                 logger.warning(
-                    "FederalRegisterProvider: raw_text_url host %r is not "
-                    "%s — skipping fetch, using abstract for document %s",
-                    parsed_host,
-                    _FR_ALLOWED_HOST,
+                    "FederalRegisterProvider: raw_text_url %s blocked by SSRF "
+                    "guard for document %s; falling back to abstract",
+                    raw_text_url,
                     document_number,
                 )
-            else:
-                try:
-                    # Stream the body so the size cap is enforced as chunks
-                    # arrive — a single unbounded .text read could otherwise
-                    # buffer an arbitrarily large response into memory.
-                    raw_resp = requests.get(
-                        raw_text_url, headers=headers, timeout=60, stream=True
-                    )
-                    raw_resp.raise_for_status()
-                    chunks: list[bytes] = []
-                    total = 0
-                    for chunk in raw_resp.iter_content(65536):
-                        if not chunk:
-                            continue
-                        total += len(chunk)
-                        if total > _MAX_BODY_BYTES:
-                            raise ValueError(
-                                "raw_text body exceeds max size "
-                                f"({_MAX_BODY_BYTES} bytes)"
-                            )
-                        chunks.append(chunk)
-                    text = b"".join(chunks).decode(
-                        raw_resp.encoding or "utf-8", errors="replace"
-                    )
-                except Exception:  # noqa: BLE001
-                    logger.warning(
-                        "FederalRegisterProvider: raw_text_url GET failed (%s); "
-                        "falling back to abstract for document %s",
-                        raw_text_url,
-                        document_number,
-                    )
-                    text = abstract
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "FederalRegisterProvider: raw_text_url fetch failed (%s); "
+                    "falling back to abstract for document %s",
+                    raw_text_url,
+                    document_number,
+                )
 
         return [
             AuthoritySection(

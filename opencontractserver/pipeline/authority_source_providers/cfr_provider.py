@@ -14,14 +14,13 @@ import re
 import xml.etree.ElementTree as ET
 from typing import ClassVar
 
-import requests
-
 from opencontractserver.enrichment.authorities import AuthoritySection
 from opencontractserver.enrichment.constants import _CFR_PREFIX_RE
 from opencontractserver.pipeline.base.base_authority_source_provider import (
     AuthorityRequest,
     BaseAuthoritySourceProvider,
 )
+from opencontractserver.utils.safe_http import safe_fetch_bytes
 
 logger = logging.getLogger(__name__)
 
@@ -216,16 +215,13 @@ class CFRAuthoritySourceProvider(BaseAuthoritySourceProvider):
         section = extra.get("section", "")
         source_url = extra.get("source_url", "")
 
-        response = requests.get(
+        body, _ = safe_fetch_bytes(
             request.url,
             params=request.params,
             headers={"User-Agent": _USER_AGENT},
-            timeout=30,
-            allow_redirects=False,
         )
-        response.raise_for_status()
 
-        root = ET.fromstring(response.content)
+        root = ET.fromstring(body)
 
         # GPO XML uses various DIV types (DIV5/DIV6/DIV8) — match by attribute.
         # The eCFR API may return the section as the root element itself (when

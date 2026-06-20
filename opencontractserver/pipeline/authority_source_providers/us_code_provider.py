@@ -22,14 +22,14 @@ import xml.etree.ElementTree as ET
 import zipfile
 from typing import ClassVar
 
-import requests
-
+from opencontractserver.constants.safe_http import OLRC_TITLE_ZIP_MAX_BYTES
 from opencontractserver.enrichment.authorities import AuthoritySection
 from opencontractserver.enrichment.constants import _USC_PREFIX_RE
 from opencontractserver.pipeline.base.base_authority_source_provider import (
     AuthorityRequest,
     BaseAuthoritySourceProvider,
 )
+from opencontractserver.utils.safe_http import safe_fetch_bytes
 
 logger = logging.getLogger(__name__)
 
@@ -84,12 +84,6 @@ _FOOTNOTE_REF_CLASS = "footnoteRef"
 _USC_SECTION_RE = re.compile(r"^[0-9]+[a-z0-9-]*$", re.IGNORECASE)
 # Title must be purely numeric (e.g. '15', '7', '26').
 _USC_TITLE_RE = re.compile(r"^\d+$")
-
-# HTTP timeout (seconds) for the OLRC ZIP download.
-_HTTP_TIMEOUT = 30
-
-# Maximum allowed size of the title XML (bytes) — 250 MiB.
-_MAX_DOWNLOAD_BYTES = 250 * 1024 * 1024
 
 
 def _validate_usc_components(title: str, section: str) -> None:
@@ -339,22 +333,11 @@ class USCodeAuthoritySourceProvider(BaseAuthoritySourceProvider):
         member_name = _XML_MEMBER_TEMPLATE.format(padded_title=padded)
 
         logger.info("USCodeProvider: downloading %s", request.url)
-        # Use requests (consistent with the other providers in this package) and
-        # stream the body so the size cap is enforced as chunks arrive.
-        response = requests.get(request.url, stream=True, timeout=_HTTP_TIMEOUT)
-        response.raise_for_status()
-        chunks: list[bytes] = []
-        total = 0
-        for chunk in response.iter_content(65536):
-            if not chunk:
-                continue
-            total += len(chunk)
-            if total > _MAX_DOWNLOAD_BYTES:
-                raise ValueError(
-                    f"title XML exceeds max size ({_MAX_DOWNLOAD_BYTES} bytes)"
-                )
-            chunks.append(chunk)
-        zip_bytes = b"".join(chunks)
+        # SSRF-safe fetch (Phase 4): validates the URL and enforces the size cap
+        # inside safe_http, superseding the earlier raw requests/urlopen path.
+        # OLRC title ZIPs are the one fetch that legitimately exceeds the 50 MB
+        # default body cap, so pass the dedicated larger override.
+        zip_bytes, _ = safe_fetch_bytes(request.url, max_bytes=OLRC_TITLE_ZIP_MAX_BYTES)
 
         with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
             return zf.read(member_name)
