@@ -72,4 +72,41 @@ describe("LlmModelPicker", () => {
     );
     expect(screen.queryByTestId("llm-inherited-hint")).toBeNull();
   });
+
+  it("renders the optional label, helper text, and API-key badge", () => {
+    render(
+      <LlmModelPicker
+        value=""
+        onChange={() => {}}
+        providers={providers}
+        label="Model"
+        helperText="provider:model form"
+        showApiKeyBadge
+      />
+    );
+    expect(screen.getByText("Model")).toBeInTheDocument();
+    expect(screen.getByText("provider:model form")).toBeInTheDocument();
+    // requiresApiKey + showApiKeyBadge → the badge appears.
+    expect(screen.getByText("(API key required)")).toBeInTheDocument();
+  });
+
+  it("shows a manual-entry hint for a provider with no suggested models", () => {
+    render(
+      <LlmModelPicker
+        value=""
+        onChange={() => {}}
+        providers={[
+          {
+            className: "x.Ollama",
+            name: "ollama",
+            title: "Ollama",
+            providerKey: "ollama",
+            supportedModels: [],
+            requiresApiKey: false,
+          },
+        ]}
+      />
+    );
+    expect(screen.getByText(/No suggested models/i)).toBeInTheDocument();
+  });
 });

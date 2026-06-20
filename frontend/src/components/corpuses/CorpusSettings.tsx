@@ -19,10 +19,6 @@ import {
   GET_CORPUS_ACTIONS,
   GetCorpusActionsInput,
   GetCorpusActionsOutput,
-  GET_LLM_PROVIDERS,
-  LlmProvidersQueryResult,
-  GET_SYSTEM_DEFAULT_LLM,
-  SystemDefaultLlmQueryResult,
 } from "../../graphql/queries";
 import {
   DELETE_CORPUS_ACTION,
@@ -43,7 +39,7 @@ import { RunCorpusActionModal } from "./RunCorpusActionModal";
 import { BatchRunCorpusActionModal } from "./BatchRunCorpusActionModal";
 import { CorpusMetadataSettings } from "./CorpusMetadataSettings";
 import { CorpusAgentSettings } from "./CorpusAgentSettings";
-import { LlmModelPicker } from "../common/LlmModelPicker";
+import { CorpusLanguageModelCard } from "./CorpusLanguageModelCard";
 import { CorpusAgentManagement } from "./CorpusAgentManagement";
 import { ActionExecutionTrail } from "./ActionExecutionTrail";
 import { PermissionTypes } from "../types";
@@ -150,19 +146,11 @@ export const CorpusSettings: React.FC<CorpusSettingsProps> = ({ corpus }) => {
   const [originalSlug, setOriginalSlug] = useState<string>("");
   const [categoriesDraft, setCategoriesDraft] = useState<string[]>([]);
   const [originalCategories, setOriginalCategories] = useState<string[]>([]);
-  // Per-corpus preferred LLM ("provider:model" spec; "" = inherit the
-  // install-wide PipelineSettings.default_llm).
-  const [llmDraft, setLlmDraft] = useState<string>(corpus.preferredLlm || "");
-  const [originalLlm, setOriginalLlm] = useState<string>(
-    corpus.preferredLlm || ""
-  );
 
   useEffect(() => {
     setSlugDraft(corpus.slug || "");
     setOriginalSlug(corpus.slug || "");
     setPublicDraft(Boolean(corpus.isPublic));
-    setLlmDraft(corpus.preferredLlm || "");
-    setOriginalLlm(corpus.preferredLlm || "");
     const categories =
       (corpus.categories?.edges
         ?.map((edge) => edge?.node?.id)
@@ -170,28 +158,6 @@ export const CorpusSettings: React.FC<CorpusSettingsProps> = ({ corpus }) => {
     setCategoriesDraft(categories);
     setOriginalCategories(categories);
   }, [corpus]);
-
-  // Provider list + install-wide default for the model picker. Both resolvers
-  // are @login_required and request only non-secret fields, so any corpus
-  // editor (not just superusers) can load them.
-  // The provider list only powers the interactive model chips, so skip it for
-  // read-only viewers; the inherited-default hint still loads via the tiny
-  // default-LLM query below.
-  const { data: llmProvidersData } = useQuery<LlmProvidersQueryResult>(
-    GET_LLM_PROVIDERS,
-    { skip: !canUpdate }
-  );
-  const { data: systemDefaultLlmData } = useQuery<SystemDefaultLlmQueryResult>(
-    GET_SYSTEM_DEFAULT_LLM
-  );
-  // Drop providers an admin has disabled in System Settings so users aren't
-  // offered models they can't actually use for this corpus. null/undefined
-  // means "not explicitly disabled", so only an explicit `false` is filtered.
-  const llmProviders = (
-    llmProvidersData?.pipelineComponents?.llmProviders ?? []
-  ).filter((p) => p.enabled !== false);
-  const systemDefaultLlm =
-    systemDefaultLlmData?.pipelineSettings?.defaultLlm ?? "";
 
   // Update corpus mutation
   const [updateCorpusMutation, { loading: updatingCorpus }] = useMutation<
@@ -274,55 +240,6 @@ export const CorpusSettings: React.FC<CorpusSettingsProps> = ({ corpus }) => {
       }
     },
   });
-
-  // Dedicated mutation instance for the preferred LLM so its cache write and
-  // toast are independent of the slug/categories save flow above.
-  const [updateCorpusLlm, { loading: updatingLlm }] = useMutation<
-    UpdateCorpusOutputs,
-    UpdateCorpusInputs
-  >(UPDATE_CORPUS, {
-    onCompleted: (data) => {
-      if (data.updateCorpus?.ok) {
-        toast.success("Updated corpus language model");
-        setOriginalLlm(llmDraft.trim());
-      } else {
-        setLlmDraft(originalLlm);
-        toast.error(
-          data.updateCorpus?.message || "Failed to update language model"
-        );
-      }
-    },
-    onError: (err) => {
-      setLlmDraft(originalLlm);
-      toast.error(err.message);
-    },
-    update: (cache, { data }) => {
-      if (data?.updateCorpus?.ok && corpus.id) {
-        const cacheId = cache.identify({
-          __typename: "CorpusType",
-          id: corpus.id,
-        });
-        if (cacheId) {
-          cache.modify({
-            id: cacheId,
-            fields: {
-              preferredLlm: () => llmDraft.trim() || null,
-            },
-          });
-        }
-      }
-    },
-  });
-
-  // Send the empty string to clear (backend normalises "" → NULL = inherit).
-  const handleLlmSave = () => {
-    updateCorpusLlm({
-      variables: {
-        id: corpus.id,
-        preferredLlm: llmDraft.trim(),
-      },
-    });
-  };
 
   // Modal and action state
   const [isModalOpen, setIsModalOpen] = React.useState(false);
@@ -524,54 +441,11 @@ export const CorpusSettings: React.FC<CorpusSettingsProps> = ({ corpus }) => {
           </SettingsCardContent>
         </SettingsCard>
 
-        <SettingsCard id="corpus-language-model-section">
-          <SettingsCardHeader>
-            <SettingsCardTitle>Language Model</SettingsCardTitle>
-          </SettingsCardHeader>
-          <SettingsCardContent>
-            <InfoNote>
-              Choose which <strong>LLM</strong> this corpus's agents use. Leave
-              it empty to <span className="highlight">inherit</span> the
-              system-wide default. A per-agent setting still overrides this
-              value, and an explicit per-call model wins over everything.
-            </InfoNote>
-            <LlmModelPicker
-              id={`corpus-llm-${corpus.id}`}
-              value={llmDraft}
-              onChange={setLlmDraft}
-              providers={llmProviders}
-              disabled={!canUpdate || updatingLlm}
-              showApiKeyBadge
-              inheritedSpec={systemDefaultLlm || null}
-              inheritedLabel="Inherited system default"
-              placeholder="e.g., anthropic:claude-opus-4-6"
-              helperText={'pydantic-ai model spec in "provider:model" form.'}
-            />
-            {canUpdate && (
-              <div
-                style={{ marginTop: "1rem", display: "flex", gap: "0.5rem" }}
-              >
-                <Button
-                  variant="primary"
-                  onClick={handleLlmSave}
-                  loading={updatingLlm}
-                  disabled={llmDraft.trim() === originalLlm.trim()}
-                >
-                  Save
-                </Button>
-                {llmDraft.trim() !== "" && (
-                  <Button
-                    variant="secondary"
-                    onClick={() => setLlmDraft("")}
-                    disabled={updatingLlm}
-                  >
-                    Clear (use default)
-                  </Button>
-                )}
-              </div>
-            )}
-          </SettingsCardContent>
-        </SettingsCard>
+        <CorpusLanguageModelCard
+          corpusId={corpus.id}
+          initialPreferredLlm={corpus.preferredLlm}
+          canUpdate={canUpdate}
+        />
 
         <SettingsCard>
           <SettingsCardHeader>
