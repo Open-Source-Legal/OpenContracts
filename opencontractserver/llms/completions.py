@@ -23,6 +23,8 @@ from asgiref.sync import sync_to_async
 
 logger = logging.getLogger(__name__)
 
+__all__ = ["agenerate_text"]
+
 
 async def agenerate_text(
     prompt: str,

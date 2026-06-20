@@ -135,6 +135,10 @@ class AgenerateTextTests(SimpleTestCase):
 
         mock_build.assert_awaited_once_with("google-gla:gemini-1.5-pro")
 
+    # override_settings is load-bearing, not redundant: with settings_default
+    # mocked to "", resolve_model_spec still reads settings.DEFAULT_LLM /
+    # settings.OPENAI_MODEL directly in its fallback branch. Clearing both forces
+    # the chain past them to _HARD_DEFAULT_MODEL — the path this test names.
     @override_settings(DEFAULT_LLM="", OPENAI_MODEL="")
     async def test_hard_fallback_when_everything_unset(self) -> None:
         """No explicit/corpus/settings default falls back to the hard default."""

@@ -772,13 +772,15 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
             corpus = getattr(self, "corpus", None)
             corpus_preferred = getattr(corpus, "preferred_llm", None)
 
+            from opencontractserver.constants.llm import (
+                TITLE_GENERATION_TEMPERATURE,
+            )
+
             title = await agenerate_text(
                 prompt,
                 instructions=instructions,
                 corpus_preferred=corpus_preferred,
-                # Low temperature: a title is a short, deterministic summary —
-                # consistency matters more than creativity here.
-                temperature=0.3,
+                temperature=TITLE_GENERATION_TEMPERATURE,
             )
             return title or f"Conversation {uuid.uuid4()}"
         except Exception as e:
