@@ -7,6 +7,7 @@ import { IntelligencePanel } from "./IntelligencePanel";
 import { DocumentGraphLive } from "./DocumentGraphLive";
 import { GovernanceGraphLive } from "./GovernanceGraphLive";
 import { SuggestedQuestions } from "./SuggestedQuestions";
+import { CorpusEnrichmentCard } from "./CorpusEnrichmentCard";
 
 /**
  * CorpusIntelligenceOverview — the composed "God's-eye view" block. It fuses
@@ -32,6 +33,13 @@ interface CorpusIntelligenceOverviewProps {
   onAskQuestion?: (query: string) => void;
   /** Escape hatch to the fuller documents/relationships view. */
   onExploreGraph?: () => void;
+  /**
+   * Whether the current user has CAN_UPDATE on the corpus.  When true the
+   * reference-enrichment card is shown; when false (or omitted) it is hidden.
+   * Derived by the parent from
+   * `getPermissions(fullCorpus.myPermissions || []).includes(PermissionTypes.CAN_UPDATE)`.
+   */
+  canUpdate?: boolean;
   testId?: string;
 }
 
@@ -66,6 +74,7 @@ export const CorpusIntelligenceOverview: React.FC<
   corpusId,
   onAskQuestion,
   onExploreGraph,
+  canUpdate = false,
   testId = "corpus-intelligence-overview",
 }) => {
   return (
@@ -82,6 +91,8 @@ export const CorpusIntelligenceOverview: React.FC<
       <GovernanceGraphLive corpusId={corpusId} onExplore={onExploreGraph} />
 
       <DocumentGraphLive corpusId={corpusId} onExplore={onExploreGraph} />
+
+      <CorpusEnrichmentCard corpusId={corpusId} canUpdate={canUpdate} />
 
       {onAskQuestion && (
         <SuggestedQuestions onAskQuestion={onAskQuestion} testId={testId} />

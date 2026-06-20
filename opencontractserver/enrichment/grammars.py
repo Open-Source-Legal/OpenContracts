@@ -56,6 +56,30 @@ def _slug_act(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", name.strip().lower()).strip("-")
 
 
+def _canonical_act_prefix(name: str) -> str | None:
+    """Map a matched bare-Act name to its registry canonical prefix, if known.
+
+    Reuses the Tier-1 registry alias table (``constants.AUTHORITY_PREFIX``) so a
+    popular-name Act collapses to the SAME prefix the registry uses — e.g.
+    "Securities Exchange Act" / "Exchange Act" -> ``exchange-act``, "Securities
+    Act" -> ``securities-act`` — instead of fragmenting into distinct
+    ``act:<slug>`` keys per spelling/year. The matched ``name`` group never
+    includes the trailing " of <year>" (that is captured separately), so a year
+    suffix can never defeat the lookup. A leading U.S. jurisdiction qualifier
+    ("U.S.", "U. S.", "United States") is stripped before the lookup so "the
+    U.S. Securities Exchange Act of 1934" canonicalises like its bare form.
+    Returns ``None`` for an unrecognised Act (the open-vocabulary ``act:<slug>``
+    fallback — keyed off the ORIGINAL name — then applies).
+    """
+    normalized = re.sub(r"\s+", " ", name.strip().lower())
+    normalized = re.sub(
+        r"^(?:u\.?\s*s\.?(?:a\.?)?|united states(?: of america)?)\s+",
+        "",
+        normalized,
+    )
+    return C.AUTHORITY_PREFIX.get(normalized)
+
+
 def _cand(
     start, end, raw, key, jur, typ, conf=_CONF_STRUCTURED, extra=None
 ) -> Candidate:
@@ -154,13 +178,32 @@ def _bare_acts(text: str) -> Iterator[Candidate]:
         # The regex guarantees >=1 capitalized word before "Act", so ``name``
         # always has >=2 whitespace tokens and bare "the Act" never reaches here.
         name = m.group("name")
-        slug = _slug_act(name)
         year = m.group("year")
+        canonical = _canonical_act_prefix(name)
+        if canonical is not None:
+            # Recognised body of law: emit the registry prefix as a section-less
+            # whole-act key (the year is identity, not a locator, so it is
+            # dropped). Every spelling collapses to one key that dedups with
+            # Tier-1 mentions and resolves to the existing authority corpus.
+            jur, typ = C.classify_prefix(canonical)
+            yield _cand(
+                m.start(),
+                m.end(),
+                m.group(0),
+                canonical,
+                jur,
+                typ,
+                conf=_CONF_STRUCTURED,
+                extra={"section": None, "display_name": name},
+            )
+            continue
+        # Unknown Act — open-vocabulary fallback. Jurisdiction is assumed
+        # ``us-federal``: the shape alone can't tell "the Clean Air Act"
+        # (federal) from "the Texas Business Organizations Act" (state). The low
+        # _CONF_BARE_ACT signal flags the uncertainty; state-act disambiguation
+        # is a Phase-1 follow-up.
+        slug = _slug_act(name)
         key = f"act:{slug}-{year}" if year else f"act:{slug}"
-        # Jurisdiction is assumed ``us-federal`` for every bare Act: the shape
-        # alone can't tell "the Clean Air Act" (federal) from "the Texas
-        # Business Organizations Act" (state). The low _CONF_BARE_ACT signal
-        # flags the uncertainty; state-act disambiguation is a Phase-1 follow-up.
         yield _cand(
             m.start(),
             m.end(),

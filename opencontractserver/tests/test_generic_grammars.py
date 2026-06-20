@@ -83,6 +83,51 @@ class BareActGrammarTests(SimpleTestCase):
         # "the Act" alone must NOT match (too generic).
         assert self._keys("as defined in the Act") == {}
 
+    def test_known_act_canonicalizes_to_registry_prefix(self):
+        # Every spelling/year variant of a known Act collapses to the SAME
+        # registry prefix (not fragmented act:* slugs), so a bare whole-act
+        # citation dedups with Tier-1 mentions and resolves to the existing
+        # authority corpus.
+        assert "exchange-act" in self._keys(
+            "subject to the Securities Exchange Act of 1934"
+        )
+        assert "exchange-act" in self._keys("reporting under the Exchange Act")
+        assert "securities-act" in self._keys(
+            "registered under the Securities Act of 1933"
+        )
+        assert "securities-act" in self._keys("an exemption under the Securities Act")
+        # No fragmented act:* variant survives for a recognised Act.
+        keys = self._keys("the Securities Exchange Act of 1934 applies")
+        assert not any(k.startswith("act:") for k in keys), keys
+
+    def test_us_qualifier_does_not_fragment_known_act(self):
+        # A leading "U.S." / "United States" qualifier must canonicalise like
+        # the bare form (no act:u-s-securities-exchange-act-1934 fragment).
+        assert "exchange-act" in self._keys(
+            "violations of the U.S. Securities Exchange Act of 1934"
+        )
+        assert "exchange-act" in self._keys("the United States Securities Exchange Act")
+        assert "securities-act" in self._keys(
+            "registered under the U. S. Securities Act of 1933"
+        )
+        keys = self._keys("the U.S. Securities Exchange Act of 1934")
+        assert not any(k.startswith("act:") for k in keys), keys
+
+    def test_known_act_carries_classification_and_confidence(self):
+        c = self._keys("liability under the Exchange Act")["exchange-act"]
+        assert c.jurisdiction == "us-federal"
+        assert c.authority_type == C.AUTHORITY_TYPE_STATUTE
+        # Recognised body of law — higher confidence than an unknown bare Act.
+        assert c.detection_confidence >= 0.9
+        assert c.normalized_data.get("section") is None
+
+    def test_unknown_act_keeps_open_vocab_slug(self):
+        # An Act NOT in the registry alias table stays a low-confidence act:*
+        # key so open-vocabulary discovery still surfaces it.
+        keys = self._keys("under the Bank Holding Company Act of 1956")
+        assert "act:bank-holding-company-act-1956" in keys
+        assert keys["act:bank-holding-company-act-1956"].detection_confidence < 0.9
+
 
 class GrammarRobustnessTests(SimpleTestCase):
     def setUp(self):

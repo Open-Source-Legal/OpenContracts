@@ -61,6 +61,61 @@ def candidate_keys(canonical_key: str) -> list[str]:
     return keys
 
 
+def namespace_classification_cache(prefixes) -> dict[str, tuple]:
+    """Prefetch ``{prefix: (jurisdiction, authority_type)}`` from AuthorityNamespace.
+
+    One query for a whole batch — pass the result to
+    :func:`classify_canonical_key` as ``namespace_cache`` so a batch writer
+    resolves the namespace tier once instead of per row (no N+1).
+    """
+    from opencontractserver.annotations.models import AuthorityNamespace
+
+    return {
+        p: (j, t)
+        for p, j, t in AuthorityNamespace.objects.filter(
+            prefix__in=set(prefixes)
+        ).values_list("prefix", "jurisdiction", "authority_type")
+    }
+
+
+def classify_canonical_key(
+    canonical_key: str | None,
+    jurisdiction: str | None = None,
+    authority_type: str | None = None,
+    *,
+    namespace_cache: dict[str, tuple] | None = None,
+) -> tuple:
+    """Resolve ``(jurisdiction, authority_type)`` for a canonical key.
+
+    The single classification ladder used at BOTH read time (``discover()``)
+    and persist time (``EnrichmentWriter``), so a stored ``CorpusReference``
+    carries exactly the taxonomy the inventory reports. Precedence:
+
+    1. values already on the candidate (passed in) — the detector knows best;
+    2. the ``AuthorityNamespace`` registry row for the key's prefix;
+    3. the static ``classify_prefix`` shape rules
+       (``usc-NN`` / ``cfr-NN`` / ``fedreg`` / ``act`` / ``publ`` / ``stat`` / …).
+
+    ``namespace_cache`` (``{prefix: (jur, typ)}`` from
+    :func:`namespace_classification_cache`) skips the per-row AuthorityNamespace
+    query; omit it for a single lookup.
+    """
+    if jurisdiction is not None and authority_type is not None:
+        return (jurisdiction, authority_type)
+    prefix = canonical_key.split(":", 1)[0] if canonical_key else ""
+    ns_jur = ns_typ = None
+    if prefix:
+        if namespace_cache is not None:
+            ns_jur, ns_typ = namespace_cache.get(prefix, (None, None))
+        else:
+            ns_jur, ns_typ = namespace_classification_cache([prefix]).get(
+                prefix, (None, None)
+            )
+        if ns_jur is None and ns_typ is None:
+            ns_jur, ns_typ = C.classify_prefix(prefix)
+    return (jurisdiction or ns_jur, authority_type or ns_typ)
+
+
 def authority_alias_registry(user=None) -> dict[str, str]:
     """Build the authority alias -> canonical-prefix map for extraction.
 
@@ -170,6 +225,30 @@ def find_authority_target(canonical_key: str, user) -> Document | None:
         )
         if doc is not None:
             return doc
+
+    # Whole-act fallback. A bare authority key with no section (e.g.
+    # ``exchange-act``, emitted by the popular-name grammar for "the Exchange
+    # Act") references the WHOLE body of law. Authority corpora hold one
+    # document per section and no section-less "whole act" document, so resolve
+    # such a citation to a representative section — the lowest-id current
+    # document carrying that authority — so a whole-act citation links into the
+    # existing corpus instead of stranding as a wanted/unsupported frontier
+    # entry. Scoped to colon-less keys: a section-precise citation we don't hold
+    # (e.g. ``dgcl:999``) must stay genuinely unresolved, never silently
+    # resolving to a different section of the same body.
+    if ":" not in canonical_key:
+        representative = (
+            Document.objects.visible_to_user(user)
+            .filter(
+                custom_meta__authority=canonical_key,
+                path_records__is_current=True,
+                path_records__is_deleted=False,
+            )
+            .order_by("id")
+            .first()
+        )
+        if representative is not None:
+            return representative
     return None
 
 

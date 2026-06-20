@@ -408,6 +408,7 @@ export const CorpusLandingView: React.FC<CorpusLandingViewProps> = ({
           corpusId={corpus.id}
           onAskQuestion={onChatSubmit}
           onExploreGraph={onViewDetails}
+          canUpdate={canEdit}
         />
 
         {/* Read article — shown when Readme.CAML exists */}

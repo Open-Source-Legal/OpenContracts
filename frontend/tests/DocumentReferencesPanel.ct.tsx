@@ -134,8 +134,22 @@ test.describe("DocumentReferencesPanel", () => {
     await expect(panel).toContainText("Cites");
     await expect(panel).toContainText("DGCL § 145");
     await expect(panel).toContainText("×2");
-    await expect(panel).toContainText("cited, not yet ingested");
     await expect(panel).toContainText("Exhibit 1.1: EX-1.1");
+
+    // Resolution state is now a per-row status chip, not a faint italic note:
+    // resolved rows (DGCL §145, Exhibit 1.1) carry a "Linked" chip; the
+    // unresolved law citation carries an "Awaiting source" chip. A header
+    // summary breaks down the split.
+    await expect(panel).toContainText("Awaiting source");
+    await expect(
+      page.locator('[data-testid="references-panel-status-linked"]')
+    ).toHaveCount(2);
+    await expect(
+      page.locator('[data-testid="references-panel-status-awaiting"]')
+    ).toHaveCount(1);
+    await expect(
+      page.locator('[data-testid="references-panel-summary"]')
+    ).toContainText("1 awaiting");
 
     // Inbound: one source document.
     await expect(

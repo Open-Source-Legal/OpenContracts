@@ -224,6 +224,30 @@ class FindAuthorityTargetTests(TestCase):
         stranger = User.objects.create_user(username="stranger", password="p")
         assert find_authority_target("dgcl:122", stranger) is None
 
+    def test_whole_act_key_resolves_to_representative_document(self):
+        # A bare authority key (no section) — e.g. "dgcl" from "the Delaware
+        # General Corporation Law", or "exchange-act" from the popular-name
+        # grammar's "the Exchange Act" — references the WHOLE body of law. With
+        # no section-less "whole act" document, it resolves to a representative
+        # section so the citation links into the existing corpus instead of
+        # stranding as a wanted/unsupported frontier entry.
+        target = find_authority_target("dgcl", self.user)
+        assert target is not None
+        assert (target.custom_meta or {}).get("authority") == "dgcl"
+
+    def test_whole_act_key_for_absent_authority_returns_none(self):
+        # No corpus carries this authority — stays unresolved (genuinely wanted).
+        assert find_authority_target("nonexistent-act", self.user) is None
+
+    def test_sectioned_key_does_not_use_whole_act_fallback(self):
+        # A section-precise citation we don't have must NOT silently resolve to
+        # some other section of the same body — it stays unresolved.
+        assert find_authority_target("dgcl:999", self.user) is None
+
+    def test_whole_act_fallback_respects_visibility(self):
+        stranger = User.objects.create_user(username="wa-stranger", password="p")
+        assert find_authority_target("dgcl", stranger) is None
+
 
 class AuthorityAliasRegistryNamespaceTests(TestCase):
     """authority_alias_registry merges global AuthorityNamespace aliases."""

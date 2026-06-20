@@ -183,6 +183,14 @@ export const OS_LEGAL_COLORS = {
   /** Warning text color - dark amber. */
   warningText: "#854d0e",
 
+  // Pending/awaiting colors - amber theme for "not yet resolved" status chips.
+  // Distinct from the yellow `warning*` palette: these are amber-50/amber-700,
+  // used for reference-resolution "awaiting ingestion / resolution" states.
+  /** Pending surface background - very light amber (amber-50). */
+  pendingSurface: "#fffbeb",
+  /** Pending text color - amber (amber-700). */
+  pendingText: "#b45309",
+
   // Extended blue palette
   /** Dark blue - headings and strong emphasis on info surfaces. */
   blueDark: "#1e40af",

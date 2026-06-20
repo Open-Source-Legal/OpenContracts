@@ -33,6 +33,42 @@ logger = logging.getLogger(__name__)
 class CrawlAuthoritiesService(BaseService):
     """Drive a bounded BFS over the authority frontier."""
 
+    @staticmethod
+    def get_analyzer():
+        """Lookup-only twin of :meth:`get_or_create_analyzer`.
+
+        Returns the converged crawl ``Analyzer`` row, or ``None`` when none is
+        registered yet.  Use this when absence means "feature unavailable"
+        rather than a row to create.
+        """
+        from opencontractserver.analyzer.models import Analyzer
+
+        return Analyzer.objects.filter(task_name=C.CRAWL_ANALYZER_TASK).first()
+
+    @staticmethod
+    def get_or_create_analyzer(creator_id: int):
+        """Converge on THE crawl ``Analyzer`` row.
+
+        ``task_name`` is unique; reuses an existing row before creating a new
+        one keyed on :attr:`~opencontractserver.enrichment.constants.CRAWL_ANALYZER_ID`.
+        Every code path that needs the crawl analyzer must go through here (or
+        :meth:`get_analyzer` for lookup-only callers) so the converge logic
+        exists exactly once.
+        """
+        from opencontractserver.analyzer.models import Analyzer
+
+        analyzer = CrawlAuthoritiesService.get_analyzer()
+        if analyzer is None:
+            analyzer, _ = Analyzer.objects.get_or_create(
+                id=C.CRAWL_ANALYZER_ID,
+                defaults={
+                    "task_name": C.CRAWL_ANALYZER_TASK,
+                    "description": C.CRAWL_ANALYZER_TITLE,
+                    "creator_id": creator_id,
+                },
+            )
+        return analyzer
+
     @classmethod
     def crawl(
         cls,

@@ -85,6 +85,33 @@ class EnrichmentWriterTests(TestCase):
         assert ext is not None
         assert ext.resolution_status == C.STATUS_EXTERNAL
 
+    def test_registry_reference_persists_classification(self):
+        # Registry-tier candidates carry no jurisdiction/authority_type; the
+        # writer backfills the taxonomy at PERSIST time (AuthorityNamespace ->
+        # classify_prefix) so the stored row matches discover() (gap-4) instead
+        # of being silently (None, None).
+        EnrichmentService().apply(corpus_id=self.corpus.id, creator_id=self.user.id)
+        ref = CorpusReference.objects.get(
+            corpus=self.corpus, reference_type=C.REF_LAW, canonical_key="dgcl:145"
+        )
+        assert ref.detection_tier == C.DETECTION_TIER_REGISTRY
+        assert ref.jurisdiction == "us-de"
+        assert ref.authority_type == C.AUTHORITY_TYPE_STATUTE
+
+    def test_apply_heals_unclassified_reference_on_rerun(self):
+        # A row persisted before classification existed converges on re-apply.
+        EnrichmentService().apply(corpus_id=self.corpus.id, creator_id=self.user.id)
+        ref = CorpusReference.objects.get(
+            corpus=self.corpus, reference_type=C.REF_LAW, canonical_key="dgcl:145"
+        )
+        CorpusReference.objects.filter(pk=ref.pk).update(
+            jurisdiction=None, authority_type=None
+        )
+        EnrichmentService().apply(corpus_id=self.corpus.id, creator_id=self.user.id)
+        ref.refresh_from_db()
+        assert ref.jurisdiction == "us-de"
+        assert ref.authority_type == C.AUTHORITY_TYPE_STATUTE
+
     def test_apply_links_exhibit_reference_to_target_document(self):
         EnrichmentService().apply(corpus_id=self.corpus.id, creator_id=self.user.id)
         doc_ref = CorpusReference.objects.filter(

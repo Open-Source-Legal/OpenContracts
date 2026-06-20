@@ -122,6 +122,12 @@ class NotificationType(DjangoObjectType):
         model = Notification
         interfaces = [relay.Node]
         connection_class = CountableConnection
+        # NOTE: the model's ``analysis`` FK is intentionally NOT exposed here.
+        # The frontend reads analysis context from the ``data`` JSON blob
+        # (``analysis_id`` / ``corpus_id`` / ``status``, set in
+        # notifications/signals.py); surfacing the FK as a relay node would
+        # require its own permission-scoped resolver. Add it (with a resolver)
+        # only when a client actually needs ``notification { analysis { … } }``.
         fields = (
             "id",
             "recipient",

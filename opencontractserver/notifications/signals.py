@@ -17,16 +17,19 @@ from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils import timezone
 
+from opencontractserver.analyzer.models import Analysis, Analyzer
 from opencontractserver.badges.models import UserBadge
 from opencontractserver.conversations.models import (
     ChatMessage,
     ModerationAction,
     ModerationActionType,
 )
+from opencontractserver.enrichment import constants as _EC
 from opencontractserver.notifications.models import (
     Notification,
     NotificationTypeChoices,
 )
+from opencontractserver.types.enums import JobStatus
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -102,6 +105,97 @@ def broadcast_notification_via_websocket(notification: Notification) -> None:
         logger.error(
             f"Failed to broadcast notification {notification.id} via WebSocket: "
             f"{type(e).__name__}: {e}",
+            exc_info=True,
+        )
+
+
+_ANALYSIS_STATUS_NOTIFICATION: dict[str, NotificationTypeChoices] = {
+    JobStatus.RUNNING.value: NotificationTypeChoices.ANALYSIS_RUNNING,
+    JobStatus.COMPLETED.value: NotificationTypeChoices.ANALYSIS_COMPLETE,
+    JobStatus.FAILED.value: NotificationTypeChoices.ANALYSIS_FAILED,
+}
+
+# Only enrichment/crawl analyzers emit analysis notifications; other analyzers
+# (doc analysis, extracts, etc.) must not. Hoisted to module level so the tuple
+# is built once at import time rather than on every Analysis.save().
+_ENRICHMENT_TASK_NAMES = (
+    _EC.ENRICHMENT_ANALYZER_TASK,
+    _EC.CRAWL_ANALYZER_TASK,
+)
+
+
+@receiver(post_save, sender=Analysis)
+def emit_analysis_status_notification(
+    sender: type[Analysis],
+    instance: Analysis,
+    created: bool,
+    **kwargs: Any,
+) -> None:
+    """
+    Create a notification when an Analysis transitions to RUNNING, COMPLETED,
+    or FAILED.  Idempotent: at most one notification per (analysis, status)
+    pair is ever created, so redundant .save() calls do not double-notify.
+
+    WebSocket delivery is explicit: after the Notification row is created we
+    call ``broadcast_notification_via_websocket(notification)`` directly, the
+    same pattern every other notification producer uses (there is no
+    ``post_save`` receiver on ``Notification`` itself, so the broadcast is NOT
+    automatic — dropping the explicit call would silently stop real-time
+    delivery for analysis status updates).
+    """
+    if getattr(instance, "_skip_signals", False):
+        return
+
+    ntype = _ANALYSIS_STATUS_NOTIFICATION.get(instance.status)
+    if ntype is None or instance.creator_id is None:
+        return
+
+    # Only emit notifications for enrichment/crawl analyzers. Guard on
+    # analyzer_id FIRST (cheap, no I/O) and then run a single targeted query
+    # that BOTH gates and captures the task name. This avoids
+    # ``instance.analyzer.task_name`` — which hydrates the full Analyzer row via
+    # a deferred FK load on EVERY Analysis.save() across the system (doc
+    # analysis, extracts, …), not just enrichment runs — and lets the ``data``
+    # dict below reuse ``analyzer_task`` instead of triggering that FK load.
+    if instance.analyzer_id is None:
+        return
+    analyzer_task = (
+        Analyzer.objects.filter(
+            pk=instance.analyzer_id, task_name__in=_ENRICHMENT_TASK_NAMES
+        )
+        .values_list("task_name", flat=True)
+        .first()
+    )
+    if analyzer_task is None:
+        return
+
+    # Idempotent guard: skip if this (analysis, notification_type) already exists.
+    if Notification.objects.filter(analysis=instance, notification_type=ntype).exists():
+        return
+
+    try:
+        notification = Notification.objects.create(
+            recipient_id=instance.creator_id,
+            notification_type=ntype,
+            analysis=instance,
+            data={
+                "analysis_id": instance.id,
+                "corpus_id": instance.analyzed_corpus_id,
+                "analyzer_task": analyzer_task,
+                "status": instance.status,
+            },
+        )
+        logger.debug(
+            "Created %s notification for analysis %s (recipient_id=%s)",
+            ntype,
+            instance.id,
+            instance.creator_id,
+        )
+        broadcast_notification_via_websocket(notification)
+    except Exception as e:
+        logger.error(
+            f"Failed to create analysis status notification for analysis "
+            f"{instance.id}: {type(e).__name__}: {e}",
             exc_info=True,
         )
 

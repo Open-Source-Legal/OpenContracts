@@ -90,6 +90,7 @@ class AnalysisLifecycleService(BaseService):
         corpus_pk: Any | None = None,
         analysis_input_data: dict[str, Any] | None = None,
         request: Any = None,
+        require_corpus_update: bool = False,
     ) -> ServiceResult[Analysis]:
         """Start a document or corpus analysis using the specified analyzer.
 
@@ -97,6 +98,11 @@ class AnalysisLifecycleService(BaseService):
         before dispatching ``process_analyzer``. Returns a unified IDOR-safe
         failure message ("Resource not found or you do not have permission")
         when any visibility check fails.
+
+        When ``require_corpus_update=True`` (and ``corpus_pk`` is provided),
+        the caller must also hold UPDATE on the corpus — required for
+        mutations that write references or publish authority documents into
+        the corpus (e.g. enrichment and authority-crawl analyzers).
 
         At least one of ``document_pk`` or ``corpus_pk`` MUST be provided —
         ``process_analyzer`` itself enforces this, but the service surfaces
@@ -124,7 +130,16 @@ class AnalysisLifecycleService(BaseService):
                 return ServiceResult.failure(not_found_msg)
 
         if corpus_pk is not None:
-            if not Corpus.objects.visible_to_user(user).filter(pk=corpus_pk).exists():
+            # Single fetch: reuse the row for the UPDATE permission test instead
+            # of an .exists() probe followed by a second .get() for the same pk.
+            corpus_obj = (
+                Corpus.objects.visible_to_user(user).filter(pk=corpus_pk).first()
+            )
+            if corpus_obj is None:
+                return ServiceResult.failure(not_found_msg)
+            if require_corpus_update and not corpus_obj.user_can(
+                user, PermissionTypes.UPDATE
+            ):
                 return ServiceResult.failure(not_found_msg)
 
         try:

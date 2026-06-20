@@ -27,7 +27,14 @@ logger = logging.getLogger(__name__)
                     "Reference types to enrich. Defaults to LAW, DOCUMENT and "
                     "SECTION; DEFINED_TERM is opt-in (precision/volume)."
                 ),
-            }
+            },
+            "use_llm": {
+                "type": "boolean",
+                "default": False,
+                "description": (
+                    "Enable Tier-2b LLM citation extraction (opt-in; cost implications)."
+                ),
+            },
         },
     }
 )
@@ -36,6 +43,7 @@ def corpus_reference_enrichment(
     corpus_id: int,
     analysis_id: int,
     types: list[str] | None = None,
+    use_llm: bool = False,
     **kwargs,
 ) -> dict:
     """Crawl the corpus and persist its reference web.
@@ -47,6 +55,9 @@ def corpus_reference_enrichment(
     canonical-key cross-references, and resolves them against visible
     authority corpora. Idempotent: re-running enriches only newly-found
     references.
+
+    ``use_llm`` opts into the cost-gated Tier-2b LLM extraction pass in
+    addition to the default grammar tier.
     """
     from opencontractserver.analyzer.models import Analysis
     from opencontractserver.enrichment.services import EnrichmentService
@@ -56,11 +67,15 @@ def corpus_reference_enrichment(
         raise ValueError(
             f"Analysis {analysis_id} has no creator; cannot run enrichment"
         )
+    extra_tiers = [C.DETECTION_TIER_GRAMMAR] + (
+        [C.DETECTION_TIER_LLM] if use_llm else []
+    )
     return EnrichmentService().apply(
         corpus_id=corpus_id,
         creator_id=analysis.creator_id,
         types=types,
         analysis=analysis,
+        extra_tiers=extra_tiers,
     )
 
 

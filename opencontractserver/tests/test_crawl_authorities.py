@@ -40,6 +40,23 @@ def _make_bootstrap_mock(status="ingested", corpus_id=999):
     return _mock
 
 
+class CrawlAnalyzerConvergeTests(TransactionTestCase):
+    def setUp(self):
+        self.user = _make_user("crawl-analyzer-user")
+
+    def test_get_or_create_is_idempotent_and_keyed_on_task_name(self):
+        from opencontractserver.enrichment import constants as C
+        from opencontractserver.enrichment.services.crawl_authorities_service import (
+            CrawlAuthoritiesService,
+        )
+
+        a1 = CrawlAuthoritiesService.get_or_create_analyzer(creator_id=self.user.id)
+        a2 = CrawlAuthoritiesService.get_or_create_analyzer(creator_id=self.user.id)
+        assert a1.pk == a2.pk
+        assert a1.task_name == C.CRAWL_ANALYZER_TASK
+        assert CrawlAuthoritiesService.get_analyzer().pk == a1.pk
+
+
 class ImportTest(TransactionTestCase):
     def test_import(self):
         """CrawlAuthoritiesService is importable."""
