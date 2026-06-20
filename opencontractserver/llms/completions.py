@@ -16,12 +16,9 @@ sanctioned ``pydantic_ai.Agent`` construction chokepoint
 
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from asgiref.sync import sync_to_async
-
-logger = logging.getLogger(__name__)
 
 __all__ = ["agenerate_text"]
 
