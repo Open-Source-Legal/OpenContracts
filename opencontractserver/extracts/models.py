@@ -404,14 +404,9 @@ class Datacell(BaseOCModel):
         if not self.data:
             self.data = {}
 
-        # ``validation_config`` is a nullable JSONField (``null=True``), so it
-        # can legitimately be ``None`` (explicitly cleared, or legacy rows —
-        # ``Column.clean`` itself guards with ``and self.validation_config``).
-        # Resolve the ``{}`` fallback once, up front: issue #1986 item 7 — the
-        # "required" check below previously read ``self.column.validation_config
-        # .get("required")`` *before* this guard, raising ``AttributeError:
-        # 'NoneType' object has no attribute 'get'`` whenever a manual-entry cell
-        # with no ``value`` key was validated on a column whose config was None.
+        # ``validation_config`` is a nullable JSONField, so resolve the ``{}``
+        # fallback ONCE before reading any key — calling ``.get(...)`` on a
+        # ``None`` config is the AttributeError fixed in issue #1986 item 7.
         config = self.column.validation_config or {}
 
         if "value" not in self.data:

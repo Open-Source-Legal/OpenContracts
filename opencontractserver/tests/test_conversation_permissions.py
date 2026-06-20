@@ -762,6 +762,36 @@ class TestConversationGroupGrants(TestCase):
         # Outsider (not in the group) still cannot see it.
         self.assertNotIn(message, ChatMessage.objects.visible_to_user(self.outsider))
 
+    def test_conversation_group_grant_makes_messages_visible(self):
+        """The common path (issue #1986 item 3): a group grant on the
+        *conversation* surfaces its *messages* via the ``conversation_visible``
+        inheritance branch — distinct from a direct message-level grant. Pins
+        the integration between the conversation group-grant fix and message
+        visibility so removing the ``conversation_visible`` branch can't
+        silently regress it."""
+        chat = Conversation.objects.create(
+            title="Owner's Chat",
+            creator=self.owner,
+            conversation_type=ConversationTypeChoices.CHAT,
+        )
+        message = ChatMessage.objects.create(
+            conversation=chat,
+            creator=self.owner,
+            msg_type=MessageTypeChoices.HUMAN,
+            content="via-conversation-grant",
+        )
+
+        # No grant -> the member sees neither the conversation nor its messages.
+        self.assertNotIn(message, ChatMessage.objects.visible_to_user(self.member))
+
+        # Conversation-level group grant (NOT a message-level grant) -> the
+        # message surfaces through conversation visibility inheritance.
+        assign_perm("read_conversation", self.group, chat)
+
+        self.assertIn(message, ChatMessage.objects.visible_to_user(self.member))
+        # Outsider (not in the group) still cannot see it.
+        self.assertNotIn(message, ChatMessage.objects.visible_to_user(self.outsider))
+
     def test_missing_conversation_group_table_falls_back_gracefully(self):
         """Defensive branch (issue #1986 item 3): if the conversation
         group-permission model can't be resolved, the `except LookupError`
