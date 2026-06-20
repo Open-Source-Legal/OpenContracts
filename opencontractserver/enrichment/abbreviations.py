@@ -57,6 +57,13 @@ MUNICIPAL_CODE_ABBREVIATIONS: dict[str, tuple[str, str, str]] = {
         "us-ca-san-francisco",
         C.AUTHORITY_TYPE_MUNICIPAL,
     ),
+    # The abbreviated city + spelled-out "Municipal Code" form is tabled too: the
+    # abbreviation slug ("s-f") would otherwise fragment from "san-francisco".
+    "S.F. Municipal Code": (
+        "muni-san-francisco",
+        "us-ca-san-francisco",
+        C.AUTHORITY_TYPE_MUNICIPAL,
+    ),
     # Los Angeles, CA
     "Los Angeles Municipal Code": (
         "muni-los-angeles",
@@ -64,6 +71,12 @@ MUNICIPAL_CODE_ABBREVIATIONS: dict[str, tuple[str, str, str]] = {
         C.AUTHORITY_TYPE_MUNICIPAL,
     ),
     "L.A. Mun. Code": (
+        "muni-los-angeles",
+        "us-ca-los-angeles",
+        C.AUTHORITY_TYPE_MUNICIPAL,
+    ),
+    # As with S.F. above — "l-a" must not fragment from "los-angeles".
+    "L.A. Municipal Code": (
         "muni-los-angeles",
         "us-ca-los-angeles",
         C.AUTHORITY_TYPE_MUNICIPAL,

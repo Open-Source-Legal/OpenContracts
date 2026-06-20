@@ -170,6 +170,15 @@ class MunicipalKnownGrammarTests(SimpleTestCase):
         # "S.F. Mun. Code" and "San Francisco Municipal Code" are ONE authority.
         assert "muni-san-francisco:56.5" in self._keys("see S.F. Mun. Code § 56.5")
 
+    def test_abbreviated_city_municipal_code_resolves_to_canonical(self):
+        # The abbreviated-city + spelled-"Municipal Code" forms are tabled so the
+        # abbreviation slug (l-a / s-f) never fragments from the canonical
+        # muni-los-angeles / muni-san-francisco authority.
+        la = self._keys("L.A. Municipal Code § 12.21")
+        assert "muni-los-angeles:12.21" in la
+        assert "muni-l-a:12.21" not in la
+        assert "muni-san-francisco:5" in self._keys("S.F. Municipal Code § 5")
+
     def test_multi_segment_section_locator(self):
         # Municipal codes nest deeper than a single ".N" (Seattle: 6.02.010).
         c = self._keys("per Seattle Municipal Code § 6.02.010")["muni-seattle:6.02.010"]
