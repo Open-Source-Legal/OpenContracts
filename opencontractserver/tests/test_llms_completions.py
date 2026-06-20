@@ -16,12 +16,49 @@ from opencontractserver.llms.completions import agenerate_text
 
 
 class AgenerateTextTests(SimpleTestCase):
-    def _fake_agent(self, output: str) -> MagicMock:
+    def _fake_agent(self, output) -> MagicMock:
         agent = MagicMock()
         result = MagicMock()
         result.output = output
         agent.run = AsyncMock(return_value=result)
         return agent
+
+    async def test_max_tokens_forwarded(self) -> None:
+        """A non-None max_tokens must be threaded into model_settings."""
+        fake_agent = self._fake_agent("Title")
+
+        with patch(
+            "opencontractserver.pipeline.utils.get_default_llm_spec",
+            return_value="openai:gpt-4o",
+        ), patch(
+            "opencontractserver.llms.model_factory.abuild_agent_model",
+            new=AsyncMock(side_effect=lambda spec: spec),
+        ), patch(
+            "opencontractserver.llms.agents.pydantic_ai_factory.make_pydantic_ai_agent",
+            return_value=fake_agent,
+        ) as mock_make:
+            await agenerate_text("prompt", max_tokens=256)
+
+        _, kwargs = mock_make.call_args
+        self.assertEqual(kwargs["model_settings"]["max_tokens"], 256)
+
+    async def test_none_output_returns_empty_string(self) -> None:
+        """A None model output collapses to "" so caller fallbacks fire."""
+        fake_agent = self._fake_agent(None)
+
+        with patch(
+            "opencontractserver.pipeline.utils.get_default_llm_spec",
+            return_value="openai:gpt-4o",
+        ), patch(
+            "opencontractserver.llms.model_factory.abuild_agent_model",
+            new=AsyncMock(side_effect=lambda spec: spec),
+        ), patch(
+            "opencontractserver.llms.agents.pydantic_ai_factory.make_pydantic_ai_agent",
+            return_value=fake_agent,
+        ):
+            result = await agenerate_text("prompt")
+
+        self.assertEqual(result, "")
 
     async def test_corpus_preferred_wins_over_settings_default(self) -> None:
         """corpus_preferred beats the install-wide default and is normalised."""
