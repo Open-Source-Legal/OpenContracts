@@ -72,6 +72,19 @@ class AuthorityKeyEquivalenceServiceTests(TestCase):
         assert not res.ok
         assert "differ" in res.error
 
+    def test_db_constraint_rejects_self_referential_row(self):
+        """The service rejects from_key == to_key, but the DB CheckConstraint is
+        the backstop for a direct ORM insert / admin action / data import that
+        bypasses the service entirely."""
+        from django.db import IntegrityError, transaction
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                AuthorityKeyEquivalence.objects.create(
+                    from_key="irc:1", to_key="irc:1", source="manual"
+                )
+        assert not AuthorityKeyEquivalence.objects.filter(from_key="irc:1").exists()
+
     def test_create_rejects_duplicate_pair(self):
         AuthorityKeyEquivalenceService.create(
             self.superuser, from_key="irc:501", to_key="usc-26:501"

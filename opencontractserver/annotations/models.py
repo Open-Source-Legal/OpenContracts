@@ -2267,6 +2267,19 @@ class AuthorityKeyEquivalence(django.db.models.Model):
                 fields=["from_key", "to_key"],
                 name="authority_key_equiv_unique_pair",
             ),
+            # A key is trivially equivalent to itself; a self-row is never
+            # meaningful and would let find_authority_target "hop" a key onto
+            # itself. The loader already rejects from_key == to_key in Python,
+            # but a direct ORM insert / admin action / data import would bypass
+            # that — enforce it at the DB so no self-row can ever exist.
+            django.db.models.CheckConstraint(
+                condition=~django.db.models.Q(from_key=django.db.models.F("to_key")),
+                name="authority_key_equiv_no_self_reference",
+                violation_error_message=(
+                    "An authority key cannot be equivalent to itself "
+                    "(from_key must differ from to_key)."
+                ),
+            ),
         ]
         indexes = [
             django.db.models.Index(fields=["from_key"]),
