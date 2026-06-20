@@ -1,7 +1,8 @@
 import React from "react";
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
-import { LlmModelPicker, LlmProviderOption } from "../LlmModelPicker";
+import { LlmModelPicker } from "../LlmModelPicker";
+import type { LlmProviderOption } from "../../../types/graphql-api";
 
 const providers: LlmProviderOption[] = [
   {

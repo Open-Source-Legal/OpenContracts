@@ -6795,10 +6795,10 @@ export const GET_LLM_PROVIDERS = gql`
 
 export interface LlmProvidersQueryResult {
   pipelineComponents: {
-    // Reuse the picker's option shape so the GraphQL projection and the
-    // component can't silently drift apart; `enabled` is the one extra field
-    // this query selects for client-side filtering.
-    llmProviders: Array<LlmProviderOption & { enabled?: boolean | null }>;
+    // Reuse the shared option shape so the GraphQL projection and the picker
+    // component can't silently drift apart (LlmProviderOption carries the
+    // optional `enabled` flag this query selects for client-side filtering).
+    llmProviders: LlmProviderOption[];
   };
 }
 

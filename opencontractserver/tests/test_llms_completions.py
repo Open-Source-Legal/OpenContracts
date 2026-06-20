@@ -16,6 +16,11 @@ from opencontractserver.llms.completions import agenerate_text
 
 
 class AgenerateTextTests(SimpleTestCase):
+    # NOTE: ``agenerate_text`` imports its collaborators (get_default_llm_spec,
+    # abuild_agent_model, make_pydantic_ai_agent) lazily inside the function
+    # body, so these tests patch them at their *source* modules. If any of those
+    # imports is ever hoisted to module level, the patches must move to
+    # ``opencontractserver.llms.completions.<name>`` or they'll stop intercepting.
     def _fake_agent(self, output) -> MagicMock:
         agent = MagicMock()
         result = MagicMock()

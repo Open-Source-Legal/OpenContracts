@@ -1912,6 +1912,8 @@ export interface LlmProviderOption {
   providerKey?: string | null;
   supportedModels?: (string | null)[] | null;
   requiresApiKey?: boolean | null;
+  // false = explicitly disabled in PipelineSettings; null/undefined = enabled.
+  enabled?: boolean | null;
 }
 
 /** Common Python type hints used in settings schemas. */

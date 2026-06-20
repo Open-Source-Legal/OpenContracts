@@ -776,6 +776,9 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
                 prompt,
                 instructions=instructions,
                 corpus_preferred=corpus_preferred,
+                # Low temperature: a title is a short, deterministic summary —
+                # consistency matters more than creativity here.
+                temperature=0.3,
             )
             return title or f"Conversation {uuid.uuid4()}"
         except Exception as e:

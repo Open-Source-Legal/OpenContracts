@@ -15,11 +15,9 @@ import React, { useId } from "react";
 import { Input } from "@os-legal/ui";
 
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
+// LlmProviderOption's canonical home is types/graphql-api.ts; import it (don't
+// re-export) so there's a single import path for the type.
 import type { LlmProviderOption } from "../../types/graphql-api";
-
-// Re-export so existing importers (queries.ts, tests) can keep pulling the
-// option shape from the picker, while the canonical definition lives in types/.
-export type { LlmProviderOption };
 
 export interface LlmModelPickerProps {
   /** Current model spec value ("provider:model"), or "" when unset. */

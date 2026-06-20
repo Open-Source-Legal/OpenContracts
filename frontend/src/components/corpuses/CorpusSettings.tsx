@@ -541,6 +541,7 @@ export const CorpusSettings: React.FC<CorpusSettingsProps> = ({ corpus }) => {
               onChange={setLlmDraft}
               providers={llmProviders}
               disabled={!canUpdate || updatingLlm}
+              showApiKeyBadge
               inheritedSpec={systemDefaultLlm || null}
               inheritedLabel="Inherited system default"
               placeholder="e.g., anthropic:claude-opus-4-6"
