@@ -332,6 +332,21 @@ class MunicipalGenericGrammarTests(SimpleTestCase):
             "San Luis Obispo Municipal Code § 5"
         )
 
+    def test_non_stopword_lead_lands_in_slug_at_provisional_confidence(self):
+        # The stopword list is deliberately MINIMAL (only unambiguous non-place
+        # leads), so a capitalised NON-stopword word before the city is NOT
+        # stripped — it lands in the slug ("Regarding Oakland" ->
+        # muni-regarding-oakland) and is surfaced as a PROVISIONAL candidate
+        # (confidence < 0.8, jurisdiction None) rather than silently mis-keyed as
+        # muni-oakland. Pins the minimal-stopword design + the provisional
+        # contract that downstream consumers tier-filter on.
+        keys = self._keys("Regarding Oakland Municipal Code § 5")
+        assert "muni-regarding-oakland:5" in keys
+        assert "muni-oakland:5" not in keys
+        c = keys["muni-regarding-oakland:5"]
+        assert c.jurisdiction is None
+        assert c.detection_confidence < 0.8
+
     def test_nyc_ordinance_form_is_provisional_not_table_resolved(self):
         # An ordinance-form NYC cite goes through the open-vocab provisional path
         # (ordinance numbers are NOT table-upgradeable — see _municipal_generic),
