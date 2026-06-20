@@ -71,6 +71,11 @@ MUNICIPAL_CODE_ABBREVIATIONS: dict[str, tuple[str, str, str]] = {
     # New York City, NY — the consolidated code IS the "Administrative Code"
     # ("Administrative Code" is intentionally kept OUT of the open-vocab grammar
     # because "Texas Administrative Code" is a STATE regulation, not municipal).
+    # NB: the slug is ``muni-new-york`` (NOT ``muni-new-york-city``). The
+    # open-vocab grammar would slug a literal "New York City Municipal Code" cite
+    # as ``muni-new-york-city`` — a DIFFERENT prefix — so any "New York City
+    # Municipal Code"/"Mun. Code" form added here later MUST also key
+    # ``muni-new-york`` to keep the two from fragmenting into rival authorities.
     "New York City Administrative Code": (
         "muni-new-york",
         "us-ny-new-york",

@@ -309,6 +309,13 @@ class GenericCitationExtractor:
         self._muni_canon = {
             re.sub(r"\s+", " ", a): v for a, v in MUNICIPAL_CODE_ABBREVIATIONS.items()
         }
+        # NOTE the ``§`` is OPTIONAL here (``(?:§+\s*)?``) — intentional and the
+        # SAME as ``_state_re`` above: a table-matched code is already a KNOWN
+        # authority (the named abbreviation is the precision guard), and Bluebook
+        # cites for known codes sometimes drop the ``§``. This is deliberately
+        # ASYMMETRIC with the open-vocab ``_MUNI_CONN`` (which REQUIRES ``§``/
+        # Section/Sec.): there the anchor is the only thing separating a real
+        # citation from prose, so do not "unify" the two by making this required.
         self._muni_re = (
             re.compile(
                 r"(?P<abbr>"
