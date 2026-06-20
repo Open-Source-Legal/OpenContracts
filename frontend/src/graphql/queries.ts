@@ -1,5 +1,6 @@
 import { gql } from "@apollo/client";
 import { LabelSet } from "../components/types";
+import type { LlmProviderOption } from "../components/common/LlmModelPicker";
 import {
   AnnotationLabelTypeEdge,
   ServerAnnotationType,
@@ -6794,15 +6795,10 @@ export const GET_LLM_PROVIDERS = gql`
 
 export interface LlmProvidersQueryResult {
   pipelineComponents: {
-    llmProviders: Array<{
-      name?: string | null;
-      title?: string | null;
-      className?: string | null;
-      providerKey?: string | null;
-      supportedModels?: (string | null)[] | null;
-      requiresApiKey?: boolean | null;
-      enabled?: boolean | null;
-    }>;
+    // Reuse the picker's option shape so the GraphQL projection and the
+    // component can't silently drift apart; `enabled` is the one extra field
+    // this query selects for client-side filtering.
+    llmProviders: Array<LlmProviderOption & { enabled?: boolean | null }>;
   };
 }
 

@@ -174,8 +174,13 @@ export const CorpusSettings: React.FC<CorpusSettingsProps> = ({ corpus }) => {
   // Provider list + install-wide default for the model picker. Both resolvers
   // are @login_required and request only non-secret fields, so any corpus
   // editor (not just superusers) can load them.
-  const { data: llmProvidersData } =
-    useQuery<LlmProvidersQueryResult>(GET_LLM_PROVIDERS);
+  // The provider list only powers the interactive model chips, so skip it for
+  // read-only viewers; the inherited-default hint still loads via the tiny
+  // default-LLM query below.
+  const { data: llmProvidersData } = useQuery<LlmProvidersQueryResult>(
+    GET_LLM_PROVIDERS,
+    { skip: !canUpdate }
+  );
   const { data: systemDefaultLlmData } = useQuery<SystemDefaultLlmQueryResult>(
     GET_SYSTEM_DEFAULT_LLM
   );

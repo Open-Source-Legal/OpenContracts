@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from opencontractserver.llms.completions import agenerate_text
 
@@ -92,3 +92,42 @@ class AgenerateTextTests(SimpleTestCase):
             )
 
         mock_build.assert_awaited_once_with("google-gla:gemini-1.5-pro")
+
+    @override_settings(DEFAULT_LLM="", OPENAI_MODEL="")
+    async def test_hard_fallback_when_everything_unset(self) -> None:
+        """No explicit/corpus/settings default falls back to the hard default."""
+        fake_agent = self._fake_agent("Title")
+
+        with patch(
+            "opencontractserver.pipeline.utils.get_default_llm_spec",
+            return_value="",
+        ), patch(
+            "opencontractserver.llms.model_factory.abuild_agent_model",
+            new=AsyncMock(side_effect=lambda spec: spec),
+        ) as mock_build, patch(
+            "opencontractserver.llms.agents.pydantic_ai_factory.make_pydantic_ai_agent",
+            return_value=fake_agent,
+        ):
+            await agenerate_text("prompt", model=None, corpus_preferred=None)
+
+        # _HARD_DEFAULT_MODEL "gpt-4o" → normalised to the openai provider.
+        mock_build.assert_awaited_once_with("openai:gpt-4o")
+
+    async def test_temperature_none_is_omitted(self) -> None:
+        """temperature=None must not inject a temperature into model_settings."""
+        fake_agent = self._fake_agent("Title")
+
+        with patch(
+            "opencontractserver.pipeline.utils.get_default_llm_spec",
+            return_value="openai:gpt-4o",
+        ), patch(
+            "opencontractserver.llms.model_factory.abuild_agent_model",
+            new=AsyncMock(side_effect=lambda spec: spec),
+        ), patch(
+            "opencontractserver.llms.agents.pydantic_ai_factory.make_pydantic_ai_agent",
+            return_value=fake_agent,
+        ) as mock_make:
+            await agenerate_text("prompt", temperature=None)
+
+        _, kwargs = mock_make.call_args
+        self.assertNotIn("temperature", kwargs["model_settings"])

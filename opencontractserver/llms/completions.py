@@ -30,7 +30,7 @@ async def agenerate_text(
     instructions: str | None = None,
     model: str | None = None,
     corpus_preferred: str | None = None,
-    temperature: float = 0.7,
+    temperature: float | None = 0.7,
     max_tokens: int | None = None,
 ) -> str:
     """Run a single-turn LLM completion using the project LLM registry.
@@ -44,7 +44,8 @@ async def agenerate_text(
         corpus_preferred: The corpus's ``preferred_llm`` (when operating in a
             corpus context), so the call defaults to the corpus model before
             falling back to ``PipelineSettings.default_llm`` / Django settings.
-        temperature: Sampling temperature.
+        temperature: Sampling temperature. Pass ``None`` to omit it entirely —
+            some backends (e.g. reasoning models) reject an explicit temperature.
         max_tokens: Optional response token cap.
 
     Returns:
@@ -68,7 +69,11 @@ async def agenerate_text(
     # DB-wins / env-fallback credentialed model (or the bare spec string).
     built_model = await abuild_agent_model(spec)
 
-    model_settings: dict[str, Any] = {"temperature": temperature}
+    # Only inject settings the caller actually specified — mirrors max_tokens so
+    # backends that reject an explicit temperature aren't forced to receive one.
+    model_settings: dict[str, Any] = {}
+    if temperature is not None:
+        model_settings["temperature"] = temperature
     if max_tokens is not None:
         model_settings["max_tokens"] = max_tokens
 
