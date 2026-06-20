@@ -202,7 +202,14 @@ class PipelineQueryMixin:
                 for d in components_data.get("rerankers", [])
             ],
             llm_providers=[
-                to_graphql_type(d, "llm_provider") for d in llm_providers_data
+                # LLM providers are intentionally NOT run through
+                # ``filter_configured`` for non-superusers: a corpus editor must
+                # see every registered provider to choose one for
+                # ``Corpus.preferred_llm`` (via the per-corpus model picker). No
+                # credentials leak — ``settings_schema`` (has_value/current_value)
+                # is built only for superusers in ``to_graphql_type`` above.
+                to_graphql_type(d, "llm_provider")
+                for d in llm_providers_data
             ],
         )
 

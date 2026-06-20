@@ -183,6 +183,7 @@ export const LlmModelPicker: React.FC<LlmModelPickerProps> = ({
                         <button
                           key={spec}
                           type="button"
+                          aria-pressed={selected}
                           disabled={disabled}
                           onClick={() => onChange(spec)}
                           style={{
