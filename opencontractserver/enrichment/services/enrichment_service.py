@@ -444,13 +444,18 @@ class EnrichmentService:
         writer = EnrichmentWriter(corpus, creator_id, analysis=analysis)
         try:
             res = writer.write(resolutions)
+            # Cross-corpus linking is part of a successful apply and can raise
+            # (two bulk_updates over potentially thousands of rows), so it must
+            # run INSIDE the try. Stamping the Analysis COMPLETED before it ran
+            # left a permanent COMPLETED provenance row with
+            # law_references_linked=0 whenever _link_external failed (#1996).
+            link = self._link_external(user, corpus)
         except Exception:
             analysis.status = JobStatus.FAILED.value
             analysis.save(update_fields=["status"])
             raise
         analysis.status = JobStatus.COMPLETED.value
         analysis.save(update_fields=["status"])
-        link = self._link_external(user, corpus)
         return {
             "corpus_id": corpus_id,
             "analysis_id": analysis.id,
@@ -596,7 +601,12 @@ class EnrichmentService:
         # only public authorities may link; a private corpus uses its creator.
         audience = None if corpus.is_public else user
 
-        refs = (
+        # Materialize once: this queryset is walked twice (build the target
+        # cache below, then promote/demote). Left lazy, a concurrent apply() on
+        # the same corpus could insert rows that pass 2 sees but that were absent
+        # when the cache was built in pass 1 — those refs would be silently
+        # skipped (#1996).
+        refs = list(
             CorpusReference.objects.filter(corpus=corpus, reference_type=C.REF_LAW)
             .exclude(canonical_key=None)
             .select_related("source_annotation")
@@ -607,16 +617,42 @@ class EnrichmentService:
             key = ref.canonical_key
             if key and key not in target_cache:
                 target_cache[key] = find_authority_target(key, audience)
-        # Batch-fetch corpus membership for all resolved targets in one query
-        # instead of one per target (avoids N+1 on large corpora).
+        # Map each resolved target document to the corpus its in-app link should
+        # point into. A target can have current paths in several corpora, so the
+        # choice is made BOTH deterministic and navigable: prefer a corpus the
+        # citing corpus's audience can actually open, then break ties on the
+        # lowest corpus_id. The previous ``dict(values_list(...))`` did neither —
+        # it kept whatever row Postgres returned last, so target_corpus_id (and
+        # the mention link_url derived from it) was nondeterministic and could
+        # 404 for the audience (#1996). Still one query for the paths plus one
+        # for the visible-corpus set — no per-target N+1.
         resolved_target_ids = {t.id for t in target_cache.values() if t is not None}
-        path_corpus_cache: dict[int, int | None] = dict(
+        path_rows = list(
             DocumentPath.objects.filter(
                 document_id__in=resolved_target_ids,
                 is_current=True,
                 is_deleted=False,
-            ).values_list("document_id", "corpus_id")
+            )
+            .order_by("corpus_id")
+            .values_list("document_id", "corpus_id")
         )
+        audience_visible_corpus_ids = set(
+            Corpus.objects.visible_to_user(audience)
+            .filter(id__in={cid for _doc_id, cid in path_rows})
+            .values_list("id", flat=True)
+        )
+        path_corpus_cache: dict[int, int] = {}
+        for doc_id, path_corpus_id in path_rows:  # ascending corpus_id
+            incumbent = path_corpus_cache.get(doc_id)
+            # First (lowest-id) path seeds the entry; a later audience-visible
+            # corpus then supersedes a non-navigable incumbent. Net result:
+            # lowest audience-visible corpus_id, else lowest corpus_id (so a
+            # resolvable target never loses its corpus).
+            if incumbent is None or (
+                path_corpus_id in audience_visible_corpus_ids
+                and incumbent not in audience_visible_corpus_ids
+            ):
+                path_corpus_cache[doc_id] = path_corpus_id
         now = timezone.now()
         promoted: list[CorpusReference] = []
         demoted: list[CorpusReference] = []
@@ -625,13 +661,22 @@ class EnrichmentService:
             if not key:  # queryset excludes None; guard for type-narrowing
                 continue
             target = target_cache.get(key)
-            if target is not None:
+            # A navigable link needs BOTH a resolved authority document and a
+            # current corpus path to point into. The corpus is absent only in
+            # the tiny TOCTOU window where the target's path is deleted between
+            # find_authority_target (which requires a current path) and the path
+            # query above; treat that as unresolved so a stale RESOLVED ref is
+            # demoted rather than left pointing at a broken link.
+            target_corpus_id = (
+                path_corpus_cache.get(target.id) if target is not None else None
+            )
+            if target is not None and target_corpus_id is not None:
                 if (
                     ref.target_document_id != target.id
                     or ref.resolution_status != C.STATUS_RESOLVED
                 ):
                     ref.target_document = target
-                    ref.target_corpus_id = path_corpus_cache.get(target.id)
+                    ref.target_corpus_id = target_corpus_id
                     ref.resolution_status = C.STATUS_RESOLVED
                     # bulk_update bypasses auto_now — stamp ``modified``.
                     ref.modified = now
@@ -640,8 +685,9 @@ class EnrichmentService:
                 ref.target_document_id is not None
                 or ref.resolution_status == C.STATUS_RESOLVED
             ):
-                # Target no longer visible to the corpus's audience — degrade so
-                # the corpus never renders a broken link.
+                # Target gone, no longer audience-visible, or (rarely) its path
+                # vanished mid-pass — degrade so the corpus never renders a
+                # broken link.
                 ref.target_document_id = None
                 ref.target_corpus_id = None
                 ref.resolution_status = C.STATUS_EXTERNAL
