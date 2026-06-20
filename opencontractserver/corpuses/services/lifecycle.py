@@ -516,6 +516,11 @@ class DocumentLifecycleService(BaseService):
             if not active_paths:
                 return 0
 
+            # Distinct documents in scope — derived purely from the locked
+            # ``active_paths``, so compute it once up front (clearer data flow
+            # than recomputing after the writes).
+            trashed_doc_ids = {p.document_id for p in active_paths}
+
             # 1) Supersede every current head in a single UPDATE. This bulk
             #    ``.update()`` deliberately skips the per-row
             #    ``post_save(created=False)`` that ``remove_document``'s
@@ -557,8 +562,6 @@ class DocumentLifecycleService(BaseService):
             #    atomic block rolls back, Django discards those on_commit
             #    callbacks and no embedding job runs for uncommitted rows.
             CorpusPathService._dispatch_document_path_created_signals(created)
-
-            trashed_doc_ids = {p.document_id for p in active_paths}
 
             # 4) Revoke is_public for documents no longer in any public corpus —
             #    one query pair for the whole batch (mirrors the tail of

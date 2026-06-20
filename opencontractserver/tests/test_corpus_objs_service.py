@@ -847,25 +847,34 @@ class TestFolderDelete_CascadeToTrash(_CorpusObjsServiceFolderTestBase):
             user=self.owner, corpus=self.corpus, name="Child", parent=parent
         )
         assert child is not None
-        self._make_doc_in_folder("P", "p.pdf", parent, "/Parent/p.pdf")
-        self._make_doc_in_folder("C", "c.pdf", child, "/Parent/Child/c.pdf")
-        self._make_doc_in_folder("C2", "c2.pdf", child, "/Parent/Child/c2.pdf")
+        doc_p = self._make_doc_in_folder("P", "p.pdf", parent, "/Parent/p.pdf")
+        doc_c = self._make_doc_in_folder("C", "c.pdf", child, "/Parent/Child/c.pdf")
+        doc_c2 = self._make_doc_in_folder("C2", "c2.pdf", child, "/Parent/Child/c2.pdf")
+        subtree_docs = [doc_p, doc_c, doc_c2]
 
         # Called before the folder delete (folders still exist) — pure trash step.
         trashed = FolderCRUDService._trash_documents_in_subtree(parent, self.owner)
 
-        # All three docs across the two-level sub-tree are trashed.
+        # All three docs across the two-level sub-tree are trashed. Filters are
+        # scoped to these docs so the assertion stays correct even if the base
+        # class ever gains corpus-level fixtures.
         self.assertEqual(trashed, 3)
         self.assertEqual(
             DocumentPath.objects.filter(
-                corpus=self.corpus, is_current=True, is_deleted=True
+                document__in=subtree_docs,
+                corpus=self.corpus,
+                is_current=True,
+                is_deleted=True,
             ).count(),
             3,
         )
-        # No active, non-deleted path remains anywhere in the sub-tree.
+        # No active, non-deleted path remains for any sub-tree doc.
         self.assertFalse(
             DocumentPath.objects.filter(
-                corpus=self.corpus, is_current=True, is_deleted=False
+                document__in=subtree_docs,
+                corpus=self.corpus,
+                is_current=True,
+                is_deleted=False,
             ).exists()
         )
 
