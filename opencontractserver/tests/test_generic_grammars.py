@@ -312,6 +312,43 @@ class MunicipalGenericGrammarTests(SimpleTestCase):
         # within and around the code phrase.
         assert "muni-oakland:5" in self._keys("Oakland  Municipal  Code § 5")
 
+    def test_signal_stopwords_do_not_collide_with_place_names(self):
+        # The signal denylist must never swallow a real jurisdiction whose name
+        # starts with a Bluebook signal — regression guard against re-adding a
+        # colliding stopword like "contra" (would corrupt "Contra Costa" to
+        # ``muni-costa``).
+        assert "muni-contra-costa:4.1" in self._keys(
+            "Contra Costa Code of Ordinances § 4.1"
+        )
+        assert "muni-contra-costa-county:4.1" in self._keys(
+            "Contra Costa County Code of Ordinances § 4.1"
+        )
+
+    def test_real_three_word_city_not_truncated(self):
+        # The {0,3} city bound must keep a genuine 3-word municipality intact
+        # ("San Luis Obispo"); a tighter {0,2} bound would corrupt it to
+        # ``muni-luis-obispo``.
+        assert "muni-san-luis-obispo:5" in self._keys(
+            "San Luis Obispo Municipal Code § 5"
+        )
+
+    def test_nyc_ordinance_form_is_provisional_not_table_resolved(self):
+        # An ordinance-form NYC cite goes through the open-vocab provisional path
+        # (ordinance numbers are NOT table-upgradeable — see _municipal_generic),
+        # so it carries the provisional contract (low confidence, jurisdiction
+        # None) rather than resolving to the table's muni-new-york authority.
+        # Pins the documented behaviour: ordinance numbers are discovery signals,
+        # not resolved authorities.
+        muni = [
+            c
+            for c in self.ex.extract("New York City Ordinance No. 2023-45")
+            if c.authority_type == C.AUTHORITY_TYPE_MUNICIPAL
+        ]
+        assert muni
+        for c in muni:
+            assert c.jurisdiction is None
+            assert c.detection_confidence < 0.8
+
     def test_open_vocab_prefix_classifies_to_municipal(self):
         # An open-vocab city prefix must classify (never strand at None type).
         jur, typ = C.classify_prefix("muni-oakland")
