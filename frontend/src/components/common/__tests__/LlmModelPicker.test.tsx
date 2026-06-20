@@ -46,6 +46,20 @@ describe("LlmModelPicker", () => {
     );
   });
 
+  it("does not fire onChange when a disabled chip is clicked", () => {
+    const onChange = vi.fn();
+    render(
+      <LlmModelPicker
+        value=""
+        onChange={onChange}
+        providers={providers}
+        disabled
+      />
+    );
+    fireEvent.click(screen.getByRole("button", { name: "claude-haiku-4-5" }));
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
   it("hides the inherited hint once a value is set", () => {
     render(
       <LlmModelPicker

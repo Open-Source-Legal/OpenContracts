@@ -1,6 +1,6 @@
 import { gql } from "@apollo/client";
 import { LabelSet } from "../components/types";
-import type { LlmProviderOption } from "../components/common/LlmModelPicker";
+import type { LlmProviderOption } from "../types/graphql-api";
 import {
   AnnotationLabelTypeEdge,
   ServerAnnotationType,

@@ -749,6 +749,24 @@ class UnifiedAgentConsumerTitleGenerationTestCase(WebsocketFixtureBaseTestCase):
             title = await consumer._generate_conversation_title("Test query")
             self.assertTrue(title.startswith("Conversation "))
 
+    async def test_title_generation_uses_corpus_preferred_llm(self) -> None:
+        """The corpus's preferred_llm must be threaded into agenerate_text."""
+        with patch(
+            "opencontractserver.llms.completions.agenerate_text",
+            new=AsyncMock(return_value="Corpus Analysis"),
+        ) as mock_generate:
+            consumer = UnifiedAgentConsumer()
+            consumer.session_id = "test-session"
+            consumer.corpus = SimpleNamespace(
+                preferred_llm="anthropic:claude-haiku-4-5"
+            )
+            title = await consumer._generate_conversation_title(
+                "What is this corpus about?"
+            )
+            self.assertEqual(title, "Corpus Analysis")
+            _, kwargs = mock_generate.call_args
+            self.assertEqual(kwargs["corpus_preferred"], "anthropic:claude-haiku-4-5")
+
     async def test_title_generation_fallback_on_empty_title(self) -> None:
         """An empty model response should fall back to a generated title."""
         with patch(

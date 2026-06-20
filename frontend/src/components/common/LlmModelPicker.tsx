@@ -11,19 +11,15 @@
  * Presentational only: the caller owns the value, fetches the provider list,
  * and persists the result.
  */
-import React from "react";
+import React, { useId } from "react";
 import { Input } from "@os-legal/ui";
 
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
+import type { LlmProviderOption } from "../../types/graphql-api";
 
-export interface LlmProviderOption {
-  className?: string | null;
-  name?: string | null;
-  title?: string | null;
-  providerKey?: string | null;
-  supportedModels?: (string | null)[] | null;
-  requiresApiKey?: boolean | null;
-}
+// Re-export so existing importers (queries.ts, tests) can keep pulling the
+// option shape from the picker, while the canonical definition lives in types/.
+export type { LlmProviderOption };
 
 export interface LlmModelPickerProps {
   /** Current model spec value ("provider:model"), or "" when unset. */
@@ -60,15 +56,19 @@ export const LlmModelPicker: React.FC<LlmModelPickerProps> = ({
   inheritedLabel = "Currently inheriting",
   showApiKeyBadge = false,
   disabled = false,
-  id = "llm-model-spec",
+  id,
 }) => {
+  // Fall back to a render-unique id so two pickers on one page can't collide on
+  // the label↔input association.
+  const generatedId = useId();
+  const fieldId = id ?? generatedId;
   const isEmpty = !value.trim();
 
   return (
     <div>
       {label && (
         <label
-          htmlFor={id}
+          htmlFor={fieldId}
           style={{
             display: "block",
             fontSize: "0.8125rem",
@@ -81,7 +81,7 @@ export const LlmModelPicker: React.FC<LlmModelPickerProps> = ({
         </label>
       )}
       <Input
-        id={id}
+        id={fieldId}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}

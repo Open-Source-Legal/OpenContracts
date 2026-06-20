@@ -50,6 +50,11 @@ async def agenerate_text(
 
     Returns:
         The model's text output, stripped of surrounding whitespace.
+
+    Note:
+        A fresh ``pydantic-ai`` ``Agent`` is constructed per call. This is
+        intended for infrequent one-shot calls (e.g. title generation); hot
+        paths should build an agent once and reuse it.
     """
     from opencontractserver.llms.agents.pydantic_ai_factory import (
         make_pydantic_ai_agent,

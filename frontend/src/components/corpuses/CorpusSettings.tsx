@@ -185,7 +185,8 @@ export const CorpusSettings: React.FC<CorpusSettingsProps> = ({ corpus }) => {
     GET_SYSTEM_DEFAULT_LLM
   );
   // Drop providers an admin has disabled in System Settings so users aren't
-  // offered models they can't actually use for this corpus.
+  // offered models they can't actually use for this corpus. null/undefined
+  // means "not explicitly disabled", so only an explicit `false` is filtered.
   const llmProviders = (
     llmProvidersData?.pipelineComponents?.llmProviders ?? []
   ).filter((p) => p.enabled !== false);
