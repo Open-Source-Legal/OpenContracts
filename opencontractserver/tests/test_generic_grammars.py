@@ -325,7 +325,7 @@ class MunicipalGoldenCorpusTests(SimpleTestCase):
             "muni-houston:10-1": "us-tx-houston",
         }
         for key, jur in expected.items():
-            assert key in self.by_key, f"missing {key}: {sorted(self.by_key)}"
+            assert key in self.by_key, f"missing {key}: {sorted(map(str, self.by_key))}"
             assert self.by_key[key].jurisdiction == jur, key
             assert self.by_key[key].authority_type == C.AUTHORITY_TYPE_MUNICIPAL
 
@@ -346,7 +346,7 @@ class MunicipalGoldenCorpusTests(SimpleTestCase):
     def test_cross_municipality_coverage(self):
         # At least six distinct municipal authorities across five states.
         prefixes = {
-            c.canonical_key.split(":", 1)[0]
+            (c.canonical_key or "").split(":", 1)[0]
             for c in self.by_key.values()
             if c.authority_type == C.AUTHORITY_TYPE_MUNICIPAL
         }
