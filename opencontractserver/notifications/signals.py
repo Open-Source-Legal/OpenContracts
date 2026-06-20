@@ -181,12 +181,16 @@ def emit_analysis_status_notification(
         notification, created = Notification.objects.get_or_create(
             analysis=instance,
             notification_type=ntype,
-            # NOTE: ``data`` (incl. ``status``) is captured at first-create only.
-            # Under a concurrent race the losing writer gets the winner's row with
-            # created=False and returns below, so ``data`` reflects the winner's
-            # snapshot. This is fine because notification_type is one-per-status —
-            # each status value already maps to its own row, so a given row's
-            # status never needs to change after creation.
+            # NOTE: ``data`` (incl. ``status``) and ``recipient_id`` live in
+            # ``defaults`` — set on INSERT only, NOT part of the lookup. The
+            # idempotency key is exactly (analysis, notification_type) to match
+            # the partial unique constraint; the recipient is always the analysis
+            # creator (which doesn't change), so it's a value to populate on
+            # create, not a key to match on. Under a concurrent race the losing
+            # writer gets the winner's row with created=False and returns below,
+            # so ``data`` reflects the winner's snapshot — fine, because
+            # notification_type is one-per-status (each status maps to its own
+            # row, so a given row's status never needs to change after creation).
             defaults={
                 "recipient_id": instance.creator_id,
                 "data": {

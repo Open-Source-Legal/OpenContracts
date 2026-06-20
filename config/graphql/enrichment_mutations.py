@@ -142,6 +142,11 @@ class RunCorpusEnrichmentMutation(graphene.Mutation):
                 "use_llm": bool(getattr(options, "use_llm_tier", False) or False),
             }
             ref_types = getattr(options, "reference_types", None)
+            # An omitted field (None) or an explicitly empty list are both
+            # treated as "no type restriction" — ``types`` stays unset and the
+            # analyzer uses its default set. Only a non-empty list is validated;
+            # the deliberate-empty-list case isn't an error (it's equivalent to
+            # omitting the field).
             if ref_types:
                 # Reject unknown codes rather than silently dropping them. If we
                 # filtered to an empty ``valid_types`` and left ``types`` unset,
