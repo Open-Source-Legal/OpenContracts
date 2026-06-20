@@ -749,6 +749,18 @@ class UnifiedAgentConsumerTitleGenerationTestCase(WebsocketFixtureBaseTestCase):
             title = await consumer._generate_conversation_title("Test query")
             self.assertTrue(title.startswith("Conversation "))
 
+    async def test_title_generation_fallback_on_empty_title(self) -> None:
+        """An empty model response should fall back to a generated title."""
+        with patch(
+            "opencontractserver.llms.completions.agenerate_text",
+            new=AsyncMock(return_value=""),
+        ):
+            consumer = UnifiedAgentConsumer()
+            consumer.session_id = "test-session"
+            consumer.corpus = None
+            title = await consumer._generate_conversation_title("Test query")
+            self.assertTrue(title.startswith("Conversation "))
+
 
 @override_settings(USE_AUTH0=False)
 @pytest.mark.django_db(transaction=True)

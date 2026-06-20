@@ -179,7 +179,11 @@ export const CorpusSettings: React.FC<CorpusSettingsProps> = ({ corpus }) => {
   const { data: systemDefaultLlmData } = useQuery<SystemDefaultLlmQueryResult>(
     GET_SYSTEM_DEFAULT_LLM
   );
-  const llmProviders = llmProvidersData?.pipelineComponents?.llmProviders ?? [];
+  // Drop providers an admin has disabled in System Settings so users aren't
+  // offered models they can't actually use for this corpus.
+  const llmProviders = (
+    llmProvidersData?.pipelineComponents?.llmProviders ?? []
+  ).filter((p) => p.enabled !== false);
   const systemDefaultLlm =
     systemDefaultLlmData?.pipelineSettings?.defaultLlm ?? "";
 
