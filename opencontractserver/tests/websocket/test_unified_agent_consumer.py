@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import logging
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from urllib.parse import quote
 
 import pytest
@@ -718,43 +718,34 @@ class UnifiedAgentConsumerStreamingTestCase(WebsocketFixtureBaseTestCase):
 class UnifiedAgentConsumerTitleGenerationTestCase(WebsocketFixtureBaseTestCase):
     """Test conversation title generation for the unified agent consumer."""
 
-    @override_settings(
-        LLM_CLIENT_PROVIDER="openai",
-        LLM_CLIENT_MODEL="gpt-4o-mini",
-        OPENAI_API_KEY="test-key",
-    )
     async def test_title_generation_success(self) -> None:
-        """Title generation should produce a title from the initial query."""
-        with patch(
-            "opencontractserver.llms.client.create_client"
-        ) as mock_create_client:
-            mock_client = MagicMock()
-            mock_response = MagicMock()
-            mock_response.content = "Corpus Analysis"
-            mock_client.chat.return_value = mock_response
-            mock_create_client.return_value = mock_client
+        """Title generation should produce a title from the initial query.
 
+        Routes through the registry-backed ``agenerate_text`` helper so the
+        configured corpus / install-wide LLM is honoured (no hardcoded model).
+        """
+        with patch(
+            "opencontractserver.llms.completions.agenerate_text",
+            new=AsyncMock(return_value="Corpus Analysis"),
+        ) as mock_generate:
             consumer = UnifiedAgentConsumer()
             consumer.session_id = "test-session"
+            consumer.corpus = None
             title = await consumer._generate_conversation_title(
                 "What is this corpus about?"
             )
             self.assertEqual(title, "Corpus Analysis")
+            mock_generate.assert_awaited_once()
 
-    @override_settings(
-        LLM_CLIENT_PROVIDER="openai",
-        LLM_CLIENT_MODEL="gpt-4o-mini",
-        OPENAI_API_KEY="test-key",
-    )
     async def test_title_generation_fallback_on_error(self) -> None:
         """Title generation should return fallback on error."""
         with patch(
-            "opencontractserver.llms.client.create_client"
-        ) as mock_create_client:
-            mock_create_client.side_effect = Exception("API error")
-
+            "opencontractserver.llms.completions.agenerate_text",
+            new=AsyncMock(side_effect=Exception("API error")),
+        ):
             consumer = UnifiedAgentConsumer()
             consumer.session_id = "test-session"
+            consumer.corpus = None
             title = await consumer._generate_conversation_title("Test query")
             self.assertTrue(title.startswith("Conversation "))
 

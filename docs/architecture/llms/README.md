@@ -2269,21 +2269,31 @@ The framework includes a set of moderation tools for threaded discussion managem
 
 Moderation tools can be included by name via the `tools=` parameter (e.g., `tools=["lock_thread", "get_thread_context"]`). The `_resolve_tools()` function in [`api.py`](../../../opencontractserver/llms/api.py) maps these names to their async versions automatically.
 
-### SimpleLLMClient
+### One-shot completions (`agenerate_text`)
 
-For use cases that don't need the full agent framework (tool calling, conversation persistence, etc.), [`client.py`](../../../opencontractserver/llms/client.py) provides a lightweight `SimpleLLMClient`:
+For lightweight, non-agentic "infra" LLM calls that don't need tool calling or
+conversation persistence (e.g. conversation-title generation), use
+[`completions.py`](../../../opencontractserver/llms/completions.py)'s
+`agenerate_text`:
 
 ```python
-from opencontractserver.llms.client import create_client, Provider
+from opencontractserver.llms.completions import agenerate_text
 
-client = create_client(provider=Provider.OPENAI, model="gpt-4o-mini")
-response = await client.achat([
-    {"role": "user", "content": "Summarize this text..."}
-])
-print(response.content)
+title = await agenerate_text(
+    "Create a brief title for: What indemnities does this contract carry?",
+    instructions="You create concise (max 5 word) titles.",
+    corpus_preferred=corpus.preferred_llm,  # honour the corpus default
+)
 ```
 
-Supports OpenAI, Anthropic, and Google providers. This is used internally for simple LLM calls that don't require agent infrastructure.
+Unlike a hardcoded client, `agenerate_text` walks the **same model-resolution
+chain as the agent factory** — per-call `model=` → per-corpus
+`corpus_preferred` (`Corpus.preferred_llm`) → install-wide
+`PipelineSettings.default_llm` → Django settings — and builds the model through
+the credential-aware [`model_factory`](../../../opencontractserver/llms/model_factory.py),
+so it is provider-agnostic (OpenAI, Anthropic, Google, Ollama, …). Incidental
+LLM calls must use this helper rather than a hardcoded provider/model so they
+respect the configured Singleton LLM instead of silently bypassing it.
 
 ### Conversation Vector Stores
 

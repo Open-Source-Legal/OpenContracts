@@ -62,6 +62,8 @@ export interface ResolveCorpusFullQuery {
       id: string;
       title: string;
     } | null;
+    // pydantic-ai model spec for this corpus's agents (null = inherit default).
+    preferredLlm?: string | null;
     documentCount: number | null;
     annotationCount: number | null;
   } | null;

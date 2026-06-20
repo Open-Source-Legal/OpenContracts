@@ -318,6 +318,9 @@ export type RawCorpusType = Node & {
   annotationCount?: Scalars["Int"];
   labelSet?: Maybe<LabelSetType>;
   preferredEmbedder?: Maybe<Scalars["String"]>;
+  // pydantic-ai model spec ("provider:model") for this corpus's agents. Null
+  // means "inherit the install-wide PipelineSettings.default_llm".
+  preferredLlm?: Maybe<Scalars["String"]>;
   creator?: UserType;
   parent?: CorpusType;
   backendLock?: Scalars["Boolean"];
