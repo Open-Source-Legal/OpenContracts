@@ -122,6 +122,7 @@ class RunCorpusEnrichmentMutation(graphene.Mutation):
             # distinguish "malformed id" from "exists but not visible" (IDOR).
             return RunCorpusEnrichmentMutation(
                 ok=False,
+                partial=False,
                 message="Resource not found or you do not have permission.",
                 analyses=[],
             )
@@ -129,6 +130,7 @@ class RunCorpusEnrichmentMutation(graphene.Mutation):
         if not run_enrichment and not run_crawl:
             return RunCorpusEnrichmentMutation(
                 ok=False,
+                partial=False,
                 message="Select at least one job (runEnrichment or runCrawl).",
                 analyses=[],
             )
@@ -150,6 +152,7 @@ class RunCorpusEnrichmentMutation(graphene.Mutation):
                 if unknown:
                     return RunCorpusEnrichmentMutation(
                         ok=False,
+                        partial=False,
                         message=(
                             "Unknown reference type(s): "
                             + ", ".join(unknown)
@@ -180,6 +183,7 @@ class RunCorpusEnrichmentMutation(graphene.Mutation):
             if not res.ok:
                 return RunCorpusEnrichmentMutation(
                     ok=False,
+                    partial=False,
                     message=res.error,
                     analyses=[],
                 )
@@ -234,6 +238,7 @@ class RunCorpusEnrichmentMutation(graphene.Mutation):
                     )
                 return RunCorpusEnrichmentMutation(
                     ok=False,
+                    partial=False,
                     message=res.error,
                     analyses=[],
                 )

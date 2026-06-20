@@ -281,6 +281,7 @@ class RunCorpusEnrichmentMutationTests(TestCase):
         assert result.get("errors") is None, result
         data = result["data"]["runCorpusEnrichment"]
         assert data["ok"] is False
+        assert data["partial"] is False
         # The offending code is named so the caller knows what to fix.
         assert "INVALID_CODE" in data["message"]
         # Nothing was dispatched.
@@ -379,4 +380,6 @@ class RunCorpusEnrichmentMutationTests(TestCase):
         assert result.get("errors") is None, result
         data = result["data"]["runCorpusEnrichment"]
         assert data["ok"] is False
+        # `partial` is a concrete False (never null) on every ok=False path.
+        assert data["partial"] is False
         assert data["analyses"] == []
