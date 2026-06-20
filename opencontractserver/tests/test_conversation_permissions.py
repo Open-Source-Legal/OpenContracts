@@ -766,17 +766,26 @@ class TestConversationGroupGrants(TestCase):
         """Defensive branch (issue #1986 item 3): if the conversation
         group-permission model can't be resolved, the `except LookupError`
         must degrade to user-level grants only — no crash, group grant simply
-        ignored. Mirrors the `BaseVisibilityManager` group-table fallback."""
+        ignored, and already-resolved USER-level grants preserved (the two
+        lookups live in separate try blocks precisely for this). Mirrors the
+        `BaseVisibilityManager` group-table fallback."""
         import django.apps
 
-        chat = Conversation.objects.create(
-            title="Owner's Chat",
+        # Only a GROUP grant -> must vanish when the group table is unreadable.
+        group_only_chat = Conversation.objects.create(
+            title="Group-Only Chat",
             creator=self.owner,
             conversation_type=ConversationTypeChoices.CHAT,
         )
-        # A real group grant exists, but the simulated missing table means it
-        # cannot be consulted on this call.
-        assign_perm("read_conversation", self.group, chat)
+        assign_perm("read_conversation", self.group, group_only_chat)
+
+        # A USER-level grant -> must SURVIVE the missing group table.
+        user_granted_chat = Conversation.objects.create(
+            title="User-Granted Chat",
+            creator=self.owner,
+            conversation_type=ConversationTypeChoices.CHAT,
+        )
+        assign_perm("read_conversation", self.member, user_granted_chat)
 
         real_get_model = django.apps.apps.get_model
 
@@ -791,10 +800,12 @@ class TestConversationGroupGrants(TestCase):
         with patch.object(django.apps.apps, "get_model", side_effect=fake_get_model):
             visible = list(Conversation.objects.visible_to_user(self.member))
 
-        # No crash; the un-consultable group grant is ignored, so the member
-        # does not see the chat. The owner still sees their own (no patch).
-        self.assertNotIn(chat, visible)
-        self.assertIn(chat, Conversation.objects.visible_to_user(self.owner))
+        # No crash; the un-consultable group grant is ignored...
+        self.assertNotIn(group_only_chat, visible)
+        # ...but the separately-resolved user-level grant is NOT discarded.
+        self.assertIn(user_granted_chat, visible)
+        # Owner still sees their own (no patch active here).
+        self.assertIn(group_only_chat, Conversation.objects.visible_to_user(self.owner))
 
     def test_missing_message_group_table_falls_back_gracefully(self):
         """Defensive branch (issue #1986 item 3): the message-level
