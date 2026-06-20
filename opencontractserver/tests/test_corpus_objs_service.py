@@ -833,6 +833,42 @@ class TestFolderDelete_CascadeToTrash(_CorpusObjsServiceFolderTestBase):
         )
         self.assertIn(doc.id, [path.document_id for path in deleted])
 
+    def test_trash_documents_in_subtree_returns_count_via_bulk_primitive(self):
+        """``_trash_documents_in_subtree`` routes the descendant docs through the
+        bulk primitive and returns the count of distinct documents trashed.
+
+        Exercises the folder-cascade wiring directly (the count is discarded by
+        ``delete_folder``, so it is not otherwise asserted end-to-end)."""
+        parent, _ = FolderCRUDService.create_folder(
+            user=self.owner, corpus=self.corpus, name="Parent"
+        )
+        assert parent is not None
+        child, _ = FolderCRUDService.create_folder(
+            user=self.owner, corpus=self.corpus, name="Child", parent=parent
+        )
+        assert child is not None
+        self._make_doc_in_folder("P", "p.pdf", parent, "/Parent/p.pdf")
+        self._make_doc_in_folder("C", "c.pdf", child, "/Parent/Child/c.pdf")
+        self._make_doc_in_folder("C2", "c2.pdf", child, "/Parent/Child/c2.pdf")
+
+        # Called before the folder delete (folders still exist) — pure trash step.
+        trashed = FolderCRUDService._trash_documents_in_subtree(parent, self.owner)
+
+        # All three docs across the two-level sub-tree are trashed.
+        self.assertEqual(trashed, 3)
+        self.assertEqual(
+            DocumentPath.objects.filter(
+                corpus=self.corpus, is_current=True, is_deleted=True
+            ).count(),
+            3,
+        )
+        # No active, non-deleted path remains anywhere in the sub-tree.
+        self.assertFalse(
+            DocumentPath.objects.filter(
+                corpus=self.corpus, is_current=True, is_deleted=False
+            ).exists()
+        )
+
 
 class TestEmptyCorpus(_CorpusObjsServiceFolderTestBase):
     """
@@ -1085,6 +1121,33 @@ class TestBulkSoftDeletePrimitive(_CorpusObjsServiceFolderTestBase):
             )
 
         self.assertEqual(len(small_ctx), len(large_ctx))
+
+        # The ``is_public`` revocation branch is skipped for private corpora
+        # above, so prove it is ALSO O(1) in the document count: the
+        # still-in-public probe + revoke UPDATE are a fixed query pair, not
+        # per-document.
+        small_pub = Corpus.objects.create(
+            title="Small Public", creator=self.owner, is_public=True
+        )
+        large_pub = Corpus.objects.create(
+            title="Large Public", creator=self.owner, is_public=True
+        )
+        small_pub_ids = self._seed_docs(small_pub, 2, is_public=True)
+        large_pub_ids = self._seed_docs(large_pub, 6, is_public=True)
+
+        with CaptureQueriesContext(connection) as small_pub_ctx:
+            DocumentLifecycleService.bulk_soft_delete_documents(
+                small_pub, small_pub_ids, self.owner
+            )
+        with CaptureQueriesContext(connection) as large_pub_ctx:
+            DocumentLifecycleService.bulk_soft_delete_documents(
+                large_pub, large_pub_ids, self.owner
+            )
+
+        self.assertEqual(len(small_pub_ctx), len(large_pub_ctx))
+        # Public path costs the private path plus exactly the constant
+        # revocation query pair — still independent of the document count.
+        self.assertEqual(len(small_pub_ctx), len(small_ctx) + 2)
 
     def test_revokes_is_public_when_no_longer_in_a_public_corpus(self):
         """Trashing a doc out of its only public corpus revokes is_public

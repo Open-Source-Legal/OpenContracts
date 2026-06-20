@@ -485,6 +485,11 @@ class DocumentLifecycleService(BaseService):
         if not document_ids:
             return 0
 
+        # Self-contained transaction so a standalone/test caller still gets
+        # all-or-nothing semantics; when invoked from within a caller's
+        # ``transaction.atomic()`` (empty_corpus, folder cascade-delete) this is
+        # a cheap nested savepoint — matching ``Corpus.remove_document``'s own
+        # self-contained design.
         with transaction.atomic():
             # Lock + load the active head paths in one query. ``of=("self",)``
             # locks only the DocumentPath rows (not the joined Document), and
@@ -505,7 +510,14 @@ class DocumentLifecycleService(BaseService):
             if not active_paths:
                 return 0
 
-            # 1) Supersede every current head in a single UPDATE.
+            # 1) Supersede every current head in a single UPDATE. This bulk
+            #    ``.update()`` deliberately skips the per-row
+            #    ``post_save(created=False)`` that ``remove_document``'s
+            #    ``save(update_fields=["is_current"])`` would fire — safe because
+            #    every DocumentPath post_save receiver either early-returns on
+            #    created=False or recomputes from the new head created in step 2
+            #    (see the superseded-rows INVARIANT on
+            #    ``_dispatch_document_path_created_signals``).
             DocumentPath.objects.filter(pk__in=[p.pk for p in active_paths]).update(
                 is_current=False
             )
