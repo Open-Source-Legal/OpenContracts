@@ -360,3 +360,32 @@ class CrossCorpusLinkingTests(TestCase):
             f"/d/{auth_corpus.creator.slug}/{auth_corpus.slug}"
             f"/{ref.target_document.slug}"
         )
+
+    def test_resolved_target_without_current_path_is_not_promoted(self):
+        """Defensive guard (#1996): a target with no current navigable path must
+        NOT be promoted to RESOLVED with a null target_corpus (which would render
+        a broken link). Normally unreachable — find_authority_target only returns
+        documents with a current path — so it is exercised here by patching the
+        resolver to return a path-less document, simulating a path removed
+        between resolution and the corpus-path query.
+        """
+        EnrichmentService().apply(corpus_id=self.corpus.id, creator_id=self.user.id)
+        # A document with NO DocumentPath -> absent from path_corpus_cache.
+        orphan = Document.objects.create(title="Orphan authority", creator=self.user)
+
+        # Patch the symbol on the authorities module: _link_external imports it
+        # locally (`from ...authorities import find_authority_target`), so the
+        # name is resolved from that module at call time.
+        with mock.patch(
+            "opencontractserver.enrichment.authorities.find_authority_target",
+            return_value=orphan,
+        ):
+            out = EnrichmentService().link_external_references(
+                corpus_id=self.corpus.id, creator_id=self.user.id
+            )
+
+        assert out["law_references_linked"] == 0
+        ref = CorpusReference.objects.get(corpus=self.corpus, canonical_key="dgcl:145")
+        assert ref.resolution_status == C.STATUS_EXTERNAL
+        assert ref.target_document_id is None
+        assert ref.target_corpus_id is None
