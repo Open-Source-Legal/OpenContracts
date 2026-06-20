@@ -48,8 +48,13 @@ class MunicipalAbbreviationTableTests(SimpleTestCase):
         # Every table prefix must be ``muni-<city-slug>`` so it shares a
         # namespace with the open-vocab grammar (and classify_prefix recognises
         # it). A drifted prefix would silently fragment from its open-vocab twin.
+        # Assert through the PUBLIC classify_prefix surface (not the private
+        # _MUNI_PREFIX_RE) so the test pins the contract, not the implementation.
         for abbr, (prefix, _jur, _typ) in A.MUNICIPAL_CODE_ABBREVIATIONS.items():
-            assert C._MUNI_PREFIX_RE.match(prefix), (abbr, prefix)
+            assert C.classify_prefix(prefix)[1] == C.AUTHORITY_TYPE_MUNICIPAL, (
+                abbr,
+                prefix,
+            )
             assert prefix.startswith("muni-"), (abbr, prefix)
 
     def test_abbreviated_and_spelled_forms_share_one_prefix(self):

@@ -97,7 +97,15 @@ _MUNI_ORDINANCE_RE = re.compile(
 
 # Leading qualifiers stripped from a captured municipal city before slugging, so
 # "the Seattle Municipal Code" keys under ``muni-seattle`` not ``muni-the-seattle``.
-_CITY_STOPWORDS = frozenset({"the", "this", "said", "a", "an"})
+# "city"/"county" are stopwords too: a bare "City Municipal Code § 5" (template
+# placeholder, no real city) collapses to the honest ``muni:`` key instead of
+# inventing a ``muni-city`` authority. Only LEADING stopwords drop, so a trailing
+# qualifier in a real name survives ("Kansas City" -> ``muni-kansas-city``,
+# "Marin County" -> ``muni-marin-county``). The common "City of X" form never
+# reaches here as "city": the lowercase "of" breaks the capitalised run, so regex
+# backtracking starts the match at the real city ("City of Portland ..." captures
+# "Portland", keying ``muni-portland``).
+_CITY_STOPWORDS = frozenset({"the", "this", "said", "a", "an", "city", "county"})
 
 
 def _slugify(name: str) -> str:
@@ -363,10 +371,18 @@ class GenericCitationExtractor:
         table entry uses — so adding that city to MUNICIPAL_CODE_ABBREVIATIONS
         later seamlessly upgrades these mentions instead of orphaning them.
         ``authority_type`` is always ``municipal-ordinance``.
+
+        The ordinance form keys ``<prefix>:ord-<num>`` (a locator, not a code
+        section), so unlike the code-section form it is NOT table-upgradeable —
+        the table maps code names, not ordinance numbers. It exists to surface
+        the citation at low confidence, not to resolve to a known authority.
         """
 
         def _is_claimed(start: int, end: int) -> bool:
-            return any(not (end <= cs or start >= ce) for cs, ce in claimed)
+            # Overlap test (De Morgan of ``not (end <= cs or start >= ce)``):
+            # the spans intersect iff this one starts before another ends AND
+            # ends after it begins.
+            return any(start < ce and end > cs for cs, ce in claimed)
 
         for m in _MUNI_GENERIC_RE.finditer(text):
             if _is_claimed(m.start(), m.end()):

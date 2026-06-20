@@ -257,6 +257,27 @@ class MunicipalGenericGrammarTests(SimpleTestCase):
             "Berkeley Ordinance No. 7123 imposes"
         )
 
+    def test_ordinance_tolerates_ocr_double_space(self):
+        # The "Ordinance\\s+No." separator is \\s+, so an OCR double-space wrap
+        # between the words still matches.
+        assert "muni:ord-2021-15" in self._keys("see Ordinance  No. 2021-15 here")
+
+    def test_bare_city_placeholder_collapses_to_muni(self):
+        # A template placeholder "City Municipal Code § 5" (no real city name)
+        # must NOT invent a ``muni-city`` authority — "city"/"county" are
+        # stopwords, so it collapses to the honest bare ``muni:`` key.
+        assert "muni:5" in self._keys("City Municipal Code § 5")
+        assert "muni-city:5" not in self._keys("City Municipal Code § 5")
+        assert "muni:5" in self._keys("County Municipal Code § 5")
+
+    def test_trailing_city_qualifier_preserved(self):
+        # Only LEADING stopwords drop: a trailing "City"/"County" in a real
+        # place name survives so the authority isn't fragmented.
+        assert "muni-kansas-city:5" in self._keys("Kansas City Municipal Code § 5")
+        assert "muni-marin-county:7" in self._keys(
+            "Marin County Code of Ordinances § 7"
+        )
+
     def test_open_vocab_prefix_classifies_to_municipal(self):
         # An open-vocab city prefix must classify (never strand at None type).
         jur, typ = C.classify_prefix("muni-oakland")
@@ -296,6 +317,24 @@ class MunicipalFalsePositiveTests(SimpleTestCase):
 
     def test_plain_numbers_excluded(self):
         assert self._muni_keys("the company has 15 offices and 40 employees") == set()
+
+    def test_internal_ordinance_number_low_confidence_no_jurisdiction(self):
+        # The ordinance form has a deliberately LOWER precision bar than the code
+        # grammar (it needs no §/Section anchor), so internal procedural numbering
+        # like "Employee Ordinance No. 7" still matches (here keyed
+        # ``muni-employee`` — any capitalised lead word is taken as a pseudo-city).
+        # The tradeoff is documented by the invariants every such match carries:
+        # confidence below the table tier (<0.8) and a None jurisdiction, so
+        # downstream consumers can filter it. It never reaches the trusted tier.
+        muni = [
+            c
+            for c in self.ex.extract("governed by Employee Ordinance No. 7")
+            if c.authority_type == C.AUTHORITY_TYPE_MUNICIPAL
+        ]
+        assert muni  # the low-precision form does match (documented tradeoff)
+        for c in muni:
+            assert c.jurisdiction is None
+            assert c.detection_confidence < 0.8
 
 
 class MunicipalGoldenCorpusTests(SimpleTestCase):
