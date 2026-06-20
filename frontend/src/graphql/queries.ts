@@ -1067,13 +1067,13 @@ export interface GetCorpusAnalysesOutputs {
 
 export const GET_CORPUS_ANALYSES = gql`
   query GetCorpusAnalyses(
-    $corpusId: ID!
-    $statusExact: String
+    $corpusId: String!
+    $statusExact: AnalyzerAnalysisStatusChoices
     $taskNames: [String!]
   ) {
     analyses(
-      corpusId: $corpusId
-      status_Exact: $statusExact
+      analyzedCorpusId: $corpusId
+      status: $statusExact
       analyzer_TaskName_In: $taskNames
       first: 50
     ) {
