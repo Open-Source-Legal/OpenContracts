@@ -17,7 +17,7 @@ Key test scenarios:
 from types import SimpleNamespace
 
 from django.contrib.auth import get_user_model
-from django.contrib.auth.models import AnonymousUser
+from django.contrib.auth.models import AnonymousUser, Group
 from django.test import TestCase
 from guardian.shortcuts import assign_perm
 
@@ -30,6 +30,7 @@ from opencontractserver.conversations.models import (
 from opencontractserver.conversations.services import ConversationService
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
+from opencontractserver.types.enums import PermissionTypes
 
 User = get_user_model()
 
@@ -588,6 +589,177 @@ class TestChatMessageInheritedPermissions(TestCase):
         # Alice (corpus owner) can see Bob's message as moderator
         visible_to_alice = ChatMessage.objects.visible_to_user(self.alice)
         self.assertIn(message, visible_to_alice)
+
+    def test_anonymous_message_visibility_follows_conversation_bifurcation(self):
+        """Regression for issue #1986 item 2.
+
+        Anonymous ChatMessage visibility must mirror anonymous *conversation*
+        visibility (the CHAT/THREAD bifurcation): public THREADs — and threads
+        on public corpuses via context inheritance — are visible, but a public
+        CHAT's messages are NOT, because the conversation itself stays hidden
+        from anonymous users. The old anonymous branch filtered
+        ``conversation__is_public=True`` alone, which both leaked a public
+        CHAT's messages and missed context-inherited thread messages.
+        """
+        public_corpus = Corpus.objects.create(
+            title="Public Corpus",
+            creator=self.alice,
+            is_public=True,
+        )
+
+        # Public THREAD -> message visible to anonymous.
+        public_thread = Conversation.objects.create(
+            title="Public Thread",
+            creator=self.alice,
+            conversation_type=ConversationTypeChoices.THREAD,
+            is_public=True,
+        )
+        public_thread_msg = ChatMessage.objects.create(
+            conversation=public_thread,
+            creator=self.alice,
+            msg_type=MessageTypeChoices.HUMAN,
+            content="visible to anon",
+        )
+
+        # Public CHAT -> message must stay hidden (the item-2 leak): the
+        # conversation itself is anonymous-hidden, so its messages must be too.
+        public_chat = Conversation.objects.create(
+            title="Public Chat",
+            creator=self.alice,
+            conversation_type=ConversationTypeChoices.CHAT,
+            is_public=True,
+        )
+        public_chat_msg = ChatMessage.objects.create(
+            conversation=public_chat,
+            creator=self.alice,
+            msg_type=MessageTypeChoices.HUMAN,
+            content="must stay hidden from anon",
+        )
+
+        # THREAD on a public corpus (conversation NOT public) -> message
+        # visible via context inheritance, matching conversation visibility.
+        ctx_thread = Conversation.objects.create(
+            title="Thread on Public Corpus",
+            chat_with_corpus=public_corpus,
+            creator=self.alice,
+            conversation_type=ConversationTypeChoices.THREAD,
+            is_public=False,
+        )
+        ctx_thread_msg = ChatMessage.objects.create(
+            conversation=ctx_thread,
+            creator=self.alice,
+            msg_type=MessageTypeChoices.HUMAN,
+            content="visible via context inheritance",
+        )
+
+        # Private THREAD (on the private setUp corpus) -> message hidden.
+        private_thread = Conversation.objects.create(
+            title="Private Thread",
+            chat_with_corpus=self.corpus,
+            creator=self.alice,
+            conversation_type=ConversationTypeChoices.THREAD,
+            is_public=False,
+        )
+        private_thread_msg = ChatMessage.objects.create(
+            conversation=private_thread,
+            creator=self.alice,
+            msg_type=MessageTypeChoices.HUMAN,
+            content="hidden from anon",
+        )
+
+        visible = ChatMessage.objects.visible_to_user(AnonymousUser())
+
+        self.assertIn(public_thread_msg, visible)
+        self.assertNotIn(public_chat_msg, visible)  # the item-2 fix
+        self.assertIn(ctx_thread_msg, visible)
+        self.assertNotIn(private_thread_msg, visible)
+
+        public_corpus.delete()
+
+
+class TestConversationGroupGrants(TestCase):
+    """Group-level guardian READ grants must unlock conversations and messages.
+
+    Regression for issue #1986 item 3: ``ConversationQuerySet`` /
+    ``ChatMessageQuerySet`` consulted only USER object-permission tables.
+    Because ``user_can(READ)`` routes through ``visible_to_user`` for these
+    models, a group-only READ grant was both invisible in lists AND denied by
+    ``user_can(READ)`` — even though non-READ writes (``_default_user_can``)
+    honour the same group grant. The fix joins the group tables so filter and
+    check agree (the same gap PR #1985 closed for annotations / relationships /
+    extracts).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.owner = User.objects.create_user(
+            username="grant_owner", email="grant_owner@test.com", password="pw"
+        )
+        cls.member = User.objects.create_user(
+            username="grant_member", email="grant_member@test.com", password="pw"
+        )
+        cls.outsider = User.objects.create_user(
+            username="grant_outsider", email="grant_outsider@test.com", password="pw"
+        )
+        cls.group = Group.objects.create(name="conversation-readers")
+        cls.member.groups.add(cls.group)
+
+    def tearDown(self):
+        ChatMessage.all_objects.all().delete()
+        Conversation.all_objects.all().delete()
+
+    def test_group_read_grant_makes_conversation_visible_and_passes_user_can(self):
+        chat = Conversation.objects.create(
+            title="Owner's Chat",
+            creator=self.owner,
+            conversation_type=ConversationTypeChoices.CHAT,
+        )
+
+        # Before the grant: invisible in lists AND user_can(READ) denies.
+        self.assertNotIn(chat, Conversation.objects.visible_to_user(self.member))
+        self.assertFalse(
+            Conversation.objects.user_can(self.member, chat, PermissionTypes.READ)
+        )
+
+        assign_perm("read_conversation", self.group, chat)
+
+        # After the group grant: visible AND user_can(READ) grants (parity).
+        self.assertIn(chat, Conversation.objects.visible_to_user(self.member))
+        self.assertTrue(
+            Conversation.objects.user_can(self.member, chat, PermissionTypes.READ)
+        )
+
+        # A user NOT in the group still cannot see it.
+        self.assertNotIn(chat, Conversation.objects.visible_to_user(self.outsider))
+
+    def test_group_read_grant_makes_message_visible(self):
+        # A CHAT the member cannot otherwise see (not creator, not public).
+        chat = Conversation.objects.create(
+            title="Owner's Chat",
+            creator=self.owner,
+            conversation_type=ConversationTypeChoices.CHAT,
+        )
+        message = ChatMessage.objects.create(
+            conversation=chat,
+            creator=self.owner,
+            msg_type=MessageTypeChoices.HUMAN,
+            content="group-shared message",
+        )
+
+        # No grant -> message invisible (conversation is hidden too).
+        self.assertNotIn(message, ChatMessage.objects.visible_to_user(self.member))
+
+        # Direct message-level group grant unlocks it via the message branch.
+        assign_perm("read_chatmessage", self.group, message)
+
+        self.assertIn(message, ChatMessage.objects.visible_to_user(self.member))
+        # Parity: user_can(READ) on the message agrees with the list filter.
+        self.assertTrue(
+            ChatMessage.objects.user_can(self.member, message, PermissionTypes.READ)
+        )
+        # Outsider (not in the group) still cannot see it.
+        self.assertNotIn(message, ChatMessage.objects.visible_to_user(self.outsider))
 
 
 class TestConversationService(TestCase):

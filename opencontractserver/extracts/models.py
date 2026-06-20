@@ -404,8 +404,18 @@ class Datacell(BaseOCModel):
         if not self.data:
             self.data = {}
 
+        # ``validation_config`` is a nullable JSONField (``null=True``), so it
+        # can legitimately be ``None`` (explicitly cleared, or legacy rows —
+        # ``Column.clean`` itself guards with ``and self.validation_config``).
+        # Resolve the ``{}`` fallback once, up front: issue #1986 item 7 — the
+        # "required" check below previously read ``self.column.validation_config
+        # .get("required")`` *before* this guard, raising ``AttributeError:
+        # 'NoneType' object has no attribute 'get'`` whenever a manual-entry cell
+        # with no ``value`` key was validated on a column whose config was None.
+        config = self.column.validation_config or {}
+
         if "value" not in self.data:
-            if self.column.validation_config.get("required"):
+            if config.get("required"):
                 raise django.core.exceptions.ValidationError(
                     f"{self.column.name} is required"
                 )
@@ -413,7 +423,6 @@ class Datacell(BaseOCModel):
 
         value = self.data["value"]
         data_type = self.column.data_type
-        config = self.column.validation_config or {}
 
         # Skip further validation if value is None
         if value is None:
