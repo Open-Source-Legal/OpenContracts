@@ -355,3 +355,12 @@ class TestUSCodeValidation(SimpleTestCase):
             mock_safe.called,
             "safe_fetch_bytes must be called by _load_title_xml; raw HTTP must not be used",
         )
+        # Title ZIPs exceed the 50 MB default body cap, so the loader must pass
+        # the dedicated larger override rather than relying on the default.
+        from opencontractserver.constants.safe_http import OLRC_TITLE_ZIP_MAX_BYTES
+
+        self.assertEqual(
+            mock_safe.call_args.kwargs.get("max_bytes"),
+            OLRC_TITLE_ZIP_MAX_BYTES,
+            "_load_title_xml must request the OLRC title-ZIP size override",
+        )

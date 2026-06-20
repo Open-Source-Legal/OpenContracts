@@ -501,6 +501,53 @@ class BoundsTerminationTests(TransactionTestCase):
         # check (1000 >= 500) halts the loop before a second dequeue.
         self.assertEqual(summary["authorities_ingested"], 1)
 
+    def test_token_budget_halts_at_max_depth_zero(self):
+        """token_budget must still fire when max_depth=0.
+
+        Regression: token accounting used to live inside the
+        ``row.depth < max_depth`` re-extract guard, so a max_depth=0 crawl never
+        accumulated tokens_spent and the budget silently no-op'd — it would
+        ingest every row up to max_authorities. Accounting now happens on every
+        ingest regardless of depth, so the budget halts after the first
+        authority exactly as it does for max_depth>=1.
+        """
+        user = _make_user("token-budget-depth0-user")
+        self._make_queued_rows(5, mention_count=5)
+
+        with patch(
+            "opencontractserver.enrichment.services.crawl_authorities_service"
+            ".AuthorityDiscoveryService.discover_and_bootstrap",
+            side_effect=self._ingest_mock(corpus_id_start=6000),
+        ), patch(
+            "opencontractserver.enrichment.services.crawl_authorities_service"
+            ".EnrichmentService.apply",
+            return_value={"references_created": 0},
+        ), patch(
+            "opencontractserver.enrichment.services.crawl_authorities_service"
+            ".CorpusReferenceService.for_corpus",
+            return_value=_make_empty_corpus_ref_mock(),
+        ), patch(
+            "opencontractserver.enrichment.services.crawl_authorities_service"
+            ".AuthorityFrontierService.seed_from_wanted_authorities",
+            return_value={"frontier_created": 0, "frontier_updated": 0},
+        ), patch(
+            "opencontractserver.enrichment.services.crawl_authorities_service"
+            ".CrawlAuthoritiesService._estimate_tokens",
+            return_value=1000,
+        ):
+            summary = CrawlAuthoritiesService.crawl(
+                creator_id=user.id,
+                max_depth=0,  # the path that previously made token_budget a no-op
+                min_demand=1,
+                max_authorities=50,
+                per_jurisdiction_cap=100,
+                token_budget=500,  # less than one authority's 1000-token cost
+            )
+
+        self.assertEqual(summary["stop_reason"], "token_budget")
+        self.assertEqual(summary["authorities_ingested"], 1)
+        self.assertGreaterEqual(summary["tokens_spent_estimate"], 500)
+
     def test_summary_has_no_silent_truncation(self):
         """Summary always has required keys; frontier_residual sums to total row count."""
         user = _make_user("no-truncation-user")

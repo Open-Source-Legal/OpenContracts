@@ -41,6 +41,11 @@ def reseed(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
+        # 0089_authorityfrontier_deferred_cap_state is the Phase 5 leaf; it
+        # transitively pulls in 0088_authorityfrontier_gate_states → 0087 (and
+        # below). 0086_reseed is the parallel re-seed leaf that reached main
+        # independently. Depending on both collapses the two leaves into this
+        # single one after merging the Phase 4 base (which carries main).
         ("annotations", "0089_authorityfrontier_deferred_cap_state"),
         ("annotations", "0086_reseed_authority_namespaces_v2"),
     ]

@@ -24,7 +24,11 @@ class Migration(migrations.Migration):
                     ("unsupported", "No provider can_handle"),
                     (
                         "blocked_license",
-                        "Source found but license not on public-domain allowlist",
+                        "Provider license is not public-domain",
+                    ),
+                    (
+                        "blocked_domain",
+                        "Source domain not on the public-domain allowlist",
                     ),
                     (
                         "unlocated",
