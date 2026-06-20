@@ -128,16 +128,32 @@ class RunCorpusEnrichmentMutation(graphene.Mutation):
         created = []
 
         if run_enrichment:
-            analyzer = EnrichmentService.get_or_create_analyzer(user.id)
             input_data: dict[str, Any] = {
                 "use_llm": bool(getattr(options, "use_llm_tier", False) or False),
             }
             ref_types = getattr(options, "reference_types", None)
             if ref_types:
-                valid_types = [t for t in ref_types if t in C.ALL_REFERENCE_TYPES]
-                if valid_types:
-                    input_data["types"] = valid_types
+                # Reject unknown codes rather than silently dropping them. If we
+                # filtered to an empty ``valid_types`` and left ``types`` unset,
+                # the analyzer would fall through to scanning ALL reference types
+                # — the opposite of the caller's intent. Surface the bad codes so
+                # the caller knows their request was rejected, not modified.
+                unknown = [t for t in ref_types if t not in C.ALL_REFERENCE_TYPES]
+                if unknown:
+                    return RunCorpusEnrichmentMutation(
+                        ok=False,
+                        message=(
+                            "Unknown reference type(s): "
+                            + ", ".join(unknown)
+                            + ". Valid types: "
+                            + ", ".join(C.ALL_REFERENCE_TYPES)
+                            + "."
+                        ),
+                        analyses=[],
+                    )
+                input_data["types"] = list(ref_types)
 
+            analyzer = EnrichmentService.get_or_create_analyzer(user.id)
             logger.info(
                 "RunCorpusEnrichmentMutation: dispatching enrichment analyzer "
                 "analyzer_pk=%s corpus_pk=%s user=%s",
@@ -192,10 +208,25 @@ class RunCorpusEnrichmentMutation(graphene.Mutation):
                 require_corpus_update=True,
             )
             if not res.ok:
+                if created:
+                    # Partial success: the enrichment analysis was already
+                    # dispatched and is now running. Return ok=True with the
+                    # already-created row(s) and a non-fatal message so the
+                    # caller surfaces the running job instead of treating the
+                    # whole request as failed (and re-dispatching enrichment,
+                    # double-running it).
+                    return RunCorpusEnrichmentMutation(
+                        ok=True,
+                        message=(
+                            "Enrichment started, but the authority crawl could "
+                            f"not be dispatched: {res.error}"
+                        ),
+                        analyses=created,
+                    )
                 return RunCorpusEnrichmentMutation(
                     ok=False,
                     message=res.error,
-                    analyses=created,
+                    analyses=[],
                 )
             created.append(res.value)
 

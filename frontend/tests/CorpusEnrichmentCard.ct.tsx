@@ -39,7 +39,7 @@ const QUERY_VARS = {
 /** Empty job list — useEnrichmentJobs' on-mount fetch. */
 const EMPTY_QUERY_MOCK = {
   request: { query: GET_CORPUS_ANALYSES, variables: QUERY_VARS },
-  result: { data: { analyses: { edges: [] } } },
+  result: { data: { analyses: { totalCount: 0, edges: [] } } },
   maxUsageCount: 10,
 };
 

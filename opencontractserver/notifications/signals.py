@@ -150,13 +150,14 @@ def emit_analysis_status_notification(
     if ntype is None or instance.creator_id is None:
         return
 
-    # Only emit notifications for enrichment/crawl analyzers. Guard on
-    # analyzer_id FIRST (cheap, no I/O) and then run a single targeted query
-    # that BOTH gates and captures the task name. This avoids
-    # ``instance.analyzer.task_name`` — which hydrates the full Analyzer row via
-    # a deferred FK load on EVERY Analysis.save() across the system (doc
-    # analysis, extracts, …), not just enrichment runs — and lets the ``data``
-    # dict below reuse ``analyzer_task`` instead of triggering that FK load.
+    # The status + creator guards above already short-circuited the common
+    # no-notification cases with zero I/O. For the rows that remain, restrict to
+    # enrichment/crawl analyzers: check the cheap ``analyzer_id`` FK presence
+    # first, then run a single targeted query that BOTH gates on task_name AND
+    # captures it. This avoids ``instance.analyzer.task_name`` — which hydrates
+    # the full Analyzer row via a deferred FK load on EVERY qualifying
+    # Analysis.save() — and lets the ``data`` dict below reuse ``analyzer_task``
+    # instead of triggering that load.
     if instance.analyzer_id is None:
         return
     analyzer_task = (
@@ -169,22 +170,30 @@ def emit_analysis_status_notification(
     if analyzer_task is None:
         return
 
-    # Idempotent guard: skip if this (analysis, notification_type) already exists.
-    if Notification.objects.filter(analysis=instance, notification_type=ntype).exists():
-        return
-
+    # Idempotent creation backed by the partial unique constraint on
+    # (analysis, notification_type) — see ``Notification.Meta.constraints``.
+    # ``get_or_create`` collapses the old check-then-create pair (which two
+    # concurrent ``Analysis.post_save`` signals could both pass before either
+    # committed, producing duplicate notifications) into a single atomic upsert:
+    # under a race the losing writer's INSERT trips the constraint and
+    # ``get_or_create`` transparently returns the existing row (created=False).
     try:
-        notification = Notification.objects.create(
-            recipient_id=instance.creator_id,
-            notification_type=ntype,
+        notification, created = Notification.objects.get_or_create(
             analysis=instance,
-            data={
-                "analysis_id": instance.id,
-                "corpus_id": instance.analyzed_corpus_id,
-                "analyzer_task": analyzer_task,
-                "status": instance.status,
+            notification_type=ntype,
+            defaults={
+                "recipient_id": instance.creator_id,
+                "data": {
+                    "analysis_id": instance.id,
+                    "corpus_id": instance.analyzed_corpus_id,
+                    "analyzer_task": analyzer_task,
+                    "status": instance.status,
+                },
             },
         )
+        if not created:
+            # A concurrent (or earlier) save already produced this notification.
+            return
         logger.debug(
             "Created %s notification for analysis %s (recipient_id=%s)",
             ntype,

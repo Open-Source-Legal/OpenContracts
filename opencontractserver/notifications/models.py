@@ -103,6 +103,12 @@ class Notification(models.Model):
 
     analysis = models.ForeignKey(
         "analyzer.Analysis",
+        # CASCADE is deliberate: an analysis-status notification ("analysis 42
+        # is RUNNING / COMPLETE / FAILED") is meaningless once the analysis row
+        # is gone, so deleting an Analysis intentionally removes its
+        # notifications. These rows are transient UI signals, not an audit log —
+        # if that ever changes (e.g. retain a record of failed analyses), switch
+        # to SET_NULL and keep the analysis_id context in ``data``.
         on_delete=models.CASCADE,
         null=True,
         blank=True,
@@ -145,6 +151,19 @@ class Notification(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+        constraints = [
+            # Idempotency guard for analysis-status notifications: at most one
+            # notification per (analysis, notification_type). Partial (analysis
+            # NOT NULL) so it never constrains the many notification types that
+            # don't reference an analysis. This lets the analysis-status signal
+            # handler use an atomic ``get_or_create`` instead of a race-prone
+            # check-then-create (see notifications/signals.py).
+            models.UniqueConstraint(
+                fields=["analysis", "notification_type"],
+                condition=models.Q(analysis__isnull=False),
+                name="uniq_notification_per_analysis_type",
+            ),
+        ]
         indexes = [
             models.Index(fields=["recipient", "-created_at"]),
             models.Index(fields=["recipient", "is_read"]),

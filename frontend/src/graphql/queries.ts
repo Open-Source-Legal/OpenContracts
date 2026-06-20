@@ -1051,6 +1051,9 @@ export interface GetCorpusAnalysesInputs {
 
 export interface GetCorpusAnalysesOutputs {
   analyses: {
+    // Total matching analyses before the `first: 50` page cap — lets the UI
+    // tell the user when older runs are truncated from the list.
+    totalCount: number;
     edges: {
       node: {
         id: string;
@@ -1077,6 +1080,7 @@ export const GET_CORPUS_ANALYSES = gql`
       analyzer_TaskName_In: $taskNames
       first: 50
     ) {
+      totalCount
       edges {
         node {
           id

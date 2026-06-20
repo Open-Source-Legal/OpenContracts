@@ -137,8 +137,12 @@ class AnalysisLifecycleService(BaseService):
             )
             if corpus_obj is None:
                 return ServiceResult.failure(not_found_msg)
+            # Forward ``request`` so the UPDATE check shares the Tier-2
+            # permission cache when called from a GraphQL mutation (avoids a
+            # redundant permission DB hit); ``request`` is None for internal
+            # callers, which simply bypasses the cache.
             if require_corpus_update and not corpus_obj.user_can(
-                user, PermissionTypes.UPDATE
+                user, PermissionTypes.UPDATE, request=request
             ):
                 return ServiceResult.failure(not_found_msg)
 

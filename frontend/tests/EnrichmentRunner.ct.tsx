@@ -115,7 +115,7 @@ const RUN_MUTATION_MOCK = {
  */
 const EMPTY_QUERY_MOCK = {
   request: { query: GET_CORPUS_ANALYSES, variables: QUERY_VARS },
-  result: { data: { analyses: { edges: [] } } },
+  result: { data: { analyses: { totalCount: 0, edges: [] } } },
   maxUsageCount: 10,
 };
 
@@ -125,6 +125,7 @@ const RUNNING_QUERY_MOCK = {
   result: {
     data: {
       analyses: {
+        totalCount: 1,
         edges: [{ node: RUNNING_ANALYSIS }],
       },
     },
@@ -138,6 +139,7 @@ const COMPLETED_QUERY_MOCK = {
   result: {
     data: {
       analyses: {
+        totalCount: 1,
         edges: [{ node: COMPLETED_ANALYSIS }],
       },
     },
@@ -343,6 +345,7 @@ test.describe("EnrichmentRunner", () => {
       result: {
         data: {
           analyses: {
+            totalCount: 1,
             edges: [{ node: CREATED_ANALYSIS }],
           },
         },

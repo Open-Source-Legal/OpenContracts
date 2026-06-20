@@ -31,6 +31,12 @@ export interface EnrichmentJobListProps {
    * Rows already present (matched by id) in the fetched data are deduplicated.
    */
   extraJobs?: EnrichmentAnalysisRow[];
+  /**
+   * Server-reported total number of matching analyses, before the `first: 50`
+   * page cap. When it exceeds the number of fetched rows the list shows a
+   * truncation note so older runs aren't silently lost.
+   */
+  totalCount?: number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -126,6 +132,12 @@ const ResultSummary = styled.span`
   color: ${OS_LEGAL_COLORS.textSecondary};
 `;
 
+const TruncationNote = styled.div`
+  padding: 0.625rem 0.25rem 0;
+  font-size: 0.75rem;
+  color: ${OS_LEGAL_COLORS.textMuted};
+`;
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -173,6 +185,22 @@ function parseResultSummary(
   return null;
 }
 
+/**
+ * Format a whole-second elapsed duration: `< 60s → "Ns"`, `< 1h → "Nm Ns"`,
+ * else `"Nh Nm"`. Kept distinct from `utils/formatDuration` (which renders
+ * sub-second precision like "4.2s"): enrichment elapsed is always whole
+ * seconds and reads cleaner as "47s" / "2m 7s" for multi-minute crawls, which
+ * otherwise rendered as an unscannable raw second count (e.g. "127s").
+ */
+function formatElapsedSeconds(secs: number): string {
+  if (secs < 60) return `${secs}s`;
+  const minutes = Math.floor(secs / 60);
+  const seconds = secs % 60;
+  if (minutes < 60) return `${minutes}m ${seconds}s`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ${minutes % 60}m`;
+}
+
 function elapsedLabel(
   started: string | null | undefined,
   completed: string | null | undefined
@@ -182,7 +210,7 @@ function elapsedLabel(
   const endMs = new Date(completed).getTime();
   if (Number.isNaN(startMs) || Number.isNaN(endMs)) return null;
   const secs = Math.round((endMs - startMs) / 1000);
-  return `${secs}s`;
+  return formatElapsedSeconds(secs);
 }
 
 // ---------------------------------------------------------------------------
@@ -194,6 +222,7 @@ export const EnrichmentJobList: React.FC<EnrichmentJobListProps> = ({
   loading,
   error,
   extraJobs = [],
+  totalCount = null,
 }) => {
   if (loading) {
     return <LoadingState message="Loading enrichment jobs…" />;
@@ -230,64 +259,72 @@ export const EnrichmentJobList: React.FC<EnrichmentJobListProps> = ({
         {sorted.length === 0 ? (
           <EmptyState>No enrichment runs yet.</EmptyState>
         ) : (
-          <ScrollableTableWrapper $minWidth="640px">
-            <Table variant="minimal">
-              <Table.Head>
-                <Table.Row>
-                  <Table.HeadCell>Job</Table.HeadCell>
-                  <Table.HeadCell>Status</Table.HeadCell>
-                  <Table.HeadCell>Started</Table.HeadCell>
-                  <Table.HeadCell>Finished</Table.HeadCell>
-                  <Table.HeadCell>Elapsed</Table.HeadCell>
-                  <Table.HeadCell>Result</Table.HeadCell>
-                </Table.Row>
-              </Table.Head>
-              <Table.Body>
-                {sorted.map((job) => {
-                  const label = jobLabel(job.analyzer.taskName);
-                  const elapsed = elapsedLabel(
-                    job.analysisStarted,
-                    job.analysisCompleted
-                  );
-                  const summary = parseResultSummary(
-                    job.analyzer.taskName,
-                    job.resultMessage
-                  );
-                  const isFailed =
-                    (job.status ?? "").toLowerCase() === "failed";
+          <>
+            <ScrollableTableWrapper $minWidth="640px">
+              <Table variant="minimal">
+                <Table.Head>
+                  <Table.Row>
+                    <Table.HeadCell>Job</Table.HeadCell>
+                    <Table.HeadCell>Status</Table.HeadCell>
+                    <Table.HeadCell>Started</Table.HeadCell>
+                    <Table.HeadCell>Finished</Table.HeadCell>
+                    <Table.HeadCell>Elapsed</Table.HeadCell>
+                    <Table.HeadCell>Result</Table.HeadCell>
+                  </Table.Row>
+                </Table.Head>
+                <Table.Body>
+                  {sorted.map((job) => {
+                    const label = jobLabel(job.analyzer.taskName);
+                    const elapsed = elapsedLabel(
+                      job.analysisStarted,
+                      job.analysisCompleted
+                    );
+                    const summary = parseResultSummary(
+                      job.analyzer.taskName,
+                      job.resultMessage
+                    );
+                    const isFailed =
+                      (job.status ?? "").toLowerCase() === "failed";
 
-                  return (
-                    <Table.Row key={job.id} data-testid="enrichment-job-row">
-                      <Table.Cell>{label}</Table.Cell>
-                      <Table.Cell>
-                        <StatusBadge status={job.status} />
-                      </Table.Cell>
-                      <Table.Cell>
-                        {formatDateTime(job.analysisStarted)}
-                      </Table.Cell>
-                      <Table.Cell>
-                        {formatDateTime(job.analysisCompleted)}
-                      </Table.Cell>
-                      <Table.Cell>{elapsed ?? "—"}</Table.Cell>
-                      <Table.Cell>
-                        {isFailed && job.errorMessage ? (
-                          <StackedCell>
-                            <ErrorCell title={job.errorMessage}>
-                              {job.errorMessage}
-                            </ErrorCell>
-                          </StackedCell>
-                        ) : summary ? (
-                          <ResultSummary>{summary}</ResultSummary>
-                        ) : (
-                          "—"
-                        )}
-                      </Table.Cell>
-                    </Table.Row>
-                  );
-                })}
-              </Table.Body>
-            </Table>
-          </ScrollableTableWrapper>
+                    return (
+                      <Table.Row key={job.id} data-testid="enrichment-job-row">
+                        <Table.Cell>{label}</Table.Cell>
+                        <Table.Cell>
+                          <StatusBadge status={job.status} />
+                        </Table.Cell>
+                        <Table.Cell>
+                          {formatDateTime(job.analysisStarted)}
+                        </Table.Cell>
+                        <Table.Cell>
+                          {formatDateTime(job.analysisCompleted)}
+                        </Table.Cell>
+                        <Table.Cell>{elapsed ?? "—"}</Table.Cell>
+                        <Table.Cell>
+                          {isFailed && job.errorMessage ? (
+                            <StackedCell>
+                              <ErrorCell title={job.errorMessage}>
+                                {job.errorMessage}
+                              </ErrorCell>
+                            </StackedCell>
+                          ) : summary ? (
+                            <ResultSummary>{summary}</ResultSummary>
+                          ) : (
+                            "—"
+                          )}
+                        </Table.Cell>
+                      </Table.Row>
+                    );
+                  })}
+                </Table.Body>
+              </Table>
+            </ScrollableTableWrapper>
+            {totalCount != null && totalCount > fetchedJobs.length && (
+              <TruncationNote data-testid="enrichment-job-truncation">
+                Showing the {fetchedJobs.length} most recent of {totalCount}{" "}
+                runs.
+              </TruncationNote>
+            )}
+          </>
         )}
       </CardSegment>
     </div>
