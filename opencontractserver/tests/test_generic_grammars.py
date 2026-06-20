@@ -146,3 +146,208 @@ class GrammarRobustnessTests(SimpleTestCase):
         assert "tx-boc:21.401" in self._keys(
             "governed by Tex. Bus. Orgs.  Code § 21.401"
         )
+
+
+class MunicipalKnownGrammarTests(SimpleTestCase):
+    """Table-keyed municipal codes (issue #1995) → full jurisdiction."""
+
+    def setUp(self):
+        self.ex = GenericCitationExtractor()
+
+    def _keys(self, text):
+        return {c.canonical_key: c for c in self.ex.extract(text)}
+
+    def test_san_francisco_municipal_code(self):
+        c = self._keys("governed by San Francisco Municipal Code § 1234")[
+            "muni-san-francisco:1234"
+        ]
+        assert c.jurisdiction == "us-ca-san-francisco"
+        assert c.authority_type == C.AUTHORITY_TYPE_MUNICIPAL
+        assert c.detection_tier == C.DETECTION_TIER_GRAMMAR
+        assert c.reference_type == C.REF_LAW
+
+    def test_bluebook_abbreviation_shares_spelled_out_prefix(self):
+        # "S.F. Mun. Code" and "San Francisco Municipal Code" are ONE authority.
+        assert "muni-san-francisco:56.5" in self._keys("see S.F. Mun. Code § 56.5")
+
+    def test_multi_segment_section_locator(self):
+        # Municipal codes nest deeper than a single ".N" (Seattle: 6.02.010).
+        c = self._keys("per Seattle Municipal Code § 6.02.010")["muni-seattle:6.02.010"]
+        assert c.jurisdiction == "us-wa-seattle"
+
+    def test_nyc_administrative_code(self):
+        c = self._keys("violation of N.Y.C. Admin. Code § 27-2004")[
+            "muni-new-york:27-2004"
+        ]
+        assert c.jurisdiction == "us-ny-new-york"
+
+    def test_code_phrase_before_city(self):
+        assert "muni-chicago:1-2" in self._keys(
+            "under the Municipal Code of Chicago § 1-2"
+        )
+
+    def test_code_of_ordinances_form(self):
+        assert "muni-houston:10-1" in self._keys(
+            "Houston Code of Ordinances § 10-1 applies"
+        )
+
+    def test_confidence_below_structured_federal(self):
+        # "calibrated below structured federal cites" (issue #1995).
+        c = self._keys("San Francisco Municipal Code § 1234")["muni-san-francisco:1234"]
+        assert c.detection_confidence < 0.9
+
+    def test_known_code_does_not_double_emit_with_generic_shadow(self):
+        # The table pass claims the span; the open-vocab pass must skip it, so a
+        # known code yields exactly ONE municipal candidate (not table+generic).
+        cands = [
+            c
+            for c in self.ex.extract("San Francisco Municipal Code § 1234")
+            if c.authority_type == C.AUTHORITY_TYPE_MUNICIPAL
+        ]
+        assert len(cands) == 1, [c.canonical_key for c in cands]
+        assert cands[0].jurisdiction == "us-ca-san-francisco"
+
+    def test_tolerates_ocr_double_space(self):
+        assert "muni-san-francisco:1234" in self._keys(
+            "San Francisco  Municipal  Code § 1234"
+        )
+
+
+class MunicipalGenericGrammarTests(SimpleTestCase):
+    """Open-vocabulary municipal shape — cities NOT in the table."""
+
+    def setUp(self):
+        self.ex = GenericCitationExtractor()
+
+    def _keys(self, text):
+        return {c.canonical_key: c for c in self.ex.extract(text)}
+
+    def test_unknown_city_keyed_under_city_slug(self):
+        c = self._keys("Oakland Municipal Code § 5.04.010 requires")[
+            "muni-oakland:5.04.010"
+        ]
+        assert c.authority_type == C.AUTHORITY_TYPE_MUNICIPAL
+        # State unknown from free text — jurisdiction is honestly left None.
+        assert c.jurisdiction is None
+
+    def test_open_vocab_confidence_below_table(self):
+        c = self._keys("Oakland Municipal Code § 5")["muni-oakland:5"]
+        assert c.detection_confidence < 0.8  # below _CONF_MUNICIPAL
+
+    def test_bare_municipal_code_without_city(self):
+        c = self._keys("see the bare Municipal Code § 5.2 here")["muni:5.2"]
+        assert c.authority_type == C.AUTHORITY_TYPE_MUNICIPAL
+        assert c.jurisdiction is None
+
+    def test_section_word_and_sec_connectors(self):
+        assert "muni-oakland:5" in self._keys("Oakland Municipal Code Section 5")
+        assert "muni-oakland:5-1" in self._keys("Oakland Municipal Code Sec. 5-1")
+
+    def test_leading_article_stopword_stripped_from_city(self):
+        # "the Portland Municipal Code" -> muni-portland (not muni-the-portland).
+        assert "muni-portland:1" in self._keys("This Portland Municipal Code § 1")
+
+    def test_ordinance_form(self):
+        c = self._keys("pursuant to Ordinance No. 2021-15")["muni:ord-2021-15"]
+        assert c.authority_type == C.AUTHORITY_TYPE_MUNICIPAL
+        assert c.detection_confidence < 0.8
+
+    def test_city_qualified_ordinance(self):
+        assert "muni-berkeley:ord-7123" in self._keys(
+            "Berkeley Ordinance No. 7123 imposes"
+        )
+
+    def test_open_vocab_prefix_classifies_to_municipal(self):
+        # An open-vocab city prefix must classify (never strand at None type).
+        jur, typ = C.classify_prefix("muni-oakland")
+        assert typ == C.AUTHORITY_TYPE_MUNICIPAL
+        assert jur is None
+
+
+class MunicipalFalsePositiveTests(SimpleTestCase):
+    """Explicit false-positive guards (issue #1995 precision bar)."""
+
+    def setUp(self):
+        self.ex = GenericCitationExtractor()
+
+    def _muni_keys(self, text):
+        return {
+            c.canonical_key
+            for c in self.ex.extract(text)
+            if c.authority_type == C.AUTHORITY_TYPE_MUNICIPAL
+        }
+
+    def test_no_match_without_section_anchor(self):
+        # The required §/Section/Sec. + number is the core guard.
+        assert (
+            self._muni_keys("the city adopted a new Municipal Code last year") == set()
+        )
+
+    def test_lowercase_code_phrase_excluded(self):
+        assert self._muni_keys("the city updated its municipal code recently") == set()
+
+    def test_state_administrative_code_not_municipal(self):
+        # "Texas Administrative Code" is a STATE regulation, NOT a municipal code:
+        # "Administrative Code" must never be open-vocab-matched as municipal.
+        assert self._muni_keys("see the Texas Administrative Code § 1.5 here") == set()
+
+    def test_bare_ordinance_without_number_excluded(self):
+        assert self._muni_keys("the city passed an Ordinance last spring") == set()
+
+    def test_plain_numbers_excluded(self):
+        assert self._muni_keys("the company has 15 offices and 40 employees") == set()
+
+
+class MunicipalGoldenCorpusTests(SimpleTestCase):
+    """Golden cross-municipality corpus — one realistic multi-city paragraph."""
+
+    CORPUS = (
+        "The premises must comply with San Francisco Municipal Code § 1234 and "
+        "the Los Angeles Municipal Code § 12.21, as well as N.Y.C. Admin. Code "
+        "§ 27-2004. Operations in Washington follow Seattle Municipal Code "
+        "§ 6.02.010, while the Illinois site is governed by the Municipal Code "
+        "of Chicago § 1-2 and the Houston facility by the Houston Code of "
+        "Ordinances § 10-1. The Oakland Municipal Code § 5.04.010 also applies, "
+        "as does Ordinance No. 2021-15."
+    )
+
+    def setUp(self):
+        self.ex = GenericCitationExtractor()
+        self.by_key = {c.canonical_key: c for c in self.ex.extract(self.CORPUS)}
+
+    def test_all_known_municipalities_detected_with_jurisdiction(self):
+        expected = {
+            "muni-san-francisco:1234": "us-ca-san-francisco",
+            "muni-los-angeles:12.21": "us-ca-los-angeles",
+            "muni-new-york:27-2004": "us-ny-new-york",
+            "muni-seattle:6.02.010": "us-wa-seattle",
+            "muni-chicago:1-2": "us-il-chicago",
+            "muni-houston:10-1": "us-tx-houston",
+        }
+        for key, jur in expected.items():
+            assert key in self.by_key, f"missing {key}: {sorted(self.by_key)}"
+            assert self.by_key[key].jurisdiction == jur, key
+            assert self.by_key[key].authority_type == C.AUTHORITY_TYPE_MUNICIPAL
+
+    def test_open_vocab_city_and_ordinance_detected(self):
+        assert "muni-oakland:5.04.010" in self.by_key
+        assert self.by_key["muni-oakland:5.04.010"].jurisdiction is None
+        assert "muni:ord-2021-15" in self.by_key
+
+    def test_every_municipal_confidence_below_federal(self):
+        muni = [
+            c
+            for c in self.by_key.values()
+            if c.authority_type == C.AUTHORITY_TYPE_MUNICIPAL
+        ]
+        assert muni  # sanity: the corpus produced municipal mentions
+        assert all(c.detection_confidence < 0.9 for c in muni)
+
+    def test_cross_municipality_coverage(self):
+        # At least six distinct municipal authorities across five states.
+        prefixes = {
+            c.canonical_key.split(":", 1)[0]
+            for c in self.by_key.values()
+            if c.authority_type == C.AUTHORITY_TYPE_MUNICIPAL
+        }
+        assert len(prefixes) >= 6, prefixes
