@@ -20,7 +20,8 @@ export const EnrichmentJobListWrapper: React.FC<{
   loading?: boolean;
   error?: ApolloError;
   extraJobs?: EnrichmentAnalysisRow[];
-}> = ({ jobs, loading, error, extraJobs }) => (
+  totalCount?: number | null;
+}> = ({ jobs, loading, error, extraJobs, totalCount }) => (
   <MemoryRouter>
     <MockedProvider mocks={[]} addTypename={false}>
       <div style={{ padding: "1rem", maxWidth: 800 }}>
@@ -29,6 +30,7 @@ export const EnrichmentJobListWrapper: React.FC<{
           loading={loading}
           error={error}
           extraJobs={extraJobs}
+          totalCount={totalCount}
         />
       </div>
     </MockedProvider>

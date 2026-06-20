@@ -33,6 +33,27 @@ export function formatDuration(seconds?: number | null): string {
 }
 
 /**
+ * Formats a whole-second elapsed duration: `< 60s → "Ns"`, `< 1h → "Nm Ns"`,
+ * else `"Nh Nm"`. Distinct from {@link formatDuration} (which renders
+ * sub-second precision like "4.2s"): callers that measure in whole seconds
+ * (e.g. an analysis run's start→finish span) read cleaner as "47s" / "2m 7s"
+ * than as the unscannable raw second count "127s".
+ * @param secs - Whole-second elapsed duration (non-negative).
+ */
+export function formatElapsedSeconds(secs: number): string {
+  // Floor to whole seconds and clamp negatives (clock skew / out-of-order
+  // timestamps) so a fractional or negative input never renders e.g. "2m 7.5s"
+  // or "-5s". Callers pass whole seconds today, but this keeps the util safe.
+  const total = Math.max(0, Math.floor(secs));
+  if (total < 60) return `${total}s`;
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  if (minutes < 60) return `${minutes}m ${seconds}s`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ${minutes % 60}m`;
+}
+
+/**
  * Formats a document count with a correctly pluralised noun.
  * @param count - The number of documents
  * @returns e.g. "1 document" or "3 documents"

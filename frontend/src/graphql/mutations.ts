@@ -390,6 +390,12 @@ export interface RunCorpusEnrichmentOutputs {
   runCorpusEnrichment: {
     ok: boolean;
     message?: string | null;
+    /**
+     * True when some jobs dispatched but others failed (only meaningful when
+     * `ok` is true). Lets the UI show `message` as a warning without coupling
+     * to its text.
+     */
+    partial?: boolean | null;
     analyses: EnrichmentAnalysisRow[];
   };
 }
@@ -409,6 +415,7 @@ export const RUN_CORPUS_ENRICHMENT = gql`
     ) {
       ok
       message
+      partial
       analyses {
         id
         status
