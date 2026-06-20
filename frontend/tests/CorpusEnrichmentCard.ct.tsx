@@ -6,9 +6,10 @@
  *   1. Read-only visitors (canUpdate=false) see nothing rendered.
  *   2. Editors (canUpdate=true) see the enrichment card + job list.
  *
- * useEnrichmentJobs fires GET_CORPUS_ANALYSES on mount *regardless* of
- * canUpdate (the early `return null` happens after the hook call), so both
- * cases supply the list mock.
+ * The data hook lives in an inner component mounted only when canUpdate=true,
+ * so read-only visitors never fire GET_CORPUS_ANALYSES — that case supplies no
+ * mock, and a regression that fired the query would surface as an unmatched
+ * MockedProvider request.
  *
  * The JSX wrapper import is kept in its own statement, separate from the helper
  * imports below, per the Playwright CT split-import rule.
@@ -50,7 +51,7 @@ test.describe("CorpusEnrichmentCard", () => {
       <CorpusEnrichmentCardWrapper
         corpusId={CORPUS_ID}
         canUpdate={false}
-        mocks={[EMPTY_QUERY_MOCK]}
+        mocks={[]}
       />
     );
     await expect(component.getByTestId("corpus-enrichment-card")).toHaveCount(

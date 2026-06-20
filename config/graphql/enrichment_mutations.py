@@ -107,6 +107,11 @@ class RunCorpusEnrichmentMutation(graphene.Mutation):
             if type_name != "CorpusType" or not corpus_pk:
                 raise ValueError("invalid corpus ID")
         except Exception:
+            # Intentionally broad: ``from_global_id`` raises on non-base64 /
+            # malformed relay ids (binascii/UnicodeDecodeError, ValueError), and
+            # the explicit ``raise`` above covers a wrong type prefix. All map to
+            # the same generic not-found/no-permission response so a caller cannot
+            # distinguish "malformed id" from "exists but not visible" (IDOR).
             return RunCorpusEnrichmentMutation(
                 ok=False,
                 message="Resource not found or you do not have permission.",

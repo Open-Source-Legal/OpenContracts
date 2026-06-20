@@ -1,15 +1,11 @@
-import React, { useEffect, useState } from "react";
+import React from "react";
 import styled from "styled-components";
 import { Link2 } from "lucide-react";
 
 import { OS_LEGAL_COLORS } from "../../../../assets/configurations/osLegalStyles";
-import { EnrichmentAnalysisRow } from "../../../../graphql/mutations";
 import { EnrichmentRunner } from "../../../admin/enrichment/EnrichmentRunner";
 import { EnrichmentJobList } from "../../../admin/enrichment/EnrichmentJobList";
-import {
-  useEnrichmentJobs,
-  ACTIVE_STATUSES,
-} from "../../../admin/enrichment/useEnrichmentJobs";
+import { useOptimisticRows } from "../../../admin/enrichment/useOptimisticRows";
 
 /**
  * CorpusEnrichmentCard — compact card for corpus owners / editors to run and
@@ -79,23 +75,18 @@ export const CorpusEnrichmentCard: React.FC<CorpusEnrichmentCardProps> = ({
   corpusId,
   canUpdate,
 }) => {
-  const { jobs, refetch } = useEnrichmentJobs(corpusId);
-  const [optimistic, setOptimistic] = useState<EnrichmentAnalysisRow[]>([]);
-
-  // Prune optimistic rows that have now been confirmed by a real refetch.
-  useEffect(() => {
-    if (!optimistic.length) return;
-    const ids = new Set(jobs.map((j) => j.id));
-    if (optimistic.some((o) => ids.has(o.id))) {
-      setOptimistic((prev) => prev.filter((o) => !ids.has(o.id)));
-    }
-  }, [jobs]); // eslint-disable-line react-hooks/exhaustive-deps
-
+  // Gate BEFORE the data hook: read-only visitors render nothing and must not
+  // fire the enrichment-jobs query (one fewer request + WebSocket listener).
+  // The hook lives in the inner component so it is only mounted for editors.
   if (!canUpdate) return null;
+  return <CorpusEnrichmentCardInner corpusId={corpusId} />;
+};
 
-  const running = [...jobs, ...optimistic].some((j) =>
-    ACTIVE_STATUSES.includes(j.status ?? "")
-  );
+const CorpusEnrichmentCardInner: React.FC<{ corpusId: string }> = ({
+  corpusId,
+}) => {
+  const { jobs, optimistic, running, loading, error, handleRan } =
+    useOptimisticRows(corpusId);
 
   return (
     <Card data-testid="corpus-enrichment-card">
@@ -114,15 +105,15 @@ export const CorpusEnrichmentCard: React.FC<CorpusEnrichmentCardProps> = ({
         corpusId={corpusId}
         compact
         runningJobExists={running}
-        onRan={(rows) => {
-          // Prepend (don't replace) so a rapid second run doesn't discard the
-          // earlier optimistic rows before a refetch confirms them.
-          setOptimistic((prev) => [...rows, ...prev]);
-          refetch();
-        }}
+        onRan={handleRan}
       />
 
-      <EnrichmentJobList corpusId={corpusId} extraJobs={optimistic} />
+      <EnrichmentJobList
+        jobs={jobs}
+        loading={loading}
+        error={error}
+        extraJobs={optimistic}
+      />
     </Card>
   );
 };

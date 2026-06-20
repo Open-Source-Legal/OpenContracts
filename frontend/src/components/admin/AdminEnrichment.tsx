@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { useReactiveVar } from "@apollo/client";
 import { useNavigate } from "react-router-dom";
 import { Zap, ArrowLeft } from "lucide-react";
@@ -17,13 +17,9 @@ import {
 import { backendUserObj } from "../../graphql/cache";
 import { CorpusDropdown } from "../widgets/selectors/CorpusDropdown";
 import { CorpusType } from "../../types/graphql-api";
-import { EnrichmentAnalysisRow } from "../../graphql/mutations";
 import { EnrichmentRunner } from "./enrichment/EnrichmentRunner";
 import { EnrichmentJobList } from "./enrichment/EnrichmentJobList";
-import {
-  useEnrichmentJobs,
-  ACTIVE_STATUSES,
-} from "./enrichment/useEnrichmentJobs";
+import { useOptimisticRows } from "./enrichment/useOptimisticRows";
 
 // ---------------------------------------------------------------------------
 // Styled components (mirror IngestionMonitor shell styling)
@@ -117,28 +113,8 @@ interface EnrichmentPanelProps {
  * never inside a conditional block of the parent.
  */
 const EnrichmentPanel: React.FC<EnrichmentPanelProps> = ({ corpusId }) => {
-  const { jobs, refetch } = useEnrichmentJobs(corpusId);
-  const [optimistic, setOptimistic] = useState<EnrichmentAnalysisRow[]>([]);
-
-  // Prune optimistic rows that have now been confirmed by a real refetch.
-  useEffect(() => {
-    if (!optimistic.length) return;
-    const ids = new Set(jobs.map((j) => j.id));
-    if (optimistic.some((o) => ids.has(o.id))) {
-      setOptimistic((prev) => prev.filter((o) => !ids.has(o.id)));
-    }
-  }, [jobs]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const running = [...jobs, ...optimistic].some((j) =>
-    ACTIVE_STATUSES.includes(j.status ?? "")
-  );
-
-  const handleRan = (rows: EnrichmentAnalysisRow[]) => {
-    // Prepend (don't replace) so firing a second mutation before the first
-    // optimistic rows are confirmed by a refetch doesn't discard them.
-    setOptimistic((prev) => [...rows, ...prev]);
-    refetch();
-  };
+  const { jobs, optimistic, running, loading, error, handleRan } =
+    useOptimisticRows(corpusId);
 
   return (
     <ContentSection>
@@ -147,7 +123,12 @@ const EnrichmentPanel: React.FC<EnrichmentPanelProps> = ({ corpusId }) => {
         runningJobExists={running}
         onRan={handleRan}
       />
-      <EnrichmentJobList corpusId={corpusId} extraJobs={optimistic} />
+      <EnrichmentJobList
+        jobs={jobs}
+        loading={loading}
+        error={error}
+        extraJobs={optimistic}
+      />
     </ContentSection>
   );
 };

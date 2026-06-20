@@ -191,10 +191,11 @@ export const OS_LEGAL_COLORS = {
   provisionalText: "#4338ca",
 
   // Awaiting - amber theme for "found but not yet linked" reference states
-  // (the References-panel awaiting badge). Distinct shade from warning*.
-  /** Awaiting surface background - very light amber. */
+  // (the References-panel awaiting badge). Distinct from the yellow `warning*`
+  // palette: these are amber-50/amber-700.
+  /** Awaiting surface background - very light amber (amber-50). */
   awaitingSurface: "#fffbeb",
-  /** Awaiting text color - deep amber. */
+  /** Awaiting text color - amber (amber-700). */
   awaitingText: "#b45309",
 
   // Canvas paper - warm off-white tones for the governance-graph explorer
