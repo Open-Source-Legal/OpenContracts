@@ -200,6 +200,30 @@ class RunCorpusEnrichmentMutationTests(TestCase):
         assert data["ok"] is False
 
     # ------------------------------------------------------------------
+    # Security: a well-formed relay id of the WRONG type (e.g. DocumentType)
+    # must not have its numeric pk flow through as a corpus pk.
+    # ------------------------------------------------------------------
+
+    def test_rejects_wrong_global_id_type(self):
+        """``from_global_id`` decodes ``DocumentType:<pk>`` happily; the mutation
+        must reject any non-Corpus type prefix rather than relying on the
+        downstream visibility filter to (maybe) miss the smuggled pk."""
+        # Encode this corpus's own pk under a DocumentType prefix — without the
+        # type guard the numeric pk would resolve to the real corpus.
+        result = self._execute(
+            {
+                "corpusId": to_global_id("DocumentType", self.corpus.id),
+                "runEnrichment": True,
+                "runCrawl": False,
+            }
+        )
+        assert result.get("errors") is None, result
+        data = result["data"]["runCorpusEnrichment"]
+        assert data["ok"] is False
+        # Same generic message as the not-found path (no type oracle).
+        assert "not found" in data["message"].lower()
+
+    # ------------------------------------------------------------------
     # Error: READ-only user cannot trigger enrichment (requires UPDATE)
     # ------------------------------------------------------------------
 
