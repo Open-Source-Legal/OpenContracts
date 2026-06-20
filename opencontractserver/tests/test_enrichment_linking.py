@@ -295,6 +295,14 @@ class CrossCorpusLinkingTests(TestCase):
         auth = self._bootstrap_dgcl()
         auth_doc = Document.objects.get(custom_meta__canonical_key="dgcl:145")
 
+        # Premise: the bootstrapper left a current path in the auth corpus, so
+        # the tie-break below is between two real corpora (guards against a
+        # future setup change that would leave only the mirror path and make the
+        # assertion exercise nothing).
+        assert DocumentPath.objects.filter(
+            document=auth_doc, corpus_id=auth["corpus_id"], is_current=True
+        ).exists()
+
         # Same authority document, second current path in another visible corpus.
         second = Corpus.objects.create(title="Mirror DGCL", creator=self.user)
         self._mirror_path(auth_doc, second, self.user, "/documents/dgcl-145-mirror")
@@ -343,6 +351,7 @@ class CrossCorpusLinkingTests(TestCase):
         assert out["law_references_linked"] >= 1
         ref = CorpusReference.objects.get(corpus=self.corpus, canonical_key="dgcl:145")
         assert ref.resolution_status == C.STATUS_RESOLVED
+        assert ref.target_document is not None
         # The navigable (public) corpus wins over the lower-id private mirror.
         assert ref.target_corpus_id == auth_corpus.id
         assert ref.target_corpus_id != private_mirror.id

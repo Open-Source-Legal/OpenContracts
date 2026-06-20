@@ -662,12 +662,21 @@ class EnrichmentService:
                 continue
             target = target_cache.get(key)
             if target is not None:
+                target_corpus_id = path_corpus_cache.get(target.id)
+                if target_corpus_id is None:
+                    # find_authority_target only returns a document with a
+                    # current, non-deleted path, so target_corpus_id is normally
+                    # present; it can go missing only if that path is removed
+                    # between resolution and the path query above. Don't promote
+                    # to RESOLVED without a navigable target_corpus — that would
+                    # render the broken link this pass exists to prevent.
+                    continue
                 if (
                     ref.target_document_id != target.id
                     or ref.resolution_status != C.STATUS_RESOLVED
                 ):
                     ref.target_document = target
-                    ref.target_corpus_id = path_corpus_cache.get(target.id)
+                    ref.target_corpus_id = target_corpus_id
                     ref.resolution_status = C.STATUS_RESOLVED
                     # bulk_update bypasses auto_now — stamp ``modified``.
                     ref.modified = now
