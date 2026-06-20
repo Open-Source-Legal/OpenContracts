@@ -502,6 +502,13 @@ class DocumentLifecycleService(BaseService):
             # document concurrently trashed/removed after the snapshot is simply
             # absent here (skipped, never double-trashed) and one added after it
             # is left alone — the same semantics as the prior per-document loop.
+            #
+            # PERF/MEMORY: both ``document_ids`` and ``active_paths`` are fully
+            # materialized in memory, bounded by the in-scope document count —
+            # which the current callers (empty_corpus, folder cascade-delete)
+            # leave unbounded. Fine for realistic corpus sizes; this is the
+            # allocation point to revisit (chunk/iterate the doc set) before
+            # raising any hard document-count ceiling on these paths (#1951).
             active_paths = list(
                 DocumentPath.objects.select_for_update(of=("self",))
                 .select_related("document")
