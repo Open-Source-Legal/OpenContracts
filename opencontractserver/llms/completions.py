@@ -83,4 +83,6 @@ async def agenerate_text(
 
     agent = make_pydantic_ai_agent(built_model, **agent_kwargs)
     result = await agent.run(prompt)
+    # No output_type is set, so pydantic-ai returns a bare string; str() is a
+    # type-narrowing no-op here, not a defensive coercion around a structure.
     return str(result.output).strip()

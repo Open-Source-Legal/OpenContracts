@@ -178,7 +178,9 @@ export const LlmModelPicker: React.FC<LlmModelPickerProps> = ({
                       const spec = providerKey
                         ? `${providerKey}:${model}`
                         : model;
-                      const selected = value === spec;
+                      // Trim so a stray trailing space in the free-text input
+                      // still highlights the matching chip.
+                      const selected = value.trim() === spec;
                       return (
                         <button
                           key={spec}
@@ -191,10 +193,12 @@ export const LlmModelPicker: React.FC<LlmModelPickerProps> = ({
                             cursor: disabled ? "not-allowed" : "pointer",
                             borderRadius: "9999px",
                             background: selected
-                              ? "#e0e7ff"
+                              ? OS_LEGAL_COLORS.selectedBg
                               : OS_LEGAL_COLORS.surfaceHover,
                             border: `1px solid ${
-                              selected ? "#6366f1" : OS_LEGAL_COLORS.border
+                              selected
+                                ? OS_LEGAL_COLORS.selectedBorder
+                                : OS_LEGAL_COLORS.border
                             }`,
                             color: OS_LEGAL_COLORS.textPrimary,
                             opacity: disabled ? 0.6 : 1,
