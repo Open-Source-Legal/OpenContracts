@@ -840,7 +840,9 @@ class TestConversationGroupGrants(TestCase):
     def test_missing_message_group_table_falls_back_gracefully(self):
         """Defensive branch (issue #1986 item 3): the message-level
         `except LookupError` for the chat-message group-permission model must
-        degrade gracefully (group grant ignored, no crash)."""
+        degrade gracefully — group grant ignored, no crash, and already-resolved
+        USER-level message grants preserved (separate try blocks). Mirrors the
+        conversation counterpart's positive/negative assertions."""
         import django.apps
 
         chat = Conversation.objects.create(
@@ -848,13 +850,24 @@ class TestConversationGroupGrants(TestCase):
             creator=self.owner,
             conversation_type=ConversationTypeChoices.CHAT,
         )
-        message = ChatMessage.objects.create(
+        # Only a GROUP grant on the message -> must vanish when the group table
+        # is unreadable (the parent CHAT is hidden from the member too).
+        group_only_message = ChatMessage.objects.create(
             conversation=chat,
             creator=self.owner,
             msg_type=MessageTypeChoices.HUMAN,
             content="group-shared message",
         )
-        assign_perm("read_chatmessage", self.group, message)
+        assign_perm("read_chatmessage", self.group, group_only_message)
+
+        # A USER-level message grant -> must SURVIVE the missing group table.
+        user_granted_message = ChatMessage.objects.create(
+            conversation=chat,
+            creator=self.owner,
+            msg_type=MessageTypeChoices.HUMAN,
+            content="user-shared message",
+        )
+        assign_perm("read_chatmessage", self.member, user_granted_message)
 
         real_get_model = django.apps.apps.get_model
 
@@ -867,9 +880,10 @@ class TestConversationGroupGrants(TestCase):
         with patch.object(django.apps.apps, "get_model", side_effect=fake_get_model):
             visible = list(ChatMessage.objects.visible_to_user(self.member))
 
-        # The message group grant cannot be consulted and the parent CHAT is
-        # hidden, so the member does not see the message — and nothing raised.
-        self.assertNotIn(message, visible)
+        # Group-only message vanishes (table unreadable, parent CHAT hidden)...
+        self.assertNotIn(group_only_message, visible)
+        # ...but the separately-resolved user-level message grant is preserved.
+        self.assertIn(user_granted_message, visible)
 
 
 class TestConversationService(TestCase):
