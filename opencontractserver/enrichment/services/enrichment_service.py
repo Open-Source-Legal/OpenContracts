@@ -661,16 +661,16 @@ class EnrichmentService:
             if not key:  # queryset excludes None; guard for type-narrowing
                 continue
             target = target_cache.get(key)
-            if target is not None:
-                target_corpus_id = path_corpus_cache.get(target.id)
-                if target_corpus_id is None:
-                    # find_authority_target only returns a document with a
-                    # current, non-deleted path, so target_corpus_id is normally
-                    # present; it can go missing only if that path is removed
-                    # between resolution and the path query above. Don't promote
-                    # to RESOLVED without a navigable target_corpus — that would
-                    # render the broken link this pass exists to prevent.
-                    continue
+            # A navigable link needs BOTH a resolved authority document and a
+            # current corpus path to point into. The corpus is absent only in
+            # the tiny TOCTOU window where the target's path is deleted between
+            # find_authority_target (which requires a current path) and the path
+            # query above; treat that as unresolved so a stale RESOLVED ref is
+            # demoted rather than left pointing at a broken link.
+            target_corpus_id = (
+                path_corpus_cache.get(target.id) if target is not None else None
+            )
+            if target is not None and target_corpus_id is not None:
                 if (
                     ref.target_document_id != target.id
                     or ref.resolution_status != C.STATUS_RESOLVED
@@ -685,8 +685,9 @@ class EnrichmentService:
                 ref.target_document_id is not None
                 or ref.resolution_status == C.STATUS_RESOLVED
             ):
-                # Target no longer visible to the corpus's audience — degrade so
-                # the corpus never renders a broken link.
+                # Target gone, no longer audience-visible, or (rarely) its path
+                # vanished mid-pass — degrade so the corpus never renders a
+                # broken link.
                 ref.target_document_id = None
                 ref.target_corpus_id = None
                 ref.resolution_status = C.STATUS_EXTERNAL

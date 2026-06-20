@@ -389,3 +389,31 @@ class CrossCorpusLinkingTests(TestCase):
         assert ref.resolution_status == C.STATUS_EXTERNAL
         assert ref.target_document_id is None
         assert ref.target_corpus_id is None
+
+    def test_resolved_ref_demoted_when_target_loses_navigable_path(self):
+        """The flip side of the guard (#1996): a ref already RESOLVED from a
+        prior pass whose target loses its current navigable path must be DEMOTED
+        to EXTERNAL on the next pass — not left RESOLVED with a stale, broken
+        link. Same path-less-target simulation, but starting from a resolved ref.
+        """
+        self._bootstrap_dgcl()
+        EnrichmentService().apply(corpus_id=self.corpus.id, creator_id=self.user.id)
+        ref = CorpusReference.objects.get(corpus=self.corpus, canonical_key="dgcl:145")
+        assert ref.resolution_status == C.STATUS_RESOLVED  # precondition
+
+        orphan = Document.objects.create(title="Orphan authority", creator=self.user)
+        with mock.patch(
+            "opencontractserver.enrichment.authorities.find_authority_target",
+            return_value=orphan,
+        ):
+            out = EnrichmentService().link_external_references(
+                corpus_id=self.corpus.id, creator_id=self.user.id
+            )
+
+        assert out["links_demoted"] >= 1
+        ref.refresh_from_db()
+        assert ref.resolution_status == C.STATUS_EXTERNAL
+        assert ref.target_document_id is None
+        assert ref.target_corpus_id is None
+        # The mention stops rendering as a clickable link.
+        assert ref.source_annotation.link_url is None
