@@ -60,7 +60,13 @@ def cleanup_duplicate_analysis_notifications(apps, schema_editor):
 
 
 def reverse_cleanup(apps, schema_editor):
-    """No-op reverse: deleted duplicates were invalid and cannot be restored."""
+    """No-op reverse for the dedup step.
+
+    Reversing this migration drops the unique constraint/index automatically
+    (Django reverses ``AddConstraint`` with ``RemoveConstraint``); only the
+    one-time duplicate cleanup is irreversible — the deleted rows were invalid
+    duplicates and cannot be restored.
+    """
     pass
 
 

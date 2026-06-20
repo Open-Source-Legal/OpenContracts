@@ -44,6 +44,7 @@ mutation Run(
   ) {
     ok
     message
+    partial
     analyses {
       id
       status
@@ -297,12 +298,15 @@ class RunCorpusEnrichmentMutationTests(TestCase):
                 "corpusId": to_global_id("CorpusType", self.corpus.id),
                 "runEnrichment": True,
                 "runCrawl": False,
-                "options": {"referenceTypes": ["LAW", "DOCUMENT", "SECTION"]},
+                # Sourced from the constant so the test stays correct if the
+                # reference-type vocabulary changes.
+                "options": {"referenceTypes": list(C.ALL_REFERENCE_TYPES)},
             }
         )
         assert result.get("errors") is None, result
         data = result["data"]["runCorpusEnrichment"]
         assert data["ok"] is True
+        assert data["partial"] is False
         assert Analysis.objects.filter(
             analyzed_corpus=self.corpus,
             analyzer__task_name=C.ENRICHMENT_ANALYZER_TASK,
@@ -348,6 +352,9 @@ class RunCorpusEnrichmentMutationTests(TestCase):
         assert result.get("errors") is None, result
         data = result["data"]["runCorpusEnrichment"]
         assert data["ok"] is True
+        # partial=True flags the half-failure without coupling callers to the
+        # message text.
+        assert data["partial"] is True
         assert "crawl boom" in data["message"]
         # Only the enrichment row is returned (the crawl never started).
         assert len(data["analyses"]) == 1

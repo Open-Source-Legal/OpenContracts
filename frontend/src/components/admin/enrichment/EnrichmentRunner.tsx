@@ -314,11 +314,13 @@ export const EnrichmentRunner: React.FC<EnrichmentRunnerProps> = ({
       const payload = data?.runCorpusEnrichment;
       if (payload?.ok) {
         // Partial success (e.g. enrichment dispatched but the authority crawl
-        // failed) comes back ok=true with a descriptive message rather than the
-        // "SUCCESS" sentinel — surface it as a warning so the failed half isn't
-        // silently swallowed, while still recording the running job below.
-        if (payload.message && payload.message !== "SUCCESS") {
-          toast.warning(payload.message);
+        // failed) comes back ok=true with partial=true and a descriptive
+        // message — surface it as a warning so the failed half isn't silently
+        // swallowed, while still recording the running job below. Keying off the
+        // `partial` flag (not the message text) keeps the UI decoupled from the
+        // backend's exact success string.
+        if (payload.partial) {
+          toast.warning(payload.message ?? "Some jobs could not be dispatched");
         } else {
           toast.success("Enrichment started");
         }

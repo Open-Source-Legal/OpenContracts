@@ -9,6 +9,7 @@ import {
   formatCellValue,
   stripMarkdown,
   humanizeLabel,
+  formatElapsedSeconds,
 } from "../formatters";
 import { EXTRACT_GRID_CELL_TRUNCATE_LENGTH } from "../../assets/configurations/constants";
 
@@ -270,6 +271,26 @@ describe("formatters", () => {
     it("is robust to empty and malformed input", () => {
       expect(humanizeLabel("")).toBe("");
       expect(humanizeLabel("__")).toBe("");
+    });
+  });
+
+  describe("formatElapsedSeconds", () => {
+    it("renders whole seconds under a minute", () => {
+      expect(formatElapsedSeconds(0)).toBe("0s");
+      expect(formatElapsedSeconds(47)).toBe("47s");
+      expect(formatElapsedSeconds(59)).toBe("59s");
+    });
+
+    it("renders minutes and seconds from 1 minute up", () => {
+      expect(formatElapsedSeconds(60)).toBe("1m 0s");
+      expect(formatElapsedSeconds(127)).toBe("2m 7s");
+      expect(formatElapsedSeconds(3599)).toBe("59m 59s");
+    });
+
+    it("renders hours and minutes from 1 hour up", () => {
+      expect(formatElapsedSeconds(3600)).toBe("1h 0m");
+      expect(formatElapsedSeconds(3661)).toBe("1h 1m");
+      expect(formatElapsedSeconds(7325)).toBe("2h 2m");
     });
   });
 });

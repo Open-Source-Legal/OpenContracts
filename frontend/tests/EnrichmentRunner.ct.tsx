@@ -102,6 +102,7 @@ const RUN_MUTATION_MOCK = {
       runCorpusEnrichment: {
         ok: true,
         message: "SUCCESS",
+        partial: false,
         analyses: [RUNNING_ANALYSIS],
       },
     },

@@ -86,6 +86,14 @@ class RunCorpusEnrichmentMutation(graphene.Mutation):
     ok = graphene.Boolean()
     message = graphene.String()
     analyses = graphene.List(AnalysisType)
+    partial = graphene.Boolean(
+        description=(
+            "True when some requested jobs dispatched but others failed "
+            "(e.g. enrichment started but the crawl could not be dispatched). "
+            "Only meaningful when ``ok`` is True; lets callers surface the "
+            "non-fatal ``message`` without coupling to its text."
+        )
+    )
 
     @login_required
     def mutate(
@@ -217,6 +225,7 @@ class RunCorpusEnrichmentMutation(graphene.Mutation):
                     # double-running it).
                     return RunCorpusEnrichmentMutation(
                         ok=True,
+                        partial=True,
                         message=(
                             "Enrichment started, but the authority crawl could "
                             f"not be dispatched: {res.error}"
@@ -232,6 +241,7 @@ class RunCorpusEnrichmentMutation(graphene.Mutation):
 
         return RunCorpusEnrichmentMutation(
             ok=True,
+            partial=False,
             message="SUCCESS",
             analyses=created,
         )

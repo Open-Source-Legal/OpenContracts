@@ -13,7 +13,10 @@ import {
   ScrollableTableWrapper,
 } from "../../layout/SharedSegments";
 import { LoadingState, ErrorMessage } from "../../widgets/feedback";
-import { formatDateTime } from "../../../utils/formatters";
+import {
+  formatDateTime,
+  formatElapsedSeconds,
+} from "../../../utils/formatters";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -183,22 +186,6 @@ function parseResultSummary(
     // non-JSON or unexpected shape — degrade gracefully
   }
   return null;
-}
-
-/**
- * Format a whole-second elapsed duration: `< 60s → "Ns"`, `< 1h → "Nm Ns"`,
- * else `"Nh Nm"`. Kept distinct from `utils/formatDuration` (which renders
- * sub-second precision like "4.2s"): enrichment elapsed is always whole
- * seconds and reads cleaner as "47s" / "2m 7s" for multi-minute crawls, which
- * otherwise rendered as an unscannable raw second count (e.g. "127s").
- */
-function formatElapsedSeconds(secs: number): string {
-  if (secs < 60) return `${secs}s`;
-  const minutes = Math.floor(secs / 60);
-  const seconds = secs % 60;
-  if (minutes < 60) return `${minutes}m ${seconds}s`;
-  const hours = Math.floor(minutes / 60);
-  return `${hours}h ${minutes % 60}m`;
 }
 
 function elapsedLabel(
