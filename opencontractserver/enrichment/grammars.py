@@ -383,6 +383,14 @@ class GenericCitationExtractor:
         section), so unlike the code-section form it is NOT table-upgradeable —
         the table maps code names, not ordinance numbers. It exists to surface
         the citation at low confidence, not to resolve to a known authority.
+
+        Downstream note: every candidate from this open-vocab pass carries a
+        ``detection_confidence`` below the table tier and (for non-table cities)
+        ``jurisdiction=None``. Those two signals are the filter — consumers
+        should treat such mentions as PROVISIONAL (surfaced for discovery/review,
+        never promoted to the trusted tier) until corroborated, e.g. the city is
+        tabled. This matters most for the anchorless ordinance form, where any
+        capitalised lead word becomes a pseudo-city ("Employee Ordinance No. 7").
         """
 
         def _is_claimed(start: int, end: int) -> bool:

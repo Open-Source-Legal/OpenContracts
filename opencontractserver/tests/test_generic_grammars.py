@@ -181,6 +181,17 @@ class MunicipalKnownGrammarTests(SimpleTestCase):
         ]
         assert c.jurisdiction == "us-ny-new-york"
 
+    def test_nyc_municipal_code_form_resolves_to_table_prefix(self):
+        # "New York City Municipal Code" is tabled as an alias of NYC's
+        # Administrative Code, so it resolves to the single ``muni-new-york``
+        # authority (full jurisdiction) and does NOT fragment to the open-vocab
+        # ``muni-new-york-city`` slug that "New York City" (ends in "City") would
+        # otherwise yield. Guards the namespace-sharing invariant for NYC.
+        keys = self._keys("New York City Municipal Code § 27-2004")
+        assert "muni-new-york:27-2004" in keys
+        assert "muni-new-york-city:27-2004" not in keys
+        assert keys["muni-new-york:27-2004"].jurisdiction == "us-ny-new-york"
+
     def test_code_phrase_before_city(self):
         assert "muni-chicago:1-2" in self._keys(
             "under the Municipal Code of Chicago § 1-2"

@@ -71,17 +71,34 @@ MUNICIPAL_CODE_ABBREVIATIONS: dict[str, tuple[str, str, str]] = {
     # New York City, NY — the consolidated code IS the "Administrative Code"
     # ("Administrative Code" is intentionally kept OUT of the open-vocab grammar
     # because "Texas Administrative Code" is a STATE regulation, not municipal).
-    # NB: the slug is ``muni-new-york`` (NOT ``muni-new-york-city``). The
-    # open-vocab grammar would slug a literal "New York City Municipal Code" cite
-    # as ``muni-new-york-city`` — a DIFFERENT prefix — so any "New York City
-    # Municipal Code"/"Mun. Code" form added here later MUST also key
-    # ``muni-new-york`` to keep the two from fragmenting into rival authorities.
+    # ALL NYC forms key ``muni-new-york`` (NOT ``muni-new-york-city``). The
+    # informal "New York City Municipal Code"/"Mun. Code" spellings are tabled
+    # HERE as aliases precisely so they resolve to this one authority instead of
+    # fragmenting to the open-vocab ``muni-new-york-city`` slug — "New York City"
+    # ends in "City", which the open-vocab city-capture would otherwise carry
+    # into the key. Tabling them eliminates the fragmentation (vs merely warning
+    # about it). Any further NYC spelling added later must also key muni-new-york.
     "New York City Administrative Code": (
         "muni-new-york",
         "us-ny-new-york",
         C.AUTHORITY_TYPE_MUNICIPAL,
     ),
     "N.Y.C. Admin. Code": (
+        "muni-new-york",
+        "us-ny-new-york",
+        C.AUTHORITY_TYPE_MUNICIPAL,
+    ),
+    "New York City Municipal Code": (
+        "muni-new-york",
+        "us-ny-new-york",
+        C.AUTHORITY_TYPE_MUNICIPAL,
+    ),
+    "New York City Mun. Code": (
+        "muni-new-york",
+        "us-ny-new-york",
+        C.AUTHORITY_TYPE_MUNICIPAL,
+    ),
+    "N.Y.C. Mun. Code": (
         "muni-new-york",
         "us-ny-new-york",
         C.AUTHORITY_TYPE_MUNICIPAL,
