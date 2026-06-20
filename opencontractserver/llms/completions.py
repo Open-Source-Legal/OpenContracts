@@ -17,7 +17,7 @@ sanctioned ``pydantic_ai.Agent`` construction chokepoint
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Any
 
 from asgiref.sync import sync_to_async
 
@@ -27,11 +27,11 @@ logger = logging.getLogger(__name__)
 async def agenerate_text(
     prompt: str,
     *,
-    instructions: Optional[str] = None,
-    model: Optional[str] = None,
-    corpus_preferred: Optional[str] = None,
+    instructions: str | None = None,
+    model: str | None = None,
+    corpus_preferred: str | None = None,
     temperature: float = 0.7,
-    max_tokens: Optional[int] = None,
+    max_tokens: int | None = None,
 ) -> str:
     """Run a single-turn LLM completion using the project LLM registry.
 
