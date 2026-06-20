@@ -495,7 +495,9 @@ class DocumentLifecycleService(BaseService):
             # locks only the DocumentPath rows (not the joined Document), and
             # ``select_related("document")`` caches ``document`` so the replayed
             # embedding signal (which reads ``instance.document``) doesn't issue
-            # a query per row.
+            # a query per row. ``order_by("pk")`` gives a deterministic
+            # lock-acquisition order (deadlock hygiene against concurrent
+            # sessions) — it is load-bearing, not cosmetic.
             #
             # ``document_ids`` is a caller-supplied snapshot (e.g. empty_corpus's
             # ``values_list``); this locked SELECT re-validates active state, so a

@@ -968,6 +968,30 @@ class TestEmptyCorpus(_CorpusObjsServiceFolderTestBase):
             ).exists()
         )
 
+    def test_empty_corpus_routes_through_bulk_primitive(self):
+        """empty_corpus delegates the soft-delete to bulk_soft_delete_documents
+        with the corpus' active doc ids — guards against a regression back to a
+        per-document loop (which the outcome-only tests would not catch)."""
+        folder, _ = FolderCRUDService.create_folder(
+            user=self.owner, corpus=self.corpus, name="F"
+        )
+        assert folder is not None
+        root_doc = self._make_doc_in_folder("root", "r.pdf", None, "/r.pdf")
+        folder_doc = self._make_doc_in_folder("infolder", "f.pdf", folder, "/F/f.pdf")
+
+        with patch.object(
+            DocumentLifecycleService,
+            "bulk_soft_delete_documents",
+            return_value=2,
+        ) as mock_bulk:
+            DocumentLifecycleService.empty_corpus(user=self.owner, corpus=self.corpus)
+
+        mock_bulk.assert_called_once()
+        args = mock_bulk.call_args.args
+        self.assertEqual(args[0], self.corpus)
+        self.assertCountEqual(args[1], [root_doc.id, folder_doc.id])
+        self.assertEqual(args[2], self.owner)
+
 
 class TestBulkSoftDeletePrimitive(_CorpusObjsServiceFolderTestBase):
     """
@@ -1136,6 +1160,10 @@ class TestBulkSoftDeletePrimitive(_CorpusObjsServiceFolderTestBase):
                 large, large_ids, self.owner
             )
 
+        # Floor so the equality below isn't vacuously satisfied by 0 == 0 (a
+        # regression that silently skips all work): real trashing always runs at
+        # least the SELECT-FOR-UPDATE + is_current UPDATE + bulk_create.
+        self.assertGreaterEqual(len(small_ctx), 3)
         self.assertEqual(len(small_ctx), len(large_ctx))
 
         # The ``is_public`` revocation branch is skipped for private corpora
