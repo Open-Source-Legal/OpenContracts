@@ -1075,6 +1075,30 @@ class TestBulkSoftDeletePrimitive(_CorpusObjsServiceFolderTestBase):
             # Document itself survives — restorable from trash.
             self.assertTrue(Document.objects.filter(id=doc_id).exists())
 
+    def test_soft_delete_node_inherits_folder_id_from_superseded_head(self):
+        """The successor node copies ``folder_id`` from the head it supersedes —
+        the caller's folder-tree teardown relies on that FK being present so the
+        SET_NULL cascade clears it (a document trashed from a folder then shows
+        no original folder, like one trashed from root)."""
+        folder, _ = FolderCRUDService.create_folder(
+            user=self.owner, corpus=self.corpus, name="F"
+        )
+        assert folder is not None
+        doc = self._make_doc_in_folder("d", "d.pdf", folder, "/F/d.pdf")
+
+        DocumentLifecycleService.bulk_soft_delete_documents(
+            self.corpus, [doc.id], self.owner
+        )
+
+        old_head = DocumentPath.objects.get(
+            document_id=doc.id, corpus=self.corpus, is_current=False
+        )
+        new_head = DocumentPath.objects.get(
+            document_id=doc.id, corpus=self.corpus, is_current=True
+        )
+        self.assertEqual(old_head.folder_id, folder.id)
+        self.assertEqual(new_head.folder_id, folder.id)
+
     def test_returns_distinct_document_count(self):
         """Count is distinct documents trashed; re-trashing trashed ids is 0."""
         doc_ids = self._seed_docs(self.corpus, 4)

@@ -577,6 +577,12 @@ class DocumentLifecycleService(BaseService):
             #    ``Corpus.remove_document``). Runs after the writes above so the
             #    just-trashed heads are already ``is_current=False`` and are
             #    correctly excluded from the "still public" probe.
+            #
+            #    The ``corpus.is_public`` gate is an intentional carry-over from
+            #    ``Corpus.remove_document``: trashing a document out of a PRIVATE
+            #    corpus never revokes ``is_public`` (a doc flagged public while
+            #    living in a private corpus is left as-is), matching the
+            #    single-document path rather than introducing a new asymmetry.
             if corpus.is_public:
                 still_in_public = set(
                     DocumentPath.objects.filter(
@@ -586,7 +592,9 @@ class DocumentLifecycleService(BaseService):
                         is_deleted=False,
                     ).values_list("document_id", flat=True)
                 )
-                revoke_ids = [d for d in trashed_doc_ids if d not in still_in_public]
+                # Both operands are sets — set difference is clearer (and
+                # marginally cheaper) than a membership-test comprehension.
+                revoke_ids = list(trashed_doc_ids - still_in_public)
                 if revoke_ids:
                     Document.objects.filter(id__in=revoke_ids, is_public=True).update(
                         is_public=False
