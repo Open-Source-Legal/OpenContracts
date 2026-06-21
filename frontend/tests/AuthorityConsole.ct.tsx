@@ -14,8 +14,12 @@ import {
   GET_AUTHORITY_NAMESPACES,
   GET_AUTHORITY_NAMESPACE_STATS,
   GET_AUTHORITY_NAMESPACE_DETAIL,
+  GET_AUTHORITY_KEY_EQUIVALENCES,
+  GET_AUTHORITY_MAPPING_STATS,
 } from "../src/graphql/queries";
+import { CREATE_AUTHORITY_KEY_EQUIVALENCE } from "../src/graphql/mutations";
 import { REGISTRY_PAGE_SIZE } from "../src/components/admin/authority/shared/authorityVocab";
+import { AUTHORITY_MAPPINGS_PAGE_SIZE } from "../src/assets/configurations/constants";
 import { docScreenshot } from "./utils/docScreenshot";
 
 const STATS = {
@@ -246,9 +250,9 @@ test.describe("AuthorityConsole", () => {
       page.locator('[data-testid="detail-alias-securities act"]')
     ).toBeVisible();
     // Relationships + discovery sections render their joined rows.
-    await expect(
-      page.locator('[data-testid="detail-equivalence-row"]')
-    ).toHaveCount(1);
+    await expect(page.locator('[data-testid="detail-equiv-row"]')).toHaveCount(
+      1
+    );
     await expect(
       page.locator('[data-testid="detail-frontier-row"]')
     ).toHaveCount(1);
@@ -274,6 +278,168 @@ test.describe("AuthorityConsole", () => {
     await expect(
       page.locator('[data-testid="authority-registry-tab"]')
     ).toHaveCount(0);
+
+    await component.unmount();
+  });
+
+  // ---- Aliases & Relationships tab (absorbed AuthorityMappings) ----------- //
+
+  const MAPPING_STATS = {
+    totalCount: 2,
+    bySource: [
+      { source: "manual", count: 1 },
+      { source: "baseline", count: 1 },
+    ],
+  };
+
+  const equivNode = (over: Record<string, unknown>) => ({
+    node: {
+      id: `KE:${over.fromKey}`,
+      fromKey: "x",
+      toKey: "y",
+      source: "baseline",
+      confidence: null,
+      note: null,
+      created: "2026-06-01T00:00:00Z",
+      modified: "2026-06-01T00:00:00Z",
+      editable: false,
+      createdByUsername: null,
+      ...over,
+    },
+  });
+
+  const EQUIV_ROWS = [
+    equivNode({
+      fromKey: "securities-act:5",
+      toKey: "usc-15:77e",
+      source: "manual",
+      editable: true,
+      createdByUsername: "admin",
+    }),
+    equivNode({ fromKey: "irc:501", toKey: "usc-26:501", source: "baseline" }),
+  ];
+
+  const mappingStatsMock = () => ({
+    request: {
+      query: GET_AUTHORITY_MAPPING_STATS,
+      variables: { search: null },
+    },
+    result: { data: { authorityMappingStats: MAPPING_STATS } },
+  });
+
+  const equivListMock = () => ({
+    request: {
+      query: GET_AUTHORITY_KEY_EQUIVALENCES,
+      variables: {
+        source: null,
+        search: null,
+        first: AUTHORITY_MAPPINGS_PAGE_SIZE,
+        after: null,
+      },
+    },
+    result: {
+      data: {
+        authorityKeyEquivalences: {
+          pageInfo: { hasNextPage: false, endCursor: null },
+          edges: EQUIV_ROWS,
+        },
+      },
+    },
+  });
+
+  test("the Aliases & Relationships tab renders chips, rows, and manual-only edit", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mountConsole(
+      mount,
+      [
+        mappingStatsMock(),
+        mappingStatsMock(),
+        equivListMock(),
+        equivListMock(),
+      ],
+      true,
+      "/admin/authority/mappings"
+    );
+
+    await expect(
+      page.locator('[data-testid="authority-mappings-tab"]')
+    ).toBeVisible({ timeout: 15000 });
+    await expect(
+      page.locator('[data-testid="mappings-source-chip-manual"]')
+    ).toContainText("Manual");
+    await expect(page.locator('[data-testid="mappings-row"]')).toHaveCount(2);
+    // Only the manual row exposes edit; the baseline row is read-only.
+    await expect(page.locator('[data-testid="mappings-edit"]')).toHaveCount(1);
+    await expect(
+      page.locator('[data-testid="mappings-create-form"]')
+    ).toBeVisible();
+
+    await docScreenshot(page, "authorities--console-mappings--with-data");
+
+    await component.unmount();
+  });
+
+  test("the Aliases & Relationships tab create form submits a new bridge", async ({
+    mount,
+    page,
+  }) => {
+    const createMock = {
+      request: {
+        query: CREATE_AUTHORITY_KEY_EQUIVALENCE,
+        variables: {
+          fromKey: "investment-advisers-act:206",
+          toKey: "usc-15:80b-6",
+          note: null,
+        },
+      },
+      result: {
+        data: {
+          createAuthorityKeyEquivalence: {
+            ok: true,
+            message: "Mapping created.",
+            obj: {
+              id: "KE:new",
+              fromKey: "investment-advisers-act:206",
+              toKey: "usc-15:80b-6",
+              source: "manual",
+              confidence: null,
+              note: null,
+              editable: true,
+              createdByUsername: "admin",
+              modified: "2026-06-18T00:00:00Z",
+            },
+          },
+        },
+      },
+    };
+
+    const component = await mountConsole(
+      mount,
+      [
+        { ...mappingStatsMock(), maxUsageCount: 20 },
+        { ...mappingStatsMock(), maxUsageCount: 20 },
+        { ...equivListMock(), maxUsageCount: 20 },
+        { ...equivListMock(), maxUsageCount: 20 },
+        createMock,
+      ],
+      true,
+      "/admin/authority/mappings"
+    );
+
+    await expect(
+      page.locator('[data-testid="mappings-create-form"]')
+    ).toBeVisible({ timeout: 15000 });
+    await page
+      .locator('[data-testid="mappings-new-from"]')
+      .fill("investment-advisers-act:206");
+    await page.locator('[data-testid="mappings-new-to"]').fill("usc-15:80b-6");
+    await page.locator('[data-testid="mappings-create-submit"]').click();
+
+    await expect(page.getByText("Mapping created.")).toBeVisible({
+      timeout: 10000,
+    });
 
     await component.unmount();
   });

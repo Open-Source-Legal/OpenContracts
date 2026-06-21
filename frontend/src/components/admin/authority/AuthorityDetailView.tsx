@@ -29,12 +29,21 @@ import {
   GET_AUTHORITY_NAMESPACE_DETAIL,
 } from "../../../graphql/queries";
 import {
+  CreateAuthorityKeyEquivalenceInputs,
+  CreateAuthorityKeyEquivalenceOutputs,
+  CREATE_AUTHORITY_KEY_EQUIVALENCE,
+  DeleteAuthorityKeyEquivalenceInputs,
+  DeleteAuthorityKeyEquivalenceOutputs,
+  DELETE_AUTHORITY_KEY_EQUIVALENCE,
   DeleteAuthorityNamespaceInputs,
   DeleteAuthorityNamespaceOutputs,
   DELETE_AUTHORITY_NAMESPACE,
   SetAuthorityNamespaceAliasesInputs,
   SetAuthorityNamespaceAliasesOutputs,
   SET_AUTHORITY_NAMESPACE_ALIASES,
+  UpdateAuthorityKeyEquivalenceInputs,
+  UpdateAuthorityKeyEquivalenceOutputs,
+  UPDATE_AUTHORITY_KEY_EQUIVALENCE,
   UpdateAuthorityNamespaceInputs,
   UpdateAuthorityNamespaceOutputs,
   UPDATE_AUTHORITY_NAMESPACE,
@@ -55,6 +64,10 @@ import {
   scopeLabel,
   scopeTone,
 } from "./shared/authorityVocab";
+import {
+  KeyEquivalenceCreateForm,
+  KeyEquivalenceTable,
+} from "./shared/KeyEquivalenceEditor";
 
 const DETAIL_TABLE_MIN_WIDTH_PX = 720;
 
@@ -256,6 +269,19 @@ export const AuthorityDetailView: React.FC<AuthorityDetailViewProps> = ({
     DeleteAuthorityNamespaceOutputs,
     DeleteAuthorityNamespaceInputs
   >(DELETE_AUTHORITY_NAMESPACE);
+  const [createEquivalence, { loading: creatingEq }] = useMutation<
+    CreateAuthorityKeyEquivalenceOutputs,
+    CreateAuthorityKeyEquivalenceInputs
+  >(CREATE_AUTHORITY_KEY_EQUIVALENCE);
+  const [updateEquivalence, { loading: updatingEq }] = useMutation<
+    UpdateAuthorityKeyEquivalenceOutputs,
+    UpdateAuthorityKeyEquivalenceInputs
+  >(UPDATE_AUTHORITY_KEY_EQUIVALENCE);
+  const [deleteEquivalence, { loading: deletingEq }] = useMutation<
+    DeleteAuthorityKeyEquivalenceOutputs,
+    DeleteAuthorityKeyEquivalenceInputs
+  >(DELETE_AUTHORITY_KEY_EQUIVALENCE);
+  const eqBusy = creatingEq || updatingEq || deletingEq;
 
   const aliasesDirty = useMemo(() => {
     const a = [...(ns?.aliases ?? [])].sort();
@@ -290,6 +316,76 @@ export const AuthorityDetailView: React.FC<AuthorityDetailViewProps> = ({
   const afterMutation = () => {
     refetch();
     onChanged();
+  };
+
+  const handleCreateEquivalence = async (vals: {
+    fromKey: string;
+    toKey: string;
+    note: string;
+  }) => {
+    try {
+      const { data: res } = await createEquivalence({
+        variables: { ...vals, note: vals.note || null },
+      });
+      const out = res?.createAuthorityKeyEquivalence;
+      if (out?.ok) {
+        toast.success(out.message ?? "Relationship created.");
+        afterMutation();
+      } else {
+        toast.error(out?.message ?? "Could not create relationship.");
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Create failed.");
+    }
+  };
+
+  const handleUpdateEquivalence = async (
+    id: string,
+    vals: { fromKey: string; toKey: string; note: string }
+  ) => {
+    try {
+      const { data: res } = await updateEquivalence({
+        variables: { id, ...vals, note: vals.note || null },
+      });
+      const out = res?.updateAuthorityKeyEquivalence;
+      if (out?.ok) {
+        toast.success(out.message ?? "Relationship updated.");
+        afterMutation();
+      } else {
+        toast.error(out?.message ?? "Could not update relationship.");
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Update failed.");
+    }
+  };
+
+  const handleDeleteEquivalence = async (row: {
+    id: string;
+    fromKey: string;
+    toKey: string;
+  }) => {
+    if (
+      !window.confirm(
+        `Delete the relationship ${row.fromKey} → ${row.toKey}? ` +
+          "This cannot be undone."
+      )
+    ) {
+      return;
+    }
+    try {
+      const { data: res } = await deleteEquivalence({
+        variables: { id: row.id },
+      });
+      const out = res?.deleteAuthorityKeyEquivalence;
+      if (out?.ok) {
+        toast.success(out.message ?? "Relationship deleted.");
+        afterMutation();
+      } else {
+        toast.error(out?.message ?? "Could not delete relationship.");
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Delete failed.");
+    }
   };
 
   const handleSaveHeader = async () => {
@@ -614,48 +710,32 @@ export const AuthorityDetailView: React.FC<AuthorityDetailViewProps> = ({
         </AliasRow>
       </Section>
 
-      {/* ---- relationships (read-only in Phase 1) ---- */}
+      {/* ---- relationships (editable: manual key-equivalences) ---- */}
       <Section>
         <SectionTitle>Relationships ({equivalences.length})</SectionTitle>
         <SectionNote>
-          Canonical-key equivalences that bridge this body of law to others.
-          Editing lives in the Aliases &amp; Relationships tab.
+          Canonical-key equivalences that bridge this body of law to others. Add
+          a manual bridge below; loader-owned baseline/popular-name/USLM rows
+          are read-only. The same registry is on the Aliases &amp; Relationships
+          tab.
         </SectionNote>
+        <KeyEquivalenceCreateForm
+          onCreate={handleCreateEquivalence}
+          creating={creatingEq}
+          fromPlaceholder={`${ns.prefix}:…`}
+          testIdPrefix="detail-equiv"
+        />
         {equivalences.length === 0 ? (
-          <Muted>No key-equivalences reference this authority.</Muted>
+          <Muted>No key-equivalences reference this authority yet.</Muted>
         ) : (
-          <ScrollableTableWrapper $minWidth={`${DETAIL_TABLE_MIN_WIDTH_PX}px`}>
-            <Table variant="minimal">
-              <Table.Head>
-                <Table.Row>
-                  <Table.HeadCell>From key</Table.HeadCell>
-                  <Table.HeadCell>To key</Table.HeadCell>
-                  <Table.HeadCell>Source</Table.HeadCell>
-                  <Table.HeadCell>Note</Table.HeadCell>
-                </Table.Row>
-              </Table.Head>
-              <Table.Body>
-                {equivalences.map((eq) => (
-                  <Table.Row key={eq.id} data-testid="detail-equivalence-row">
-                    <Table.Cell>
-                      <KeyCell>{eq.fromKey}</KeyCell>
-                    </Table.Cell>
-                    <Table.Cell>
-                      <KeyCell>{eq.toKey}</KeyCell>
-                    </Table.Cell>
-                    <Table.Cell>
-                      <Badge $tone={sourceTone(eq.source)}>
-                        {humanizeCode(eq.source)}
-                      </Badge>
-                    </Table.Cell>
-                    <Table.Cell>
-                      {eq.note ? eq.note : <Muted>—</Muted>}
-                    </Table.Cell>
-                  </Table.Row>
-                ))}
-              </Table.Body>
-            </Table>
-          </ScrollableTableWrapper>
+          <KeyEquivalenceTable
+            rows={equivalences}
+            onUpdate={handleUpdateEquivalence}
+            onDelete={handleDeleteEquivalence}
+            busy={eqBusy}
+            showProvenance={false}
+            testIdPrefix="detail-equiv"
+          />
         )}
       </Section>
 

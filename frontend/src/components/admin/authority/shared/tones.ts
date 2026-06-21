@@ -51,6 +51,17 @@ const SOURCE_TONES: Record<string, Tone> = {
 };
 export const sourceTone = (s: string): Tone => SOURCE_TONES[s] ?? "neutral";
 
+/** AuthorityKeyEquivalence source filter order (most curatable first). */
+export const SOURCE_ORDER = ["manual", "popular_name", "uslm", "baseline"];
+
+const SOURCE_LABELS: Record<string, string> = {
+  manual: "Manual",
+  popular_name: "Popular name",
+  uslm: "USLM",
+  baseline: "Baseline",
+};
+export const sourceLabel = (s: string): string => SOURCE_LABELS[s] ?? s;
+
 /** Tone for an AuthorityFrontier ``discovery_state`` value. */
 const STATE_TONES: Record<string, Tone> = {
   queued: "neutral",

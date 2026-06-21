@@ -247,6 +247,25 @@ export const TextInput = styled.input`
   }
 `;
 
+export const CreateForm = styled.form`
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.6rem;
+  margin-bottom: 1rem;
+  padding: 0.85rem 1rem;
+  background: ${OS_LEGAL_COLORS.surface};
+  border: 1px solid ${OS_LEGAL_COLORS.border};
+  border-radius: 10px;
+`;
+
+export const CreateField = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  flex: 1 1 150px;
+`;
+
 /* ---- row actions / icon button ------------------------------------------- */
 
 export const IconButton = styled.button<{ $danger?: boolean }>`

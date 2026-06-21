@@ -42,6 +42,7 @@ import {
 } from "./shared/consoleChrome";
 import { useIsAuthorityAdmin } from "./hooks/useIsAuthorityAdmin";
 import { RegistryTab } from "./RegistryTab";
+import { MappingsTab } from "./MappingsTab";
 import { PlaceholderTab } from "./PlaceholderTab";
 
 type TabKey = "registry" | "mappings" | "queue" | "scrapers" | "runs";
@@ -58,17 +59,7 @@ interface TabDef {
 
 const TABS: TabDef[] = [
   { key: "registry", label: "Authorities", icon: Library },
-  {
-    key: "mappings",
-    label: "Aliases & Relationships",
-    icon: GitBranch,
-    legacyRoute: "/admin/authority-mappings",
-    legacyLabel: "Authority Mappings",
-    description:
-      "Curate the act-section ↔ USC/CFR canonical-key equivalences that bridge " +
-      "citations across namespaces. Editing moves into this tab in a later phase; " +
-      "for now it opens the existing Authority Mappings panel.",
-  },
+  { key: "mappings", label: "Aliases & Relationships", icon: GitBranch },
   {
     key: "queue",
     label: "Discovery Queue",
@@ -194,6 +185,8 @@ export const AuthorityConsole: React.FC = () => {
               }
               onCloseAuthority={() => navigate(`${ROOT}/registry`)}
             />
+          ) : tab === "mappings" ? (
+            <MappingsTab />
           ) : (
             <PlaceholderTab
               title={activeDef.label}

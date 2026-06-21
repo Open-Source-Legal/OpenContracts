@@ -20,7 +20,6 @@ import {
   LoadingState,
 } from "../../widgets/feedback";
 import { ScrollableTableWrapper } from "../../layout/SharedSegments";
-import { OS_LEGAL_COLORS } from "../../../assets/configurations/osLegalStyles";
 import {
   AuthorityNamespaceNode,
   GetAuthorityNamespaceStatsInputs,
@@ -38,6 +37,8 @@ import { FacetedStatsChips } from "./shared/FacetedStatsChips";
 import {
   Badge,
   ClickableRowName,
+  CreateField,
+  CreateForm,
   FieldLabel,
   FilterBar,
   KeyCell,
@@ -64,25 +65,6 @@ const Toolbar = styled.div`
   display: flex;
   justify-content: flex-end;
   margin-bottom: 0.75rem;
-`;
-
-const CreateForm = styled.form`
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 0.6rem;
-  margin-bottom: 1rem;
-  padding: 0.85rem 1rem;
-  background: ${OS_LEGAL_COLORS.surface};
-  border: 1px solid ${OS_LEGAL_COLORS.border};
-  border-radius: 10px;
-`;
-
-const CreateField = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-  flex: 1 1 150px;
 `;
 
 interface RegistryTabProps {
