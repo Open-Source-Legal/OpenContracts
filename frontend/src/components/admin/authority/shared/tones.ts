@@ -62,12 +62,12 @@ const SOURCE_LABELS: Record<string, string> = {
 };
 export const sourceLabel = (s: string): string => SOURCE_LABELS[s] ?? s;
 
-/** Tone for an AuthorityFrontier ``discovery_state`` value. */
+/** Tone for an AuthorityFrontier ``discovery_state`` value. (The historical
+ * ``discovered`` / ``resolved`` states were retired — see the model.) */
 const STATE_TONES: Record<string, Tone> = {
   queued: "neutral",
   in_progress: "info",
   ingested: "success",
-  resolved: "success",
   pending_approval: "warning",
   deferred_cap: "warning",
   failed: "danger",

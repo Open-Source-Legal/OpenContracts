@@ -570,6 +570,28 @@ class AuthorityDetailType(graphene.ObjectType):
     effective_provider = graphene.String()
 
 
+class AuthoritySourceProviderType(graphene.ObjectType):
+    """One registered authority source provider (a "scraper").
+
+    The auto-discovered provider classes (US Code / eCFR / Federal Register /
+    agentic web locator) surfaced read-only for the console's Scrapers tab —
+    they have no DB row, so this is a registry projection. ``has_credentials``
+    reflects whether the encrypted-secrets vault holds anything for this
+    provider's class path (credentials are edited via the existing
+    ``updateComponentSecrets`` mutation, not here).
+    """
+
+    name = graphene.String(required=True, description="Registry class name.")
+    class_name = graphene.String(description="Full module.ClassName path.")
+    title = graphene.String()
+    supported_prefixes = graphene.List(graphene.String, required=True)
+    license = graphene.String()
+    priority = graphene.Int()
+    requires_approval = graphene.Boolean(required=True)
+    enabled = graphene.Boolean(required=True)
+    has_credentials = graphene.Boolean(required=True)
+
+
 class RelationInputType(AnnotatePermissionsForReadMixin, graphene.InputObjectType):
     id = graphene.String()
     source_ids = graphene.List(graphene.String)

@@ -44,6 +44,7 @@ import { useIsAuthorityAdmin } from "./hooks/useIsAuthorityAdmin";
 import { RegistryTab } from "./RegistryTab";
 import { MappingsTab } from "./MappingsTab";
 import { DiscoveryQueueTab } from "./DiscoveryQueueTab";
+import { ScrapersTab } from "./ScrapersTab";
 import { PlaceholderTab } from "./PlaceholderTab";
 
 type TabKey = "registry" | "mappings" | "queue" | "scrapers" | "runs";
@@ -62,14 +63,7 @@ const TABS: TabDef[] = [
   { key: "registry", label: "Authorities", icon: Library },
   { key: "mappings", label: "Aliases & Relationships", icon: GitBranch },
   { key: "queue", label: "Discovery Queue", icon: Scale },
-  {
-    key: "scrapers",
-    label: "Scrapers & Credentials",
-    icon: Database,
-    description:
-      "View the registered authority source providers (US Code, eCFR, Federal " +
-      "Register, …) and manage their credentials. This tab lands in a later phase.",
-  },
+  { key: "scrapers", label: "Scrapers & Credentials", icon: Database },
   {
     key: "runs",
     label: "Runs",
@@ -180,6 +174,8 @@ export const AuthorityConsole: React.FC = () => {
             <MappingsTab />
           ) : tab === "queue" ? (
             <DiscoveryQueueTab />
+          ) : tab === "scrapers" ? (
+            <ScrapersTab />
           ) : (
             <PlaceholderTab
               title={activeDef.label}

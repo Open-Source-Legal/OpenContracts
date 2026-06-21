@@ -1542,6 +1542,40 @@ export const GET_AUTHORITY_NAMESPACE_DETAIL = gql`
   }
 `;
 
+// ---- Authority source providers (the registered "scrapers") --------------- //
+
+export interface AuthoritySourceProvider {
+  name: string;
+  className?: string | null;
+  title?: string | null;
+  supportedPrefixes: string[];
+  license?: string | null;
+  priority?: number | null;
+  requiresApproval: boolean;
+  enabled: boolean;
+  hasCredentials: boolean;
+}
+
+export interface GetAuthoritySourceProvidersOutputs {
+  authoritySourceProviders: AuthoritySourceProvider[];
+}
+
+export const GET_AUTHORITY_SOURCE_PROVIDERS = gql`
+  query AuthoritySourceProviders {
+    authoritySourceProviders {
+      name
+      className
+      title
+      supportedPrefixes
+      license
+      priority
+      requiresApproval
+      enabled
+      hasCredentials
+    }
+  }
+`;
+
 // Lean analysis listing used to discover a corpus's reference-enrichment
 // Analysis (matched client-side on analyzer.taskName) so the document viewer
 // can auto-merge its reference-mention annotations into the annotation layer.

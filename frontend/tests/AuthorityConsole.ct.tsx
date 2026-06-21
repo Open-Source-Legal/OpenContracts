@@ -18,6 +18,7 @@ import {
   GET_AUTHORITY_MAPPING_STATS,
   GET_AUTHORITY_FRONTIER,
   GET_AUTHORITY_FRONTIER_STATS,
+  GET_AUTHORITY_SOURCE_PROVIDERS,
 } from "../src/graphql/queries";
 import { CREATE_AUTHORITY_KEY_EQUIVALENCE } from "../src/graphql/mutations";
 import { REGISTRY_PAGE_SIZE } from "../src/components/admin/authority/shared/authorityVocab";
@@ -565,6 +566,67 @@ test.describe("AuthorityConsole", () => {
     ).toBeVisible();
 
     await docScreenshot(page, "authorities--console-queue--with-data");
+
+    await component.unmount();
+  });
+
+  // ---- Scrapers tab (the provider registry, net-new visibility) ---------- //
+
+  const providersMock = () => ({
+    request: { query: GET_AUTHORITY_SOURCE_PROVIDERS },
+    result: {
+      data: {
+        authoritySourceProviders: [
+          {
+            name: "USCodeAuthoritySourceProvider",
+            className:
+              "opencontractserver.pipeline.authority_source_providers.us_code_provider.USCodeAuthoritySourceProvider",
+            title: "United States Code",
+            supportedPrefixes: ["usc-15", "usc-26"],
+            license: "public-domain",
+            priority: 100,
+            requiresApproval: false,
+            enabled: true,
+            hasCredentials: false,
+          },
+          {
+            name: "AgenticWebLocatorProvider",
+            className: "x.AgenticWebLocatorProvider",
+            title: "Agentic Web Locator",
+            supportedPrefixes: [],
+            license: "public-domain",
+            priority: 9999,
+            requiresApproval: true,
+            enabled: false,
+            hasCredentials: false,
+          },
+        ],
+      },
+    },
+  });
+
+  test("the Scrapers tab lists the registered source providers", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mountConsole(
+      mount,
+      [providersMock(), providersMock()],
+      true,
+      "/admin/authority/scrapers"
+    );
+
+    await expect(
+      page.locator('[data-testid="authority-scrapers-tab"]')
+    ).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('[data-testid="scrapers-row"]')).toHaveCount(2);
+    const table = page.locator('[data-testid="scrapers-table-scroll"]');
+    await expect(table.getByText("United States Code")).toBeVisible();
+    // The opt-in agentic provider shows Disabled + Needs approval.
+    await expect(table.getByText("Disabled")).toBeVisible();
+    await expect(table.getByText("Needs approval")).toBeVisible();
+
+    await docScreenshot(page, "authorities--console-scrapers--with-data");
 
     await component.unmount();
   });

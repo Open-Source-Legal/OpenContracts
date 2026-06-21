@@ -30,6 +30,7 @@ from config.graphql.annotation_types import (  # noqa: F401
     AuthorityNamespaceNode,
     AuthorityNamespaceStatsType,
     AuthorityReferenceStatusCountType,
+    AuthoritySourceProviderType,
     CorpusReferenceType,
     GovernanceGraphCorpusType,
     GovernanceGraphEdgeType,

@@ -33,6 +33,7 @@ from config.graphql.graphene_types import (
     AuthorityMappingStatsType,
     AuthorityNamespaceNode,
     AuthorityNamespaceStatsType,
+    AuthoritySourceProviderType,
     CorpusReferenceType,
     GovernanceGraphCorpusType,
     GovernanceGraphEdgeType,
@@ -411,6 +412,26 @@ class AnnotationQueryMixin:
         from opencontractserver.enrichment.services import AuthorityNamespaceService
 
         return AuthorityNamespaceService.detail(info.context.user, prefix)
+
+    # AUTHORITY SOURCE PROVIDERS (registry, superuser-only) ####
+    authority_source_providers = graphene.List(
+        graphene.NonNull(AuthoritySourceProviderType),
+        required=True,
+        description=(
+            "The registered authority source providers (scrapers): US Code / "
+            "eCFR / Federal Register / agentic web locator, with their supported "
+            "prefixes, license, priority, enabled flag and whether the secrets "
+            "vault holds credentials. SUPERUSER-ONLY (empty otherwise)."
+        ),
+    )
+
+    @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
+    def resolve_authority_source_providers(self, info) -> Any:
+        from opencontractserver.enrichment.services import (
+            AuthoritySourceProviderService,
+        )
+
+        return AuthoritySourceProviderService.list_providers(info.context.user)
 
     # ANNOTATION RESOLVERS #####################################
     annotations = DjangoConnectionField(

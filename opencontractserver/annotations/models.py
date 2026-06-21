@@ -2187,13 +2187,15 @@ class AuthorityFrontier(django.db.models.Model):
     # ("top_detection_tier" is one of enrichment_constants.ALL_DETECTION_TIERS).
     candidate_sources = django.db.models.JSONField(default=list, blank=True)
 
-    # Discovery state machine
+    # Discovery state machine. NOTE: the historical ``discovered`` and
+    # ``resolved`` states were retired (Authority Console Phase 4): no production
+    # code path ever assigned them (discovery jumps in_progress -> ingested, and
+    # the resolution outcome lives on the relink result / Analysis, not the
+    # frontier row), so carrying them as choices was a dead-vocabulary trap.
     DISCOVERY_STATE_CHOICES = [
         ("queued", "Queued"),
         ("in_progress", "In progress"),
-        ("discovered", "Source found, awaiting ingestion"),
         ("ingested", "Document imported"),
-        ("resolved", "CorpusReference upgraded to RESOLVED"),
         ("failed", "No source found"),
         ("unsupported", "No provider can_handle"),
         # Phase 4: visible, non-silent gate outcomes
