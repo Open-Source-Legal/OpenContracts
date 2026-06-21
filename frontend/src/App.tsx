@@ -71,7 +71,6 @@ import {
   SystemSettings,
   WorkerAccountManagement,
   IngestionMonitor,
-  AuthoritySourcesMonitor,
   AuthorityConsole,
   CorpusCategoryManagement,
   AdminEnrichment,
@@ -421,16 +420,11 @@ export const App = () => {
           />
           <Route path="/admin/ingestion" element={<IngestionMonitor />} />
           {/*
-            Unified Authority Console (front door). The remaining standalone
-            routes below are absorbed into its tabs over Phases 3–5 and removed
-            as each concern lands; the Aliases & Relationships tab (formerly
-            /admin/authority-mappings) is already absorbed.
+            Unified Authority Console (front door). The Aliases & Relationships
+            and Discovery Queue tabs are already absorbed; /admin/enrichment
+            (Runs) is absorbed in the final phase.
           */}
           <Route path="/admin/authority/*" element={<AuthorityConsole />} />
-          <Route
-            path="/admin/authorities"
-            element={<AuthoritySourcesMonitor />}
-          />
           <Route path="/admin/enrichment" element={<AdminEnrichment />} />
           <Route
             path="/admin/corpus-categories"

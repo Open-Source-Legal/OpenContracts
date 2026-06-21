@@ -43,6 +43,7 @@ import {
 import { useIsAuthorityAdmin } from "./hooks/useIsAuthorityAdmin";
 import { RegistryTab } from "./RegistryTab";
 import { MappingsTab } from "./MappingsTab";
+import { DiscoveryQueueTab } from "./DiscoveryQueueTab";
 import { PlaceholderTab } from "./PlaceholderTab";
 
 type TabKey = "registry" | "mappings" | "queue" | "scrapers" | "runs";
@@ -60,17 +61,7 @@ interface TabDef {
 const TABS: TabDef[] = [
   { key: "registry", label: "Authorities", icon: Library },
   { key: "mappings", label: "Aliases & Relationships", icon: GitBranch },
-  {
-    key: "queue",
-    label: "Discovery Queue",
-    icon: Scale,
-    legacyRoute: "/admin/authorities",
-    legacyLabel: "Authority Sources",
-    description:
-      "The instance-wide crawl/ingestion queue for cited law not yet in the " +
-      "library. Per-row actions move into this tab in a later phase; for now it " +
-      "opens the existing Authority Sources monitor.",
-  },
+  { key: "queue", label: "Discovery Queue", icon: Scale },
   {
     key: "scrapers",
     label: "Scrapers & Credentials",
@@ -187,6 +178,8 @@ export const AuthorityConsole: React.FC = () => {
             />
           ) : tab === "mappings" ? (
             <MappingsTab />
+          ) : tab === "queue" ? (
+            <DiscoveryQueueTab />
           ) : (
             <PlaceholderTab
               title={activeDef.label}

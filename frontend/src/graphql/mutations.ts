@@ -777,6 +777,116 @@ export const DELETE_AUTHORITY_NAMESPACE = gql`
   }
 `;
 
+// ---- AuthorityFrontier admin row actions (discovery queue) ---------------- //
+
+export interface FrontierActionObj {
+  id: string;
+  discoveryState: string;
+  provider?: string | null;
+  lastError?: string | null;
+  ingestedDocument?: { id: string } | null;
+}
+
+interface FrontierActionOutput {
+  ok: boolean;
+  message?: string | null;
+  obj?: FrontierActionObj | null;
+}
+
+const _FRONTIER_ACTION_FIELDS = `
+  id
+  discoveryState
+  provider
+  lastError
+  ingestedDocument {
+    id
+  }
+`;
+
+export interface RequeueAuthorityFrontierOutputs {
+  requeueAuthorityFrontier: FrontierActionOutput;
+}
+export const REQUEUE_AUTHORITY_FRONTIER = gql`
+  mutation RequeueAuthorityFrontier($id: ID!) {
+    requeueAuthorityFrontier(id: $id) {
+      ok
+      message
+      obj {
+        ${_FRONTIER_ACTION_FIELDS}
+      }
+    }
+  }
+`;
+
+export interface ResetAuthorityFrontierOutputs {
+  resetAuthorityFrontier: FrontierActionOutput;
+}
+export const RESET_AUTHORITY_FRONTIER = gql`
+  mutation ResetAuthorityFrontier($id: ID!) {
+    resetAuthorityFrontier(id: $id) {
+      ok
+      message
+      obj {
+        ${_FRONTIER_ACTION_FIELDS}
+      }
+    }
+  }
+`;
+
+export interface ApproveAuthorityFrontierOutputs {
+  approveAuthorityFrontier: FrontierActionOutput;
+}
+export const APPROVE_AUTHORITY_FRONTIER = gql`
+  mutation ApproveAuthorityFrontier($id: ID!) {
+    approveAuthorityFrontier(id: $id) {
+      ok
+      message
+      obj {
+        ${_FRONTIER_ACTION_FIELDS}
+      }
+    }
+  }
+`;
+
+export interface RerouteAuthorityFrontierInputs {
+  id: string;
+  provider: string;
+}
+export interface RerouteAuthorityFrontierOutputs {
+  rerouteAuthorityFrontier: FrontierActionOutput;
+}
+export const REROUTE_AUTHORITY_FRONTIER = gql`
+  mutation RerouteAuthorityFrontier($id: ID!, $provider: String!) {
+    rerouteAuthorityFrontier(id: $id, provider: $provider) {
+      ok
+      message
+      obj {
+        ${_FRONTIER_ACTION_FIELDS}
+      }
+    }
+  }
+`;
+
+export interface DeleteAuthorityFrontierInputs {
+  ids: string[];
+}
+export interface DeleteAuthorityFrontierOutputs {
+  deleteAuthorityFrontier: {
+    ok: boolean;
+    message?: string | null;
+    count?: number | null;
+  };
+}
+export const DELETE_AUTHORITY_FRONTIER = gql`
+  mutation DeleteAuthorityFrontier($ids: [ID!]!) {
+    deleteAuthorityFrontier(ids: $ids) {
+      ok
+      message
+      count
+    }
+  }
+`;
+
 export const START_EXPORT_CORPUS = gql`
   mutation (
     $corpusId: String!

@@ -16,10 +16,15 @@ import {
   GET_AUTHORITY_NAMESPACE_DETAIL,
   GET_AUTHORITY_KEY_EQUIVALENCES,
   GET_AUTHORITY_MAPPING_STATS,
+  GET_AUTHORITY_FRONTIER,
+  GET_AUTHORITY_FRONTIER_STATS,
 } from "../src/graphql/queries";
 import { CREATE_AUTHORITY_KEY_EQUIVALENCE } from "../src/graphql/mutations";
 import { REGISTRY_PAGE_SIZE } from "../src/components/admin/authority/shared/authorityVocab";
-import { AUTHORITY_MAPPINGS_PAGE_SIZE } from "../src/assets/configurations/constants";
+import {
+  AUTHORITY_MAPPINGS_PAGE_SIZE,
+  AUTHORITY_FRONTIER_PAGE_SIZE,
+} from "../src/assets/configurations/constants";
 import { docScreenshot } from "./utils/docScreenshot";
 
 const STATS = {
@@ -440,6 +445,126 @@ test.describe("AuthorityConsole", () => {
     await expect(page.getByText("Mapping created.")).toBeVisible({
       timeout: 10000,
     });
+
+    await component.unmount();
+  });
+
+  // ---- Discovery Queue tab (absorbed AuthoritySourcesMonitor) ------------- //
+
+  const FRONTIER_STATS = {
+    totalCount: 2,
+    byState: [
+      { state: "queued", count: 1 },
+      { state: "pending_approval", count: 1 },
+    ],
+  };
+
+  const frontierNode = (over: Record<string, unknown>) => ({
+    node: {
+      id: `AF:${over.canonicalKey}`,
+      canonicalKey: "x:1",
+      authority: "x",
+      jurisdiction: null,
+      authorityType: null,
+      discoveryState: "queued",
+      provider: null,
+      ingestable: true,
+      predictedProvider: null,
+      mentionCount: 1,
+      distinctCorpusCount: 1,
+      depth: 0,
+      lastError: null,
+      lastAttempt: null,
+      ingestedDocument: null,
+      ...over,
+    },
+  });
+
+  const FRONTIER_ROWS = [
+    frontierNode({
+      canonicalKey: "usc-15:78j",
+      authority: "usc-15",
+      discoveryState: "queued",
+      mentionCount: 9,
+    }),
+    frontierNode({
+      canonicalKey: "dgcl:145",
+      authority: "dgcl",
+      discoveryState: "pending_approval",
+      mentionCount: 4,
+    }),
+  ];
+
+  const frontierStatsMock = () => ({
+    request: {
+      query: GET_AUTHORITY_FRONTIER_STATS,
+      variables: {
+        jurisdiction: null,
+        authorityType: null,
+        provider: null,
+        search: null,
+      },
+    },
+    result: { data: { authorityFrontierStats: FRONTIER_STATS } },
+  });
+
+  const frontierListMock = () => ({
+    request: {
+      query: GET_AUTHORITY_FRONTIER,
+      variables: {
+        discoveryState: null,
+        jurisdiction: null,
+        authorityType: null,
+        provider: null,
+        search: null,
+        first: AUTHORITY_FRONTIER_PAGE_SIZE,
+        after: null,
+      },
+    },
+    result: {
+      data: {
+        authorityFrontier: {
+          pageInfo: { hasNextPage: false, endCursor: null },
+          edges: FRONTIER_ROWS,
+        },
+      },
+    },
+  });
+
+  test("the Discovery Queue tab renders state chips, rows, and per-row verbs", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mountConsole(
+      mount,
+      [
+        frontierStatsMock(),
+        frontierStatsMock(),
+        frontierListMock(),
+        frontierListMock(),
+      ],
+      true,
+      "/admin/authority/queue"
+    );
+
+    await expect(
+      page.locator('[data-testid="authority-queue-tab"]')
+    ).toBeVisible({ timeout: 15000 });
+    await expect(
+      page.locator('[data-testid="queue-state-chip-queued"]')
+    ).toContainText("Queued");
+    await expect(page.locator('[data-testid="queue-row"]')).toHaveCount(2);
+    // Per-row admin verbs are present; Approve only on the pending_approval row.
+    await expect(page.locator('[data-testid="queue-requeue"]')).toHaveCount(2);
+    await expect(page.locator('[data-testid="queue-approve"]')).toHaveCount(1);
+
+    // Selecting a row reveals the Run-discovery action bar.
+    await page.locator('[data-testid="queue-select-usc-15:78j"]').click();
+    await expect(
+      page.locator('[data-testid="queue-run-selected"]')
+    ).toBeVisible();
+
+    await docScreenshot(page, "authorities--console-queue--with-data");
 
     await component.unmount();
   });
