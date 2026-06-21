@@ -7,6 +7,7 @@ SQLite resume ledger. These run without Docker or a live server::
     python scripts/bulk_import/tests/test_batching.py
 """
 
+import hashlib
 import os
 import sys
 import tempfile
@@ -78,6 +79,19 @@ class ScanTests(unittest.TestCase):
         kinds = {e.rel_path: e.kind for e in entries}
         self.assertEqual(kinds["big.pdf"], drv.KIND_OVERSIZE)
         self.assertEqual(kinds["small.pdf"], drv.KIND_ZIP)
+
+    def test_compute_hash_populates_sha256(self):
+        path = os.path.join(self.tmp, "a.pdf")
+        _touch(path, size=16)
+        with_hash = drv.scan_files(
+            self.tmp, {".pdf"}, drv.DEFAULT_SINGLE_FILE_CAP, False, compute_hash=True
+        )
+        self.assertEqual(with_hash[0].sha256, hashlib.sha256(b"x" * 16).hexdigest())
+        # ...and stays empty when hashing is off.
+        without = drv.scan_files(
+            self.tmp, {".pdf"}, drv.DEFAULT_SINGLE_FILE_CAP, False, compute_hash=False
+        )
+        self.assertEqual(without[0].sha256, "")
 
 
 class BatchingTests(unittest.TestCase):
@@ -185,9 +199,19 @@ class LedgerTests(unittest.TestCase):
 
     def test_failed_batches_are_resubmitted(self):
         self.ledger.upsert_batches([self.batch])
-        self.ledger.mark_failed("abc123", "boom")
+        parked = self.ledger.mark_failed("abc123", "boom", max_attempts=5)
+        self.assertFalse(parked)  # below the ceiling -> still retryable
         self.assertEqual(self.ledger.batch_ids_to_submit(), ["abc123"])
         self.assertEqual(self.ledger.attempts("abc123"), 1)
+
+    def test_exhausted_batches_are_parked_and_not_resubmitted(self):
+        # Once retries are exhausted the batch must leave the submit list, or it
+        # would fail every subsequent run forever.
+        self.ledger.upsert_batches([self.batch])
+        self.assertFalse(self.ledger.mark_failed("abc123", "boom", max_attempts=2))
+        self.assertTrue(self.ledger.mark_failed("abc123", "boom", max_attempts=2))
+        self.assertEqual(self.ledger.batch_ids_to_submit(), [])  # PARKED, excluded
+        self.assertEqual(self.ledger.status_counts(), {"PARKED": 1})
 
     def test_baseline_default_is_write_once(self):
         self.assertEqual(self.ledger.set_meta_default("baseline_total_docs", "0"), "0")

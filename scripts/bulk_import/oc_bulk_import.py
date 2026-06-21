@@ -85,6 +85,7 @@ DEFAULT_QUEUE_HIGH = 5000
 DEFAULT_QUEUE_LOW = 2000
 
 DEFAULT_MAX_ATTEMPTS = 5
+# Comma-separated extension allowlist (split in _extensions); ".pdf" by default.
 DEFAULT_EXTENSIONS = ".pdf"
 
 # Retry/backoff for transient HTTP failures.
@@ -101,6 +102,7 @@ _HASH_BLOCK = 1024 * 1024
 #   SUBMITTED  accepted by the server (202), awaiting reconciliation
 #   VERIFIED   confirmed landed in the corpus
 #   FAILED     submission failed; re-sent on the next `run`
+#   PARKED     retries exhausted; terminal — never re-sent automatically
 
 # Member kinds.
 KIND_ZIP = "zip"
@@ -179,7 +181,6 @@ class Ledger:
                     size INTEGER NOT NULL,
                     sha256 TEXT,
                     kind TEXT NOT NULL,
-                    corpus_doc_present INTEGER NOT NULL DEFAULT 0,
                     PRIMARY KEY (batch_id, rel_path)
                 );
                 CREATE INDEX IF NOT EXISTS idx_batches_status
@@ -302,12 +303,33 @@ class Ledger:
             )
             self._conn.commit()
 
-    def mark_failed(self, batch_id: str, error: str) -> None:
+    def mark_failed(self, batch_id: str, error: str, max_attempts: int) -> bool:
+        """Record a failed submission (attempts++). If retries are now exhausted,
+        move the batch to the terminal PARKED state so it is excluded from future
+        runs (otherwise it would be re-listed forever, failing each run). Returns
+        True if the batch was parked."""
         with self._lock:
             self._conn.execute(
                 "UPDATE batches SET status='FAILED', attempts=attempts+1, "
                 "last_error=? WHERE batch_id=?",
                 (error[:2000], batch_id),
+            )
+            row = self._conn.execute(
+                "SELECT attempts FROM batches WHERE batch_id=?", (batch_id,)
+            ).fetchone()
+            parked = bool(row) and row["attempts"] >= max_attempts
+            if parked:
+                self._conn.execute(
+                    "UPDATE batches SET status='PARKED' WHERE batch_id=?", (batch_id,)
+                )
+            self._conn.commit()
+        return parked
+
+    def mark_parked(self, batch_id: str) -> None:
+        """Move a batch to the terminal PARKED state (retries exhausted)."""
+        with self._lock:
+            self._conn.execute(
+                "UPDATE batches SET status='PARKED' WHERE batch_id=?", (batch_id,)
             )
             self._conn.commit()
 
@@ -715,6 +737,10 @@ class QueueGovernor:
             stats = self._client.document_stats(self._corpus_id)
         except APIError as exc:
             logger.warning("documentStats poll failed: %s", exc)
+            # Reset the slot we claimed so the next caller retries immediately
+            # instead of trusting a stale count for a full poll interval.
+            with self._lock:
+                self._last_poll = 0.0
             return self._processing
         with self._lock:
             self._processing = int(stats.get("processingCount", 0))
@@ -820,8 +846,12 @@ def _process_batch(
 ) -> tuple[str, bool, str]:
     """Build + submit one batch. Returns (batch_id, ok, detail). ``client`` is
     only ``None`` for ``dry_run`` (the early returns below run before any call)."""
+    # Safety net for a lowered --max-attempts between runs: park (terminal) so
+    # the batch is not re-listed every run. Normal exhaustion is parked in the
+    # except handler below.
     if ledger.attempts(batch_id) >= max_attempts:
-        return batch_id, False, "max attempts reached (parked FAILED)"
+        ledger.mark_parked(batch_id)
+        return batch_id, False, "parked (retries exhausted)"
 
     members = ledger.load_members(batch_id)
     kind = ledger.batch_kind(batch_id)
@@ -847,8 +877,9 @@ def _process_batch(
         ledger.mark_submitted(batch_id, job_id)
         return batch_id, True, f"{len(members)} files (job {job_id[:8]})"
     except APIError as exc:
-        ledger.mark_failed(batch_id, str(exc))
-        return batch_id, False, str(exc)
+        parked = ledger.mark_failed(batch_id, str(exc), max_attempts)
+        prefix = "parked (retries exhausted): " if parked else ""
+        return batch_id, False, f"{prefix}{exc}"
 
 
 def cmd_run(args: argparse.Namespace, ledger: Ledger) -> int:
@@ -868,6 +899,7 @@ def cmd_run(args: argparse.Namespace, ledger: Ledger) -> int:
         logger.info("Dry run: building ZIPs without submitting.")
     else:
         client = _make_client(args)
+        _check_corpus_consistency(args, ledger)
         # Capture a baseline so verification compares the delta, in case the
         # corpus was not empty when the import began.
         baseline = int(
@@ -915,12 +947,21 @@ def cmd_run(args: argparse.Namespace, ledger: Ledger) -> int:
                 logger.error("FAIL %s  %s", bid[:12], detail)
 
     logger.info("Run complete: %d submitted, %d failed", ok_count, fail_count)
+    parked = ledger.status_counts().get("PARKED", 0)
+    if parked:
+        logger.warning(
+            "%d batch(es) PARKED after exhausting --max-attempts; they will NOT "
+            "be retried. Inspect with `status`, then re-run with a higher "
+            "--max-attempts or import their files individually.",
+            parked,
+        )
     logger.info("Next: monitor parsing, then run `verify`.")
     return 0 if fail_count == 0 else 2
 
 
 def cmd_verify(args: argparse.Namespace, ledger: Ledger) -> int:
     client = _make_client(args)
+    _check_corpus_consistency(args, ledger)
     raw_baseline = ledger.get_meta("baseline_total_docs")
     baseline = int(raw_baseline or "0")
     expected = ledger.submitted_member_count()
@@ -1006,6 +1047,19 @@ def _warn_if_root_moved(args: argparse.Namespace, ledger: Ledger) -> None:
         )
 
 
+def _check_corpus_consistency(args: argparse.Namespace, ledger: Ledger) -> None:
+    """Bind the ledger to one corpus on first use and warn on any later mismatch,
+    so `verify` (or a second `run`) can't silently target the wrong corpus."""
+    stored = ledger.set_meta_default("corpus_id", args.corpus_id)
+    if stored != args.corpus_id:
+        logger.warning(
+            "This ledger was created for corpus %s but --corpus-id is %s. "
+            "Counts and verification will not line up — double-check the target.",
+            stored,
+            args.corpus_id,
+        )
+
+
 # --- CLI -------------------------------------------------------------------
 def build_parser() -> argparse.ArgumentParser:
     # Global options live on a shared parent so they are accepted *after* the
@@ -1028,7 +1082,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Target corpus id (PK or global id). Env: OC_CORPUS_ID.",
     )
     common.add_argument("--username", help="Login username (or env OC_USERNAME).")
-    common.add_argument("--password", help="Login password (or env OC_PASSWORD).")
+    common.add_argument(
+        "--password",
+        help="Login password. PREFER env OC_PASSWORD: a value passed here is "
+        "visible to other users on the host via `ps` / /proc/<pid>/cmdline.",
+    )
     common.add_argument(
         "--timeout",
         type=int,

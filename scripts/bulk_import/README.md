@@ -68,6 +68,12 @@ python oc_bulk_import.py verify
 Auth is a JWT from the `tokenAuth` mutation; the driver refreshes it
 automatically on 401, so multi-day runs keep going.
 
+> **Credentials:** prefer `OC_USERNAME` / `OC_PASSWORD` (as above). The
+> `--password` flag works but is visible to other users on the host via `ps` and
+> `/proc/<pid>/cmdline`, so avoid it on shared machines. The ledger is bound to
+> the first `--corpus-id` it sees and warns if a later `run`/`verify` points at a
+> different corpus.
+
 ## Operational runbook (do this before a 200K load)
 
 The driver handles ingestion; these steps keep **processing** healthy. The real
