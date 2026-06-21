@@ -5,21 +5,17 @@
  * / Authority Mappings / Enrichment Runner) with one shell: a left tab rail +
  * a single "Back to Admin Settings" link, gated once at mount by the authority-
  * admin check. The active tab + (for the registry) the selected authority prefix
- * live in the URL, so every view is deep-linkable.
- *
- * Phase 1 ships the Registry tab (AuthorityNamespace management — the headline
- * gap). The remaining concerns (relationships, discovery queue, scrapers/
- * credentials, runs) are absorbed into real tabs in later phases; until then
- * their rail entries open the existing standalone panels.
+ * live in the URL, so every view is deep-linkable. All five concerns —
+ * authorities, aliases & relationships, the discovery queue, scrapers, and runs
+ * — are absorbed here as real tabs (the standalone panels they replaced are
+ * deleted).
  */
 import React from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { Button } from "@os-legal/ui";
 import {
   ArrowLeft,
   BookMarked,
   Database,
-  ExternalLink,
   GitBranch,
   Library,
   LucideIcon,
@@ -45,7 +41,7 @@ import { RegistryTab } from "./RegistryTab";
 import { MappingsTab } from "./MappingsTab";
 import { DiscoveryQueueTab } from "./DiscoveryQueueTab";
 import { ScrapersTab } from "./ScrapersTab";
-import { PlaceholderTab } from "./PlaceholderTab";
+import { RunsTab } from "./RunsTab";
 
 type TabKey = "registry" | "mappings" | "queue" | "scrapers" | "runs";
 
@@ -53,10 +49,6 @@ interface TabDef {
   key: TabKey;
   label: string;
   icon: LucideIcon;
-  /** Existing standalone route this concern lives at until it is absorbed. */
-  legacyRoute?: string;
-  legacyLabel?: string;
-  description?: string;
 }
 
 const TABS: TabDef[] = [
@@ -64,16 +56,7 @@ const TABS: TabDef[] = [
   { key: "mappings", label: "Aliases & Relationships", icon: GitBranch },
   { key: "queue", label: "Discovery Queue", icon: Scale },
   { key: "scrapers", label: "Scrapers & Credentials", icon: Database },
-  {
-    key: "runs",
-    label: "Runs",
-    icon: Zap,
-    legacyRoute: "/admin/enrichment",
-    legacyLabel: "Enrichment Runner",
-    description:
-      "Dispatch reference enrichment and authority discovery on a corpus and " +
-      "review job status. This tab opens the existing Enrichment Runner for now.",
-  },
+  { key: "runs", label: "Runs", icon: Zap },
 ];
 
 const ROOT = "/admin/authority";
@@ -115,8 +98,6 @@ export const AuthorityConsole: React.FC = () => {
       </Container>
     );
   }
-
-  const activeDef = TABS.find((t) => t.key === tab) ?? TABS[0];
 
   return (
     <Container data-testid="authority-console">
@@ -177,22 +158,7 @@ export const AuthorityConsole: React.FC = () => {
           ) : tab === "scrapers" ? (
             <ScrapersTab />
           ) : (
-            <PlaceholderTab
-              title={activeDef.label}
-              description={activeDef.description ?? ""}
-              action={
-                activeDef.legacyRoute ? (
-                  <Button
-                    variant="primary"
-                    onClick={() => navigate(activeDef.legacyRoute as string)}
-                    data-testid={`authority-open-${activeDef.key}`}
-                  >
-                    <ExternalLink size={14} style={{ marginRight: 6 }} />
-                    Open {activeDef.legacyLabel}
-                  </Button>
-                ) : null
-              }
-            />
+            <RunsTab />
           )}
         </TabContent>
       </ConsoleLayout>

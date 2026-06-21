@@ -630,4 +630,24 @@ test.describe("AuthorityConsole", () => {
 
     await component.unmount();
   });
+
+  // ---- Runs tab (absorbed AdminEnrichment) ------------------------------- //
+
+  test("the Runs tab renders the corpus picker", async ({ mount, page }) => {
+    const component = await mountConsole(
+      mount,
+      [],
+      true,
+      "/admin/authority/runs"
+    );
+
+    await expect(
+      page.locator('[data-testid="authority-runs-tab"]')
+    ).toBeVisible({ timeout: 15000 });
+    // The runs tab is the absorbed enrichment runner: a corpus picker gates it
+    // (the runner + job list mount once a corpus is chosen).
+    await expect(page.getByText("Corpus", { exact: true })).toBeVisible();
+
+    await component.unmount();
+  });
 });

@@ -73,7 +73,6 @@ import {
   IngestionMonitor,
   AuthorityConsole,
   CorpusCategoryManagement,
-  AdminEnrichment,
 } from "./components/admin";
 import { useEnv } from "./components/hooks/UseEnv";
 import { ExtractDetailRoute } from "./components/routes/ExtractDetailRoute";
@@ -420,12 +419,13 @@ export const App = () => {
           />
           <Route path="/admin/ingestion" element={<IngestionMonitor />} />
           {/*
-            Unified Authority Console (front door). The Aliases & Relationships
-            and Discovery Queue tabs are already absorbed; /admin/enrichment
-            (Runs) is absorbed in the final phase.
+            Unified Authority Console — the single front door for managing legal
+            authorities. All five concerns (authorities, aliases & relationships,
+            discovery queue, scrapers, runs) are absorbed as tabs; the three
+            former standalone panels (/admin/authorities, /admin/authority-mappings,
+            /admin/enrichment) have been deleted.
           */}
           <Route path="/admin/authority/*" element={<AuthorityConsole />} />
-          <Route path="/admin/enrichment" element={<AdminEnrichment />} />
           <Route
             path="/admin/corpus-categories"
             element={<CorpusCategoryManagement />}
