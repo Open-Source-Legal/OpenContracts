@@ -638,6 +638,32 @@ class EnrichmentService:
             extra_tiers = [C.DETECTION_TIER_GRAMMAR]
         if analysis is None:
             analysis = self._get_analysis(corpus, creator_id)
+
+        # Make the concurrent-run hazard explicit. Two enrichment runs on the
+        # same corpus are *safe* — the claim rule lets a later successful run
+        # reclaim + finalize the earlier run's provisional rows, and the crawl
+        # seed reads finalized rows only — but the earlier run can then finalize
+        # zero of its own rows and complete "empty". That's confusing in the
+        # logs without this warning. (Cheap COUNT; no lock — purely advisory.)
+        concurrent = (
+            Analysis.objects.filter(
+                analyzed_corpus_id=corpus_id,
+                analyzer__task_name=C.ENRICHMENT_ANALYZER_TASK,
+                status=JobStatus.RUNNING.value,
+            )
+            .exclude(pk=analysis.pk)
+            .count()
+        )
+        if concurrent:
+            logger.warning(
+                "Enrichment apply: %s other RUNNING enrichment analysis(es) on "
+                "corpus %s. Concurrent runs are safe (claim rule + finalized-only "
+                "crawl seed) but the earlier run may finalize 0 rows and complete "
+                "empty as this run claims them.",
+                concurrent,
+                corpus_id,
+            )
+
         writer = EnrichmentWriter(corpus, creator_id, analysis=analysis)
 
         documents_total = len(documents)

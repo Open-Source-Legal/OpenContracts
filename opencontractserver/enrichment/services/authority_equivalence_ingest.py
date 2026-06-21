@@ -13,6 +13,8 @@ Shared by ``USCodeAuthoritySourceProvider`` (uslm) and the popular-name importer
 
 from __future__ import annotations
 
+from django.db import transaction
+
 from opencontractserver.annotations.models import AuthorityKeyEquivalence
 from opencontractserver.enrichment.data import mappings as _mappings
 
@@ -50,19 +52,36 @@ def upsert_equivalence(
     ):
         return SKIPPED_INVALID
 
-    existing = AuthorityKeyEquivalence.objects.filter(
-        from_key=from_key, to_key=to_key
-    ).first()
-    if existing is not None and existing.source != source:
-        return SKIPPED_OWNED
-
-    _, created = AuthorityKeyEquivalence.objects.update_or_create(
-        from_key=from_key,
-        to_key=to_key,
-        defaults={
-            "source": source,
-            "confidence": confidence,
-            "note": (note or None),
-        },
-    )
-    return CREATED if created else UPDATED
+    # Atomic upsert under source-scoped ownership. A bare filter-then-create is
+    # racy: two concurrent USLM fetches during a crawl could both read
+    # ``existing=None``, both pass the ownership check, and the second
+    # ``update_or_create`` would then flip ``source`` on the row the first just
+    # created — clobbering ownership (the unique constraint only catches strict
+    # duplicates, not source-ownership violations). ``select_for_update`` +
+    # ``get_or_create`` inside ``transaction.atomic`` closes that window:
+    # ``get_or_create`` resolves the insert race via the unique constraint, and
+    # the row lock serialises the ownership decision against concurrent writers.
+    with transaction.atomic():
+        (
+            obj,
+            created,
+        ) = AuthorityKeyEquivalence.objects.select_for_update().get_or_create(
+            from_key=from_key,
+            to_key=to_key,
+            defaults={
+                "source": source,
+                "confidence": confidence,
+                "note": (note or None),
+            },
+        )
+        if created:
+            return CREATED
+        if obj.source != source:
+            return SKIPPED_OWNED
+        # Same source: refresh the stored values (YAML/importer is authoritative).
+        AuthorityKeyEquivalence.objects.filter(pk=obj.pk).update(
+            source=source,
+            confidence=confidence,
+            note=(note or None),
+        )
+        return UPDATED

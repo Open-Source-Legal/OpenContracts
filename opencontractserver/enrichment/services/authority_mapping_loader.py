@@ -17,11 +17,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from opencontractserver.annotations.models import (
-    AuthorityKeyEquivalence,
-    AuthorityNamespace,
-)
+from opencontractserver.annotations.models import AuthorityNamespace
 from opencontractserver.enrichment.data import mappings as _mappings
+from opencontractserver.enrichment.services.authority_equivalence_ingest import (
+    CREATED,
+    SKIPPED_OWNED,
+    UPDATED,
+    upsert_equivalence,
+)
 
 
 class AuthorityMappingLoader:
@@ -57,26 +60,27 @@ class AuthorityMappingLoader:
                 continue
             seen.add(pair)
 
-            existing = AuthorityKeyEquivalence.objects.filter(
-                from_key=from_key, to_key=to_key
-            ).first()
-            if existing is not None and existing.source != cls.BASELINE:
-                skipped_owned += 1
-                continue
-
-            # YAML is authoritative for baseline rows: an omitted `note:` resets
-            # the stored note. (Non-baseline rows are never reached here.)
-            _, was_created = AuthorityKeyEquivalence.objects.update_or_create(
+            # Delegate to the shared atomic upsert so the source-ownership guard
+            # and the row write happen under one ``select_for_update`` lock — a
+            # bare filter-then-create here is racy under concurrent loader calls
+            # (same hazard the ingest writer guards). YAML is authoritative for
+            # baseline rows: an omitted ``note:`` resets the stored note.
+            outcome = upsert_equivalence(
                 from_key=from_key,
                 to_key=to_key,
-                defaults={
-                    "source": cls.BASELINE,
-                    "confidence": 1.0,
-                    "note": entry.get("note") or None,
-                },
+                source=cls.BASELINE,
+                confidence=1.0,
+                note=entry.get("note") or None,
             )
-            created += int(was_created)
-            updated += int(not was_created)
+            if outcome == CREATED:
+                created += 1
+            elif outcome == UPDATED:
+                updated += 1
+            elif outcome == SKIPPED_OWNED:
+                skipped_owned += 1
+            # SKIPPED_INVALID cannot occur: ``iter_equivalences`` already
+            # fail-fast-validated every key's format above, and the baseline
+            # never self-references.
 
         # total = distinct validated pairs seen = created + updated + skipped_owned.
         return {

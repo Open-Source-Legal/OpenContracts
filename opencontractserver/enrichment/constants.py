@@ -192,7 +192,10 @@ def llm_max_concurrency() -> int:
     from django.conf import settings
 
     override = getattr(settings, "ENRICHMENT_LLM_MAX_CONCURRENCY", None)
-    return override if override else LLM_MAX_CONCURRENCY
+    # ``is not None`` (not truthiness): an explicit ``0`` is a deliberate value,
+    # not "unset". Folding 0 into the default would silently ignore an operator
+    # who set it — a misconfiguration is better surfaced loudly than masked.
+    return override if override is not None else LLM_MAX_CONCURRENCY
 
 
 def doc_max_concurrency() -> int:
@@ -206,7 +209,9 @@ def doc_max_concurrency() -> int:
     from django.conf import settings
 
     override = getattr(settings, "ENRICHMENT_DOC_MAX_CONCURRENCY", None)
-    return override if override else DOC_MAX_CONCURRENCY
+    # ``is not None`` (not truthiness): an explicit ``0`` is a deliberate value,
+    # not "unset" — see ``llm_max_concurrency`` above.
+    return override if override is not None else DOC_MAX_CONCURRENCY
 
 
 # --- Phase 3: prefix classifier ---------------------------------------- #

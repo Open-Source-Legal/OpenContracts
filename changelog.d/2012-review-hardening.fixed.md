@@ -22,3 +22,19 @@
   Covered by `ConcurrentLLMFailureIsolationTests` and a finalized-NULL-analysis
   orphan case in `WriterClaimRuleTests`
   (`opencontractserver/tests/test_enrichment_in_flight.py`).
+- `upsert_equivalence` (`opencontractserver/enrichment/services/authority_equivalence_ingest.py`)
+  is now atomic: the source-ownership check and the row write happen inside
+  `transaction.atomic()` over a `select_for_update().get_or_create()` instead of a
+  racy `filter().first()` → `update_or_create()`. Previously two concurrent
+  different-source writers (e.g. parallel USLM fetches during a crawl) could both
+  read `existing=None`, both pass the ownership guard, and the second writer would
+  then flip `source` on the row the first just created — silently clobbering
+  ownership (the unique constraint only catches strict duplicates, not
+  source-ownership violations). `AuthorityMappingLoader.load()` now delegates to
+  this same atomic primitive (removing its duplicated filter-then-create) so the
+  baseline loader inherits the fix.
+- `ENRICHMENT_LLM_MAX_CONCURRENCY` / `ENRICHMENT_DOC_MAX_CONCURRENCY` overrides
+  (`opencontractserver/enrichment/constants.py`) now use `is not None` rather than
+  truthiness, so an explicit `0` is honored as a deliberate value instead of being
+  silently folded into the code default (a misconfiguration is surfaced, not
+  masked).

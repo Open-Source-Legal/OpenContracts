@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 import xml.etree.ElementTree as ET
 import zipfile
-from typing import TypedDict
+from typing import Any, TypedDict
 
 import httpx
 import requests
@@ -52,7 +52,7 @@ class AuthorityDiscoveryService(BaseService):
     """Registry-driven authority ingestion orchestrator."""
 
     @classmethod
-    def _provider_for(cls, canonical_key: str):
+    def _provider_for(cls, canonical_key: str) -> tuple[str | None, Any, str | None]:
         """Return ``(name, provider, fetch_key)`` for *canonical_key*.
 
         ``fetch_key`` is the key the chosen provider should ``locate``/``fetch``:
@@ -223,6 +223,13 @@ class AuthorityDiscoveryService(BaseService):
         if provider is None:
             AuthorityFrontierService.mark(frontier_row, "unsupported")
             return {"status": "unsupported", "canonical_key": canonical_key}
+
+        # ``_provider_for`` only returns a non-None provider alongside a non-None
+        # ``fetch_key`` (the matched candidate key); the ``(None, None, None)``
+        # miss is handled by the guard above. Assert it so the type narrows to
+        # ``str`` for ``locate``/``evaluate`` below (and the invariant is loud if
+        # a future edit decouples the two return slots).
+        assert fetch_key is not None
 
         # Record which provider was selected and mark in-flight.
         frontier_row.provider = name
