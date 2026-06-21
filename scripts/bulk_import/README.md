@@ -144,6 +144,15 @@ bottleneck is parsing, not upload.
 | `--hash` | off | Compute SHA-256 per file (integrity; slower). |
 | `--dry-run` | off | Build ZIPs but don't submit. |
 
+**Memory:** each in-flight ZIP is built in RAM, so peak driver memory is roughly
+`--target-bytes` × `--max-inflight` (defaults ≈ 250 MB × 4 ≈ 1 GB). Lower either
+flag if the driver host is memory-constrained.
+
+**HTTP retries:** transient failures (5xx / network) are retried up to 6 times
+per request with exponential backoff + jitter; 429s honor `Retry-After`; 401s
+trigger one JWT refresh. This is separate from `--max-attempts`, which is the
+per-batch ceiling across submissions.
+
 ## Known limitations
 
 - **Oversize files (≥ 100 MB)** are uploaded via the single-document endpoint

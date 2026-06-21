@@ -45,6 +45,7 @@ import hashlib
 import json
 import logging
 import os
+import random
 import sqlite3
 import sys
 import threading
@@ -89,6 +90,10 @@ DEFAULT_EXTENSIONS = ".pdf"
 # Retry/backoff for transient HTTP failures.
 _BACKOFF_BASE_SECONDS = 2.0
 _BACKOFF_CAP_SECONDS = 300.0
+_HTTP_MAX_RETRIES = 6  # transient-failure attempts per HTTP request
+# Backoff jitter multiplier range [_JITTER_MIN, _JITTER_MIN + _JITTER_SPAN).
+_JITTER_MIN = 0.5
+_JITTER_SPAN = 0.5
 _HASH_BLOCK = 1024 * 1024
 
 # Ledger batch states (stored verbatim in the `batches.status` column):
@@ -425,7 +430,7 @@ class OCClient:
                     method, url, headers=headers, timeout=self.timeout, **kwargs
                 )
             except requests.RequestException as exc:
-                if attempt > 6:
+                if attempt > _HTTP_MAX_RETRIES:
                     raise APIError(f"network error after {attempt} tries: {exc}")
                 self._sleep_backoff(attempt)
                 continue
@@ -445,7 +450,7 @@ class OCClient:
                 continue
 
             if resp.status_code >= 500:
-                if attempt > 6:
+                if attempt > _HTTP_MAX_RETRIES:
                     raise APIError(f"server {resp.status_code}: {resp.text[:300]}")
                 self._sleep_backoff(attempt)
                 continue
@@ -458,9 +463,7 @@ class OCClient:
 
     def _sleep_backoff(self, attempt: int) -> None:
         # Jitter avoids synchronized retries across the in-flight pool.
-        import random
-
-        delay = self._backoff(attempt) * (0.5 + random.random() / 2)
+        delay = self._backoff(attempt) * (_JITTER_MIN + random.random() * _JITTER_SPAN)
         time.sleep(delay)
 
     # -- graphql ------------------------------------------------------------
@@ -501,16 +504,19 @@ class OCClient:
     def submit_zip_to_corpus(
         self,
         corpus_id: str,
-        zip_bytes: bytes,
+        zip_stream: BytesIO,
         filename: str,
         make_public: bool = False,
     ) -> str:
         """POST a ZIP to /api/imports/zip-to-corpus/. Returns the server job_id
-        (audit only — it is not pollable; verify by corpus count instead)."""
+        (audit only — it is not pollable; verify by corpus count instead).
+
+        ``zip_stream`` is consumed in place (no extra copy); ``_request`` rewinds
+        it before each attempt so retries re-send the full body."""
         resp = self._request(
             "POST",
             f"{self.api_base}/api/imports/zip-to-corpus/",
-            files={"file": (filename, BytesIO(zip_bytes), "application/zip")},
+            files={"file": (filename, zip_stream, "application/zip")},
             data={"corpus_id": corpus_id, "make_public": str(make_public).lower()},
         )
         if resp.status_code not in (200, 202):
@@ -584,6 +590,9 @@ def scan_files(
             kind = KIND_OVERSIZE if size >= single_file_cap else KIND_ZIP
             sha = _sha256(abs_path) if compute_hash else ""
             entries.append(FileEntry(str(rel), abs_path, size, kind, sha))
+    # Sort the full list authoritatively: os.walk ordering is platform-dependent
+    # even though we sort within each directory, and the batch plan must be
+    # byte-for-byte identical across runs/machines for the ledger to resume.
     entries.sort(key=lambda e: e.rel_path)
     return entries
 
@@ -634,7 +643,8 @@ def plan_batches(
             # Each oversize file is its own one-member batch (single-doc path).
             batches.append(Batch(_batch_id([entry]), KIND_OVERSIZE, [entry]))
             continue
-        new_dirs = cur_dirs | _ancestor_dirs(entry.rel_path)
+        entry_dirs = _ancestor_dirs(entry.rel_path)
+        new_dirs = cur_dirs | entry_dirs
         would_break = (
             len(cur) + 1 > target_files
             or cur_bytes + entry.size > target_bytes
@@ -642,7 +652,7 @@ def plan_batches(
         )
         if would_break:
             flush()
-            new_dirs = _ancestor_dirs(entry.rel_path)
+            new_dirs = entry_dirs
         cur.append(entry)
         cur_bytes += entry.size
         cur_dirs = new_dirs
@@ -650,14 +660,17 @@ def plan_batches(
     return batches
 
 
-def build_zip_bytes(members: list[FileEntry]) -> bytes:
+def build_zip_stream(members: list[FileEntry]) -> BytesIO:
     """Build a ZIP in memory, writing each member at its relative path (arcname)
-    so the server reconstructs the folder tree."""
+    so the server reconstructs the folder tree. Returns the buffer positioned at
+    0, ready to stream to ``requests`` — avoiding the extra full-size copy that
+    ``BytesIO.getvalue()`` would make (peak RAM stays ~1x the ZIP size)."""
     buf = BytesIO()
     with ZipFile(buf, "w", ZIP_DEFLATED) as zf:
         for m in members:
             zf.write(m.abs_path, arcname=m.rel_path)
-    return buf.getvalue()
+    buf.seek(0)
+    return buf
 
 
 # --- Backpressure governor -------------------------------------------------
@@ -686,13 +699,22 @@ class QueueGovernor:
     def _maybe_poll(self) -> int:
         now = time.time()
         with self._lock:
-            if now - self._last_poll >= self._interval:
-                try:
-                    stats = self._client.document_stats(self._corpus_id)
-                    self._processing = int(stats.get("processingCount", 0))
-                    self._last_poll = now
-                except APIError as exc:
-                    logger.warning("documentStats poll failed: %s", exc)
+            if now - self._last_poll < self._interval:
+                return self._processing
+            # Claim the poll slot before releasing the lock so concurrent
+            # workers see "recently polled" and reuse the cached value instead
+            # of all issuing duplicate requests.
+            self._last_poll = now
+
+        # Poll OUTSIDE the lock — a slow request (up to the 600s timeout) must
+        # not block every other worker that only wants the cached count.
+        try:
+            stats = self._client.document_stats(self._corpus_id)
+        except APIError as exc:
+            logger.warning("documentStats poll failed: %s", exc)
+            return self._processing
+        with self._lock:
+            self._processing = int(stats.get("processingCount", 0))
             return self._processing
 
     def wait(self) -> None:
@@ -720,11 +742,18 @@ class _NullGovernor:
 
 
 # --- Commands --------------------------------------------------------------
+def _credentials(args: argparse.Namespace) -> tuple[str | None, str | None]:
+    """Resolve (username, password) from flags or OC_USERNAME / OC_PASSWORD."""
+    return (
+        args.username or os.environ.get("OC_USERNAME"),
+        args.password or os.environ.get("OC_PASSWORD"),
+    )
+
+
 def _make_client(args: argparse.Namespace, *, require_auth: bool = True) -> OCClient:
     client = OCClient(args.api_base, timeout=args.timeout)
     if require_auth:
-        username = args.username or os.environ.get("OC_USERNAME")
-        password = args.password or os.environ.get("OC_PASSWORD")
+        username, password = _credentials(args)
         if not username or not password:
             raise SystemExit(
                 "Authentication required: pass --username/--password or set "
@@ -779,14 +808,15 @@ def cmd_plan(args: argparse.Namespace, ledger: Ledger) -> int:
 def _process_batch(
     batch_id: str,
     ledger: Ledger,
-    client: OCClient,
-    governor: QueueGovernor,
+    client: OCClient | None,  # None only on the offline dry-run path
+    governor: QueueGovernor | _NullGovernor,
     corpus_id: str,
     make_public: bool,
     max_attempts: int,
     dry_run: bool,
 ) -> tuple[str, bool, str]:
-    """Build + submit one batch. Returns (batch_id, ok, detail)."""
+    """Build + submit one batch. Returns (batch_id, ok, detail). ``client`` is
+    only ``None`` for ``dry_run`` (the early returns below run before any call)."""
     if ledger.attempts(batch_id) >= max_attempts:
         return batch_id, False, "max attempts reached (parked FAILED)"
 
@@ -804,11 +834,12 @@ def _process_batch(
             ledger.mark_submitted(batch_id, None)
             return batch_id, True, "single doc submitted"
 
-        zip_bytes = build_zip_bytes(members)
         if dry_run:
+            build_zip_stream(members)  # validate construction, then discard
             return batch_id, True, f"dry-run ({len(members)} files)"
+        zip_stream = build_zip_stream(members)
         job_id = client.submit_zip_to_corpus(
-            corpus_id, zip_bytes, f"{batch_id}.zip", make_public
+            corpus_id, zip_stream, f"{batch_id}.zip", make_public
         )
         ledger.mark_submitted(batch_id, job_id)
         return batch_id, True, f"{len(members)} files (job {job_id[:8]})"
@@ -887,9 +918,19 @@ def cmd_run(args: argparse.Namespace, ledger: Ledger) -> int:
 
 def cmd_verify(args: argparse.Namespace, ledger: Ledger) -> int:
     client = _make_client(args)
-    baseline = int(ledger.get_meta("baseline_total_docs") or "0")
+    raw_baseline = ledger.get_meta("baseline_total_docs")
+    baseline = int(raw_baseline or "0")
     expected = ledger.submitted_member_count()
     stats = client.document_stats(args.corpus_id)
+    # The baseline (corpus doc count before the import) is recorded by `run`.
+    # If it's missing while we expect docs to have landed, `landed` would be
+    # inflated by any pre-existing documents — warn rather than false-VERIFY.
+    if raw_baseline is None and expected and int(stats.get("totalDocs", 0)) > 0:
+        logger.warning(
+            "No baseline recorded (was `run` executed against this ledger?). "
+            "Assuming the corpus started empty; verify counts manually if it "
+            "already contained documents."
+        )
     landed = int(stats.get("totalDocs", 0)) - baseline
     processing = int(stats.get("processingCount", 0))
 
@@ -922,7 +963,8 @@ def cmd_status(args: argparse.Namespace, ledger: Ledger) -> int:
     logger.info(
         "Expected documents (submitted/verified): %d", ledger.submitted_member_count()
     )
-    if args.corpus_id:
+    username, password = _credentials(args)
+    if args.corpus_id and username and password:
         try:
             client = _make_client(args)
             stats = client.document_stats(args.corpus_id)
@@ -932,8 +974,12 @@ def cmd_status(args: argparse.Namespace, ledger: Ledger) -> int:
                 stats.get("processingCount"),
                 stats.get("processedCount"),
             )
-        except (APIError, SystemExit) as exc:
+        except APIError as exc:
             logger.warning("Could not fetch live corpus stats: %s", exc)
+    elif args.corpus_id:
+        logger.info(
+            "Live corpus stats skipped: set OC_USERNAME / OC_PASSWORD to include them."
+        )
     return 0
 
 

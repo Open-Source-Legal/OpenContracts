@@ -147,8 +147,9 @@ class ZipTests(unittest.TestCase):
             ),
             drv.FileEntry("top.pdf", os.path.join(tmp, "top.pdf"), 4, drv.KIND_ZIP),
         ]
-        data = drv.build_zip_bytes(members)
-        with ZipFile(BytesIO(data)) as zf:
+        stream = drv.build_zip_stream(members)
+        self.assertEqual(stream.tell(), 0)  # positioned at 0, ready to stream
+        with ZipFile(stream) as zf:
             self.assertEqual(sorted(zf.namelist()), ["top.pdf", "x/y/doc.pdf"])
 
 
@@ -227,6 +228,44 @@ class RequestRetryTests(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(bodies, [b"PAYLOAD", b"PAYLOAD"])
+
+
+class _FakeStatsClient:
+    """Stand-in OCClient that returns scripted processingCount values."""
+
+    def __init__(self, processing_values):
+        self._values = list(processing_values)
+        self.calls = 0
+
+    def document_stats(self, corpus_id):
+        self.calls += 1
+        # Pop while more remain; otherwise keep returning the final value.
+        value = self._values.pop(0) if len(self._values) > 1 else self._values[0]
+        return {"processingCount": value, "totalDocs": 0}
+
+
+class GovernorTests(unittest.TestCase):
+    def test_disabled_when_high_is_zero(self):
+        client = _FakeStatsClient([999])
+        gov = drv.QueueGovernor(client, "c", high=0, low=0, poll_interval=0)
+        gov.wait()
+        self.assertEqual(client.calls, 0)  # never polls when backpressure off
+
+    def test_blocks_until_backlog_drains(self):
+        # First poll is over the high-water mark, second is under the low-water
+        # mark -> wait() must loop once and then return. poll_interval=0 makes
+        # the in-loop sleep a no-op, so no real waiting.
+        client = _FakeStatsClient([50, 1])
+        gov = drv.QueueGovernor(client, "c", high=10, low=2, poll_interval=0)
+        gov.wait()
+        self.assertGreaterEqual(client.calls, 2)
+
+    def test_reading_is_cached_within_interval(self):
+        client = _FakeStatsClient([5])
+        gov = drv.QueueGovernor(client, "c", high=100, low=10, poll_interval=1000)
+        self.assertEqual(gov._maybe_poll(), 5)
+        self.assertEqual(gov._maybe_poll(), 5)  # served from cache
+        self.assertEqual(client.calls, 1)
 
 
 if __name__ == "__main__":
