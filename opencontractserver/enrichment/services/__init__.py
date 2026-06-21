@@ -11,6 +11,9 @@ from opencontractserver.enrichment.services.authority_discovery_service import (
 from opencontractserver.enrichment.services.authority_frontier_service import (
     AuthorityFrontierService,
 )
+from opencontractserver.enrichment.services.authority_mapping_service import (
+    AuthorityKeyEquivalenceService,
+)
 from opencontractserver.enrichment.services.corpus_reference_service import (
     CorpusReferenceService,
 )
@@ -25,6 +28,7 @@ from opencontractserver.enrichment.services.governance_graph_service import (
 __all__ = [
     "AuthorityDiscoveryService",
     "AuthorityFrontierService",
+    "AuthorityKeyEquivalenceService",
     "CrawlAuthoritiesService",
     "CorpusReferenceService",
     "EnrichmentService",

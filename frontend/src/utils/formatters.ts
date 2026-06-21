@@ -303,3 +303,32 @@ export function formatCanonicalLawKey(key: string): string {
     .join(" ");
   return section ? `${display} § ${section}` : display;
 }
+
+/**
+ * Display form for an authority jurisdiction code:
+ * "us-de" → "U.S. — DE", "us-federal" → "U.S. Federal", other codes upper-cased.
+ *
+ * Returns `null` when the code is absent so each caller picks its own
+ * placeholder (table cells render `?? "—"`; the governance graph renders
+ * `?? ""` or conditionally hides the field). Shared by the Authority Sources
+ * monitor and the governance-graph explorer so a code never renders two ways.
+ */
+export function formatJurisdiction(j?: string | null): string | null {
+  if (!j) return null;
+  if (j === "us-federal") return "U.S. Federal";
+  const m = j.match(/^us-([a-z]{2})$/);
+  if (m) return `U.S. — ${m[1].toUpperCase()}`;
+  return j.toUpperCase();
+}
+
+/**
+ * Capitalize the first letter and de-snake/-kebab the rest:
+ * "deferred_cap" → "Deferred cap", "us-code" → "Us code". Returns `null` for
+ * empty input so callers choose their own placeholder. Shared by the Authority
+ * Sources monitor and the governance-graph explorer (CLAUDE.md DRY).
+ */
+export function titleCase(s?: string | null): string | null {
+  return s
+    ? s.charAt(0).toUpperCase() + s.slice(1).replace(/[_-]/g, " ")
+    : null;
+}

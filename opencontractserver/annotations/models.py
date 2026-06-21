@@ -1983,11 +1983,29 @@ class CorpusReference(BaseOCModel):
         blank=True,
         related_name="created_references",
     )
+    # In-flight enrichment lifecycle. ``True`` means this row was written by a
+    # still-running enrichment pass and is NOT yet finalized: surface it (the
+    # References panel / governance graph render it with a badge) but do NOT act
+    # on it (the crawl seeds the frontier from finalized rows only). The
+    # producing run flips its own rows to ``False`` in one atomic update on
+    # success (keyed on ``created_by_analysis``); a failed run leaves them
+    # provisional, to be reclaimed + finalized by a later successful run.
+    # ``default=False`` so every pre-existing row and every fast-tier/direct
+    # write is already finalized — the migration is schema-only.
+    is_provisional = django.db.models.BooleanField(default=False, db_index=True)
 
     class Meta:
         indexes = [
             django.db.models.Index(fields=["corpus", "reference_type"]),
             django.db.models.Index(fields=["canonical_key"]),
+            # Composite index for the in-flight finalize UPDATE
+            # (``filter(created_by_analysis=..., is_provisional=True)`` in
+            # EnrichmentService.apply()): a single covering index beats merging
+            # the two single-column indexes / a seq-scan on large corpora.
+            django.db.models.Index(
+                fields=["created_by_analysis", "is_provisional"],
+                name="idx_corpusref_analysis_provis",
+            ),
         ]
         constraints = [
             # Idempotency guard: one reference per (source span, type, key).
@@ -2221,13 +2239,25 @@ class AuthorityKeyEquivalence(django.db.models.Model):
     SOURCE_CHOICES = [
         ("uslm", "OLRC USLM sourceCredit"),  # parsed from <ref href="/us/act/...">
         ("popular_name", "USC popular-name table"),
-        ("manual", "Hand-curated"),
+        ("baseline", "Shipped baseline (loader-managed)"),
+        ("manual", "Hand-curated (runtime override)"),
     ]
     source = django.db.models.CharField(
         max_length=32, choices=SOURCE_CHOICES, default="uslm"
     )
     confidence = django.db.models.FloatField(default=1.0)
     note = django.db.models.CharField(max_length=255, null=True, blank=True)
+    # Provenance "who": set on runtime (source="manual") rows created through the
+    # CRUD surface. Null for loader/importer-owned rows (baseline/popular_name/
+    # uslm). SET_NULL so deleting the curator keeps the mapping. (AuthorityNamespace
+    # created_by is deferred — namespaces are overwhelmingly baseline/auto.)
+    created_by = django.db.models.ForeignKey(
+        get_user_model(),
+        on_delete=django.db.models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="authored_authority_equivalences",
+    )
     created = django.db.models.DateTimeField(auto_now_add=True)
     modified = django.db.models.DateTimeField(auto_now=True)
 
@@ -2236,6 +2266,19 @@ class AuthorityKeyEquivalence(django.db.models.Model):
             django.db.models.UniqueConstraint(
                 fields=["from_key", "to_key"],
                 name="authority_key_equiv_unique_pair",
+            ),
+            # A key is trivially equivalent to itself; a self-row is never
+            # meaningful and would let find_authority_target "hop" a key onto
+            # itself. The loader already rejects from_key == to_key in Python,
+            # but a direct ORM insert / admin action / data import would bypass
+            # that — enforce it at the DB so no self-row can ever exist.
+            django.db.models.CheckConstraint(
+                condition=~django.db.models.Q(from_key=django.db.models.F("to_key")),
+                name="authority_key_equiv_no_self_reference",
+                violation_error_message=(
+                    "An authority key cannot be equivalent to itself "
+                    "(from_key must differ from to_key)."
+                ),
             ),
         ]
         indexes = [

@@ -333,6 +333,40 @@ class UnsupportedKeyTests(TransactionTestCase):
         self.assertEqual(frontier_row.discovery_state, "unsupported")
 
 
+class ProviderForEquivalenceBridgeTests(TransactionTestCase):
+    """`_provider_for` bridges a popular-name domain key (which no provider
+    handles directly) to its provider-supported statutory equivalent — the
+    namespace-gap fix. Without an equivalence the key stays unsupported."""
+
+    def test_domain_key_bridges_to_supported_equivalent(self):
+        """exchange-act:10 → usc-15:78j (handled by the US Code provider)."""
+        _ensure_exchange_act_10_equiv()
+        name, provider, fetch_key = AuthorityDiscoveryService._provider_for(
+            "exchange-act:10"
+        )
+        self.assertIsNotNone(provider, "domain key should bridge to a provider")
+        self.assertIsNotNone(name)
+        self.assertEqual(fetch_key, "usc-15:78j")
+        self.assertTrue(provider.can_handle(fetch_key))
+
+    def test_direct_statutory_key_is_unchanged(self):
+        """A directly-supported key fetches under itself (no bridge)."""
+        name, provider, fetch_key = AuthorityDiscoveryService._provider_for(
+            "usc-15:78j"
+        )
+        self.assertIsNotNone(provider)
+        self.assertEqual(fetch_key, "usc-15:78j")
+
+    def test_domain_key_without_equivalence_is_unsupported(self):
+        """No provider and no equivalence → (None, None, None)."""
+        name, provider, fetch_key = AuthorityDiscoveryService._provider_for(
+            "mystery-zz:1"
+        )
+        self.assertIsNone(provider)
+        self.assertIsNone(name)
+        self.assertIsNone(fetch_key)
+
+
 class FindAuthorityTargetMissingKeyTests(TransactionTestCase):
     """find_authority_target returns None for unknown keys with no equiv or doc."""
 

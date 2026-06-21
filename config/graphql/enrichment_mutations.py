@@ -255,3 +255,90 @@ class RunCorpusEnrichmentMutation(graphene.Mutation):
             message="SUCCESS",
             analyses=created,
         )
+
+
+class RunAuthorityDiscoveryMutation(graphene.Mutation):
+    """Run authority discovery on a hand-picked set of ``AuthorityFrontier`` rows.
+
+    The corpus-agnostic counterpart to :class:`RunCorpusEnrichmentMutation`'s
+    crawl: instead of seeding + dequeuing the whole frontier under a corpus
+    ``Analysis``, this ingests *exactly* the selected rows (depth 0, no
+    recursion), so the global Authority Sources monitor can drain a chosen
+    subset of the queue.
+
+    **Superuser-only.** The ``AuthorityFrontier`` is a global, system-managed
+    queue with no per-object permissions — mirroring the ``authorityFrontier``
+    query gate, there is no corpus to check ``UPDATE`` against. The work is
+    enqueued fire-and-forget; the monitor reflects each row's ``discovery_state``
+    as it transitions.
+    """
+
+    class Arguments:
+        frontier_ids = graphene.List(
+            graphene.NonNull(graphene.ID),
+            required=True,
+            description="Global IDs of the AuthorityFrontier rows to run discovery on.",
+        )
+
+    ok = graphene.Boolean()
+    message = graphene.String()
+    count = graphene.Int()
+
+    @login_required
+    def mutate(root, info, frontier_ids):
+        user = info.context.user
+        if not getattr(user, "is_superuser", False):
+            # Same opaque message whether the rows exist or the user lacks
+            # access — the frontier is superuser-only, no existence oracle.
+            return RunAuthorityDiscoveryMutation(
+                ok=False,
+                message="Resource not found or you do not have permission.",
+                count=0,
+            )
+
+        pks: list[int] = []
+        for gid in frontier_ids:
+            try:
+                pks.append(int(from_global_id(gid)[1]))
+            except (ValueError, TypeError, IndexError):
+                continue
+        pks = list(dict.fromkeys(pks))  # de-dupe, preserve order
+
+        if not pks:
+            return RunAuthorityDiscoveryMutation(
+                ok=False,
+                message="No valid authority rows selected.",
+                count=0,
+            )
+
+        # Bound the batch: discover_selected runs rows sequentially in one
+        # Celery task, so an unbounded list could run a worker for an unbounded
+        # time. Reject oversize batches instead of silently truncating; the
+        # superuser can re-issue for the remainder.
+        if len(pks) > C.AUTHORITY_DISCOVERY_MAX_BATCH:
+            return RunAuthorityDiscoveryMutation(
+                ok=False,
+                message=(
+                    "Too many authorities selected "
+                    f"(max {C.AUTHORITY_DISCOVERY_MAX_BATCH} per run)."
+                ),
+                count=0,
+            )
+
+        from opencontractserver.tasks.corpus_tasks import (
+            discover_selected_authorities,
+        )
+
+        logger.info(
+            "RunAuthorityDiscoveryMutation: dispatching discovery for %s rows user=%s",
+            len(pks),
+            user.id,
+        )
+        discover_selected_authorities.delay(frontier_ids=pks, creator_id=user.id)
+
+        plural = "y" if len(pks) == 1 else "ies"
+        return RunAuthorityDiscoveryMutation(
+            ok=True,
+            message=f"Discovery started for {len(pks)} authorit{plural}.",
+            count=len(pks),
+        )

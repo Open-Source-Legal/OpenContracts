@@ -13,6 +13,11 @@ columns so the direction is for documentation only.
 
 from __future__ import annotations
 
+# FROZEN: superseded by enrichment/data/authority_mappings.yaml as the source of
+# truth for equivalences. Retained ONLY for migration 0087 (historical seed) and
+# 0092 (one-time manual->baseline reclassification). Do NOT edit these dicts; add
+# new pairs to the YAML.
+
 # Securities Exchange Act of 1934 (15 U.S.C. Chapter 2B)
 EXCHANGE_ACT_TO_USC: dict[str, str] = {
     "exchange-act:9": "usc-15:78i",

@@ -85,6 +85,35 @@ _USC_SECTION_RE = re.compile(r"^[0-9]+[a-z0-9-]*$", re.IGNORECASE)
 # Title must be purely numeric (e.g. '15', '7', '26').
 _USC_TITLE_RE = re.compile(r"^\d+$")
 
+# --- USLM <sourceCredit> cross-reference harvest (Phase 3 "uslm" source) ------
+# A USLM <sourceCredit> carries the section's legislative history as <ref>
+# elements with USLM href paths. We harvest the two forms that line up exactly
+# with the grammar's emitted keys (grammars._publ / _stat), so a filing that
+# cites the Public Law or Statutes-at-Large form resolves to the ingested USC
+# section via find_authority_target / _provider_for:
+#   /us/pl/{congress}/{law}[/...]  -> publ:{congress}-{law}   (Pub. L. 111-203)
+#   /us/stat/{volume}/{page}[/...] -> stat:{volume}.{page}    (48 Stat. 891)
+# Act hrefs (/us/act/<date>/ch.../...) are intentionally NOT harvested — they do
+# not map cleanly onto a registry prefix (date/chapter, not a slug).
+_SOURCECREDIT_PL_RE = re.compile(r"^/us/pl/(?P<cong>\d+)/(?P<num>\d+)(?:/|$)")
+_SOURCECREDIT_STAT_RE = re.compile(r"^/us/stat/(?P<vol>\d+)/(?P<page>\d+)(?:/|$)")
+# uslm-harvested equivalences are high- but not perfect-confidence (a Public Law
+# amends many sections; the bridge is correct but coarse for whole-PL citations).
+_USLM_HARVEST_CONFIDENCE = 0.9
+
+# Tags whose text content contributes to the section body.
+_TEXT_CONTRIBUTING_TAGS = {
+    f"{{{_USLM_NS}}}chapeau",
+    f"{{{_USLM_NS}}}content",
+    f"{{{_USLM_NS}}}p",
+    f"{{{_USLM_NS}}}subsection",
+    f"{{{_USLM_NS}}}paragraph",
+    f"{{{_USLM_NS}}}clause",
+    f"{{{_USLM_NS}}}subclause",
+    f"{{{_USLM_NS}}}item",
+    f"{{{_USLM_NS}}}subitem",
+}
+
 
 def _validate_usc_components(title: str, section: str) -> None:
     """Raise ValueError if *title* or *section* contain unexpected characters.
@@ -142,6 +171,33 @@ def _collect_text(element: ET.Element) -> list[str]:
             parts.append(child.tail.strip())
 
     return parts
+
+
+def parse_sourcecredit_keys(section_el: ET.Element) -> list[str]:
+    """Return the ``publ:``/``stat:`` canonical keys cited in *section_el*'s
+    ``<sourceCredit>`` (sorted, de-duplicated).
+
+    Pure (no DB): scans every ``<ref href>`` under the section's
+    ``<sourceCredit>`` and maps the Public-Law / Statutes-at-Large href forms to
+    the grammar's emitted key shapes. Returns ``[]`` when there is no
+    ``<sourceCredit>`` or no recognised cross-reference.
+    """
+    sc = section_el.find("u:sourceCredit", _NS)
+    if sc is None:
+        return []
+    keys: set[str] = set()
+    for ref in sc.iter(f"{{{_USLM_NS}}}ref"):
+        href = (ref.get("href") or "").strip()
+        if not href:
+            continue
+        m = _SOURCECREDIT_PL_RE.match(href)
+        if m:
+            keys.add(f"publ:{m.group('cong')}-{m.group('num')}")
+            continue
+        m = _SOURCECREDIT_STAT_RE.match(href)
+        if m:
+            keys.add(f"stat:{m.group('vol')}.{m.group('page')}")
+    return sorted(keys)
 
 
 class USCodeAuthoritySourceProvider(BaseAuthoritySourceProvider):
@@ -287,6 +343,21 @@ class USCodeAuthoritySourceProvider(BaseAuthoritySourceProvider):
         # Canonical key uses the exact string from the XML num/@value.
         canonical_key = f"usc-{title}:{section_num}"
 
+        # --- USLM <sourceCredit> equivalence harvest (best-effort side-effect) -
+        # Bridge the section's Public-Law / Statutes-at-Large cross-references to
+        # the canonical USC key so a filing citing the PL/Stat form resolves to
+        # this ingested section. Guarded: a malformed sourceCredit (or a non-sync
+        # call context) must NEVER fail the text fetch — it only forfeits the
+        # optional bridge.
+        try:
+            self._harvest_sourcecredit_equivalences(section_el, canonical_key)
+        except Exception as exc:  # noqa: BLE001 — optional enrichment side-effect
+            logger.warning(
+                "USCodeProvider: sourceCredit harvest skipped for %s: %s",
+                canonical_key,
+                exc,
+            )
+
         # --- text body (excluding sourceCredit / notes) ----------------------
         text_parts: list[str] = []
 
@@ -341,3 +412,42 @@ class USCodeAuthoritySourceProvider(BaseAuthoritySourceProvider):
 
         with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
             return zf.read(member_name)
+
+    # ---- USLM equivalence harvest ----------------------------------------- #
+
+    def _harvest_sourcecredit_equivalences(
+        self, section_el: ET.Element, canonical_key: str
+    ) -> dict:
+        """Upsert ``source="uslm"`` equivalences from the section's sourceCredit.
+
+        Each harvested ``publ:``/``stat:`` key (see
+        :func:`parse_sourcecredit_keys`) is bridged to ``canonical_key`` via the
+        source-scoped writer (never clobbers baseline/manual/popular_name rows).
+        Runs in the synchronous ingestion path (``discover_and_bootstrap`` →
+        ``provider.fetch``), so the ORM write is safe. Returns per-outcome counts.
+        """
+        from opencontractserver.enrichment.services.authority_equivalence_ingest import (  # noqa: E501
+            CREATED,
+            SKIPPED_OWNED,
+            UPDATED,
+            upsert_equivalence,
+        )
+
+        counts = {CREATED: 0, UPDATED: 0, SKIPPED_OWNED: 0}
+        for from_key in parse_sourcecredit_keys(section_el):
+            outcome = upsert_equivalence(
+                from_key=from_key,
+                to_key=canonical_key,
+                source="uslm",
+                confidence=_USLM_HARVEST_CONFIDENCE,
+                note="USLM sourceCredit cross-reference",
+            )
+            if outcome in counts:
+                counts[outcome] += 1
+        if counts[CREATED] or counts[UPDATED]:
+            logger.info(
+                "USCodeProvider: harvested %s sourceCredit equivalence(s) for %s",
+                counts[CREATED] + counts[UPDATED],
+                canonical_key,
+            )
+        return counts

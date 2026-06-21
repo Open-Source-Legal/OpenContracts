@@ -406,6 +406,47 @@ test.describe("EnrichmentRunner", () => {
     await component.unmount();
   });
 
+  // -------------------------------------------------------------------------
+  // Doc screenshot: the authority-crawl GUI pathway (crawl enabled + the
+  // Advanced bounds expanded), tuned for a single-source ingest. Referenced
+  // from docs/guides/ingesting-authorities.md.
+  // -------------------------------------------------------------------------
+
+  test("crawl enabled with advanced bounds expanded — doc screenshot", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <EnrichmentRunnerWrapperFull
+        corpusId={CORPUS_ID}
+        mocks={[EMPTY_QUERY_MOCK]}
+      />
+    );
+
+    await expect(page.locator('[data-testid="enrichment-runner"]')).toBeVisible(
+      { timeout: 10000 }
+    );
+
+    // Enable the authority crawl job (off by default).
+    await page.getByText("Run authority crawl").click();
+
+    // Expand the collapsed "Advanced (crawl bounds)" section.
+    await page.getByRole("button", { name: /Advanced/ }).click();
+
+    // Tune for a one-source ingest — mirrors the guide's worked example.
+    await page.locator("#enrichment-minDemand").fill("1");
+    await page.locator("#enrichment-maxAuthorities").fill("1");
+
+    // The crawl-bound inputs are now visible.
+    await expect(page.locator("#enrichment-maxDepth")).toBeVisible();
+
+    await docScreenshot(page, "enrichment--runner--crawl-options", {
+      element: page.locator('[data-testid="enrichment-runner"]'),
+    });
+
+    await component.unmount();
+  });
+
   test("partial success surfaces a warning toast (enrichment ok, crawl failed)", async ({
     mount,
     page,

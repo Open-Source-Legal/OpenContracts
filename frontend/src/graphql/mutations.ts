@@ -432,6 +432,160 @@ export const RUN_CORPUS_ENRICHMENT = gql`
   }
 `;
 
+export interface RunAuthorityDiscoveryInputs {
+  /** Global IDs of the AuthorityFrontier rows to run discovery on. */
+  frontierIds: string[];
+}
+
+export interface RunAuthorityDiscoveryOutputs {
+  runAuthorityDiscovery: {
+    ok: boolean;
+    message?: string | null;
+    count: number;
+  };
+}
+
+/**
+ * Run authority discovery on a hand-picked subset of AuthorityFrontier rows
+ * (superuser-only; fire-and-forget). Depth 0 — ingests exactly the selected
+ * rows. The monitor reflects each row's discovery_state as it transitions.
+ */
+export const RUN_AUTHORITY_DISCOVERY = gql`
+  mutation RunAuthorityDiscovery($frontierIds: [ID!]!) {
+    runAuthorityDiscovery(frontierIds: $frontierIds) {
+      ok
+      message
+      count
+    }
+  }
+`;
+
+// --- Authority key-equivalence mutations (superuser-only) ------------------
+// CRUD over the manually-curated act-section ↔ USC/CFR key bridges shown in
+// /admin/authority-mappings. Only ``source = "manual"`` rows can be created,
+// updated, or deleted; the backend enforces this and returns ok:false with an
+// opaque message otherwise. The returned ``obj`` lets the panel refresh a row
+// in place without a full refetch.
+
+export interface AuthorityKeyEquivalenceMutationObj {
+  id: string;
+  fromKey: string;
+  toKey: string;
+  source: string;
+  confidence?: number | null;
+  note?: string | null;
+  editable: boolean;
+  createdByUsername?: string | null;
+  modified?: string | null;
+}
+
+export interface CreateAuthorityKeyEquivalenceInputs {
+  fromKey: string;
+  toKey: string;
+  note?: string | null;
+}
+
+export interface CreateAuthorityKeyEquivalenceOutputs {
+  createAuthorityKeyEquivalence: {
+    ok: boolean;
+    message?: string | null;
+    obj?: AuthorityKeyEquivalenceMutationObj | null;
+  };
+}
+
+export const CREATE_AUTHORITY_KEY_EQUIVALENCE = gql`
+  mutation CreateAuthorityKeyEquivalence(
+    $fromKey: String!
+    $toKey: String!
+    $note: String
+  ) {
+    createAuthorityKeyEquivalence(
+      fromKey: $fromKey
+      toKey: $toKey
+      note: $note
+    ) {
+      ok
+      message
+      obj {
+        id
+        fromKey
+        toKey
+        source
+        confidence
+        note
+        editable
+        createdByUsername
+        modified
+      }
+    }
+  }
+`;
+
+export interface UpdateAuthorityKeyEquivalenceInputs {
+  id: string;
+  fromKey?: string | null;
+  toKey?: string | null;
+  note?: string | null;
+}
+
+export interface UpdateAuthorityKeyEquivalenceOutputs {
+  updateAuthorityKeyEquivalence: {
+    ok: boolean;
+    message?: string | null;
+    obj?: AuthorityKeyEquivalenceMutationObj | null;
+  };
+}
+
+export const UPDATE_AUTHORITY_KEY_EQUIVALENCE = gql`
+  mutation UpdateAuthorityKeyEquivalence(
+    $id: ID!
+    $fromKey: String
+    $toKey: String
+    $note: String
+  ) {
+    updateAuthorityKeyEquivalence(
+      id: $id
+      fromKey: $fromKey
+      toKey: $toKey
+      note: $note
+    ) {
+      ok
+      message
+      obj {
+        id
+        fromKey
+        toKey
+        source
+        confidence
+        note
+        editable
+        createdByUsername
+        modified
+      }
+    }
+  }
+`;
+
+export interface DeleteAuthorityKeyEquivalenceInputs {
+  id: string;
+}
+
+export interface DeleteAuthorityKeyEquivalenceOutputs {
+  deleteAuthorityKeyEquivalence: {
+    ok: boolean;
+    message?: string | null;
+  };
+}
+
+export const DELETE_AUTHORITY_KEY_EQUIVALENCE = gql`
+  mutation DeleteAuthorityKeyEquivalence($id: ID!) {
+    deleteAuthorityKeyEquivalence(id: $id) {
+      ok
+      message
+    }
+  }
+`;
+
 export const START_EXPORT_CORPUS = gql`
   mutation (
     $corpusId: String!

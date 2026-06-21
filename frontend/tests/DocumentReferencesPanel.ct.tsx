@@ -163,6 +163,50 @@ test.describe("DocumentReferencesPanel", () => {
     await component.unmount();
   });
 
+  test("marks in-flight references with an 'In progress' badge", async ({
+    mount,
+    page,
+  }) => {
+    // The DGCL citations were written by an enrichment run still in flight
+    // (is_provisional). The group's badge becomes "In progress", taking
+    // precedence over the (preliminary) Linked state.
+    const provisionalRows = REFERENCE_ROWS.map((r) => ({
+      ...r,
+      isProvisional: r.canonicalKey === "dgcl:145",
+    }));
+    const component = await mount(
+      <MemoryRouter>
+        <MockedProvider
+          mocks={[makeMock(provisionalRows), makeMock(provisionalRows)]}
+          addTypename={false}
+        >
+          <DocumentReferencesPanel documentId={DOC_ID} corpusId={CORPUS_ID} />
+        </MockedProvider>
+      </MemoryRouter>
+    );
+
+    const panel = page.locator('[data-testid="references-panel"]');
+    await expect(panel).toBeVisible({ timeout: 10000 });
+
+    // The provisional DGCL group carries the "In progress" chip...
+    await expect(
+      page.locator('[data-testid="references-panel-status-provisional"]')
+    ).toHaveCount(1);
+    await expect(panel).toContainText("In progress");
+    // ...and no longer the "Linked" chip; only the finalized exhibit row does.
+    await expect(
+      page.locator('[data-testid="references-panel-status-linked"]')
+    ).toHaveCount(1);
+    // The header summary reflects the provisional split (not counted as linked).
+    await expect(
+      page.locator('[data-testid="references-panel-summary"]')
+    ).toContainText("in progress");
+
+    await docScreenshot(page, "annotations--references-panel--in-progress");
+
+    await component.unmount();
+  });
+
   test("clicking an outbound citation navigates to its link target", async ({
     mount,
     page,

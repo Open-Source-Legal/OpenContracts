@@ -5,6 +5,8 @@ No magic numbers / strings in the engine modules — they import from here.
 
 import re as _re
 
+from opencontractserver.enrichment.data import mappings as _mappings
+
 # Mention annotation labels (one per reference type).
 LABEL_REF_LAW = "OC_REF_LAW"
 LABEL_REF_DOC = "OC_REF_DOC"
@@ -34,16 +36,11 @@ LABEL_FOR_TYPE = {
 }
 
 # Authority name (as it appears in text, lowercased) -> canonical_key prefix.
-AUTHORITY_PREFIX = {
-    "delaware general corporation law": "dgcl",
-    "dgcl": "dgcl",
-    "securities act": "securities-act",
-    "securities exchange act": "exchange-act",
-    "exchange act": "exchange-act",
-    "internal revenue code": "irc",
-    "investment company act": "ica",
-    "investment advisers act": "iaa",
-}
+# Derived from the ``prefixes:`` section of authority_mappings.yaml (the single
+# editable source); the literal dict that used to live here is gone. Built once
+# at import — a malformed prefix entry fails fast here rather than silently
+# mis-resolving downstream.
+AUTHORITY_PREFIX = _mappings.authority_prefix_map()
 
 # Canonical-key prefix for bare SEC rule citations ("Rule 506(b)") — these are
 # 17 CFR rules cited without a named authority.
@@ -131,26 +128,13 @@ ALL_AUTHORITY_TYPES = (
 
 # Classification for every prefix the engine ships (drives the namespace seed
 # and the CorpusReference backfill). prefix -> (jurisdiction, authority_type).
-PREFIX_CLASSIFICATION = {
-    "dgcl": ("us-de", AUTHORITY_TYPE_STATUTE),
-    "securities-act": (JURISDICTION_US_FEDERAL, AUTHORITY_TYPE_STATUTE),
-    "exchange-act": (JURISDICTION_US_FEDERAL, AUTHORITY_TYPE_STATUTE),
-    "irc": (JURISDICTION_US_FEDERAL, AUTHORITY_TYPE_STATUTE),
-    "ica": (JURISDICTION_US_FEDERAL, AUTHORITY_TYPE_STATUTE),
-    "iaa": (JURISDICTION_US_FEDERAL, AUTHORITY_TYPE_STATUTE),
-    SEC_RULE_PREFIX: (JURISDICTION_US_FEDERAL, AUTHORITY_TYPE_REGULATION),
-}
+# Derived from authority_mappings.yaml ``prefixes:`` — the completeness test
+# (tests/test_authority_mappings_file.py) pins every authority_type into
+# ALL_AUTHORITY_TYPES and every prefix to a jurisdiction + display name.
+PREFIX_CLASSIFICATION = _mappings.prefix_classification()
 
 # Human-readable body-of-law names for the namespace seed.
-PREFIX_DISPLAY_NAME = {
-    "dgcl": "Delaware General Corporation Law",
-    "securities-act": "Securities Act of 1933",
-    "exchange-act": "Securities Exchange Act of 1934",
-    "irc": "Internal Revenue Code",
-    "ica": "Investment Company Act of 1940",
-    "iaa": "Investment Advisers Act of 1940",
-    SEC_RULE_PREFIX: "SEC Rules (17 C.F.R.)",
-}
+PREFIX_DISPLAY_NAME = _mappings.prefix_display_name()
 
 # Detection provenance — which layer found a mention (CorpusReference.detection_tier).
 DETECTION_TIER_REGISTRY = "registry"  # Tier 1: static/DB alias grammars (trusted)
@@ -166,14 +150,69 @@ ALL_DETECTION_TIERS = (
 # Verified spans below this self-rated confidence go to the review bucket
 # (surfaced, never auto-promoted to mentions).
 LLM_CONFIDENCE_FLOOR = 0.7
-# Offset-preserving sliding-window chunking for the LLM pass (chars).
-LLM_CHUNK_WINDOW = 2000
+# Offset-preserving sliding-window chunking for the LLM pass (chars). The window
+# is sized large (vs the old 2000) so a document yields FAR fewer chunks: a
+# modern model handles ~2K-token windows comfortably, the LLM returns
+# chunk-relative offsets (and verify_and_place recovers by raw-text search when
+# they drift), and a 400-char overlap is only ~5% redundant at this width.
+LLM_CHUNK_WINDOW = 8000
 LLM_CHUNK_OVERLAP = 400
+# Max concurrent per-chunk LLM calls within a single document's extraction.
+# Chunks are independent, so they run via asyncio.gather behind a Semaphore —
+# bounded so we never exceed the provider's rate limits or cost-spike. This is
+# the dominant speedup over the old strictly-sequential await loop.
+LLM_MAX_CONCURRENCY = 8
+# Max document coroutines kept live at once in the concurrent apply path. The
+# chunk-level LLM cap above bounds provider load, but every in-flight document
+# coroutine also pins its full text + candidate list in memory, so a large
+# corpus (hundreds/thousands of docs) launched all at once via asyncio.gather
+# would spike memory. This caps how many documents are simultaneously resolving.
+DOC_MAX_CONCURRENCY = 32
+# Max AuthorityFrontier rows a single RunAuthorityDiscovery mutation may queue.
+# discover_selected processes rows sequentially in one Celery task, so an
+# unbounded batch could run a worker for an unbounded time; cap it (superuser
+# can re-issue for the remainder).
+AUTHORITY_DISCOVERY_MAX_BATCH = 500
 # pydantic-ai output-validation retries for the structured call.
 LLM_STRUCTURED_RETRIES = 3
 # Max chars of a candidate's raw_text echoed into the review-candidate
 # serialisation (a preview, not the full span — keeps payloads bounded).
 REVIEW_CANDIDATE_RAW_TEXT_MAX_LEN = 120
+
+
+def llm_max_concurrency() -> int:
+    """Effective global cap on concurrent LLM extraction calls.
+
+    ``LLM_MAX_CONCURRENCY`` is the conservative code default; a deployment can
+    raise it (more provider throughput, but higher rate-limit / cost exposure)
+    via the ``ENRICHMENT_LLM_MAX_CONCURRENCY`` env var / Django setting without a
+    code change. Read lazily so importing this module never requires configured
+    settings, and so the constant stays the single numeric source of truth.
+    """
+    from django.conf import settings
+
+    override = getattr(settings, "ENRICHMENT_LLM_MAX_CONCURRENCY", None)
+    # ``is not None`` (not truthiness): an explicit ``0`` is a deliberate value,
+    # not "unset". Folding 0 into the default would silently ignore an operator
+    # who set it — a misconfiguration is better surfaced loudly than masked.
+    return override if override is not None else LLM_MAX_CONCURRENCY
+
+
+def doc_max_concurrency() -> int:
+    """Effective cap on how many document coroutines resolve at once.
+
+    Bounds peak memory in the concurrent apply path (each live document
+    coroutine pins its text + candidates). ``DOC_MAX_CONCURRENCY`` is the code
+    default; override via the ``ENRICHMENT_DOC_MAX_CONCURRENCY`` Django setting.
+    Read lazily so importing this module never requires configured settings.
+    """
+    from django.conf import settings
+
+    override = getattr(settings, "ENRICHMENT_DOC_MAX_CONCURRENCY", None)
+    # ``is not None`` (not truthiness): an explicit ``0`` is a deliberate value,
+    # not "unset" — see ``llm_max_concurrency`` above.
+    return override if override is not None else DOC_MAX_CONCURRENCY
+
 
 # --- Phase 3: prefix classifier ---------------------------------------- #
 _USC_PREFIX_RE = _re.compile(r"^usc-\d+$")

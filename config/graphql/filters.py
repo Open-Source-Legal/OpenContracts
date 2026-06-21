@@ -16,6 +16,8 @@ from opencontractserver.analyzer.models import Analysis, Analyzer, GremlinEngine
 from opencontractserver.annotations.models import (
     Annotation,
     AnnotationLabel,
+    AuthorityFrontier,
+    AuthorityKeyEquivalence,
     LabelSet,
     Relationship,
 )
@@ -132,6 +134,76 @@ class AnalysisFilter(django_filters.FilterSet):
             "status": ["exact"],
             "analyzer__task_name": ["in"],
         }
+
+
+class AuthorityFrontierFilter(django_filters.FilterSet):
+    """Facets for the global authority-sources monitor (superuser-only).
+
+    Gating + default ordering live on ``AuthorityFrontierNode.get_queryset``;
+    this only declares the filterable facets.
+
+    ``discovery_state`` and ``authority_type`` are declared as explicit
+    ``CharFilter``s rather than via ``Meta.fields`` on purpose: both model
+    fields carry ``choices``, so django-filter would otherwise auto-generate
+    *enum*-typed GraphQL args (``AnnotationsAuthorityFrontier…Choices``). The
+    monitor's summary chips carry the RAW values (``"queued"``, ``"statute"``)
+    straight from ``authorityFrontierStats.byState``, so plain ``String`` args
+    keep the filter and the chips speaking the same language (and avoid the
+    enum-name/value mismatch class of bug).
+    """
+
+    # Single state, or a comma-separated set (chips are single-select in v1,
+    # but the CSV form keeps the door open without a schema change).
+    discovery_state = filters.CharFilter(method="filter_by_states")
+    authority_type = filters.CharFilter(
+        field_name="authority_type", lookup_expr="exact"
+    )
+    # Free-text over the citation key / authority prefix.
+    search = filters.CharFilter(method="filter_by_search")
+
+    def filter_by_states(self, queryset: QuerySet, name: str, value: Any) -> QuerySet:
+        states = [s.strip() for s in (value or "").split(",") if s.strip()]
+        return queryset.filter(discovery_state__in=states) if states else queryset
+
+    def filter_by_search(self, queryset: QuerySet, name: str, value: Any) -> QuerySet:
+        return queryset.filter(
+            Q(canonical_key__icontains=value) | Q(authority__icontains=value)
+        )
+
+    class Meta:
+        model = AuthorityFrontier
+        # jurisdiction / provider / authority are plain CharFields (no choices)
+        # → plain String args.
+        fields = {
+            "jurisdiction": ["exact"],
+            "provider": ["exact"],
+            "authority": ["exact"],
+        }
+
+
+class AuthorityKeyEquivalenceFilter(django_filters.FilterSet):
+    """Facets for the runtime authority-mappings panel (superuser-only).
+
+    Gating + default ordering live on ``AuthorityKeyEquivalenceNode.get_queryset``.
+    ``source`` is an explicit ``CharFilter`` (not via ``Meta.fields``) for the
+    same reason as ``AuthorityFrontierFilter.authority_type``: the model field
+    carries ``choices``, so a ``Meta.fields`` entry would auto-generate an
+    *enum*-typed GraphQL arg, while the panel's chips carry the RAW source value
+    (``"baseline"``, ``"manual"``) — a plain ``String`` arg keeps them aligned.
+    """
+
+    source = filters.CharFilter(field_name="source", lookup_expr="exact")
+    # Free-text over either side of the equivalence.
+    search = filters.CharFilter(method="filter_by_search")
+
+    def filter_by_search(self, queryset: QuerySet, name: str, value: Any) -> QuerySet:
+        return queryset.filter(
+            Q(from_key__icontains=value) | Q(to_key__icontains=value)
+        )
+
+    class Meta:
+        model = AuthorityKeyEquivalence
+        fields: dict = {}
 
 
 class CorpusFilter(django_filters.FilterSet):
