@@ -6,4 +6,5 @@
   requeue / reset / reroute / approve (on `pending_approval`) / delete — wired to
   the Phase-3 `AuthorityFrontierService` mutations, alongside the existing
   multi-select "Run discovery" and a bulk delete. Frontend mutation docs added to
-  `frontend/src/graphql/mutations.ts`. 6 Playwright CT green.
+  `frontend/src/graphql/mutations.ts`. Playwright CT cover the discovery-queue
+  render + per-row verbs.

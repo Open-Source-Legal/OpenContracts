@@ -25,7 +25,8 @@ export interface UseOptimisticRowsResult {
 
 /**
  * Owns the single enrichment-jobs query plus the optimistic-row lifecycle
- * shared by AdminEnrichment's EnrichmentPanel and CorpusEnrichmentCard.
+ * shared by the Authority Console Runs tab (RunsTab's EnrichmentPanel) and the
+ * per-corpus CorpusEnrichmentCard.
  *
  * Centralising it here means each component tree fires exactly one
  * `useEnrichmentJobs` query — one network request and one WebSocket listener —

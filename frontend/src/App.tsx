@@ -426,6 +426,23 @@ export const App = () => {
             /admin/enrichment) have been deleted.
           */}
           <Route path="/admin/authority/*" element={<AuthorityConsole />} />
+          {/*
+            Permanent redirects for the three deleted standalone panels so old
+            bookmarks / history / doc links land on the equivalent console tab
+            instead of the 404 catch-all (mirrors the /badges → /profile pattern).
+          */}
+          <Route
+            path="/admin/authorities"
+            element={<Navigate to="/admin/authority/queue" replace />}
+          />
+          <Route
+            path="/admin/authority-mappings"
+            element={<Navigate to="/admin/authority/mappings" replace />}
+          />
+          <Route
+            path="/admin/enrichment"
+            element={<Navigate to="/admin/authority/runs" replace />}
+          />
           <Route
             path="/admin/corpus-categories"
             element={<CorpusCategoryManagement />}

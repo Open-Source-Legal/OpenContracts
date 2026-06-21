@@ -849,9 +849,9 @@ export interface GovernanceGraphNode {
   authorityType?: string | null;
   /**
    * Authority-frontier crawl status for ghost nodes — "queued",
-   * "in_progress", "discovered", "ingested", "resolved", "failed",
-   * "unsupported", "blocked_license", "unlocated", "pending_approval",
-   * "deferred_cap" — or null when not tracked (all document nodes).
+   * "in_progress", "ingested", "failed", "unsupported", "blocked_license",
+   * "blocked_domain", "unlocated", "pending_approval", "deferred_cap" — or null
+   * when not tracked (all document nodes).
    */
   discoveryState?: string | null;
   degree: number;
@@ -1027,12 +1027,13 @@ export const GET_WANTED_AUTHORITIES = gql`
   }
 `;
 
-// --- Global authority-sources monitor (superuser-only) ---------------------
+// --- Authority discovery queue (superuser-only) ----------------------------
 // The AuthorityFrontier is the instance-wide discovery queue: one row per
 // wanted section-root canonical key, tracking crawl/ingestion state across all
-// corpora. See /admin/authorities. Args are plain Strings (the backend filter
-// uses Char filters, not the model's choices enum) so the summary chips' raw
-// discovery_state values feed straight back as the filter.
+// corpora. See the Authority Console Discovery Queue tab (/admin/authority/queue).
+// Args are plain Strings (the backend filter uses Char filters, not the model's
+// choices enum) so the summary chips' raw discovery_state values feed straight
+// back as the filter.
 
 export interface AuthorityFrontierRow {
   id: string;
@@ -1040,8 +1041,8 @@ export interface AuthorityFrontierRow {
   authority?: string | null;
   jurisdiction?: string | null;
   authorityType?: string | null;
-  /** queued | in_progress | discovered | ingested | resolved | failed |
-   * unsupported | blocked_license | unlocated | pending_approval | deferred_cap */
+  /** queued | in_progress | ingested | failed | unsupported | blocked_license |
+   * blocked_domain | unlocated | pending_approval | deferred_cap */
   discoveryState: string;
   /** Source-provider registry class name (e.g. "USCodeAuthoritySourceProvider"). */
   provider?: string | null;
@@ -1174,7 +1175,8 @@ export const GET_AUTHORITY_FRONTIER_STATS = gql`
 // maps an act-section style key (e.g. a popular-name act § N) to the canonical
 // USC/CFR key the reference web resolves against. Rows carry a ``source``
 // (baseline | popular_name | uslm | manual); only ``manual`` rows are editable
-// or deletable. See /admin/authority-mappings.
+// or deletable. See the Authority Console Aliases & Relationships tab
+// (/admin/authority/mappings).
 
 export interface AuthorityKeyEquivalenceRow {
   id: string;
@@ -1349,9 +1351,11 @@ export const GET_AUTHORITY_NAMESPACES = gql`
           sourceRootUrl
           license
           isGlobal
-          effectiveProvider
-          equivalenceCount
-          frontierCount
+          # effectiveProvider / equivalenceCount / frontierCount are per-row
+          # resolver-backed (each fires its own COUNT / can_handle() loop) and are
+          # only rendered on the single-authority detail view — selecting them in
+          # the 50-row master list caused an N+1 storm. They live on
+          # GET_AUTHORITY_NAMESPACE_DETAIL instead.
           referenceCount
           createdByUsername
           created

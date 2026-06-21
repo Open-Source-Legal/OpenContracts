@@ -44,3 +44,54 @@ class AuthoritySourceProviderServiceTests(TestCase):
 
     def test_empty_for_non_admin(self):
         assert AuthoritySourceProviderService.list_providers(self.regular) == []
+
+
+class _Ctx:
+    def __init__(self, user):
+        self.user = user
+        self.META = {}
+
+
+def _run(query, user):
+    from graphene.test import Client
+
+    from config.graphql.schema import schema
+
+    return Client(schema, context_value=_Ctx(user)).execute(query)
+
+
+_PROVIDERS_QUERY = """
+    query {
+      authoritySourceProviders {
+        name title supportedPrefixes license priority
+        requiresApproval enabled hasCredentials
+      }
+    }
+"""
+
+
+class AuthoritySourceProvidersGraphQLTests(TestCase):
+    """The provider registry exercised through the GraphQL query the Scrapers tab
+    calls — superuser sees rows, non-admin sees an empty list."""
+
+    def setUp(self):
+        self.superuser = User.objects.create_user(
+            username="root", password="p", is_superuser=True, is_staff=True
+        )
+        self.regular = User.objects.create_user(username="joe", password="p")
+
+    def test_query_returns_providers_for_admin(self):
+        res = _run(_PROVIDERS_QUERY, self.superuser)
+        self.assertIsNone(res.get("errors"), res.get("errors"))
+        rows = res["data"]["authoritySourceProviders"]
+        names = {r["name"] for r in rows}
+        assert "USCodeAuthoritySourceProvider" in names
+        sample = next(r for r in rows if r["name"] == "USCodeAuthoritySourceProvider")
+        assert sample["enabled"] is True
+        assert sample["hasCredentials"] is False
+        assert isinstance(sample["supportedPrefixes"], list)
+
+    def test_query_empty_for_non_admin(self):
+        res = _run(_PROVIDERS_QUERY, self.regular)
+        self.assertIsNone(res.get("errors"), res.get("errors"))
+        assert res["data"]["authoritySourceProviders"] == []

@@ -80,6 +80,22 @@ class AuthorityDetail:
     effective_provider: str | None = None
 
 
+def authority_namespace_search_q(term: str) -> Q:
+    """Shared free-text predicate over an ``AuthorityNamespace`` queryset.
+
+    Used by BOTH the registry list filter (``config/graphql/filters.py``) and the
+    faceted ``stats()`` counts so the chip counts can never desync from the rows
+    the same search returns — editing one site silently used to risk diverging the
+    other. ``aliases`` is a JSON list, so ``icontains`` over its serialized text is
+    a cheap, index-free substring match, fine for the small registry table.
+    """
+    return (
+        Q(prefix__icontains=term)
+        | Q(display_name__icontains=term)
+        | Q(aliases__icontains=term)
+    )
+
+
 class AuthorityNamespaceService(BaseService):
     """Superuser CRUD + read for the AuthorityNamespace registry."""
 
@@ -350,13 +366,7 @@ class AuthorityNamespaceService(BaseService):
 
     @staticmethod
     def _apply_search(qs: QuerySet, search: str) -> QuerySet:
-        # aliases is a JSON list; icontains over the serialized text is a cheap,
-        # index-free substring match good enough for the small registry table.
-        return qs.filter(
-            Q(prefix__icontains=search)
-            | Q(display_name__icontains=search)
-            | Q(aliases__icontains=search)
-        )
+        return qs.filter(authority_namespace_search_q(search))
 
     @staticmethod
     def _normalize_aliases(aliases: list[str] | None) -> list[str]:

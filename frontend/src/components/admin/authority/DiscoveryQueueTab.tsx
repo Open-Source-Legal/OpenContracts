@@ -36,8 +36,10 @@ import {
   GetAuthorityFrontierInputs,
   GetAuthorityFrontierStatsInputs,
   GetAuthorityFrontierStatsOutputs,
+  GetAuthoritySourceProvidersOutputs,
   GET_AUTHORITY_FRONTIER,
   GET_AUTHORITY_FRONTIER_STATS,
+  GET_AUTHORITY_SOURCE_PROVIDERS,
 } from "../../../graphql/queries";
 import {
   ApproveAuthorityFrontierOutputs,
@@ -141,6 +143,18 @@ export const DiscoveryQueueTab: React.FC = () => {
     connectionKey: "authorityFrontier",
   });
 
+  // The registered provider class names — used to constrain the reroute prompt
+  // (fail fast on a typo, client-side) and to seed the provider filter so it is
+  // not limited to whatever providers happen to be on the loaded page.
+  const providersQuery = useQuery<GetAuthoritySourceProvidersOutputs>(
+    GET_AUTHORITY_SOURCE_PROVIDERS
+  );
+  const registryProviderNames = useMemo(
+    () =>
+      (providersQuery.data?.authoritySourceProviders ?? []).map((p) => p.name),
+    [providersQuery.data]
+  );
+
   const [runDiscovery, { loading: running }] = useMutation<
     RunAuthorityDiscoveryOutputs,
     RunAuthorityDiscoveryInputs
@@ -234,14 +248,32 @@ export const DiscoveryQueueTab: React.FC = () => {
         (await approve({ variables: { id } })).data?.approveAuthorityFrontier
     );
   const handleReroute = (id: string) => {
-    const target = window.prompt(
-      "Re-route to which provider? (registry class name, e.g. USCodeAuthoritySourceProvider)"
+    const choices = registryProviderNames.length
+      ? `\n\nKnown providers:\n${registryProviderNames.join("\n")}`
+      : "";
+    const raw = window.prompt(
+      `Re-route to which provider? (registry class name)${choices}`
     );
-    if (!target) return;
+    if (!raw) return;
+    const target = raw.trim();
+    // Constrain to the registry client-side so a typo fails immediately instead
+    // of after a server round-trip. (Skip the check if the registry hasn't
+    // loaded yet — the server still validates as the source of truth.)
+    if (
+      registryProviderNames.length &&
+      !registryProviderNames.includes(target)
+    ) {
+      toast.error(
+        `Unknown provider "${target}". Pick one of: ${registryProviderNames.join(
+          ", "
+        )}`
+      );
+      return;
+    }
     runVerb(
       "Rerouted",
       async () =>
-        (await reroute({ variables: { id, provider: target.trim() } })).data
+        (await reroute({ variables: { id, provider: target } })).data
           ?.rerouteAuthorityFrontier
     );
   };
@@ -266,10 +298,12 @@ export const DiscoveryQueueTab: React.FC = () => {
   };
 
   const providerOptions = useMemo(() => {
-    const set = new Set<string>();
+    // Seed from the full registry so the filter offers every provider, not just
+    // those present on the loaded page; union in any row providers as a fallback.
+    const set = new Set<string>(registryProviderNames);
     for (const r of list.rows) if (r.provider) set.add(r.provider);
     return [...set].sort();
-  }, [list.rows]);
+  }, [registryProviderNames, list.rows]);
 
   const loading = list.loading && list.rows.length === 0;
   const chips = (stats?.byState ?? []).map((s) => ({

@@ -286,6 +286,25 @@ class AuthorityFrontierService(BaseService):
             return None
         return AuthorityFrontier.objects.filter(pk=pk).first()
 
+    @staticmethod
+    def _reject_if_in_progress(row) -> FrontierActionResult | None:
+        """Refuse a state-flip verb on a row a crawl worker is actively ingesting.
+
+        Flipping an ``in_progress`` row back to ``queued`` would let the crawl
+        driver re-dequeue it mid-pass (it would be processed twice). Discovery is
+        idempotent so the blast radius is small, but the admin verbs should still
+        not race the worker — wait for the row to settle. ``approve`` already has
+        its own (``pending_approval``-only) state guard, so this is for the
+        re-queueing verbs requeue / reset / reroute.
+        """
+        if row.discovery_state == "in_progress":
+            return FrontierActionResult(
+                False,
+                "Row is in_progress (a crawl worker is ingesting it); wait for it "
+                "to settle before requeue/reset/reroute.",
+            )
+        return None
+
     @classmethod
     def requeue(cls, user, *, pk) -> FrontierActionResult:
         """Re-queue a row (un-stick ``deferred_cap`` / ``failed`` / a stale state).
@@ -297,6 +316,9 @@ class AuthorityFrontierService(BaseService):
         row = cls._get_admin_row(user, pk)
         if row is None:
             return FrontierActionResult(False, DENIED)
+        blocked = cls._reject_if_in_progress(row)
+        if blocked is not None:
+            return blocked
         cls.mark(row, "queued", clear_document=True, clear_error=True)
         cls.log_action("Requeued", row, user)
         return FrontierActionResult(True, obj=row)
@@ -307,6 +329,9 @@ class AuthorityFrontierService(BaseService):
         row = cls._get_admin_row(user, pk)
         if row is None:
             return FrontierActionResult(False, DENIED)
+        blocked = cls._reject_if_in_progress(row)
+        if blocked is not None:
+            return blocked
         cls.mark(
             row,
             "queued",
@@ -323,6 +348,9 @@ class AuthorityFrontierService(BaseService):
         row = cls._get_admin_row(user, pk)
         if row is None:
             return FrontierActionResult(False, DENIED)
+        blocked = cls._reject_if_in_progress(row)
+        if blocked is not None:
+            return blocked
         provider = (provider or "").strip()
         if provider not in cls.registered_provider_names():
             return FrontierActionResult(False, f"Unknown provider '{provider}'.")

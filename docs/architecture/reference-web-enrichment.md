@@ -93,7 +93,7 @@ row is already finalized):
 1. **Stream.** `apply` writes each document's references the moment that
    document's detection completes, marked `is_provisional=True`, in its own
    committed transaction — so the References panel, governance graph, and
-   `/admin/authorities` fill *during* the run.
+   `/admin/authority/queue` fill *during* the run.
 2. **Finalize.** On success the run flips its own rows finalized in one atomic
    update keyed on `created_by_analysis`:
    `CorpusReference.objects.filter(created_by_analysis=run, is_provisional=True).update(is_provisional=False)`.
@@ -190,7 +190,7 @@ Two pieces worth calling out:
 
 ### Trigger — the enrichment runner
 
-`/admin/enrichment` (and a per-corpus card) drives runs via the
+`/admin/authority/runs` (and a per-corpus card) drives runs via the
 `runCorpusEnrichment` mutation. Pick reference enrichment and/or authority crawl,
 optionally enable the LLM detection tier and the advanced crawl bounds (max depth,
 min demand, max authorities, per-jurisdiction cap, token budget), and Run. The
@@ -205,7 +205,7 @@ The runner's job list shows each `Analysis` live (`RUNNING` / `COMPLETED` /
 notification WebSocket.
 
 For the instance-wide picture, the read-only **authority-sources monitor** at
-`/admin/authorities` (superuser-only) is the ingestion backlog over the whole
+`/admin/authority/queue` (superuser-only) is the ingestion backlog over the whole
 `AuthorityFrontier`: per-state count chips, jurisdiction / type / provider filters,
 search, and a backlog-first table. It is powered by the `authorityFrontier` relay
 connection + `authorityFrontierStats` (both superuser-gated) and
@@ -241,7 +241,7 @@ exception: they may trigger enrichment/crawl on any corpus they can **READ**
 without holding `UPDATE` — a retained admin privilege documented in
 `docs/permissioning/consolidated_permissioning_guide.md`. The exemption widens the
 *write-trigger* only; a superuser still cannot see a corpus they lack READ on (no
-blanket bypass). The `/admin/authorities` monitor and the `authorityFrontier`
+blanket bypass). The `/admin/authority/queue` monitor and the `authorityFrontier`
 queries are superuser-gated at the node level.
 
 ---

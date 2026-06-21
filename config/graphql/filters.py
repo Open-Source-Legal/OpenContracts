@@ -32,6 +32,9 @@ from opencontractserver.conversations.models import (
 )
 from opencontractserver.corpuses.models import Corpus, CorpusCategory
 from opencontractserver.documents.models import Document, DocumentRelationship
+from opencontractserver.enrichment.services.authority_namespace_service import (
+    authority_namespace_search_q,
+)
 from opencontractserver.extracts.models import Column, Datacell, Extract, Fieldset
 from opencontractserver.users.models import Assignment, UserExport
 
@@ -236,11 +239,9 @@ class AuthorityNamespaceFilter(django_filters.FilterSet):
         return queryset
 
     def filter_by_search(self, queryset: QuerySet, name: str, value: Any) -> QuerySet:
-        return queryset.filter(
-            Q(prefix__icontains=value)
-            | Q(display_name__icontains=value)
-            | Q(aliases__icontains=value)
-        )
+        # Shared predicate with AuthorityNamespaceService.stats() so chip counts
+        # can never desync from the list rows the same search returns.
+        return queryset.filter(authority_namespace_search_q(value))
 
     class Meta:
         model = AuthorityNamespace

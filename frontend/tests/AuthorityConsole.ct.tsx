@@ -20,7 +20,10 @@ import {
   GET_AUTHORITY_FRONTIER_STATS,
   GET_AUTHORITY_SOURCE_PROVIDERS,
 } from "../src/graphql/queries";
-import { CREATE_AUTHORITY_KEY_EQUIVALENCE } from "../src/graphql/mutations";
+import {
+  CREATE_AUTHORITY_KEY_EQUIVALENCE,
+  CREATE_AUTHORITY_NAMESPACE,
+} from "../src/graphql/mutations";
 import { REGISTRY_PAGE_SIZE } from "../src/components/admin/authority/shared/authorityVocab";
 import {
   AUTHORITY_MAPPINGS_PAGE_SIZE,
@@ -288,6 +291,82 @@ test.describe("AuthorityConsole", () => {
     await component.unmount();
   });
 
+  test("the Registry create form submits a new authority", async ({
+    mount,
+    page,
+  }) => {
+    const createMock = {
+      request: {
+        query: CREATE_AUTHORITY_NAMESPACE,
+        variables: {
+          prefix: "ca-corp",
+          displayName: "California Corporations Code",
+          jurisdiction: "us-ca",
+          authorityType: null,
+          aliases: ["cal. corp. code"],
+          isGlobal: true,
+        },
+      },
+      result: {
+        data: {
+          createAuthorityNamespace: {
+            ok: true,
+            message: "SUCCESS",
+            obj: nsNode({
+              prefix: "ca-corp",
+              displayName: "California Corporations Code",
+              jurisdiction: "us-ca",
+              authorityType: "statute",
+              source: "manual",
+              aliases: ["cal. corp. code"],
+              createdByUsername: "admin",
+            }).node,
+          },
+        },
+      },
+    };
+
+    const component = await mountConsole(
+      mount,
+      [
+        // mount fires stats + list (network-only) twice; create succeeds, then
+        // refetchAll + the navigate-to-detail fire the extra stats/list + detail.
+        statsMock(),
+        statsMock(),
+        statsMock(),
+        listMock(),
+        listMock(),
+        listMock(),
+        createMock,
+        detailMock("ca-corp"),
+      ],
+      true,
+      "/admin/authority/registry"
+    );
+
+    await expect(
+      page.locator('[data-testid="authority-registry-tab"]')
+    ).toBeVisible({ timeout: 15000 });
+    await page.locator('[data-testid="registry-new-toggle"]').click();
+    await page.locator('[data-testid="registry-new-prefix"]').fill("ca-corp");
+    await page
+      .locator('[data-testid="registry-new-name"]')
+      .fill("California Corporations Code");
+    await page
+      .locator('[data-testid="registry-new-jurisdiction"]')
+      .fill("us-ca");
+    await page
+      .locator('[data-testid="registry-new-aliases"]')
+      .fill("cal. corp. code");
+    await page.locator('[data-testid="registry-create-submit"]').click();
+
+    await expect(page.getByText("Authority created.")).toBeVisible({
+      timeout: 10000,
+    });
+
+    await component.unmount();
+  });
+
   // ---- Aliases & Relationships tab (absorbed AuthorityMappings) ----------- //
 
   const MAPPING_STATS = {
@@ -543,6 +622,9 @@ test.describe("AuthorityConsole", () => {
         frontierStatsMock(),
         frontierListMock(),
         frontierListMock(),
+        // The tab now fetches the provider registry to seed the filter + validate
+        // reroute client-side (so a typo fails without a round-trip).
+        providersMock(),
       ],
       true,
       "/admin/authority/queue"

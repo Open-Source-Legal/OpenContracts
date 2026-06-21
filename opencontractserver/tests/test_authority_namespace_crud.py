@@ -310,6 +310,24 @@ _UPDATE = """
     }
 """
 
+_CREATE_WITH_CORPUS = """
+    mutation ($prefix: String!, $name: String!, $corpusId: ID) {
+      createAuthorityNamespace(
+        prefix: $prefix, displayName: $name, authorityCorpusId: $corpusId
+      ) {
+        ok message obj { prefix }
+      }
+    }
+"""
+
+_UPDATE_CORPUS = """
+    mutation ($id: ID!, $corpusId: ID) {
+      updateAuthorityNamespace(id: $id, authorityCorpusId: $corpusId) {
+        ok message obj { displayName }
+      }
+    }
+"""
+
 _SET_ALIASES = """
     mutation ($id: ID!, $aliases: [String]!) {
       setAuthorityNamespaceAliases(id: $id, aliases: $aliases) {
@@ -405,6 +423,33 @@ class AuthorityNamespaceGraphQLTests(TestCase):
         self.assertIsNone(res.get("errors"), res.get("errors"))
         assert res["data"]["createAuthorityNamespace"]["ok"] is False
         assert not AuthorityNamespace.objects.filter(prefix="zz-deny").exists()
+
+    def test_create_rejects_malformed_corpus_id(self):
+        # A non-empty but undecodable global id must NOT silently fall through to
+        # "no corpus" (creating a stray global namespace) — it must be an error.
+        res = _run(
+            _CREATE_WITH_CORPUS,
+            self.superuser,
+            prefix="zz-badcorpus",
+            name="X",
+            corpusId="totally-bogus-id",
+        )
+        self.assertIsNone(res.get("errors"), res.get("errors"))
+        payload = res["data"]["createAuthorityNamespace"]
+        assert payload["ok"] is False
+        assert "authority_corpus_id" in (payload["message"] or "").lower()
+        assert not AuthorityNamespace.objects.filter(prefix="zz-badcorpus").exists()
+
+    def test_update_rejects_malformed_corpus_id(self):
+        ns = AuthorityNamespace.objects.create(
+            prefix="zz-updcorpus", display_name="X", is_global=True
+        )
+        gid = to_global_id("AuthorityNamespaceNode", ns.pk)
+        res = _run(_UPDATE_CORPUS, self.superuser, id=gid, corpusId="totally-bogus-id")
+        self.assertIsNone(res.get("errors"), res.get("errors"))
+        payload = res["data"]["updateAuthorityNamespace"]
+        assert payload["ok"] is False
+        assert "authority_corpus_id" in (payload["message"] or "").lower()
 
     def test_detail_query(self):
         AuthorityNamespace.objects.create(prefix="zz-d", display_name="Detail")

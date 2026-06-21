@@ -114,11 +114,12 @@ class GovernanceGraphNodeType(graphene.ObjectType):
         description='Authority type: "statute", "regulation", etc. (null if unknown).'
     )
     discovery_state = graphene.String(
+        # Derived from the model so the schema doc can never drift from the live
+        # vocabulary (migration 0100 retired "discovered"/"resolved").
         description=(
             "Authority-frontier crawl status for ghost nodes: "
-            '"queued", "in_progress", "discovered", "ingested", "resolved", '
-            '"failed", "unsupported", "blocked_license", "unlocated", '
-            '"pending_approval", "deferred_cap" — or null when not tracked.'
+            + ", ".join(f'"{c[0]}"' for c in AuthorityFrontier.DISCOVERY_STATE_CHOICES)
+            + " — or null when not tracked."
         )
     )
     degree = graphene.Int(

@@ -10,5 +10,5 @@
   detail page (prefix-prefilled), driving the same superuser-gated
   `create/update/delete AuthorityKeyEquivalence` mutations. The registry's create
   form is also refactored onto the shared `CreateForm`/`CreateField` chrome. No
-  backend changes (the equivalence CRUD already existed). 5 Playwright CT green
-  (registry, detail-with-relationships, access gate, mappings render + create).
+  backend changes (the equivalence CRUD already existed). Playwright CT cover the
+  registry, detail-with-relationships, access gate, and mappings render + create.

@@ -461,8 +461,9 @@ export const RUN_AUTHORITY_DISCOVERY = gql`
 `;
 
 // --- Authority key-equivalence mutations (superuser-only) ------------------
-// CRUD over the manually-curated act-section ↔ USC/CFR key bridges shown in
-// /admin/authority-mappings. Only ``source = "manual"`` rows can be created,
+// CRUD over the manually-curated act-section ↔ USC/CFR key bridges shown in the
+// Authority Console Aliases & Relationships tab (/admin/authority/mappings).
+// Only ``source = "manual"`` rows can be created,
 // updated, or deleted; the backend enforces this and returns ok:false with an
 // opaque message otherwise. The returned ``obj`` lets the panel refresh a row
 // in place without a full refetch.

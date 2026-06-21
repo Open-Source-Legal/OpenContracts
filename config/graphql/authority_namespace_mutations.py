@@ -75,7 +75,15 @@ class CreateAuthorityNamespaceMutation(graphene.Mutation):
         source_root_url=None,
         license=None,
     ):
-        corpus_pk = _decode_pk(authority_corpus_id) if authority_corpus_id else None
+        # A non-empty corpus id must decode; a truthy-but-undecodable value is a
+        # caller error, not a silent fall-through to "global namespace".
+        corpus_pk = None
+        if authority_corpus_id:
+            corpus_pk = _decode_pk(authority_corpus_id)
+            if corpus_pk is None:
+                return CreateAuthorityNamespaceMutation(
+                    ok=False, message="Invalid authority_corpus_id.", obj=None
+                )
         result = AuthorityNamespaceService.create(
             info.context.user,
             prefix=prefix,
@@ -142,7 +150,16 @@ class UpdateAuthorityNamespaceMutation(graphene.Mutation):
             license=license,
         )
         if authority_corpus_id is not None:
-            partial["authority_corpus_id"] = _decode_pk(authority_corpus_id)
+            if authority_corpus_id == "":
+                # Explicit unlink (the partial-update "clear" sentinel for ids).
+                partial["authority_corpus_id"] = None
+            else:
+                corpus_pk = _decode_pk(authority_corpus_id)
+                if corpus_pk is None:
+                    return UpdateAuthorityNamespaceMutation(
+                        ok=False, message="Invalid authority_corpus_id.", obj=None
+                    )
+                partial["authority_corpus_id"] = corpus_pk
         result = AuthorityNamespaceService.update(info.context.user, pk=pk, **partial)
         return UpdateAuthorityNamespaceMutation(
             ok=result.ok, message=(result.error or "SUCCESS"), obj=result.obj
