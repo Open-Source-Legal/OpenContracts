@@ -316,6 +316,22 @@ class CorpusPathService(BaseService):
         method must be extended to dispatch it before the INSERT rather
         than after.
 
+        INVARIANT (superseded rows). The bulk callers that pair with this
+        helper — :meth:`reconcile_paths_after_folder_change`,
+        ``FolderCRUDService._relocate_folder_documents_to_root`` /
+        ``_move_documents_to_root``, and
+        ``DocumentLifecycleService.bulk_soft_delete_documents`` — flip the
+        OLD heads to ``is_current=False`` with a queryset ``.update()``, which
+        also bypasses ``post_save`` (this time ``created=False``) on those
+        superseded rows. That is safe today because every registered
+        ``DocumentPath`` ``post_save`` receiver either early-returns when
+        ``created`` is False (``process_doc_on_document_path_create``) or
+        recomputes idempotently from the newly-created head
+        (``refresh_corpus_description_cache_on_path_save``). A future receiver
+        that must observe the supersession event itself would need each bulk
+        caller to dispatch ``post_save(created=False)`` explicitly after its
+        ``.update()``.
+
         Args:
             paths: DocumentPath instances returned by ``bulk_create``.
         """
