@@ -113,7 +113,7 @@ interface EnrichmentPanelProps {
  * never inside a conditional block of the parent.
  */
 const EnrichmentPanel: React.FC<EnrichmentPanelProps> = ({ corpusId }) => {
-  const { jobs, optimistic, running, loading, error, handleRan } =
+  const { jobs, optimistic, running, totalCount, loading, error, handleRan } =
     useOptimisticRows(corpusId);
 
   return (
@@ -128,6 +128,7 @@ const EnrichmentPanel: React.FC<EnrichmentPanelProps> = ({ corpusId }) => {
         loading={loading}
         error={error}
         extraJobs={optimistic}
+        totalCount={totalCount}
       />
     </ContentSection>
   );

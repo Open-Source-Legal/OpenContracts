@@ -270,6 +270,62 @@ class BaseVisibilityManagerSuperuserComputedNormallyTest(TestCase):
         self.assertIn(self.public_embedding.pk, ids)
         self.assertNotIn(self.private_embedding.pk, ids)
 
+    def test_unexpected_permission_lookup_error_propagates(self) -> None:
+        """Regression for issue #1986 item 4.
+
+        ``BaseVisibilityManager.visible_to_user`` used to wrap its guardian
+        lookup in ``except (ImportError, Exception)`` — equivalent to a bare
+        ``except Exception`` (``ImportError`` ⊂ ``Exception``). ANY unexpected
+        error (a programming bug, a DB error, a malformed grant row) was
+        swallowed and the queryset silently degraded to creator/public
+        filtering, UNDER-disclosing guardian-granted rows while hiding the
+        defect. The catch is now ``(ImportError, LookupError)``, so a
+        non-LookupError surfaces instead of quietly narrowing the visible set.
+        """
+        import django.apps
+
+        real_get_model = django.apps.apps.get_model
+
+        def fake_get_model(app_label, model_name=None, *args, **kwargs):
+            name = model_name if model_name is not None else app_label
+            # Only the user-level permission-table lookup blows up; every other
+            # get_model (related-model resolution during query build) is real.
+            if isinstance(name, str) and name.endswith("userobjectpermission"):
+                raise ValueError("simulated unexpected guardian lookup failure")
+            return real_get_model(app_label, model_name, *args, **kwargs)
+
+        with patch.object(django.apps.apps, "get_model", side_effect=fake_get_model):
+            with self.assertRaises(ValueError):
+                # Authenticated, non-owner: reaches the guardian lookup branch.
+                self.Embedding.objects.visible_to_user(user=self.other)
+
+    def test_missing_permission_table_still_falls_back_gracefully(self) -> None:
+        """The narrowed catch must still tolerate a genuinely absent permission
+        table: a ``LookupError`` degrades to creator/public filtering with no
+        raise (the documented fallback). Pins the other half of the item-4
+        envelope so future over-narrowing doesn't turn the legitimate
+        missing-table case into a hard error."""
+        import django.apps
+
+        real_get_model = django.apps.apps.get_model
+
+        def fake_get_model(app_label, model_name=None, *args, **kwargs):
+            name = model_name if model_name is not None else app_label
+            if isinstance(name, str) and name.endswith(
+                ("userobjectpermission", "groupobjectpermission")
+            ):
+                raise LookupError("simulated missing permission table")
+            return real_get_model(app_label, model_name, *args, **kwargs)
+
+        with patch.object(django.apps.apps, "get_model", side_effect=fake_get_model):
+            qs = self.Embedding.objects.visible_to_user(user=self.other)
+            ids = set(qs.values_list("pk", flat=True))
+
+        # Fallback = creator/public only; ``self.other`` is neither owner nor
+        # grantee, so only the public embedding remains visible.
+        self.assertIn(self.public_embedding.pk, ids)
+        self.assertNotIn(self.private_embedding.pk, ids)
+
 
 class PermissionManagerSuperuserComputedNormallyTest(TestCase):
     """

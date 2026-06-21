@@ -253,9 +253,12 @@ export const EnrichmentRunner: React.FC<EnrichmentRunnerProps> = ({
     const parsedTokenBudget =
       tokenBudget !== "" ? Number(tokenBudget) : undefined;
 
-    // Reject non-numeric input: Number("abc") is NaN (not undefined), and the
-    // native type="number" guard is browser-level only. Surface an inline error
-    // instead of letting a NaN reach Graphene as an opaque type error.
+    // Reject non-integer input before it reaches the graphene.Int schema.
+    // `step={1}` only governs the spinner buttons and validity styling — a user
+    // can still TYPE "abc" (→ NaN) or "1.5" (a valid finite float) and submit,
+    // since the Run button is a plain onClick, not a native <form> submit that
+    // would trigger the browser's validity gate. Surface a clear inline error
+    // rather than letting a NaN/float reach Graphene as an opaque type error.
     const numericFields: [number | undefined, string][] = [
       [parsedMaxDepth, "Max depth"],
       [parsedMinDemand, "Min demand"],
@@ -264,10 +267,10 @@ export const EnrichmentRunner: React.FC<EnrichmentRunnerProps> = ({
       [parsedTokenBudget, "Token budget"],
     ];
     const invalidField = numericFields.find(
-      ([value]) => value !== undefined && !Number.isFinite(value)
+      ([value]) => value !== undefined && !Number.isInteger(value)
     );
     if (invalidField) {
-      toast.error(`${invalidField[1]} must be a number`);
+      toast.error(`${invalidField[1]} must be a whole number`);
       return;
     }
 
@@ -311,11 +314,22 @@ export const EnrichmentRunner: React.FC<EnrichmentRunnerProps> = ({
 
     try {
       const { data } = await run({ variables });
-      if (data?.runCorpusEnrichment.ok) {
-        toast.success("Enrichment started");
-        onRan?.(data.runCorpusEnrichment.analyses);
+      const payload = data?.runCorpusEnrichment;
+      if (payload?.ok) {
+        // Partial success (e.g. enrichment dispatched but the authority crawl
+        // failed) comes back ok=true with partial=true and a descriptive
+        // message — surface it as a warning so the failed half isn't silently
+        // swallowed, while still recording the running job below. Keying off the
+        // `partial` flag (not the message text) keeps the UI decoupled from the
+        // backend's exact success string.
+        if (payload.partial) {
+          toast.warning(payload.message ?? "Some jobs could not be dispatched");
+        } else {
+          toast.success("Enrichment started");
+        }
+        onRan?.(payload.analyses);
       } else {
-        toast.error(data?.runCorpusEnrichment.message ?? "Enrichment failed");
+        toast.error(payload?.message ?? "Enrichment failed");
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Enrichment failed";
@@ -443,6 +457,7 @@ export const EnrichmentRunner: React.FC<EnrichmentRunnerProps> = ({
                 id={`enrichment-${id}`}
                 type="number"
                 min={0}
+                step={1}
                 placeholder={placeholder}
                 value={value}
                 onChange={(e) => setter(e.target.value)}

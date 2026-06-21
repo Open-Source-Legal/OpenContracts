@@ -102,6 +102,7 @@ const RUN_MUTATION_MOCK = {
       runCorpusEnrichment: {
         ok: true,
         message: "SUCCESS",
+        partial: false,
         analyses: [RUNNING_ANALYSIS],
       },
     },
@@ -115,7 +116,7 @@ const RUN_MUTATION_MOCK = {
  */
 const EMPTY_QUERY_MOCK = {
   request: { query: GET_CORPUS_ANALYSES, variables: QUERY_VARS },
-  result: { data: { analyses: { edges: [] } } },
+  result: { data: { analyses: { totalCount: 0, edges: [] } } },
   maxUsageCount: 10,
 };
 
@@ -125,6 +126,7 @@ const RUNNING_QUERY_MOCK = {
   result: {
     data: {
       analyses: {
+        totalCount: 1,
         edges: [{ node: RUNNING_ANALYSIS }],
       },
     },
@@ -138,6 +140,7 @@ const COMPLETED_QUERY_MOCK = {
   result: {
     data: {
       analyses: {
+        totalCount: 1,
         edges: [{ node: COMPLETED_ANALYSIS }],
       },
     },
@@ -343,6 +346,7 @@ test.describe("EnrichmentRunner", () => {
       result: {
         data: {
           analyses: {
+            totalCount: 1,
             edges: [{ node: CREATED_ANALYSIS }],
           },
         },
@@ -439,6 +443,136 @@ test.describe("EnrichmentRunner", () => {
     await docScreenshot(page, "enrichment--runner--crawl-options", {
       element: page.locator('[data-testid="enrichment-runner"]'),
     });
+
+    await component.unmount();
+  });
+
+  test("partial success surfaces a warning toast (enrichment ok, crawl failed)", async ({
+    mount,
+    page,
+  }) => {
+    // The mutation returns ok=true + partial=true when enrichment dispatched
+    // but the crawl could not — the Runner must surface the non-fatal message
+    // as a warning (not a plain success), while still recording the running job.
+    const PARTIAL_MESSAGE =
+      "Enrichment started, but the authority crawl could not be dispatched: boom";
+    const PARTIAL_MUTATION_MOCK = {
+      request: {
+        query: RUN_CORPUS_ENRICHMENT,
+        variables: { corpusId: CORPUS_ID, runEnrichment: true, runCrawl: true },
+      },
+      result: {
+        data: {
+          runCorpusEnrichment: {
+            ok: true,
+            partial: true,
+            message: PARTIAL_MESSAGE,
+            analyses: [RUNNING_ANALYSIS],
+          },
+        },
+      },
+    };
+
+    const component = await mount(
+      <EnrichmentRunnerWrapperFull
+        corpusId={CORPUS_ID}
+        mocks={[
+          EMPTY_QUERY_MOCK,
+          PARTIAL_MUTATION_MOCK,
+          RUNNING_QUERY_MOCK,
+          COMPLETED_QUERY_MOCK,
+        ]}
+      />
+    );
+
+    const runBtn = page.locator('[data-testid="enrichment-run-button"]');
+    await expect(runBtn).toBeEnabled({ timeout: 10000 });
+
+    // Enable the crawl job so the request matches the partial mock's variables.
+    await page.getByText("Run authority crawl").click();
+    await runBtn.click();
+
+    // The non-fatal partial message surfaces as a (warning) toast.
+    await expect(page.getByText(PARTIAL_MESSAGE)).toBeVisible({
+      timeout: 5000,
+    });
+
+    await component.unmount();
+  });
+
+  test("rejects a fractional crawl bound with an inline error (no mutation)", async ({
+    mount,
+    page,
+  }) => {
+    // `step={1}` only hints at integers; a typed "1.5" still reaches handleRun.
+    // The integer guard must reject it before any mutation fires (no mutation
+    // mock is provided, so a dispatched request would error the test).
+    const component = await mount(
+      <EnrichmentRunnerWrapperFull
+        corpusId={CORPUS_ID}
+        mocks={[EMPTY_QUERY_MOCK]}
+      />
+    );
+    const runBtn = page.locator('[data-testid="enrichment-run-button"]');
+    await expect(runBtn).toBeEnabled({ timeout: 10000 });
+
+    // Expand Advanced and type a fractional value into Max depth.
+    await page.getByText("Advanced (crawl bounds)").click();
+    await page.fill("#enrichment-maxDepth", "1.5");
+    await runBtn.click();
+
+    await expect(
+      page.getByText("Max depth must be a whole number")
+    ).toBeVisible({ timeout: 5000 });
+
+    await component.unmount();
+  });
+
+  test("surfaces a backend ok=false response as an error toast", async ({
+    mount,
+    page,
+  }) => {
+    // ok=false (e.g. lost permission between load and dispatch) → the Runner
+    // shows the backend message as an error toast and does NOT record a job.
+    const FAILURE_MESSAGE = "Resource not found or you do not have permission.";
+    const FAILURE_MUTATION_MOCK = {
+      request: {
+        query: RUN_CORPUS_ENRICHMENT,
+        variables: {
+          corpusId: CORPUS_ID,
+          runEnrichment: true,
+          runCrawl: false,
+        },
+      },
+      result: {
+        data: {
+          runCorpusEnrichment: {
+            ok: false,
+            partial: false,
+            message: FAILURE_MESSAGE,
+            analyses: [],
+          },
+        },
+      },
+    };
+
+    const component = await mount(
+      <EnrichmentRunnerWrapperFull
+        corpusId={CORPUS_ID}
+        mocks={[EMPTY_QUERY_MOCK, FAILURE_MUTATION_MOCK]}
+      />
+    );
+    const runBtn = page.locator('[data-testid="enrichment-run-button"]');
+    await expect(runBtn).toBeEnabled({ timeout: 10000 });
+    await runBtn.click();
+
+    await expect(page.getByText(FAILURE_MESSAGE)).toBeVisible({
+      timeout: 5000,
+    });
+    // No optimistic row recorded on failure.
+    await expect(
+      page.locator('[data-testid="enrichment-job-row"]')
+    ).toHaveCount(0);
 
     await component.unmount();
   });

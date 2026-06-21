@@ -217,6 +217,13 @@ def doc_max_concurrency() -> int:
 # --- Phase 3: prefix classifier ---------------------------------------- #
 _USC_PREFIX_RE = _re.compile(r"^usc-\d+$")
 _CFR_PREFIX_RE = _re.compile(r"^cfr-\d+$")
+# Municipal grammar keys (issue #1995): the ``muni`` catch-all (bare "Municipal
+# Code § N") and per-city ``muni-<city-slug>`` keys (both the table-keyed codes
+# and open-vocab city captures). Matched by shape so a city added to the table
+# later needs no entry here. Like the state-code prefixes, these are NOT in
+# PREFIX_CLASSIFICATION — table candidates carry the full jurisdiction, and this
+# rule only supplies the always-known authority_type.
+_MUNI_PREFIX_RE = _re.compile(r"^muni(?:-[a-z0-9-]+)?$")
 
 # Grammar-emitted federal-statute meta-prefixes. Unlike the named registry
 # bodies in PREFIX_CLASSIFICATION, these are catch-alls — ``act`` for an
@@ -233,10 +240,11 @@ GRAMMAR_STATUTE_META_PREFIXES = frozenset({"act", "publ", "stat"})
 def classify_prefix(prefix: str) -> tuple:
     """(jurisdiction, authority_type) for a canonical_key prefix.
 
-    Handles three title-scoped federal families by shape:
+    Handles federal families + municipal keys by shape:
     - ``usc-NN`` (statute): any US Code title number → (us-federal, statute)
     - ``cfr-NN`` (regulation): any CFR title number → (us-federal, regulation)
     - ``fedreg`` (admin-rule): Federal Register → (us-federal, admin-rule)
+    - ``muni`` / ``muni-<city>`` (municipal): → (None, municipal-ordinance)
 
     Falls back to ``PREFIX_CLASSIFICATION`` for named registry bodies (dgcl,
     exchange-act, irc, …) and returns ``(None, None)`` for unknown prefixes.
@@ -249,4 +257,10 @@ def classify_prefix(prefix: str) -> tuple:
         return (JURISDICTION_US_FEDERAL, AUTHORITY_TYPE_ADMIN_RULE)
     if prefix in GRAMMAR_STATUTE_META_PREFIXES:
         return (JURISDICTION_US_FEDERAL, AUTHORITY_TYPE_STATUTE)
+    if _MUNI_PREFIX_RE.match(prefix):
+        # Jurisdiction stays None — free text reveals the city but not its state
+        # (a table-keyed code supplies the full ``us-ca-san-francisco`` instead).
+        # The authority_type is always recoverable, so a muni key is never
+        # stranded at (None, None).
+        return (None, AUTHORITY_TYPE_MUNICIPAL)
     return PREFIX_CLASSIFICATION.get(prefix, (None, None))

@@ -149,10 +149,17 @@ class AnalysisLifecycleService(BaseService):
             # still applies — superusers do not bypass visibility — so this
             # only widens write-trigger access for corpora already visible to
             # them. Non-superusers must hold UPDATE.
+            #
+            # Forward ``request`` so the UPDATE check shares the Tier-2
+            # permission cache when called from a GraphQL mutation (avoids a
+            # redundant permission DB hit); ``request`` is None for internal
+            # callers, which simply bypasses the cache.
             if (
                 require_corpus_update
                 and not getattr(user, "is_superuser", False)
-                and not corpus_obj.user_can(user, PermissionTypes.UPDATE)
+                and not corpus_obj.user_can(
+                    user, PermissionTypes.UPDATE, request=request
+                )
             ):
                 return ServiceResult.failure(not_found_msg)
 
