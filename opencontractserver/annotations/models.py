@@ -1983,11 +1983,29 @@ class CorpusReference(BaseOCModel):
         blank=True,
         related_name="created_references",
     )
+    # In-flight enrichment lifecycle. ``True`` means this row was written by a
+    # still-running enrichment pass and is NOT yet finalized: surface it (the
+    # References panel / governance graph render it with a badge) but do NOT act
+    # on it (the crawl seeds the frontier from finalized rows only). The
+    # producing run flips its own rows to ``False`` in one atomic update on
+    # success (keyed on ``created_by_analysis``); a failed run leaves them
+    # provisional, to be reclaimed + finalized by a later successful run.
+    # ``default=False`` so every pre-existing row and every fast-tier/direct
+    # write is already finalized — the migration is schema-only.
+    is_provisional = django.db.models.BooleanField(default=False, db_index=True)
 
     class Meta:
         indexes = [
             django.db.models.Index(fields=["corpus", "reference_type"]),
             django.db.models.Index(fields=["canonical_key"]),
+            # Composite index for the in-flight finalize UPDATE
+            # (``filter(created_by_analysis=..., is_provisional=True)`` in
+            # EnrichmentService.apply()): a single covering index beats merging
+            # the two single-column indexes / a seq-scan on large corpora.
+            django.db.models.Index(
+                fields=["created_by_analysis", "is_provisional"],
+                name="idx_corpusref_analysis_provis",
+            ),
         ]
         constraints = [
             # Idempotency guard: one reference per (source span, type, key).
@@ -2102,3 +2120,171 @@ class AuthorityNamespace(django.db.models.Model):
 
     def __str__(self) -> str:
         return f"AuthorityNamespace({self.prefix}: {self.display_name})"
+
+
+class AuthorityFrontier(django.db.models.Model):
+    """Durable discovery queue: one row per wanted section-root canonical_key.
+
+    Materialises CorpusReferenceService.wanted_authorities (ephemeral, per-request)
+    into persistent state so providers can be assigned, discovery staged, and
+    progress tracked. Plain Model: system-managed queue, not user-owned content
+    (mirrors AuthorityNamespace). Demand visibility is enforced upstream at seed
+    time via CorpusReference corpus-visibility.
+    """
+
+    # Identity — the section root the bootstrapper materialises (one doc/section)
+    # unique=True already creates the B-tree index; no separate db_index needed.
+    canonical_key = django.db.models.CharField(max_length=255, unique=True)
+    authority = django.db.models.CharField(max_length=64, db_index=True)  # "usc-15"
+
+    # Denormalised taxonomy (from AuthorityNamespace / PREFIX_CLASSIFICATION)
+    jurisdiction = django.db.models.CharField(
+        max_length=64, null=True, blank=True, db_index=True
+    )
+    authority_type = django.db.models.CharField(
+        max_length=32,
+        null=True,
+        blank=True,
+        db_index=True,
+        choices=[(t, t) for t in enrichment_constants.ALL_AUTHORITY_TYPES],
+    )
+
+    # Demand aggregation (refreshed each seed run)
+    mention_count = django.db.models.IntegerField(default=0, db_index=True)
+    distinct_corpus_count = django.db.models.IntegerField(default=0)
+    # List of per-corpus demand records; each entry is:
+    #   {"corpus_id": int, "mention_count": int, "top_detection_tier": str}
+    # ("top_detection_tier" is one of enrichment_constants.ALL_DETECTION_TIERS).
+    candidate_sources = django.db.models.JSONField(default=list, blank=True)
+
+    # Discovery state machine
+    DISCOVERY_STATE_CHOICES = [
+        ("queued", "Queued"),
+        ("in_progress", "In progress"),
+        ("discovered", "Source found, awaiting ingestion"),
+        ("ingested", "Document imported"),
+        ("resolved", "CorpusReference upgraded to RESOLVED"),
+        ("failed", "No source found"),
+        ("unsupported", "No provider can_handle"),
+        # Phase 4: visible, non-silent gate outcomes
+        ("blocked_license", "Provider license is not public-domain"),
+        ("blocked_domain", "Source domain not on the public-domain allowlist"),
+        ("unlocated", "Located text did not verify against the requested key"),
+        ("pending_approval", "Found, awaiting human approval before ingest"),
+        # Phase 5: per-jurisdiction cap reached; row parked so dequeue can skip it
+        ("deferred_cap", "Deferred: per-jurisdiction cap reached"),
+    ]
+    discovery_state = django.db.models.CharField(
+        max_length=32,
+        default="queued",
+        db_index=True,
+        choices=DISCOVERY_STATE_CHOICES,
+    )
+    depth = django.db.models.IntegerField(default=0)  # 0 = directly cited (Phase 5)
+
+    # Provider routing
+    provider = django.db.models.CharField(
+        max_length=64, null=True, blank=True, db_index=True
+    )
+    # registry name, e.g. "USCodeAuthoritySourceProvider"
+
+    last_error = django.db.models.TextField(null=True, blank=True)
+    last_attempt = django.db.models.DateTimeField(null=True, blank=True)
+    ingested_document = django.db.models.ForeignKey(
+        "documents.Document",
+        on_delete=django.db.models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="frontier_entries",
+    )
+    created = django.db.models.DateTimeField(auto_now_add=True)
+    modified = django.db.models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            django.db.models.Index(fields=["-mention_count", "discovery_state"]),
+            django.db.models.Index(fields=["provider", "discovery_state"]),
+            django.db.models.Index(fields=["jurisdiction", "authority_type"]),
+        ]
+        constraints = [
+            django.db.models.CheckConstraint(
+                condition=~(
+                    django.db.models.Q(discovery_state="queued")
+                    & django.db.models.Q(ingested_document__isnull=False)
+                ),
+                name="frontier_queued_no_ingested_doc",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"AuthorityFrontier({self.canonical_key}: {self.discovery_state})"
+
+
+class AuthorityKeyEquivalence(django.db.models.Model):
+    """Canonical-key synonyms: act-section <-> positive-law USC, parallel cites.
+
+    A single statute section has two live names: the popular-name act citation
+    (exchange-act:10(b)) that filings use, and the USC codification (usc-15:78j(b))
+    that the OLRC USLM provider materialises a document under. This table records
+    that they denote the same authority so find_authority_target can hop across
+    namespaces. Plain Model: derived reference data (populated from USLM
+    @identifier + <sourceCredit> <ref>s), never user content.
+    """
+
+    # Single-column indexes are declared once in Meta.indexes below (a bare
+    # db_index=True here would create a second, redundant B-tree per column).
+    from_key = django.db.models.CharField(max_length=255)  # "exchange-act:10(b)"
+    to_key = django.db.models.CharField(max_length=255)  # "usc-15:78j(b)"
+
+    SOURCE_CHOICES = [
+        ("uslm", "OLRC USLM sourceCredit"),  # parsed from <ref href="/us/act/...">
+        ("popular_name", "USC popular-name table"),
+        ("baseline", "Shipped baseline (loader-managed)"),
+        ("manual", "Hand-curated (runtime override)"),
+    ]
+    source = django.db.models.CharField(
+        max_length=32, choices=SOURCE_CHOICES, default="uslm"
+    )
+    confidence = django.db.models.FloatField(default=1.0)
+    note = django.db.models.CharField(max_length=255, null=True, blank=True)
+    # Provenance "who": set on runtime (source="manual") rows created through the
+    # CRUD surface. Null for loader/importer-owned rows (baseline/popular_name/
+    # uslm). SET_NULL so deleting the curator keeps the mapping. (AuthorityNamespace
+    # created_by is deferred — namespaces are overwhelmingly baseline/auto.)
+    created_by = django.db.models.ForeignKey(
+        get_user_model(),
+        on_delete=django.db.models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="authored_authority_equivalences",
+    )
+    created = django.db.models.DateTimeField(auto_now_add=True)
+    modified = django.db.models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            django.db.models.UniqueConstraint(
+                fields=["from_key", "to_key"],
+                name="authority_key_equiv_unique_pair",
+            ),
+            # A key is trivially equivalent to itself; a self-row is never
+            # meaningful and would let find_authority_target "hop" a key onto
+            # itself. The loader already rejects from_key == to_key in Python,
+            # but a direct ORM insert / admin action / data import would bypass
+            # that — enforce it at the DB so no self-row can ever exist.
+            django.db.models.CheckConstraint(
+                condition=~django.db.models.Q(from_key=django.db.models.F("to_key")),
+                name="authority_key_equiv_no_self_reference",
+                violation_error_message=(
+                    "An authority key cannot be equivalent to itself "
+                    "(from_key must differ from to_key)."
+                ),
+            ),
+        ]
+        indexes = [
+            django.db.models.Index(fields=["from_key"]),
+            django.db.models.Index(fields=["to_key"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.from_key} ≡ {self.to_key} ({self.source})"

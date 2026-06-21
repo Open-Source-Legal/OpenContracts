@@ -46,6 +46,23 @@ GRAPH_QUERY = """
     }
 """
 
+GRAPH_QUERY_WITH_REGIME = """
+    query ($cid: ID!) {
+      governanceGraph(corpusId: $cid) {
+        nodes {
+          id
+          title
+          kind
+          authority
+          jurisdiction
+          authorityType
+          discoveryState
+          degree
+        }
+      }
+    }
+"""
+
 
 class _Ctx:
     def __init__(self, user):
@@ -276,3 +293,136 @@ class GovernanceGraphTests(TestCase):
         reader_statute = _run_refs(reader, self.corpus.id, statute_gid)
         assert reader_statute.get("errors") is None, reader_statute.get("errors")
         assert reader_statute["data"]["corpusReferences"]["edges"] == []
+
+
+class GovernanceGraphRegimeFieldTests(TestCase):
+    """Phase 5: jurisdiction / authority_type / discovery_state on graph nodes.
+
+    Verifies that:
+    - A statute doc_node derives jurisdiction/authority_type from its authority prefix.
+    - A ghost node for a key that has an AuthorityFrontier row carries that row's
+      discovery_state (and jurisdiction/authority_type from the frontier when set).
+    - A ghost node without a frontier row still returns jurisdiction/authority_type
+      from classify_prefix and discovery_state=None.
+    """
+
+    def setUp(self):
+        from opencontractserver.enrichment.services import EnrichmentService
+
+        self.user = User.objects.create_user(username="regime-owner", password="p")
+        self.corpus = Corpus.objects.create(title="Regime S-1", creator=self.user)
+        primary = Document.objects.create(
+            title="Acme S-1 regime test", creator=self.user
+        )
+        # Cites DGCL § 145 (registered prefix → jurisdiction us-de, statute) and
+        # DGCL § 203 (will become a ghost since we only bootstrap § 145).
+        primary.txt_extract_file.save(
+            "s1r.txt",
+            ContentFile(
+                b"Governed by Section 145 of the Delaware General Corporation Law. "
+                b"Also under Section 203 of the Delaware General Corporation Law."
+            ),
+        )
+        self.corpus.add_document(document=primary, user=self.user)
+        self.primary_id = self.corpus.document_paths.filter(
+            is_current=True, document__title=primary.title
+        ).values_list("document_id", flat=True)[0]
+
+        EnrichmentService().apply(corpus_id=self.corpus.id, creator_id=self.user.id)
+
+        from opencontractserver.enrichment.authorities import (
+            AuthorityCorpusBootstrapper,
+            AuthoritySection,
+        )
+
+        auth = AuthorityCorpusBootstrapper().bootstrap(
+            creator_id=self.user.id,
+            corpus_title="Delaware General Corporation Law (regime test)",
+            sections=[
+                AuthoritySection(
+                    key="dgcl:145", heading="DGCL § 145", text="Indemnification."
+                ),
+            ],
+        )
+        self.auth_corpus_id = auth["corpus_id"]
+        EnrichmentService().link_external_references(
+            corpus_id=self.corpus.id, creator_id=self.user.id
+        )
+        self.statute_id = (
+            Corpus.objects.get(pk=self.auth_corpus_id)
+            .document_paths.filter(is_current=True)
+            .values_list("document_id", flat=True)[0]
+        )
+
+    def _graph_with_regime(self):
+        from graphene.test import Client
+
+        from config.graphql.schema import schema
+
+        result = Client(schema, context_value=_Ctx(self.user)).execute(
+            GRAPH_QUERY_WITH_REGIME,
+            variables={"cid": to_global_id("CorpusType", self.corpus.id)},
+        )
+        assert result.get("errors") is None, result.get("errors")
+        return result["data"]["governanceGraph"]["nodes"]
+
+    def test_statute_doc_node_carries_jurisdiction_and_authority_type(self):
+        """A statute document node (has canonical_key in custom_meta) derives
+        jurisdiction/authority_type from its authority prefix via classify_prefix.
+        """
+        nodes = self._graph_with_regime()
+        statute_gid = to_global_id("DocumentType", self.statute_id)
+        statute = next((n for n in nodes if n["id"] == statute_gid), None)
+        assert statute is not None, "statute node missing from graph"
+        assert statute["kind"] == "statute"
+        assert statute["authority"] == "dgcl"
+        # dgcl is in PREFIX_CLASSIFICATION → ("us-de", "statute")
+        assert statute["jurisdiction"] == "us-de"
+        assert statute["authorityType"] == "statute"
+        # doc nodes are always ingested — discoveryState is null
+        assert statute["discoveryState"] is None
+
+    def test_ghost_node_without_frontier_row_gets_classify_prefix_fallback(self):
+        """A ghost key with no AuthorityFrontier row still resolves jurisdiction
+        and authority_type from classify_prefix, and discovery_state is null.
+        """
+        from opencontractserver.annotations.models import AuthorityFrontier
+
+        # Ensure there's no frontier row for dgcl:203
+        AuthorityFrontier.objects.filter(canonical_key="dgcl:203").delete()
+
+        nodes = self._graph_with_regime()
+        ghost = next((n for n in nodes if n["id"] == "key:dgcl:203"), None)
+        assert ghost is not None, "dgcl:203 ghost node missing"
+        assert ghost["kind"] == "external"
+        assert ghost["authority"] == "dgcl"
+        assert ghost["jurisdiction"] == "us-de"
+        assert ghost["authorityType"] == "statute"
+        assert ghost["discoveryState"] is None
+
+    def test_ghost_node_with_frontier_row_carries_discovery_state(self):
+        """A ghost key that has an AuthorityFrontier row carries its discovery_state,
+        jurisdiction, and authority_type from the row (not just classify_prefix).
+        """
+        from opencontractserver.annotations.models import AuthorityFrontier
+
+        # Create a frontier row for the ghost key with explicit state.
+        frontier_row, _ = AuthorityFrontier.objects.get_or_create(
+            canonical_key="dgcl:203",
+            defaults={
+                "authority": "dgcl",
+                "jurisdiction": "us-de",
+                "authority_type": "statute",
+                "mention_count": 1,
+                "discovery_state": "queued",
+            },
+        )
+        frontier_row.discovery_state = "pending_approval"
+        frontier_row.save(update_fields=["discovery_state", "modified"])
+
+        nodes = self._graph_with_regime()
+        ghost = next((n for n in nodes if n["id"] == "key:dgcl:203"), None)
+        assert ghost is not None, "dgcl:203 ghost node missing"
+        assert ghost["discoveryState"] == "pending_approval"
+        assert ghost["jurisdiction"] == "us-de"
+        assert ghost["authorityType"] == "statute"

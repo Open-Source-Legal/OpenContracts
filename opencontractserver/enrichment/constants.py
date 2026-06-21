@@ -3,6 +3,10 @@
 No magic numbers / strings in the engine modules — they import from here.
 """
 
+import re as _re
+
+from opencontractserver.enrichment.data import mappings as _mappings
+
 # Mention annotation labels (one per reference type).
 LABEL_REF_LAW = "OC_REF_LAW"
 LABEL_REF_DOC = "OC_REF_DOC"
@@ -32,16 +36,11 @@ LABEL_FOR_TYPE = {
 }
 
 # Authority name (as it appears in text, lowercased) -> canonical_key prefix.
-AUTHORITY_PREFIX = {
-    "delaware general corporation law": "dgcl",
-    "dgcl": "dgcl",
-    "securities act": "securities-act",
-    "securities exchange act": "exchange-act",
-    "exchange act": "exchange-act",
-    "internal revenue code": "irc",
-    "investment company act": "ica",
-    "investment advisers act": "iaa",
-}
+# Derived from the ``prefixes:`` section of authority_mappings.yaml (the single
+# editable source); the literal dict that used to live here is gone. Built once
+# at import — a malformed prefix entry fails fast here rather than silently
+# mis-resolving downstream.
+AUTHORITY_PREFIX = _mappings.authority_prefix_map()
 
 # Canonical-key prefix for bare SEC rule citations ("Rule 506(b)") — these are
 # 17 CFR rules cited without a named authority.
@@ -61,6 +60,11 @@ ENRICHMENT_ANALYZER_TASK = (
 ENRICHMENT_ANALYZER_ID = "corpus-reference-enrichment"
 ENRICHMENT_ANALYZER_TITLE = "Corpus Reference Enrichment"
 
+# --- Phase 5: crawl analyzer identity (dispatchable via the analyzer framework) ---
+CRAWL_ANALYZER_TASK = "opencontractserver.tasks.corpus_analysis_tasks.crawl_authorities"
+CRAWL_ANALYZER_ID = "bounded-authority-crawl"
+CRAWL_ANALYZER_TITLE = "Bounded Authority Crawl"
+
 # Governance-graph vocabulary (node kinds / edge types / corpus roles) — the
 # contract between GovernanceGraphService, the GraphQL types, and the frontend
 # panel. Mirrors demo/export_governance_graph.py.
@@ -79,6 +83,15 @@ DEFAULT_SAMPLE_N = 10
 MAX_DEFINED_TERMS = 50  # cap to control precision/volume in v1
 # Per-authority cap on the keys surfaced by the wanted-authorities queue.
 WANTED_AUTHORITIES_TOP_KEYS = 10
+
+# --- Phase 5: bounded recursive authority crawl --------------------------------
+CRAWL_DEFAULT_MAX_DEPTH = 2  # authority-to-authority hops past depth-0 seeds
+CRAWL_DEFAULT_MIN_DEMAND = 2  # skip frontier rows with mention_count below this
+CRAWL_DEFAULT_MAX_AUTHORITIES = 50  # hard cap on discover_and_bootstrap calls per run
+CRAWL_DEFAULT_PER_JURISDICTION_CAP = 15  # max ingests per (jurisdiction) per run
+CRAWL_DEFAULT_TOKEN_BUDGET = (
+    2_000_000  # cumulative est. tokens (text len / 4) before stop
+)
 # Punctuation stripped from the tail of a captured defined term
 # (e.g. (the "Notes," ...) -> "Notes").
 TRAILING_PUNCT = ",.;:"
@@ -115,26 +128,13 @@ ALL_AUTHORITY_TYPES = (
 
 # Classification for every prefix the engine ships (drives the namespace seed
 # and the CorpusReference backfill). prefix -> (jurisdiction, authority_type).
-PREFIX_CLASSIFICATION = {
-    "dgcl": ("us-de", AUTHORITY_TYPE_STATUTE),
-    "securities-act": (JURISDICTION_US_FEDERAL, AUTHORITY_TYPE_STATUTE),
-    "exchange-act": (JURISDICTION_US_FEDERAL, AUTHORITY_TYPE_STATUTE),
-    "irc": (JURISDICTION_US_FEDERAL, AUTHORITY_TYPE_STATUTE),
-    "ica": (JURISDICTION_US_FEDERAL, AUTHORITY_TYPE_STATUTE),
-    "iaa": (JURISDICTION_US_FEDERAL, AUTHORITY_TYPE_STATUTE),
-    SEC_RULE_PREFIX: (JURISDICTION_US_FEDERAL, AUTHORITY_TYPE_REGULATION),
-}
+# Derived from authority_mappings.yaml ``prefixes:`` — the completeness test
+# (tests/test_authority_mappings_file.py) pins every authority_type into
+# ALL_AUTHORITY_TYPES and every prefix to a jurisdiction + display name.
+PREFIX_CLASSIFICATION = _mappings.prefix_classification()
 
 # Human-readable body-of-law names for the namespace seed.
-PREFIX_DISPLAY_NAME = {
-    "dgcl": "Delaware General Corporation Law",
-    "securities-act": "Securities Act of 1933",
-    "exchange-act": "Securities Exchange Act of 1934",
-    "irc": "Internal Revenue Code",
-    "ica": "Investment Company Act of 1940",
-    "iaa": "Investment Advisers Act of 1940",
-    SEC_RULE_PREFIX: "SEC Rules (17 C.F.R.)",
-}
+PREFIX_DISPLAY_NAME = _mappings.prefix_display_name()
 
 # Detection provenance — which layer found a mention (CorpusReference.detection_tier).
 DETECTION_TIER_REGISTRY = "registry"  # Tier 1: static/DB alias grammars (trusted)
@@ -145,3 +145,122 @@ ALL_DETECTION_TIERS = (
     DETECTION_TIER_GRAMMAR,
     DETECTION_TIER_LLM,
 )
+
+# --- Phase 2: Tier-2b LLM citation detection ------------------------------- #
+# Verified spans below this self-rated confidence go to the review bucket
+# (surfaced, never auto-promoted to mentions).
+LLM_CONFIDENCE_FLOOR = 0.7
+# Offset-preserving sliding-window chunking for the LLM pass (chars). The window
+# is sized large (vs the old 2000) so a document yields FAR fewer chunks: a
+# modern model handles ~2K-token windows comfortably, the LLM returns
+# chunk-relative offsets (and verify_and_place recovers by raw-text search when
+# they drift), and a 400-char overlap is only ~5% redundant at this width.
+LLM_CHUNK_WINDOW = 8000
+LLM_CHUNK_OVERLAP = 400
+# Max concurrent per-chunk LLM calls within a single document's extraction.
+# Chunks are independent, so they run via asyncio.gather behind a Semaphore —
+# bounded so we never exceed the provider's rate limits or cost-spike. This is
+# the dominant speedup over the old strictly-sequential await loop.
+LLM_MAX_CONCURRENCY = 8
+# Max document coroutines kept live at once in the concurrent apply path. The
+# chunk-level LLM cap above bounds provider load, but every in-flight document
+# coroutine also pins its full text + candidate list in memory, so a large
+# corpus (hundreds/thousands of docs) launched all at once via asyncio.gather
+# would spike memory. This caps how many documents are simultaneously resolving.
+DOC_MAX_CONCURRENCY = 32
+# Max AuthorityFrontier rows a single RunAuthorityDiscovery mutation may queue.
+# discover_selected processes rows sequentially in one Celery task, so an
+# unbounded batch could run a worker for an unbounded time; cap it (superuser
+# can re-issue for the remainder).
+AUTHORITY_DISCOVERY_MAX_BATCH = 500
+# pydantic-ai output-validation retries for the structured call.
+LLM_STRUCTURED_RETRIES = 3
+# Max chars of a candidate's raw_text echoed into the review-candidate
+# serialisation (a preview, not the full span — keeps payloads bounded).
+REVIEW_CANDIDATE_RAW_TEXT_MAX_LEN = 120
+
+
+def llm_max_concurrency() -> int:
+    """Effective global cap on concurrent LLM extraction calls.
+
+    ``LLM_MAX_CONCURRENCY`` is the conservative code default; a deployment can
+    raise it (more provider throughput, but higher rate-limit / cost exposure)
+    via the ``ENRICHMENT_LLM_MAX_CONCURRENCY`` env var / Django setting without a
+    code change. Read lazily so importing this module never requires configured
+    settings, and so the constant stays the single numeric source of truth.
+    """
+    from django.conf import settings
+
+    override = getattr(settings, "ENRICHMENT_LLM_MAX_CONCURRENCY", None)
+    # ``is not None`` (not truthiness): an explicit ``0`` is a deliberate value,
+    # not "unset". Folding 0 into the default would silently ignore an operator
+    # who set it — a misconfiguration is better surfaced loudly than masked.
+    return override if override is not None else LLM_MAX_CONCURRENCY
+
+
+def doc_max_concurrency() -> int:
+    """Effective cap on how many document coroutines resolve at once.
+
+    Bounds peak memory in the concurrent apply path (each live document
+    coroutine pins its text + candidates). ``DOC_MAX_CONCURRENCY`` is the code
+    default; override via the ``ENRICHMENT_DOC_MAX_CONCURRENCY`` Django setting.
+    Read lazily so importing this module never requires configured settings.
+    """
+    from django.conf import settings
+
+    override = getattr(settings, "ENRICHMENT_DOC_MAX_CONCURRENCY", None)
+    # ``is not None`` (not truthiness): an explicit ``0`` is a deliberate value,
+    # not "unset" — see ``llm_max_concurrency`` above.
+    return override if override is not None else DOC_MAX_CONCURRENCY
+
+
+# --- Phase 3: prefix classifier ---------------------------------------- #
+_USC_PREFIX_RE = _re.compile(r"^usc-\d+$")
+_CFR_PREFIX_RE = _re.compile(r"^cfr-\d+$")
+# Municipal grammar keys (issue #1995): the ``muni`` catch-all (bare "Municipal
+# Code § N") and per-city ``muni-<city-slug>`` keys (both the table-keyed codes
+# and open-vocab city captures). Matched by shape so a city added to the table
+# later needs no entry here. Like the state-code prefixes, these are NOT in
+# PREFIX_CLASSIFICATION — table candidates carry the full jurisdiction, and this
+# rule only supplies the always-known authority_type.
+_MUNI_PREFIX_RE = _re.compile(r"^muni(?:-[a-z0-9-]+)?$")
+
+# Grammar-emitted federal-statute meta-prefixes. Unlike the named registry
+# bodies in PREFIX_CLASSIFICATION, these are catch-alls — ``act`` for an
+# unrecognised named Act, ``publ`` for a Public Law (e.g. publ:107-56), ``stat``
+# for Statutes at Large (e.g. stat:135.429). The bare-Act grammar already
+# assumes us-federal for these (state-act disambiguation is a documented
+# follow-up), so classifying them here keeps the frontier queue and
+# governance-graph ghost nodes from being stranded at (None, None). They are
+# kept OUT of PREFIX_CLASSIFICATION so the AuthorityNamespace seed (migration
+# 0082) never materialises a spurious "act"/"publ"/"stat" body of law.
+GRAMMAR_STATUTE_META_PREFIXES = frozenset({"act", "publ", "stat"})
+
+
+def classify_prefix(prefix: str) -> tuple:
+    """(jurisdiction, authority_type) for a canonical_key prefix.
+
+    Handles federal families + municipal keys by shape:
+    - ``usc-NN`` (statute): any US Code title number → (us-federal, statute)
+    - ``cfr-NN`` (regulation): any CFR title number → (us-federal, regulation)
+    - ``fedreg`` (admin-rule): Federal Register → (us-federal, admin-rule)
+    - ``muni`` / ``muni-<city>`` (municipal): → (None, municipal-ordinance)
+
+    Falls back to ``PREFIX_CLASSIFICATION`` for named registry bodies (dgcl,
+    exchange-act, irc, …) and returns ``(None, None)`` for unknown prefixes.
+    """
+    if _USC_PREFIX_RE.match(prefix):
+        return (JURISDICTION_US_FEDERAL, AUTHORITY_TYPE_STATUTE)
+    if _CFR_PREFIX_RE.match(prefix):
+        return (JURISDICTION_US_FEDERAL, AUTHORITY_TYPE_REGULATION)
+    if prefix == "fedreg":
+        return (JURISDICTION_US_FEDERAL, AUTHORITY_TYPE_ADMIN_RULE)
+    if prefix in GRAMMAR_STATUTE_META_PREFIXES:
+        return (JURISDICTION_US_FEDERAL, AUTHORITY_TYPE_STATUTE)
+    if _MUNI_PREFIX_RE.match(prefix):
+        # Jurisdiction stays None — free text reveals the city but not its state
+        # (a table-keyed code supplies the full ``us-ca-san-francisco`` instead).
+        # The authority_type is always recoverable, so a muni key is never
+        # stranded at (None, None).
+        return (None, AUTHORITY_TYPE_MUNICIPAL)
+    return PREFIX_CLASSIFICATION.get(prefix, (None, None))

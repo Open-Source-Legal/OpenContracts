@@ -19,11 +19,16 @@ from config.graphql.permissioning.permission_annotator.mixins import (
 from opencontractserver.annotations.models import (
     Annotation,
     AnnotationLabel,
+    AuthorityFrontier,
+    AuthorityKeyEquivalence,
     CorpusReference,
     LabelSet,
     Note,
     NoteRevision,
     Relationship,
+)
+from opencontractserver.enrichment.services.authority_mapping_service import (
+    MANUAL as MANUAL_SOURCE,
 )
 from opencontractserver.shared.services.base import BaseService
 from opencontractserver.utils.permissioning import get_users_permissions_for_obj
@@ -97,6 +102,20 @@ class GovernanceGraphNodeType(graphene.ObjectType):
     )
     authority = graphene.String(
         description='Body-of-law key prefix (e.g. "dgcl") for statute/ghost nodes.'
+    )
+    jurisdiction = graphene.String(
+        description='Jurisdiction code, e.g. "us-de", "us-federal" (null if unknown).'
+    )
+    authority_type = graphene.String(
+        description='Authority type: "statute", "regulation", etc. (null if unknown).'
+    )
+    discovery_state = graphene.String(
+        description=(
+            "Authority-frontier crawl status for ghost nodes: "
+            '"queued", "in_progress", "discovered", "ingested", "resolved", '
+            '"failed", "unsupported", "blocked_license", "unlocated", '
+            '"pending_approval", "deferred_cap" — or null when not tracked.'
+        )
     )
     degree = graphene.Int(
         required=True, description="Summed mention weight of edges touching the node."
@@ -183,6 +202,198 @@ class WantedAuthorityType(graphene.ObjectType):
         graphene.NonNull(WantedAuthorityKeyType),
         required=True,
         description="Most-cited missing keys (capped server-side).",
+    )
+
+
+def _frontier_predicted_provider(row):
+    """Provider class-name that would handle ``row.canonical_key`` (or ``None``).
+
+    Memoized on the row instance so the ``ingestable`` and ``predicted_provider``
+    resolvers share a single registry+equivalence lookup per node. ``row`` is the
+    ``AuthorityFrontier`` MODEL instance graphene passes as the resolver root
+    (NOT an ``AuthorityFrontierNode``), so this MUST be a free function — a method
+    defined on the type is invisible on the model-instance root.
+    """
+    if not hasattr(row, "_predicted_provider_cache"):
+        from opencontractserver.enrichment.services.authority_discovery_service import (  # noqa: E501
+            AuthorityDiscoveryService,
+        )
+
+        row._predicted_provider_cache = AuthorityDiscoveryService._provider_for(
+            row.canonical_key
+        )[0]
+    return row._predicted_provider_cache
+
+
+class AuthorityFrontierNode(DjangoObjectType):
+    """One ``AuthorityFrontier`` row: the discovery/ingestion state of a wanted
+    section-root canonical key (e.g. ``usc-15:78j``), aggregated instance-wide
+    across all corpora.
+
+    ``AuthorityFrontier`` is a system-managed global queue with no per-object
+    permissions, so the connection is **superuser-only**: ``get_queryset``
+    returns nothing for everyone else and sets the backlog-first default order
+    (``-mention_count``, matching the model's index).
+    """
+
+    candidate_sources = GenericScalar(  # noqa
+        description=(
+            "Per-corpus demand breakdown: "
+            "[{corpus_id, mention_count, top_detection_tier}]."
+        )
+    )
+    ingested_document = graphene.Field(
+        _get_document_type,
+        description="The Document imported for this key once ingested (else null).",
+    )
+    ingestable = graphene.Boolean(
+        description=(
+            "True if a source provider can_handle this key directly or via an "
+            "AuthorityKeyEquivalence bridge (i.e. discovery could ingest it). "
+            "False keys would record 'unsupported' if run."
+        )
+    )
+    predicted_provider = graphene.String(
+        description=(
+            "Registry class name of the provider that would handle this key, or "
+            "null when none can."
+        )
+    )
+
+    class Meta:
+        model = AuthorityFrontier
+        interfaces = [relay.Node]
+        connection_class = CountableConnection
+        # Scalar model fields only; ``candidate_sources`` and
+        # ``ingested_document`` are declared explicitly above.
+        fields = (
+            "id",
+            "canonical_key",
+            "authority",
+            "jurisdiction",
+            "authority_type",
+            "discovery_state",
+            "provider",
+            "mention_count",
+            "distinct_corpus_count",
+            "depth",
+            "last_error",
+            "last_attempt",
+            "created",
+            "modified",
+        )
+
+    @classmethod
+    def get_queryset(cls, queryset: QuerySet, info: Any) -> QuerySet:
+        user = getattr(info.context, "user", None)
+        if not (user and user.is_authenticated and user.is_superuser):
+            return queryset.none()
+        # Backlog-first by default (most-cited wanted authorities lead); the
+        # ``-mention_count, discovery_state`` index backs this ordering.
+        return queryset.select_related("ingested_document").order_by(
+            "-mention_count", "discovery_state"
+        )
+
+    def resolve_ingestable(self, info) -> bool:
+        return _frontier_predicted_provider(self) is not None
+
+    def resolve_predicted_provider(self, info):
+        return _frontier_predicted_provider(self)
+
+
+class AuthorityFrontierStateCountType(graphene.ObjectType):
+    """One ``discovery_state`` and how many frontier rows are in it."""
+
+    state = graphene.String(required=True, description="discovery_state value.")
+    count = graphene.Int(required=True)
+
+
+class AuthorityFrontierStatsType(graphene.ObjectType):
+    """Facet-aware summary counts for the authority-sources monitor's chips.
+
+    Counts honour the non-state facets (jurisdiction / authority_type /
+    provider / search) but NOT the state filter, so the chips always show the
+    full state breakdown for the current facet selection.
+    """
+
+    total_count = graphene.Int(
+        required=True, description="Total frontier rows matching the non-state facets."
+    )
+    by_state = graphene.List(
+        graphene.NonNull(AuthorityFrontierStateCountType),
+        required=True,
+        description="Row count per discovery_state (only non-empty states).",
+    )
+
+
+class AuthorityKeyEquivalenceNode(DjangoObjectType):
+    """One ``AuthorityKeyEquivalence`` row (canonical-key synonym) for the
+    runtime authority-mappings admin panel.
+
+    Global system data with no per-object permissions, so the connection is
+    **superuser-only**: ``get_queryset`` returns nothing for everyone else and
+    sets the default order (most-recently-modified first). ``editable`` is True
+    only for ``source="manual"`` rows — loader/importer-owned rows
+    (``baseline`` / ``popular_name`` / ``uslm``) are read-only.
+    """
+
+    editable = graphene.Boolean(
+        description="True iff this is a manual row the curator may edit/delete."
+    )
+    created_by_username = graphene.String(
+        description="Username of the curator who created this manual row (else null)."
+    )
+
+    class Meta:
+        model = AuthorityKeyEquivalence
+        interfaces = [relay.Node]
+        connection_class = CountableConnection
+        fields = (
+            "id",
+            "from_key",
+            "to_key",
+            "source",
+            "confidence",
+            "note",
+            "created",
+            "modified",
+        )
+
+    @classmethod
+    def get_queryset(cls, queryset: QuerySet, info: Any) -> QuerySet:
+        user = getattr(info.context, "user", None)
+        if not (user and user.is_authenticated and user.is_superuser):
+            return queryset.none()
+        return queryset.select_related("created_by").order_by("-modified")
+
+    def resolve_editable(self, info) -> bool:
+        return self.source == MANUAL_SOURCE
+
+    def resolve_created_by_username(self, info):
+        return self.created_by.username if self.created_by_id else None
+
+
+class AuthorityMappingSourceCountType(graphene.ObjectType):
+    """One ``source`` value and how many equivalence rows carry it."""
+
+    source = graphene.String(required=True, description="source value.")
+    count = graphene.Int(required=True)
+
+
+class AuthorityMappingStatsType(graphene.ObjectType):
+    """Per-``source`` summary counts for the authority-mappings panel chips.
+
+    Honours the ``search`` facet but NOT a source filter, so the chips always
+    show the full source breakdown for the current search.
+    """
+
+    total_count = graphene.Int(
+        required=True, description="Total equivalence rows matching the search."
+    )
+    by_source = graphene.List(
+        graphene.NonNull(AuthorityMappingSourceCountType),
+        required=True,
+        description="Row count per source (only non-empty sources).",
     )
 
 

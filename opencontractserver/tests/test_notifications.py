@@ -17,6 +17,7 @@ Tests cover:
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 
+from opencontractserver.analyzer.models import Analysis, Analyzer
 from opencontractserver.badges.models import Badge, BadgeTypeChoices, UserBadge
 from opencontractserver.conversations.models import (
     ChatMessage,
@@ -190,6 +191,116 @@ class TestNotificationModel(TestCase):
         self.assertIn("Reply to Message", str_repr)
         self.assertIn(self.user1.username, str_repr)
         self.assertIn("unread", str_repr)
+
+
+class TestNotificationAnalysisLink(TestCase):
+    """Test Notification.analysis FK and ANALYSIS_RUNNING choice."""
+
+    @classmethod
+    def setUpTestData(cls):
+        """Create test data including a minimal Analysis."""
+        cls.user = User.objects.create_user(
+            username="analysis_notif_user",
+            password="testpass123",
+            email="analysis_notif@test.com",
+        )
+
+        cls.analyzer = Analyzer.objects.create(
+            id="test-notif-analyzer",
+            description="Analyzer for notification tests",
+            creator=cls.user,
+            task_name="test_notif_analyzer_task",
+        )
+
+        cls.analysis = Analysis.objects.create(
+            analyzer=cls.analyzer,
+            creator=cls.user,
+        )
+
+    def test_notification_links_to_analysis(self):
+        """Test that a Notification can be linked to an Analysis via the analysis FK."""
+        n = Notification.objects.create(
+            recipient=self.user,
+            notification_type=NotificationTypeChoices.ANALYSIS_RUNNING,
+            analysis=self.analysis,
+        )
+        self.assertEqual(n.analysis_id, self.analysis.id)
+        self.assertTrue(self.analysis.notifications.filter(pk=n.pk).exists())
+
+    def test_analysis_running_choice_exists(self):
+        """Test that ANALYSIS_RUNNING is a valid NotificationTypeChoices value."""
+        self.assertIn(
+            NotificationTypeChoices.ANALYSIS_RUNNING,
+            NotificationTypeChoices.values,
+        )
+        self.assertEqual(
+            NotificationTypeChoices.ANALYSIS_RUNNING.label, "Analysis Running"
+        )
+
+    def test_notification_without_analysis_still_works(self):
+        """Test that the analysis FK is optional (null=True)."""
+        n = Notification.objects.create(
+            recipient=self.user,
+            notification_type=NotificationTypeChoices.ANALYSIS_COMPLETE,
+        )
+        self.assertIsNone(n.analysis_id)
+
+    def test_duplicate_analysis_notification_blocked_by_constraint(self):
+        """The partial unique constraint forbids a second notification with the
+        same (analysis, notification_type) — this is what makes the signal's
+        get_or_create idempotent under concurrent Analysis.post_save signals."""
+        from django.db import IntegrityError, transaction
+
+        Notification.objects.create(
+            recipient=self.user,
+            notification_type=NotificationTypeChoices.ANALYSIS_RUNNING,
+            analysis=self.analysis,
+        )
+        with self.assertRaises(IntegrityError):
+            # Wrap in atomic so the IntegrityError doesn't poison the outer
+            # test transaction.
+            with transaction.atomic():
+                Notification.objects.create(
+                    recipient=self.user,
+                    notification_type=NotificationTypeChoices.ANALYSIS_RUNNING,
+                    analysis=self.analysis,
+                )
+
+    def test_constraint_is_partial_and_ignores_null_analysis(self):
+        """The constraint is partial (analysis NOT NULL): two notifications of
+        the same type WITHOUT an analysis must coexist, and the same analysis
+        may carry notifications of DIFFERENT types."""
+        # Two analysis=NULL rows with an identical type — not constrained.
+        Notification.objects.create(
+            recipient=self.user,
+            notification_type=NotificationTypeChoices.ANALYSIS_COMPLETE,
+        )
+        Notification.objects.create(
+            recipient=self.user,
+            notification_type=NotificationTypeChoices.ANALYSIS_COMPLETE,
+        )
+        # Same analysis, two DIFFERENT types — not constrained.
+        Notification.objects.create(
+            recipient=self.user,
+            notification_type=NotificationTypeChoices.ANALYSIS_RUNNING,
+            analysis=self.analysis,
+        )
+        Notification.objects.create(
+            recipient=self.user,
+            notification_type=NotificationTypeChoices.ANALYSIS_COMPLETE,
+            analysis=self.analysis,
+        )
+        self.assertEqual(
+            Notification.objects.filter(
+                analysis__isnull=True,
+                notification_type=NotificationTypeChoices.ANALYSIS_COMPLETE,
+            ).count(),
+            2,
+        )
+        self.assertEqual(
+            Notification.objects.filter(analysis=self.analysis).count(),
+            2,
+        )
 
 
 class TestNotificationSignals(TestCase):
@@ -486,3 +597,193 @@ class TestNotificationSignals(TestCase):
         )
 
         self.assertEqual(notifications.count(), 0)
+
+
+class TestAnalysisStatusNotificationSignal(TestCase):
+    """Test that Analysis status transitions emit the correct Notifications."""
+
+    def setUp(self):
+        """Create a user, analyzer, and analysis for each test."""
+        from opencontractserver.analyzer.models import Analysis, Analyzer
+        from opencontractserver.enrichment import constants as EC
+
+        self.user = User.objects.create_user(
+            username="analysis_signal_user",
+            password="testpass123",
+            email="analysis_signal@test.com",
+        )
+
+        # Use the enrichment task name so the scoped signal guard passes.
+        # ``task_name`` is unique and the enrichment analyzer is already seeded
+        # on a fresh DB by migration 0012 (auto_sync_doc_analyzers), exactly as
+        # production's get_or_create_analyzer expects — so get_or_create here
+        # instead of create() to reuse that row rather than collide on it.
+        self.analyzer, _ = Analyzer.objects.get_or_create(
+            task_name=EC.ENRICHMENT_ANALYZER_TASK,
+            defaults={
+                "id": "test-signal-analyzer",
+                "description": "Analyzer for signal tests",
+                "creator": self.user,
+            },
+        )
+
+        # Create analysis without _skip_signals so the signal fires normally.
+        self.analysis = Analysis.objects.create(
+            analyzer=self.analyzer,
+            creator=self.user,
+        )
+        # Clear any notifications that might have been produced during setUp.
+        Notification.objects.filter(analysis=self.analysis).delete()
+
+    def test_analysis_status_emits_notification_once(self):
+        """
+        Transitioning to RUNNING creates exactly one ANALYSIS_RUNNING notification
+        even when .save() is called twice with the same status (idempotency).
+        Transitioning to COMPLETED then creates exactly one ANALYSIS_COMPLETE
+        notification.
+        """
+        from opencontractserver.types.enums import JobStatus
+
+        # Transition to RUNNING
+        self.analysis.status = JobStatus.RUNNING.value
+        self.analysis.save()
+
+        # Redundant re-save with the same status must NOT create a duplicate.
+        self.analysis.save()
+
+        self.assertEqual(
+            Notification.objects.filter(
+                recipient=self.user,
+                analysis=self.analysis,
+                notification_type=NotificationTypeChoices.ANALYSIS_RUNNING,
+            ).count(),
+            1,
+        )
+
+        # Transition to COMPLETED
+        self.analysis.status = JobStatus.COMPLETED.value
+        self.analysis.save()
+
+        self.assertEqual(
+            Notification.objects.filter(
+                analysis=self.analysis,
+                notification_type=NotificationTypeChoices.ANALYSIS_COMPLETE,
+            ).count(),
+            1,
+        )
+
+    def test_created_or_queued_status_emits_nothing(self):
+        """
+        Saving an Analysis with CREATED or QUEUED status must not produce any
+        notification — these are not user-visible lifecycle events.
+        """
+        from opencontractserver.types.enums import JobStatus
+
+        self.analysis.status = JobStatus.QUEUED.value
+        self.analysis.save()
+
+        self.assertEqual(
+            Notification.objects.filter(analysis=self.analysis).count(),
+            0,
+        )
+
+    def test_failed_status_emits_analysis_failed_notification(self):
+        """Transitioning to FAILED creates exactly one ANALYSIS_FAILED notification."""
+        from opencontractserver.types.enums import JobStatus
+
+        self.analysis.status = JobStatus.FAILED.value
+        self.analysis.save()
+
+        self.assertEqual(
+            Notification.objects.filter(
+                recipient=self.user,
+                analysis=self.analysis,
+                notification_type=NotificationTypeChoices.ANALYSIS_FAILED,
+            ).count(),
+            1,
+        )
+
+    def test_skip_signals_suppresses_notification(self):
+        """An Analysis with _skip_signals=True must not produce any notification."""
+        from opencontractserver.types.enums import JobStatus
+
+        self.analysis._skip_signals = True
+        self.analysis.status = JobStatus.RUNNING.value
+        self.analysis.save()
+
+        self.assertEqual(
+            Notification.objects.filter(analysis=self.analysis).count(),
+            0,
+        )
+
+
+class TestAnalysisNotificationScopedToEnrichment(TestCase):
+    """emit_analysis_status_notification must fire only for enrichment/crawl analyzers."""
+
+    def setUp(self):
+        from opencontractserver.enrichment import constants as EC
+
+        self.user = User.objects.create_user(
+            username="scope_signal_user",
+            password="testpass123",
+            email="scope_signal@test.com",
+        )
+
+        # Unrelated analyzer (e.g. a doc-level analyzer, not enrichment/crawl).
+        self.other_analyzer = Analyzer.objects.create(
+            id="other-scope-analyzer",
+            description="Unrelated analyzer",
+            creator=self.user,
+            task_name="some.other.task",
+        )
+
+        # Enrichment analyzer — must still trigger notifications. Reuse the
+        # migration-seeded row (unique task_name) rather than colliding on it;
+        # see TestAnalysisStatusNotificationSignal.setUp for the rationale.
+        self.enrichment_analyzer, _ = Analyzer.objects.get_or_create(
+            task_name=EC.ENRICHMENT_ANALYZER_TASK,
+            defaults={
+                "id": "enrichment-scope-analyzer",
+                "description": "Enrichment analyzer for scope tests",
+                "creator": self.user,
+            },
+        )
+
+    def test_non_enrichment_analysis_emits_no_notification(self):
+        """An Analysis whose analyzer is NOT enrichment/crawl must not notify."""
+        from opencontractserver.types.enums import JobStatus
+
+        analysis = Analysis.objects.create(
+            analyzer=self.other_analyzer,
+            creator=self.user,
+        )
+        Notification.objects.filter(analysis=analysis).delete()
+
+        analysis.status = JobStatus.COMPLETED.value
+        analysis.save()
+
+        self.assertEqual(
+            Notification.objects.filter(analysis=analysis).count(),
+            0,
+        )
+
+    def test_enrichment_analysis_still_emits_notification(self):
+        """An Analysis whose analyzer IS the enrichment analyzer must still notify."""
+        from opencontractserver.types.enums import JobStatus
+
+        analysis = Analysis.objects.create(
+            analyzer=self.enrichment_analyzer,
+            creator=self.user,
+        )
+        Notification.objects.filter(analysis=analysis).delete()
+
+        analysis.status = JobStatus.COMPLETED.value
+        analysis.save()
+
+        self.assertEqual(
+            Notification.objects.filter(
+                analysis=analysis,
+                notification_type=NotificationTypeChoices.ANALYSIS_COMPLETE,
+            ).count(),
+            1,
+        )

@@ -15,10 +15,20 @@ from graphql import GraphQLError
 from graphql_jwt.decorators import login_required
 from graphql_relay import from_global_id, to_global_id
 
-from config.graphql.filters import LabelFilter, LabelsetFilter, RelationshipFilter
+from config.graphql.filters import (
+    AuthorityFrontierFilter,
+    AuthorityKeyEquivalenceFilter,
+    LabelFilter,
+    LabelsetFilter,
+    RelationshipFilter,
+)
 from config.graphql.graphene_types import (
     AnnotationLabelType,
     AnnotationType,
+    AuthorityFrontierNode,
+    AuthorityFrontierStatsType,
+    AuthorityKeyEquivalenceNode,
+    AuthorityMappingStatsType,
     CorpusReferenceType,
     GovernanceGraphCorpusType,
     GovernanceGraphEdgeType,
@@ -190,6 +200,9 @@ class AnnotationQueryMixin:
                     else None
                 ),
                 authority=n["authority"],
+                jurisdiction=n.get("jurisdiction"),
+                authority_type=n.get("authority_type"),
+                discovery_state=None,
                 degree=n["degree"],
             )
             for n in data["doc_nodes"]
@@ -201,6 +214,9 @@ class AnnotationQueryMixin:
                 kind=enrichment_constants.GRAPH_NODE_EXTERNAL,
                 corpus_id=None,
                 authority=g["authority"],
+                jurisdiction=g.get("jurisdiction"),
+                authority_type=g.get("authority_type"),
+                discovery_state=g.get("discovery_state"),
                 degree=g["degree"],
             )
             for g in data["ghost_nodes"]
@@ -262,6 +278,89 @@ class AnnotationQueryMixin:
         return CorpusReferenceService.wanted_authorities(
             info.context.user, corpus_id=pk
         )
+
+    # AUTHORITY FRONTIER (global, superuser-only) ##############
+    authority_frontier = DjangoFilterConnectionField(
+        AuthorityFrontierNode,
+        filterset_class=AuthorityFrontierFilter,
+        description=(
+            "Global authority-source discovery queue (AuthorityFrontier): the "
+            "crawl/ingestion state of every wanted section-root key across all "
+            "corpora, ranked by citation demand. SUPERUSER-ONLY (empty "
+            "otherwise) — gating + default order live on the node's get_queryset."
+        ),
+    )
+
+    authority_frontier_stats = graphene.Field(
+        AuthorityFrontierStatsType,
+        jurisdiction=graphene.String(required=False),
+        authority_type=graphene.String(required=False),
+        provider=graphene.String(required=False),
+        authority=graphene.String(required=False),
+        search=graphene.String(required=False),
+        required=True,
+        description=(
+            "Facet-aware per-discovery_state row counts for the authority-"
+            "sources monitor's summary chips. Honours the non-state facets but "
+            "not a state filter. SUPERUSER-ONLY (empty otherwise)."
+        ),
+    )
+
+    @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
+    def resolve_authority_frontier_stats(
+        self,
+        info,
+        jurisdiction=None,
+        authority_type=None,
+        provider=None,
+        authority=None,
+        search=None,
+    ) -> Any:
+        """Delegate the (superuser-gated) aggregation to the service; graphene's
+        default resolver maps the returned dict onto ``AuthorityFrontierStatsType``."""
+        from opencontractserver.enrichment.services import AuthorityFrontierService
+
+        return AuthorityFrontierService.admin_state_counts(
+            info.context.user,
+            jurisdiction=jurisdiction,
+            authority_type=authority_type,
+            provider=provider,
+            authority=authority,
+            search=search,
+        )
+
+    # AUTHORITY MAPPINGS (global, superuser-only) ##############
+    authority_key_equivalences = DjangoFilterConnectionField(
+        AuthorityKeyEquivalenceNode,
+        filterset_class=AuthorityKeyEquivalenceFilter,
+        description=(
+            "Runtime authority key-equivalence registry (AuthorityKeyEquivalence): "
+            "act-section ↔ USC/CFR codification synonyms used to bridge citations "
+            "across namespaces. SUPERUSER-ONLY (empty otherwise) — gating + "
+            "default order live on the node's get_queryset."
+        ),
+    )
+
+    authority_mapping_stats = graphene.Field(
+        AuthorityMappingStatsType,
+        search=graphene.String(required=False),
+        required=True,
+        description=(
+            "Facet-aware per-source row counts for the authority-mappings panel's "
+            "summary chips. Honours the search facet but not a source filter. "
+            "SUPERUSER-ONLY (empty otherwise)."
+        ),
+    )
+
+    @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
+    def resolve_authority_mapping_stats(self, info, search=None) -> Any:
+        """Delegate the (superuser-gated) aggregation to the service; graphene's
+        default resolver maps the returned dict onto ``AuthorityMappingStatsType``."""
+        from opencontractserver.enrichment.services import (
+            AuthorityKeyEquivalenceService,
+        )
+
+        return AuthorityKeyEquivalenceService.stats(info.context.user, search=search)
 
     # ANNOTATION RESOLVERS #####################################
     annotations = DjangoConnectionField(

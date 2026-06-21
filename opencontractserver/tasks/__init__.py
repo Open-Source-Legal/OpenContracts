@@ -4,7 +4,7 @@ from .cleanup_tasks import (
     cleanup_orphaned_document_blobs_task,
     delete_analysis_and_annotations_task,
 )
-from .corpus_analysis_tasks import corpus_reference_enrichment
+from .corpus_analysis_tasks import corpus_reference_enrichment, crawl_authorities
 from .corpus_tasks import *  # noqa: F403, F401
 from .data_extract_tasks import *  # noqa: F403, F401
 from .doc_analysis_tasks import *  # noqa: F403, F401
@@ -35,6 +35,7 @@ from .telemetry_tasks import send_usage_heartbeat
 
 __all__ = [
     "corpus_reference_enrichment",
+    "crawl_authorities",
     "run_extract",
     "package_annotated_docs",
     "burn_doc_annotations",

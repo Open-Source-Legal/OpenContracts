@@ -134,8 +134,22 @@ test.describe("DocumentReferencesPanel", () => {
     await expect(panel).toContainText("Cites");
     await expect(panel).toContainText("DGCL § 145");
     await expect(panel).toContainText("×2");
-    await expect(panel).toContainText("cited, not yet ingested");
     await expect(panel).toContainText("Exhibit 1.1: EX-1.1");
+
+    // Resolution state is now a per-row status chip, not a faint italic note:
+    // resolved rows (DGCL §145, Exhibit 1.1) carry a "Linked" chip; the
+    // unresolved law citation carries an "Awaiting source" chip. A header
+    // summary breaks down the split.
+    await expect(panel).toContainText("Awaiting source");
+    await expect(
+      page.locator('[data-testid="references-panel-status-linked"]')
+    ).toHaveCount(2);
+    await expect(
+      page.locator('[data-testid="references-panel-status-awaiting"]')
+    ).toHaveCount(1);
+    await expect(
+      page.locator('[data-testid="references-panel-summary"]')
+    ).toContainText("1 awaiting");
 
     // Inbound: one source document.
     await expect(
@@ -145,6 +159,50 @@ test.describe("DocumentReferencesPanel", () => {
     await expect(panel).toContainText("Amendment No. 1");
 
     await docScreenshot(page, "annotations--references-panel--with-data");
+
+    await component.unmount();
+  });
+
+  test("marks in-flight references with an 'In progress' badge", async ({
+    mount,
+    page,
+  }) => {
+    // The DGCL citations were written by an enrichment run still in flight
+    // (is_provisional). The group's badge becomes "In progress", taking
+    // precedence over the (preliminary) Linked state.
+    const provisionalRows = REFERENCE_ROWS.map((r) => ({
+      ...r,
+      isProvisional: r.canonicalKey === "dgcl:145",
+    }));
+    const component = await mount(
+      <MemoryRouter>
+        <MockedProvider
+          mocks={[makeMock(provisionalRows), makeMock(provisionalRows)]}
+          addTypename={false}
+        >
+          <DocumentReferencesPanel documentId={DOC_ID} corpusId={CORPUS_ID} />
+        </MockedProvider>
+      </MemoryRouter>
+    );
+
+    const panel = page.locator('[data-testid="references-panel"]');
+    await expect(panel).toBeVisible({ timeout: 10000 });
+
+    // The provisional DGCL group carries the "In progress" chip...
+    await expect(
+      page.locator('[data-testid="references-panel-status-provisional"]')
+    ).toHaveCount(1);
+    await expect(panel).toContainText("In progress");
+    // ...and no longer the "Linked" chip; only the finalized exhibit row does.
+    await expect(
+      page.locator('[data-testid="references-panel-status-linked"]')
+    ).toHaveCount(1);
+    // The header summary reflects the provisional split (not counted as linked).
+    await expect(
+      page.locator('[data-testid="references-panel-summary"]')
+    ).toContainText("in progress");
+
+    await docScreenshot(page, "annotations--references-panel--in-progress");
 
     await component.unmount();
   });

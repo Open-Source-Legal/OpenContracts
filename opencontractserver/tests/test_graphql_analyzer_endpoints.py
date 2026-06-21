@@ -386,3 +386,104 @@ class GraphQLAnalyzerTestCase(TestCase):
         self.__test_get_analyzer()
         self.__test_get_analyses()
         self.__test_start_analysis()
+
+
+ENRICHMENT_TASK_NAME = (
+    "opencontractserver.tasks.corpus_analysis_tasks.corpus_reference_enrichment"
+)
+CRAWL_TASK_NAME = "opencontractserver.tasks.corpus_analysis_tasks.crawl_authorities"
+
+ANALYSES_BY_TASK_NAME_QUERY = """
+    query($taskNames: [String]) {
+      analyses(analyzer_TaskName_In: $taskNames) {
+        edges {
+          node {
+            id
+            analyzer {
+              taskName
+            }
+          }
+        }
+      }
+    }
+"""
+
+
+class AnalysisFilterTaskNameTestCase(TestCase):
+    """Focused test for AnalysisFilter analyzer__task_name filter."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="taskname_filter_user", password="12345678"
+        )
+        self.graphene_client = Client(schema, context_value=TestContext(self.user))
+
+        self.corpus = Corpus.objects.create(
+            title="TaskName Filter Test Corpus",
+            creator=self.user,
+            backend_lock=False,
+        )
+
+        self.enrichment_analyzer, _ = Analyzer.objects.get_or_create(
+            task_name=ENRICHMENT_TASK_NAME,
+            defaults={
+                "id": "test.enrichment.analyzer",
+                "description": "Enrichment analyzer for filter test",
+                "is_public": True,
+                "creator": self.user,
+            },
+        )
+        self.crawl_analyzer, _ = Analyzer.objects.get_or_create(
+            task_name=CRAWL_TASK_NAME,
+            defaults={
+                "id": "test.crawl.analyzer",
+                "description": "Crawl analyzer for filter test",
+                "is_public": True,
+                "creator": self.user,
+            },
+        )
+
+        self.enrichment_analysis = Analysis.objects.create(
+            analyzer=self.enrichment_analyzer,
+            analyzed_corpus=self.corpus,
+            creator=self.user,
+        )
+        self.crawl_analysis = Analysis.objects.create(
+            analyzer=self.crawl_analyzer,
+            analyzed_corpus=self.corpus,
+            creator=self.user,
+        )
+
+    def test_filter_by_single_task_name(self):
+        """Only the enrichment analysis should be returned when filtering by its task name."""
+        result = self.graphene_client.execute(
+            ANALYSES_BY_TASK_NAME_QUERY,
+            variable_values={"taskNames": [ENRICHMENT_TASK_NAME]},
+        )
+        self.assertIsNone(result.get("errors"), msg=result.get("errors"))
+        edges = result["data"]["analyses"]["edges"]
+        self.assertEqual(len(edges), 1)
+        self.assertEqual(edges[0]["node"]["analyzer"]["taskName"], ENRICHMENT_TASK_NAME)
+
+    def test_filter_by_multiple_task_names(self):
+        """Both analyses should be returned when both task names are supplied."""
+        result = self.graphene_client.execute(
+            ANALYSES_BY_TASK_NAME_QUERY,
+            variable_values={"taskNames": [ENRICHMENT_TASK_NAME, CRAWL_TASK_NAME]},
+        )
+        self.assertIsNone(result.get("errors"), msg=result.get("errors"))
+        edges = result["data"]["analyses"]["edges"]
+        self.assertEqual(len(edges), 2)
+        returned_task_names = {e["node"]["analyzer"]["taskName"] for e in edges}
+        self.assertEqual(returned_task_names, {ENRICHMENT_TASK_NAME, CRAWL_TASK_NAME})
+
+    def test_filter_excludes_unrelated_analyses(self):
+        """An analysis whose analyzer has a different task_name must not appear."""
+        result = self.graphene_client.execute(
+            ANALYSES_BY_TASK_NAME_QUERY,
+            variable_values={"taskNames": [ENRICHMENT_TASK_NAME]},
+        )
+        self.assertIsNone(result.get("errors"), msg=result.get("errors"))
+        edges = result["data"]["analyses"]["edges"]
+        task_names = [e["node"]["analyzer"]["taskName"] for e in edges]
+        self.assertNotIn(CRAWL_TASK_NAME, task_names)

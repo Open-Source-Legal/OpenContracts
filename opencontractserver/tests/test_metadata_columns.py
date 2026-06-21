@@ -350,3 +350,65 @@ class TestMetadataColumns(TestCase):
         # Should save without validation errors
         datacell.save()
         self.assertTrue(datacell.id)
+
+    def test_manual_entry_with_null_validation_config_does_not_crash(self):
+        """Regression for issue #1986 item 7.
+
+        ``Column.validation_config`` is a nullable JSONField, so it can be
+        ``None``. ``Datacell._validate_manual_entry`` read
+        ``self.column.validation_config.get("required")`` in the "missing
+        value" branch *before* the ``config = ... or {}`` guard, raising
+        ``AttributeError: 'NoneType' object has no attribute 'get'`` whenever a
+        manual-entry cell with no ``value`` key was validated on a config-less
+        column. With no config nothing is required, so validation must succeed
+        instead of crashing.
+        """
+        column = Column.objects.create(
+            fieldset=self.fieldset,
+            name="No Config",
+            data_type="STRING",
+            validation_config=None,  # nullable JSONField — legitimately None
+            is_manual_entry=True,
+            output_type="string",
+            creator=self.user,
+        )
+        # Confirm ``None`` round-trips through the DB (not coerced to ``{}``),
+        # so the regression path is genuinely exercised.
+        column.refresh_from_db()
+        self.assertIsNone(column.validation_config)
+
+        # No "value" key + no validation_config => nothing required => valid.
+        datacell = Datacell(
+            column=column,
+            document=self.document,
+            data={},
+            data_definition="string",
+            creator=self.user,
+        )
+        datacell.full_clean()  # must not raise AttributeError
+        datacell.save()
+        self.assertTrue(datacell.id)
+
+    def test_manual_entry_null_config_still_enforces_required_when_set(self):
+        """A null config means *nothing* is required; a config with
+        ``required`` still raises. Guards against the item-7 fix accidentally
+        swallowing the genuine "required" error path."""
+        required_col = Column.objects.create(
+            fieldset=self.fieldset,
+            name="Required No-Value",
+            data_type="STRING",
+            validation_config={"required": True},
+            is_manual_entry=True,
+            output_type="string",
+            creator=self.user,
+        )
+        datacell = Datacell(
+            column=required_col,
+            document=self.document,
+            data={},  # no "value" key at all
+            data_definition="string",
+            creator=self.user,
+        )
+        with self.assertRaises(ValidationError) as context:
+            datacell.full_clean()
+        self.assertIn("is required", str(context.exception))

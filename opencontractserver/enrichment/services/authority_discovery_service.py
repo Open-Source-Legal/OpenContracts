@@ -1,0 +1,419 @@
+"""Orchestrates authority discovery: registry -> provider -> bootstrap -> relink.
+
+``AuthorityDiscoveryService`` is the single entry point for the automated
+discovery pipeline.  Given an ``AuthorityFrontier`` row it:
+
+1. Finds a public-domain provider that ``can_handle`` the row's key.
+2. Calls the provider's ``locate`` + ``fetch`` to retrieve section text.
+3. Delegates to ``bootstrap_authority_corpus`` for idempotent materialisation.
+4. Triggers a cross-corpus relink that upgrades act-section EXTERNAL
+   references (e.g. ``exchange-act:10(b)``) to RESOLVED once the USC
+   document lands — the equivalence relink seam.
+5. Marks the frontier row ``ingested`` (or ``failed`` / ``unsupported``).
+"""
+
+from __future__ import annotations
+
+import logging
+import xml.etree.ElementTree as ET
+import zipfile
+from typing import Any, TypedDict
+
+import httpx
+import requests
+from django.db.models import Q
+from django.utils import timezone
+
+from opencontractserver.annotations.models import AuthorityFrontier
+from opencontractserver.shared.services.base import BaseService
+
+logger = logging.getLogger(__name__)
+
+
+class _AuditRecord(TypedDict):
+    """Schema of one append-only ``candidate_sources`` audit entry.
+
+    Declaring the shape here (rather than building a bare dict in three places)
+    means a field rename/addition is caught at type-check time instead of
+    drifting silently across the fetch-failure, gate-decision, and
+    bootstrap-failure paths.
+    """
+
+    provider: str | None
+    license: str
+    source_domain: str | None
+    verify: str
+    outcome: str
+    error: str | None
+    attempted_at: str
+
+
+class AuthorityDiscoveryService(BaseService):
+    """Registry-driven authority ingestion orchestrator."""
+
+    @classmethod
+    def _provider_for(cls, canonical_key: str) -> tuple[str | None, Any, str | None]:
+        """Return ``(name, provider, fetch_key)`` for *canonical_key*.
+
+        ``fetch_key`` is the key the chosen provider should ``locate``/``fetch``:
+        the original key when a provider handles it directly, or a
+        provider-supported ``AuthorityKeyEquivalence`` counterpart when the
+        original is a *domain* key that no provider handles directly.
+
+        Providers only ``can_handle`` statutory/regulatory canonical keys
+        (``usc-*``, ``cfr-*``, ``fedreg``), but filings cite *popular-name*
+        domain keys (e.g. ``exchange-act:10``, ``securities-act:2``). Those have
+        curated equivalences to positive-law USC keys (``usc-15:78j``); rather
+        than mark them ``unsupported``, we fetch the equivalent statutory key —
+        and the post-ingest equivalence relink (below) upgrades the original
+        domain-key EXTERNAL references. Direction-agnostic.
+
+        Sorts the registry by ascending ``priority`` ClassVar so lower numbers
+        are preferred. License enforcement is delegated to ``AuthorityGateService``
+        — this method intentionally does NOT filter by license. Returns
+        ``(None, None, None)`` when nothing matches even after the equivalence hop.
+        """
+        from opencontractserver.annotations.models import AuthorityKeyEquivalence
+        from opencontractserver.pipeline.registry import (
+            get_all_authority_source_providers_cached,
+        )
+
+        defns = sorted(
+            get_all_authority_source_providers_cached(),
+            key=lambda d: getattr(d.component_class, "priority", 100),
+        )
+
+        def _match(key: str):
+            for defn in defns:
+                if defn.component_class is None:
+                    continue
+                if not getattr(defn.component_class, "enabled", True):
+                    continue
+                provider = defn.component_class()
+                if provider.can_handle(key):
+                    return defn.name, provider
+            return None
+
+        from opencontractserver.enrichment.data import mappings as _mappings
+
+        # Candidate fetch-keys, in precedence order — the first one a provider
+        # can_handle wins:
+        #   1. the original key (direct provider support);
+        #   2. AuthorityKeyEquivalence counterparts (exchange-act:10 -> usc-15:78j);
+        #   3. prefix rewrite rules over the original (irc:N -> usc-26:N);
+        #   4. rewrite rules over the equivalence counterparts.
+        # Per-key equivalences therefore always beat a mechanical rule, and the
+        # two stages compose (an equivalence INTO a rewriteable key resolves) —
+        # symmetric with ``find_authority_target``. The equivalence query is
+        # ``order_by``-ed so the counterpart chosen for a one-to-many key is
+        # deterministic (no Meta.ordering on AuthorityKeyEquivalence).
+        equiv_alts: list[str] = [
+            (to_key if from_key == canonical_key else from_key)
+            for from_key, to_key in AuthorityKeyEquivalence.objects.filter(
+                Q(from_key=canonical_key) | Q(to_key=canonical_key)
+            )
+            .order_by("to_key", "from_key")
+            .values_list("from_key", "to_key")
+        ]
+
+        candidates: list[tuple[str, str]] = [(canonical_key, "direct")]
+        candidates += [(alt, "equivalence") for alt in equiv_alts]
+        candidates += [
+            (rw, "rewrite rule") for rw in _mappings.apply_rewrite_rules(canonical_key)
+        ]
+        for alt in equiv_alts:
+            candidates += [
+                (rw, "equivalence+rewrite rule")
+                for rw in _mappings.apply_rewrite_rules(alt)
+            ]
+
+        seen: set[str] = set()
+        for key, how in candidates:
+            if key in seen:
+                continue
+            seen.add(key)
+            matched = _match(key)
+            if matched is not None:
+                if key != canonical_key:
+                    logger.info(
+                        "AuthorityDiscoveryService: bridged %s -> %s via %s",
+                        canonical_key,
+                        key,
+                        how,
+                    )
+                return matched[0], matched[1], key
+
+        return None, None, None
+
+    @staticmethod
+    def _audit_record(
+        *,
+        provider_name: str | None,
+        provider_license: str,
+        outcome: str,
+        source_domain: str | None = None,
+        verify: str = "skipped",
+        error: str | None = None,
+    ) -> _AuditRecord:
+        """Build a frontier ``candidate_record`` audit entry.
+
+        Centralises the schema shared by the fetch-failure, gate-decision, and
+        bootstrap-failure paths in :meth:`discover_and_bootstrap` so a new field
+        is added in exactly one place instead of three. The ``_AuditRecord``
+        TypedDict makes that schema explicit and type-checked.
+        """
+        return _AuditRecord(
+            provider=provider_name,
+            license=provider_license,
+            source_domain=source_domain,
+            verify=verify,
+            outcome=outcome,
+            error=error,
+            attempted_at=timezone.now().isoformat(),
+        )
+
+    @classmethod
+    def discover_and_bootstrap(
+        cls,
+        *,
+        creator_id: int,
+        frontier_row: AuthorityFrontier,
+        make_public: bool = True,
+        relink_async: bool = False,
+    ) -> dict:
+        """Ingest the authority described by *frontier_row*.
+
+        Selects a provider, fetches section text, bootstraps the authority
+        corpus, triggers a cross-namespace relink (so act-section citations
+        that map to ingested USC keys upgrade from EXTERNAL to RESOLVED),
+        and updates *frontier_row*'s discovery state.
+
+        Args:
+            creator_id: PK of the user who owns the resulting corpus.
+            frontier_row: The ``AuthorityFrontier`` row being processed.
+            make_public: Publish the resulting corpus (default True) so all
+                users benefit from the authority resolution.
+            relink_async: Queue the relink as a Celery task instead of
+                running it inline (use for large authority sets).
+
+        Returns:
+            A dict with at least a ``"status"`` key (``"ingested"``,
+            ``"unsupported"``, or ``"failed"``). On the ``"ingested"`` path the
+            dict also carries ``"equivalence_relink"`` (the relink result, or
+            ``{"queued": True, "task_id": ...}`` when ``relink_async=True``) and
+            ``"relinked_count"`` (the number of law references upgraded, or
+            ``None`` when the relink was queued asynchronously and hasn't run).
+        """
+        from opencontractserver.annotations.models import AuthorityKeyEquivalence
+        from opencontractserver.enrichment.authorities import bootstrap_authority_corpus
+        from opencontractserver.enrichment.services.authority_frontier_service import (
+            AuthorityFrontierService,
+        )
+        from opencontractserver.enrichment.services.enrichment_service import (
+            EnrichmentService,
+        )
+
+        canonical_key = frontier_row.canonical_key
+        # ``fetch_key`` may differ from the frontier's domain key when a
+        # popular-name citation (exchange-act:10) is bridged to its statutory
+        # equivalent (usc-15:78j) for fetching; the frontier row keeps its own
+        # ``canonical_key`` identity and the relink seam reconciles citations.
+        name, provider, fetch_key = cls._provider_for(canonical_key)
+
+        if provider is None:
+            AuthorityFrontierService.mark(frontier_row, "unsupported")
+            return {"status": "unsupported", "canonical_key": canonical_key}
+
+        # ``_provider_for`` only returns a non-None provider alongside a non-None
+        # ``fetch_key`` (the matched candidate key); the ``(None, None, None)``
+        # miss is handled by the guard above. Assert it so the type narrows to
+        # ``str`` for ``locate``/``evaluate`` below (and the invariant is loud if
+        # a future edit decouples the two return slots).
+        assert fetch_key is not None
+
+        # Record which provider was selected and mark in-flight.
+        frontier_row.provider = name
+        frontier_row.save(update_fields=["provider", "modified"])
+        AuthorityFrontierService.mark(frontier_row, "in_progress")
+
+        # --- fetch -----------------------------------------------------------
+        try:
+            request = provider.locate(fetch_key)
+            sections = provider.fetch(request)
+        except (
+            requests.RequestException,
+            httpx.HTTPError,
+            OSError,
+            ValueError,
+            KeyError,
+            ET.ParseError,
+            zipfile.BadZipFile,
+        ) as exc:
+            logger.exception(
+                "AuthorityDiscoveryService: provider %s failed for %s",
+                name,
+                canonical_key,
+            )
+            candidate_record = cls._audit_record(
+                provider_name=name,
+                provider_license=provider.license,
+                outcome="failed",
+                error=str(exc),
+            )
+            AuthorityFrontierService.mark(
+                frontier_row,
+                "failed",
+                error=str(exc),
+                candidate_record=candidate_record,
+            )
+            return {
+                "status": "failed",
+                "error": str(exc),
+                "canonical_key": canonical_key,
+            }
+
+        # --- gate (verify + license + domain) --------------------------------
+        # Deferred import (like the bootstrap/frontier/enrichment imports at the
+        # top of this method): enrichment/services/__init__ eagerly imports this
+        # module, and the gate transitively pulls enrichment.authorities, which
+        # re-enters the enrichment.services package — a module-level import here
+        # would form an import cycle during app/registry loading.
+        from opencontractserver.enrichment.services.authority_gate_service import (
+            GATE_OK,
+            AuthorityGateService,
+            GateDecision,
+        )
+
+        # Verify against the key we actually fetched (``fetch_key``) — for a
+        # bridged domain key the located text is the statutory section
+        # (usc-15:78j), not the popular-name key.
+        decision: GateDecision = AuthorityGateService.evaluate(
+            canonical_key=fetch_key,
+            sections=sections,
+            provider_license=provider.license,
+            require_approval_for_agentic=getattr(provider, "requires_approval", False),
+        )
+        candidate_record = cls._audit_record(
+            provider_name=name,
+            provider_license=provider.license,
+            source_domain=decision.source_domain,
+            verify=decision.verify,
+            outcome=decision.verdict if decision.verdict != GATE_OK else "ingested",
+            error=None if decision.verdict == GATE_OK else decision.reason,
+        )
+        if decision.verdict != GATE_OK:
+            AuthorityFrontierService.mark(
+                frontier_row,
+                decision.verdict,
+                error=decision.reason,
+                candidate_record=candidate_record,
+            )
+            return {
+                "status": decision.verdict,
+                "reason": decision.reason,
+                "canonical_key": canonical_key,
+            }
+
+        # --- bootstrap + relink ---------------------------------------------
+        # Everything from bootstrap through the ingested-mark runs under one
+        # fault handler: a failure here (DB/migration issue, signal handler,
+        # relink error) must not strand the row in "in_progress" — it is marked
+        # "failed" just like a provider fetch failure above.
+        try:
+            # Pass relink=False here; we do a wider relink below that includes
+            # the equivalence from_keys so act-section refs also upgrade.
+            result = bootstrap_authority_corpus(
+                creator_id=creator_id,
+                corpus_title=provider.title,
+                sections=sections,
+                aliases=list(provider.supported_prefixes),
+                make_public=make_public,
+                relink=False,
+            )
+
+            # --- locate the ingested document to record on the frontier row --
+            from opencontractserver.documents.models import Document
+
+            ingested_doc = (
+                Document.objects.filter(
+                    custom_meta__canonical_key=sections[0].key,
+                    path_records__is_current=True,
+                    path_records__is_deleted=False,
+                )
+                .order_by("id")
+                .first()
+            )
+
+            # --- equivalence-aware relink seam -------------------------------
+            # Filings cite act-section keys (e.g. exchange-act:10) while we
+            # bootstrap under USC keys (usc-15:78j). Pull every equivalence
+            # touching an ingested key and collect the OTHER side (the
+            # popular-name key filings actually cite) so relink upgrades those
+            # EXTERNAL refs via find_authority_target's equivalence hop.
+            # Direction-agnostic: we don't assume which column holds the
+            # ingested key.
+            section_keys = [s.key for s in sections]
+            equiv_pairs = AuthorityKeyEquivalence.objects.filter(
+                Q(from_key__in=section_keys) | Q(to_key__in=section_keys)
+            ).values_list("from_key", "to_key")
+            other_keys = {(f if t in section_keys else t) for f, t in equiv_pairs}
+            relink_keys = sorted({*section_keys, *other_keys})
+
+            if relink_async:
+                from opencontractserver.tasks.corpus_tasks import (
+                    relink_corpora_for_keys_task,
+                )
+
+                async_result = relink_corpora_for_keys_task.delay(relink_keys)
+                relink_result: dict = {"queued": True, "task_id": async_result.id}
+                # The relink runs in a Celery task that hasn't executed yet, so
+                # the count is unknown — use None (not 0) so callers can tell
+                # "pending" apart from "ran and linked nothing". The queued task
+                # id lives in result["equivalence_relink"].
+                relinked_count = None
+            else:
+                relink_result = EnrichmentService().relink_corpora_for_keys(relink_keys)
+                relinked_count = relink_result.get("law_references_linked", 0)
+
+            result["equivalence_relink"] = relink_result
+
+            # --- mark ingested -----------------------------------------------
+            AuthorityFrontierService.mark(
+                frontier_row,
+                "ingested",
+                document_id=ingested_doc.id if ingested_doc else None,
+                candidate_record=candidate_record,
+            )
+        except Exception as exc:
+            # The gate already passed, so a failure here is bootstrap/relink — it
+            # must not strand the row in "in_progress". Record a failure audit
+            # entry (the gate's candidate_record reflected an expected ingest).
+            logger.exception(
+                "AuthorityDiscoveryService: bootstrap/relink failed for %s",
+                canonical_key,
+            )
+            AuthorityFrontierService.mark(
+                frontier_row,
+                "failed",
+                error=str(exc),
+                candidate_record=cls._audit_record(
+                    provider_name=name,
+                    provider_license=provider.license,
+                    source_domain=decision.source_domain,
+                    verify=decision.verify,
+                    outcome="failed",
+                    error=str(exc),
+                ),
+            )
+            return {
+                "status": "failed",
+                "error": str(exc),
+                "canonical_key": canonical_key,
+            }
+
+        return {
+            "status": "ingested",
+            **result,
+            "relinked_count": relinked_count,
+            "canonical_key": canonical_key,
+        }

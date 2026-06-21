@@ -2,7 +2,14 @@ import React, { useMemo } from "react";
 import { useQuery } from "@apollo/client";
 import { useNavigate } from "react-router-dom";
 import styled, { keyframes } from "styled-components";
-import { ArrowDownLeft, ArrowUpRight, Link2 } from "lucide-react";
+import {
+  ArrowDownLeft,
+  ArrowUpRight,
+  Check,
+  CircleDashed,
+  Clock,
+  Link2,
+} from "lucide-react";
 
 import { OS_LEGAL_COLORS } from "../../../assets/configurations/osLegalStyles";
 import {
@@ -150,10 +157,64 @@ const RefSnippet = styled.span`
   -webkit-box-orient: vertical;
 `;
 
-const GhostNote = styled.span`
+// Right-aligned status column: a "Linked" / "Awaiting source" chip makes a
+// reference's resolution state scannable at a glance, instead of relying on a
+// faint italic note + cursor change to tell a live link from a pending one.
+const RefStatus = styled.div`
+  flex-shrink: 0;
+  align-self: center;
+  margin-left: auto;
+  padding-left: 0.4rem;
+`;
+
+const StatusChip = styled.span<{
+  $variant: "linked" | "awaiting" | "provisional";
+}>`
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.12rem 0.45rem 0.12rem 0.4rem;
+  border-radius: 999px;
   font-size: 0.6875rem;
-  font-style: italic;
-  color: ${GOVERNANCE_GRAPH_COLORS.EXTERNAL};
+  font-weight: 600;
+  white-space: nowrap;
+
+  svg {
+    width: 12px;
+    height: 12px;
+  }
+
+  ${(p) =>
+    p.$variant === "linked"
+      ? `color: ${OS_LEGAL_COLORS.accent}; background: ${OS_LEGAL_COLORS.accentSurface};`
+      : p.$variant === "provisional"
+      ? `color: ${OS_LEGAL_COLORS.provisionalText}; background: ${OS_LEGAL_COLORS.provisionalSurface};`
+      : `color: ${OS_LEGAL_COLORS.awaitingText}; background: ${OS_LEGAL_COLORS.awaitingSurface};`}
+`;
+
+// Compact linked/awaiting breakdown for the "Cites" section header.
+const SummaryCounts = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-left: auto;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 600;
+  font-size: 0.6875rem;
+
+  .linked {
+    color: ${OS_LEGAL_COLORS.accent};
+  }
+  .provisional {
+    color: ${OS_LEGAL_COLORS.provisionalText};
+  }
+  .awaiting {
+    color: ${OS_LEGAL_COLORS.awaitingText};
+  }
+  .dot {
+    color: ${OS_LEGAL_COLORS.textMuted};
+  }
 `;
 
 const EmptyState = styled.div`
@@ -184,6 +245,9 @@ interface OutboundGroup {
   mentions: number;
   linkUrl?: string | null;
   resolved: boolean;
+  // Any mention in the group written by an in-flight (not-yet-finalized)
+  // enrichment run — drives the "In progress" badge.
+  provisional: boolean;
 }
 
 export const DocumentReferencesPanel: React.FC<
@@ -227,6 +291,8 @@ export const DocumentReferencesPanel: React.FC<
       if (existing) {
         existing.mentions += 1;
         existing.linkUrl = existing.linkUrl || row.sourceAnnotation?.linkUrl;
+        existing.provisional =
+          existing.provisional || Boolean(row.isProvisional);
         return;
       }
       const head =
@@ -247,6 +313,7 @@ export const DocumentReferencesPanel: React.FC<
         mentions: 1,
         linkUrl: row.sourceAnnotation?.linkUrl,
         resolved: row.resolutionStatus === "RESOLVED",
+        provisional: Boolean(row.isProvisional),
       });
     });
     return [...groups.values()].sort(
@@ -284,6 +351,21 @@ export const DocumentReferencesPanel: React.FC<
     });
     return [...groups.values()].sort((a, b) => b.mentions - a.mentions);
   }, [inbound]);
+
+  // Header summary, matching the per-row badge precedence: a provisional group
+  // counts as "in progress" (not linked/awaiting); otherwise a group is "linked"
+  // when it carries a navigable link_url, and a LAW row with no resolved target
+  // is "awaiting" ingestion.
+  const provisionalCount = outboundGroups.filter((g) => g.provisional).length;
+  const linkedCount = outboundGroups.filter(
+    (g) => !g.provisional && Boolean(g.linkUrl)
+  ).length;
+  const awaitingCount = outboundGroups.filter(
+    (g) =>
+      !g.provisional &&
+      !g.resolved &&
+      g.referenceType === GOVERNANCE_GRAPH_EDGE_TYPES.LAW
+  ).length;
 
   if (!corpusId) {
     return (
@@ -335,6 +417,26 @@ export const DocumentReferencesPanel: React.FC<
             <ArrowUpRight />
             Cites
             <span className="count">{outboundGroups.length}</span>
+            {linkedCount + provisionalCount + awaitingCount > 0 && (
+              <SummaryCounts data-testid="references-panel-summary">
+                {linkedCount > 0 && (
+                  <span className="linked">{linkedCount} linked</span>
+                )}
+                {linkedCount > 0 && provisionalCount > 0 && (
+                  <span className="dot">·</span>
+                )}
+                {provisionalCount > 0 && (
+                  <span className="provisional">
+                    {provisionalCount} in progress
+                  </span>
+                )}
+                {(linkedCount > 0 || provisionalCount > 0) &&
+                  awaitingCount > 0 && <span className="dot">·</span>}
+                {awaitingCount > 0 && (
+                  <span className="awaiting">{awaitingCount} awaiting</span>
+                )}
+              </SummaryCounts>
+            )}
           </SectionTitle>
           <RefList>
             {outboundGroups.map((group) => {
@@ -342,6 +444,10 @@ export const DocumentReferencesPanel: React.FC<
                 REFERENCE_TYPE_META[group.referenceType] ||
                 REFERENCE_TYPE_META.SECTION;
               const clickable = Boolean(group.linkUrl);
+              const awaiting =
+                !clickable &&
+                !group.resolved &&
+                group.referenceType === GOVERNANCE_GRAPH_EDGE_TYPES.LAW;
               return (
                 <RefRow
                   key={group.key}
@@ -362,12 +468,44 @@ export const DocumentReferencesPanel: React.FC<
                       )}
                     </RefHead>
                     {group.snippet && <RefSnippet>{group.snippet}</RefSnippet>}
-                    {!group.resolved &&
-                      group.referenceType ===
-                        GOVERNANCE_GRAPH_EDGE_TYPES.LAW && (
-                        <GhostNote>cited, not yet ingested</GhostNote>
-                      )}
                   </RefContent>
+                  {/* Provisional takes precedence: the reference is still being
+                      written by an in-flight run, so its linked/awaiting state
+                      is preliminary until the run finalizes. */}
+                  {group.provisional ? (
+                    <RefStatus>
+                      <StatusChip
+                        $variant="provisional"
+                        title="Detected by an enrichment run still in progress — not finalized yet."
+                        data-testid="references-panel-status-provisional"
+                      >
+                        <CircleDashed />
+                        In progress
+                      </StatusChip>
+                    </RefStatus>
+                  ) : clickable ? (
+                    <RefStatus>
+                      <StatusChip
+                        $variant="linked"
+                        title="Resolved — opens the cited authority"
+                        data-testid="references-panel-status-linked"
+                      >
+                        <Check />
+                        Linked
+                      </StatusChip>
+                    </RefStatus>
+                  ) : awaiting ? (
+                    <RefStatus>
+                      <StatusChip
+                        $variant="awaiting"
+                        title="Citation detected, but the source authority is not ingested yet. Run the authority crawl to resolve it."
+                        data-testid="references-panel-status-awaiting"
+                      >
+                        <Clock />
+                        Awaiting source
+                      </StatusChip>
+                    </RefStatus>
+                  ) : null}
                 </RefRow>
               );
             })}

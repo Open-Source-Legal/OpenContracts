@@ -26,3 +26,117 @@ STATE_CODE_ABBREVIATIONS: dict[str, tuple[str, str, str]] = {
     "Wash. Rev. Code": ("wa-rcw", "us-wa", C.AUTHORITY_TYPE_STATUTE),
     "Ill. Comp. Stat.": ("il-ilcs", "us-il", C.AUTHORITY_TYPE_STATUTE),
 }
+
+# Municipal codes (Tier-2a, issue #1995). Forms are too heterogeneous for a
+# single precise regex, so KNOWN city codes live here (exact name -> full
+# taxonomy) and the open-vocabulary ``Municipal Code § N`` shape grammar in
+# grammars.py catches the rest at lower confidence.
+#
+# The prefix is deliberately ``muni-<city-slug>`` — the SAME namespace the
+# open-vocab grammar emits for a captured city. A known code therefore shares
+# its canonical-key prefix with any open-vocab mention of the same city, so the
+# two never fragment into rival authorities; the table merely upgrades the
+# jurisdiction (full ``us-ca-san-francisco`` code, which free text can't supply
+# reliably) and the confidence. Both spelled-out and Bluebook-abbreviated forms
+# are listed because the abbreviation's city slug ("S.F." -> "s-f") differs from
+# the canonical one ("san-francisco"), so the grammar can't canonicalise it.
+MUNICIPAL_CODE_ABBREVIATIONS: dict[str, tuple[str, str, str]] = {
+    # San Francisco, CA
+    "San Francisco Municipal Code": (
+        "muni-san-francisco",
+        "us-ca-san-francisco",
+        C.AUTHORITY_TYPE_MUNICIPAL,
+    ),
+    "San Francisco Mun. Code": (
+        "muni-san-francisco",
+        "us-ca-san-francisco",
+        C.AUTHORITY_TYPE_MUNICIPAL,
+    ),
+    "S.F. Mun. Code": (
+        "muni-san-francisco",
+        "us-ca-san-francisco",
+        C.AUTHORITY_TYPE_MUNICIPAL,
+    ),
+    # The abbreviated city + spelled-out "Municipal Code" form is tabled too: the
+    # abbreviation slug ("s-f") would otherwise fragment from "san-francisco".
+    "S.F. Municipal Code": (
+        "muni-san-francisco",
+        "us-ca-san-francisco",
+        C.AUTHORITY_TYPE_MUNICIPAL,
+    ),
+    # Los Angeles, CA
+    "Los Angeles Municipal Code": (
+        "muni-los-angeles",
+        "us-ca-los-angeles",
+        C.AUTHORITY_TYPE_MUNICIPAL,
+    ),
+    "L.A. Mun. Code": (
+        "muni-los-angeles",
+        "us-ca-los-angeles",
+        C.AUTHORITY_TYPE_MUNICIPAL,
+    ),
+    # As with S.F. above — "l-a" must not fragment from "los-angeles".
+    "L.A. Municipal Code": (
+        "muni-los-angeles",
+        "us-ca-los-angeles",
+        C.AUTHORITY_TYPE_MUNICIPAL,
+    ),
+    # New York City, NY — the consolidated code IS the "Administrative Code"
+    # ("Administrative Code" is intentionally kept OUT of the open-vocab grammar
+    # because "Texas Administrative Code" is a STATE regulation, not municipal).
+    # ALL NYC forms key ``muni-new-york`` (NOT ``muni-new-york-city``). The
+    # informal "New York City Municipal Code"/"Mun. Code" spellings are tabled
+    # HERE as aliases precisely so they resolve to this one authority instead of
+    # fragmenting to the open-vocab ``muni-new-york-city`` slug — "New York City"
+    # ends in "City", which the open-vocab city-capture would otherwise carry
+    # into the key. Tabling them eliminates the fragmentation (vs merely warning
+    # about it). Any further NYC spelling added later must also key muni-new-york.
+    "New York City Administrative Code": (
+        "muni-new-york",
+        "us-ny-new-york",
+        C.AUTHORITY_TYPE_MUNICIPAL,
+    ),
+    "N.Y.C. Admin. Code": (
+        "muni-new-york",
+        "us-ny-new-york",
+        C.AUTHORITY_TYPE_MUNICIPAL,
+    ),
+    "New York City Municipal Code": (
+        "muni-new-york",
+        "us-ny-new-york",
+        C.AUTHORITY_TYPE_MUNICIPAL,
+    ),
+    "New York City Mun. Code": (
+        "muni-new-york",
+        "us-ny-new-york",
+        C.AUTHORITY_TYPE_MUNICIPAL,
+    ),
+    "N.Y.C. Mun. Code": (
+        "muni-new-york",
+        "us-ny-new-york",
+        C.AUTHORITY_TYPE_MUNICIPAL,
+    ),
+    # Chicago, IL
+    "Chicago Municipal Code": (
+        "muni-chicago",
+        "us-il-chicago",
+        C.AUTHORITY_TYPE_MUNICIPAL,
+    ),
+    "Municipal Code of Chicago": (
+        "muni-chicago",
+        "us-il-chicago",
+        C.AUTHORITY_TYPE_MUNICIPAL,
+    ),
+    # Seattle, WA
+    "Seattle Municipal Code": (
+        "muni-seattle",
+        "us-wa-seattle",
+        C.AUTHORITY_TYPE_MUNICIPAL,
+    ),
+    # Houston, TX
+    "Houston Code of Ordinances": (
+        "muni-houston",
+        "us-tx-houston",
+        C.AUTHORITY_TYPE_MUNICIPAL,
+    ),
+}

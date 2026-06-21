@@ -90,6 +90,7 @@ class AnalysisLifecycleService(BaseService):
         corpus_pk: Any | None = None,
         analysis_input_data: dict[str, Any] | None = None,
         request: Any = None,
+        require_corpus_update: bool = False,
     ) -> ServiceResult[Analysis]:
         """Start a document or corpus analysis using the specified analyzer.
 
@@ -97,6 +98,17 @@ class AnalysisLifecycleService(BaseService):
         before dispatching ``process_analyzer``. Returns a unified IDOR-safe
         failure message ("Resource not found or you do not have permission")
         when any visibility check fails.
+
+        When ``require_corpus_update=True`` (and ``corpus_pk`` is provided),
+        the caller must also hold UPDATE on the corpus — required for
+        mutations that write references or publish authority documents into
+        the corpus (e.g. enrichment and authority-crawl analyzers).
+        **Superusers are exempt from this UPDATE requirement** (a retained
+        admin privilege for the superuser-gated enrichment/crawl runner — see
+        docs/permissioning/consolidated_permissioning_guide.md), but are NOT
+        exempt from the READ visibility check above: a superuser still cannot
+        reach a corpus they cannot see (visibility is computed like a normal
+        user).
 
         At least one of ``document_pk`` or ``corpus_pk`` MUST be provided —
         ``process_analyzer`` itself enforces this, but the service surfaces
@@ -124,7 +136,31 @@ class AnalysisLifecycleService(BaseService):
                 return ServiceResult.failure(not_found_msg)
 
         if corpus_pk is not None:
-            if not Corpus.objects.visible_to_user(user).filter(pk=corpus_pk).exists():
+            # Single fetch: reuse the row for the UPDATE permission test instead
+            # of an .exists() probe followed by a second .get() for the same pk.
+            corpus_obj = (
+                Corpus.objects.visible_to_user(user).filter(pk=corpus_pk).first()
+            )
+            if corpus_obj is None:
+                return ServiceResult.failure(not_found_msg)
+            # Superusers operating the superuser-gated enrichment/crawl runner
+            # may trigger across any corpus they can SEE without holding UPDATE
+            # (a retained admin privilege). The READ visibility check above
+            # still applies — superusers do not bypass visibility — so this
+            # only widens write-trigger access for corpora already visible to
+            # them. Non-superusers must hold UPDATE.
+            #
+            # Forward ``request`` so the UPDATE check shares the Tier-2
+            # permission cache when called from a GraphQL mutation (avoids a
+            # redundant permission DB hit); ``request`` is None for internal
+            # callers, which simply bypasses the cache.
+            if (
+                require_corpus_update
+                and not getattr(user, "is_superuser", False)
+                and not corpus_obj.user_can(
+                    user, PermissionTypes.UPDATE, request=request
+                )
+            ):
                 return ServiceResult.failure(not_found_msg)
 
         try:

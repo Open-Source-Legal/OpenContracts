@@ -17,6 +17,7 @@ from opencontractserver.annotations.models import CorpusReference
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
 from opencontractserver.enrichment import constants as C
+from opencontractserver.enrichment.services import EnrichmentService
 from opencontractserver.tasks.corpus_analysis_tasks import corpus_reference_enrichment
 from opencontractserver.types.enums import JobStatus
 from opencontractserver.utils.celery_tasks import (
@@ -173,3 +174,32 @@ class CorpusAnalyzerTaskTests(TestCase):
         row = Analyzer.objects.get(task_name=C.ENRICHMENT_ANALYZER_TASK)
         assert row.id == C.ENRICHMENT_ANALYZER_TASK
         assert "reference web" in (row.description or "").lower()
+
+
+class EnrichmentTaskTierTests(TestCase):
+    """Verify use_llm toggle produces correct extra_tiers passed to EnrichmentService."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="tier_owner", password="p")
+        self.corpus = _make_corpus(self.user)
+        self.analysis = _make_analysis(self.user, self.corpus)
+
+    def _run_get_extra_tiers(self, **input_data):
+        with patch.object(
+            EnrichmentService, "apply", return_value={"corpus_id": self.corpus.id}
+        ) as m:
+            corpus_reference_enrichment(
+                corpus_id=self.corpus.id,
+                analysis_id=self.analysis.id,
+                **input_data,
+            )
+        return m.call_args.kwargs["extra_tiers"]
+
+    def test_default_tiers_are_grammar_only(self):
+        assert self._run_get_extra_tiers() == [C.DETECTION_TIER_GRAMMAR]
+
+    def test_use_llm_adds_llm_tier(self):
+        assert self._run_get_extra_tiers(use_llm=True) == [
+            C.DETECTION_TIER_GRAMMAR,
+            C.DETECTION_TIER_LLM,
+        ]

@@ -1659,6 +1659,19 @@ LLM_CLIENT_MODEL = env.str("LLM_CLIENT_MODEL", default="gpt-4o-mini")
 LLM_CLIENT_TEMPERATURE = env.float("LLM_CLIENT_TEMPERATURE", default=0.7)
 LLM_CLIENT_MAX_TOKENS = env.int("LLM_CLIENT_MAX_TOKENS", default=None)
 
+# Global cap on concurrent per-chunk LLM calls in the Tier-2b enrichment pass
+# (across all documents in a run). None => use the code default
+# (opencontractserver.enrichment.constants.LLM_MAX_CONCURRENCY, 8). Raise it for
+# more provider throughput at the cost of higher rate-limit / cost exposure.
+ENRICHMENT_LLM_MAX_CONCURRENCY = env.int("ENRICHMENT_LLM_MAX_CONCURRENCY", default=None)
+
+# Cap on documents processed concurrently within a single enrichment run
+# (the outer fan-out around the per-chunk LLM cap above). None => use the code
+# default (opencontractserver.enrichment.constants.DOC_MAX_CONCURRENCY). Tune
+# per-environment alongside ENRICHMENT_LLM_MAX_CONCURRENCY to balance run
+# latency against DB/connection pressure.
+ENRICHMENT_DOC_MAX_CONCURRENCY = env.int("ENRICHMENT_DOC_MAX_CONCURRENCY", default=None)
+
 # Rate Limiting Configuration
 # ------------------------------------------------------------------------------
 # Import rate limiting settings

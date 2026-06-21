@@ -196,6 +196,20 @@ class FindAuthorityTargetTests(TestCase):
         ]
         assert candidate_keys("dgcl:145") == ["dgcl:145"]
 
+    def test_candidate_keys_preserve_dotted_and_hyphenated_sections(self):
+        # Dotted/hyphenated SECTION numbers are whole sections, NOT subsections:
+        # only parenthetical groups roll up. (Regression: the old root regex
+        # truncated cfr-40:261.4 -> cfr-40:261 and usc-15:80a-1 -> usc-15:80a.)
+        assert candidate_keys("cfr-40:261.4") == ["cfr-40:261.4"]
+        assert candidate_keys("cfr-17:240.10b-5") == ["cfr-17:240.10b-5"]
+        assert candidate_keys("usc-15:80a-1") == ["usc-15:80a-1"]
+        assert candidate_keys("sec-rule:10b-5") == ["sec-rule:10b-5"]
+        # A subsection of a dotted section rolls up to the dotted section root.
+        assert candidate_keys("cfr-40:261.4(a)") == [
+            "cfr-40:261.4(a)",
+            "cfr-40:261.4",
+        ]
+
     def test_exact_and_subsection_keys_resolve(self):
         exact = find_authority_target("dgcl:122", self.user)
         sub = find_authority_target("dgcl:122(17)", self.user)
@@ -209,6 +223,30 @@ class FindAuthorityTargetTests(TestCase):
     def test_visibility_respected(self):
         stranger = User.objects.create_user(username="stranger", password="p")
         assert find_authority_target("dgcl:122", stranger) is None
+
+    def test_whole_act_key_resolves_to_representative_document(self):
+        # A bare authority key (no section) — e.g. "dgcl" from "the Delaware
+        # General Corporation Law", or "exchange-act" from the popular-name
+        # grammar's "the Exchange Act" — references the WHOLE body of law. With
+        # no section-less "whole act" document, it resolves to a representative
+        # section so the citation links into the existing corpus instead of
+        # stranding as a wanted/unsupported frontier entry.
+        target = find_authority_target("dgcl", self.user)
+        assert target is not None
+        assert (target.custom_meta or {}).get("authority") == "dgcl"
+
+    def test_whole_act_key_for_absent_authority_returns_none(self):
+        # No corpus carries this authority — stays unresolved (genuinely wanted).
+        assert find_authority_target("nonexistent-act", self.user) is None
+
+    def test_sectioned_key_does_not_use_whole_act_fallback(self):
+        # A section-precise citation we don't have must NOT silently resolve to
+        # some other section of the same body — it stays unresolved.
+        assert find_authority_target("dgcl:999", self.user) is None
+
+    def test_whole_act_fallback_respects_visibility(self):
+        stranger = User.objects.create_user(username="wa-stranger", password="p")
+        assert find_authority_target("dgcl", stranger) is None
 
 
 class AuthorityAliasRegistryNamespaceTests(TestCase):

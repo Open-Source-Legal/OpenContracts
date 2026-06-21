@@ -223,7 +223,15 @@ class ConversationQuerySet(SoftDeleteQuerySet):
             )
             return queryset.filter(anon_filter).distinct().order_by("-created")
 
-        # Get explicitly permitted conversation IDs via guardian
+        # Get explicitly permitted conversation IDs via guardian (user- AND
+        # group-level READ grants). ``ConversationManager.user_can(READ)``
+        # routes back through this queryset, so the filter IS the check — but
+        # non-READ writes delegate to ``_default_user_can``, which honours group
+        # grants by default. Consulting only the USER object-permission table
+        # here therefore made a group-only READ grant entirely non-functional:
+        # invisible in lists AND denied by ``user_can(READ)`` (issue #1986
+        # item 3 — the same filter/check group-grant gap PR #1985 closed for
+        # annotations / relationships / extracts).
         model_name = self.model._meta.model_name
         app_label = self.model._meta.app_label
 
@@ -236,9 +244,28 @@ class ConversationQuerySet(SoftDeleteQuerySet):
         except LookupError:
             permitted_ids = []
 
+        # Group-level READ grants, resolved in their own ``try`` so a missing
+        # group table never discards the already-resolved user-level grants.
+        # The lazy ``values_list`` keeps both lookups as SQL subqueries
+        # (no extra round-trips).
+        try:
+            group_permission_model_name = f"{model_name}groupobjectpermission"
+            group_permission_model_type = apps.get_model(
+                app_label, group_permission_model_name
+            )
+            group_permitted_ids = group_permission_model_type.objects.filter(
+                permission__codename=f"read_{model_name}",
+                group_id__in=user.groups.values_list("id", flat=True),
+            ).values_list("content_object_id", flat=True)
+        except LookupError:
+            group_permitted_ids = []
+
         # Base conditions: apply to BOTH CHAT and THREAD types
         base_conditions = (
-            Q(creator_id=user.id) | Q(is_public=True) | Q(id__in=permitted_ids)
+            Q(creator_id=user.id)
+            | Q(is_public=True)
+            | Q(id__in=permitted_ids)
+            | Q(id__in=group_permitted_ids)
         )
 
         # CHAT type: base conditions only (restrictive)
@@ -374,9 +401,25 @@ class ChatMessageQuerySet(SoftDeleteQuerySet):
 
         # Superusers are computed like any other user (scoped admin access, 2026-05) — no blanket bypass.
 
-        # Anonymous users only see messages in public conversations
+        # Anonymous users see messages only in conversations THEY can see.
+        # Delegating to ``Conversation.objects.visible_to_user`` keeps the
+        # CHAT/THREAD bifurcation the single source of truth (issue #1986
+        # item 2): for an anonymous viewer that is public THREADs plus context
+        # inheritance on public corpuses/documents, and NEVER a CHAT. The
+        # previous ``conversation__is_public=True`` shortcut both leaked a
+        # public *CHAT*'s messages (the conversation itself stays hidden via
+        # ``ConversationQuerySet.visible_to_user``, so the messages were the
+        # odd surface out) and missed messages in context-inherited
+        # public-resource threads. This mirrors the authenticated branch
+        # below, which already routes message visibility through conversation
+        # visibility.
         if user.is_anonymous:
-            return queryset.filter(conversation__is_public=True).order_by("created")
+            visible_conversation_ids = Conversation.objects.visible_to_user(
+                user
+            ).values_list("id", flat=True)
+            return queryset.filter(
+                conversation_id__in=visible_conversation_ids
+            ).order_by("created")
 
         # Primary visibility: messages in visible conversations
         # This inherits the bifurcated CHAT/THREAD permission logic
@@ -386,7 +429,12 @@ class ChatMessageQuerySet(SoftDeleteQuerySet):
         ).values_list("id", flat=True)
         conversation_visible = Q(conversation_id__in=visible_conversation_ids)
 
-        # Additional conditions for explicit message-level access
+        # Additional conditions for explicit message-level access (user- AND
+        # group-level guardian grants). Adding the group branch mirrors the
+        # conversation queryset's group-grant fix (issue #1986 item 3) so a
+        # message shared via a Django group is visible in lists, not only to
+        # direct user grantees. Both branches preserve the existing
+        # any-message-permission shape (a grant of any codename implies READ).
         from django.apps import apps
 
         try:
@@ -401,9 +449,22 @@ class ChatMessageQuerySet(SoftDeleteQuerySet):
         except LookupError:
             has_permission = Q(pk__in=[])
 
+        try:
+            group_permission_model = apps.get_model(
+                "conversations", "chatmessagegroupobjectpermission"
+            )
+            has_group_permission = Q(
+                id__in=group_permission_model.objects.filter(
+                    group_id__in=user.groups.values_list("id", flat=True)
+                ).values_list("content_object_id", flat=True)
+            )
+        except LookupError:
+            has_group_permission = Q(pk__in=[])
+
         base_conditions = (
             Q(creator=user)  # User created the message
-            | has_permission  # User has explicit permission on message
+            | has_permission  # User has explicit user-level permission
+            | has_group_permission  # User has a group-level permission
         )
 
         # Moderator conditions: user can moderate the conversation

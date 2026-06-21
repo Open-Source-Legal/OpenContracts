@@ -12,13 +12,22 @@ import re
 from collections.abc import Iterator
 
 from opencontractserver.enrichment import constants as C
-from opencontractserver.enrichment.abbreviations import STATE_CODE_ABBREVIATIONS
+from opencontractserver.enrichment.abbreviations import (
+    MUNICIPAL_CODE_ABBREVIATIONS,
+    STATE_CODE_ABBREVIATIONS,
+)
 from opencontractserver.enrichment.extractor import Candidate
 
 # Confidence by grammar family — structured numeric cites are high precision;
 # bare-Act detection (Task 11) is intentionally lower.
 _CONF_STRUCTURED = 0.9
 _CONF_BARE_ACT = 0.55
+# Municipal (issue #1995) — calibrated BELOW structured federal cites. A
+# table-keyed municipal code (known city + full jurisdiction) is more trusted
+# than the open-vocabulary ``Municipal Code § N`` shape (city/jurisdiction
+# uncertain), but neither outranks a numeric federal cite.
+_CONF_MUNICIPAL = 0.8
+_CONF_MUNICIPAL_GENERIC = 0.6
 
 # A section token: digits, optional trailing letter, optional (a)(2) subsections,
 # optional hyphenated rule tail (10b-5, 261.4).
@@ -51,9 +60,98 @@ _BARE_ACT_RE = re.compile(
     r"(?:\s+of\s+(?P<year>\d{4}))?"
 )
 
+# --- Municipal grammars (issue #1995) ------------------------------------- #
+# Municipal section locator: dotted/hyphenated multi-segment numbers
+# ("6.02.010", "27-2004", "12.21"), optional (a)(2) subsections. Distinct from
+# _SEC because municipal codes nest deeper than a single ".N".
+_MUNI_SEC = r"\d+(?:[.\-–]\d+)*(?:\([0-9a-zA-Z]+\))*"
 
-def _slug_act(name: str) -> str:
+# Section anchor REQUIRED by the open-vocab municipal grammar — the strongest
+# false-positive guard: without a §/Section/Sec. + number, prose like "the city
+# adopted a new Municipal Code last year" can never match.
+_MUNI_CONN = r"(?:§+\s*|[Ss]ection\s+|[Ss]ec\.\s*)"
+
+# Open-vocabulary municipal-code citation: an optional capitalised city/place
+# qualifier (up to 3 words, immediately preceding the code phrase) + a municipal
+# code phrase + the required section anchor. Only the UNAMBIGUOUSLY-municipal
+# code phrases are accepted ("Administrative Code" is deliberately absent —
+# "Texas Administrative Code" is a STATE regulation; named municipal admin codes
+# such as NYC's live in MUNICIPAL_CODE_ABBREVIATIONS instead). The leading
+# capital in "Municipal Code"/"Mun. Code"/"Code of Ordinances" excludes
+# lowercase prose ("the city's municipal code").
+_MUNI_GENERIC_RE = re.compile(
+    r"(?P<city>(?:[A-Z][A-Za-z.'&-]*\s+){0,3})"
+    r"(?P<code>Municipal\s+Code|Mun\.\s*Code|Code\s+of\s+Ordinances)\s+"
+    + _MUNI_CONN
+    + r"(?P<sec>"
+    + _MUNI_SEC
+    + r")"
+)
+
+# Ordinance form: "[City] Ordinance No. 2021-15", "Ord. No 126000". A "No"/"No."
+# token + number is required (the trailing dot is optional, so "No 7" matches too)
+# so a bare "Ordinance" never matches.
+_MUNI_ORDINANCE_RE = re.compile(
+    r"(?P<city>(?:[A-Z][A-Za-z.'&-]*\s+){0,3})"
+    r"(?:Ordinance|Ord\.)\s+No\.?\s*(?P<num>\d+(?:[.\-–]\d+)*)"
+)
+
+# Leading qualifiers stripped from a captured municipal city before slugging, so
+# "the Seattle Municipal Code" keys under ``muni-seattle`` not ``muni-the-seattle``.
+# "city"/"county" are stopwords too: a bare "City Municipal Code § 5" (template
+# placeholder, no real city) collapses to the honest ``muni:`` key instead of
+# inventing a ``muni-city`` authority. Only LEADING stopwords drop, so a trailing
+# qualifier in a real name survives ("Kansas City" -> ``muni-kansas-city``,
+# "Marin County" -> ``muni-marin-county``). The common "City of X" form never
+# reaches here as "city": the lowercase "of" breaks the capitalised run, so regex
+# backtracking starts the match at the real city ("City of Portland ..." captures
+# "Portland", keying ``muni-portland``).
+# "see"/"under" are common capitalised citation/sentence leads that would
+# otherwise be absorbed into the slug ("See Oakland Municipal Code § 5" ->
+# ``muni-see-oakland``). The list is deliberately MINIMAL: only leads that are
+# unambiguous non-place-names qualify. Bluebook signals that collide with real
+# jurisdictions are EXCLUDED — "contra" would corrupt "Contra Costa [County]"
+# into ``muni-costa``, and "accord" collides with Accord, NY. The open-vocab
+# capture stays heuristic/provisional (0.6) for the residual long tail.
+_CITY_STOPWORDS = frozenset(
+    {"the", "this", "said", "a", "an", "city", "county", "see", "under"}
+)
+
+
+def _slugify(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", name.strip().lower()).strip("-")
+
+
+def _city_slug(city: str) -> str:
+    """Slug a captured city qualifier, dropping leading article stopwords."""
+    parts = [p for p in _slugify(city).split("-") if p]
+    while parts and parts[0] in _CITY_STOPWORDS:
+        parts.pop(0)
+    return "-".join(parts)
+
+
+def _canonical_act_prefix(name: str) -> str | None:
+    """Map a matched bare-Act name to its registry canonical prefix, if known.
+
+    Reuses the Tier-1 registry alias table (``constants.AUTHORITY_PREFIX``) so a
+    popular-name Act collapses to the SAME prefix the registry uses — e.g.
+    "Securities Exchange Act" / "Exchange Act" -> ``exchange-act``, "Securities
+    Act" -> ``securities-act`` — instead of fragmenting into distinct
+    ``act:<slug>`` keys per spelling/year. The matched ``name`` group never
+    includes the trailing " of <year>" (that is captured separately), so a year
+    suffix can never defeat the lookup. A leading U.S. jurisdiction qualifier
+    ("U.S.", "U. S.", "United States") is stripped before the lookup so "the
+    U.S. Securities Exchange Act of 1934" canonicalises like its bare form.
+    Returns ``None`` for an unrecognised Act (the open-vocabulary ``act:<slug>``
+    fallback — keyed off the ORIGINAL name — then applies).
+    """
+    normalized = re.sub(r"\s+", " ", name.strip().lower())
+    normalized = re.sub(
+        r"^(?:u\.?\s*s\.?(?:a\.?)?|united states(?: of america)?)\s+",
+        "",
+        normalized,
+    )
+    return C.AUTHORITY_PREFIX.get(normalized)
 
 
 def _cand(
@@ -154,13 +252,32 @@ def _bare_acts(text: str) -> Iterator[Candidate]:
         # The regex guarantees >=1 capitalized word before "Act", so ``name``
         # always has >=2 whitespace tokens and bare "the Act" never reaches here.
         name = m.group("name")
-        slug = _slug_act(name)
         year = m.group("year")
+        canonical = _canonical_act_prefix(name)
+        if canonical is not None:
+            # Recognised body of law: emit the registry prefix as a section-less
+            # whole-act key (the year is identity, not a locator, so it is
+            # dropped). Every spelling collapses to one key that dedups with
+            # Tier-1 mentions and resolves to the existing authority corpus.
+            jur, typ = C.classify_prefix(canonical)
+            yield _cand(
+                m.start(),
+                m.end(),
+                m.group(0),
+                canonical,
+                jur,
+                typ,
+                conf=_CONF_STRUCTURED,
+                extra={"section": None, "display_name": name},
+            )
+            continue
+        # Unknown Act — open-vocabulary fallback. Jurisdiction is assumed
+        # ``us-federal``: the shape alone can't tell "the Clean Air Act"
+        # (federal) from "the Texas Business Organizations Act" (state). The low
+        # _CONF_BARE_ACT signal flags the uncertainty; state-act disambiguation
+        # is a Phase-1 follow-up.
+        slug = _slugify(name)
         key = f"act:{slug}-{year}" if year else f"act:{slug}"
-        # Jurisdiction is assumed ``us-federal`` for every bare Act: the shape
-        # alone can't tell "the Clean Air Act" (federal) from "the Texas
-        # Business Organizations Act" (state). The low _CONF_BARE_ACT signal
-        # flags the uncertainty; state-act disambiguation is a Phase-1 follow-up.
         yield _cand(
             m.start(),
             m.end(),
@@ -193,6 +310,33 @@ class GenericCitationExtractor:
             if ordered
             else None
         )
+        # Municipal-code table alternation — same construction as the state
+        # table (longest-first, OCR-tolerant whitespace, normalized lookup).
+        ordered_muni = sorted(MUNICIPAL_CODE_ABBREVIATIONS, key=len, reverse=True)
+        self._muni_alt = "|".join(
+            re.escape(a).replace(r"\ ", r"\s+") for a in ordered_muni
+        )
+        self._muni_canon = {
+            re.sub(r"\s+", " ", a): v for a, v in MUNICIPAL_CODE_ABBREVIATIONS.items()
+        }
+        # NOTE the ``§`` is OPTIONAL here (``(?:§+\s*)?``) — intentional and the
+        # SAME as ``_state_re`` above: a table-matched code is already a KNOWN
+        # authority (the named abbreviation is the precision guard), and Bluebook
+        # cites for known codes sometimes drop the ``§``. This is deliberately
+        # ASYMMETRIC with the open-vocab ``_MUNI_CONN`` (which REQUIRES ``§``/
+        # Section/Sec.): there the anchor is the only thing separating a real
+        # citation from prose, so do not "unify" the two by making this required.
+        self._muni_re = (
+            re.compile(
+                r"(?P<abbr>"
+                + self._muni_alt
+                + r")\s+(?:§+\s*)?(?P<sec>"
+                + _MUNI_SEC
+                + r")"
+            )
+            if ordered_muni
+            else None
+        )
 
     def extract(self, text: str) -> list[Candidate]:
         out: list[Candidate] = []
@@ -203,6 +347,12 @@ class GenericCitationExtractor:
         out.extend(_stat(text))
         out.extend(_bare_acts(text))
         out.extend(self._states(text))
+        # Municipal: table pass first (high-precision, full jurisdiction), then
+        # the open-vocab shape pass — which skips any span the table already
+        # claimed so a known code never double-emits with its generic shadow.
+        muni = list(self._municipal(text))
+        out.extend(muni)
+        out.extend(self._municipal_generic(text, [(c.start, c.end) for c in muni]))
         return out
 
     def _states(self, text: str) -> Iterator[Candidate]:
@@ -213,3 +363,77 @@ class GenericCitationExtractor:
             prefix, jur, typ = self._state_canon[abbr]
             key = f"{prefix}:{m.group('sec').lower()}"
             yield _cand(m.start(), m.end(), m.group(0), key, jur, typ)
+
+    def _municipal(self, text: str) -> Iterator[Candidate]:
+        """Known municipal codes (table) → full jurisdiction, high confidence."""
+        if self._muni_re is None:
+            return
+        for m in self._muni_re.finditer(text):
+            abbr = re.sub(r"\s+", " ", m.group("abbr"))
+            prefix, jur, typ = self._muni_canon[abbr]
+            key = f"{prefix}:{m.group('sec').lower()}"
+            yield _cand(
+                m.start(), m.end(), m.group(0), key, jur, typ, conf=_CONF_MUNICIPAL
+            )
+
+    def _municipal_generic(
+        self, text: str, claimed: list[tuple[int, int]]
+    ) -> Iterator[Candidate]:
+        """Open-vocabulary municipal citations (shape + ordinance forms).
+
+        Jurisdiction is left ``None``: a captured city ("Oakland") does not
+        reveal its state ("us-ca"), so the engine refuses to guess one (unlike a
+        table-keyed code, which carries the full ``us-ca-san-francisco``). The
+        city slug is preserved in the ``muni-<city>`` prefix — the SAME prefix a
+        table entry uses — so adding that city to MUNICIPAL_CODE_ABBREVIATIONS
+        later seamlessly upgrades these mentions instead of orphaning them.
+        ``authority_type`` is always ``municipal-ordinance``.
+
+        The ordinance form keys ``<prefix>:ord-<num>`` (a locator, not a code
+        section), so unlike the code-section form it is NOT table-upgradeable —
+        the table maps code names, not ordinance numbers. It exists to surface
+        the citation at low confidence, not to resolve to a known authority.
+
+        Downstream note: every candidate from this open-vocab pass carries a
+        ``detection_confidence`` below the table tier and (for non-table cities)
+        ``jurisdiction=None``. Those two signals are the filter — consumers
+        should treat such mentions as PROVISIONAL (surfaced for discovery/review,
+        never promoted to the trusted tier) until corroborated, e.g. the city is
+        tabled. This matters most for the anchorless ordinance form, where any
+        capitalised lead word becomes a pseudo-city ("Employee Ordinance No. 7").
+        """
+
+        def _is_claimed(start: int, end: int) -> bool:
+            # Overlap test (De Morgan of ``not (end <= cs or start >= ce)``):
+            # the spans intersect iff this one starts before another ends AND
+            # ends after it begins.
+            return any(start < ce and end > cs for cs, ce in claimed)
+
+        for m in _MUNI_GENERIC_RE.finditer(text):
+            if _is_claimed(m.start(), m.end()):
+                continue
+            slug = _city_slug(m.group("city") or "")
+            prefix = f"muni-{slug}" if slug else "muni"
+            yield _cand(
+                m.start(),
+                m.end(),
+                m.group(0),
+                f"{prefix}:{m.group('sec').lower()}",
+                None,
+                C.AUTHORITY_TYPE_MUNICIPAL,
+                conf=_CONF_MUNICIPAL_GENERIC,
+            )
+        for m in _MUNI_ORDINANCE_RE.finditer(text):
+            if _is_claimed(m.start(), m.end()):
+                continue
+            slug = _city_slug(m.group("city") or "")
+            prefix = f"muni-{slug}" if slug else "muni"
+            yield _cand(
+                m.start(),
+                m.end(),
+                m.group(0),
+                f"{prefix}:ord-{m.group('num').lower()}",
+                None,
+                C.AUTHORITY_TYPE_MUNICIPAL,
+                conf=_CONF_MUNICIPAL_GENERIC,
+            )

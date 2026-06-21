@@ -17,16 +17,19 @@ from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils import timezone
 
+from opencontractserver.analyzer.models import Analysis, Analyzer
 from opencontractserver.badges.models import UserBadge
 from opencontractserver.conversations.models import (
     ChatMessage,
     ModerationAction,
     ModerationActionType,
 )
+from opencontractserver.enrichment import constants as _EC
 from opencontractserver.notifications.models import (
     Notification,
     NotificationTypeChoices,
 )
+from opencontractserver.types.enums import JobStatus
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -102,6 +105,116 @@ def broadcast_notification_via_websocket(notification: Notification) -> None:
         logger.error(
             f"Failed to broadcast notification {notification.id} via WebSocket: "
             f"{type(e).__name__}: {e}",
+            exc_info=True,
+        )
+
+
+_ANALYSIS_STATUS_NOTIFICATION: dict[str, NotificationTypeChoices] = {
+    JobStatus.RUNNING.value: NotificationTypeChoices.ANALYSIS_RUNNING,
+    JobStatus.COMPLETED.value: NotificationTypeChoices.ANALYSIS_COMPLETE,
+    JobStatus.FAILED.value: NotificationTypeChoices.ANALYSIS_FAILED,
+}
+
+# Only enrichment/crawl analyzers emit analysis notifications; other analyzers
+# (doc analysis, extracts, etc.) must not. Hoisted to module level so the tuple
+# is built once at import time rather than on every Analysis.save().
+_ENRICHMENT_TASK_NAMES = (
+    _EC.ENRICHMENT_ANALYZER_TASK,
+    _EC.CRAWL_ANALYZER_TASK,
+)
+
+
+@receiver(post_save, sender=Analysis)
+def emit_analysis_status_notification(
+    sender: type[Analysis],
+    instance: Analysis,
+    created: bool,
+    **kwargs: Any,
+) -> None:
+    """
+    Create a notification when an Analysis transitions to RUNNING, COMPLETED,
+    or FAILED.  Idempotent: at most one notification per (analysis, status)
+    pair is ever created, so redundant .save() calls do not double-notify.
+
+    WebSocket delivery is explicit: after the Notification row is created we
+    call ``broadcast_notification_via_websocket(notification)`` directly, the
+    same pattern every other notification producer uses (there is no
+    ``post_save`` receiver on ``Notification`` itself, so the broadcast is NOT
+    automatic — dropping the explicit call would silently stop real-time
+    delivery for analysis status updates).
+    """
+    if getattr(instance, "_skip_signals", False):
+        return
+
+    ntype = _ANALYSIS_STATUS_NOTIFICATION.get(instance.status)
+    if ntype is None or instance.creator_id is None:
+        return
+
+    # The status + creator guards above already short-circuited the common
+    # no-notification cases with zero I/O. For the rows that remain, restrict to
+    # enrichment/crawl analyzers: check the cheap ``analyzer_id`` FK presence
+    # first, then run a single targeted query that BOTH gates on task_name AND
+    # captures it. This avoids ``instance.analyzer.task_name`` — which hydrates
+    # the full Analyzer row via a deferred FK load on EVERY qualifying
+    # Analysis.save() — and lets the ``data`` dict below reuse ``analyzer_task``
+    # instead of triggering that load.
+    if instance.analyzer_id is None:
+        return
+    analyzer_task = (
+        Analyzer.objects.filter(
+            pk=instance.analyzer_id, task_name__in=_ENRICHMENT_TASK_NAMES
+        )
+        .values_list("task_name", flat=True)
+        .first()
+    )
+    if analyzer_task is None:
+        return
+
+    # Idempotent creation backed by the partial unique constraint on
+    # (analysis, notification_type) — see ``Notification.Meta.constraints``.
+    # ``get_or_create`` collapses the old check-then-create pair (which two
+    # concurrent ``Analysis.post_save`` signals could both pass before either
+    # committed, producing duplicate notifications) into a single atomic upsert:
+    # under a race the losing writer's INSERT trips the constraint and
+    # ``get_or_create`` transparently returns the existing row (created=False).
+    try:
+        notification, created = Notification.objects.get_or_create(
+            analysis=instance,
+            notification_type=ntype,
+            # NOTE: ``data`` (incl. ``status``) and ``recipient_id`` live in
+            # ``defaults`` — set on INSERT only, NOT part of the lookup. The
+            # idempotency key is exactly (analysis, notification_type) to match
+            # the partial unique constraint; the recipient is always the analysis
+            # creator (which doesn't change), so it's a value to populate on
+            # create, not a key to match on. Under a concurrent race the losing
+            # writer gets the winner's row with created=False and returns below,
+            # so ``data`` reflects the winner's snapshot — fine, because
+            # notification_type is one-per-status (each status maps to its own
+            # row, so a given row's status never needs to change after creation).
+            defaults={
+                "recipient_id": instance.creator_id,
+                "data": {
+                    "analysis_id": instance.id,
+                    "corpus_id": instance.analyzed_corpus_id,
+                    "analyzer_task": analyzer_task,
+                    "status": instance.status,
+                },
+            },
+        )
+        if not created:
+            # A concurrent (or earlier) save already produced this notification.
+            return
+        logger.debug(
+            "Created %s notification for analysis %s (recipient_id=%s)",
+            ntype,
+            instance.id,
+            instance.creator_id,
+        )
+        broadcast_notification_via_websocket(notification)
+    except Exception as e:
+        logger.error(
+            f"Failed to create analysis status notification for analysis "
+            f"{instance.id}: {type(e).__name__}: {e}",
             exc_info=True,
         )
 

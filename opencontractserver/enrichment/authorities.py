@@ -32,10 +32,14 @@ logger = logging.getLogger(__name__)
 User = get_user_model()
 
 # Subsection canonical keys fall back to their root section: the authority
-# corpus stores one document per *section* (dgcl:122), while citations may be
-# subsection-precise (dgcl:122(17)). Root = authority prefix + section number
-# (with optional trailing letter), i.e. everything before the first "(".
-_ROOT_KEY_RE = re.compile(r"^(?P<root>[a-z0-9-]+:\d+[a-z]?)", re.IGNORECASE)
+# corpus stores one document per *section* (dgcl:122, cfr-40:261.4), while
+# citations may be subsection-precise (dgcl:122(17), cfr-40:261.4(a)). The root
+# is the key with trailing parenthetical SUBSECTION groups stripped. Dotted /
+# hyphenated SECTION numbers (cfr-40:261.4, usc-15:80a-1, cfr-17:240.10b-5,
+# sec-rule:10b-5) are WHOLE sections and must be preserved intact — the old
+# "digits + optional letter" root pattern wrongly truncated them at the first
+# "." or "-".
+_SUBSECTION_SUFFIX_RE = re.compile(r"(?:\([0-9a-zA-Z]+\))+$")
 
 
 @dataclass
@@ -51,10 +55,65 @@ class AuthoritySection:
 def candidate_keys(canonical_key: str) -> list[str]:
     """Keys to try when resolving a citation: exact first, then section root."""
     keys = [canonical_key]
-    m = _ROOT_KEY_RE.match(canonical_key)
-    if m and m.group("root") != canonical_key:
-        keys.append(m.group("root"))
+    root = _SUBSECTION_SUFFIX_RE.sub("", canonical_key)
+    if root and root != canonical_key:
+        keys.append(root)
     return keys
+
+
+def namespace_classification_cache(prefixes) -> dict[str, tuple]:
+    """Prefetch ``{prefix: (jurisdiction, authority_type)}`` from AuthorityNamespace.
+
+    One query for a whole batch — pass the result to
+    :func:`classify_canonical_key` as ``namespace_cache`` so a batch writer
+    resolves the namespace tier once instead of per row (no N+1).
+    """
+    from opencontractserver.annotations.models import AuthorityNamespace
+
+    return {
+        p: (j, t)
+        for p, j, t in AuthorityNamespace.objects.filter(
+            prefix__in=set(prefixes)
+        ).values_list("prefix", "jurisdiction", "authority_type")
+    }
+
+
+def classify_canonical_key(
+    canonical_key: str | None,
+    jurisdiction: str | None = None,
+    authority_type: str | None = None,
+    *,
+    namespace_cache: dict[str, tuple] | None = None,
+) -> tuple:
+    """Resolve ``(jurisdiction, authority_type)`` for a canonical key.
+
+    The single classification ladder used at BOTH read time (``discover()``)
+    and persist time (``EnrichmentWriter``), so a stored ``CorpusReference``
+    carries exactly the taxonomy the inventory reports. Precedence:
+
+    1. values already on the candidate (passed in) — the detector knows best;
+    2. the ``AuthorityNamespace`` registry row for the key's prefix;
+    3. the static ``classify_prefix`` shape rules
+       (``usc-NN`` / ``cfr-NN`` / ``fedreg`` / ``act`` / ``publ`` / ``stat`` / …).
+
+    ``namespace_cache`` (``{prefix: (jur, typ)}`` from
+    :func:`namespace_classification_cache`) skips the per-row AuthorityNamespace
+    query; omit it for a single lookup.
+    """
+    if jurisdiction is not None and authority_type is not None:
+        return (jurisdiction, authority_type)
+    prefix = canonical_key.split(":", 1)[0] if canonical_key else ""
+    ns_jur = ns_typ = None
+    if prefix:
+        if namespace_cache is not None:
+            ns_jur, ns_typ = namespace_cache.get(prefix, (None, None))
+        else:
+            ns_jur, ns_typ = namespace_classification_cache([prefix]).get(
+                prefix, (None, None)
+            )
+        if ns_jur is None and ns_typ is None:
+            ns_jur, ns_typ = C.classify_prefix(prefix)
+    return (jurisdiction or ns_jur, authority_type or ns_typ)
 
 
 def authority_alias_registry(user=None) -> dict[str, str]:
@@ -112,10 +171,56 @@ def find_authority_target(canonical_key: str, user) -> Document | None:
     """Find the authority document for a canonical key, visible to ``user``.
 
     Falls back from subsection keys (``dgcl:122(17)``) to the root section
-    (``dgcl:122``). Returns ``None`` when no visible authority document
-    carries the key.
+    (``dgcl:122``).  Also follows ``AuthorityKeyEquivalence`` rows so that
+    an act-section citation (``exchange-act:10(b)``) resolves to the USC
+    document materialised under the equivalent USC key (``usc-15:78j``).
+
+    Returns ``None`` when no visible authority document carries any of the
+    candidate keys.
     """
-    for key in candidate_keys(canonical_key):
+    from opencontractserver.annotations.models import AuthorityKeyEquivalence
+
+    # Start with direct candidates (exact + section root).
+    keys: list[str] = list(candidate_keys(canonical_key))
+
+    # Hop across namespaces via the equivalence table (act-section <-> USC).
+    # NOTE: This is a single-pass (non-recursive) hop, sufficient for the
+    # hub-and-spoke seed (act-section → USC). Transitive chains (A→B→C) would
+    # require iterating until the key set stabilises.
+    # Query both directions (from_key and to_key) in one round-trip. Membership
+    # is tested against the *original* candidate set (snapshot here) so that the
+    # "other" side is unambiguous even when both ends of an equivalence row
+    # happen to be present, and we skip re-adding a side already covered.
+    original_keys: set[str] = set(keys)
+    equivs = AuthorityKeyEquivalence.objects.filter(
+        Q(from_key__in=keys) | Q(to_key__in=keys)
+    )
+    for equiv in equivs:
+        # Follow whichever side is NOT already among the original keys.
+        other = equiv.to_key if equiv.from_key in original_keys else equiv.from_key
+        if other in original_keys:
+            continue
+        keys.extend(candidate_keys(other))
+
+    # Prefix rewrite-rule fallback (Phase 4): extend the candidate set with
+    # mechanical rewrites (e.g. irc:N -> usc-26:N), tried AFTER explicit
+    # equivalence hops so a per-key row always wins. Snapshot ``keys`` first so
+    # we rewrite the originals, not keys we just appended.
+    from opencontractserver.enrichment.data import mappings as _enrichment_mappings
+
+    for key in list(keys):
+        for rewritten in _enrichment_mappings.apply_rewrite_rules(key):
+            keys.extend(candidate_keys(rewritten))
+
+    # Deduplicate preserving insertion order.
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for k in keys:
+        if k not in seen:
+            seen.add(k)
+            deduped.append(k)
+
+    for key in deduped:
         doc = (
             Document.objects.visible_to_user(user)
             .filter(
@@ -130,6 +235,30 @@ def find_authority_target(canonical_key: str, user) -> Document | None:
         )
         if doc is not None:
             return doc
+
+    # Whole-act fallback. A bare authority key with no section (e.g.
+    # ``exchange-act``, emitted by the popular-name grammar for "the Exchange
+    # Act") references the WHOLE body of law. Authority corpora hold one
+    # document per section and no section-less "whole act" document, so resolve
+    # such a citation to a representative section — the lowest-id current
+    # document carrying that authority — so a whole-act citation links into the
+    # existing corpus instead of stranding as a wanted/unsupported frontier
+    # entry. Scoped to colon-less keys: a section-precise citation we don't hold
+    # (e.g. ``dgcl:999``) must stay genuinely unresolved, never silently
+    # resolving to a different section of the same body.
+    if ":" not in canonical_key:
+        representative = (
+            Document.objects.visible_to_user(user)
+            .filter(
+                custom_meta__authority=canonical_key,
+                path_records__is_current=True,
+                path_records__is_deleted=False,
+            )
+            .order_by("id")
+            .first()
+        )
+        if representative is not None:
+            return representative
     return None
 
 

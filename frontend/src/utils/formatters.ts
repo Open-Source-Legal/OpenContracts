@@ -33,6 +33,27 @@ export function formatDuration(seconds?: number | null): string {
 }
 
 /**
+ * Formats a whole-second elapsed duration: `< 60s → "Ns"`, `< 1h → "Nm Ns"`,
+ * else `"Nh Nm"`. Distinct from {@link formatDuration} (which renders
+ * sub-second precision like "4.2s"): callers that measure in whole seconds
+ * (e.g. an analysis run's start→finish span) read cleaner as "47s" / "2m 7s"
+ * than as the unscannable raw second count "127s".
+ * @param secs - Whole-second elapsed duration (non-negative).
+ */
+export function formatElapsedSeconds(secs: number): string {
+  // Floor to whole seconds and clamp negatives (clock skew / out-of-order
+  // timestamps) so a fractional or negative input never renders e.g. "2m 7.5s"
+  // or "-5s". Callers pass whole seconds today, but this keeps the util safe.
+  const total = Math.max(0, Math.floor(secs));
+  if (total < 60) return `${total}s`;
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  if (minutes < 60) return `${minutes}m ${seconds}s`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ${minutes % 60}m`;
+}
+
+/**
  * Formats a document count with a correctly pluralised noun.
  * @param count - The number of documents
  * @returns e.g. "1 document" or "3 documents"
@@ -281,4 +302,33 @@ export function formatCanonicalLawKey(key: string): string {
     )
     .join(" ");
   return section ? `${display} § ${section}` : display;
+}
+
+/**
+ * Display form for an authority jurisdiction code:
+ * "us-de" → "U.S. — DE", "us-federal" → "U.S. Federal", other codes upper-cased.
+ *
+ * Returns `null` when the code is absent so each caller picks its own
+ * placeholder (table cells render `?? "—"`; the governance graph renders
+ * `?? ""` or conditionally hides the field). Shared by the Authority Sources
+ * monitor and the governance-graph explorer so a code never renders two ways.
+ */
+export function formatJurisdiction(j?: string | null): string | null {
+  if (!j) return null;
+  if (j === "us-federal") return "U.S. Federal";
+  const m = j.match(/^us-([a-z]{2})$/);
+  if (m) return `U.S. — ${m[1].toUpperCase()}`;
+  return j.toUpperCase();
+}
+
+/**
+ * Capitalize the first letter and de-snake/-kebab the rest:
+ * "deferred_cap" → "Deferred cap", "us-code" → "Us code". Returns `null` for
+ * empty input so callers choose their own placeholder. Shared by the Authority
+ * Sources monitor and the governance-graph explorer (CLAUDE.md DRY).
+ */
+export function titleCase(s?: string | null): string | null {
+  return s
+    ? s.charAt(0).toUpperCase() + s.slice(1).replace(/[_-]/g, " ")
+    : null;
 }

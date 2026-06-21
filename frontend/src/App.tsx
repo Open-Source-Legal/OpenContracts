@@ -71,7 +71,10 @@ import {
   SystemSettings,
   WorkerAccountManagement,
   IngestionMonitor,
+  AuthoritySourcesMonitor,
+  AuthorityMappings,
   CorpusCategoryManagement,
+  AdminEnrichment,
 } from "./components/admin";
 import { useEnv } from "./components/hooks/UseEnv";
 import { ExtractDetailRoute } from "./components/routes/ExtractDetailRoute";
@@ -417,6 +420,15 @@ export const App = () => {
             element={<WorkerAccountManagement />}
           />
           <Route path="/admin/ingestion" element={<IngestionMonitor />} />
+          <Route
+            path="/admin/authorities"
+            element={<AuthoritySourcesMonitor />}
+          />
+          <Route
+            path="/admin/authority-mappings"
+            element={<AuthorityMappings />}
+          />
+          <Route path="/admin/enrichment" element={<AdminEnrichment />} />
           <Route
             path="/admin/corpus-categories"
             element={<CorpusCategoryManagement />}
