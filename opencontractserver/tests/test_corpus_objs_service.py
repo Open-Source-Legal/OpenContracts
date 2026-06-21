@@ -1006,6 +1006,9 @@ class TestBulkSoftDeletePrimitive(_CorpusObjsServiceFolderTestBase):
     """
 
     def setUp(self):
+        # Defensive: the base class has no setUp today, but calling super()
+        # keeps this fixture correct if it ever grows one.
+        super().setUp()
         self.owner = User.objects.create_user(
             username="bulk_trash_owner",
             email="bulk_trash_owner@test.com",
