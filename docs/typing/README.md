@@ -7,7 +7,11 @@ wired up and how to graduate modules out of the initial baseline.
 
 - **Configuration**: `mypy.ini` at the repo root. (Pulled out of `setup.cfg`
   because the per-module baseline list below is large.)
-  - `python_version = 3.11` (matches `requirements/base.txt` runtime).
+  - `python_version = 3.12` (matches the runtime — Docker images and CI both
+    run 3.12.x). This must not be lowered below the runtime: mypy validates
+    third-party stub *syntax* against this target, so a stale older value makes
+    it reject modern stubs (e.g. numpy's PEP 695 `type` aliases) and abort
+    before any project code is checked.
   - `plugins = mypy_django_plugin.main, mypy_drf_plugin.main` — Django- and
     DRF-aware type inference (models, querysets, serializers, etc.).
   - `django_settings_module = config.settings.mypy` — a thin wrapper around
