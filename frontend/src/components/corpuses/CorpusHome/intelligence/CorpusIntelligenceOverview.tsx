@@ -31,7 +31,8 @@ interface CorpusIntelligenceOverviewProps {
   corpusId: string;
   /** Submit a query to the corpus agent (reuses the landing chat path). */
   onAskQuestion?: (query: string) => void;
-  /** Escape hatch to the fuller documents/relationships view. */
+  /** Open the full-screen reference-web graph explorer (the glimpse cards'
+   * "Explore the full graph" link). */
   onExploreGraph?: () => void;
   /**
    * Whether the current user has CAN_UPDATE on the corpus.  When true the

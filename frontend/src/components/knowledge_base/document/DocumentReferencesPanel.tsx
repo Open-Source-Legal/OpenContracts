@@ -2,7 +2,14 @@ import React, { useMemo } from "react";
 import { useQuery } from "@apollo/client";
 import { useNavigate } from "react-router-dom";
 import styled, { keyframes } from "styled-components";
-import { ArrowDownLeft, ArrowUpRight, Check, Clock, Link2 } from "lucide-react";
+import {
+  ArrowDownLeft,
+  ArrowUpRight,
+  Check,
+  CircleDashed,
+  Clock,
+  Link2,
+} from "lucide-react";
 
 import { OS_LEGAL_COLORS } from "../../../assets/configurations/osLegalStyles";
 import {
@@ -160,7 +167,9 @@ const RefStatus = styled.div`
   padding-left: 0.4rem;
 `;
 
-const StatusChip = styled.span<{ $variant: "linked" | "awaiting" }>`
+const StatusChip = styled.span<{
+  $variant: "linked" | "awaiting" | "provisional";
+}>`
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
@@ -178,7 +187,9 @@ const StatusChip = styled.span<{ $variant: "linked" | "awaiting" }>`
   ${(p) =>
     p.$variant === "linked"
       ? `color: ${OS_LEGAL_COLORS.accent}; background: ${OS_LEGAL_COLORS.accentSurface};`
-      : `color: ${OS_LEGAL_COLORS.pendingText}; background: ${OS_LEGAL_COLORS.pendingSurface};`}
+      : p.$variant === "provisional"
+      ? `color: ${OS_LEGAL_COLORS.provisionalText}; background: ${OS_LEGAL_COLORS.provisionalSurface};`
+      : `color: ${OS_LEGAL_COLORS.awaitingText}; background: ${OS_LEGAL_COLORS.awaitingSurface};`}
 `;
 
 // Compact linked/awaiting breakdown for the "Cites" section header.
@@ -195,8 +206,11 @@ const SummaryCounts = styled.span`
   .linked {
     color: ${OS_LEGAL_COLORS.accent};
   }
+  .provisional {
+    color: ${OS_LEGAL_COLORS.provisionalText};
+  }
   .awaiting {
-    color: ${OS_LEGAL_COLORS.pendingText};
+    color: ${OS_LEGAL_COLORS.awaitingText};
   }
   .dot {
     color: ${OS_LEGAL_COLORS.textMuted};
@@ -231,6 +245,9 @@ interface OutboundGroup {
   mentions: number;
   linkUrl?: string | null;
   resolved: boolean;
+  // Any mention in the group written by an in-flight (not-yet-finalized)
+  // enrichment run — drives the "In progress" badge.
+  provisional: boolean;
 }
 
 export const DocumentReferencesPanel: React.FC<
@@ -274,6 +291,8 @@ export const DocumentReferencesPanel: React.FC<
       if (existing) {
         existing.mentions += 1;
         existing.linkUrl = existing.linkUrl || row.sourceAnnotation?.linkUrl;
+        existing.provisional =
+          existing.provisional || Boolean(row.isProvisional);
         return;
       }
       const head =
@@ -294,6 +313,7 @@ export const DocumentReferencesPanel: React.FC<
         mentions: 1,
         linkUrl: row.sourceAnnotation?.linkUrl,
         resolved: row.resolutionStatus === "RESOLVED",
+        provisional: Boolean(row.isProvisional),
       });
     });
     return [...groups.values()].sort(
@@ -332,11 +352,19 @@ export const DocumentReferencesPanel: React.FC<
     return [...groups.values()].sort((a, b) => b.mentions - a.mentions);
   }, [inbound]);
 
-  // A row is "linked" when it carries a navigable link_url; a LAW row with no
-  // resolved target is "awaiting" ingestion. Drives the header summary.
-  const linkedCount = outboundGroups.filter((g) => Boolean(g.linkUrl)).length;
+  // Header summary, matching the per-row badge precedence: a provisional group
+  // counts as "in progress" (not linked/awaiting); otherwise a group is "linked"
+  // when it carries a navigable link_url, and a LAW row with no resolved target
+  // is "awaiting" ingestion.
+  const provisionalCount = outboundGroups.filter((g) => g.provisional).length;
+  const linkedCount = outboundGroups.filter(
+    (g) => !g.provisional && Boolean(g.linkUrl)
+  ).length;
   const awaitingCount = outboundGroups.filter(
-    (g) => !g.resolved && g.referenceType === GOVERNANCE_GRAPH_EDGE_TYPES.LAW
+    (g) =>
+      !g.provisional &&
+      !g.resolved &&
+      g.referenceType === GOVERNANCE_GRAPH_EDGE_TYPES.LAW
   ).length;
 
   if (!corpusId) {
@@ -389,11 +417,24 @@ export const DocumentReferencesPanel: React.FC<
             <ArrowUpRight />
             Cites
             <span className="count">{outboundGroups.length}</span>
-            {awaitingCount > 0 && (
+            {linkedCount + provisionalCount + awaitingCount > 0 && (
               <SummaryCounts data-testid="references-panel-summary">
-                <span className="linked">{linkedCount} linked</span>
-                <span className="dot">·</span>
-                <span className="awaiting">{awaitingCount} awaiting</span>
+                {linkedCount > 0 && (
+                  <span className="linked">{linkedCount} linked</span>
+                )}
+                {linkedCount > 0 && provisionalCount > 0 && (
+                  <span className="dot">·</span>
+                )}
+                {provisionalCount > 0 && (
+                  <span className="provisional">
+                    {provisionalCount} in progress
+                  </span>
+                )}
+                {(linkedCount > 0 || provisionalCount > 0) &&
+                  awaitingCount > 0 && <span className="dot">·</span>}
+                {awaitingCount > 0 && (
+                  <span className="awaiting">{awaitingCount} awaiting</span>
+                )}
               </SummaryCounts>
             )}
           </SectionTitle>
@@ -428,7 +469,21 @@ export const DocumentReferencesPanel: React.FC<
                     </RefHead>
                     {group.snippet && <RefSnippet>{group.snippet}</RefSnippet>}
                   </RefContent>
-                  {clickable && (
+                  {/* Provisional takes precedence: the reference is still being
+                      written by an in-flight run, so its linked/awaiting state
+                      is preliminary until the run finalizes. */}
+                  {group.provisional ? (
+                    <RefStatus>
+                      <StatusChip
+                        $variant="provisional"
+                        title="Detected by an enrichment run still in progress — not finalized yet."
+                        data-testid="references-panel-status-provisional"
+                      >
+                        <CircleDashed />
+                        In progress
+                      </StatusChip>
+                    </RefStatus>
+                  ) : clickable ? (
                     <RefStatus>
                       <StatusChip
                         $variant="linked"
@@ -439,8 +494,7 @@ export const DocumentReferencesPanel: React.FC<
                         Linked
                       </StatusChip>
                     </RefStatus>
-                  )}
-                  {awaiting && (
+                  ) : awaiting ? (
                     <RefStatus>
                       <StatusChip
                         $variant="awaiting"
@@ -451,7 +505,7 @@ export const DocumentReferencesPanel: React.FC<
                         Awaiting source
                       </StatusChip>
                     </RefStatus>
-                  )}
+                  ) : null}
                 </RefRow>
               );
             })}

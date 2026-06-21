@@ -9,6 +9,7 @@
 import React from "react";
 import { MockedResponse, MockedProvider } from "@apollo/client/testing";
 import { MemoryRouter } from "react-router-dom";
+import { ToastContainer } from "react-toastify";
 
 import { EnrichmentRunner } from "../src/components/admin/enrichment/EnrichmentRunner";
 import { EnrichmentJobList } from "../src/components/admin/enrichment/EnrichmentJobList";
@@ -55,7 +56,13 @@ export const EnrichmentRunnerWrapperFull: React.FC<
 > = ({ corpusId, mocks = [] }) => (
   <MemoryRouter>
     <MockedProvider mocks={mocks} addTypename={false}>
-      <Panel corpusId={corpusId} />
+      {/* Single child: MockedProvider uses React.Children.only, so the
+          ToastContainer (added so tests can assert react-toastify warning /
+          success notifications) and the Panel must share one parent. */}
+      <>
+        <ToastContainer />
+        <Panel corpusId={corpusId} />
+      </>
     </MockedProvider>
   </MemoryRouter>
 );

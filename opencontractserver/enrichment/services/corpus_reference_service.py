@@ -31,6 +31,7 @@ class CorpusReferenceService(BaseService):
         user,
         corpus_id: int | None = None,
         top_keys_n: int = C.WANTED_AUTHORITIES_TOP_KEYS,
+        finalized_only: bool = False,
     ) -> list[dict]:
         """The missing-authority backlog: what to bootstrap next, ranked.
 
@@ -48,6 +49,13 @@ class CorpusReferenceService(BaseService):
         Aggregation is Python-side over (key, corpus) value rows: roots come
         from ``candidate_keys`` (regex on the key), which SQL can't express;
         row count equals the EXTERNAL-mention count, which stays modest.
+
+        ``finalized_only`` excludes in-flight (``is_provisional``) references.
+        The crawl seed passes ``True`` — irreversible ingestion must act only on
+        finalized detections, never on the partial output of a still-running
+        enrichment pass. The display/inventory callers leave it ``False`` so the
+        References panel and ``list_wanted_authorities`` surface in-flight rows
+        as they are found.
         """
         from opencontractserver.enrichment.authorities import candidate_keys
 
@@ -59,6 +67,8 @@ class CorpusReferenceService(BaseService):
             )
             .exclude(canonical_key=None)
         )
+        if finalized_only:
+            qs = qs.filter(is_provisional=False)
         if corpus_id is not None:
             qs = qs.filter(corpus_id=corpus_id)
 

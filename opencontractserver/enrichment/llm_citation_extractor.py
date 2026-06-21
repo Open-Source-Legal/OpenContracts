@@ -13,6 +13,7 @@ containing sensitive or confidential content without appropriate consent.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from typing import Any, cast
@@ -138,8 +139,10 @@ def _derive_canonical_key(normalized_citation: str, raw_text: str) -> str | None
     rt = raw_text.strip()
 
     if nc and ":" in nc:
-        # Already in canonical key form ("dgcl:145")
-        return nc
+        # Already in canonical key form ("dgcl:145"); canonicalise the locator
+        # separator so e.g. "eu:2017/1129" and "eu:2017-1129" — the same EU
+        # regulation cited two ways — collapse to one key.
+        return _normalize_locator_sep(nc)
 
     source = nc or rt
     if not source:
@@ -149,6 +152,50 @@ def _derive_canonical_key(normalized_citation: str, raw_text: str) -> str | None
     if not slug:
         return None
     return f"act:{slug}"
+
+
+def _normalize_locator_sep(key: str) -> str:
+    """Canonicalise the locator's separators so trivially-different LLM keys for
+    the SAME authority collapse.
+
+    Only the locator (the part after the first ``:``) is touched, and only ``/``
+    is rewritten to ``-`` — our canonical keys carry subsection structure with
+    ``.`` / ``(`` / ``)`` (e.g. ``usc-15:78j(b)``, ``cfr-17:240.10b``), none of
+    which use ``/``, so this is a no-op for them and a fold only for free-form
+    LLM keys like ``eu:2017/1129``.
+
+    POST-UPGRADE NOTE: ``CorpusReference`` upserts on (corpus, canonical_key,
+    source_document_in_corpus, reference_type). Any *finalized* rows persisted by
+    a prior release under the un-normalized form (``eu:2017/1129``) will NOT be
+    matched by re-enrichment under the normalized form (``eu:2017-1129``), so a
+    second row is created and the old one lingers (the provisional/claim
+    mechanism never downgrades finalized rows). If a deployment ran the LLM tier
+    before this normalization shipped, normalize existing ``/``-bearing
+    ``canonical_key`` locators in a one-time data migration / cleanup pass.
+    """
+    prefix, sep, locator = key.partition(":")
+    if not sep:
+        return key
+    return f"{prefix}:{locator.replace('/', '-')}"
+
+
+def _is_concept_key(canonical_key: str | None) -> bool:
+    """True when the key is a generic ``act:*`` *concept* rather than a precise
+    citation — i.e. the catch-all ``act:`` prefix with NO section locator (no
+    digit anywhere in the slug).
+
+    A real citation carries a number (``act:asc-606``, ``irc:163``); a bare body
+    of law or loose phrase does not (``act:gaap``, ``act:applicable-law``,
+    ``act:dgcl``, ``act:certificate-of-incorporation``). Those are flagged
+    ``needs_review`` so they surface for triage but never auto-promote into the
+    persisted reference web / crawl frontier. Direction: keep, don't drop.
+    """
+    if not canonical_key:
+        return False
+    prefix, sep, locator = canonical_key.partition(":")
+    if not sep or prefix != "act":
+        return False
+    return not any(ch.isdigit() for ch in locator)
 
 
 def verify_and_place(
@@ -300,6 +347,7 @@ class LLMCitationExtractor:
         model: str | None = None,
         window: int = C.LLM_CHUNK_WINDOW,
         overlap: int = C.LLM_CHUNK_OVERLAP,
+        max_concurrency: int | None = None,
     ) -> None:
         # Guard the chunking parameters up front: a non-positive window makes
         # ``step`` zero (window - overlap <= 0 falls back to window) and the
@@ -311,17 +359,23 @@ class LLMCitationExtractor:
         self._model_spec = model
         self._window = window
         self._overlap = overlap
+        # None => the settings-overridable global cap (C.llm_max_concurrency()).
+        self._max_concurrency = max(
+            1,
+            max_concurrency if max_concurrency is not None else C.llm_max_concurrency(),
+        )
 
-    async def aextract(self, text: str) -> list[Candidate]:
-        """Extract law citation candidates from ``text`` using the LLM.
+    async def _abuild_model(self) -> Any:
+        """Resolve the configured model spec and build the agent model.
 
-        Returns an empty list immediately for blank/whitespace-only input
-        without building an LLM model.
+        The single model-build seam: ``aextract`` uses it when no model is
+        passed, and the multi-document orchestrator
+        (``EnrichmentService._aresolve_documents``) calls it once to build a
+        shared model. Centralising it here means tests that patch
+        ``abuild_agent_model`` in this module cover BOTH call paths (the
+        orchestrator no longer builds via a separate import, which silently
+        bypassed the patch and issued real provider calls).
         """
-        if not text or not text.strip():
-            return []
-
-        # Resolve the model spec once.
         from opencontractserver.llms.llm_registry import resolve_model_spec
 
         spec = resolve_model_spec(
@@ -330,11 +384,81 @@ class LLMCitationExtractor:
             corpus_preferred=None,
             settings_default=None,
         )
-        model = await abuild_agent_model(spec)
+        return await abuild_agent_model(spec)
+
+    async def aextract(
+        self,
+        text: str,
+        *,
+        model: Any = None,
+        semaphore: asyncio.Semaphore | None = None,
+    ) -> list[Candidate]:
+        """Extract law citation candidates from ``text`` using the LLM.
+
+        Returns an empty list immediately for blank/whitespace-only input
+        without building an LLM model.
+
+        ``model`` and ``semaphore`` let a multi-document orchestrator share one
+        built model and one GLOBAL chunk-concurrency semaphore across every
+        document, so the total in-flight provider load stays bounded even while
+        many documents extract at once (cross-document concurrency). When
+        omitted (the single-document callers), each call builds its own model
+        and a private semaphore — identical to the prior behaviour.
+        """
+        if not text or not text.strip():
+            return []
+
+        if model is None:
+            model = await self._abuild_model()
 
         step = self._window - self._overlap
         if step <= 0:
             step = self._window
+
+        # Enumerate the sliding-window chunks up front so they can run
+        # concurrently — each (chunk_start, chunk_text) extraction is fully
+        # independent.
+        chunks: list[tuple[int, str]] = []
+        pos = 0
+        while pos < len(text):
+            chunks.append((pos, text[pos : pos + self._window]))
+            pos += step
+
+        # Run the per-chunk structured calls CONCURRENTLY, bounded by a semaphore
+        # so we never exceed the provider's rate limits or cost-spike. This
+        # replaces the old strictly-sequential ``await`` loop — the single
+        # biggest cost of the LLM tier (e.g. ~2,900 serial calls on a large
+        # corpus). A failed chunk yields ``None`` and is skipped, exactly as the
+        # old per-chunk try/except did. A shared ``semaphore`` (passed by the
+        # multi-document orchestrator) caps load ACROSS documents; otherwise a
+        # private one caps this document alone.
+        sem = (
+            semaphore
+            if semaphore is not None
+            else asyncio.Semaphore(self._max_concurrency)
+        )
+
+        async def _run(
+            chunk_start: int, chunk_text: str
+        ) -> tuple[int, str, ChunkCitationExtraction | None]:
+            async with sem:
+                try:
+                    extraction = await _one_shot_structured(
+                        chunk_text=chunk_text,
+                        model=model,
+                    )
+                except Exception:
+                    logger.exception(
+                        "LLM citation extraction failed for chunk at offset %d",
+                        chunk_start,
+                    )
+                    return chunk_start, chunk_text, None
+                return chunk_start, chunk_text, extraction
+
+        # ``gather`` preserves input order, so processing below stays in
+        # ascending-offset order — the dedup ("first chunk wins") is therefore
+        # deterministic, identical to the old sequential loop.
+        results = await asyncio.gather(*(_run(cs, ct) for cs, ct in chunks))
 
         # Dedup on (start, end) only. An identical span IS the same citation;
         # LLM nondeterminism must not let two different derived keys for the
@@ -342,23 +466,9 @@ class LLMCitationExtractor:
         seen: set[tuple[int, int]] = set()
         candidates: list[Candidate] = []
 
-        pos = 0
-        while pos < len(text):
-            chunk_start = pos
-            chunk_text = text[pos : pos + self._window]
-
-            try:
-                extraction = await _one_shot_structured(
-                    chunk_text=chunk_text,
-                    model=model,
-                )
-            except Exception:
-                logger.exception(
-                    "LLM citation extraction failed for chunk at offset %d", pos
-                )
-                pos += step
+        for chunk_start, chunk_text, extraction in results:
+            if extraction is None:
                 continue
-
             for llm_cand in extraction.citations:
                 placement = verify_and_place(text, chunk_start, chunk_text, llm_cand)
                 if placement is None:
@@ -376,7 +486,12 @@ class LLMCitationExtractor:
                 seen.add(dedup_key)
 
                 conf = placement["confidence"]
-                needs_review = conf < C.LLM_CONFIDENCE_FLOOR
+                # Low confidence OR a generic act:* concept (no section locator)
+                # → review bucket: surfaced for triage, not auto-promoted into the
+                # persisted reference web / crawl frontier.
+                needs_review = conf < C.LLM_CONFIDENCE_FLOOR or _is_concept_key(
+                    canonical_key
+                )
 
                 # Extract the authority prefix (part before ':') when available.
                 authority: str | None = None
@@ -405,7 +520,5 @@ class LLMCitationExtractor:
                         },
                     )
                 )
-
-            pos += step
 
         return candidates

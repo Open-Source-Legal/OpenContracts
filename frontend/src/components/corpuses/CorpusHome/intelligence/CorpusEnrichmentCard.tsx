@@ -85,7 +85,7 @@ export const CorpusEnrichmentCard: React.FC<CorpusEnrichmentCardProps> = ({
 const CorpusEnrichmentCardInner: React.FC<{ corpusId: string }> = ({
   corpusId,
 }) => {
-  const { jobs, optimistic, running, loading, error, handleRan } =
+  const { jobs, optimistic, running, totalCount, loading, error, handleRan } =
     useOptimisticRows(corpusId);
 
   return (
@@ -113,6 +113,7 @@ const CorpusEnrichmentCardInner: React.FC<{ corpusId: string }> = ({
         loading={loading}
         error={error}
         extraJobs={optimistic}
+        totalCount={totalCount}
       />
     </Card>
   );

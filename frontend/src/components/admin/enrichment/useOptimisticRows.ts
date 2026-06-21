@@ -11,6 +11,12 @@ export interface UseOptimisticRowsResult {
   optimistic: EnrichmentAnalysisRow[];
   /** True when any fetched or optimistic row is in an active status. */
   running: boolean;
+  /**
+   * Server-reported total number of matching analyses, before the `first: 50`
+   * page cap (null until the first response). Lets the list surface a
+   * "showing N of M" hint when older runs are truncated.
+   */
+  totalCount: number | null;
   loading: boolean;
   error: ApolloError | undefined;
   /** Prepend optimistic rows from a freshly-dispatched run and refetch. */
@@ -27,10 +33,14 @@ export interface UseOptimisticRowsResult {
  * live in a single place instead of being copy-pasted onto every surface.
  */
 export function useOptimisticRows(corpusId: string): UseOptimisticRowsResult {
-  const { jobs, loading, error, refetch } = useEnrichmentJobs(corpusId);
+  const { jobs, totalCount, loading, error, refetch } =
+    useEnrichmentJobs(corpusId);
   const [optimistic, setOptimistic] = useState<EnrichmentAnalysisRow[]>([]);
 
   // Prune optimistic rows that have now been confirmed by a real refetch.
+  // `optimistic` is intentionally excluded from the deps: this effect updates
+  // `optimistic`, so including it would re-trigger the effect on every prune
+  // and loop. We only want to re-evaluate when the server `jobs` change.
   useEffect(() => {
     if (!optimistic.length) return;
     const ids = new Set(jobs.map((j) => j.id));
@@ -53,5 +63,5 @@ export function useOptimisticRows(corpusId: string): UseOptimisticRowsResult {
     [refetch]
   );
 
-  return { jobs, optimistic, running, loading, error, handleRan };
+  return { jobs, optimistic, running, totalCount, loading, error, handleRan };
 }

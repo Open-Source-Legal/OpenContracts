@@ -12,10 +12,11 @@ The read surface lives in
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections import Counter
 
-from asgiref.sync import async_to_sync
+from asgiref.sync import async_to_sync, sync_to_async
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 
@@ -31,7 +32,7 @@ from opencontractserver.enrichment.resolver import (
     Resolution,
     SectionAnno,
 )
-from opencontractserver.enrichment.writer import EnrichmentWriter
+from opencontractserver.enrichment.writer import EnrichmentWriter, WriteResult
 from opencontractserver.types.enums import JobStatus
 from opencontractserver.utils.files import read_field_file_text
 from opencontractserver.utils.frontend_paths import document_in_corpus_path
@@ -69,19 +70,22 @@ class EnrichmentService:
             )
         return sections
 
-    def _resolutions(
-        self, corpus, documents, types, user, extra_tiers=None
-    ) -> list[Resolution]:
+    def _build_detection(self, documents, types, user, extra_tiers):
+        """Construct the extractor stack + section index shared by the sync
+        (scan/discover, non-LLM apply) and concurrent (LLM apply) detection
+        paths.
+
+        Returns ``(wanted, resolver, extractor, generic, llm_extractor,
+        sections_by_doc)``. The trusted registry tier is ALWAYS the base;
+        ``extra_tiers`` only selects which *additional* layers (grammar, LLM)
+        merge on top — so the registry extractor is unconditional and
+        ``extra_tiers=[DETECTION_TIER_GRAMMAR]`` means "registry + grammar",
+        never "grammar only".
+        """
         from opencontractserver.enrichment.authorities import authority_alias_registry
         from opencontractserver.enrichment.grammars import GenericCitationExtractor
-        from opencontractserver.enrichment.reconcile import reconcile
 
         wanted = set(types or C.DEFAULT_REFERENCE_TYPES)
-        # The trusted registry tier is ALWAYS the base; ``extra_tiers`` only
-        # selects which *additional* layers (e.g. grammar) to merge on top of
-        # it — it is additive, not exhaustive. So the registry extractor runs
-        # unconditionally and ``extra_tiers=[DETECTION_TIER_GRAMMAR]`` means
-        # "registry + grammar", never "grammar only".
         active_tiers = set(extra_tiers or ())
         resolver = ReferenceResolver(documents)
         extractor = ReferenceExtractor(authority_aliases=authority_alias_registry(user))
@@ -98,59 +102,260 @@ class EnrichmentService:
 
             llm_extractor = LLMCitationExtractor()
         sections_by_doc = self._sections_by_doc(documents)
+        return wanted, resolver, extractor, generic, llm_extractor, sections_by_doc
 
-        # Read each document's text once (isolating per-doc read failures).
-        doc_texts: dict[int, str] = {}
-        for doc in documents:
-            try:
-                text = read_field_file_text(doc.txt_extract_file)
-            except Exception as exc:
-                logger.warning(
-                    "Enrichment: skip doc %s (text read failed: %s)", doc.id, exc
-                )
-                continue
-            if text:
-                doc_texts[doc.id] = text
-
-        # Run every document's LLM tier inside a SINGLE async_to_sync bridge
-        # rather than one bridge per document. The documents are still processed
-        # sequentially inside _extract_all (intentional: avoids LLM-provider
-        # rate-limit bursts and keeps per-document error isolation simple) — the
-        # win is consolidating the sync/async boundary crossing, not concurrency.
-        # Safe under both sync and _db_sync_to_async-wrapped async callers.
-        llm_by_doc: dict[int, list] = {}
-        if llm_extractor is not None and doc_texts:
-
-            async def _extract_all() -> dict[int, list]:
-                out: dict[int, list] = {}
-                for did, txt in doc_texts.items():
-                    out[did] = await llm_extractor.aextract(txt)
-                return out
-
-            llm_by_doc = async_to_sync(_extract_all)()
-
-        resolutions: list[Resolution] = []
-        for doc in documents:
-            doc_text = doc_texts.get(doc.id)
-            if doc_text is None:
-                continue
-            sections = sections_by_doc.get(doc.id, [])
-            meta = doc.custom_meta if isinstance(doc.custom_meta, dict) else {}
-            primary = list(
-                extractor.extract(doc_text, default_authority=meta.get("authority"))
+    @staticmethod
+    def _doc_text(doc) -> str | None:
+        """Read one document's extracted text, isolating per-doc read failures."""
+        try:
+            text = read_field_file_text(doc.txt_extract_file)
+        except Exception as exc:
+            logger.warning(
+                "Enrichment: skip doc %s (text read failed: %s)", doc.id, exc
             )
-            if generic is not None:
-                # Registry wins on overlap; generic adds the open-vocabulary tail.
-                cands = reconcile(primary, generic.extract(doc_text))
-            else:
-                cands = primary
-            if llm_extractor is not None:
-                cands = reconcile(cands, llm_by_doc.get(doc.id, []))
-            for cand in cands:
-                if cand.reference_type not in wanted:
-                    continue
-                resolutions.append(resolver.resolve(cand, doc.id, doc_text, sections))
-        return resolutions
+            return None
+        return text or None
+
+    def _read_doc_texts(self, documents) -> dict[int, str]:
+        """Read every document's text once (sync I/O) so the concurrent
+        orchestrator's async detection works purely in memory."""
+        out: dict[int, str] = {}
+        for doc in documents:
+            text = self._doc_text(doc)
+            if text:
+                out[doc.id] = text
+        return out
+
+    def _resolve_doc(
+        self,
+        doc,
+        doc_text,
+        *,
+        wanted,
+        resolver,
+        extractor,
+        generic,
+        sections_by_doc,
+        llm_cands,
+    ) -> list[Resolution]:
+        """Combine registry + optional grammar + already-extracted LLM
+        candidates for ONE document and resolve them.
+
+        ``llm_cands`` is the LLM candidate list (empty when the tier is off) —
+        the LLM call is kept OUT of this method so the concurrent orchestrator
+        can run it across documents while this sync combine stays per-document.
+        Registry wins on overlap; grammar/LLM add the open-vocabulary tail.
+        """
+        from opencontractserver.enrichment.reconcile import reconcile
+
+        sections = sections_by_doc.get(doc.id, [])
+        meta = doc.custom_meta if isinstance(doc.custom_meta, dict) else {}
+        primary = list(
+            extractor.extract(doc_text, default_authority=meta.get("authority"))
+        )
+        cands = reconcile(primary, generic.extract(doc_text)) if generic else primary
+        if llm_cands:
+            cands = reconcile(cands, llm_cands)
+        return [
+            resolver.resolve(cand, doc.id, doc_text, sections)
+            for cand in cands
+            if cand.reference_type in wanted
+        ]
+
+    def _iter_doc_resolutions(self, corpus, documents, types, user, extra_tiers=None):
+        """Yield ``(document, [Resolution])`` one document at a time (sync).
+
+        The read-only inventory paths (``scan``/``discover``) and the non-LLM
+        ``apply`` path consume this; the LLM ``apply`` path uses the concurrent
+        orchestrator :meth:`_aresolve_documents` instead (it parallelises the
+        slow LLM calls across documents). Documents whose text is
+        missing/unreadable yield an empty list so progress counting still sees
+        every document.
+        """
+        wanted, resolver, extractor, generic, llm_extractor, sections_by_doc = (
+            self._build_detection(documents, types, user, extra_tiers)
+        )
+        for doc in documents:
+            doc_text = self._doc_text(doc)
+            if not doc_text:
+                yield doc, []
+                continue
+            # One async_to_sync per document — fine for the sequential
+            # scan/discover surfaces; apply's LLM path uses the concurrent
+            # orchestrator instead.
+            llm_cands = (
+                async_to_sync(llm_extractor.aextract)(doc_text)
+                if llm_extractor is not None
+                else []
+            )
+            yield doc, self._resolve_doc(
+                doc,
+                doc_text,
+                wanted=wanted,
+                resolver=resolver,
+                extractor=extractor,
+                generic=generic,
+                sections_by_doc=sections_by_doc,
+                llm_cands=llm_cands,
+            )
+
+    async def _aresolve_documents(
+        self, corpus, documents, types, user, extra_tiers, writer
+    ):
+        """Concurrent cross-document detection + per-document provisional writes.
+
+        Runs the LLM extraction for ALL documents concurrently under one shared
+        chunk-level semaphore (so total in-flight provider load stays bounded to
+        ``C.llm_max_concurrency()`` — the settings-overridable global cap — no
+        matter how many documents are in flight), and writes each document's
+        references the moment its detection completes.
+        This keeps the per-document path's incremental visibility while filling
+        the concurrency lanes ACROSS documents — the per-document path serialised
+        them, so a corpus with a few large documents (an S-1's prospectus)
+        bottlenecked at single-document concurrency.
+
+        Detection (extractor/grammar/resolve) and the DB write run via
+        ``sync_to_async`` (thread-sensitive → one shared thread, so ORM writes
+        serialise and never race); only the LLM calls run concurrently in the
+        event loop. Returns ``(aggregate WriteResult, total_candidate_count)``.
+        """
+        (
+            wanted,
+            resolver,
+            extractor,
+            generic,
+            llm_extractor,
+            sections_by_doc,
+        ) = await sync_to_async(self._build_detection)(
+            documents, types, user, extra_tiers
+        )
+        doc_texts = await sync_to_async(self._read_doc_texts)(documents)
+
+        # Build the model once (through the extractor's own build seam, so test
+        # patches apply to this path too) and share it — together with a single
+        # GLOBAL chunk semaphore — across every document's extraction.
+        #
+        # Sharing one model object across concurrent coroutines is safe: the
+        # model is a stateless pydantic-ai model wrapper (it holds only a
+        # reusable async HTTP client; no per-request buffers), and every call
+        # gets its OWN Agent — `_one_shot_structured` builds a fresh
+        # `make_pydantic_ai_agent(model, ...)` per chunk. The same model is
+        # already shared across this document's concurrent CHUNK extractions
+        # (`aextract` gathers chunks under one model); the orchestrator merely
+        # extends that proven sharing across documents.
+        model = None
+        if llm_extractor is not None:
+            model = await llm_extractor._abuild_model()
+        chunk_sem = asyncio.Semaphore(C.llm_max_concurrency())
+        # Cap how many document coroutines are LIVE at once. The chunk semaphore
+        # bounds concurrent LLM calls, but every in-flight _process holds its
+        # document text + candidate list, so launching all of them at once via
+        # asyncio.gather would pin the whole corpus in memory. This bounds peak
+        # memory independently of the chunk-level LLM cap.
+        doc_sem = asyncio.Semaphore(C.doc_max_concurrency())
+
+        agg = WriteResult()
+        documents_total = len(documents)
+        counters = {"total": 0, "done": 0, "attempted": 0}
+        # Per-document failures captured here instead of propagating out of the
+        # gather (see below) so one document's error can't discard the rest.
+        failures: list[tuple[int, BaseException]] = []
+
+        async def _process(doc) -> None:
+            text = doc_texts.get(doc.id)
+            if not text:
+                return
+            async with doc_sem:
+                counters["attempted"] += 1
+                try:
+                    llm_cands = (
+                        await llm_extractor.aextract(
+                            text, model=model, semaphore=chunk_sem
+                        )
+                        if llm_extractor is not None
+                        else []
+                    )
+
+                    def _detect_and_write():
+                        doc_res = self._resolve_doc(
+                            doc,
+                            text,
+                            wanted=wanted,
+                            resolver=resolver,
+                            extractor=extractor,
+                            generic=generic,
+                            sections_by_doc=sections_by_doc,
+                            llm_cands=llm_cands,
+                        )
+                        doc_res = [
+                            r
+                            for r in doc_res
+                            if not (r.candidate.normalized_data or {}).get(
+                                "needs_review"
+                            )
+                        ]
+                        return (
+                            writer.write(
+                                doc_res, provisional=True, reconcile_graph=False
+                            ),
+                            len(doc_res),
+                        )
+
+                    res, n = await sync_to_async(_detect_and_write)()
+                    # Back in the single-threaded event loop: accumulation is
+                    # race-free.
+                    self._accumulate(agg, res)
+                    counters["total"] += n
+                    counters["done"] += 1
+                    logger.info(
+                        "Enrichment apply: doc %s/%s (corpus %s) — refs so far=%s",
+                        counters["done"],
+                        documents_total,
+                        corpus.id,
+                        agg.references_created,
+                    )
+                except Exception as exc:
+                    # Isolate per-document failures. asyncio.gather() propagates
+                    # the FIRST exception and cancels every other in-flight
+                    # coroutine, so without this one transient provider error
+                    # (LLM timeout, network blip) on a single document would
+                    # discard the whole corpus's concurrent work — the opposite
+                    # of the in-flight-persistence resilience this path exists
+                    # for. The failed document's references simply aren't written
+                    # this run; any provisional rows it left are reclaimed and
+                    # finalized by a later successful run.
+                    failures.append((doc.id, exc))
+                    logger.exception(
+                        "Enrichment apply: doc %s (corpus %s) failed — skipping",
+                        doc.id,
+                        corpus.id,
+                    )
+
+        await asyncio.gather(*(_process(doc) for doc in documents))
+        # If EVERY attempted document failed it is almost certainly a systemic
+        # error (bad API key, provider outage) rather than isolated flakiness.
+        # Re-raise so apply() marks the run FAILED and leaves rows provisional,
+        # instead of silently finalizing an empty result.
+        if failures and len(failures) == counters["attempted"]:
+            raise failures[0][1]
+        return agg, counters["total"]
+
+    def _resolutions(
+        self, corpus, documents, types, user, extra_tiers=None
+    ) -> list[Resolution]:
+        """Flat list of resolutions across the corpus (scan/discover surface).
+
+        Thin wrapper over :meth:`_iter_doc_resolutions` so the read-only
+        inventory paths keep their whole-corpus list while ``apply`` streams the
+        same per-document batches.
+        """
+        return [
+            r
+            for _doc, doc_resolutions in self._iter_doc_resolutions(
+                corpus, documents, types, user, extra_tiers=extra_tiers
+            )
+            for r in doc_resolutions
+        ]
 
     # -- public API -------------------------------------------------------- #
 
@@ -431,41 +636,144 @@ class EnrichmentService:
         user, corpus, documents = self._load(corpus_id, creator_id)
         if extra_tiers is None:
             extra_tiers = [C.DETECTION_TIER_GRAMMAR]
-        resolutions = self._resolutions(
-            corpus, documents, types, user, extra_tiers=extra_tiers
-        )
-        resolutions = [
-            r
-            for r in resolutions
-            if not (r.candidate.normalized_data or {}).get("needs_review")
-        ]
         if analysis is None:
             analysis = self._get_analysis(corpus, creator_id)
+
+        # Make the concurrent-run hazard explicit. Two enrichment runs on the
+        # same corpus are *safe* — the claim rule lets a later successful run
+        # reclaim + finalize the earlier run's provisional rows, and the crawl
+        # seed reads finalized rows only — but the earlier run can then finalize
+        # zero of its own rows and complete "empty". That's confusing in the
+        # logs without this warning. (Cheap COUNT; no lock — purely advisory.)
+        concurrent = (
+            Analysis.objects.filter(
+                analyzed_corpus_id=corpus_id,
+                analyzer__task_name=C.ENRICHMENT_ANALYZER_TASK,
+                status=JobStatus.RUNNING.value,
+            )
+            .exclude(pk=analysis.pk)
+            .count()
+        )
+        if concurrent:
+            logger.warning(
+                "Enrichment apply: %s other RUNNING enrichment analysis(es) on "
+                "corpus %s. Concurrent runs are safe (claim rule + finalized-only "
+                "crawl seed) but the earlier run may finalize 0 rows and complete "
+                "empty as this run claims them.",
+                concurrent,
+                corpus_id,
+            )
+
         writer = EnrichmentWriter(corpus, creator_id, analysis=analysis)
+
+        documents_total = len(documents)
+        agg = WriteResult()
+        total_candidates = 0
         try:
-            res = writer.write(resolutions)
+            # Stream per document: each write commits in its own transaction
+            # (the @corpus_analyzer_task decorator does NOT wrap the task body),
+            # so references become queryable mid-run instead of only at the end
+            # of a long (e.g. LLM-tier) pass. Rows are marked provisional and
+            # finalized atomically once the whole run succeeds (below).
+            if C.DETECTION_TIER_LLM in extra_tiers:
+                # The LLM tier is the expensive one; run detection CONCURRENTLY
+                # across documents (the per-document loop serialised them, so a
+                # few large documents bottlenecked at single-document
+                # concurrency). Still writes each document provisionally as its
+                # detection completes — same incremental visibility.
+                agg, total_candidates = async_to_sync(self._aresolve_documents)(
+                    corpus, documents, types, user, extra_tiers, writer
+                )
+            else:
+                for index, (doc, doc_resolutions) in enumerate(
+                    self._iter_doc_resolutions(
+                        corpus, documents, types, user, extra_tiers=extra_tiers
+                    ),
+                    start=1,
+                ):
+                    # needs_review candidates are inventory-only (discover
+                    # surfaces them for human triage); filter them per document,
+                    # as the whole-list path did before streaming.
+                    doc_resolutions = [
+                        r
+                        for r in doc_resolutions
+                        if not (r.candidate.normalized_data or {}).get("needs_review")
+                    ]
+                    total_candidates += len(doc_resolutions)
+                    res = writer.write(
+                        doc_resolutions, provisional=True, reconcile_graph=False
+                    )
+                    self._accumulate(agg, res)
+                    logger.info(
+                        "Enrichment apply: doc %s/%s (corpus %s) — refs so far=%s",
+                        index,
+                        documents_total,
+                        corpus_id,
+                        agg.references_created,
+                    )
+
+            # Corpus-wide DocumentRelationship rollup — once, over the full set
+            # of resolved doc->doc references (a per-document reconcile would
+            # prune edges whose backing references later documents had not yet
+            # written).
+            graph_res = writer.reconcile_document_graph()
+            agg.document_relationships_created += (
+                graph_res.document_relationships_created
+            )
+            agg.document_relationships_pruned += graph_res.document_relationships_pruned
+
+            # Finalize: one atomic flip of THIS run's provisional rows (new and
+            # claimed). This is the tie to job completion — only a run that
+            # reaches here finalizes its references. A failure anywhere above
+            # leaves them provisional (surfaced but excluded from the crawl
+            # seed) for a later successful run to reclaim and finalize.
+            CorpusReference.objects.filter(
+                created_by_analysis=analysis, is_provisional=True
+            ).update(is_provisional=False, modified=timezone.now())
+
+            # Cross-corpus linking is part of a successful apply and can raise
+            # (two bulk_updates over potentially thousands of rows), so it must
+            # run INSIDE the try — before the COMPLETED stamp below. Stamping the
+            # Analysis COMPLETED before it ran left a permanent COMPLETED
+            # provenance row with law_references_linked=0 whenever _link_external
+            # failed (#1996).
+            link = self._link_external(user, corpus)
         except Exception:
             analysis.status = JobStatus.FAILED.value
             analysis.save(update_fields=["status"])
             raise
         analysis.status = JobStatus.COMPLETED.value
         analysis.save(update_fields=["status"])
-        link = self._link_external(user, corpus)
         return {
             "corpus_id": corpus_id,
             "analysis_id": analysis.id,
-            "documents_scanned": len(documents),
-            "total_candidates": len(resolutions),
-            "annotations_created": res.annotations_created,
-            "annotations_upgraded": res.annotations_upgraded,
-            "relationships_created": res.relationships_created,
-            "references_created": res.references_created,
-            "document_relationships_created": res.document_relationships_created,
-            "document_relationships_pruned": res.document_relationships_pruned,
+            "documents_scanned": documents_total,
+            "total_candidates": total_candidates,
+            "annotations_created": agg.annotations_created,
+            "annotations_upgraded": agg.annotations_upgraded,
+            "relationships_created": agg.relationships_created,
+            "references_created": agg.references_created,
+            "document_relationships_created": agg.document_relationships_created,
+            "document_relationships_pruned": agg.document_relationships_pruned,
             "law_references_linked": link["law_references_linked"],
             "links_demoted": link.get("links_demoted", 0),
             "links_restamped": link["links_restamped"],
         }
+
+    @staticmethod
+    def _accumulate(agg: WriteResult, res: WriteResult) -> None:
+        """Fold one per-document :class:`WriteResult` into the run aggregate.
+
+        Document-graph counts are excluded here — the rollup runs once after the
+        per-document loop (see :meth:`apply`), so they are added from its own
+        result, never per document.
+        """
+        agg.annotations_created += res.annotations_created
+        agg.annotations_upgraded += res.annotations_upgraded
+        agg.relationships_created += res.relationships_created
+        agg.references_created += res.references_created
+        agg.annotation_ids.extend(res.annotation_ids)
+        agg.reference_ids.extend(res.reference_ids)
 
     # -- cross-corpus linking ----------------------------------------------- #
 
@@ -596,7 +904,12 @@ class EnrichmentService:
         # only public authorities may link; a private corpus uses its creator.
         audience = None if corpus.is_public else user
 
-        refs = (
+        # Materialize once: this queryset is walked twice (build the target
+        # cache below, then promote/demote). Left lazy, a concurrent apply() on
+        # the same corpus could insert rows that pass 2 sees but that were absent
+        # when the cache was built in pass 1 — those refs would be silently
+        # skipped (#1996).
+        refs = list(
             CorpusReference.objects.filter(corpus=corpus, reference_type=C.REF_LAW)
             .exclude(canonical_key=None)
             .select_related("source_annotation")
@@ -607,16 +920,42 @@ class EnrichmentService:
             key = ref.canonical_key
             if key and key not in target_cache:
                 target_cache[key] = find_authority_target(key, audience)
-        # Batch-fetch corpus membership for all resolved targets in one query
-        # instead of one per target (avoids N+1 on large corpora).
+        # Map each resolved target document to the corpus its in-app link should
+        # point into. A target can have current paths in several corpora, so the
+        # choice is made BOTH deterministic and navigable: prefer a corpus the
+        # citing corpus's audience can actually open, then break ties on the
+        # lowest corpus_id. The previous ``dict(values_list(...))`` did neither —
+        # it kept whatever row Postgres returned last, so target_corpus_id (and
+        # the mention link_url derived from it) was nondeterministic and could
+        # 404 for the audience (#1996). Still one query for the paths plus one
+        # for the visible-corpus set — no per-target N+1.
         resolved_target_ids = {t.id for t in target_cache.values() if t is not None}
-        path_corpus_cache: dict[int, int | None] = dict(
+        path_rows = list(
             DocumentPath.objects.filter(
                 document_id__in=resolved_target_ids,
                 is_current=True,
                 is_deleted=False,
-            ).values_list("document_id", "corpus_id")
+            )
+            .order_by("corpus_id")
+            .values_list("document_id", "corpus_id")
         )
+        audience_visible_corpus_ids = set(
+            Corpus.objects.visible_to_user(audience)
+            .filter(id__in={cid for _doc_id, cid in path_rows})
+            .values_list("id", flat=True)
+        )
+        path_corpus_cache: dict[int, int] = {}
+        for doc_id, path_corpus_id in path_rows:  # ascending corpus_id
+            incumbent = path_corpus_cache.get(doc_id)
+            # First (lowest-id) path seeds the entry; a later audience-visible
+            # corpus then supersedes a non-navigable incumbent. Net result:
+            # lowest audience-visible corpus_id, else lowest corpus_id (so a
+            # resolvable target never loses its corpus).
+            if incumbent is None or (
+                path_corpus_id in audience_visible_corpus_ids
+                and incumbent not in audience_visible_corpus_ids
+            ):
+                path_corpus_cache[doc_id] = path_corpus_id
         now = timezone.now()
         promoted: list[CorpusReference] = []
         demoted: list[CorpusReference] = []
@@ -625,13 +964,22 @@ class EnrichmentService:
             if not key:  # queryset excludes None; guard for type-narrowing
                 continue
             target = target_cache.get(key)
-            if target is not None:
+            # A navigable link needs BOTH a resolved authority document and a
+            # current corpus path to point into. The corpus is absent only in
+            # the tiny TOCTOU window where the target's path is deleted between
+            # find_authority_target (which requires a current path) and the path
+            # query above; treat that as unresolved so a stale RESOLVED ref is
+            # demoted rather than left pointing at a broken link.
+            target_corpus_id = (
+                path_corpus_cache.get(target.id) if target is not None else None
+            )
+            if target is not None and target_corpus_id is not None:
                 if (
                     ref.target_document_id != target.id
                     or ref.resolution_status != C.STATUS_RESOLVED
                 ):
                     ref.target_document = target
-                    ref.target_corpus_id = path_corpus_cache.get(target.id)
+                    ref.target_corpus_id = target_corpus_id
                     ref.resolution_status = C.STATUS_RESOLVED
                     # bulk_update bypasses auto_now — stamp ``modified``.
                     ref.modified = now
@@ -640,8 +988,9 @@ class EnrichmentService:
                 ref.target_document_id is not None
                 or ref.resolution_status == C.STATUS_RESOLVED
             ):
-                # Target no longer visible to the corpus's audience — degrade so
-                # the corpus never renders a broken link.
+                # Target gone, no longer audience-visible, or (rarely) its path
+                # vanished mid-pass — degrade so the corpus never renders a
+                # broken link.
                 ref.target_document_id = None
                 ref.target_corpus_id = None
                 ref.resolution_status = C.STATUS_EXTERNAL

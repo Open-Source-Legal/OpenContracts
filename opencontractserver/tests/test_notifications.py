@@ -245,6 +245,63 @@ class TestNotificationAnalysisLink(TestCase):
         )
         self.assertIsNone(n.analysis_id)
 
+    def test_duplicate_analysis_notification_blocked_by_constraint(self):
+        """The partial unique constraint forbids a second notification with the
+        same (analysis, notification_type) — this is what makes the signal's
+        get_or_create idempotent under concurrent Analysis.post_save signals."""
+        from django.db import IntegrityError, transaction
+
+        Notification.objects.create(
+            recipient=self.user,
+            notification_type=NotificationTypeChoices.ANALYSIS_RUNNING,
+            analysis=self.analysis,
+        )
+        with self.assertRaises(IntegrityError):
+            # Wrap in atomic so the IntegrityError doesn't poison the outer
+            # test transaction.
+            with transaction.atomic():
+                Notification.objects.create(
+                    recipient=self.user,
+                    notification_type=NotificationTypeChoices.ANALYSIS_RUNNING,
+                    analysis=self.analysis,
+                )
+
+    def test_constraint_is_partial_and_ignores_null_analysis(self):
+        """The constraint is partial (analysis NOT NULL): two notifications of
+        the same type WITHOUT an analysis must coexist, and the same analysis
+        may carry notifications of DIFFERENT types."""
+        # Two analysis=NULL rows with an identical type — not constrained.
+        Notification.objects.create(
+            recipient=self.user,
+            notification_type=NotificationTypeChoices.ANALYSIS_COMPLETE,
+        )
+        Notification.objects.create(
+            recipient=self.user,
+            notification_type=NotificationTypeChoices.ANALYSIS_COMPLETE,
+        )
+        # Same analysis, two DIFFERENT types — not constrained.
+        Notification.objects.create(
+            recipient=self.user,
+            notification_type=NotificationTypeChoices.ANALYSIS_RUNNING,
+            analysis=self.analysis,
+        )
+        Notification.objects.create(
+            recipient=self.user,
+            notification_type=NotificationTypeChoices.ANALYSIS_COMPLETE,
+            analysis=self.analysis,
+        )
+        self.assertEqual(
+            Notification.objects.filter(
+                analysis__isnull=True,
+                notification_type=NotificationTypeChoices.ANALYSIS_COMPLETE,
+            ).count(),
+            2,
+        )
+        self.assertEqual(
+            Notification.objects.filter(analysis=self.analysis).count(),
+            2,
+        )
+
 
 class TestNotificationSignals(TestCase):
     """Test signal handlers that create notifications automatically."""

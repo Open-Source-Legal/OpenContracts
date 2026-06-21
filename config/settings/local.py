@@ -66,15 +66,20 @@ CSRF_COOKIE_HTTPONLY = False
 # external hosts.  Production base.py restricts connect-src to 'self' only
 # (which covers same-origin wss:// when served over HTTPS).
 #
-# NOTE: This intentionally replaces the connect-src list, discarding any
-# Auth0 domain appended by base.py.  If USE_AUTH0=True in local dev, Auth0
-# auth flows may fail with CSP violations — add the Auth0 domain manually
-# here if needed.
+# NOTE: This EXTENDS base.py's connect-src — which already includes the Auth0
+# tenant domain when USE_AUTH0=True — with the dev WebSocket sources, rather
+# than replacing it.  A wholesale replace dropped the Auth0 domain and broke
+# the Auth0 login token exchange (POST https://<tenant>/oauth/token) with a
+# CSP connect-src violation on the Django-served auth0_login.html page.
 #
-# Shallow copy is safe here because we assign new lists rather than mutating
-# existing ones. If appending to existing lists, use a deep copy instead.
+# Shallow copy is safe here because we assign a new list rather than mutating
+# the existing one (list(...) + [...] builds a fresh list, leaving base.py's
+# connect-src list untouched).
 _csp = SECURE_CSP_DIRECTIVES.copy() if SECURE_CSP_DIRECTIVES else {}
-_csp["connect-src"] = ["'self'", "ws://localhost:*", "wss://localhost:*"]
+_csp["connect-src"] = list(_csp.get("connect-src", ["'self'"])) + [
+    "ws://localhost:*",
+    "wss://localhost:*",
+]
 SECURE_CSP_DIRECTIVES = _csp
 
 # Set DEBUG based on env variable, defaulting to False for better performance

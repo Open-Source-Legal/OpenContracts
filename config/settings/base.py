@@ -1652,6 +1652,19 @@ merely resemble place names unless they clearly refer to the place.
 - Do not invent text. Every `exact_string` must be copied verbatim from the document.
 - If you find no recognizable places, do nothing and say so briefly."""
 
+# Global cap on concurrent per-chunk LLM calls in the Tier-2b enrichment pass
+# (across all documents in a run). None => use the code default
+# (opencontractserver.enrichment.constants.LLM_MAX_CONCURRENCY, 8). Raise it for
+# more provider throughput at the cost of higher rate-limit / cost exposure.
+ENRICHMENT_LLM_MAX_CONCURRENCY = env.int("ENRICHMENT_LLM_MAX_CONCURRENCY", default=None)
+
+# Cap on documents processed concurrently within a single enrichment run
+# (the outer fan-out around the per-chunk LLM cap above). None => use the code
+# default (opencontractserver.enrichment.constants.DOC_MAX_CONCURRENCY). Tune
+# per-environment alongside ENRICHMENT_LLM_MAX_CONCURRENCY to balance run
+# latency against DB/connection pressure.
+ENRICHMENT_DOC_MAX_CONCURRENCY = env.int("ENRICHMENT_DOC_MAX_CONCURRENCY", default=None)
+
 # Rate Limiting Configuration
 # ------------------------------------------------------------------------------
 # Import rate limiting settings
