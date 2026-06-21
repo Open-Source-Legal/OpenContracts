@@ -106,7 +106,7 @@ class CorpusSerializer(serializers.ModelSerializer):
         try:
             validate_model_spec(cleaned)
         except (LLMProviderNotRegistered, ValueError) as exc:
-            raise serializers.ValidationError(str(exc)) from exc
+            raise serializers.ValidationError("Invalid model specification.") from exc
         return cleaned
 
     def validate(self, attrs) -> Any:
