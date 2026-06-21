@@ -843,6 +843,17 @@ export interface GovernanceGraphNode {
   corpusId?: string | null;
   /** Body-of-law key prefix (e.g. "dgcl") for statute/ghost nodes. */
   authority?: string | null;
+  /** Jurisdiction code, e.g. "us-de", "us-federal" (null if unknown). */
+  jurisdiction?: string | null;
+  /** Authority type: "statute", "regulation", etc. (null if unknown). */
+  authorityType?: string | null;
+  /**
+   * Authority-frontier crawl status for ghost nodes — "queued",
+   * "in_progress", "discovered", "ingested", "resolved", "failed",
+   * "unsupported", "blocked_license", "unlocated", "pending_approval",
+   * "deferred_cap" — or null when not tracked (all document nodes).
+   */
+  discoveryState?: string | null;
   degree: number;
 }
 
@@ -889,6 +900,9 @@ export const GET_GOVERNANCE_GRAPH = gql`
         kind
         corpusId
         authority
+        jurisdiction
+        authorityType
+        discoveryState
         degree
       }
       edges {
@@ -914,6 +928,9 @@ export interface CorpusReferenceRow {
   referenceType: string;
   canonicalKey?: string | null;
   resolutionStatus: string;
+  // True while an enrichment run is still in flight (written provisionally,
+  // not yet finalized). The References panel badges these "In progress".
+  isProvisional?: boolean | null;
   sourceAnnotation?: {
     id: string;
     rawText?: string | null;
@@ -943,6 +960,7 @@ export const GET_CORPUS_REFERENCES_FOR_DOCUMENT = gql`
           referenceType
           canonicalKey
           resolutionStatus
+          isProvisional
           sourceAnnotation {
             id
             rawText
@@ -1009,6 +1027,247 @@ export const GET_WANTED_AUTHORITIES = gql`
   }
 `;
 
+// --- Global authority-sources monitor (superuser-only) ---------------------
+// The AuthorityFrontier is the instance-wide discovery queue: one row per
+// wanted section-root canonical key, tracking crawl/ingestion state across all
+// corpora. See /admin/authorities. Args are plain Strings (the backend filter
+// uses Char filters, not the model's choices enum) so the summary chips' raw
+// discovery_state values feed straight back as the filter.
+
+export interface AuthorityFrontierRow {
+  id: string;
+  canonicalKey: string;
+  authority?: string | null;
+  jurisdiction?: string | null;
+  authorityType?: string | null;
+  /** queued | in_progress | discovered | ingested | resolved | failed |
+   * unsupported | blocked_license | unlocated | pending_approval | deferred_cap */
+  discoveryState: string;
+  /** Source-provider registry class name (e.g. "USCodeAuthoritySourceProvider"). */
+  provider?: string | null;
+  /** True if a provider can_handle this key (directly or via equivalence bridge). */
+  ingestable?: boolean | null;
+  /** Class name of the provider that WOULD handle this key (else null). */
+  predictedProvider?: string | null;
+  mentionCount: number;
+  distinctCorpusCount: number;
+  depth: number;
+  lastError?: string | null;
+  lastAttempt?: string | null;
+  ingestedDocument?: {
+    id: string;
+    title?: string | null;
+    slug?: string | null;
+  } | null;
+}
+
+export interface GetAuthorityFrontierInputs {
+  discoveryState?: string | null;
+  jurisdiction?: string | null;
+  authorityType?: string | null;
+  provider?: string | null;
+  search?: string | null;
+  first?: number;
+  after?: string | null;
+}
+
+export interface GetAuthorityFrontierOutputs {
+  authorityFrontier: {
+    pageInfo: { hasNextPage: boolean; endCursor?: string | null };
+    edges: { node: AuthorityFrontierRow }[];
+  };
+}
+
+export const GET_AUTHORITY_FRONTIER = gql`
+  query AuthorityFrontier(
+    $discoveryState: String
+    $jurisdiction: String
+    $authorityType: String
+    $provider: String
+    $search: String
+    $first: Int
+    $after: String
+  ) {
+    authorityFrontier(
+      discoveryState: $discoveryState
+      jurisdiction: $jurisdiction
+      authorityType: $authorityType
+      provider: $provider
+      search: $search
+      first: $first
+      after: $after
+    ) {
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+      edges {
+        node {
+          id
+          canonicalKey
+          authority
+          jurisdiction
+          authorityType
+          discoveryState
+          provider
+          ingestable
+          predictedProvider
+          mentionCount
+          distinctCorpusCount
+          depth
+          lastError
+          lastAttempt
+          ingestedDocument {
+            id
+            title
+            slug
+          }
+        }
+      }
+    }
+  }
+`;
+
+export interface AuthorityFrontierStateCount {
+  state: string;
+  count: number;
+}
+
+export interface GetAuthorityFrontierStatsInputs {
+  jurisdiction?: string | null;
+  authorityType?: string | null;
+  provider?: string | null;
+  search?: string | null;
+}
+
+export interface GetAuthorityFrontierStatsOutputs {
+  authorityFrontierStats: {
+    totalCount: number;
+    byState: AuthorityFrontierStateCount[];
+  };
+}
+
+export const GET_AUTHORITY_FRONTIER_STATS = gql`
+  query AuthorityFrontierStats(
+    $jurisdiction: String
+    $authorityType: String
+    $provider: String
+    $search: String
+  ) {
+    authorityFrontierStats(
+      jurisdiction: $jurisdiction
+      authorityType: $authorityType
+      provider: $provider
+      search: $search
+    ) {
+      totalCount
+      byState {
+        state
+        count
+      }
+    }
+  }
+`;
+
+// --- Global authority key-equivalences (superuser-only) --------------------
+// The authority key-equivalence table bridges citations across namespaces: it
+// maps an act-section style key (e.g. a popular-name act § N) to the canonical
+// USC/CFR key the reference web resolves against. Rows carry a ``source``
+// (baseline | popular_name | uslm | manual); only ``manual`` rows are editable
+// or deletable. See /admin/authority-mappings.
+
+export interface AuthorityKeyEquivalenceRow {
+  id: string;
+  fromKey: string;
+  toKey: string;
+  /** baseline | popular_name | uslm | manual */
+  source: string;
+  confidence?: number | null;
+  note?: string | null;
+  created?: string | null;
+  modified?: string | null;
+  /** True only for ``source = "manual"`` rows — gates the edit/delete controls. */
+  editable: boolean;
+  createdByUsername?: string | null;
+}
+
+export interface GetAuthorityKeyEquivalencesInputs {
+  source?: string | null;
+  search?: string | null;
+  first?: number;
+  after?: string | null;
+}
+
+export interface GetAuthorityKeyEquivalencesOutputs {
+  authorityKeyEquivalences: {
+    pageInfo: { hasNextPage: boolean; endCursor?: string | null };
+    edges: { node: AuthorityKeyEquivalenceRow }[];
+  };
+}
+
+export const GET_AUTHORITY_KEY_EQUIVALENCES = gql`
+  query AuthorityKeyEquivalences(
+    $source: String
+    $search: String
+    $first: Int
+    $after: String
+  ) {
+    authorityKeyEquivalences(
+      source: $source
+      search: $search
+      first: $first
+      after: $after
+    ) {
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+      edges {
+        node {
+          id
+          fromKey
+          toKey
+          source
+          confidence
+          note
+          created
+          modified
+          editable
+          createdByUsername
+        }
+      }
+    }
+  }
+`;
+
+export interface AuthorityMappingSourceCount {
+  source: string;
+  count: number;
+}
+
+export interface GetAuthorityMappingStatsInputs {
+  search?: string | null;
+}
+
+export interface GetAuthorityMappingStatsOutputs {
+  authorityMappingStats: {
+    totalCount: number;
+    bySource: AuthorityMappingSourceCount[];
+  };
+}
+
+export const GET_AUTHORITY_MAPPING_STATS = gql`
+  query AuthorityMappingStats($search: String) {
+    authorityMappingStats(search: $search) {
+      totalCount
+      bySource {
+        source
+        count
+      }
+    }
+  }
+`;
+
 // Lean analysis listing used to discover a corpus's reference-enrichment
 // Analysis (matched client-side on analyzer.taskName) so the document viewer
 // can auto-merge its reference-mention annotations into the annotation layer.
@@ -1051,6 +1310,9 @@ export interface GetCorpusAnalysesInputs {
 
 export interface GetCorpusAnalysesOutputs {
   analyses: {
+    // Total matching analyses before the `first: 50` page cap — lets the UI
+    // tell the user when older runs are truncated from the list.
+    totalCount: number;
     edges: {
       node: {
         id: string;
@@ -1077,6 +1339,7 @@ export const GET_CORPUS_ANALYSES = gql`
       analyzer_TaskName_In: $taskNames
       first: 50
     ) {
+      totalCount
       edges {
         node {
           id

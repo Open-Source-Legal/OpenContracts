@@ -22,6 +22,7 @@ import { CorpusDetailsView } from "./CorpusHome/CorpusDetailsView";
 import { CorpusDiscussionsInlineView } from "./CorpusHome/CorpusDiscussionsInlineView";
 import { CorpusArticleView } from "./CorpusHome/CorpusArticleView";
 import { CorpusMapView } from "./CorpusMapView";
+import { GovernanceGraphExplorer } from "./CorpusHome/intelligence/GovernanceGraphExplorer";
 import { InlineChatBar } from "./CorpusHero/InlineChatBar";
 import { PillToggle, PillToggleLabel } from "./CorpusHome/styles";
 
@@ -181,6 +182,11 @@ export const CorpusHome: React.FC<CorpusHomeProps> = ({
     updateDetailViewParam(location, navigate, "map");
   };
 
+  // Handle switching to the reference-web graph explorer
+  const handleViewGraph = () => {
+    updateDetailViewParam(location, navigate, "graph");
+  };
+
   // Handle clicking a specific thread from the landing page feed
   const handleThreadClick = (threadId: string) => {
     navigateToDiscussionThread(location, navigate, threadId);
@@ -219,6 +225,16 @@ export const CorpusHome: React.FC<CorpusHomeProps> = ({
     );
   }
 
+  if (currentView === "graph") {
+    return (
+      <GovernanceGraphExplorer
+        corpus={corpus}
+        onBack={handleBackToLanding}
+        testId="corpus-home-graph"
+      />
+    );
+  }
+
   if (currentView === "article") {
     return (
       <CorpusArticleView
@@ -230,7 +246,7 @@ export const CorpusHome: React.FC<CorpusHomeProps> = ({
         isPowerUserMode={isPowerUserMode}
         onOpenMobileMenu={onOpenMobileMenu}
         onAskQuestion={onChatSubmit}
-        onExploreGraph={handleViewDetails}
+        onExploreGraph={handleViewGraph}
         stats={{
           documents: stats.totalDocs,
           annotations: stats.totalAnnotations,
@@ -274,7 +290,7 @@ export const CorpusHome: React.FC<CorpusHomeProps> = ({
           isPowerUserMode={isPowerUserMode}
           onOpenMobileMenu={onOpenMobileMenu}
           onAskQuestion={onChatSubmit}
-          onExploreGraph={handleViewDetails}
+          onExploreGraph={handleViewGraph}
           stats={{
             documents: stats.totalDocs,
             annotations: stats.totalAnnotations,
@@ -304,6 +320,7 @@ export const CorpusHome: React.FC<CorpusHomeProps> = ({
         corpus={corpus}
         hasArticle={hasArticle}
         onViewDetails={handleViewDetails}
+        onExploreGraph={handleViewGraph}
         onEditDescription={onEditDescription}
         onNavigateToCorpuses={onNavigateToCorpuses}
         navigateBackLabel={navigateBackLabel}

@@ -145,6 +145,25 @@ test.describe("GlobalSettingsPanel Component", () => {
     await component.unmount();
   });
 
+  test("should render the Enrichment Runner card so /admin/enrichment is reachable", async ({
+    mount,
+    page,
+  }) => {
+    // Regression: the panel linked to /admin/authorities but had no card for
+    // the /admin/enrichment runner, so it was unreachable from the GUI.
+    const component = await mount(<GlobalSettingsPanelWrapper />);
+
+    const card = page.locator(
+      '[data-testid="settings-card-enrichment-runner"]'
+    );
+    await expect(card).toBeVisible();
+    await expect(card).toContainText("Enrichment Runner");
+    // Must be an active (clickable) card, not a Coming Soon placeholder.
+    await expect(card.locator("text=Coming Soon")).toHaveCount(0);
+
+    await component.unmount();
+  });
+
   test("should show Coming Soon badge for unavailable features", async ({
     mount,
     page,

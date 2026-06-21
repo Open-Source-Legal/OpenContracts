@@ -183,13 +183,31 @@ export const OS_LEGAL_COLORS = {
   /** Warning text color - dark amber. */
   warningText: "#854d0e",
 
-  // Pending/awaiting colors - amber theme for "not yet resolved" status chips.
-  // Distinct from the yellow `warning*` palette: these are amber-50/amber-700,
-  // used for reference-resolution "awaiting ingestion / resolution" states.
-  /** Pending surface background - very light amber (amber-50). */
-  pendingSurface: "#fffbeb",
-  /** Pending text color - amber (amber-700). */
-  pendingText: "#b45309",
+  // Provisional / in-flight - indigo theme for "still being computed" states
+  // (e.g. the in-progress enrichment badge on the References panel).
+  /** Provisional surface background - very light indigo. */
+  provisionalSurface: "#eef2ff",
+  /** Provisional text color - deep indigo. */
+  provisionalText: "#4338ca",
+
+  // Awaiting - amber theme for "found but not yet linked" reference states
+  // (the References-panel awaiting badge). Distinct from the yellow `warning*`
+  // palette: these are amber-50/amber-700.
+  /** Awaiting surface background - very light amber (amber-50). */
+  awaitingSurface: "#fffbeb",
+  /** Awaiting text color - amber (amber-700). */
+  awaitingText: "#b45309",
+
+  // Canvas paper - warm off-white tones for the governance-graph explorer
+  // backdrop and its radial "paper" vignette (decorative).
+  /** Governance-graph canvas background - warm off-white. */
+  canvasPaper: "#fbfaf7",
+  /** Vignette gradient inner stop - pure white. */
+  canvasVignetteInner: "#ffffff",
+  /** Vignette gradient mid stop - faint warm white. */
+  canvasVignetteMid: "#fdfdfb",
+  /** Vignette gradient outer stop - warm cream. */
+  canvasVignetteOuter: "#faf6ee",
 
   // Extended blue palette
   /** Dark blue - headings and strong emphasis on info surfaces. */

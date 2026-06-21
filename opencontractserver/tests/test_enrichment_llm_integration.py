@@ -14,13 +14,35 @@ from opencontractserver.enrichment.services import EnrichmentService
 
 User = get_user_model()
 
-_TEXT = "This entity is governed by the Guam Administrative Adjudication Law in all respects."
+_TEXT = (
+    "This entity is governed by Section 5 of the Guam Administrative "
+    "Adjudication Law in all respects."
+)
 
-# Canonical key the LLM will return
-_CANON_KEY = "act:guam-administrative-adjudication-law"
+# Canonical key the LLM will return. A SECTIONED key (not a bare act:* body of
+# law) so the confidence-routing tests below isolate the confidence dimension —
+# a locator-less act:* concept would now ALSO be flagged needs_review by
+# _is_concept_key, which would conflate the two routing reasons. The concept
+# heuristic itself is covered by test_discover_llm_concept_flagged_to_review.
+_CANON_KEY = "guam-aal:5"
 
 
 def _make_llm_citation(confidence: float) -> dict:
+    citation_text = "Section 5 of the Guam Administrative Adjudication Law"
+    return {
+        "raw_text": citation_text,
+        "start": _TEXT.index(citation_text),
+        "end": _TEXT.index(citation_text) + len(citation_text),
+        "jurisdiction": "Federal",
+        "authority_type": "statute",
+        "normalized_citation": "guam-aal:5",
+        "confidence": confidence,
+    }
+
+
+def _make_llm_concept_citation(confidence: float) -> dict:
+    """A body-of-law reference with NO section locator -> derives a locator-less
+    act:* concept key (act:guam-administrative-adjudication-law)."""
     citation_text = "the Guam Administrative Adjudication Law"
     return {
         "raw_text": citation_text,
@@ -76,6 +98,45 @@ class TestEnrichmentLLMIntegration(TransactionTestCase):
         assert (
             found
         ), f"Expected LLM-tier entry in by_key. Got: {list(out['by_key'].keys())}"
+
+    def test_discover_llm_concept_flagged_to_review(self):
+        """A high-confidence but locator-less act:* concept (a body of law with no
+        section) is flagged needs_review by the normalization heuristic —
+        surfaced for triage, NOT promoted into by_key — even though its
+        confidence clears the floor."""
+        from pydantic_ai.models.test import TestModel
+
+        import opencontractserver.enrichment.llm_citation_extractor as mod
+
+        canned = _make_llm_concept_citation(0.95)  # well above the 0.7 floor
+        test_model = TestModel(custom_output_args={"citations": [canned]})
+        original = mod.abuild_agent_model
+
+        async def fake_build(spec):
+            return test_model
+
+        mod.abuild_agent_model = fake_build
+        try:
+            out = EnrichmentService().discover(
+                corpus_id=self.corpus.id,
+                creator_id=self.user.id,
+                use_llm=True,
+            )
+        finally:
+            mod.abuild_agent_model = original
+
+        # The concept must NOT appear in by_key (the resolved/promoted surface)...
+        llm_keys = [
+            k
+            for k, e in out["by_key"].items()
+            if e.get("detection_tier") == C.DETECTION_TIER_LLM
+        ]
+        assert llm_keys == [], f"concept leaked into by_key: {llm_keys}"
+        # ...and MUST be surfaced in the review bucket for triage.
+        assert any(
+            r["detection_tier"] == C.DETECTION_TIER_LLM
+            for r in out["review_candidates"]
+        )
 
     def test_discover_llm_low_confidence_review_bucket(self):
         """Low-confidence LLM citation (0.4 < 0.7 floor) goes to review_candidates, NOT by_key."""

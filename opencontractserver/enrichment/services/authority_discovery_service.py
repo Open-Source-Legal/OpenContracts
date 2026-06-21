@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 import xml.etree.ElementTree as ET
 import zipfile
-from typing import TypedDict
+from typing import Any, TypedDict
 
 import httpx
 import requests
@@ -52,15 +52,28 @@ class AuthorityDiscoveryService(BaseService):
     """Registry-driven authority ingestion orchestrator."""
 
     @classmethod
-    def _provider_for(cls, canonical_key: str):
-        """Return the highest-priority provider that can handle *canonical_key*.
+    def _provider_for(cls, canonical_key: str) -> tuple[str | None, Any, str | None]:
+        """Return ``(name, provider, fetch_key)`` for *canonical_key*.
+
+        ``fetch_key`` is the key the chosen provider should ``locate``/``fetch``:
+        the original key when a provider handles it directly, or a
+        provider-supported ``AuthorityKeyEquivalence`` counterpart when the
+        original is a *domain* key that no provider handles directly.
+
+        Providers only ``can_handle`` statutory/regulatory canonical keys
+        (``usc-*``, ``cfr-*``, ``fedreg``), but filings cite *popular-name*
+        domain keys (e.g. ``exchange-act:10``, ``securities-act:2``). Those have
+        curated equivalences to positive-law USC keys (``usc-15:78j``); rather
+        than mark them ``unsupported``, we fetch the equivalent statutory key —
+        and the post-ingest equivalence relink (below) upgrades the original
+        domain-key EXTERNAL references. Direction-agnostic.
 
         Sorts the registry by ascending ``priority`` ClassVar so lower numbers
         are preferred. License enforcement is delegated to ``AuthorityGateService``
-        — this method intentionally does NOT filter by license.
-        Returns a ``(name, provider_instance)`` tuple on success, or
-        ``(None, None)`` when no provider matches.
+        — this method intentionally does NOT filter by license. Returns
+        ``(None, None, None)`` when nothing matches even after the equivalence hop.
         """
+        from opencontractserver.annotations.models import AuthorityKeyEquivalence
         from opencontractserver.pipeline.registry import (
             get_all_authority_source_providers_cached,
         )
@@ -69,15 +82,68 @@ class AuthorityDiscoveryService(BaseService):
             get_all_authority_source_providers_cached(),
             key=lambda d: getattr(d.component_class, "priority", 100),
         )
-        for defn in defns:
-            if defn.component_class is None:
+
+        def _match(key: str):
+            for defn in defns:
+                if defn.component_class is None:
+                    continue
+                if not getattr(defn.component_class, "enabled", True):
+                    continue
+                provider = defn.component_class()
+                if provider.can_handle(key):
+                    return defn.name, provider
+            return None
+
+        from opencontractserver.enrichment.data import mappings as _mappings
+
+        # Candidate fetch-keys, in precedence order — the first one a provider
+        # can_handle wins:
+        #   1. the original key (direct provider support);
+        #   2. AuthorityKeyEquivalence counterparts (exchange-act:10 -> usc-15:78j);
+        #   3. prefix rewrite rules over the original (irc:N -> usc-26:N);
+        #   4. rewrite rules over the equivalence counterparts.
+        # Per-key equivalences therefore always beat a mechanical rule, and the
+        # two stages compose (an equivalence INTO a rewriteable key resolves) —
+        # symmetric with ``find_authority_target``. The equivalence query is
+        # ``order_by``-ed so the counterpart chosen for a one-to-many key is
+        # deterministic (no Meta.ordering on AuthorityKeyEquivalence).
+        equiv_alts: list[str] = [
+            (to_key if from_key == canonical_key else from_key)
+            for from_key, to_key in AuthorityKeyEquivalence.objects.filter(
+                Q(from_key=canonical_key) | Q(to_key=canonical_key)
+            )
+            .order_by("to_key", "from_key")
+            .values_list("from_key", "to_key")
+        ]
+
+        candidates: list[tuple[str, str]] = [(canonical_key, "direct")]
+        candidates += [(alt, "equivalence") for alt in equiv_alts]
+        candidates += [
+            (rw, "rewrite rule") for rw in _mappings.apply_rewrite_rules(canonical_key)
+        ]
+        for alt in equiv_alts:
+            candidates += [
+                (rw, "equivalence+rewrite rule")
+                for rw in _mappings.apply_rewrite_rules(alt)
+            ]
+
+        seen: set[str] = set()
+        for key, how in candidates:
+            if key in seen:
                 continue
-            if not getattr(defn.component_class, "enabled", True):
-                continue
-            provider = defn.component_class()
-            if provider.can_handle(canonical_key):
-                return defn.name, provider
-        return None, None
+            seen.add(key)
+            matched = _match(key)
+            if matched is not None:
+                if key != canonical_key:
+                    logger.info(
+                        "AuthorityDiscoveryService: bridged %s -> %s via %s",
+                        canonical_key,
+                        key,
+                        how,
+                    )
+                return matched[0], matched[1], key
+
+        return None, None, None
 
     @staticmethod
     def _audit_record(
@@ -148,11 +214,22 @@ class AuthorityDiscoveryService(BaseService):
         )
 
         canonical_key = frontier_row.canonical_key
-        name, provider = cls._provider_for(canonical_key)
+        # ``fetch_key`` may differ from the frontier's domain key when a
+        # popular-name citation (exchange-act:10) is bridged to its statutory
+        # equivalent (usc-15:78j) for fetching; the frontier row keeps its own
+        # ``canonical_key`` identity and the relink seam reconciles citations.
+        name, provider, fetch_key = cls._provider_for(canonical_key)
 
         if provider is None:
             AuthorityFrontierService.mark(frontier_row, "unsupported")
             return {"status": "unsupported", "canonical_key": canonical_key}
+
+        # ``_provider_for`` only returns a non-None provider alongside a non-None
+        # ``fetch_key`` (the matched candidate key); the ``(None, None, None)``
+        # miss is handled by the guard above. Assert it so the type narrows to
+        # ``str`` for ``locate``/``evaluate`` below (and the invariant is loud if
+        # a future edit decouples the two return slots).
+        assert fetch_key is not None
 
         # Record which provider was selected and mark in-flight.
         frontier_row.provider = name
@@ -161,7 +238,7 @@ class AuthorityDiscoveryService(BaseService):
 
         # --- fetch -----------------------------------------------------------
         try:
-            request = provider.locate(canonical_key)
+            request = provider.locate(fetch_key)
             sections = provider.fetch(request)
         except (
             requests.RequestException,
@@ -207,8 +284,11 @@ class AuthorityDiscoveryService(BaseService):
             GateDecision,
         )
 
+        # Verify against the key we actually fetched (``fetch_key``) — for a
+        # bridged domain key the located text is the statutory section
+        # (usc-15:78j), not the popular-name key.
         decision: GateDecision = AuthorityGateService.evaluate(
-            canonical_key=canonical_key,
+            canonical_key=fetch_key,
             sections=sections,
             provider_license=provider.license,
             require_approval_for_agentic=getattr(provider, "requires_approval", False),

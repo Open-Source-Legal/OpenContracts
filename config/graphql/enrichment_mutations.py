@@ -86,6 +86,14 @@ class RunCorpusEnrichmentMutation(graphene.Mutation):
     ok = graphene.Boolean()
     message = graphene.String()
     analyses = graphene.List(AnalysisType)
+    partial = graphene.Boolean(
+        description=(
+            "True when some requested jobs dispatched but others failed "
+            "(e.g. enrichment started but the crawl could not be dispatched). "
+            "Only meaningful when ``ok`` is True; lets callers surface the "
+            "non-fatal ``message`` without coupling to its text."
+        )
+    )
 
     @login_required
     def mutate(
@@ -114,6 +122,7 @@ class RunCorpusEnrichmentMutation(graphene.Mutation):
             # distinguish "malformed id" from "exists but not visible" (IDOR).
             return RunCorpusEnrichmentMutation(
                 ok=False,
+                partial=False,
                 message="Resource not found or you do not have permission.",
                 analyses=[],
             )
@@ -121,6 +130,7 @@ class RunCorpusEnrichmentMutation(graphene.Mutation):
         if not run_enrichment and not run_crawl:
             return RunCorpusEnrichmentMutation(
                 ok=False,
+                partial=False,
                 message="Select at least one job (runEnrichment or runCrawl).",
                 analyses=[],
             )
@@ -128,16 +138,38 @@ class RunCorpusEnrichmentMutation(graphene.Mutation):
         created = []
 
         if run_enrichment:
-            analyzer = EnrichmentService.get_or_create_analyzer(user.id)
             input_data: dict[str, Any] = {
                 "use_llm": bool(getattr(options, "use_llm_tier", False) or False),
             }
             ref_types = getattr(options, "reference_types", None)
+            # An omitted field (None) or an explicitly empty list are both
+            # treated as "no type restriction" — ``types`` stays unset and the
+            # analyzer uses its default set. Only a non-empty list is validated;
+            # the deliberate-empty-list case isn't an error (it's equivalent to
+            # omitting the field).
             if ref_types:
-                valid_types = [t for t in ref_types if t in C.ALL_REFERENCE_TYPES]
-                if valid_types:
-                    input_data["types"] = valid_types
+                # Reject unknown codes rather than silently dropping them. If we
+                # filtered to an empty ``valid_types`` and left ``types`` unset,
+                # the analyzer would fall through to scanning ALL reference types
+                # — the opposite of the caller's intent. Surface the bad codes so
+                # the caller knows their request was rejected, not modified.
+                unknown = [t for t in ref_types if t not in C.ALL_REFERENCE_TYPES]
+                if unknown:
+                    return RunCorpusEnrichmentMutation(
+                        ok=False,
+                        partial=False,
+                        message=(
+                            "Unknown reference type(s): "
+                            + ", ".join(unknown)
+                            + ". Valid types: "
+                            + ", ".join(C.ALL_REFERENCE_TYPES)
+                            + "."
+                        ),
+                        analyses=[],
+                    )
+                input_data["types"] = list(ref_types)
 
+            analyzer = EnrichmentService.get_or_create_analyzer(user.id)
             logger.info(
                 "RunCorpusEnrichmentMutation: dispatching enrichment analyzer "
                 "analyzer_pk=%s corpus_pk=%s user=%s",
@@ -156,6 +188,7 @@ class RunCorpusEnrichmentMutation(graphene.Mutation):
             if not res.ok:
                 return RunCorpusEnrichmentMutation(
                     ok=False,
+                    partial=False,
                     message=res.error,
                     analyses=[],
                 )
@@ -192,15 +225,120 @@ class RunCorpusEnrichmentMutation(graphene.Mutation):
                 require_corpus_update=True,
             )
             if not res.ok:
+                if created:
+                    # Partial success: the enrichment analysis was already
+                    # dispatched and is now running. Return ok=True with the
+                    # already-created row(s) and a non-fatal message so the
+                    # caller surfaces the running job instead of treating the
+                    # whole request as failed (and re-dispatching enrichment,
+                    # double-running it).
+                    return RunCorpusEnrichmentMutation(
+                        ok=True,
+                        partial=True,
+                        message=(
+                            "Enrichment started, but the authority crawl could "
+                            f"not be dispatched: {res.error}"
+                        ),
+                        analyses=created,
+                    )
                 return RunCorpusEnrichmentMutation(
                     ok=False,
+                    partial=False,
                     message=res.error,
-                    analyses=created,
+                    analyses=[],
                 )
             created.append(res.value)
 
         return RunCorpusEnrichmentMutation(
             ok=True,
+            partial=False,
             message="SUCCESS",
             analyses=created,
+        )
+
+
+class RunAuthorityDiscoveryMutation(graphene.Mutation):
+    """Run authority discovery on a hand-picked set of ``AuthorityFrontier`` rows.
+
+    The corpus-agnostic counterpart to :class:`RunCorpusEnrichmentMutation`'s
+    crawl: instead of seeding + dequeuing the whole frontier under a corpus
+    ``Analysis``, this ingests *exactly* the selected rows (depth 0, no
+    recursion), so the global Authority Sources monitor can drain a chosen
+    subset of the queue.
+
+    **Superuser-only.** The ``AuthorityFrontier`` is a global, system-managed
+    queue with no per-object permissions — mirroring the ``authorityFrontier``
+    query gate, there is no corpus to check ``UPDATE`` against. The work is
+    enqueued fire-and-forget; the monitor reflects each row's ``discovery_state``
+    as it transitions.
+    """
+
+    class Arguments:
+        frontier_ids = graphene.List(
+            graphene.NonNull(graphene.ID),
+            required=True,
+            description="Global IDs of the AuthorityFrontier rows to run discovery on.",
+        )
+
+    ok = graphene.Boolean()
+    message = graphene.String()
+    count = graphene.Int()
+
+    @login_required
+    def mutate(root, info, frontier_ids):
+        user = info.context.user
+        if not getattr(user, "is_superuser", False):
+            # Same opaque message whether the rows exist or the user lacks
+            # access — the frontier is superuser-only, no existence oracle.
+            return RunAuthorityDiscoveryMutation(
+                ok=False,
+                message="Resource not found or you do not have permission.",
+                count=0,
+            )
+
+        pks: list[int] = []
+        for gid in frontier_ids:
+            try:
+                pks.append(int(from_global_id(gid)[1]))
+            except (ValueError, TypeError, IndexError):
+                continue
+        pks = list(dict.fromkeys(pks))  # de-dupe, preserve order
+
+        if not pks:
+            return RunAuthorityDiscoveryMutation(
+                ok=False,
+                message="No valid authority rows selected.",
+                count=0,
+            )
+
+        # Bound the batch: discover_selected runs rows sequentially in one
+        # Celery task, so an unbounded list could run a worker for an unbounded
+        # time. Reject oversize batches instead of silently truncating; the
+        # superuser can re-issue for the remainder.
+        if len(pks) > C.AUTHORITY_DISCOVERY_MAX_BATCH:
+            return RunAuthorityDiscoveryMutation(
+                ok=False,
+                message=(
+                    "Too many authorities selected "
+                    f"(max {C.AUTHORITY_DISCOVERY_MAX_BATCH} per run)."
+                ),
+                count=0,
+            )
+
+        from opencontractserver.tasks.corpus_tasks import (
+            discover_selected_authorities,
+        )
+
+        logger.info(
+            "RunAuthorityDiscoveryMutation: dispatching discovery for %s rows user=%s",
+            len(pks),
+            user.id,
+        )
+        discover_selected_authorities.delay(frontier_ids=pks, creator_id=user.id)
+
+        plural = "y" if len(pks) == 1 else "ies"
+        return RunAuthorityDiscoveryMutation(
+            ok=True,
+            message=f"Discovery started for {len(pks)} authorit{plural}.",
+            count=len(pks),
         )

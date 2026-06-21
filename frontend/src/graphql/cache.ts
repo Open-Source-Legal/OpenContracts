@@ -764,13 +764,15 @@ export const tocExpandAll = makeVar<boolean>(false);
  *   /c/user/corpus?view=discussions   → corpusDetailView("discussions")
  *   /c/user/corpus?view=article       → corpusDetailView("article")
  *   /c/user/corpus?view=map           → corpusDetailView("map")
+ *   /c/user/corpus?view=graph         → corpusDetailView("graph")
  */
 export type CorpusDetailViewType =
   | "landing"
   | "details"
   | "discussions"
   | "article"
-  | "map";
+  | "map"
+  | "graph";
 export const corpusDetailView = makeVar<CorpusDetailViewType>("landing");
 
 /**

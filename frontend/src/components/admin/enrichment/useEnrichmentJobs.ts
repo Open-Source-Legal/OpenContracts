@@ -71,5 +71,8 @@ export function useEnrichmentJobs(
   });
 
   const jobs = (data?.analyses?.edges ?? []).map((e) => e.node);
-  return { jobs, loading, error, refetch };
+  // Total matching analyses server-side (before the `first: 50` page cap) so
+  // the list can surface "showing N of M" when older runs are truncated.
+  const totalCount = data?.analyses?.totalCount ?? null;
+  return { jobs, totalCount, loading, error, refetch };
 }

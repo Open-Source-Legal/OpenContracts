@@ -112,6 +112,10 @@ export interface CorpusLandingViewProps {
   hasArticle?: boolean;
   /** Callback when "View Details" is clicked */
   onViewDetails: () => void;
+  /** Callback to open the full-screen reference-web graph explorer. Falls back
+   * to ``onViewDetails`` when omitted so the intelligence cards always have a
+   * working escape hatch. */
+  onExploreGraph?: () => void;
   /** Callback when edit description is clicked */
   onEditDescription: () => void;
   /** Callback to navigate back to corpus list */
@@ -163,6 +167,7 @@ export const CorpusLandingView: React.FC<CorpusLandingViewProps> = ({
   corpus,
   hasArticle: hasArticleProp,
   onViewDetails,
+  onExploreGraph,
   onEditDescription,
   onNavigateToCorpuses,
   navigateBackLabel = "Corpuses",
@@ -407,7 +412,7 @@ export const CorpusLandingView: React.FC<CorpusLandingViewProps> = ({
         <CorpusIntelligenceOverview
           corpusId={corpus.id}
           onAskQuestion={onChatSubmit}
-          onExploreGraph={onViewDetails}
+          onExploreGraph={onExploreGraph ?? onViewDetails}
           canUpdate={canEdit}
         />
 
