@@ -23,6 +23,7 @@ effects that certain annotation types trigger on import.
 |----------|--------|
 | Upload a few documents for manual annotation | [Single Upload](single_upload.md) |
 | Upload hundreds of documents preserving folder organization | [Bulk ZIP Import](bulk_zip_import.md) |
+| Bulk-load a very large local PDF tree (100k+ files), resumably | [Bulk ZIP Import](bulk_zip_import.md) via the `scripts/bulk_import` CLI driver |
 | Migrate a fully-annotated corpus to another instance | [Corpus Export/Import](corpus_export_import.md) |
 | Programmatically inject a document with pre-built annotations | [Annotated Document Import](annotated_document_import.md) |
 | Feed documents from an external processing pipeline via REST API | [Worker Uploads](worker_uploads.md) |
