@@ -586,6 +586,197 @@ export const DELETE_AUTHORITY_KEY_EQUIVALENCE = gql`
   }
 `;
 
+// ---- Authority Namespace CRUD (the registry of bodies of law) ------------- //
+
+export interface AuthorityNamespaceMutationObj {
+  id: string;
+  prefix: string;
+  displayName: string;
+  jurisdiction?: string | null;
+  authorityType?: string | null;
+  scope: string;
+  source: string;
+  aliases: string[];
+  provider?: string | null;
+  sourceRootUrl?: string | null;
+  license?: string | null;
+  isGlobal: boolean;
+  createdByUsername?: string | null;
+  modified?: string | null;
+}
+
+const _NAMESPACE_OBJ_FIELDS = `
+  id
+  prefix
+  displayName
+  jurisdiction
+  authorityType
+  scope
+  source
+  aliases
+  provider
+  sourceRootUrl
+  license
+  isGlobal
+  createdByUsername
+  modified
+`;
+
+export interface CreateAuthorityNamespaceInputs {
+  prefix: string;
+  displayName: string;
+  jurisdiction?: string | null;
+  authorityType?: string | null;
+  aliases?: string[] | null;
+  isGlobal?: boolean | null;
+  authorityCorpusId?: string | null;
+  provider?: string | null;
+  sourceRootUrl?: string | null;
+  license?: string | null;
+}
+
+export interface CreateAuthorityNamespaceOutputs {
+  createAuthorityNamespace: {
+    ok: boolean;
+    message?: string | null;
+    obj?: AuthorityNamespaceMutationObj | null;
+  };
+}
+
+export const CREATE_AUTHORITY_NAMESPACE = gql`
+  mutation CreateAuthorityNamespace(
+    $prefix: String!
+    $displayName: String!
+    $jurisdiction: String
+    $authorityType: String
+    $aliases: [String]
+    $isGlobal: Boolean
+    $authorityCorpusId: ID
+    $provider: String
+    $sourceRootUrl: String
+    $license: String
+  ) {
+    createAuthorityNamespace(
+      prefix: $prefix
+      displayName: $displayName
+      jurisdiction: $jurisdiction
+      authorityType: $authorityType
+      aliases: $aliases
+      isGlobal: $isGlobal
+      authorityCorpusId: $authorityCorpusId
+      provider: $provider
+      sourceRootUrl: $sourceRootUrl
+      license: $license
+    ) {
+      ok
+      message
+      obj {
+        ${_NAMESPACE_OBJ_FIELDS}
+      }
+    }
+  }
+`;
+
+export interface UpdateAuthorityNamespaceInputs {
+  id: string;
+  displayName?: string | null;
+  jurisdiction?: string | null;
+  authorityType?: string | null;
+  aliases?: string[] | null;
+  isGlobal?: boolean | null;
+  authorityCorpusId?: string | null;
+  provider?: string | null;
+  sourceRootUrl?: string | null;
+  license?: string | null;
+}
+
+export interface UpdateAuthorityNamespaceOutputs {
+  updateAuthorityNamespace: {
+    ok: boolean;
+    message?: string | null;
+    obj?: AuthorityNamespaceMutationObj | null;
+  };
+}
+
+export const UPDATE_AUTHORITY_NAMESPACE = gql`
+  mutation UpdateAuthorityNamespace(
+    $id: ID!
+    $displayName: String
+    $jurisdiction: String
+    $authorityType: String
+    $aliases: [String]
+    $isGlobal: Boolean
+    $authorityCorpusId: ID
+    $provider: String
+    $sourceRootUrl: String
+    $license: String
+  ) {
+    updateAuthorityNamespace(
+      id: $id
+      displayName: $displayName
+      jurisdiction: $jurisdiction
+      authorityType: $authorityType
+      aliases: $aliases
+      isGlobal: $isGlobal
+      authorityCorpusId: $authorityCorpusId
+      provider: $provider
+      sourceRootUrl: $sourceRootUrl
+      license: $license
+    ) {
+      ok
+      message
+      obj {
+        ${_NAMESPACE_OBJ_FIELDS}
+      }
+    }
+  }
+`;
+
+export interface SetAuthorityNamespaceAliasesInputs {
+  id: string;
+  aliases: string[];
+}
+
+export interface SetAuthorityNamespaceAliasesOutputs {
+  setAuthorityNamespaceAliases: {
+    ok: boolean;
+    message?: string | null;
+    obj?: AuthorityNamespaceMutationObj | null;
+  };
+}
+
+export const SET_AUTHORITY_NAMESPACE_ALIASES = gql`
+  mutation SetAuthorityNamespaceAliases($id: ID!, $aliases: [String]!) {
+    setAuthorityNamespaceAliases(id: $id, aliases: $aliases) {
+      ok
+      message
+      obj {
+        ${_NAMESPACE_OBJ_FIELDS}
+      }
+    }
+  }
+`;
+
+export interface DeleteAuthorityNamespaceInputs {
+  id: string;
+}
+
+export interface DeleteAuthorityNamespaceOutputs {
+  deleteAuthorityNamespace: {
+    ok: boolean;
+    message?: string | null;
+  };
+}
+
+export const DELETE_AUTHORITY_NAMESPACE = gql`
+  mutation DeleteAuthorityNamespace($id: ID!) {
+    deleteAuthorityNamespace(id: $id) {
+      ok
+      message
+    }
+  }
+`;
+
 export const START_EXPORT_CORPUS = gql`
   mutation (
     $corpusId: String!

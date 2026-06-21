@@ -6,4 +6,5 @@ export { IngestionMonitor } from "./IngestionMonitor";
 export { AuthoritySourcesMonitor } from "./AuthoritySourcesMonitor";
 export { AuthorityMappings } from "./AuthorityMappings";
 export { AdminEnrichment } from "./AdminEnrichment";
+export { AuthorityConsole } from "./authority/AuthorityConsole";
 export { CorpusCategoryManagement } from "./corpus_categories/CorpusCategoryManagement";

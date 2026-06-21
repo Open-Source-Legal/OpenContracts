@@ -18,6 +18,21 @@
   inline `is_superuser` checks on `AuthorityFrontierNode` / `AuthorityKeyEquivalenceNode`
   `get_queryset`, `AuthorityKeyEquivalenceService`, `AuthorityFrontierService.admin_state_counts`,
   and `RunAuthorityDiscoveryMutation` to it (single seam to widen the role later).
+- **Unified Authority Console (frontend, `/admin/authority`).** New superuser-only
+  console (`frontend/src/components/admin/authority/`) that becomes the single front
+  door for managing legal authorities, replacing the three flat-sibling admin cards
+  (Authority Sources / Authority Mappings / Enrichment Runner) with one tabbed shell.
+  Phase 1 ships the **Registry** tab — a faceted, searchable master list of bodies of
+  law with an inline "new authority" create form — and a single-**authority detail**
+  view that joins, in one place, the namespace header (editable display name /
+  jurisdiction / type / advisory provider-license, with the registry-resolved
+  "effective provider" shown alongside), an inline **alias editor**, and read-only
+  **relationships** (key-equivalences), **discovery-queue** rows, and **reference**
+  demand. Reuses the existing design-system chrome via extracted shared primitives
+  (`FacetedStatsChips`, `useFacetedRelayList`, console chrome/tones) so there is zero
+  visual drift and no duplicated styling. The remaining concerns (relationship
+  editing, the discovery queue, scrapers/credentials, runs) are absorbed into real
+  tabs in later phases; until then their tab opens the existing standalone panel.
 
 ### Fixed
 - **Loader no longer clobbers admin-edited namespaces.** `AuthorityNamespace`

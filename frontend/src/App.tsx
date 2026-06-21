@@ -73,6 +73,7 @@ import {
   IngestionMonitor,
   AuthoritySourcesMonitor,
   AuthorityMappings,
+  AuthorityConsole,
   CorpusCategoryManagement,
   AdminEnrichment,
 } from "./components/admin";
@@ -420,6 +421,12 @@ export const App = () => {
             element={<WorkerAccountManagement />}
           />
           <Route path="/admin/ingestion" element={<IngestionMonitor />} />
+          {/*
+            Unified Authority Console (front door). The three standalone routes
+            below are absorbed into its tabs over Phases 2–5 and removed as each
+            concern lands; until then the console deep-links out to them.
+          */}
+          <Route path="/admin/authority/*" element={<AuthorityConsole />} />
           <Route
             path="/admin/authorities"
             element={<AuthoritySourcesMonitor />}

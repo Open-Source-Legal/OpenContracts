@@ -1268,6 +1268,280 @@ export const GET_AUTHORITY_MAPPING_STATS = gql`
   }
 `;
 
+// ---- Authority Namespaces (the registry of bodies of law) ----------------- //
+
+export interface AuthorityNamespaceCorpus {
+  id: string;
+  title?: string | null;
+}
+
+export interface AuthorityNamespaceNode {
+  id: string;
+  prefix: string;
+  displayName: string;
+  jurisdiction?: string | null;
+  authorityType?: string | null;
+  scope: string; // "global" | "corpus"
+  source: string; // "baseline" | "manual"
+  aliases: string[];
+  provider?: string | null;
+  sourceRootUrl?: string | null;
+  license?: string | null;
+  isGlobal: boolean;
+  effectiveProvider?: string | null;
+  equivalenceCount?: number | null;
+  frontierCount?: number | null;
+  referenceCount?: number | null;
+  createdByUsername?: string | null;
+  created?: string | null;
+  modified?: string | null;
+  authorityCorpus?: AuthorityNamespaceCorpus | null;
+}
+
+export interface GetAuthorityNamespacesInputs {
+  jurisdiction?: string | null;
+  authorityType?: string | null;
+  scope?: string | null;
+  search?: string | null;
+  first?: number | null;
+  after?: string | null;
+}
+
+export interface GetAuthorityNamespacesOutputs {
+  authorityNamespaces: {
+    pageInfo: { hasNextPage: boolean; endCursor?: string | null };
+    edges: { node: AuthorityNamespaceNode }[];
+  };
+}
+
+export const GET_AUTHORITY_NAMESPACES = gql`
+  query AuthorityNamespaces(
+    $jurisdiction: String
+    $authorityType: String
+    $scope: String
+    $search: String
+    $first: Int
+    $after: String
+  ) {
+    authorityNamespaces(
+      jurisdiction: $jurisdiction
+      authorityType: $authorityType
+      scope: $scope
+      search: $search
+      first: $first
+      after: $after
+    ) {
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+      edges {
+        node {
+          id
+          prefix
+          displayName
+          jurisdiction
+          authorityType
+          scope
+          source
+          aliases
+          provider
+          sourceRootUrl
+          license
+          isGlobal
+          effectiveProvider
+          equivalenceCount
+          frontierCount
+          referenceCount
+          createdByUsername
+          created
+          modified
+          authorityCorpus {
+            id
+            title
+          }
+        }
+      }
+    }
+  }
+`;
+
+export interface AuthorityNamespaceFacetCount {
+  value: string;
+  count: number;
+}
+
+export interface GetAuthorityNamespaceStatsInputs {
+  search?: string | null;
+}
+
+export interface GetAuthorityNamespaceStatsOutputs {
+  authorityNamespaceStats: {
+    totalCount: number;
+    byJurisdiction: AuthorityNamespaceFacetCount[];
+    byAuthorityType: AuthorityNamespaceFacetCount[];
+    byScope: AuthorityNamespaceFacetCount[];
+  };
+}
+
+export const GET_AUTHORITY_NAMESPACE_STATS = gql`
+  query AuthorityNamespaceStats($search: String) {
+    authorityNamespaceStats(search: $search) {
+      totalCount
+      byJurisdiction {
+        value
+        count
+      }
+      byAuthorityType {
+        value
+        count
+      }
+      byScope {
+        value
+        count
+      }
+    }
+  }
+`;
+
+export interface AuthorityDetailEquivalence {
+  id: string;
+  fromKey: string;
+  toKey: string;
+  source: string;
+  note?: string | null;
+  editable: boolean;
+  createdByUsername?: string | null;
+  modified?: string | null;
+}
+
+export interface AuthorityDetailFrontierRow {
+  id: string;
+  canonicalKey: string;
+  discoveryState: string;
+  mentionCount: number;
+  depth: number;
+  provider?: string | null;
+  lastError?: string | null;
+  ingestedDocument?: { id: string; title?: string | null } | null;
+}
+
+export interface AuthorityDetailReference {
+  id: string;
+  referenceType: string;
+  canonicalKey?: string | null;
+  resolutionStatus: string;
+  detectionTier?: string | null;
+  isProvisional: boolean;
+}
+
+export interface AuthorityDetailCount {
+  state?: string;
+  status?: string;
+  count: number;
+}
+
+export interface GetAuthorityNamespaceDetailInputs {
+  prefix: string;
+}
+
+export interface GetAuthorityNamespaceDetailOutputs {
+  authorityNamespaceDetail: {
+    namespace: AuthorityNamespaceNode;
+    equivalencesOut: AuthorityDetailEquivalence[];
+    equivalencesIn: AuthorityDetailEquivalence[];
+    frontierRows: AuthorityDetailFrontierRow[];
+    frontierStateCounts: { state: string; count: number }[];
+    referenceTotal: number;
+    referenceStatusCounts: { status: string; count: number }[];
+    referenceSample: AuthorityDetailReference[];
+    effectiveProvider?: string | null;
+  } | null;
+}
+
+export const GET_AUTHORITY_NAMESPACE_DETAIL = gql`
+  query AuthorityNamespaceDetail($prefix: String!) {
+    authorityNamespaceDetail(prefix: $prefix) {
+      namespace {
+        id
+        prefix
+        displayName
+        jurisdiction
+        authorityType
+        scope
+        source
+        aliases
+        provider
+        sourceRootUrl
+        license
+        isGlobal
+        effectiveProvider
+        equivalenceCount
+        frontierCount
+        referenceCount
+        createdByUsername
+        created
+        modified
+        authorityCorpus {
+          id
+          title
+        }
+      }
+      equivalencesOut {
+        id
+        fromKey
+        toKey
+        source
+        note
+        editable
+        createdByUsername
+        modified
+      }
+      equivalencesIn {
+        id
+        fromKey
+        toKey
+        source
+        note
+        editable
+        createdByUsername
+        modified
+      }
+      frontierRows {
+        id
+        canonicalKey
+        discoveryState
+        mentionCount
+        depth
+        provider
+        lastError
+        ingestedDocument {
+          id
+          title
+        }
+      }
+      frontierStateCounts {
+        state
+        count
+      }
+      referenceTotal
+      referenceStatusCounts {
+        status
+        count
+      }
+      referenceSample {
+        id
+        referenceType
+        canonicalKey
+        resolutionStatus
+        detectionTier
+        isProvisional
+      }
+      effectiveProvider
+    }
+  }
+`;
+
 // Lean analysis listing used to discover a corpus's reference-enrichment
 // Analysis (matched client-side on analyzer.taskName) so the document viewer
 // can auto-merge its reference-mention annotations into the annotation layer.
