@@ -3,7 +3,7 @@
 from typing import Any
 
 import graphene
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 from graphene import relay
 from graphene.types.generic import GenericScalar
 from graphene_django import DjangoObjectType
@@ -21,6 +21,7 @@ from opencontractserver.annotations.models import (
     AnnotationLabel,
     AuthorityFrontier,
     AuthorityKeyEquivalence,
+    AuthorityNamespace,
     CorpusReference,
     LabelSet,
     Note,
@@ -29,6 +30,9 @@ from opencontractserver.annotations.models import (
 )
 from opencontractserver.enrichment.services.authority_mapping_service import (
     MANUAL as MANUAL_SOURCE,
+)
+from opencontractserver.enrichment.services.authority_permissions import (
+    is_authority_admin,
 )
 from opencontractserver.shared.services.base import BaseService
 from opencontractserver.utils.permissioning import get_users_permissions_for_obj
@@ -286,7 +290,7 @@ class AuthorityFrontierNode(DjangoObjectType):
     @classmethod
     def get_queryset(cls, queryset: QuerySet, info: Any) -> QuerySet:
         user = getattr(info.context, "user", None)
-        if not (user and user.is_authenticated and user.is_superuser):
+        if not is_authority_admin(user):
             return queryset.none()
         # Backlog-first by default (most-cited wanted authorities lead); the
         # ``-mention_count, discovery_state`` index backs this ordering.
@@ -362,7 +366,7 @@ class AuthorityKeyEquivalenceNode(DjangoObjectType):
     @classmethod
     def get_queryset(cls, queryset: QuerySet, info: Any) -> QuerySet:
         user = getattr(info.context, "user", None)
-        if not (user and user.is_authenticated and user.is_superuser):
+        if not is_authority_admin(user):
             return queryset.none()
         return queryset.select_related("created_by").order_by("-modified")
 
@@ -395,6 +399,175 @@ class AuthorityMappingStatsType(graphene.ObjectType):
         required=True,
         description="Row count per source (only non-empty sources).",
     )
+
+
+class AuthorityNamespaceNode(DjangoObjectType):
+    """One ``AuthorityNamespace`` row: a body of law (canonical-key prefix) whose
+    ``aliases`` drive Tier-1 citation extraction.
+
+    Global reference data with no per-object permissions, so the connection is
+    **superuser-only**: ``get_queryset`` returns nothing for everyone else and
+    orders by ``prefix``. The ``*_count`` and ``effective_provider`` fields are
+    string-joined to the other authority models on demand (graphene resolves
+    them only when selected, so the master list pays only for what it shows).
+    """
+
+    aliases = graphene.List(
+        graphene.String, description="Lowercased surface forms feeding extraction."
+    )
+    # Choice-bearing model fields exposed as raw String (not the auto-generated
+    # uppercase GraphQL enum) so the values match the String filter + the stats
+    # chips — the same enum-name/value-mismatch guard the filters.py facets use.
+    source = graphene.String(description="'baseline' or 'manual' (ownership).")
+    authority_type = graphene.String(description="Raw authority_type value.")
+    scope = graphene.String(description="'global' or 'corpus' (derived).")
+    equivalence_count = graphene.Int(
+        description="Key-equivalences whose from/to key is under this prefix."
+    )
+    frontier_count = graphene.Int(
+        description="Discovery-queue rows for this authority."
+    )
+    reference_count = graphene.Int(
+        description="CorpusReferences whose canonical_key is under this prefix."
+    )
+    effective_provider = graphene.String(
+        description=(
+            "Registry class-name that would actually handle this prefix "
+            "(by can_handle/priority) — contrast with the advisory 'provider' "
+            "column. Null when no provider can handle it."
+        )
+    )
+    created_by_username = graphene.String(
+        description="Curator who created/edited this manual row (else null)."
+    )
+
+    class Meta:
+        model = AuthorityNamespace
+        interfaces = [relay.Node]
+        connection_class = CountableConnection
+        # ``source`` / ``authority_type`` are declared explicitly above (raw
+        # String, not auto-enum) so they are intentionally absent here.
+        fields = (
+            "id",
+            "prefix",
+            "display_name",
+            "jurisdiction",
+            "provider",
+            "source_root_url",
+            "license",
+            "is_global",
+            "authority_corpus",
+            "created",
+            "modified",
+        )
+
+    @classmethod
+    def get_queryset(cls, queryset: QuerySet, info: Any) -> QuerySet:
+        user = getattr(info.context, "user", None)
+        if not is_authority_admin(user):
+            return queryset.none()
+        return queryset.select_related("authority_corpus", "created_by").order_by(
+            "prefix"
+        )
+
+    def resolve_aliases(self, info):
+        return self.aliases or []
+
+    def resolve_scope(self, info):
+        return "global" if self.is_global else "corpus"
+
+    def resolve_equivalence_count(self, info) -> int:
+        kp = f"{self.prefix}:"
+        return AuthorityKeyEquivalence.objects.filter(
+            Q(from_key__startswith=kp) | Q(to_key__startswith=kp)
+        ).count()
+
+    def resolve_frontier_count(self, info) -> int:
+        return AuthorityFrontier.objects.filter(authority=self.prefix).count()
+
+    def resolve_reference_count(self, info) -> int:
+        return CorpusReference.objects.filter(
+            canonical_key__startswith=f"{self.prefix}:"
+        ).count()
+
+    def resolve_effective_provider(self, info):
+        from opencontractserver.enrichment.services import AuthorityNamespaceService
+
+        return AuthorityNamespaceService._effective_provider(self.prefix)
+
+    def resolve_created_by_username(self, info):
+        return self.created_by.username if self.created_by_id else None
+
+
+class AuthorityNamespaceFacetCountType(graphene.ObjectType):
+    """One facet value (jurisdiction / authority_type / scope) and its row count."""
+
+    value = graphene.String(description="The facet value (null collapses to '').")
+    count = graphene.Int(required=True)
+
+
+class AuthorityNamespaceStatsType(graphene.ObjectType):
+    """Faceted summary counts for the registry panel's chips.
+
+    Honours ``search`` but not the facet selects, so chips show the full
+    breakdown for the current search (mirrors ``AuthorityMappingStatsType``).
+    """
+
+    total_count = graphene.Int(required=True)
+    by_jurisdiction = graphene.List(
+        graphene.NonNull(AuthorityNamespaceFacetCountType), required=True
+    )
+    by_authority_type = graphene.List(
+        graphene.NonNull(AuthorityNamespaceFacetCountType), required=True
+    )
+    by_scope = graphene.List(
+        graphene.NonNull(AuthorityNamespaceFacetCountType), required=True
+    )
+
+
+class AuthorityReferenceStatusCountType(graphene.ObjectType):
+    """One ``resolution_status`` and how many references under a prefix carry it."""
+
+    status = graphene.String(required=True)
+    count = graphene.Int(required=True)
+
+
+class AuthorityDetailType(graphene.ObjectType):
+    """Everything about one body of law, string-joined across the authority models.
+
+    The console's single-authority view. Superuser-gated at the service layer
+    (``AuthorityNamespaceService.detail``); the nested node types are returned as
+    pre-fetched instances, so their own connection gates are not re-applied (the
+    service already enforced access).
+    """
+
+    namespace = graphene.Field(AuthorityNamespaceNode, required=True)
+    equivalences_out = graphene.List(
+        graphene.NonNull(AuthorityKeyEquivalenceNode),
+        required=True,
+        description="Equivalences FROM a key under this prefix.",
+    )
+    equivalences_in = graphene.List(
+        graphene.NonNull(AuthorityKeyEquivalenceNode),
+        required=True,
+        description="Equivalences TO a key under this prefix.",
+    )
+    frontier_rows = graphene.List(
+        graphene.NonNull(AuthorityFrontierNode), required=True
+    )
+    frontier_state_counts = graphene.List(
+        graphene.NonNull(AuthorityFrontierStateCountType), required=True
+    )
+    reference_total = graphene.Int(required=True)
+    reference_status_counts = graphene.List(
+        graphene.NonNull(AuthorityReferenceStatusCountType), required=True
+    )
+    reference_sample = graphene.List(
+        graphene.NonNull(CorpusReferenceType),
+        required=True,
+        description="Most-recent references under this prefix (capped).",
+    )
+    effective_provider = graphene.String()
 
 
 class RelationInputType(AnnotatePermissionsForReadMixin, graphene.InputObjectType):

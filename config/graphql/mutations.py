@@ -50,6 +50,12 @@ from config.graphql.authority_mapping_mutations import (
     DeleteAuthorityKeyEquivalenceMutation,
     UpdateAuthorityKeyEquivalenceMutation,
 )
+from config.graphql.authority_namespace_mutations import (
+    CreateAuthorityNamespaceMutation,
+    DeleteAuthorityNamespaceMutation,
+    SetAuthorityNamespaceAliasesMutation,
+    UpdateAuthorityNamespaceMutation,
+)
 
 # Import badge mutations
 from config.graphql.badge_mutations import (
@@ -391,6 +397,10 @@ class Mutation(graphene.ObjectType):
     create_authority_key_equivalence = CreateAuthorityKeyEquivalenceMutation.Field()
     update_authority_key_equivalence = UpdateAuthorityKeyEquivalenceMutation.Field()
     delete_authority_key_equivalence = DeleteAuthorityKeyEquivalenceMutation.Field()
+    create_authority_namespace = CreateAuthorityNamespaceMutation.Field()
+    update_authority_namespace = UpdateAuthorityNamespaceMutation.Field()
+    set_authority_namespace_aliases = SetAuthorityNamespaceAliasesMutation.Field()
+    delete_authority_namespace = DeleteAuthorityNamespaceMutation.Field()
 
     # EXTRACT MUTATIONS ##########################################################
     create_fieldset = CreateFieldset.Field()

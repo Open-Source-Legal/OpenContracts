@@ -2082,10 +2082,30 @@ class AuthorityNamespace(django.db.models.Model):
     )
     # Surface forms seen in text (lowercased), fed into the extractor alias map.
     aliases = django.db.models.JSONField(default=list, blank=True)
-    # Routing / provenance (populated by later phases; nullable now).
+    # Routing / provenance metadata. ADVISORY ONLY: provider selection at
+    # discovery time is by the registry's class-level ``can_handle()`` / priority,
+    # NOT by reading these columns. They record operator-supplied provenance and
+    # are surfaced (clearly labelled "advisory") in the admin console.
     provider = django.db.models.CharField(max_length=64, null=True, blank=True)
     source_root_url = django.db.models.URLField(max_length=500, null=True, blank=True)
     license = django.db.models.CharField(max_length=64, null=True, blank=True)
+
+    # Ownership marker mirroring AuthorityKeyEquivalence.source: a row is
+    # ``baseline`` when the loader owns it (upserted from authority_mappings.yaml)
+    # and ``manual`` once it is created or edited through the admin console. The
+    # loader (AuthorityMappingLoader.load_namespaces) NEVER overwrites a
+    # ``manual`` row, so a re-load can't clobber a curator's edits — exactly the
+    # source-ownership partition the equivalence loader already enforces.
+    SOURCE_CHOICES = [
+        ("baseline", "Shipped baseline (loader-managed)"),
+        ("manual", "Hand-curated (runtime override)"),
+    ]
+    source = django.db.models.CharField(
+        max_length=16,
+        choices=SOURCE_CHOICES,
+        default="baseline",
+        db_index=True,
+    )
     # Global namespaces always contribute aliases; corpus-linked ones only when
     # the corpus is visible (wired in authority_alias_registry).
     is_global = django.db.models.BooleanField(default=True, db_index=True)
@@ -2095,6 +2115,16 @@ class AuthorityNamespace(django.db.models.Model):
         null=True,
         blank=True,
         related_name="authority_namespaces",
+    )
+    # Provenance "who": set on rows created/edited through the admin console
+    # (source="manual"). Null for loader-owned baseline rows. SET_NULL so
+    # deleting the curator keeps the namespace.
+    created_by = django.db.models.ForeignKey(
+        get_user_model(),
+        on_delete=django.db.models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="authored_authority_namespaces",
     )
     created = django.db.models.DateTimeField(auto_now_add=True)
     modified = django.db.models.DateTimeField(auto_now=True)

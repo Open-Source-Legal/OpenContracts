@@ -94,19 +94,32 @@ class AuthorityMappingLoader:
     def load_namespaces(cls, *, path: Path | str | None = None) -> dict:
         """Upsert global ``AuthorityNamespace`` registry rows from ``prefixes:``.
 
-        Skips corpus-linked rows (``is_global=False``, bootstrap-owned) so a
-        re-load never flips a corpus namespace to global. Returns
-        ``{created, updated, skipped_corpus_linked, total}``.
+        Source-ownership partition (the loader owns only ``baseline``): a
+        pre-existing row is left untouched when EITHER
+
+        - it is corpus-linked (``is_global=False``, bootstrap-owned) — a re-load
+          must never flip a corpus namespace to global (see
+          ``AuthorityNamespace.save()``), OR
+        - it is ``source="manual"`` — a curator created/edited it through the
+          admin console; clobbering it on the next loader run would silently
+          discard the operator's edits.
+
+        Mirrors the equivalence loader's ``skipped_owned`` guard exactly.
+        Returns ``{created, updated, skipped_corpus_linked, skipped_manual,
+        total}``.
         """
         prefixes = _mappings.iter_prefixes(path)
 
-        created = updated = skipped_corpus_linked = 0
+        created = updated = skipped_corpus_linked = skipped_manual = 0
         for prefix, spec in prefixes.items():
             existing = AuthorityNamespace.objects.filter(prefix=prefix).first()
             if existing is not None and existing.authority_corpus_id:
-                # A corpus-scoped namespace owns this prefix; never overwrite it
-                # (it must stay is_global=False — see AuthorityNamespace.save()).
+                # A corpus-scoped namespace owns this prefix; never overwrite it.
                 skipped_corpus_linked += 1
+                continue
+            if existing is not None and existing.source == cls.MANUAL:
+                # A curator owns this prefix via the admin console; never clobber.
+                skipped_manual += 1
                 continue
 
             _, was_created = AuthorityNamespace.objects.update_or_create(
@@ -117,6 +130,7 @@ class AuthorityMappingLoader:
                     "authority_type": spec["authority_type"],
                     "aliases": sorted(set(spec["aliases"])),
                     "is_global": True,
+                    "source": cls.BASELINE,
                 },
             )
             created += int(was_created)
@@ -126,6 +140,7 @@ class AuthorityMappingLoader:
             "created": created,
             "updated": updated,
             "skipped_corpus_linked": skipped_corpus_linked,
+            "skipped_manual": skipped_manual,
             "total": len(prefixes),
         }
 

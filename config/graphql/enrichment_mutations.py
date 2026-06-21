@@ -21,6 +21,10 @@ from opencontractserver.analyzer.services.analysis_lifecycle_service import (
 )
 from opencontractserver.enrichment import constants as C
 from opencontractserver.enrichment.services import EnrichmentService
+from opencontractserver.enrichment.services.authority_permissions import (
+    DENIED,
+    is_authority_admin,
+)
 from opencontractserver.enrichment.services.crawl_authorities_service import (
     CrawlAuthoritiesService,
 )
@@ -287,14 +291,10 @@ class RunAuthorityDiscoveryMutation(graphene.Mutation):
     @login_required
     def mutate(root, info, frontier_ids):
         user = info.context.user
-        if not getattr(user, "is_superuser", False):
+        if not is_authority_admin(user):
             # Same opaque message whether the rows exist or the user lacks
             # access — the frontier is superuser-only, no existence oracle.
-            return RunAuthorityDiscoveryMutation(
-                ok=False,
-                message="Resource not found or you do not have permission.",
-                count=0,
-            )
+            return RunAuthorityDiscoveryMutation(ok=False, message=DENIED, count=0)
 
         pks: list[int] = []
         for gid in frontier_ids:

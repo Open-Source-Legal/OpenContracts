@@ -18,6 +18,7 @@ from graphql_relay import from_global_id, to_global_id
 from config.graphql.filters import (
     AuthorityFrontierFilter,
     AuthorityKeyEquivalenceFilter,
+    AuthorityNamespaceFilter,
     LabelFilter,
     LabelsetFilter,
     RelationshipFilter,
@@ -25,10 +26,13 @@ from config.graphql.filters import (
 from config.graphql.graphene_types import (
     AnnotationLabelType,
     AnnotationType,
+    AuthorityDetailType,
     AuthorityFrontierNode,
     AuthorityFrontierStatsType,
     AuthorityKeyEquivalenceNode,
     AuthorityMappingStatsType,
+    AuthorityNamespaceNode,
+    AuthorityNamespaceStatsType,
     CorpusReferenceType,
     GovernanceGraphCorpusType,
     GovernanceGraphEdgeType,
@@ -361,6 +365,52 @@ class AnnotationQueryMixin:
         )
 
         return AuthorityKeyEquivalenceService.stats(info.context.user, search=search)
+
+    # AUTHORITY NAMESPACES (global registry, superuser-only) ###
+    authority_namespaces = DjangoFilterConnectionField(
+        AuthorityNamespaceNode,
+        filterset_class=AuthorityNamespaceFilter,
+        description=(
+            "The registry of bodies of law (AuthorityNamespace): one row per "
+            "canonical-key prefix (e.g. 'usc-15', 'dgcl') whose aliases drive "
+            "Tier-1 citation extraction. SUPERUSER-ONLY (empty otherwise) — "
+            "gating + default order live on the node's get_queryset."
+        ),
+    )
+
+    authority_namespace_stats = graphene.Field(
+        AuthorityNamespaceStatsType,
+        search=graphene.String(required=False),
+        required=True,
+        description=(
+            "Faceted per-jurisdiction / authority_type / scope row counts for "
+            "the registry panel's summary chips. Honours the search facet but "
+            "not the facet selects. SUPERUSER-ONLY (empty otherwise)."
+        ),
+    )
+
+    authority_namespace_detail = graphene.Field(
+        AuthorityDetailType,
+        prefix=graphene.String(required=True),
+        description=(
+            "Everything about one body of law, string-joined across the "
+            "authority models: the namespace + its aliases, in/out key-"
+            "equivalences, discovery-queue rows, and reference demand. "
+            "SUPERUSER-ONLY (null otherwise or for an unknown prefix)."
+        ),
+    )
+
+    @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
+    def resolve_authority_namespace_stats(self, info, search=None) -> Any:
+        from opencontractserver.enrichment.services import AuthorityNamespaceService
+
+        return AuthorityNamespaceService.stats(info.context.user, search=search)
+
+    @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_MEDIUM"))
+    def resolve_authority_namespace_detail(self, info, prefix) -> Any:
+        from opencontractserver.enrichment.services import AuthorityNamespaceService
+
+        return AuthorityNamespaceService.detail(info.context.user, prefix)
 
     # ANNOTATION RESOLVERS #####################################
     annotations = DjangoConnectionField(
