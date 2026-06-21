@@ -8,7 +8,11 @@ stats, the string-joined detail projection), the loader's source-ownership guard
 superuser-only GraphQL connection / detail / stats / mutations.
 """
 
+from unittest import mock
+
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
+from django.db import IntegrityError
 from django.test import TestCase
 from graphql_relay import to_global_id
 
@@ -149,6 +153,108 @@ class AuthorityNamespaceServiceTests(TestCase):
         ns.refresh_from_db()
         assert ns.jurisdiction is None
 
+    def test_update_unknown_pk_denied(self):
+        # A pk that doesn't exist is opaque (no existence oracle): DENIED, not 404.
+        res = AuthorityNamespaceService.update(
+            self.superuser, pk=987654321, display_name="X"
+        )
+        assert not res.ok
+        assert res.obj is None
+
+    def test_update_persists_all_partial_fields(self):
+        # Per-field partial updates the round-trip GraphQL test doesn't exercise:
+        # authority_type / provider / source_root_url / license / is_global, and
+        # the _clean() strip-to-None for the nullable string columns.
+        corpus = Corpus.objects.create(title="C", creator=self.superuser)
+        ns = AuthorityNamespace.objects.create(
+            prefix="zz-fields", display_name="X", is_global=True
+        )
+        res = AuthorityNamespaceService.update(
+            self.superuser,
+            pk=ns.pk,
+            authority_type="regulation",
+            provider="  USCodeAuthoritySourceProvider  ",
+            source_root_url="  https://example.test  ",
+            license="  public-domain  ",
+            is_global=False,
+            authority_corpus_id=corpus.id,
+        )
+        assert res.ok, res.error
+        ns.refresh_from_db()
+        assert ns.authority_type == "regulation"
+        # _clean strips surrounding whitespace on the advisory string columns.
+        assert ns.provider == "USCodeAuthoritySourceProvider"
+        assert ns.source_root_url == "https://example.test"
+        assert ns.license == "public-domain"
+        # A corpus link forces non-global even though we passed is_global=False.
+        assert ns.is_global is False
+        assert ns.authority_corpus_id == corpus.id
+
+    def test_update_backfills_created_by_when_null(self):
+        # A baseline row seeded with no creator gets stamped on first edit.
+        ns = AuthorityNamespace.objects.create(
+            prefix="zz-nocreator", display_name="X", source="baseline"
+        )
+        assert ns.created_by_id is None
+        res = AuthorityNamespaceService.update(
+            self.superuser, pk=ns.pk, display_name="Edited"
+        )
+        assert res.ok, res.error
+        ns.refresh_from_db()
+        assert ns.created_by_id == self.superuser.id
+
+    def test_update_rejects_bad_authority_type(self):
+        ns = AuthorityNamespace.objects.create(prefix="zz", display_name="X")
+        res = AuthorityNamespaceService.update(
+            self.superuser, pk=ns.pk, authority_type="not-a-type"
+        )
+        assert not res.ok
+        assert "authority_type" in res.error
+        ns.refresh_from_db()
+        assert ns.authority_type in (None, "")
+
+    def test_update_surfaces_save_exception_as_error(self):
+        # The save-time guard: a ValidationError raised by save() (carrying a
+        # .messages list) is surfaced as a clean operation error, not a 500.
+        ns = AuthorityNamespace.objects.create(prefix="zz-saveerr", display_name="X")
+        with mock.patch.object(
+            AuthorityNamespace, "save", side_effect=ValidationError("boom-update")
+        ):
+            res = AuthorityNamespaceService.update(
+                self.superuser, pk=ns.pk, display_name="Edited"
+            )
+        assert not res.ok
+        assert "boom-update" in res.error
+
+    def test_create_surfaces_save_exception_as_error(self):
+        # The create save-time guard (ValidationError path, .messages join).
+        with mock.patch.object(
+            AuthorityNamespace, "save", side_effect=ValidationError("boom-create")
+        ):
+            res = AuthorityNamespaceService.create(
+                self.superuser, prefix="zz-create-err", display_name="X"
+            )
+        assert not res.ok
+        assert "boom-create" in res.error
+        assert not AuthorityNamespace.objects.filter(prefix="zz-create-err").exists()
+
+    def test_create_surfaces_integrity_error_as_error(self):
+        # The IntegrityError branch of the create save-guard + the plain-str()
+        # branch of _error_text (an IntegrityError has no .messages list).
+        with mock.patch.object(
+            AuthorityNamespace, "save", side_effect=IntegrityError("dup-key")
+        ):
+            res = AuthorityNamespaceService.create(
+                self.superuser, prefix="zz-int-err", display_name="X"
+            )
+        assert not res.ok
+        assert "dup-key" in res.error
+
+    def test_delete_unknown_pk_denied(self):
+        res = AuthorityNamespaceService.delete(self.superuser, pk=987654321)
+        assert not res.ok
+        assert res.obj is None
+
     # ---- aliases -------------------------------------------------------------
     def test_set_aliases_normalises(self):
         ns = AuthorityNamespace.objects.create(prefix="zz", display_name="X")
@@ -226,6 +332,16 @@ class AuthorityNamespaceServiceTests(TestCase):
     def test_detail_non_admin_none(self):
         AuthorityNamespace.objects.create(prefix="zz", display_name="X")
         assert AuthorityNamespaceService.detail(self.regular, "zz") is None
+
+    def test_detail_effective_provider_none_when_unhandled(self):
+        # _effective_provider is best-effort: a prefix no registered provider
+        # handles yields None gracefully (the detail call must not raise).
+        AuthorityNamespace.objects.create(
+            prefix="zz-noprovider", display_name="No Provider Body"
+        )
+        detail = AuthorityNamespaceService.detail(self.superuser, "zz-noprovider")
+        assert detail is not None
+        assert detail.effective_provider is None
 
 
 class AuthorityNamespaceLoaderGuardTests(TestCase):

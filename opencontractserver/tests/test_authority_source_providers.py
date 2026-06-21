@@ -45,6 +45,20 @@ class AuthoritySourceProviderServiceTests(TestCase):
     def test_empty_for_non_admin(self):
         assert AuthoritySourceProviderService.list_providers(self.regular) == []
 
+    def test_vault_read_failure_does_not_break_listing(self):
+        # A secrets-vault read error must NOT break the provider listing: the
+        # service logs a warning, treats secrets as empty, and still returns the
+        # registry rows with has_credentials=False.
+        from unittest import mock
+
+        with mock.patch(
+            "opencontractserver.documents.models.PipelineSettings.get_instance",
+            side_effect=RuntimeError("vault down"),
+        ):
+            rows = AuthoritySourceProviderService.list_providers(self.superuser)
+        assert rows, "listing must survive a vault read failure"
+        assert all(r["has_credentials"] is False for r in rows)
+
 
 class _Ctx:
     def __init__(self, user):
