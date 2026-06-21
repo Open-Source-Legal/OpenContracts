@@ -76,46 +76,50 @@ export const CorpusLanguageModelCard: React.FC<
   const [updateCorpusLlm, { loading: updatingLlm }] = useMutation<
     UpdateCorpusOutputs,
     UpdateCorpusInputs
-  >(UPDATE_CORPUS, {
-    onCompleted: (data) => {
-      if (data.updateCorpus?.ok) {
-        toast.success("Updated corpus language model");
-        setOriginalLlm(llmDraft.trim());
-      } else {
-        setLlmDraft(originalLlm);
-        toast.error(
-          data.updateCorpus?.message || "Failed to update language model"
-        );
-      }
-    },
-    onError: (err) => {
-      setLlmDraft(originalLlm);
-      toast.error(err.message);
-    },
-    update: (cache, { data }) => {
-      if (data?.updateCorpus?.ok && corpusId) {
-        const cacheId = cache.identify({
-          __typename: "CorpusType",
-          id: corpusId,
-        });
-        if (cacheId) {
-          cache.modify({
-            id: cacheId,
-            fields: {
-              preferredLlm: () => llmDraft.trim() || null,
-            },
-          });
-        }
-      }
-    },
-  });
+  >(UPDATE_CORPUS);
 
   // Send the empty string to clear (backend normalises "" → NULL = inherit).
   const handleLlmSave = () => {
+    // Snapshot the submitted and rollback values up front so the success/error
+    // handlers and the cache write all act on what was actually sent — never a
+    // draft the user might mutate while the save is in flight.
+    const submittedValue = llmDraft.trim();
+    const rollbackValue = originalLlm;
     updateCorpusLlm({
       variables: {
         id: corpusId,
-        preferredLlm: llmDraft.trim(),
+        preferredLlm: submittedValue,
+      },
+      onCompleted: (data) => {
+        if (data.updateCorpus?.ok) {
+          toast.success("Updated corpus language model");
+          setOriginalLlm(submittedValue);
+        } else {
+          setLlmDraft(rollbackValue);
+          toast.error(
+            data.updateCorpus?.message || "Failed to update language model"
+          );
+        }
+      },
+      onError: (err) => {
+        setLlmDraft(rollbackValue);
+        toast.error(err.message);
+      },
+      update: (cache, { data }) => {
+        if (data?.updateCorpus?.ok && corpusId) {
+          const cacheId = cache.identify({
+            __typename: "CorpusType",
+            id: corpusId,
+          });
+          if (cacheId) {
+            cache.modify({
+              id: cacheId,
+              fields: {
+                preferredLlm: () => submittedValue || null,
+              },
+            });
+          }
+        }
       },
     });
   };

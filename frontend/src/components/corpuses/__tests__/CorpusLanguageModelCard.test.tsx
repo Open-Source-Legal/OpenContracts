@@ -239,4 +239,28 @@ describe("CorpusLanguageModelCard", () => {
     expect(screen.getByText("Language Model")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
   });
+
+  it("shows the inherited-default hint in read-only mode with no override", async () => {
+    // canUpdate=false skips GET_LLM_PROVIDERS, but the inherited-default hint
+    // must still render so a viewer can see which model the corpus actually
+    // uses when it has no override of its own.
+    render(
+      <MockedProvider mocks={[defaultLlmMock]} addTypename={false}>
+        <CorpusLanguageModelCard
+          corpusId="corpus-1"
+          initialPreferredLlm={null}
+          canUpdate={false}
+        />
+      </MockedProvider>
+    );
+
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+    // Once the default-LLM query resolves, the hint surfaces the actual
+    // inherited spec rather than the generic "leave empty" placeholder.
+    await waitFor(() =>
+      expect(screen.getByTestId("llm-inherited-hint")).toHaveTextContent(
+        "openai:gpt-4o"
+      )
+    );
+  });
 });
