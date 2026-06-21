@@ -380,7 +380,10 @@ class OCClient:
         payload = data["tokenAuth"]
         self._token = payload["token"]
         self._refresh_token = payload.get("refreshToken")
-        logger.info("Authenticated as %s", username)
+        # Do not log the username: it is unpacked from the same _credentials()
+        # tuple as the password, so static analysis (correctly, conservatively)
+        # taints it as credential-derived. A static confirmation is enough.
+        logger.info("Authenticated successfully")
 
     def _refresh(self) -> bool:
         with self._auth_lock:
