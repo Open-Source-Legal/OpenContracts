@@ -20,6 +20,8 @@ from typing import Any
 
 from asgiref.sync import sync_to_async
 
+from opencontractserver.constants.llm import DEFAULT_COMPLETION_TEMPERATURE
+
 __all__ = ["agenerate_text"]
 
 
@@ -29,7 +31,7 @@ async def agenerate_text(
     instructions: str | None = None,
     model: str | None = None,
     corpus_preferred: str | None = None,
-    temperature: float | None = 0.7,
+    temperature: float | None = DEFAULT_COMPLETION_TEMPERATURE,
     max_tokens: int | None = None,
 ) -> str:
     """Run a single-turn LLM completion using the project LLM registry.

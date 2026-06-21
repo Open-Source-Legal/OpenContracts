@@ -40,11 +40,23 @@ describe("LlmModelPicker", () => {
     expect(hint).toHaveTextContent("openai:gpt-4o");
   });
 
-  it("falls back to a generic hint when no inherited spec is provided", () => {
-    render(<LlmModelPicker value="" onChange={() => {}} providers={[]} />);
+  it("falls back to a generic hint when inheritedSpec is null (inherit concept, no value yet)", () => {
+    render(
+      <LlmModelPicker
+        value=""
+        onChange={() => {}}
+        providers={[]}
+        inheritedSpec={null}
+      />
+    );
     expect(screen.getByTestId("llm-inherited-hint")).toHaveTextContent(
       "Leave empty to inherit the server default model."
     );
+  });
+
+  it("shows no inherit hint when inheritedSpec is omitted (e.g. install-wide System Settings)", () => {
+    render(<LlmModelPicker value="" onChange={() => {}} providers={[]} />);
+    expect(screen.queryByTestId("llm-inherited-hint")).toBeNull();
   });
 
   it("does not fire onChange when a disabled chip is clicked", () => {

@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
 
+from opencontractserver.constants.llm import DEFAULT_COMPLETION_TEMPERATURE
 from opencontractserver.llms.completions import agenerate_text
 
 
@@ -92,7 +93,9 @@ class AgenerateTextTests(SimpleTestCase):
         args, kwargs = mock_make.call_args
         self.assertEqual(args[0], "BUILT::anthropic:claude-haiku-4-5")
         self.assertEqual(kwargs["instructions"], "be concise")
-        self.assertEqual(kwargs["model_settings"]["temperature"], 0.7)
+        self.assertEqual(
+            kwargs["model_settings"]["temperature"], DEFAULT_COMPLETION_TEMPERATURE
+        )
         fake_agent.run.assert_awaited_once_with("prompt text")
 
     async def test_falls_back_to_settings_default(self) -> None:

@@ -72,7 +72,7 @@ class CorpusSerializer(serializers.ModelSerializer):
         ]
 
     def validate_preferred_llm(self, value: str | None) -> str | None:
-        """Normalise empty / whitespace ``preferred_llm`` to ``None``.
+        """Normalise ``""`` / whitespace to ``None`` and validate the spec.
 
         The corpus update mutation documents ``""`` as "clear the
         override," but the DB column is nullable and the resolver
@@ -82,10 +82,32 @@ class CorpusSerializer(serializers.ModelSerializer):
         empty-string rows).  Normalising at the serializer layer keeps
         the DB state consistent regardless of which input the frontend
         sends.
+
+        A non-empty value must also be a well-formed, registered
+        pydantic-ai model spec (``"provider:model"``).  ``Corpus.save()``
+        already enforces this, but a model-layer ``ValidationError`` raised
+        from ``save()`` is caught by the mutation base as a generic
+        "internal error" rather than a clean field message (the free-text
+        picker lets a user type an unregistered provider / malformed spec).
+        Validating here — *before* ``save()`` — surfaces the real reason as
+        a DRF field error the mutation renders as ``ok=False`` with a
+        helpful message.  Normalisation is left to ``Corpus.save()`` so it
+        stays the single source of truth for the canonical stored form.
         """
         if value is None or not value.strip():
             return None
-        return value
+        cleaned = value.strip()
+
+        from opencontractserver.llms.llm_registry import (
+            LLMProviderNotRegistered,
+            validate_model_spec,
+        )
+
+        try:
+            validate_model_spec(cleaned)
+        except (LLMProviderNotRegistered, ValueError) as exc:
+            raise serializers.ValidationError(str(exc)) from exc
+        return cleaned
 
     def validate(self, attrs) -> Any:
         attrs = super().validate(attrs)

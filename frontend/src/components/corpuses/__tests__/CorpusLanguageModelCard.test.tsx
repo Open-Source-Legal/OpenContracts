@@ -185,6 +185,46 @@ describe("CorpusLanguageModelCard", () => {
     ).toBeNull();
   });
 
+  it("sends an empty string (not undefined) when clearing then saving", async () => {
+    // Pins the PR's load-bearing contract: the UPDATE_CORPUS var is nullable
+    // String (not String!), so clearing transmits "" — which the backend
+    // serializer normalises to NULL — rather than dropping the field.
+    const clearMock = {
+      request: {
+        query: UPDATE_CORPUS,
+        variables: { id: "corpus-1", preferredLlm: "" },
+      },
+      result: { data: { updateCorpus: { ok: true, message: "ok" } } },
+    };
+
+    render(
+      <MockedProvider
+        mocks={[providersMock, defaultLlmMock, clearMock]}
+        addTypename={false}
+      >
+        <CorpusLanguageModelCard
+          corpusId="corpus-1"
+          initialPreferredLlm={SELECTED_SPEC}
+          canUpdate
+        />
+      </MockedProvider>
+    );
+
+    const clearBtn = await screen.findByRole("button", {
+      name: /clear \(use default\)/i,
+    });
+    fireEvent.click(clearBtn);
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    // If the empty-string variable did not match the mock, MockedProvider
+    // would error and toast.success would never fire.
+    await waitFor(() =>
+      expect(toast.success).toHaveBeenCalledWith(
+        "Updated corpus language model"
+      )
+    );
+  });
+
   it("renders read-only (no Save button) when canUpdate is false", () => {
     render(
       <MockedProvider mocks={[defaultLlmMock]} addTypename={false}>

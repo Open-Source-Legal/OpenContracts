@@ -99,7 +99,11 @@ export const LlmModelPicker: React.FC<LlmModelPickerProps> = ({
         </p>
       )}
 
-      {isEmpty && (
+      {/* Only surface the "inherit" hint when the caller opts into the
+          concept by passing `inheritedSpec` (even `null`). System Settings —
+          the install-wide default, which has nothing higher to inherit —
+          omits the prop entirely and so shows no hint. */}
+      {isEmpty && inheritedSpec !== undefined && (
         <p
           data-testid="llm-inherited-hint"
           style={{
@@ -185,7 +189,14 @@ export const LlmModelPicker: React.FC<LlmModelPickerProps> = ({
                           type="button"
                           aria-pressed={selected}
                           disabled={disabled}
-                          onClick={() => onChange(spec)}
+                          // Guard in the handler too (not just the native
+                          // `disabled` attribute) so the no-op is the
+                          // component's own contract, independent of the
+                          // element type.
+                          onClick={() => {
+                            if (disabled) return;
+                            onChange(spec);
+                          }}
                           style={{
                             padding: "0.25rem 0.625rem",
                             fontSize: "0.75rem",
