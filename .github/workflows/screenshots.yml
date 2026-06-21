@@ -39,7 +39,7 @@ jobs:
           echo "Resolved PR #$PR_NUMBER → $HEAD_REF"
 
       - name: Checkout PR branch
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ steps.pr.outputs.head_ref }}
           # Fetch enough history so we can rebase onto the base branch.
