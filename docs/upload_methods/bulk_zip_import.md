@@ -26,6 +26,14 @@ root provide metadata overrides and document-to-document relationships.
 The import runs asynchronously via Celery and returns a `jobId` for progress
 tracking.
 
+> **Bulk-loading a very large local collection (100k+ files)?** Use the
+> resumable CLI driver at `scripts/bulk_import/oc_bulk_import.py`. It walks a
+> local directory tree, packs the files into right-sized ZIPs that feed this
+> same `zip-to-corpus` endpoint (mirroring the folder structure), paces itself
+> against the corpus parse backlog, and records progress in a SQLite ledger so
+> the job is crash-resumable. See `scripts/bulk_import/README.md` for the full
+> operational runbook.
+
 ## ZIP File Structure
 
 A typical ZIP for import:

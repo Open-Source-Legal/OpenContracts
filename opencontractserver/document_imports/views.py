@@ -70,6 +70,8 @@ from opencontractserver.document_imports.services import (
     start_chunked_upload,
     store_chunk,
 )
+from opencontractserver.worker_uploads.auth import WorkerTokenAuthentication
+from opencontractserver.worker_uploads.models import CorpusAccessToken
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +95,22 @@ def _public_permission_message(code: str) -> str:
             "By default, usage-capped users cannot bulk upload documents. "
             "Please contact the admin to authorize your account."
         )
+    if code == DocumentImportPermissionError.CORPUS_FORBIDDEN:
+        # Anti-enumeration: the service collapses "corpus does not exist" and
+        # "token not bound to this corpus" into the same CORPUS_FORBIDDEN code,
+        # so this single response can't be diffed to probe which corpus ids exist.
+        return "This worker token is not authorized for the specified corpus."
     return "You are not authorized to perform this import."
+
+
+def _request_access_token(request) -> CorpusAccessToken | None:
+    """Return the CorpusAccessToken iff the request used WorkerKey auth.
+
+    ``WorkerTokenAuthentication`` sets ``request.auth`` to the token; JWT auth
+    leaves it as the bearer string. Used to route worker-token imports through
+    the token-aware service path.
+    """
+    return request.auth if isinstance(request.auth, CorpusAccessToken) else None
 
 
 class DocumentImportThrottle(UserRateThrottle):
@@ -184,12 +201,14 @@ def _corpus_result_response(result: CorpusImportResult) -> Response:
 class DocumentImportView(APIView):
     """Single-document multipart import endpoint."""
 
-    # Pinned explicitly: bearer JWT only. Inheriting the global tuple
-    # would also expose Session and Token auth on these endpoints, which
-    # widens the threat model (CSRF surface, credential types) without
-    # any caller actually needing it. The frontend ``importHttp.ts``
-    # always sends ``Authorization: Bearer <jwt>``.
-    authentication_classes = [GraphQLJWTAuthentication]
+    # Pinned explicitly: bearer JWT or WorkerKey only. Inheriting the global
+    # tuple would also expose Session and Token auth on these endpoints, which
+    # widens the threat model (CSRF surface, credential types) without any
+    # caller needing it. The frontend ``importHttp.ts`` sends a bearer JWT;
+    # programmatic callers (the bulk-import CLI) send a scoped CorpusAccessToken
+    # via ``Authorization: WorkerKey <token>`` (corpus taken from the token
+    # binding — see ``import_document_for_user``).
+    authentication_classes = [GraphQLJWTAuthentication, WorkerTokenAuthentication]
     permission_classes = [IsAuthenticated]
     throttle_classes = [DocumentImportThrottle]
     parser_classes = [MultiPartParser, FormParser]
@@ -223,7 +242,9 @@ class DocumentImportView(APIView):
                 make_public=bool(data.get("make_public", False)),
                 add_to_corpus_id=normalise_optional(data.get("add_to_corpus_id")),
                 add_to_folder_id=normalise_optional(data.get("add_to_folder_id")),
+                add_to_folder_path=normalise_optional(data.get("add_to_folder_path")),
                 slug=normalise_optional(data.get("slug")),
+                access_token=_request_access_token(request),
             )
         except DocumentImportPermissionError as e:
             logger.info("Document import denied", extra={"code": e.code})
@@ -285,10 +306,11 @@ class ZipToCorpusImportView(APIView):
     corpus. Replaces the legacy ``ImportZipToCorpus`` GraphQL mutation.
 
     Auth and throttling intentionally match the other ``/api/imports/*``
-    views — bearer JWT only, ``DocumentImportThrottle`` scope.
+    views — bearer JWT or scoped ``WorkerKey`` (CorpusAccessToken), with the
+    ``DocumentImportThrottle`` scope.
     """
 
-    authentication_classes = [GraphQLJWTAuthentication]
+    authentication_classes = [GraphQLJWTAuthentication, WorkerTokenAuthentication]
     permission_classes = [IsAuthenticated]
     throttle_classes = [DocumentImportThrottle]
     parser_classes = [MultiPartParser, FormParser]
@@ -313,6 +335,7 @@ class ZipToCorpusImportView(APIView):
                 description=normalise_optional(data.get("description")),
                 custom_meta=data.get("custom_meta") or None,
                 make_public=bool(data.get("make_public", False)),
+                access_token=_request_access_token(request),
             )
         except DocumentImportPermissionError as e:
             logger.info("Zip-to-corpus import denied", extra={"code": e.code})
@@ -409,7 +432,7 @@ def _chunked_error_response(exc: ChunkedUploadError) -> Response:
 class ChunkedUploadStartView(APIView):
     """POST /api/imports/chunked/start/ — open a chunked-upload session."""
 
-    authentication_classes = [GraphQLJWTAuthentication]
+    authentication_classes = [GraphQLJWTAuthentication, WorkerTokenAuthentication]
     permission_classes = [IsAuthenticated]
     throttle_classes = [DocumentImportThrottle]
     parser_classes = [JSONParser]
@@ -428,6 +451,7 @@ class ChunkedUploadStartView(APIView):
                 chunk_size=data["chunk_size"],
                 total_chunks=data["total_chunks"],
                 metadata=data.get("metadata") or {},
+                access_token=_request_access_token(request),
             )
         except DocumentImportPermissionError as e:
             logger.info("Chunked upload start denied", extra={"code": e.code})
@@ -457,7 +481,7 @@ class ChunkedUploadPartView(APIView):
     some proxies/clients are friendlier to POST for multipart bodies.
     """
 
-    authentication_classes = [GraphQLJWTAuthentication]
+    authentication_classes = [GraphQLJWTAuthentication, WorkerTokenAuthentication]
     permission_classes = [IsAuthenticated]
     throttle_classes = [ChunkedUploadPartThrottle]
     parser_classes = [MultiPartParser, FormParser]
@@ -494,7 +518,7 @@ class ChunkedUploadPartView(APIView):
 class ChunkedUploadCompleteView(APIView):
     """POST /api/imports/chunked/<upload_id>/complete/ — reassemble + import."""
 
-    authentication_classes = [GraphQLJWTAuthentication]
+    authentication_classes = [GraphQLJWTAuthentication, WorkerTokenAuthentication]
     permission_classes = [IsAuthenticated]
     throttle_classes = [DocumentImportThrottle]
     # ``complete`` carries no request body — the upload id comes from the URL —
@@ -505,7 +529,9 @@ class ChunkedUploadCompleteView(APIView):
     def post(self, request: Request, upload_id: str) -> Response:
         try:
             kind, result = complete_chunked_upload(
-                user=request.user, upload_id=upload_id
+                user=request.user,
+                upload_id=upload_id,
+                access_token=_request_access_token(request),
             )
         except DocumentImportPermissionError as e:
             logger.info("Chunked upload complete denied", extra={"code": e.code})
@@ -522,7 +548,7 @@ class ChunkedUploadCompleteView(APIView):
 class ChunkedUploadStatusView(APIView):
     """GET /api/imports/chunked/<upload_id>/ — progress (for resuming)."""
 
-    authentication_classes = [GraphQLJWTAuthentication]
+    authentication_classes = [GraphQLJWTAuthentication, WorkerTokenAuthentication]
     permission_classes = [IsAuthenticated]
     throttle_classes = [ChunkedUploadPartThrottle]
 
