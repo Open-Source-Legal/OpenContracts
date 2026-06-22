@@ -41,6 +41,7 @@ Dependencies: Python 3.9+ and ``requests`` (``pip install requests``).
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import json
 import logging
@@ -97,6 +98,20 @@ _JITTER_MIN = 0.5
 _JITTER_SPAN = 0.5
 _HASH_BLOCK = 1024 * 1024
 
+# Chunked-upload transport (mirrors the frontend importHttp.ts / UPLOAD consts).
+# Large ZIP batches and oversize single files are sliced into parts that stay
+# under any reverse-proxy body limit (Cloudflare: 100 MB) and the server's
+# CHUNKED_UPLOAD_PART_MAX_BYTES (90 MB). A payload at or under the threshold is
+# sent as one multipart POST; above it, via /api/imports/chunked/*.
+CHUNK_SIZE_BYTES = 50 * 1024 * 1024
+CHUNK_THRESHOLD_BYTES = 50 * 1024 * 1024
+CHUNK_CONCURRENCY = 4
+CHUNK_MAX_ATTEMPTS = 3
+CHUNK_RETRY_BASE_SECONDS = 0.5
+
+# Relay type name for corpus global ids (matches CorpusType in the schema).
+_CORPUS_GRAPHQL_TYPE = "CorpusType"
+
 # Ledger batch states (stored verbatim in the `batches.status` column):
 #   PENDING    planned, not yet sent
 #   SUBMITTED  accepted by the server (202), awaiting reconciliation
@@ -107,6 +122,36 @@ _HASH_BLOCK = 1024 * 1024
 # Member kinds.
 KIND_ZIP = "zip"
 KIND_OVERSIZE = "oversize_single"
+
+
+# --- Helpers ---------------------------------------------------------------
+def _to_global_corpus_id(value: str) -> str:
+    """Return a Relay global id for GraphQL. A bare integer pk is encoded as
+    ``base64("CorpusType:<pk>")``; an already-global id is returned unchanged.
+
+    The REST import endpoints accept either form, but ``documentStats``'s
+    ``inCorpusWithId`` filter decodes a global id with no pk fallback, so the
+    CLI normalizes here to keep a numeric ``--corpus-id`` from crashing it."""
+    s = str(value).strip()
+    if s.isdigit():
+        return base64.b64encode(f"{_CORPUS_GRAPHQL_TYPE}:{s}".encode()).decode()
+    return s
+
+
+def _should_chunk(size: int) -> bool:
+    """Whether a payload is large enough to require the chunked endpoints."""
+    return size > CHUNK_THRESHOLD_BYTES
+
+
+def _iter_chunks(stream, chunk_size: int):
+    """Yield successive byte slices of ``stream`` (a seekable file-like),
+    rewinding it first. At most one ``chunk_size`` slice is held at a time."""
+    stream.seek(0)
+    while True:
+        block = stream.read(chunk_size)
+        if not block:
+            return
+        yield block
 
 
 # --- Data structures -------------------------------------------------------
@@ -381,64 +426,110 @@ class APIError(Exception):
 
 
 class OCClient:
-    """Thin OpenContracts API client: JWT auth, GraphQL, and the multipart
-    import endpoints, with retry/backoff and transparent token refresh."""
+    """Thin OpenContracts API client for the multipart/chunked import endpoints
+    and the GraphQL queries the driver needs, with retry/backoff.
 
-    def __init__(self, api_base: str, timeout: int = 600) -> None:
+    Three auth modes (resolved by ``_make_client``), in priority order:
+
+    * ``worker_token`` — a ``CorpusAccessToken`` sent to the REST/chunked import
+      endpoints as ``Authorization: WorkerKey <token>``. GraphQL calls (only
+      ``documentStats``, which needs no auth) go unauthenticated; ``create-corpus``
+      is unavailable (the corpus must pre-exist to mint a token).
+    * ``bearer_token`` — a raw JWT used for both REST and GraphQL (works on
+      non-Auth0 backends, or on Auth0 with a real Auth0 token).
+    * username/password — exchanged for a JWT via ``tokenAuth`` (non-Auth0 only);
+      re-exchanged automatically on a 401 for multi-day runs.
+    """
+
+    _TOKEN_AUTH_QUERY = (
+        "mutation($u:String!,$p:String!){tokenAuth(username:$u,password:$p){token}}"
+    )
+    _CREATE_CORPUS_QUERY = (
+        "mutation($t:String!,$d:String){createCorpus(title:$t,description:$d)"
+        "{ok message objId}}"
+    )
+
+    def __init__(
+        self,
+        api_base: str,
+        timeout: int = 600,
+        worker_token: str | None = None,
+        bearer_token: str | None = None,
+    ) -> None:
         self.api_base = api_base.rstrip("/")
         self.timeout = timeout
         self._session = requests.Session()
-        self._token: str | None = None
-        self._refresh_token: str | None = None
+        self._worker_token = worker_token
+        self._token: str | None = bearer_token
+        self._username: str | None = None
+        self._password: str | None = None
         self._auth_lock = threading.Lock()
+
+    def set_password_credentials(self, username: str, password: str) -> None:
+        """Remember username/password so a 401 can trigger a re-exchange."""
+        self._username = username
+        self._password = password
+
+    @property
+    def _can_reauth(self) -> bool:
+        return bool(self._username and self._password) and not self._worker_token
 
     # -- auth ---------------------------------------------------------------
     def authenticate(self, username: str, password: str) -> None:
-        query = (
-            "mutation($u:String!,$p:String!){"
-            "tokenAuth(username:$u,password:$p){token refreshToken}}"
+        """Exchange username/password for a JWT via ``tokenAuth``.
+
+        Only ``token`` is selected — the project does not install
+        graphql_jwt's long-running ``refresh_token`` app, so requesting
+        ``refreshToken`` makes the whole mutation error. Multi-day runs are
+        covered by re-authenticating on a 401 (see ``_request``)."""
+        self.set_password_credentials(username, password)
+        data = self._graphql(
+            self._TOKEN_AUTH_QUERY, {"u": username, "p": password}, _auth=False
         )
-        data = self._graphql(query, {"u": username, "p": password}, _auth=False)
-        payload = data["tokenAuth"]
-        self._token = payload["token"]
-        self._refresh_token = payload.get("refreshToken")
-        # Do not log the username: it is unpacked from the same _credentials()
-        # tuple as the password, so static analysis (correctly, conservatively)
-        # taints it as credential-derived. A static confirmation is enough.
+        token = (data.get("tokenAuth") or {}).get("token")
+        if not token:
+            raise APIError("tokenAuth returned no token (check credentials)")
+        self._token = token
+        # Do not log the username: static analysis taints it as
+        # credential-derived. A static confirmation is enough.
         logger.info("Authenticated successfully")
 
-    def _refresh(self) -> bool:
-        with self._auth_lock:
-            if not self._refresh_token:
-                return False
-            query = (
-                "mutation($r:String!){refreshToken(refreshToken:$r)"
-                "{token refreshToken}}"
-            )
-            try:
-                data = self._graphql(query, {"r": self._refresh_token}, _auth=False)
-            except APIError as exc:
-                logger.error("Token refresh failed: %s", exc)
-                return False
-            payload = data["refreshToken"]
-            self._token = payload["token"]
-            self._refresh_token = payload.get("refreshToken") or self._refresh_token
-            logger.info("Refreshed access token")
-            return True
+    def rest_headers(self) -> dict[str, str]:
+        """Auth header for the REST/chunked import endpoints."""
+        if self._worker_token:
+            return {"Authorization": f"WorkerKey {self._worker_token}"}
+        if self._token:
+            return {"Authorization": f"Bearer {self._token}"}
+        return {}
 
-    def _headers(self, _auth: bool) -> dict[str, str]:
-        if _auth and self._token:
+    def graphql_headers(self) -> dict[str, str]:
+        """Auth header for GraphQL. A WorkerKey is REST-only and meaningless to
+        GraphQL, so worker-token mode sends no header (``documentStats`` — the
+        only query used — needs no auth)."""
+        if self._worker_token:
+            return {}
+        if self._token:
             return {"Authorization": f"Bearer {self._token}"}
         return {}
 
     # -- transport ----------------------------------------------------------
-    def _request(self, method: str, url: str, *, _auth: bool = True, **kwargs):
+    def _request(
+        self,
+        method: str,
+        url: str,
+        *,
+        surface: str = "rest",
+        _auth: bool = True,
+        **kwargs,
+    ):
         """One HTTP request with bounded exponential backoff. Honors Retry-After
-        on 429, refreshes the JWT once on 401, retries 5xx/network errors."""
+        on 429, retries 5xx/network errors, and — in username/password mode only
+        — re-authenticates once on a 401. ``surface`` selects the auth header set
+        ('rest' -> WorkerKey/Bearer, 'graphql' -> Bearer or none)."""
         extra_headers = kwargs.pop("headers", {})
         files = kwargs.get("files")
         attempt = 0
-        refreshed = False
+        reauthed = False
         while True:
             attempt += 1
             # Rewind any multipart file streams so a retry re-sends the full
@@ -449,8 +540,15 @@ class OCClient:
                     stream = value[1] if isinstance(value, (tuple, list)) else value
                     if hasattr(stream, "seek"):
                         stream.seek(0)
+            auth_headers = {}
+            if _auth:
+                auth_headers = (
+                    self.graphql_headers()
+                    if surface == "graphql"
+                    else self.rest_headers()
+                )
             try:
-                headers = {**self._headers(_auth), **extra_headers}
+                headers = {**auth_headers, **extra_headers}
                 resp = self._session.request(
                     method, url, headers=headers, timeout=self.timeout, **kwargs
                 )
@@ -460,12 +558,23 @@ class OCClient:
                 self._sleep_backoff(attempt)
                 continue
 
-            if resp.status_code == 401 and _auth and not refreshed:
-                refreshed = True
-                if self._refresh():
-                    attempt -= 1  # the refresh round-trip shouldn't burn a retry
-                    continue
-                raise APIError("401 Unauthorized and token refresh failed")
+            if resp.status_code == 401 and _auth:
+                if not reauthed and self._can_reauth:
+                    reauthed = True
+                    with self._auth_lock:
+                        try:
+                            self.authenticate(self._username, self._password)
+                            ok = True
+                        except APIError:
+                            ok = False
+                    if ok:
+                        attempt -= 1  # the re-auth round-trip shouldn't burn a retry
+                        continue
+                raise APIError(
+                    "401 Unauthorized — the server rejected the credentials. "
+                    "Supply a valid OC_WORKER_TOKEN or OC_TOKEN, or use "
+                    "OC_USERNAME / OC_PASSWORD on a non-Auth0 backend."
+                )
 
             if resp.status_code == 429:
                 retry_after = resp.headers.get("Retry-After")
@@ -496,6 +605,7 @@ class OCClient:
         resp = self._request(
             "POST",
             f"{self.api_base}/graphql/",
+            surface="graphql",
             _auth=_auth,
             json={"query": query, "variables": variables},
         )
@@ -512,19 +622,102 @@ class OCClient:
             "query($c:String!){documentStats(inCorpusWithId:$c)"
             "{totalDocs processingCount processedCount}}"
         )
-        data = self._graphql(query, {"c": corpus_id})
+        # documentStats decodes inCorpusWithId as a Relay global id with no pk
+        # fallback, so normalize a bare numeric id before sending.
+        try:
+            data = self._graphql(query, {"c": _to_global_corpus_id(corpus_id)})
+        except APIError as exc:
+            raise APIError(
+                f"documentStats failed for corpus {corpus_id!r} (expected a "
+                f"global id or numeric pk): {exc}"
+            )
         return data["documentStats"]
 
     def create_corpus(self, title: str, description: str = "") -> str:
-        query = (
-            "mutation($t:String!,$d:String){createCorpus(title:$t,description:$d)"
-            "{ok message obj{id}}}"
-        )
-        data = self._graphql(query, {"t": title, "d": description})
+        data = self._graphql(self._CREATE_CORPUS_QUERY, {"t": title, "d": description})
         result = data["createCorpus"]
         if not result.get("ok"):
             raise APIError(f"createCorpus failed: {result.get('message')}")
-        return result["obj"]["id"]
+        # DRFMutation returns a flat ``objId`` (a Relay global id), not obj{id}.
+        return result["objId"]
+
+    # -- chunked transport (ported from frontend importHttp.ts) -------------
+    def _put_part(
+        self, upload_id: str, index: int, filename: str, block: bytes
+    ) -> None:
+        resp = self._request(
+            "PUT",
+            f"{self.api_base}/api/imports/chunked/{upload_id}/parts/{index}/",
+            files={
+                "file": (
+                    f"{filename}.part{index}",
+                    BytesIO(block),
+                    "application/octet-stream",
+                )
+            },
+        )
+        if resp.status_code not in (200, 201):
+            raise APIError(
+                f"chunked part {index} HTTP {resp.status_code}: {resp.text[:200]}"
+            )
+
+    def upload_in_chunks(
+        self,
+        kind: str,
+        stream,
+        filename: str,
+        total_size: int,
+        metadata: dict,
+    ) -> dict:
+        """Drive ``/api/imports/chunked/*`` for a large payload: ``start`` ->
+        PUT each part (concurrently, retried via ``_request``, idempotent) ->
+        ``complete``. Returns the parsed ``complete`` body, which has the same
+        shape as the single-shot endpoint. ``stream`` must be a seekable binary
+        file-like; parts are read on demand under a lock so peak memory stays
+        ~``CHUNK_CONCURRENCY * CHUNK_SIZE_BYTES`` regardless of file size."""
+        total_chunks = max(1, (total_size + CHUNK_SIZE_BYTES - 1) // CHUNK_SIZE_BYTES)
+        start = self._request(
+            "POST",
+            f"{self.api_base}/api/imports/chunked/start/",
+            json={
+                "kind": kind,
+                "filename": filename,
+                "total_size": total_size,
+                "chunk_size": CHUNK_SIZE_BYTES,
+                "total_chunks": total_chunks,
+                "metadata": metadata,
+            },
+        )
+        if start.status_code not in (200, 201):
+            raise APIError(
+                f"chunked start HTTP {start.status_code}: {start.text[:300]}"
+            )
+        upload_id = start.json().get("upload_id")
+        if not upload_id:
+            raise APIError(f"chunked start returned no upload_id: {start.text[:200]}")
+
+        read_lock = threading.Lock()
+
+        def _put(index: int) -> None:
+            with read_lock:
+                stream.seek(index * CHUNK_SIZE_BYTES)
+                block = stream.read(CHUNK_SIZE_BYTES)
+            self._put_part(upload_id, index, filename, block)
+
+        workers = min(CHUNK_CONCURRENCY, total_chunks)
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            # list() forces evaluation so the first part failure propagates.
+            list(pool.map(_put, range(total_chunks)))
+
+        comp = self._request(
+            "POST",
+            f"{self.api_base}/api/imports/chunked/{upload_id}/complete/",
+        )
+        if comp.status_code not in (200, 201, 202):
+            raise APIError(
+                f"chunked complete HTTP {comp.status_code}: {comp.text[:300]}"
+            )
+        return comp.json()
 
     def submit_zip_to_corpus(
         self,
@@ -533,11 +726,26 @@ class OCClient:
         filename: str,
         make_public: bool = False,
     ) -> str:
-        """POST a ZIP to /api/imports/zip-to-corpus/. Returns the server job_id
-        (audit only — it is not pollable; verify by corpus count instead).
+        """Submit a ZIP to the corpus, preserving folders. Large ZIPs go via the
+        chunked endpoints; small ones via a single multipart POST. Returns the
+        server job_id (audit only — not pollable; verify by corpus count).
 
-        ``zip_stream`` is consumed in place (no extra copy); ``_request`` rewinds
-        it before each attempt so retries re-send the full body."""
+        ``zip_stream`` is consumed in place; ``_request`` / the chunk reader
+        rewind it as needed so retries re-send the full body."""
+        zip_stream.seek(0, os.SEEK_END)
+        size = zip_stream.tell()
+        zip_stream.seek(0)
+        if _should_chunk(size):
+            body = self.upload_in_chunks(
+                "zip_to_corpus",
+                zip_stream,
+                filename,
+                size,
+                {"corpus_id": corpus_id, "make_public": bool(make_public)},
+            )
+            if not body.get("ok", True):
+                raise APIError(f"zip-to-corpus (chunked) rejected: {body}")
+            return body.get("job_id", "")
         resp = self._request(
             "POST",
             f"{self.api_base}/api/imports/zip-to-corpus/",
@@ -557,19 +765,43 @@ class OCClient:
         file_path: str,
         title: str,
         make_public: bool = False,
+        folder_path: str | None = None,
     ) -> None:
-        """POST one file to /api/imports/documents/ (oversize-file fallback)."""
+        """Submit one file to /api/imports/documents/ (oversize-file fallback).
+        Files above the chunk threshold (which all >=100 MB oversize files are)
+        stream via the chunked endpoints to avoid the server's in-memory buffer
+        and any reverse-proxy body limit. ``folder_path`` (a POSIX path) places
+        the document in the matching nested corpus folder."""
+        basename = os.path.basename(file_path)
+        size = os.path.getsize(file_path)
+        if _should_chunk(size):
+            metadata = {
+                "title": title,
+                "filename": basename,
+                "add_to_corpus_id": corpus_id,
+                "make_public": bool(make_public),
+            }
+            if folder_path:
+                metadata["add_to_folder_path"] = folder_path
+            with open(file_path, "rb") as fh:
+                body = self.upload_in_chunks("document", fh, basename, size, metadata)
+            if not body.get("ok", True):
+                raise APIError(f"single-doc (chunked) rejected: {body}")
+            return
+        data = {
+            "title": title,
+            "filename": basename,
+            "add_to_corpus_id": corpus_id,
+            "make_public": str(make_public).lower(),
+        }
+        if folder_path:
+            data["add_to_folder_path"] = folder_path
         with open(file_path, "rb") as fh:
             resp = self._request(
                 "POST",
                 f"{self.api_base}/api/imports/documents/",
-                files={"file": (os.path.basename(file_path), fh)},
-                data={
-                    "title": title,
-                    "filename": os.path.basename(file_path),
-                    "add_to_corpus_id": corpus_id,
-                    "make_public": str(make_public).lower(),
-                },
+                files={"file": (basename, fh)},
+                data=data,
             )
         if resp.status_code not in (200, 201, 202):
             raise APIError(f"single-doc HTTP {resp.status_code}: {resp.text[:300]}")
@@ -779,16 +1011,34 @@ def _credentials(args: argparse.Namespace) -> tuple[str | None, str | None]:
     )
 
 
+def _worker_token(args: argparse.Namespace) -> str | None:
+    return args.worker_token or os.environ.get("OC_WORKER_TOKEN")
+
+
+def _bearer_token(args: argparse.Namespace) -> str | None:
+    return args.token or os.environ.get("OC_TOKEN")
+
+
 def _make_client(args: argparse.Namespace, *, require_auth: bool = True) -> OCClient:
-    client = OCClient(args.api_base, timeout=args.timeout)
-    if require_auth:
-        username, password = _credentials(args)
-        if not username or not password:
-            raise SystemExit(
-                "Authentication required: pass --username/--password or set "
-                "OC_USERNAME / OC_PASSWORD."
-            )
+    worker_token = _worker_token(args)
+    bearer_token = _bearer_token(args)
+    client = OCClient(
+        args.api_base,
+        timeout=args.timeout,
+        worker_token=worker_token,
+        bearer_token=bearer_token,
+    )
+    # A pre-supplied token carries its own credential — nothing to exchange.
+    if worker_token or bearer_token:
+        return client
+    username, password = _credentials(args)
+    if username and password:
         client.authenticate(username, password)
+    elif require_auth:
+        raise SystemExit(
+            "Authentication required: set OC_WORKER_TOKEN (recommended for "
+            "Auth0 / production), OC_TOKEN, or OC_USERNAME / OC_PASSWORD."
+        )
     return client
 
 
@@ -861,8 +1111,18 @@ def _process_batch(
             member = members[0]
             if dry_run:
                 return batch_id, True, "dry-run (oversize)"
+            # Preserve the file's folder: its POSIX parent becomes the nested
+            # corpus folder (matching what the ZIP path does for non-oversize
+            # files); the leaf name is the document title.
+            rel = PurePosixPath(member.rel_path)
+            parent = str(rel.parent)
+            folder_path = None if parent == "." else parent
             client.submit_single_document(
-                corpus_id, member.abs_path, member.rel_path, make_public
+                corpus_id,
+                member.abs_path,
+                rel.name,
+                make_public,
+                folder_path=folder_path,
             )
             ledger.mark_submitted(batch_id, None)
             return batch_id, True, "single doc submitted"
@@ -1007,10 +1267,11 @@ def cmd_status(args: argparse.Namespace, ledger: Ledger) -> int:
     logger.info(
         "Expected documents (submitted/verified): %d", ledger.submitted_member_count()
     )
-    username, password = _credentials(args)
-    if args.corpus_id and username and password:
+    # documentStats needs no auth, so live stats work in any mode (including a
+    # worker-token run, whose GraphQL calls go unauthenticated).
+    if args.corpus_id:
         try:
-            client = _make_client(args)
+            client = _make_client(args, require_auth=False)
             stats = client.document_stats(args.corpus_id)
             logger.info(
                 "Corpus: totalDocs=%s processing=%s processed=%s",
@@ -1018,16 +1279,19 @@ def cmd_status(args: argparse.Namespace, ledger: Ledger) -> int:
                 stats.get("processingCount"),
                 stats.get("processedCount"),
             )
-        except APIError as exc:
+        except (APIError, SystemExit) as exc:
             logger.warning("Could not fetch live corpus stats: %s", exc)
-    elif args.corpus_id:
-        logger.info(
-            "Live corpus stats skipped: set OC_USERNAME / OC_PASSWORD to include them."
-        )
     return 0
 
 
 def cmd_create_corpus(args: argparse.Namespace, ledger: Ledger) -> int:
+    if _worker_token(args) and not (_bearer_token(args) or _credentials(args)[0]):
+        raise SystemExit(
+            "create-corpus needs a user credential (OC_TOKEN or "
+            "OC_USERNAME / OC_PASSWORD). A worker token is scoped to one "
+            "existing corpus and cannot create a corpus — create it in the "
+            "UI/GraphQL first, then mint a CorpusAccessToken for it."
+        )
     client = _make_client(args)
     corpus_id = client.create_corpus(args.title, args.description or "")
     logger.info("Created corpus: %s", corpus_id)
@@ -1086,6 +1350,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--password",
         help="Login password. PREFER env OC_PASSWORD: a value passed here is "
         "visible to other users on the host via `ps` / /proc/<pid>/cmdline.",
+    )
+    common.add_argument(
+        "--worker-token",
+        help="CorpusAccessToken for WorkerKey auth — the recommended mode for "
+        "Auth0 / production (the corpus must already exist; mint a token for "
+        "it). PREFER env OC_WORKER_TOKEN: a value passed here is visible to "
+        "other users on the host via `ps` / /proc/<pid>/cmdline.",
+    )
+    common.add_argument(
+        "--token",
+        help="Raw JWT bearer token used for REST and GraphQL. PREFER env "
+        "OC_TOKEN (same process-table exposure caveat as --worker-token).",
     )
     common.add_argument(
         "--timeout",

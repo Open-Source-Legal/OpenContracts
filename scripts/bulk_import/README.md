@@ -65,14 +65,52 @@ python oc_bulk_import.py status
 python oc_bulk_import.py verify
 ```
 
-Auth is a JWT from the `tokenAuth` mutation; the driver refreshes it
-automatically on 401, so multi-day runs keep going.
+## Authentication
 
-> **Credentials:** prefer `OC_USERNAME` / `OC_PASSWORD` (as above). The
-> `--password` flag works but is visible to other users on the host via `ps` and
-> `/proc/<pid>/cmdline`, so avoid it on shared machines. The ledger is bound to
-> the first `--corpus-id` it sees and warns if a later `run`/`verify` points at a
-> different corpus.
+The driver supports three auth modes, resolved in this priority order:
+
+1. **Worker token — `OC_WORKER_TOKEN` (recommended for Auth0 / production).**
+   A `CorpusAccessToken` minted for the target corpus, sent to the import
+   endpoints as `Authorization: WorkerKey <token>`. It works regardless of
+   whether the backend uses Auth0, is corpus-scoped, revocable, and bypasses the
+   per-user usage cap by design (minting one already requires the corpus
+   creator/superuser). The corpus must already exist — `create-corpus` is **not**
+   available in this mode. Mint a token via GraphQL (corpus creator/superuser):
+
+   ```graphql
+   mutation { createWorkerAccount(name: "bulk-importer") { workerAccount { id } } }
+   mutation {
+     createCorpusAccessToken(workerAccountId: "<id>", corpusId: "<corpus global id>")
+     { token }   # shown once — copy it
+   }
+   ```
+   ```bash
+   export OC_WORKER_TOKEN=<token from createCorpusAccessToken>
+   export OC_CORPUS_ID="<corpus global id>"
+   python oc_bulk_import.py run --root-dir /data/pdfs
+   ```
+
+2. **Bearer token — `OC_TOKEN`.** A raw JWT used for both REST and GraphQL
+   (e.g. an Auth0 token copied from a browser session, or a `tokenAuth` token on
+   a non-Auth0 backend).
+
+3. **Username / password — `OC_USERNAME` / `OC_PASSWORD`.** Exchanged for a JWT
+   via the `tokenAuth` mutation. **Only works on non-Auth0 backends** (an Auth0
+   deployment rejects the resulting token). The driver re-authenticates on a 401
+   so multi-day runs keep going. The account must not be usage-capped (or set
+   `USAGE_CAPPED_USER_CAN_IMPORT_CORPUS=True` on the server).
+
+> **Token safety:** prefer the `OC_*` env vars over the `--worker-token` /
+> `--token` / `--password` flags — flag values are visible to other users on the
+> host via `ps` and `/proc/<pid>/cmdline`. The ledger is bound to the first
+> `--corpus-id` it sees and warns if a later `run`/`verify` points at a different
+> corpus.
+
+> **Large files & proxies:** payloads above 50 MB (large ZIP batches and any
+> file ≥ the `--single-file-cap`, which routes to the single-document endpoint)
+> are uploaded automatically via the chunked endpoints (`/api/imports/chunked/*`),
+> so they stream past reverse-proxy body limits (e.g. Cloudflare's 100 MB) and
+> never buffer whole on the server. No manual tuning is required.
 
 ## Operational runbook (do this before a 200K load)
 
