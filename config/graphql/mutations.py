@@ -43,12 +43,25 @@ from config.graphql.annotation_mutations import (
     UpdateRelations,
     UpdateRelationship,
 )
+from config.graphql.authority_frontier_mutations import (
+    ApproveAuthorityFrontierMutation,
+    DeleteAuthorityFrontierMutation,
+    RequeueAuthorityFrontierMutation,
+    RerouteAuthorityFrontierMutation,
+    ResetAuthorityFrontierMutation,
+)
 
 # Import enrichment mutations
 from config.graphql.authority_mapping_mutations import (
     CreateAuthorityKeyEquivalenceMutation,
     DeleteAuthorityKeyEquivalenceMutation,
     UpdateAuthorityKeyEquivalenceMutation,
+)
+from config.graphql.authority_namespace_mutations import (
+    CreateAuthorityNamespaceMutation,
+    DeleteAuthorityNamespaceMutation,
+    SetAuthorityNamespaceAliasesMutation,
+    UpdateAuthorityNamespaceMutation,
 )
 
 # Import badge mutations
@@ -391,6 +404,15 @@ class Mutation(graphene.ObjectType):
     create_authority_key_equivalence = CreateAuthorityKeyEquivalenceMutation.Field()
     update_authority_key_equivalence = UpdateAuthorityKeyEquivalenceMutation.Field()
     delete_authority_key_equivalence = DeleteAuthorityKeyEquivalenceMutation.Field()
+    create_authority_namespace = CreateAuthorityNamespaceMutation.Field()
+    update_authority_namespace = UpdateAuthorityNamespaceMutation.Field()
+    set_authority_namespace_aliases = SetAuthorityNamespaceAliasesMutation.Field()
+    delete_authority_namespace = DeleteAuthorityNamespaceMutation.Field()
+    requeue_authority_frontier = RequeueAuthorityFrontierMutation.Field()
+    reset_authority_frontier = ResetAuthorityFrontierMutation.Field()
+    reroute_authority_frontier = RerouteAuthorityFrontierMutation.Field()
+    approve_authority_frontier = ApproveAuthorityFrontierMutation.Field()
+    delete_authority_frontier = DeleteAuthorityFrontierMutation.Field()
 
     # EXTRACT MUTATIONS ##########################################################
     create_fieldset = CreateFieldset.Field()

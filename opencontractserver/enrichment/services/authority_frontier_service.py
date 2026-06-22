@@ -8,16 +8,31 @@ inline Tier-0 ORM fusions.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 
 from django.db.models import Count, Q
 from django.utils import timezone
 
 from opencontractserver.annotations.models import AuthorityFrontier
 from opencontractserver.enrichment import constants as C
+from opencontractserver.enrichment.services.authority_permissions import (
+    DENIED,
+    is_authority_admin,
+)
 from opencontractserver.enrichment.services.corpus_reference_service import (
     CorpusReferenceService,
 )
 from opencontractserver.shared.services.base import BaseService
+
+
+@dataclass
+class FrontierActionResult:
+    """Outcome of an admin frontier row-action: ``ok`` + error/obj/count."""
+
+    ok: bool
+    error: str = ""
+    obj: AuthorityFrontier | None = None
+    count: int = 0
 
 
 class AuthorityFrontierService(BaseService):
@@ -92,9 +107,7 @@ class AuthorityFrontierService(BaseService):
         empty for non-superusers (the frontier is a system-managed global queue
         with no per-object permissions).
         """
-        if not (
-            user and getattr(user, "is_authenticated", False) and user.is_superuser
-        ):
+        if not is_authority_admin(user):
             return {"total_count": 0, "by_state": []}
 
         qs = AuthorityFrontier.objects.all()
@@ -198,8 +211,20 @@ class AuthorityFrontierService(BaseService):
         document_id: int | None = None,
         error: str | None = None,
         candidate_record: Mapping[str, object] | None = None,
+        clear_document: bool = False,
+        clear_error: bool = False,
+        clear_provider: bool = False,
+        set_provider: str | None = None,
     ) -> None:
-        """Transition ``row`` to ``state``, optionally recording a document or error.
+        """Transition ``row`` to ``state``, optionally recording or CLEARING fields.
+
+        This is the ONE frontier transition primitive — every state change (the
+        discovery/crawl pipeline AND the admin row-action verbs) funnels through
+        it. The ``clear_*`` flags exist so an admin requeue can move an already-
+        ingested row back to ``queued`` while clearing ``ingested_document``: the
+        ``frontier_queued_no_ingested_doc`` CheckConstraint forbids a queued row
+        that still carries a document, so a requeue MUST clear it here rather than
+        leave a constraint-violating row.
 
         Args:
             row: The ``AuthorityFrontier`` instance to update.
@@ -208,7 +233,18 @@ class AuthorityFrontierService(BaseService):
             error: If provided, set ``last_error`` to this message.
             candidate_record: If provided, APPEND to ``candidate_sources`` (append-only
                 audit trail — earlier attempts are never overwritten).
+            clear_document: If True, NULL ``ingested_document`` (mutually exclusive
+                with ``document_id``).
+            clear_error: If True, NULL ``last_error`` (mutually exclusive with ``error``).
+            clear_provider: If True, NULL ``provider``.
         """
+        if document_id is not None and clear_document:
+            raise ValueError("mark(): document_id and clear_document are exclusive.")
+        if error is not None and clear_error:
+            raise ValueError("mark(): error and clear_error are exclusive.")
+        if set_provider is not None and clear_provider:
+            raise ValueError("mark(): set_provider and clear_provider are exclusive.")
+
         row.discovery_state = state
         row.last_attempt = timezone.now()
         # Only touch ingested_document / last_error when the caller actually
@@ -218,9 +254,21 @@ class AuthorityFrontierService(BaseService):
         if document_id is not None:
             row.ingested_document_id = document_id
             update_fields.append("ingested_document")
+        elif clear_document:
+            row.ingested_document_id = None
+            update_fields.append("ingested_document")
         if error is not None:
             row.last_error = error
             update_fields.append("last_error")
+        elif clear_error:
+            row.last_error = None
+            update_fields.append("last_error")
+        if set_provider is not None:
+            row.provider = set_provider
+            update_fields.append("provider")
+        elif clear_provider:
+            row.provider = None
+            update_fields.append("provider")
         if candidate_record is not None:
             # Append-only audit trail; never overwrite prior attempts.
             row.candidate_sources = list(row.candidate_sources or []) + [
@@ -228,3 +276,123 @@ class AuthorityFrontierService(BaseService):
             ]
             update_fields.append("candidate_sources")
         row.save(update_fields=update_fields)
+
+    # ----- admin row-action verbs (superuser-gated wrappers over mark()) ---- #
+
+    @classmethod
+    def _get_admin_row(cls, user, pk) -> AuthorityFrontier | None:
+        """Fetch a frontier row for an authority-admin (else None — opaque)."""
+        if not is_authority_admin(user):
+            return None
+        return AuthorityFrontier.objects.filter(pk=pk).first()
+
+    @staticmethod
+    def _reject_if_in_progress(row) -> FrontierActionResult | None:
+        """Refuse a state-flip verb on a row a crawl worker is actively ingesting.
+
+        Flipping an ``in_progress`` row back to ``queued`` would let the crawl
+        driver re-dequeue it mid-pass (it would be processed twice). Discovery is
+        idempotent so the blast radius is small, but the admin verbs should still
+        not race the worker — wait for the row to settle. ``approve`` already has
+        its own (``pending_approval``-only) state guard, so this is for the
+        re-queueing verbs requeue / reset / reroute.
+        """
+        if row.discovery_state == "in_progress":
+            return FrontierActionResult(
+                False,
+                "Row is in_progress (a crawl worker is ingesting it); wait for it "
+                "to settle before requeue/reset/reroute.",
+            )
+        return None
+
+    @classmethod
+    def requeue(cls, user, *, pk) -> FrontierActionResult:
+        """Re-queue a row (un-stick ``deferred_cap`` / ``failed`` / a stale state).
+
+        Clears ``ingested_document`` + ``last_error`` and marks ``queued`` so the
+        crawl driver's ``dequeue_queued`` (which matches only ``queued``) can pick
+        it up again — the fix for ``deferred_cap`` rows that otherwise stick.
+        """
+        row = cls._get_admin_row(user, pk)
+        if row is None:
+            return FrontierActionResult(False, DENIED)
+        blocked = cls._reject_if_in_progress(row)
+        if blocked is not None:
+            return blocked
+        cls.mark(row, "queued", clear_document=True, clear_error=True)
+        cls.log_action("Requeued", row, user)
+        return FrontierActionResult(True, obj=row)
+
+    @classmethod
+    def reset(cls, user, *, pk) -> FrontierActionResult:
+        """Hard reset: clear document + provider + error and re-queue."""
+        row = cls._get_admin_row(user, pk)
+        if row is None:
+            return FrontierActionResult(False, DENIED)
+        blocked = cls._reject_if_in_progress(row)
+        if blocked is not None:
+            return blocked
+        cls.mark(
+            row,
+            "queued",
+            clear_document=True,
+            clear_error=True,
+            clear_provider=True,
+        )
+        cls.log_action("Reset", row, user)
+        return FrontierActionResult(True, obj=row)
+
+    @classmethod
+    def reroute(cls, user, *, pk, provider: str) -> FrontierActionResult:
+        """Re-assign the provider (validated against the registry) and re-queue."""
+        row = cls._get_admin_row(user, pk)
+        if row is None:
+            return FrontierActionResult(False, DENIED)
+        blocked = cls._reject_if_in_progress(row)
+        if blocked is not None:
+            return blocked
+        provider = (provider or "").strip()
+        if provider not in cls.registered_provider_names():
+            return FrontierActionResult(False, f"Unknown provider '{provider}'.")
+        # Persist the new provider through mark() (the single writer) and re-queue,
+        # clearing the prior ingested doc so the new provider re-fetches cleanly.
+        cls.mark(
+            row,
+            "queued",
+            set_provider=provider,
+            clear_document=True,
+            clear_error=True,
+        )
+        cls.log_action("Rerouted", row, user, provider=provider)
+        return FrontierActionResult(True, obj=row)
+
+    @classmethod
+    def approve(cls, user, *, pk) -> FrontierActionResult:
+        """Approve a ``pending_approval`` candidate so it re-enters the queue."""
+        row = cls._get_admin_row(user, pk)
+        if row is None:
+            return FrontierActionResult(False, DENIED)
+        if row.discovery_state != "pending_approval":
+            return FrontierActionResult(
+                False, "Only pending-approval rows can be approved."
+            )
+        cls.mark(row, "queued", clear_error=True)
+        cls.log_action("Approved", row, user)
+        return FrontierActionResult(True, obj=row)
+
+    @classmethod
+    def delete_rows(cls, user, *, pks: list[int]) -> FrontierActionResult:
+        """Delete frontier rows (superuser-gated bulk action)."""
+        if not is_authority_admin(user):
+            return FrontierActionResult(False, DENIED)
+        deleted, _ = AuthorityFrontier.objects.filter(pk__in=pks).delete()
+        return FrontierActionResult(True, count=deleted)
+
+    @staticmethod
+    def registered_provider_names() -> set[str]:
+        """Class names of the registered authority source providers."""
+        from opencontractserver.pipeline.registry import (
+            get_all_authority_source_providers_cached,
+        )
+
+        return {defn.name for defn in get_all_authority_source_providers_cached()}

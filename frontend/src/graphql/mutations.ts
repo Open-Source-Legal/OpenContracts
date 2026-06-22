@@ -461,8 +461,9 @@ export const RUN_AUTHORITY_DISCOVERY = gql`
 `;
 
 // --- Authority key-equivalence mutations (superuser-only) ------------------
-// CRUD over the manually-curated act-section ↔ USC/CFR key bridges shown in
-// /admin/authority-mappings. Only ``source = "manual"`` rows can be created,
+// CRUD over the manually-curated act-section ↔ USC/CFR key bridges shown in the
+// Authority Console Aliases & Relationships tab (/admin/authority/mappings).
+// Only ``source = "manual"`` rows can be created,
 // updated, or deleted; the backend enforces this and returns ok:false with an
 // opaque message otherwise. The returned ``obj`` lets the panel refresh a row
 // in place without a full refetch.
@@ -582,6 +583,307 @@ export const DELETE_AUTHORITY_KEY_EQUIVALENCE = gql`
     deleteAuthorityKeyEquivalence(id: $id) {
       ok
       message
+    }
+  }
+`;
+
+// ---- Authority Namespace CRUD (the registry of bodies of law) ------------- //
+
+export interface AuthorityNamespaceMutationObj {
+  id: string;
+  prefix: string;
+  displayName: string;
+  jurisdiction?: string | null;
+  authorityType?: string | null;
+  scope: string;
+  source: string;
+  aliases: string[];
+  provider?: string | null;
+  sourceRootUrl?: string | null;
+  license?: string | null;
+  isGlobal: boolean;
+  createdByUsername?: string | null;
+  modified?: string | null;
+}
+
+const _NAMESPACE_OBJ_FIELDS = `
+  id
+  prefix
+  displayName
+  jurisdiction
+  authorityType
+  scope
+  source
+  aliases
+  provider
+  sourceRootUrl
+  license
+  isGlobal
+  createdByUsername
+  modified
+`;
+
+export interface CreateAuthorityNamespaceInputs {
+  prefix: string;
+  displayName: string;
+  jurisdiction?: string | null;
+  authorityType?: string | null;
+  aliases?: string[] | null;
+  isGlobal?: boolean | null;
+  authorityCorpusId?: string | null;
+  provider?: string | null;
+  sourceRootUrl?: string | null;
+  license?: string | null;
+}
+
+export interface CreateAuthorityNamespaceOutputs {
+  createAuthorityNamespace: {
+    ok: boolean;
+    message?: string | null;
+    obj?: AuthorityNamespaceMutationObj | null;
+  };
+}
+
+export const CREATE_AUTHORITY_NAMESPACE = gql`
+  mutation CreateAuthorityNamespace(
+    $prefix: String!
+    $displayName: String!
+    $jurisdiction: String
+    $authorityType: String
+    $aliases: [String]
+    $isGlobal: Boolean
+    $authorityCorpusId: ID
+    $provider: String
+    $sourceRootUrl: String
+    $license: String
+  ) {
+    createAuthorityNamespace(
+      prefix: $prefix
+      displayName: $displayName
+      jurisdiction: $jurisdiction
+      authorityType: $authorityType
+      aliases: $aliases
+      isGlobal: $isGlobal
+      authorityCorpusId: $authorityCorpusId
+      provider: $provider
+      sourceRootUrl: $sourceRootUrl
+      license: $license
+    ) {
+      ok
+      message
+      obj {
+        ${_NAMESPACE_OBJ_FIELDS}
+      }
+    }
+  }
+`;
+
+export interface UpdateAuthorityNamespaceInputs {
+  id: string;
+  displayName?: string | null;
+  jurisdiction?: string | null;
+  authorityType?: string | null;
+  aliases?: string[] | null;
+  isGlobal?: boolean | null;
+  authorityCorpusId?: string | null;
+  provider?: string | null;
+  sourceRootUrl?: string | null;
+  license?: string | null;
+}
+
+export interface UpdateAuthorityNamespaceOutputs {
+  updateAuthorityNamespace: {
+    ok: boolean;
+    message?: string | null;
+    obj?: AuthorityNamespaceMutationObj | null;
+  };
+}
+
+export const UPDATE_AUTHORITY_NAMESPACE = gql`
+  mutation UpdateAuthorityNamespace(
+    $id: ID!
+    $displayName: String
+    $jurisdiction: String
+    $authorityType: String
+    $aliases: [String]
+    $isGlobal: Boolean
+    $authorityCorpusId: ID
+    $provider: String
+    $sourceRootUrl: String
+    $license: String
+  ) {
+    updateAuthorityNamespace(
+      id: $id
+      displayName: $displayName
+      jurisdiction: $jurisdiction
+      authorityType: $authorityType
+      aliases: $aliases
+      isGlobal: $isGlobal
+      authorityCorpusId: $authorityCorpusId
+      provider: $provider
+      sourceRootUrl: $sourceRootUrl
+      license: $license
+    ) {
+      ok
+      message
+      obj {
+        ${_NAMESPACE_OBJ_FIELDS}
+      }
+    }
+  }
+`;
+
+export interface SetAuthorityNamespaceAliasesInputs {
+  id: string;
+  aliases: string[];
+}
+
+export interface SetAuthorityNamespaceAliasesOutputs {
+  setAuthorityNamespaceAliases: {
+    ok: boolean;
+    message?: string | null;
+    obj?: AuthorityNamespaceMutationObj | null;
+  };
+}
+
+export const SET_AUTHORITY_NAMESPACE_ALIASES = gql`
+  mutation SetAuthorityNamespaceAliases($id: ID!, $aliases: [String]!) {
+    setAuthorityNamespaceAliases(id: $id, aliases: $aliases) {
+      ok
+      message
+      obj {
+        ${_NAMESPACE_OBJ_FIELDS}
+      }
+    }
+  }
+`;
+
+export interface DeleteAuthorityNamespaceInputs {
+  id: string;
+}
+
+export interface DeleteAuthorityNamespaceOutputs {
+  deleteAuthorityNamespace: {
+    ok: boolean;
+    message?: string | null;
+  };
+}
+
+export const DELETE_AUTHORITY_NAMESPACE = gql`
+  mutation DeleteAuthorityNamespace($id: ID!) {
+    deleteAuthorityNamespace(id: $id) {
+      ok
+      message
+    }
+  }
+`;
+
+// ---- AuthorityFrontier admin row actions (discovery queue) ---------------- //
+
+export interface FrontierActionObj {
+  id: string;
+  discoveryState: string;
+  provider?: string | null;
+  lastError?: string | null;
+  ingestedDocument?: { id: string } | null;
+}
+
+interface FrontierActionOutput {
+  ok: boolean;
+  message?: string | null;
+  obj?: FrontierActionObj | null;
+}
+
+const _FRONTIER_ACTION_FIELDS = `
+  id
+  discoveryState
+  provider
+  lastError
+  ingestedDocument {
+    id
+  }
+`;
+
+export interface RequeueAuthorityFrontierOutputs {
+  requeueAuthorityFrontier: FrontierActionOutput;
+}
+export const REQUEUE_AUTHORITY_FRONTIER = gql`
+  mutation RequeueAuthorityFrontier($id: ID!) {
+    requeueAuthorityFrontier(id: $id) {
+      ok
+      message
+      obj {
+        ${_FRONTIER_ACTION_FIELDS}
+      }
+    }
+  }
+`;
+
+export interface ResetAuthorityFrontierOutputs {
+  resetAuthorityFrontier: FrontierActionOutput;
+}
+export const RESET_AUTHORITY_FRONTIER = gql`
+  mutation ResetAuthorityFrontier($id: ID!) {
+    resetAuthorityFrontier(id: $id) {
+      ok
+      message
+      obj {
+        ${_FRONTIER_ACTION_FIELDS}
+      }
+    }
+  }
+`;
+
+export interface ApproveAuthorityFrontierOutputs {
+  approveAuthorityFrontier: FrontierActionOutput;
+}
+export const APPROVE_AUTHORITY_FRONTIER = gql`
+  mutation ApproveAuthorityFrontier($id: ID!) {
+    approveAuthorityFrontier(id: $id) {
+      ok
+      message
+      obj {
+        ${_FRONTIER_ACTION_FIELDS}
+      }
+    }
+  }
+`;
+
+export interface RerouteAuthorityFrontierInputs {
+  id: string;
+  provider: string;
+}
+export interface RerouteAuthorityFrontierOutputs {
+  rerouteAuthorityFrontier: FrontierActionOutput;
+}
+export const REROUTE_AUTHORITY_FRONTIER = gql`
+  mutation RerouteAuthorityFrontier($id: ID!, $provider: String!) {
+    rerouteAuthorityFrontier(id: $id, provider: $provider) {
+      ok
+      message
+      obj {
+        ${_FRONTIER_ACTION_FIELDS}
+      }
+    }
+  }
+`;
+
+export interface DeleteAuthorityFrontierInputs {
+  ids: string[];
+}
+export interface DeleteAuthorityFrontierOutputs {
+  deleteAuthorityFrontier: {
+    ok: boolean;
+    message?: string | null;
+    count?: number | null;
+  };
+}
+export const DELETE_AUTHORITY_FRONTIER = gql`
+  mutation DeleteAuthorityFrontier($ids: [ID!]!) {
+    deleteAuthorityFrontier(ids: $ids) {
+      ok
+      message
+      count
     }
   }
 `;

@@ -137,7 +137,7 @@ reports `ingested`.
 
 ### Option C — the enrichment runner (no shell)
 
-`/admin/enrichment` (and the per-corpus enrichment card) drives the same path via
+`/admin/authority/runs` (and the per-corpus enrichment card) drives the same path via
 the `runCorpusEnrichment` mutation. It requires corpus **UPDATE** (superusers
 are exempt from UPDATE but still need READ).
 
@@ -173,7 +173,7 @@ finalized references to seed from.
 
 ### Spotting what needs a provider
 
-The read-only authority-sources monitor at `/admin/authorities`
+The read-only authority-sources monitor at `/admin/authority/queue`
 (superuser-only) is the instance-wide ingestion backlog over the whole
 `AuthorityFrontier`.
 
@@ -315,7 +315,7 @@ Two ways to flip `unsupported → supported` without writing a provider:
 Once the provider is registered and its host is allowlisted, re-run the crawl (or
 Part 1 Option A with one of the now-supported keys). The previously
 `unsupported` frontier rows should advance through `in_progress → ingested`, and
-the `Unsupported` chip count on `/admin/authorities` should drop.
+the `Unsupported` chip count on `/admin/authority/queue` should drop.
 
 ---
 
@@ -329,5 +329,5 @@ the `Unsupported` chip count on `/admin/authorities` should drop.
 - The gate enforces **`public-domain` license + an allowlisted `.gov` source
   host + key verification** before any text is ingested; agentic results require
   human approval.
-- `/admin/authorities` is **read-only and superuser-gated** — it observes the
+- `/admin/authority/queue` is **read-only and superuser-gated** — it observes the
   frontier; triggering stays in the enrichment runner.

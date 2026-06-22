@@ -14,6 +14,12 @@ from opencontractserver.enrichment.services.authority_frontier_service import (
 from opencontractserver.enrichment.services.authority_mapping_service import (
     AuthorityKeyEquivalenceService,
 )
+from opencontractserver.enrichment.services.authority_namespace_service import (
+    AuthorityNamespaceService,
+)
+from opencontractserver.enrichment.services.authority_source_provider_service import (
+    AuthoritySourceProviderService,
+)
 from opencontractserver.enrichment.services.corpus_reference_service import (
     CorpusReferenceService,
 )
@@ -29,6 +35,8 @@ __all__ = [
     "AuthorityDiscoveryService",
     "AuthorityFrontierService",
     "AuthorityKeyEquivalenceService",
+    "AuthorityNamespaceService",
+    "AuthoritySourceProviderService",
     "CrawlAuthoritiesService",
     "CorpusReferenceService",
     "EnrichmentService",

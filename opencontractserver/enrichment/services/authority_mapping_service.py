@@ -20,11 +20,14 @@ from django.db.models import Count, Q, QuerySet
 
 from opencontractserver.annotations.models import AuthorityKeyEquivalence
 from opencontractserver.enrichment.data import mappings as _mappings
+from opencontractserver.enrichment.services.authority_permissions import (
+    DENIED,
+    is_authority_admin,
+)
 from opencontractserver.shared.services.base import BaseService
 
-# The opaque denial string — identical whether the row is missing or the user
-# lacks access, so the superuser-only surface is no existence oracle.
-DENIED = "Resource not found or you do not have permission."
+# ``DENIED`` is the shared opaque denial (re-exported here for existing importers
+# of ``authority_mapping_service.DENIED``).
 MANUAL = "manual"
 
 
@@ -42,11 +45,9 @@ class AuthorityKeyEquivalenceService(BaseService):
 
     @staticmethod
     def is_superuser(user) -> bool:
-        return bool(
-            user
-            and getattr(user, "is_authenticated", False)
-            and getattr(user, "is_superuser", False)
-        )
+        # Thin delegate to the single authority-admin gate (kept for the existing
+        # internal callers below); widen the role in ``authority_permissions``.
+        return is_authority_admin(user)
 
     @classmethod
     def visible(cls, user) -> QuerySet:

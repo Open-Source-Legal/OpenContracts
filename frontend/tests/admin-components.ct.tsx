@@ -145,21 +145,34 @@ test.describe("GlobalSettingsPanel Component", () => {
     await component.unmount();
   });
 
-  test("should render the Enrichment Runner card so /admin/enrichment is reachable", async ({
+  test("should render the Authority Console card so authority admin is reachable", async ({
     mount,
     page,
   }) => {
-    // Regression: the panel linked to /admin/authorities but had no card for
-    // the /admin/enrichment runner, so it was unreachable from the GUI.
+    // The three former authority admin cards (Authority Sources / Authority
+    // Mappings / Enrichment Runner) were collapsed into ONE "Authority Console"
+    // card pointing at /admin/authority, whose tabs absorb all three surfaces
+    // (the Runs tab is the former enrichment runner). This guards that the
+    // unified authority admin surface stays reachable from the GUI.
     const component = await mount(<GlobalSettingsPanelWrapper />);
 
     const card = page.locator(
-      '[data-testid="settings-card-enrichment-runner"]'
+      '[data-testid="settings-card-authority-console"]'
     );
     await expect(card).toBeVisible();
-    await expect(card).toContainText("Enrichment Runner");
+    await expect(card).toContainText("Authority Console");
     // Must be an active (clickable) card, not a Coming Soon placeholder.
     await expect(card.locator("text=Coming Soon")).toHaveCount(0);
+    // The old per-concern cards are gone (absorbed into the console's tabs).
+    await expect(
+      page.locator('[data-testid="settings-card-enrichment-runner"]')
+    ).toHaveCount(0);
+    await expect(
+      page.locator('[data-testid="settings-card-authority-sources"]')
+    ).toHaveCount(0);
+    await expect(
+      page.locator('[data-testid="settings-card-authority-mappings"]')
+    ).toHaveCount(0);
 
     await component.unmount();
   });

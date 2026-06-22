@@ -18,6 +18,7 @@ from opencontractserver.annotations.models import (
     AnnotationLabel,
     AuthorityFrontier,
     AuthorityKeyEquivalence,
+    AuthorityNamespace,
     LabelSet,
     Relationship,
 )
@@ -31,6 +32,9 @@ from opencontractserver.conversations.models import (
 )
 from opencontractserver.corpuses.models import Corpus, CorpusCategory
 from opencontractserver.documents.models import Document, DocumentRelationship
+from opencontractserver.enrichment.services.authority_namespace_service import (
+    authority_namespace_search_q,
+)
 from opencontractserver.extracts.models import Column, Datacell, Extract, Fieldset
 from opencontractserver.users.models import Assignment, UserExport
 
@@ -203,6 +207,44 @@ class AuthorityKeyEquivalenceFilter(django_filters.FilterSet):
 
     class Meta:
         model = AuthorityKeyEquivalence
+        fields: dict = {}
+
+
+class AuthorityNamespaceFilter(django_filters.FilterSet):
+    """Facets for the Authority Console registry tab (superuser-only).
+
+    Gating + default ordering live on ``AuthorityNamespaceNode.get_queryset``.
+    ``authority_type`` carries model ``choices`` so — like
+    ``AuthorityFrontierFilter.authority_type`` — it is an explicit String
+    ``CharFilter`` (not via ``Meta.fields``) to keep a plain ``String`` arg that
+    matches the raw chip values from ``authorityNamespaceStats`` rather than an
+    auto-generated enum. ``scope`` maps the ``"global"`` / ``"corpus"`` chip
+    value onto the ``is_global`` boolean.
+    """
+
+    jurisdiction = filters.CharFilter(field_name="jurisdiction", lookup_expr="exact")
+    authority_type = filters.CharFilter(
+        field_name="authority_type", lookup_expr="exact"
+    )
+    scope = filters.CharFilter(method="filter_by_scope")
+    # Free-text over prefix / display name / aliases.
+    search = filters.CharFilter(method="filter_by_search")
+
+    def filter_by_scope(self, queryset: QuerySet, name: str, value: Any) -> QuerySet:
+        v = (value or "").strip().lower()
+        if v == "global":
+            return queryset.filter(is_global=True)
+        if v == "corpus":
+            return queryset.filter(is_global=False)
+        return queryset
+
+    def filter_by_search(self, queryset: QuerySet, name: str, value: Any) -> QuerySet:
+        # Shared predicate with AuthorityNamespaceService.stats() so chip counts
+        # can never desync from the list rows the same search returns.
+        return queryset.filter(authority_namespace_search_q(value))
+
+    class Meta:
+        model = AuthorityNamespace
         fields: dict = {}
 
 
