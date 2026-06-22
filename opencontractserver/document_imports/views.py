@@ -96,6 +96,9 @@ def _public_permission_message(code: str) -> str:
             "Please contact the admin to authorize your account."
         )
     if code == DocumentImportPermissionError.CORPUS_FORBIDDEN:
+        # Anti-enumeration: the service collapses "corpus does not exist" and
+        # "token not bound to this corpus" into the same CORPUS_FORBIDDEN code,
+        # so this single response can't be diffed to probe which corpus ids exist.
         return "This worker token is not authorized for the specified corpus."
     return "You are not authorized to perform this import."
 

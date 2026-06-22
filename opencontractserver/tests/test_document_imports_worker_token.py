@@ -161,6 +161,28 @@ class WorkerTokenSingleDocServiceTests(TestCase):
         self.assertEqual(res.document.creator_id, self.owner.pk)
         self.assertIn(res.document, self.corpus.get_documents())
 
+    def test_token_import_refused_when_corpus_creator_inactive(self):
+        """``effective_user`` is the corpus creator; a deactivated owner must not
+        silently succeed — the import is refused before any document is made."""
+        inactive = User.objects.create_user(
+            username="inactive_owner", password="x", is_active=False
+        )
+        corpus = Corpus.objects.create(title="IC", creator=inactive, label_set=self.ls)
+        account = WorkerAccount.create_with_user(name="icw", creator=self.owner)
+        token, _ = CorpusAccessToken.create_token(worker_account=account, corpus=corpus)
+        res = import_document_for_user(
+            user=account.user,
+            file_bytes=_PDF,
+            filename="x.pdf",
+            title="x.pdf",
+            description="",
+            access_token=token,
+        )
+        self.assertIsNone(res.document)
+        self.assertIsNotNone(res.error)
+        assert res.error is not None  # narrow Optional for type-checkers
+        self.assertIn("active owner", res.error)
+
 
 class WorkerTokenChunkedServiceTests(TestCase):
     owner: User

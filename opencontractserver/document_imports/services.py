@@ -24,7 +24,7 @@ import tempfile
 import uuid
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from celery import chain
 from django.conf import settings
@@ -60,6 +60,11 @@ from opencontractserver.tasks import (
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.files import is_plaintext_content
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
+
+if TYPE_CHECKING:
+    # Annotation-only import (``from __future__ import annotations`` makes these
+    # lazy) — avoids importing the worker_uploads model graph at module load.
+    from opencontractserver.worker_uploads.models import CorpusAccessToken
 
 logger = logging.getLogger(__name__)
 
@@ -339,7 +344,7 @@ def import_document_for_user(
     add_to_folder_path: str | None = None,
     slug: str | None = None,
     lineage_kwargs: dict | None = None,
-    access_token=None,
+    access_token: CorpusAccessToken | None = None,
 ) -> ImportResult:
     """
     Core upload path for a single document.
@@ -602,7 +607,7 @@ def import_zip_to_corpus_for_user(
     description: str | None = None,
     custom_meta: dict | None = None,
     make_public: bool = False,
-    access_token=None,
+    access_token: CorpusAccessToken | None = None,
 ) -> ZipImportResult:
     """
     Stage a zip in a :class:`TemporaryFileHandle` and queue
@@ -948,7 +953,7 @@ def start_chunked_upload(
     chunk_size: int,
     total_chunks: int,
     metadata: dict | None = None,
-    access_token=None,
+    access_token: CorpusAccessToken | None = None,
 ) -> ChunkedUploadSession:
     """
     Validate a chunked-upload request and create a ``PENDING`` session.
@@ -1192,7 +1197,7 @@ def _mark_failed(session: ChunkedUploadSession, message: str) -> None:
 
 
 def complete_chunked_upload(
-    *, user, upload_id, access_token=None
+    *, user, upload_id, access_token: CorpusAccessToken | None = None
 ) -> tuple[str, ImportResult | ZipImportResult | CorpusImportResult]:
     """
     Reassemble a fully-uploaded session and run the matching import.
@@ -1257,6 +1262,9 @@ def complete_chunked_upload(
         # do not "simplify" this to require a non-None corpus_ref.
         corpus_ref = md.get("corpus_id") or md.get("add_to_corpus_id")
         bound, _bind_err = _resolve_corpus_for_access_token(access_token, corpus_ref)
+        # ``worker_account`` is a non-null FK (so no AttributeError here) and is
+        # already ``select_related`` by WorkerTokenAuthentication (auth.py) — the
+        # ``.user_id`` read is free, no extra query.
         if bound is None or access_token.worker_account.user_id != session.creator_id:
             _mark_failed(session, "Permission denied")
             raise DocumentImportPermissionError(

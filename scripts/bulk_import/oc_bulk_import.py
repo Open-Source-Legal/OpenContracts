@@ -147,7 +147,10 @@ def _to_global_corpus_id(value: str) -> str:
     ``inCorpusWithId`` filter decodes a global id with no pk fallback, so the
     CLI normalizes here to keep a numeric ``--corpus-id`` from crashing it."""
     s = str(value).strip()
-    if s.isdigit():
+    # ``isascii() and isdecimal()`` rather than ``isdigit()``: the latter is True
+    # for non-ASCII digit chars (e.g. superscripts), this means a plain base-10
+    # primary key.
+    if s.isascii() and s.isdecimal():
         return base64.b64encode(f"{_CORPUS_GRAPHQL_TYPE}:{s}".encode()).decode()
     return s
 
