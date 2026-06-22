@@ -80,8 +80,10 @@ DEFAULT_TARGET_BYTES = 250 * 1024 * 1024
 DEFAULT_TARGET_FOLDERS = 400
 
 # Files at or above this size are skipped by the server's zip validator, so the
-# driver routes them to the single-document endpoint instead. Mirror the
-# server's ZIP_MAX_SINGLE_FILE_SIZE_BYTES (default 100 MB).
+# driver routes them to the single-document endpoint instead. Mirrors the
+# server's ZIP_MAX_SINGLE_FILE_SIZE_BYTES (default 100 MB) — keep in sync if that
+# server cap is changed, or oversize files will be packed into ZIPs and silently
+# dropped by the validator. (Override per-run with ``--single-file-cap``.)
 DEFAULT_SINGLE_FILE_CAP = 100 * 1024 * 1024
 
 # How many ZIPs to have in flight at once. Each 500-file ZIP injects ~500 parse

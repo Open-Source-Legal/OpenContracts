@@ -44,6 +44,8 @@ endpoint, so:
 ## Quickstart
 
 ```bash
+cd scripts/bulk_import            # the driver is a standalone script
+
 export OC_API_BASE=https://your-opencontracts.example.com
 export OC_USERNAME=bulk_importer
 export OC_PASSWORD=...
@@ -112,7 +114,8 @@ The driver supports three auth modes, resolved in this priority order:
 > `--token` / `--password` flags — flag values are visible to other users on the
 > host via `ps` and `/proc/<pid>/cmdline`. The ledger is bound to the first
 > `--corpus-id` it sees and warns if a later `run`/`verify` points at a different
-> corpus.
+> corpus. The SQLite ledger stores only batch/progress metadata — **never the
+> token or any credential** — so it doesn't need the same protection as the token.
 
 > **Large files & proxies:** payloads above 50 MB (large ZIP batches and any
 > file ≥ the `--single-file-cap`, which routes to the single-document endpoint)

@@ -429,6 +429,11 @@ def import_document_for_user(
     # existing folder id (``add_to_folder_id``) is resolved as before.
     folder_path_parts = [p for p in (add_to_folder_path or "").split("/") if p]
     if folder_path_parts:
+        # Function-local import: reaching FolderCRUDService runs the
+        # ``corpuses.services`` package __init__, which eagerly imports many
+        # sibling services. Deferring it keeps ``document_imports.services``
+        # import-light and out of that import-time fan-out (it is only needed on
+        # the add_to_folder_path branch anyway).
         from opencontractserver.corpuses.services.folders import FolderCRUDService
 
         # create_folder_structure_from_paths needs every ancestor path, ordered
@@ -1212,8 +1217,15 @@ def complete_chunked_upload(
     # Re-verify the worker-token binding at completion: the token must still
     # match the session's target corpus, and the completing token's worker user
     # must own the session (it does for the same token across start/parts/
-    # complete). Prevents a token swap between start and complete.
+    # complete). Prevents a token swap between start and complete. Part uploads
+    # (``store_chunk``) are NOT corpus-checked per part — they gate on session
+    # ownership only — so this completion gate is where corpus binding is
+    # enforced for the assembled upload.
     if access_token is not None:
+        # For a DOCUMENT session ``corpus_id`` is absent and ``add_to_corpus_id``
+        # may be too; ``_resolve_corpus_for_access_token(token, None)`` then
+        # returns the token's *bound* corpus (not None), so the guard passes —
+        # do not "simplify" this to require a non-None corpus_ref.
         corpus_ref = md.get("corpus_id") or md.get("add_to_corpus_id")
         bound, _bind_err = _resolve_corpus_for_access_token(access_token, corpus_ref)
         if bound is None or access_token.worker_account.user_id != session.creator_id:
