@@ -13,7 +13,6 @@ from __future__ import annotations
 import io
 import zipfile
 
-from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 from graphql_relay import to_global_id
 from rest_framework.test import APIClient
@@ -27,9 +26,8 @@ from opencontractserver.document_imports.services import (
     import_zip_to_corpus_for_user,
     start_chunked_upload,
 )
+from opencontractserver.users.models import User
 from opencontractserver.worker_uploads.models import CorpusAccessToken, WorkerAccount
-
-User = get_user_model()
 
 _PDF = b"%PDF-1.4 test document\n%%EOF\n"
 
@@ -43,6 +41,13 @@ def _zip_bytes(arcname: str = "a/b.pdf") -> bytes:
 
 @override_settings(CELERY_TASK_ALWAYS_EAGER=False)
 class WorkerTokenZipServiceTests(TestCase):
+    owner: User
+    ls: LabelSet
+    corpus: Corpus
+    other: Corpus
+    account: WorkerAccount
+    token: CorpusAccessToken
+
     @classmethod
     def setUpTestData(cls):
         cls.owner = User.objects.create_user(username="owner1", password="x")
@@ -83,6 +88,12 @@ class WorkerTokenZipServiceTests(TestCase):
 
 
 class WorkerTokenSingleDocServiceTests(TestCase):
+    owner: User
+    ls: LabelSet
+    corpus: Corpus
+    account: WorkerAccount
+    token: CorpusAccessToken
+
     @classmethod
     def setUpTestData(cls):
         cls.owner = User.objects.create_user(username="owner2", password="x")
@@ -108,6 +119,7 @@ class WorkerTokenSingleDocServiceTests(TestCase):
         )
         self.assertIsNone(res.error)
         self.assertIsNotNone(res.document)
+        assert res.document is not None  # narrow Optional for type-checkers
         # Owned by the corpus creator, not the worker service account.
         self.assertEqual(res.document.creator_id, self.owner.pk)
         leaf = CorpusFolder.objects.get(corpus=self.corpus, name="beta")
@@ -128,6 +140,13 @@ class WorkerTokenSingleDocServiceTests(TestCase):
 
 
 class WorkerTokenChunkedServiceTests(TestCase):
+    owner: User
+    ls: LabelSet
+    corpus: Corpus
+    other: Corpus
+    account: WorkerAccount
+    token: CorpusAccessToken
+
     @classmethod
     def setUpTestData(cls):
         cls.owner = User.objects.create_user(username="owner3", password="x")
@@ -185,6 +204,14 @@ class WorkerTokenChunkedServiceTests(TestCase):
 
 @override_settings(CELERY_TASK_ALWAYS_EAGER=False)
 class WorkerTokenRestEndpointTests(TestCase):
+    owner: User
+    ls: LabelSet
+    corpus: Corpus
+    other: Corpus
+    account: WorkerAccount
+    token: CorpusAccessToken
+    plaintext: str
+
     @classmethod
     def setUpTestData(cls):
         cls.owner = User.objects.create_user(username="rowner", password="x")

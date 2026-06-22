@@ -387,7 +387,8 @@ def import_document_for_user(
         )
         if corpus is None:
             raise DocumentImportPermissionError(
-                DocumentImportPermissionError.CORPUS_FORBIDDEN, corpus_error
+                DocumentImportPermissionError.CORPUS_FORBIDDEN,
+                corpus_error or CORPUS_NOT_FOUND_MSG,
             )
         effective_user = corpus.creator
         if effective_user is None or not effective_user.is_active:
@@ -604,7 +605,8 @@ def import_zip_to_corpus_for_user(
         corpus, corpus_error = _resolve_corpus_for_access_token(access_token, corpus_id)
         if corpus is None:
             raise DocumentImportPermissionError(
-                DocumentImportPermissionError.CORPUS_FORBIDDEN, corpus_error
+                DocumentImportPermissionError.CORPUS_FORBIDDEN,
+                corpus_error or CORPUS_NOT_FOUND_MSG,
             )
         effective_user = corpus.creator
         if effective_user is None or not effective_user.is_active:
