@@ -462,6 +462,29 @@ class ChunkedUploadServiceUnitTests(TestCase):
             username="carol", password="pw", is_usage_capped=False
         )
 
+    def test_start_document_rejects_conflicting_folder_selectors(self):
+        """A DOCUMENT chunked start rejects both add_to_folder_path and
+        add_to_folder_id up front, before any parts are streamed."""
+        from opencontractserver.document_imports.services import (
+            ChunkedUploadError,
+            start_chunked_upload,
+        )
+
+        with self.assertRaises(ChunkedUploadError):
+            start_chunked_upload(
+                user=self.user,
+                kind="document",
+                filename="x.pdf",
+                total_size=10,
+                chunk_size=10,
+                total_chunks=1,
+                metadata={
+                    "title": "Doc",
+                    "add_to_folder_path": "a/b",
+                    "add_to_folder_id": "123",
+                },
+            )
+
     def test_purge_stale_sessions_removes_parts(self):
         from datetime import timedelta
 

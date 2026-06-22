@@ -892,15 +892,20 @@ class FolderCRUDService(BaseService):
         """Soft-delete (move to Trash) every active document in ``folder`` and
         all of its descendant folders.
 
-        Reuses ``Corpus.remove_document`` — the same soft-delete primitive the
-        'Remove from corpus' action uses — so each trashed document gets an
-        identical history node + signals and stays restorable. Runs inside the
-        caller's ``transaction.atomic()``; the caller deletes the folder
-        sub-tree afterwards, at which point the soft-deleted paths' ``folder``
-        FK is SET_NULL (matching how a document trashed from the root has no
-        folder). Returns the number of documents trashed.
+        Delegates to ``DocumentLifecycleService.bulk_soft_delete_documents`` —
+        the shared bulk-trash primitive (the batched counterpart of
+        ``Corpus.remove_document``) — so each trashed document gets an identical
+        history node + signals and stays restorable, in a fixed number of
+        queries regardless of the sub-tree size. Runs inside the caller's
+        ``transaction.atomic()``; the caller deletes the folder sub-tree
+        afterwards, at which point the soft-deleted paths' ``folder`` FK is
+        SET_NULL (matching how a document trashed from the root has no folder).
+        Returns the number of documents trashed.
         """
-        from opencontractserver.documents.models import Document, DocumentPath
+        from opencontractserver.corpuses.services.lifecycle import (
+            DocumentLifecycleService,
+        )
+        from opencontractserver.documents.models import DocumentPath
 
         corpus = folder.corpus
         # Materialise the descendant folder ids (a small, bounded set) rather
@@ -923,20 +928,9 @@ class FolderCRUDService(BaseService):
             .distinct()
         )
 
-        trashed = 0
-        # TODO(perf, deferred): batch this for large corpora —
-        # ``remove_document`` issues several queries per document (history row,
-        # signals, path update) and holds row locks inside the caller's
-        # transaction, so a very large sub-tree can hit the DB statement timeout.
-        # Same per-document-loop pattern as ``DocumentLifecycleService.empty_corpus``
-        # and the legacy "empty trash" path; all three want one shared bulk-trash
-        # primitive (tracked in issue #1951). Fine for typical folder sizes;
-        # batch via that primitive before raising the sub-tree document-count
-        # ceiling.
-        for document in Document.objects.filter(pk__in=doc_ids):
-            if corpus.remove_document(document=document, user=user):
-                trashed += 1
-        return trashed
+        return DocumentLifecycleService.bulk_soft_delete_documents(
+            corpus, doc_ids, user
+        )
 
     @classmethod
     def get_folder_path(

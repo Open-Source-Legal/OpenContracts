@@ -156,6 +156,18 @@ class DocumentImportViewTests(TestCase):
         )
         self.assertEqual(response.status_code, 201, response.content)
 
+    def test_uploads_with_folder_path_creates_nested_tree(self):
+        """JWT (non-worker-token) path: ``add_to_folder_path`` round-trips through
+        DocumentImportView and builds the nested CorpusFolder tree."""
+        self._login()
+        response = self._upload(
+            add_to_corpus_id=str(self.corpus.id),
+            add_to_folder_path="alpha/beta",
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        leaf = CorpusFolder.objects.get(corpus=self.corpus, name="beta")
+        self.assertEqual(leaf.parent.name, "alpha")
+
     def test_text_file_upload_is_accepted(self):
         self._login()
         response = self._upload(
@@ -193,6 +205,20 @@ class DocumentImportViewTests(TestCase):
             format="multipart",
         )
         self.assertEqual(response.status_code, 400)
+
+    def test_both_folder_path_and_id_is_validation_error(self):
+        """``add_to_folder_path`` and ``add_to_folder_id`` are mutually
+        exclusive; supplying both is rejected (service layer) with a 400."""
+        self._login()
+        folder = CorpusFolder.objects.create(
+            corpus=self.corpus, name="Inbox", creator=self.user
+        )
+        response = self._upload(
+            add_to_corpus_id=str(self.corpus.id),
+            add_to_folder_id=str(folder.id),
+            add_to_folder_path="a/b",
+        )
+        self.assertEqual(response.status_code, 400, response.content)
 
     def test_unsupported_filetype_returns_400(self):
         self._login()
