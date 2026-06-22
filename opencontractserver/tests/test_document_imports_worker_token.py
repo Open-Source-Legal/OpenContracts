@@ -12,19 +12,25 @@ from __future__ import annotations
 
 import io
 import zipfile
+from unittest.mock import patch
 
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from graphql_relay import to_global_id
 from rest_framework.test import APIClient
 
 from opencontractserver.annotations.models import LabelSet
 from opencontractserver.corpuses.models import Corpus, CorpusFolder
+from opencontractserver.document_imports.models import ChunkedUploadStatus
 from opencontractserver.document_imports.services import (
     ChunkedUploadError,
     DocumentImportPermissionError,
+    ZipImportResult,
+    complete_chunked_upload,
     import_document_for_user,
     import_zip_to_corpus_for_user,
     start_chunked_upload,
+    store_chunk,
 )
 from opencontractserver.users.models import User
 from opencontractserver.worker_uploads.models import CorpusAccessToken, WorkerAccount
@@ -200,6 +206,63 @@ class WorkerTokenChunkedServiceTests(TestCase):
                 metadata={},
                 access_token=self.token,
             )
+
+    def _start_and_fill_zip_session(self, token):
+        """Start a 1-part zip_to_corpus session bound to ``self.corpus`` and
+        store its single part, leaving it ready to ``complete``."""
+        zbytes = _zip_bytes()
+        session = start_chunked_upload(
+            user=self.account.user,
+            kind="zip_to_corpus",
+            filename="b.zip",
+            total_size=len(zbytes),
+            chunk_size=len(zbytes),
+            total_chunks=1,
+            metadata={"corpus_id": str(self.corpus.pk)},
+            access_token=token,
+        )
+        store_chunk(
+            user=self.account.user,
+            upload_id=session.id,
+            index=0,
+            chunk_file=SimpleUploadedFile("b.zip", zbytes),
+        )
+        return session
+
+    def test_complete_accepts_matching_token(self):
+        """The matching token clears the completion re-verification gate; the
+        import itself is mocked so the test isolates the auth check."""
+        session = self._start_and_fill_zip_session(self.token)
+        with patch(
+            "opencontractserver.document_imports.services."
+            "import_zip_to_corpus_for_user",
+            return_value=ZipImportResult(job_id="job-1", error=None),
+        ) as mock_import:
+            _kind, result = complete_chunked_upload(
+                user=self.account.user,
+                upload_id=session.id,
+                access_token=self.token,
+            )
+        mock_import.assert_called_once()
+        self.assertIsNone(result.error)
+        session.refresh_from_db()
+        self.assertEqual(session.status, ChunkedUploadStatus.COMPLETED)
+
+    def test_complete_rejects_swapped_token(self):
+        """A token bound to a *different* corpus cannot complete a session that
+        another token started (token-swap guard); the session is marked FAILED."""
+        session = self._start_and_fill_zip_session(self.token)
+        swapped, _ = CorpusAccessToken.create_token(
+            worker_account=self.account, corpus=self.other
+        )
+        with self.assertRaises(DocumentImportPermissionError):
+            complete_chunked_upload(
+                user=self.account.user,
+                upload_id=session.id,
+                access_token=swapped,
+            )
+        session.refresh_from_db()
+        self.assertEqual(session.status, ChunkedUploadStatus.FAILED)
 
 
 @override_settings(CELERY_TASK_ALWAYS_EAGER=False)

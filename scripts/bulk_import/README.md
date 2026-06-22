@@ -199,9 +199,11 @@ per-batch ceiling across submissions.
 
 ## Known limitations
 
-- **Oversize files (≥ 100 MB)** are uploaded via the single-document endpoint
-  and land at the **corpus root** (not foldered), titled with their relative
-  path. Rare for typical PDFs.
+- **Oversize files (≥ 100 MB)** are routed to the single-document endpoint
+  (with chunked transport if needed) instead of being packed into a batch ZIP,
+  but still land in the **correct folder** — the file's path relative to
+  `--root-dir` becomes the nested corpus folder, with the file name as the
+  document title. Rare for typical PDFs.
 - **No server-side content de-dup.** The ledger is the source of truth for
   "already done"; re-importing the same relative path **upversions** (no
   duplicate active document), so re-runs converge safely.
