@@ -937,6 +937,8 @@ def start_chunked_upload(
     # --- per-kind fast-fail permission gates ------------------------------------
     # A worker token is self-authorizing: skip the usage-cap gate and validate
     # the requested corpus against the token's binding instead of the EDIT gate.
+    # Closes over ``access_token`` and ``user`` from the enclosing scope (it is
+    # only ever called here); promote them to explicit params if it moves out.
     def _gate_corpus(corpus_ref):
         if corpus_ref is None:
             return

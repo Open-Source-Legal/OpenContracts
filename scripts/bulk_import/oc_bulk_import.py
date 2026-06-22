@@ -31,9 +31,17 @@ Subcommands::
     status   Print ledger + live corpus counts.
     create-corpus   Convenience: create a corpus and print its global id.
 
-Auth: a JWT obtained from the ``tokenAuth`` GraphQL mutation (username/password
-or ``OC_USERNAME`` / ``OC_PASSWORD`` env vars). The token is refreshed
-automatically on 401 via ``refreshToken`` — covering multi-day runs.
+Auth (three modes, in priority order — see ``OCClient``):
+
+* ``--worker-token`` / ``OC_WORKER_TOKEN`` — a ``CorpusAccessToken`` sent to the
+  import endpoints as ``Authorization: WorkerKey <token>``. The recommended mode
+  and the only one that works on Auth0 backends. The corpus is taken from the
+  token binding, so ``--corpus-id`` must reference it and ``create-corpus`` is
+  unavailable (the corpus must pre-exist to mint a token).
+* ``--token`` / ``OC_TOKEN`` — a raw JWT used for both REST and GraphQL.
+* username/password (``OC_USERNAME`` / ``OC_PASSWORD``) — exchanged for a JWT via
+  the ``tokenAuth`` GraphQL mutation (non-Auth0 only) and re-exchanged
+  automatically on a 401, covering multi-day runs.
 
 Dependencies: Python 3.9+ and ``requests`` (``pip install requests``).
 """
@@ -103,6 +111,10 @@ _HASH_BLOCK = 1024 * 1024
 # under any reverse-proxy body limit (Cloudflare: 100 MB) and the server's
 # CHUNKED_UPLOAD_PART_MAX_BYTES (90 MB). A payload at or under the threshold is
 # sent as one multipart POST; above it, via /api/imports/chunked/*.
+# Deliberately equal (not a copy-paste slip): the threshold to *switch on*
+# chunking equals the per-part size, so a payload that fits in a single part
+# (``size <= CHUNK_THRESHOLD_BYTES`` -> exactly one chunk) is sent as one direct
+# multipart POST instead, and only ``size > threshold`` (>= 2 parts) chunks.
 CHUNK_SIZE_BYTES = 50 * 1024 * 1024
 CHUNK_THRESHOLD_BYTES = 50 * 1024 * 1024
 CHUNK_CONCURRENCY = 4

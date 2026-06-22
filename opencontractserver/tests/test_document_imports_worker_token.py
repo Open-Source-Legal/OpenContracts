@@ -267,3 +267,23 @@ class WorkerTokenRestEndpointTests(TestCase):
             format="multipart",
         )
         self.assertIn(r.status_code, (401, 403), r.content)
+
+    def test_workerkey_single_doc_add_to_folder_path(self):
+        """``add_to_folder_path`` round-trips through ``POST /api/imports/
+        documents/`` under WorkerKey auth, building the nested CorpusFolder tree
+        under the token-bound corpus."""
+        r = self._client().post(
+            "/api/imports/documents/",
+            {
+                "file": io.BytesIO(_PDF),
+                "filename": "x.pdf",
+                "title": "x.pdf",
+                "add_to_corpus_id": str(self.corpus.pk),
+                "add_to_folder_path": "alpha/beta",
+            },
+            format="multipart",
+        )
+        self.assertEqual(r.status_code, 201, r.content)
+        self.assertTrue(r.json().get("ok"))
+        leaf = CorpusFolder.objects.get(corpus=self.corpus, name="beta")
+        self.assertEqual(leaf.parent.name, "alpha")
