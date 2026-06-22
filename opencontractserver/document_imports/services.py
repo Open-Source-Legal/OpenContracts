@@ -918,9 +918,18 @@ def _gate_chunked_corpus(corpus_ref, *, user, access_token) -> None:
     the token's binding instead of the user's EDIT gate; otherwise apply the
     EDIT gate. ``user`` and ``access_token`` are explicit (not closed over) so
     the gate is testable in isolation. Raises ``ChunkedUploadError(403)`` on a
-    mismatch; a ``None`` ``corpus_ref`` is a no-op (no corpus to validate).
+    mismatch.
+
+    A ``None`` ``corpus_ref`` is a deliberate no-op, not a missing gate: a
+    DOCUMENT-kind upload may omit ``add_to_corpus_id`` (a worker token then
+    defaults to its bound corpus, a JWT user to their personal corpus), so there
+    is no *requested* corpus to validate here. The corpus is resolved and — for a
+    worker token — re-bound/re-checked downstream at ``complete_chunked_upload``
+    and ``import_document_for_user``.
     """
     if corpus_ref is None:
+        # No requested corpus to gate (see docstring); resolution + binding are
+        # enforced at complete time, not here.
         return
     if access_token is not None:
         _, corpus_error = _resolve_corpus_for_access_token(access_token, corpus_ref)
