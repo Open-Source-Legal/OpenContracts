@@ -144,6 +144,23 @@ class WorkerTokenSingleDocServiceTests(TestCase):
                 access_token=self.token,
             )
 
+    def test_token_single_doc_defaults_to_bound_corpus(self):
+        """With no add_to_corpus_id, a worker token lands the document in its
+        bound corpus (not a personal corpus), owned by the corpus creator."""
+        res = import_document_for_user(
+            user=self.account.user,
+            file_bytes=_PDF,
+            filename="x.pdf",
+            title="x.pdf",
+            description="",
+            access_token=self.token,
+        )
+        self.assertIsNone(res.error)
+        self.assertIsNotNone(res.document)
+        assert res.document is not None  # narrow Optional for type-checkers
+        self.assertEqual(res.document.creator_id, self.owner.pk)
+        self.assertIn(res.document, self.corpus.get_documents())
+
 
 class WorkerTokenChunkedServiceTests(TestCase):
     owner: User

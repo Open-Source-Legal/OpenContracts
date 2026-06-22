@@ -90,6 +90,14 @@ The driver supports three auth modes, resolved in this priority order:
    python oc_bulk_import.py run --root-dir /data/pdfs
    ```
 
+   > **Backpressure needs an authenticated `documentStats`.** A `WorkerKey` is
+   > REST-only, so in worker-token mode the GraphQL `documentStats` query runs
+   > unauthenticated and a **private** corpus reports `processingCount=0` —
+   > pacing then never engages (`run` warns about this). For a private corpus,
+   > also export `OC_TOKEN` (a bearer JWT with READ on the corpus); the driver
+   > uses it for GraphQL while still importing via the worker token. A public
+   > corpus needs nothing extra.
+
 2. **Bearer token — `OC_TOKEN`.** A raw JWT used for both REST and GraphQL
    (e.g. an Auth0 token copied from a browser session, or a `tokenAuth` token on
    a non-Auth0 backend).

@@ -33,12 +33,22 @@ class DocumentImportSerializer(serializers.Serializer):
         required=False, allow_blank=True, allow_null=True
     )
     # POSIX folder path (e.g. ``a/b/c``) — created/reused on import. Mutually
-    # exclusive with ``add_to_folder_id`` (path wins when both are supplied).
+    # exclusive with ``add_to_folder_id``; supplying both is rejected by
+    # ``validate`` rather than silently letting the path win.
     add_to_folder_path = serializers.CharField(
         required=False, allow_blank=True, allow_null=True, max_length=2048
     )
     make_public = serializers.BooleanField(required=False, default=False)
     custom_meta = serializers.JSONField(required=False, default=dict)
+
+    def validate(self, data):
+        """A folder target may be named by path or by id, not both — reject an
+        ambiguous request instead of silently picking one."""
+        if data.get("add_to_folder_path") and data.get("add_to_folder_id"):
+            raise serializers.ValidationError(
+                "Supply add_to_folder_path or add_to_folder_id, not both."
+            )
+        return data
 
 
 class DocumentsZipImportSerializer(serializers.Serializer):

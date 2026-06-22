@@ -515,11 +515,12 @@ class OCClient:
         return {}
 
     def graphql_headers(self) -> dict[str, str]:
-        """Auth header for GraphQL. A WorkerKey is REST-only and meaningless to
-        GraphQL, so worker-token mode sends no header (``documentStats`` — the
-        only query used — needs no auth)."""
-        if self._worker_token:
-            return {}
+        """Auth header for GraphQL. A WorkerKey is REST-only and is never sent
+        here. A bearer JWT *is* used when present — including alongside a worker
+        token — so ``documentStats`` (the only query used) can read a PRIVATE
+        corpus's in-flight count for backpressure. With only a worker token the
+        query runs unauthenticated, so a private corpus reports 0 and pacing is
+        disabled (see the run-time warning in ``cmd_run`` and the README)."""
         if self._token:
             return {"Authorization": f"Bearer {self._token}"}
         return {}
@@ -1181,6 +1182,16 @@ def cmd_run(args: argparse.Namespace, ledger: Ledger) -> int:
             )
         )
         logger.info("Corpus baseline: %d existing document(s)", baseline)
+        # Backpressure reads documentStats over GraphQL, which a WorkerKey
+        # cannot authenticate. Without a bearer token a PRIVATE corpus reports
+        # processingCount=0 to the governor, so pacing silently never engages.
+        if _worker_token(args) and not _bearer_token(args):
+            logger.warning(
+                "Worker-token mode without a bearer token: documentStats is "
+                "queried unauthenticated, so backpressure only works for a "
+                "PUBLIC corpus. For a private corpus, also pass --token / "
+                "OC_TOKEN (a JWT with READ on the corpus) to enable pacing."
+            )
         governor = QueueGovernor(
             client, args.corpus_id, args.queue_high, args.queue_low
         )
