@@ -281,6 +281,37 @@ class WorkerTokenChunkedServiceTests(TestCase):
         session.refresh_from_db()
         self.assertEqual(session.status, ChunkedUploadStatus.FAILED)
 
+    def test_complete_rejects_swapped_token_document_kind(self):
+        """The completion token-rebind guard also protects DOCUMENT-kind
+        sessions, not just zip_to_corpus."""
+        session = start_chunked_upload(
+            user=self.account.user,
+            kind="document",
+            filename="x.pdf",
+            total_size=len(_PDF),
+            chunk_size=len(_PDF),
+            total_chunks=1,
+            metadata={"title": "x.pdf", "add_to_corpus_id": str(self.corpus.pk)},
+            access_token=self.token,
+        )
+        store_chunk(
+            user=self.account.user,
+            upload_id=session.id,
+            index=0,
+            chunk_file=SimpleUploadedFile("x.pdf", _PDF),
+        )
+        swapped, _ = CorpusAccessToken.create_token(
+            worker_account=self.account, corpus=self.other
+        )
+        with self.assertRaises(DocumentImportPermissionError):
+            complete_chunked_upload(
+                user=self.account.user,
+                upload_id=session.id,
+                access_token=swapped,
+            )
+        session.refresh_from_db()
+        self.assertEqual(session.status, ChunkedUploadStatus.FAILED)
+
 
 @override_settings(CELERY_TASK_ALWAYS_EAGER=False)
 class WorkerTokenRestEndpointTests(TestCase):

@@ -220,6 +220,12 @@ per-batch ceiling across submissions.
   duplicate active document), so re-runs converge safely.
 - **`job_id` is not pollable** for this endpoint (a known server quirk), so the
   driver verifies by corpus document **count**, not job status.
+- **Abandoned chunked sessions.** When a chunked part upload fails mid-stream the
+  batch is marked `FAILED` and re-run starts a *fresh* session; the partial one
+  is left `PENDING` on the server. These are reclaimed by the server's
+  stale-session GC (`purge_stale_chunked_uploads`), not by the driver — on a very
+  large import with many transient failures, watch server chunked-session counts
+  if the GC interval is long.
 
 ## Tests
 

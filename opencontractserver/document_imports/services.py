@@ -206,7 +206,14 @@ def _resolve_corpus_for_access_token(
         requested_pk = _resolve_pk(requested_corpus_id)
         if str(requested_pk) != str(access_token.corpus_id):
             return None, CORPUS_NOT_FOUND_MSG
-    return access_token.corpus, None
+    # ``corpus`` is a non-null CASCADE FK, so a live token always has one — this
+    # guard is defensive, but it keeps the documented ``(None, message)`` failure
+    # contract honest so callers that branch on the message alone (the chunked
+    # corpus gate) can never silently pass on a ``(None, None)``.
+    corpus = access_token.corpus
+    if corpus is None:
+        return None, CORPUS_NOT_FOUND_MSG
+    return corpus, None
 
 
 # Standard ZIP local-file-header signatures. ``PK\x03\x04`` is the normal
@@ -904,6 +911,25 @@ def _check_bulk_upload_allowed(user) -> None:
         )
 
 
+def _gate_chunked_corpus(corpus_ref, *, user, access_token) -> None:
+    """Fast-fail corpus permission gate for a chunked-upload ``start``.
+
+    A worker token is self-authorizing: validate the requested corpus against
+    the token's binding instead of the user's EDIT gate; otherwise apply the
+    EDIT gate. ``user`` and ``access_token`` are explicit (not closed over) so
+    the gate is testable in isolation. Raises ``ChunkedUploadError(403)`` on a
+    mismatch; a ``None`` ``corpus_ref`` is a no-op (no corpus to validate).
+    """
+    if corpus_ref is None:
+        return
+    if access_token is not None:
+        _, corpus_error = _resolve_corpus_for_access_token(access_token, corpus_ref)
+    else:
+        _, corpus_error = _resolve_corpus_for_edit(user, corpus_ref)
+    if corpus_error is not None:
+        raise ChunkedUploadError(corpus_error, http_status=403)
+
+
 def start_chunked_upload(
     *,
     user,
@@ -959,21 +985,7 @@ def start_chunked_upload(
             http_status=403,
         )
 
-    # --- per-kind fast-fail permission gates ------------------------------------
-    # A worker token is self-authorizing: skip the usage-cap gate and validate
-    # the requested corpus against the token's binding instead of the EDIT gate.
-    # Closes over ``access_token`` and ``user`` from the enclosing scope (it is
-    # only ever called here); promote them to explicit params if it moves out.
-    def _gate_corpus(corpus_ref):
-        if corpus_ref is None:
-            return
-        if access_token is not None:
-            _, corpus_error = _resolve_corpus_for_access_token(access_token, corpus_ref)
-        else:
-            _, corpus_error = _resolve_corpus_for_edit(user, corpus_ref)
-        if corpus_error is not None:
-            raise ChunkedUploadError(corpus_error, http_status=403)
-
+    # --- per-kind fast-fail permission gates (see _gate_chunked_corpus) ----------
     if kind == ChunkedUploadKind.DOCUMENT:
         if access_token is None:
             check_usage_cap(user)
@@ -989,7 +1001,11 @@ def start_chunked_upload(
             raise ChunkedUploadError(
                 "Supply add_to_folder_path or add_to_folder_id, not both."
             )
-        _gate_corpus(normalise_optional(metadata.get("add_to_corpus_id")))
+        _gate_chunked_corpus(
+            normalise_optional(metadata.get("add_to_corpus_id")),
+            user=user,
+            access_token=access_token,
+        )
     else:
         if access_token is None:
             _check_bulk_upload_allowed(user)
@@ -997,9 +1013,13 @@ def start_chunked_upload(
             corpus_ref = normalise_optional(metadata.get("corpus_id"))
             if corpus_ref is None:
                 raise ChunkedUploadError("corpus_id is required for zip_to_corpus")
-            _gate_corpus(corpus_ref)
+            _gate_chunked_corpus(corpus_ref, user=user, access_token=access_token)
         elif kind == ChunkedUploadKind.DOCUMENTS_ZIP:
-            _gate_corpus(normalise_optional(metadata.get("add_to_corpus_id")))
+            _gate_chunked_corpus(
+                normalise_optional(metadata.get("add_to_corpus_id")),
+                user=user,
+                access_token=access_token,
+            )
 
     session = ChunkedUploadSession.objects.create(
         creator=user,

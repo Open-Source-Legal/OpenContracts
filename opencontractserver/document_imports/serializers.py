@@ -36,6 +36,11 @@ class DocumentImportSerializer(serializers.Serializer):
     # exclusive with ``add_to_folder_id``; supplying both is rejected in the
     # service layer (``import_document_for_user``) so every entrypoint — this
     # endpoint, the chunked path, and GraphQL — enforces it, not just here.
+    # Sanitisation: ``import_document_for_user`` splits on ``/`` (dropping empty
+    # segments) and ``FolderCRUDService.create_folder_structure_from_paths``
+    # materialises the segments as corpus-scoped CorpusFolder rows under the
+    # corpus EDIT gate. These are DB records, not filesystem paths, so there is
+    # no path-traversal surface (a ``..`` segment is just an oddly-named folder).
     add_to_folder_path = serializers.CharField(
         required=False, allow_blank=True, allow_null=True, max_length=2048
     )
