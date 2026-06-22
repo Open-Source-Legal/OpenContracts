@@ -367,3 +367,32 @@ class WorkerTokenRestEndpointTests(TestCase):
         self.assertTrue(r.json().get("ok"))
         leaf = CorpusFolder.objects.get(corpus=self.corpus, name="beta")
         self.assertEqual(leaf.parent.name, "alpha")
+
+    def test_workerkey_chunked_zip_round_trip(self):
+        """The full chunked start -> part -> complete flow works over HTTP under
+        WorkerKey auth, guarding the chunked views' access_token wiring."""
+        client = self._client()
+        zbytes = _zip_bytes()
+        start = client.post(
+            "/api/imports/chunked/start/",
+            {
+                "kind": "zip_to_corpus",
+                "filename": "b.zip",
+                "total_size": len(zbytes),
+                "chunk_size": len(zbytes),
+                "total_chunks": 1,
+                "metadata": {"corpus_id": str(self.corpus.pk)},
+            },
+            format="json",
+        )
+        self.assertEqual(start.status_code, 201, start.content)
+        upload_id = start.json()["upload_id"]
+        part = client.put(
+            f"/api/imports/chunked/{upload_id}/parts/0/",
+            {"file": SimpleUploadedFile("b.zip", zbytes)},
+            format="multipart",
+        )
+        self.assertEqual(part.status_code, 200, part.content)
+        complete = client.post(f"/api/imports/chunked/{upload_id}/complete/")
+        self.assertIn(complete.status_code, (200, 201, 202), complete.content)
+        self.assertTrue(complete.json().get("ok"))

@@ -309,6 +309,14 @@ def check_usage_cap(user) -> None:
         )
 
 
+def _folder_selectors_conflict(folder_path: Any, folder_id: Any) -> bool:
+    """A folder target is named by path OR id — never both. Returns True when
+    both are supplied so callers can reject the ambiguous request. Enforced in
+    the service layer so every entrypoint (REST, GraphQL, the chunked path) gets
+    the same rule, rather than only the single-document REST serializer."""
+    return bool(folder_path) and bool(folder_id)
+
+
 def import_document_for_user(
     *,
     user,
@@ -346,6 +354,12 @@ def import_document_for_user(
     Both ``add_to_corpus_id`` and ``add_to_folder_id`` accept either a Relay
     global id or a raw primary key — REST callers may use either.
 
+    A worker ``access_token`` makes ``add_to_corpus_id`` optional: when omitted,
+    the document lands in the token's *bound* corpus — deliberately unlike the
+    no-token path, where ``add_to_corpus_id=None`` means the user's personal
+    corpus. ``add_to_folder_path`` and ``add_to_folder_id`` are mutually
+    exclusive; supplying both is rejected rather than silently preferring one.
+
     Returns an :class:`ImportResult`. On failure, ``document`` is ``None`` and
     ``error`` carries a user-safe message; the caller is responsible for
     mapping that to the appropriate transport response.
@@ -353,6 +367,12 @@ def import_document_for_user(
     if (file_bytes is None) == (file_obj is None):
         raise ValueError(
             "import_document_for_user requires exactly one of file_bytes or file_obj"
+        )
+
+    if _folder_selectors_conflict(add_to_folder_path, add_to_folder_id):
+        return ImportResult(
+            document=None,
+            error="Supply add_to_folder_path or add_to_folder_id, not both.",
         )
 
     # A worker token is self-authorizing (see _resolve_corpus_for_access_token);
@@ -954,6 +974,16 @@ def start_chunked_upload(
             check_usage_cap(user)
         if not (metadata.get("title") or "").strip():
             raise ChunkedUploadError("title is required for a document upload")
+        # Reject the ambiguous folder target at start so the client fails fast
+        # rather than after streaming every part (import_document_for_user is
+        # the backstop at complete time).
+        if _folder_selectors_conflict(
+            normalise_optional(metadata.get("add_to_folder_path")),
+            normalise_optional(metadata.get("add_to_folder_id")),
+        ):
+            raise ChunkedUploadError(
+                "Supply add_to_folder_path or add_to_folder_id, not both."
+            )
         _gate_corpus(normalise_optional(metadata.get("add_to_corpus_id")))
     else:
         if access_token is None:

@@ -196,7 +196,7 @@ class DocumentImportViewTests(TestCase):
 
     def test_both_folder_path_and_id_is_validation_error(self):
         """``add_to_folder_path`` and ``add_to_folder_id`` are mutually
-        exclusive; supplying both is rejected at serializer validation."""
+        exclusive; supplying both is rejected (service layer) with a 400."""
         self._login()
         folder = CorpusFolder.objects.create(
             corpus=self.corpus, name="Inbox", creator=self.user
