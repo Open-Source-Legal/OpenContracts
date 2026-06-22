@@ -32,6 +32,11 @@ class DocumentImportSerializer(serializers.Serializer):
     add_to_folder_id = serializers.CharField(
         required=False, allow_blank=True, allow_null=True
     )
+    # POSIX folder path (e.g. ``a/b/c``) — created/reused on import. Mutually
+    # exclusive with ``add_to_folder_id`` (path wins when both are supplied).
+    add_to_folder_path = serializers.CharField(
+        required=False, allow_blank=True, allow_null=True, max_length=2048
+    )
     make_public = serializers.BooleanField(required=False, default=False)
     custom_meta = serializers.JSONField(required=False, default=dict)
 

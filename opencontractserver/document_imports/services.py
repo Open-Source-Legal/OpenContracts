@@ -85,6 +85,8 @@ class DocumentImportPermissionError(PermissionError):
 
     USAGE_CAP = "usage_cap"
     BULK_UPLOAD_DENIED = "bulk_upload_denied"
+    # A worker token was presented for a corpus it is not bound to.
+    CORPUS_FORBIDDEN = "corpus_forbidden"
 
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
@@ -183,6 +185,28 @@ def _resolve_corpus_for_edit(user, corpus_id: Any) -> tuple[Corpus | None, str |
     if not corpus.user_can(user, PermissionTypes.EDIT):
         return None, CORPUS_NOT_FOUND_MSG
     return corpus, None
+
+
+def _resolve_corpus_for_access_token(
+    access_token, requested_corpus_id: Any
+) -> tuple[Corpus | None, str | None]:
+    """
+    Authorize a worker-token import. The corpus is taken from the token's
+    binding (non-spoofable); ``requested_corpus_id`` is only checked for
+    agreement so a token scoped to one corpus cannot write to another.
+
+    Mirrors the worker-upload trust model (``worker_uploads/views.py``): the
+    token IS the authorization, so no ``visible_to_user`` / EDIT gate and no
+    usage-cap check is applied here — minting a ``CorpusAccessToken`` already
+    requires superuser or the corpus creator. Returns ``(corpus, None)`` on a
+    match or ``(None, message)`` when the requested id disagrees with the
+    token's bound corpus.
+    """
+    if requested_corpus_id is not None:
+        requested_pk = _resolve_pk(requested_corpus_id)
+        if str(requested_pk) != str(access_token.corpus_id):
+            return None, CORPUS_NOT_FOUND_MSG
+    return access_token.corpus, None
 
 
 # Standard ZIP local-file-header signatures. ``PK\x03\x04`` is the normal
@@ -297,8 +321,10 @@ def import_document_for_user(
     make_public: bool = False,
     add_to_corpus_id: Any = None,
     add_to_folder_id: Any = None,
+    add_to_folder_path: str | None = None,
     slug: str | None = None,
     lineage_kwargs: dict | None = None,
+    access_token=None,
 ) -> ImportResult:
     """
     Core upload path for a single document.
@@ -329,7 +355,10 @@ def import_document_for_user(
             "import_document_for_user requires exactly one of file_bytes or file_obj"
         )
 
-    check_usage_cap(user)
+    # A worker token is self-authorizing (see _resolve_corpus_for_access_token);
+    # the per-user document cap does not apply to it, matching worker-uploads.
+    if access_token is None:
+        check_usage_cap(user)
 
     # MIME detection — sniff only a header when streaming so a multi-GB upload
     # isn't pulled into memory just to read its magic bytes.
@@ -348,30 +377,69 @@ def import_document_for_user(
     if kind not in get_allowed_mime_types():
         return ImportResult(document=None, error=f"Unallowed filetype: {kind}")
 
-    # Corpus + folder resolution
+    # Corpus + folder resolution. A worker token is self-authorizing (corpus
+    # from its binding, no usage-cap / EDIT gate); the document is owned by the
+    # corpus creator, mirroring the /api/worker-uploads/ path.
     folder = None
-    if add_to_corpus_id is not None:
+    if access_token is not None:
+        corpus, corpus_error = _resolve_corpus_for_access_token(
+            access_token, add_to_corpus_id
+        )
+        if corpus is None:
+            raise DocumentImportPermissionError(
+                DocumentImportPermissionError.CORPUS_FORBIDDEN, corpus_error
+            )
+        effective_user = corpus.creator
+        if effective_user is None or not effective_user.is_active:
+            return ImportResult(
+                document=None, error="Target corpus has no active owner."
+            )
+    elif add_to_corpus_id is not None:
         corpus, corpus_error = _resolve_corpus_for_edit(user, add_to_corpus_id)
         if corpus is None:
             return ImportResult(document=None, error=corpus_error)
-
-        if add_to_folder_id is not None:
-            folder_pk = _resolve_pk(add_to_folder_id)
-            try:
-                folder = CorpusFolder.objects.get(pk=folder_pk, corpus=corpus)
-            except (CorpusFolder.DoesNotExist, ValueError, TypeError):
-                return ImportResult(
-                    document=None,
-                    error="Folder not found in the specified corpus",
-                )
+        effective_user = user
     else:
         corpus = Corpus.get_or_create_personal_corpus(user)
+        effective_user = user
+
+    # Folder placement: a POSIX path (``add_to_folder_path``) creates/reuses the
+    # nested folder via the same helper the zip importer uses; otherwise an
+    # existing folder id (``add_to_folder_id``) is resolved as before.
+    folder_path_parts = [p for p in (add_to_folder_path or "").split("/") if p]
+    if folder_path_parts:
+        from opencontractserver.corpuses.services.folders import FolderCRUDService
+
+        # create_folder_structure_from_paths needs every ancestor path, ordered
+        # parents-before-children (it resolves each path's parent by lookup).
+        folder_paths = [
+            "/".join(folder_path_parts[: i + 1]) for i in range(len(folder_path_parts))
+        ]
+        folder_map, _created, _reused, folder_error = (
+            FolderCRUDService.create_folder_structure_from_paths(
+                user=effective_user,
+                corpus=corpus,
+                folder_paths=folder_paths,
+            )
+        )
+        if folder_error:
+            return ImportResult(document=None, error=folder_error)
+        folder = folder_map.get(folder_paths[-1])
+    elif add_to_folder_id is not None:
+        folder_pk = _resolve_pk(add_to_folder_id)
+        try:
+            folder = CorpusFolder.objects.get(pk=folder_pk, corpus=corpus)
+        except (CorpusFolder.DoesNotExist, ValueError, TypeError):
+            return ImportResult(
+                document=None,
+                error="Folder not found in the specified corpus",
+            )
 
     try:
         document, status, _ = corpus.import_content(
             content=file_bytes,
             content_file=file_obj,
-            user=user,
+            user=effective_user,
             filename=filename,
             folder=folder,
             file_type=kind,
@@ -387,7 +455,7 @@ def import_document_for_user(
         logger.error(f"[IMPORT] Error importing document: {e}")
         return ImportResult(document=None, error=f"Import failed due to error: {e}")
 
-    set_permissions_for_obj_to_user(user, document, [PermissionTypes.CRUD])
+    set_permissions_for_obj_to_user(effective_user, document, [PermissionTypes.CRUD])
     logger.info(
         f"[IMPORT] Document {document.id} ({status}) imported into corpus {corpus.id}"
     )
@@ -501,6 +569,7 @@ def import_zip_to_corpus_for_user(
     description: str | None = None,
     custom_meta: dict | None = None,
     make_public: bool = False,
+    access_token=None,
 ) -> ZipImportResult:
     """
     Stage a zip in a :class:`TemporaryFileHandle` and queue
@@ -521,22 +590,38 @@ def import_zip_to_corpus_for_user(
     Returns :class:`ZipImportResult`. On failure, ``job_id`` is ``None``
     and ``error`` carries a user-safe message.
     """
-    if user.is_usage_capped and not settings.USAGE_CAPPED_USER_CAN_IMPORT_CORPUS:
-        raise DocumentImportPermissionError(
-            DocumentImportPermissionError.BULK_UPLOAD_DENIED,
-            "By default, usage-capped users cannot bulk import documents. "
-            "Please contact the admin to authorize your account.",
-        )
-
     if not _peek_zip_magic(zip_source):
         return ZipImportResult(
             job_id=None,
             error="Uploaded file does not appear to be a valid ZIP archive",
         )
 
-    corpus, corpus_error = _resolve_corpus_for_edit(user, corpus_id)
-    if corpus is None:
-        return ZipImportResult(job_id=None, error=corpus_error)
+    # Authorization + corpus resolution. A worker token is self-authorizing
+    # (corpus taken from its binding, no usage-cap / EDIT gate) and runs as the
+    # corpus owner so documents land in the owner's workspace — identical to the
+    # /api/worker-uploads/ path. The JWT path is unchanged.
+    if access_token is not None:
+        corpus, corpus_error = _resolve_corpus_for_access_token(access_token, corpus_id)
+        if corpus is None:
+            raise DocumentImportPermissionError(
+                DocumentImportPermissionError.CORPUS_FORBIDDEN, corpus_error
+            )
+        effective_user = corpus.creator
+        if effective_user is None or not effective_user.is_active:
+            return ZipImportResult(
+                job_id=None, error="Target corpus has no active owner."
+            )
+    else:
+        if user.is_usage_capped and not settings.USAGE_CAPPED_USER_CAN_IMPORT_CORPUS:
+            raise DocumentImportPermissionError(
+                DocumentImportPermissionError.BULK_UPLOAD_DENIED,
+                "By default, usage-capped users cannot bulk import documents. "
+                "Please contact the admin to authorize your account.",
+            )
+        corpus, corpus_error = _resolve_corpus_for_edit(user, corpus_id)
+        if corpus is None:
+            return ZipImportResult(job_id=None, error=corpus_error)
+        effective_user = user
 
     target_folder_pk: int | None = None
     if target_folder_id is not None:
@@ -553,7 +638,7 @@ def import_zip_to_corpus_for_user(
     job_id = str(uuid.uuid4())
     cache.set(
         f"{BULK_UPLOAD_OWNER_CACHE_PREFIX}{job_id}",
-        user.id,
+        effective_user.id,
         get_bulk_upload_owner_cache_ttl_seconds(),
     )
 
@@ -582,7 +667,7 @@ def import_zip_to_corpus_for_user(
 
     task_signature = import_zip_with_folder_structure.s(
         temporary_file.id,
-        user.id,
+        effective_user.id,
         job_id,
         corpus.id,
         target_folder_pk,
@@ -801,6 +886,7 @@ def start_chunked_upload(
     chunk_size: int,
     total_chunks: int,
     metadata: dict | None = None,
+    access_token=None,
 ) -> ChunkedUploadSession:
     """
     Validate a chunked-upload request and create a ``PENDING`` session.
@@ -835,31 +921,46 @@ def start_chunked_upload(
     if cap > 0 and total_size > cap:
         raise ChunkedUploadError("File too large.", http_status=413)
 
+    # A worker token authorizes only the two kinds the completion path threads
+    # it through; reject the rest at start rather than fail confusingly later.
+    if access_token is not None and kind not in (
+        ChunkedUploadKind.DOCUMENT,
+        ChunkedUploadKind.ZIP_TO_CORPUS,
+    ):
+        raise ChunkedUploadError(
+            "Worker tokens support only document and zip_to_corpus uploads",
+            http_status=403,
+        )
+
     # --- per-kind fast-fail permission gates ------------------------------------
+    # A worker token is self-authorizing: skip the usage-cap gate and validate
+    # the requested corpus against the token's binding instead of the EDIT gate.
+    def _gate_corpus(corpus_ref):
+        if corpus_ref is None:
+            return
+        if access_token is not None:
+            _, corpus_error = _resolve_corpus_for_access_token(access_token, corpus_ref)
+        else:
+            _, corpus_error = _resolve_corpus_for_edit(user, corpus_ref)
+        if corpus_error is not None:
+            raise ChunkedUploadError(corpus_error, http_status=403)
+
     if kind == ChunkedUploadKind.DOCUMENT:
-        check_usage_cap(user)
+        if access_token is None:
+            check_usage_cap(user)
         if not (metadata.get("title") or "").strip():
             raise ChunkedUploadError("title is required for a document upload")
-        corpus_ref = normalise_optional(metadata.get("add_to_corpus_id"))
-        if corpus_ref is not None:
-            _, corpus_error = _resolve_corpus_for_edit(user, corpus_ref)
-            if corpus_error is not None:
-                raise ChunkedUploadError(corpus_error, http_status=403)
+        _gate_corpus(normalise_optional(metadata.get("add_to_corpus_id")))
     else:
-        _check_bulk_upload_allowed(user)
+        if access_token is None:
+            _check_bulk_upload_allowed(user)
         if kind == ChunkedUploadKind.ZIP_TO_CORPUS:
             corpus_ref = normalise_optional(metadata.get("corpus_id"))
             if corpus_ref is None:
                 raise ChunkedUploadError("corpus_id is required for zip_to_corpus")
-            _, corpus_error = _resolve_corpus_for_edit(user, corpus_ref)
-            if corpus_error is not None:
-                raise ChunkedUploadError(corpus_error, http_status=403)
+            _gate_corpus(corpus_ref)
         elif kind == ChunkedUploadKind.DOCUMENTS_ZIP:
-            corpus_ref = normalise_optional(metadata.get("add_to_corpus_id"))
-            if corpus_ref is not None:
-                _, corpus_error = _resolve_corpus_for_edit(user, corpus_ref)
-                if corpus_error is not None:
-                    raise ChunkedUploadError(corpus_error, http_status=403)
+            _gate_corpus(normalise_optional(metadata.get("add_to_corpus_id")))
 
     session = ChunkedUploadSession.objects.create(
         creator=user,
@@ -1023,7 +1124,7 @@ def _mark_failed(session: ChunkedUploadSession, message: str) -> None:
 
 
 def complete_chunked_upload(
-    *, user, upload_id
+    *, user, upload_id, access_token=None
 ) -> tuple[str, ImportResult | ZipImportResult | CorpusImportResult]:
     """
     Reassemble a fully-uploaded session and run the matching import.
@@ -1073,6 +1174,20 @@ def complete_chunked_upload(
     session.refresh_from_db()
 
     md = session.metadata or {}
+
+    # Re-verify the worker-token binding at completion: the token must still
+    # match the session's target corpus, and the completing token's worker user
+    # must own the session (it does for the same token across start/parts/
+    # complete). Prevents a token swap between start and complete.
+    if access_token is not None:
+        corpus_ref = md.get("corpus_id") or md.get("add_to_corpus_id")
+        bound, _bind_err = _resolve_corpus_for_access_token(access_token, corpus_ref)
+        if bound is None or access_token.worker_account.user_id != session.creator_id:
+            _mark_failed(session, "Permission denied")
+            raise DocumentImportPermissionError(
+                DocumentImportPermissionError.CORPUS_FORBIDDEN, CORPUS_NOT_FOUND_MSG
+            )
+
     tmp = _assemble_session_to_tempfile(session)
     try:
         kind = session.kind
@@ -1093,7 +1208,9 @@ def complete_chunked_upload(
                 make_public=bool(md.get("make_public", False)),
                 add_to_corpus_id=normalise_optional(md.get("add_to_corpus_id")),
                 add_to_folder_id=normalise_optional(md.get("add_to_folder_id")),
+                add_to_folder_path=normalise_optional(md.get("add_to_folder_path")),
                 slug=normalise_optional(md.get("slug")),
+                access_token=access_token,
             )
         elif kind == ChunkedUploadKind.DOCUMENTS_ZIP:
             result = import_documents_zip_for_user(
@@ -1116,6 +1233,7 @@ def complete_chunked_upload(
                 description=normalise_optional(md.get("description")),
                 custom_meta=md.get("custom_meta") or None,
                 make_public=bool(md.get("make_public", False)),
+                access_token=access_token,
             )
         else:  # ChunkedUploadKind.CORPUS_EXPORT
             result = import_corpus_export_for_user(
