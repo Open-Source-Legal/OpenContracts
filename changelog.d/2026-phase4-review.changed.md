@@ -4,7 +4,10 @@
     and the agentic fetch tool identify OpenContracts to `.gov` servers instead
     of going out as an anonymous `httpx` client (politeness + fewer rate-limit
     blocks); a caller-supplied `User-Agent` (the FR/CFR providers) still
-    overrides it.
+    overrides it. The two byte-identical `_USER_AGENT` literals in
+    `cfr_provider.py` / `federal_register_provider.py` are consolidated into a
+    single `AUTHORITY_PROVIDER_USER_AGENT` constant (same `constants/safe_http.py`
+    neighbourhood) so the contact address can no longer drift between them.
   - Replaced the bare `* 4` UTF-8 worst-case byte factor in
     `opencontractserver/pipeline/authority_source_providers/agentic_web_locator_provider.py`
     with the named `UTF8_MAX_BYTES_PER_CHAR` constant

@@ -83,13 +83,9 @@ def _assert_public_ip(host: str) -> None:
     """Resolve *host* and raise if ANY resolved address is non-public.
 
     Rejecting when *any* address is unsafe (not just the first) closes the
-    multi-A-record / partial-rebind window.
-
-    The ``ipaddress`` property denylist (private/loopback/link-local/multicast/
-    reserved/unspecified) does NOT cover RFC 6598 CGNAT shared address space
-    (``100.64.0.0/10``): on current CPython that block is neither ``is_private``
-    nor ``is_reserved`` nor ``is_global``, so it would slip through. It is
-    rejected explicitly via ``_CGNAT_NETWORK``.
+    multi-A-record / partial-rebind window. RFC 6598 CGNAT space, which the
+    ``ipaddress`` property denylist below does not cover, is rejected explicitly
+    via ``_CGNAT_NETWORK`` (see ``CGNAT_SHARED_ADDRESS_SPACE_CIDR`` for why).
     """
     try:
         infos = socket.getaddrinfo(host, None)

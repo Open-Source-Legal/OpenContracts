@@ -14,6 +14,7 @@ from urllib.parse import urlparse
 
 import pytest
 
+from opencontractserver.constants.safe_http import MAX_REDIRECTS
 from opencontractserver.utils.safe_http import (
     SSRFValidationError,
     _assert_public_ip,
@@ -286,8 +287,6 @@ class TestSafeFetchBytesRedirectCap:
 
     def test_max_redirects_followed_then_success(self):
         """A chain of exactly ``MAX_REDIRECTS`` hops then a 200 must succeed."""
-        from opencontractserver.constants.safe_http import MAX_REDIRECTS
-
         call_count = 0
 
         def _stream_dispatch(self_client, method, url, **kwargs):

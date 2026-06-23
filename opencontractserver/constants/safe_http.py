@@ -44,6 +44,15 @@ DEFAULT_USER_AGENT: str = (
     "contact: opensource@opencontracts.dev)"
 )
 
+# Specific UA the deterministic authority-source providers (Federal Register,
+# eCFR) send, overriding DEFAULT_USER_AGENT. Single source of truth so the two
+# providers cannot drift the contact address / URL apart.
+AUTHORITY_PROVIDER_USER_AGENT: str = (
+    "OpenContracts-authority-provider/1.0 "
+    "(https://github.com/Open-Source-Legal/OpenContracts; "
+    "contact: opensource@opencontracts.dev)"
+)
+
 # Conservative DEFAULT body cap. Most authority fetches (FR JSON, eCFR/FR raw
 # text bodies) are well under this; a constrained worker should never buffer
 # hundreds of MB by default. Callers that genuinely need a larger body (only the

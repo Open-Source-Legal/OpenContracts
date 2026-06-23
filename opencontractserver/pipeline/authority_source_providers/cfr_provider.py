@@ -14,6 +14,7 @@ import re
 import xml.etree.ElementTree as ET
 from typing import ClassVar
 
+from opencontractserver.constants.safe_http import AUTHORITY_PROVIDER_USER_AGENT
 from opencontractserver.enrichment.authorities import AuthoritySection
 from opencontractserver.enrichment.constants import _CFR_PREFIX_RE
 from opencontractserver.pipeline.base.base_authority_source_provider import (
@@ -44,13 +45,6 @@ _ECFR_FULL_URL_TEMPLATE = (
 # Human-readable eCFR URL template.
 _ECFR_HUMAN_URL_TEMPLATE = (
     "https://www.ecfr.gov/current/title-{title}/section-{section}"
-)
-
-# HTTP User-Agent header.
-_USER_AGENT = (
-    "OpenContracts-authority-provider/1.0 "
-    "(https://github.com/Open-Source-Legal/OpenContracts; "
-    "contact: opensource@opencontracts.dev)"
 )
 
 # Regex patterns for validating citation components before URL construction.
@@ -218,7 +212,7 @@ class CFRAuthoritySourceProvider(BaseAuthoritySourceProvider):
         body, _ = safe_fetch_bytes(
             request.url,
             params=request.params,
-            headers={"User-Agent": _USER_AGENT},
+            headers={"User-Agent": AUTHORITY_PROVIDER_USER_AGENT},
         )
 
         root = ET.fromstring(body)
