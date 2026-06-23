@@ -37,15 +37,22 @@ logger = logging.getLogger(__name__)
 
 
 class CorpusPathService(BaseService):
-    """Low-level :class:`DocumentPath` disambiguation helpers.
+    """Low-level :class:`DocumentPath` disambiguation + signal-replay helpers.
 
-    All methods are internal helpers (underscore-prefixed) shared by the
-    folder write operations in
+    All methods are internal helpers (underscore-prefixed) shared across the
+    corpus service layer: the folder write operations in
     :class:`~opencontractserver.corpuses.services.folders.FolderCRUDService`
     and
-    :class:`~opencontractserver.corpuses.services.folder_documents.FolderDocumentService`.
-    They perform NO permission checks — the calling service is responsible
-    for gating corpus permissions first.
+    :class:`~opencontractserver.corpuses.services.folder_documents.FolderDocumentService`,
+    plus the soft-delete / restore paths in
+    :class:`~opencontractserver.corpuses.services.lifecycle.DocumentLifecycleService`
+    (``disambiguate_path`` on restore, ``_dispatch_document_path_created_signals``
+    on bulk soft-delete). The single-underscore prefix marks them
+    **package-internal** (not part of any service's public API), NOT
+    class-private: cross-service use within ``corpuses.services`` is by design,
+    so a caller in a sibling service reaching one of these helpers is expected,
+    not a leak. They perform NO permission checks — the calling service is
+    responsible for gating corpus permissions first.
     """
 
     @staticmethod

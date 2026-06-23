@@ -485,6 +485,13 @@ class DocumentLifecycleService(BaseService):
         if not document_ids:
             return 0
 
+        # Initialised before the transaction so the trailing logger/return below
+        # cannot ``NameError`` if a future edit adds an early ``return`` between
+        # here and the in-block assignment (a ``with`` does not introduce a new
+        # scope). The early returns above and inside the block already exit
+        # before the logger, so this is defensive hardening, not a live bug.
+        trashed_doc_ids: set[int] = set()
+
         # Self-contained transaction so a standalone/test caller still gets
         # all-or-nothing semantics; when invoked from within a caller's
         # ``transaction.atomic()`` (empty_corpus, folder cascade-delete) this is
@@ -510,7 +517,10 @@ class DocumentLifecycleService(BaseService):
             # which the current callers (empty_corpus, folder cascade-delete)
             # leave unbounded. Fine for realistic corpus sizes; this is the
             # allocation point to revisit (chunk/iterate the doc set) before
-            # raising any hard document-count ceiling on these paths (#1951).
+            # raising any hard document-count ceiling on these paths. #1951
+            # fixed the O(N) *query count*; bounding peak *memory* is tracked
+            # separately in #2045 (chunking trades the O(1) query-count
+            # guarantee this primitive currently makes).
             active_paths = list(
                 DocumentPath.objects.select_for_update(of=("self",))
                 .select_related("document")

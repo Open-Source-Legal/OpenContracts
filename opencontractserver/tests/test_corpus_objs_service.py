@@ -1190,7 +1190,11 @@ class TestBulkSoftDeletePrimitive(_CorpusObjsServiceFolderTestBase):
         # Floor so the equality below isn't vacuously satisfied by 0 == 0 (a
         # regression that silently skips all work): real trashing always runs at
         # least the SELECT-FOR-UPDATE + is_current UPDATE + bulk_create.
-        self.assertGreaterEqual(len(small_ctx), 3)
+        self.assertGreaterEqual(
+            len(small_ctx),
+            3,
+            "Expected at least SELECT FOR UPDATE + is_current UPDATE + bulk_create",
+        )
         self.assertEqual(len(small_ctx), len(large_ctx))
 
         # The ``is_public`` revocation branch is skipped for private corpora
