@@ -239,7 +239,15 @@ def safe_fetch_bytes(
                             }
                         )
                     current = str(next_url)
-                    params = None  # only the first hop carries query params
+                    # Drop the caller's query params on EVERY redirect (not just
+                    # cross-host): the redirect Location is the authoritative next
+                    # URL and carries its own query string, so re-appending the
+                    # original params would corrupt it. A caller whose params are a
+                    # required filter (e.g. the eCFR section/part filter) therefore
+                    # relies on that endpoint NOT redirecting; if it ever did, the
+                    # filter would not carry to the target — by design, since the
+                    # target may not accept it.
+                    params = None
                     # Exiting this ``with`` on ``continue`` closes the response
                     # and releases the connection. We deliberately do NOT call
                     # ``r.read()`` first: the redirect body is unused, and

@@ -19,7 +19,11 @@ from typing import ClassVar
 
 import requests
 
-from opencontractserver.constants.safe_http import AUTHORITY_PROVIDER_USER_AGENT
+from opencontractserver.constants.safe_http import (
+    AUTHORITY_PROVIDER_USER_AGENT,
+    CONNECT_TIMEOUT_SECONDS,
+    READ_TIMEOUT_SECONDS,
+)
 from opencontractserver.enrichment.authorities import AuthoritySection
 from opencontractserver.pipeline.base.base_authority_source_provider import (
     AuthorityRequest,
@@ -50,7 +54,11 @@ _FR_DOC_JSON_URL_TEMPLATE = "{base}/api/v1/documents/{document_number}.json"
 
 # Regex to extract the document number from the redirect Location path.
 # e.g. /documents/2023/01/13/2023-00485/some-slug  →  group(1) = "2023-00485"
-_LOCATION_DOC_NUMBER_RE = re.compile(r"/documents/\d{4}/\d{2}/\d{2}/([^/]+)/")
+# The capture is restricted to word chars + hyphen (real FR document numbers are
+# ``YYYY-NNNNN``) so a malformed/attacker-influenced Location carrying URL-special
+# characters (``?``, ``#``, …) fails to match and raises rather than silently
+# interpolating them into the step-2 URL and hitting the wrong endpoint.
+_LOCATION_DOC_NUMBER_RE = re.compile(r"/documents/\d{4}/\d{2}/\d{2}/([\w-]+)/")
 
 # Regex for parsing a Federal Register citation to derive volume and page.
 # Matches e.g. "88 FR 2371" and "88 FR 12345".
@@ -178,7 +186,9 @@ class FederalRegisterAuthoritySourceProvider(BaseAuthoritySourceProvider):
             request.url,
             allow_redirects=False,
             headers=headers,
-            timeout=15,
+            # requests reads a 2-tuple as (connect, read); reuse the shared
+            # safe_http timeout constants instead of a single magic value.
+            timeout=(CONNECT_TIMEOUT_SECONDS, READ_TIMEOUT_SECONDS),
         )
         # A successful citation lookup is a 302 redirect (not an error status, so
         # raise_for_status() passes it through). Surface a 4xx/5xx as a clear

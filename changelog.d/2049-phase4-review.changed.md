@@ -37,6 +37,13 @@
     existing `sanitize_plaintext_for_prompt`), so this security helper is
     discoverable alongside the other prompt-injection utilities rather than
     buried in a provider file. Tests moved to `test_prompt_sanitization.py`.
+  - Hardened the Federal Register provider's step-1 redirect parsing: the
+    document-number capture in `_LOCATION_DOC_NUMBER_RE` is now `[\w-]+` (real FR
+    numbers are `YYYY-NNNNN`), so a malformed/attacker-influenced `Location`
+    carrying URL-special characters (`?`, `#`) fails to match and raises instead
+    of silently being interpolated into the step-2 URL (wrong endpoint, no
+    error). The step-1 `requests.get` magic `timeout=15` is replaced with the
+    shared `(CONNECT_TIMEOUT_SECONDS, READ_TIMEOUT_SECONDS)` constants.
   - Documented the deliberate trust boundary on the agentic
     `_tool_web_search` query (LLM-generated, forwarded unsanitized to a
     text-only search tool — no SSRF surface), why `AuthorityGateService` does
