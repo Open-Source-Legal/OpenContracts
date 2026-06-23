@@ -37,22 +37,25 @@ logger = logging.getLogger(__name__)
 
 
 class CorpusPathService(BaseService):
-    """Low-level :class:`DocumentPath` disambiguation + signal-replay helpers.
+    """Low-level :class:`DocumentPath` path-manipulation + signal-replay helpers.
 
-    All methods are internal helpers (underscore-prefixed) shared across the
-    corpus service layer: the folder write operations in
-    :class:`~opencontractserver.corpuses.services.folders.FolderCRUDService`
-    and
+    Shared across the corpus/document layers; they perform NO permission
+    checks — the calling code gates corpus permissions first.
+
+    The naming convention is mixed. ``disambiguate_path`` and
+    ``reconcile_paths_after_folder_change`` are **public**: ``disambiguate_path``
+    is called throughout the corpus service layer and beyond it — e.g.
+    ``Corpus.add_document`` in the model layer and
+    ``documents.versioning.restore_document``. The remaining methods are
+    underscore-prefixed **package-internal** helpers — NOT class-private.
+    ``_dispatch_document_path_created_signals`` in particular is deliberately
+    invoked from the bulk write paths in sibling services
+    (:class:`~opencontractserver.corpuses.services.folders.FolderCRUDService`,
     :class:`~opencontractserver.corpuses.services.folder_documents.FolderDocumentService`,
-    plus the soft-delete / restore paths in
-    :class:`~opencontractserver.corpuses.services.lifecycle.DocumentLifecycleService`
-    (``disambiguate_path`` on restore, ``_dispatch_document_path_created_signals``
-    on bulk soft-delete). The single-underscore prefix marks them
-    **package-internal** (not part of any service's public API), NOT
-    class-private: cross-service use within ``corpuses.services`` is by design,
-    so a caller in a sibling service reaching one of these helpers is expected,
-    not a leak. They perform NO permission checks — the calling service is
-    responsible for gating corpus permissions first.
+    and
+    :class:`~opencontractserver.corpuses.services.lifecycle.DocumentLifecycleService`)
+    after each ``bulk_create`` of path rows, so a cross-service caller reaching
+    it is expected, not a leak.
     """
 
     @staticmethod
