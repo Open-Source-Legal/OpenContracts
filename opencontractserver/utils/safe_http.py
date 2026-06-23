@@ -184,6 +184,12 @@ def safe_fetch_bytes(
     - Streams the body and aborts past *max_bytes* (Content-Length AND actual bytes).
     - Enforces connect + read timeouts via the module-level ``_DEFAULT_TIMEOUT``.
 
+    Caller params note: *params* are forwarded only on the INITIAL request. On any
+    redirect (same-host or cross-host) the redirect Location is the authoritative
+    next URL, so *params* are NOT re-appended — a caller whose params are a
+    required filter (e.g. the eCFR section/part filter) is relying on that endpoint
+    not redirecting.
+
     Caller headers note: on a cross-host redirect only the STANDARD credential
     headers (``CROSS_HOST_STRIPPED_HEADERS``) are stripped. Do NOT pass a
     non-standard per-service credential header (``X-Api-Key``, ``X-Auth-Token``,

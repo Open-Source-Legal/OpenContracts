@@ -13,6 +13,7 @@ from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 from urllib.parse import urlparse
 
+import httpx
 import pytest
 
 from opencontractserver.constants.safe_http import MAX_REDIRECTS
@@ -80,7 +81,17 @@ def _mock_stream(status_code: int, body: bytes = b"", headers: dict | None = Non
     )
     resp.headers = MagicMock()
     resp.headers.get = lambda k, default=None: hdr_dict.get(k.lower(), default)
-    resp.raise_for_status = MagicMock()
+
+    def _raise_for_status():
+        # Faithful to httpx: raise for ANY non-2xx (including a 3xx that was not
+        # followed as a redirect, e.g. a malformed 301 with no Location), no-op
+        # for 2xx. Redirect hops never reach this — they ``continue`` first.
+        if not 200 <= status_code < 300:
+            raise httpx.HTTPStatusError(
+                f"{status_code}", request=MagicMock(), response=resp
+            )
+
+    resp.raise_for_status = _raise_for_status
 
     def iter_bytes():
         yield body
@@ -339,26 +350,25 @@ class TestSafeFetchBytesRedirect:
                 with pytest.raises(SSRFValidationError, match="empty Location"):
                     safe_fetch_bytes(ALLOWED_URL)
 
-    def test_non_location_3xx_not_followed_as_redirect(self):
-        """A 3xx without a Location (e.g. 304) is NOT treated as a redirect.
+    @pytest.mark.parametrize("status_code", [301, 304])
+    def test_non_location_3xx_not_looped_but_raises(self, status_code):
+        """A 3xx WITHOUT a Location is not looped — it falls through to raise_for_status.
 
-        httpx reports ``is_redirect=True`` for any 3xx including 304; keying off
-        ``has_redirect_location`` instead means a 304 falls through to normal
-        handling rather than looping. Here the 304 carries a body, which is
-        returned (raise_for_status is a MagicMock no-op for the 3xx).
+        httpx reports ``is_redirect=True`` for any 3xx (including 304/a malformed
+        301 with no Location); keying off ``has_redirect_location`` means such a
+        response is NOT followed as a redirect. It then reaches ``raise_for_status``,
+        which raises for any non-2xx — so the function raises ``HTTPStatusError``
+        rather than looping to the redirect cap (the old ``is_redirect`` behaviour)
+        or silently returning a body.
         """
 
         def _stream_dispatch(self_client, method, url, **kwargs):
-            # The body here is a test artifact to prove we reach the return path;
-            # a real 304 carries no body (RFC 9110 §15.4.5) and raise_for_status
-            # (a MagicMock no-op here) does not raise for a 3xx in httpx.
-            return _mock_stream(304, b"not-modified-body")  # no Location header
+            return _mock_stream(status_code, b"")  # no Location header
 
         with patch("socket.getaddrinfo", side_effect=_fake_getaddrinfo_public):
             with patch("httpx.Client.stream", _stream_dispatch):
-                body, host = safe_fetch_bytes(ALLOWED_URL)
-        assert body == b"not-modified-body"
-        assert host == ALLOWED_HOST
+                with pytest.raises(httpx.HTTPStatusError):
+                    safe_fetch_bytes(ALLOWED_URL)
 
     def test_capital_location_header_is_followed(self):
         """A capital-L ``Location`` (the conventional casing) is honoured.
@@ -382,25 +392,50 @@ class TestSafeFetchBytesRedirect:
         assert body == b"final"
         assert call_count == 2, "the capital-L redirect must actually be followed"
 
-    def test_redirect_to_private_ip_rejected(self):
-        """
-        First hop: allowlisted host → 302 → Location: https://127.0.0.1/
-        The redirect target must fail IP validation (SSRFValidationError).
+    def test_redirect_to_private_ip_literal_rejected_by_allowlist(self):
+        """A redirect to a private-IP *literal* (``https://127.0.0.1/``) is rejected.
+
+        Note this is caught at the ALLOWLIST layer: ``127.0.0.1`` is not in
+        ``PUBLIC_DOMAIN_SOURCE_HOSTS`` so ``validate_url`` rejects it before
+        ``_assert_public_ip`` runs. The IP layer for an *allowlisted* host that
+        resolves private is exercised separately by
+        ``test_redirect_to_allowlisted_host_resolving_private_rejected``.
         """
         redirect_target = "https://127.0.0.1/"
 
-        call_count = 0
-
         def _stream_dispatch(self_client, method, url, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
+            if urlparse(str(url)).hostname == ALLOWED_HOST:
                 return _mock_stream(302, b"", {"location": redirect_target})
             return _mock_stream(200, b"ok")
 
         with patch("socket.getaddrinfo", side_effect=_fake_getaddrinfo_public):
             with patch("httpx.Client.stream", _stream_dispatch):
-                with pytest.raises(SSRFValidationError):
+                with pytest.raises(SSRFValidationError, match="allowlist"):
+                    safe_fetch_bytes(ALLOWED_URL)
+
+    def test_redirect_to_allowlisted_host_resolving_private_rejected(self):
+        """The real threat: a redirect to an ALLOWLISTED host that DNS-resolves to a
+        private IP must be rejected by the IP check, not just the allowlist.
+
+        Hop 1 (uscode.house.gov) resolves public and 302-redirects to another
+        allowlisted host (ecfr.gov); that host then resolves to a private IP. The
+        rejection must come from ``_assert_public_ip`` (``match="non-public"``),
+        which is exactly the redirect-hop rebind surface this guard exists for.
+        """
+
+        def _getaddrinfo(host, port, *args, **kwargs):
+            # The redirect target (ecfr.gov) resolves private; hop-1 host public.
+            ip = "127.0.0.1" if "ecfr" in host else "1.1.1.1"
+            return [(socket.AF_INET, 1, 6, "", (ip, 0))]
+
+        def _stream_dispatch(self_client, method, url, **kwargs):
+            if urlparse(str(url)).hostname == ALLOWED_HOST:
+                return _mock_stream(302, b"", {"location": "https://www.ecfr.gov/x"})
+            return _mock_stream(200, b"ok")
+
+        with patch("socket.getaddrinfo", side_effect=_getaddrinfo):
+            with patch("httpx.Client.stream", _stream_dispatch):
+                with pytest.raises(SSRFValidationError, match="non-public"):
                     safe_fetch_bytes(ALLOWED_URL)
 
     def test_redirect_to_non_allowlisted_host_rejected(self):
