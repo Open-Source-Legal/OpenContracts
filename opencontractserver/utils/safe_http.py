@@ -114,6 +114,13 @@ def _assert_public_ip(host: str) -> None:
         infos = socket.getaddrinfo(host, None)
     except socket.gaierror as exc:
         raise SSRFValidationError(f"DNS resolution failed for {host!r}") from exc
+    if not infos:
+        # getaddrinfo can return an EMPTY list without raising on some resolver
+        # configs (e.g. a name with no A/AAAA records, or OS-level filtering). An
+        # empty loop below would fall through and silently declare the host safe
+        # (fail-OPEN), after which httpx still resolves independently at connect
+        # time — so reject explicitly and fail CLOSED.
+        raise SSRFValidationError(f"no addresses resolved for {host!r}")
     for info in infos:
         ip = ipaddress.ip_address(info[4][0])
         # Unwrap IPv4-mapped IPv6 so the checks below run against the real IPv4
@@ -194,15 +201,19 @@ def safe_fetch_bytes(
             ) as r:
                 if r.is_redirect:
                     loc = r.headers.get("location", "")
-                    # Resolve relative Location against the current URL.
-                    next_url = str(httpx.URL(current).join(loc))
-                    # On a cross-host redirect (e.g. ecfr.gov -> federalregister
-                    # .gov) drop per-service credential headers: httpx, unlike
-                    # browsers/requests, forwards them verbatim across origins
-                    # (RFC 9110 §15.4), so a caller-supplied Authorization/Cookie
-                    # would otherwise leak from one allowlisted .gov service to
-                    # another. The default User-Agent is preserved.
-                    if httpx.URL(next_url).host != httpx.URL(current).host:
+                    # Resolve relative Location against the current URL (reuse the
+                    # parsed objects rather than re-parsing the string twice).
+                    current_url = httpx.URL(current)
+                    next_url = current_url.join(loc)
+                    # On a cross-ORIGIN redirect (different host OR port, e.g.
+                    # ecfr.gov -> federalregister.gov) drop per-service credential
+                    # headers: httpx, unlike browsers/requests, forwards them
+                    # verbatim across origins (RFC 9110 §15.4), so a caller-
+                    # supplied Authorization/Cookie would otherwise leak from one
+                    # allowlisted .gov service to another. Compare ``netloc`` (host
+                    # AND port), not ``host`` — a same-host/different-port redirect
+                    # is still a different service. The default User-Agent is kept.
+                    if next_url.netloc != current_url.netloc:
                         request_headers = httpx.Headers(
                             {
                                 k: v
@@ -210,7 +221,7 @@ def safe_fetch_bytes(
                                 if k.lower() not in CROSS_HOST_STRIPPED_HEADERS
                             }
                         )
-                    current = next_url
+                    current = str(next_url)
                     params = None  # only the first hop carries query params
                     # Exiting this ``with`` on ``continue`` closes the response
                     # and releases the connection. We deliberately do NOT call

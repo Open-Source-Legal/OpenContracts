@@ -42,5 +42,13 @@
   caller passing a `.gov` API credential could leak it from one allowlisted host
   to another (e.g. `ecfr.gov` → `federalregister.gov`) while following a redirect.
   No current caller passes credentials, so this is forward-looking hardening; the
-  default `User-Agent` is preserved across the hop. Covered by
-  `TestSafeFetchBytesCredentialStripping`.
+  default `User-Agent` is preserved across the hop. The cross-origin test compares
+  `netloc` (host **and** port), so a same-host/different-port redirect
+  (`ecfr.gov` → `ecfr.gov:9000`, a different service) also strips. Covered by
+  `TestSafeFetchBytesCredentialStripping` (cross-host, cross-port, same-host).
+- **`_assert_public_ip` now fails CLOSED on an empty DNS result.**
+  `socket.getaddrinfo` can return an empty list **without** raising `gaierror` on
+  some resolver configs; the per-address loop would then be a no-op and the host
+  declared safe (fail-open) while httpx still resolves independently at connect
+  time. It now raises `SSRFValidationError` when no addresses resolve. Covered by
+  `test_empty_getaddrinfo_rejected`.

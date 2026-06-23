@@ -195,6 +195,17 @@ class TestAssertPublicIp:
             with pytest.raises(SSRFValidationError, match="DNS resolution failed"):
                 _assert_public_ip("nonexistent.host.invalid")
 
+    def test_empty_getaddrinfo_rejected(self):
+        """getaddrinfo returning [] (no raise) must fail CLOSED, not fall through.
+
+        An empty result would otherwise skip the per-address loop and let
+        _assert_public_ip return as if the host were safe, while httpx still
+        resolves independently at connect time.
+        """
+        with patch("socket.getaddrinfo", side_effect=lambda *a, **k: []):
+            with pytest.raises(SSRFValidationError, match="no addresses resolved"):
+                _assert_public_ip(ALLOWED_HOST)
+
     @pytest.mark.parametrize(
         "cgnat_ip",
         [
@@ -512,6 +523,29 @@ class TestSafeFetchBytesCredentialStripping:
                 safe_fetch_bytes(ALLOWED_URL, headers={"Authorization": "Bearer s"})
 
         assert captured[1].get("Authorization") == "Bearer s"
+
+    def test_credentials_stripped_on_cross_port_redirect(self):
+        """A same-host but different-PORT redirect is cross-origin → strip credentials.
+
+        ``netloc`` (host AND port) is compared, so ``uscode.house.gov`` ->
+        ``uscode.house.gov:9000`` counts as a different service. (``.host`` alone
+        would miss it.)
+        """
+        captured: list = []
+
+        def _dispatch(self_client, method, url, **kwargs):
+            captured.append(kwargs.get("headers"))
+            if len(captured) == 1:  # first hop → same host, different port
+                return _mock_stream(
+                    302, b"", {"location": f"https://{ALLOWED_HOST}:9000/p"}
+                )
+            return _mock_stream(200, b"ok")
+
+        with patch("socket.getaddrinfo", side_effect=_fake_getaddrinfo_public):
+            with patch("httpx.Client.stream", _dispatch):
+                safe_fetch_bytes(ALLOWED_URL, headers={"Authorization": "Bearer s"})
+
+        assert "Authorization" not in captured[1]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
