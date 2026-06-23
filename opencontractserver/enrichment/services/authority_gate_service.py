@@ -12,15 +12,19 @@ from dataclasses import dataclass
 from urllib.parse import urlparse
 
 from opencontractserver.constants.safe_http import PUBLIC_DOMAIN_SOURCE_HOSTS
+from opencontractserver.enrichment import constants as C
 from opencontractserver.enrichment.authorities import AuthoritySection
 from opencontractserver.utils.safe_http import host_on_allowlist
 
-# Gate verdicts map 1:1 onto the discovery_state strings.
+# Gate verdicts map 1:1 onto the discovery_state strings (except GATE_OK, the
+# internal "proceed to ingest" sentinel that is never a stored state). Aliasing
+# the shared constants — rather than re-declaring the literals — makes that
+# mapping structural, so the gate and the frontier state vocabulary cannot drift.
 GATE_OK = "ok"
-GATE_BLOCKED_LICENSE = "blocked_license"
-GATE_BLOCKED_DOMAIN = "blocked_domain"
-GATE_UNLOCATED = "unlocated"
-GATE_PENDING_APPROVAL = "pending_approval"
+GATE_BLOCKED_LICENSE = C.DISCOVERY_STATE_BLOCKED_LICENSE
+GATE_BLOCKED_DOMAIN = C.DISCOVERY_STATE_BLOCKED_DOMAIN
+GATE_UNLOCATED = C.DISCOVERY_STATE_UNLOCATED
+GATE_PENDING_APPROVAL = C.DISCOVERY_STATE_PENDING_APPROVAL
 
 
 @dataclass(frozen=True)

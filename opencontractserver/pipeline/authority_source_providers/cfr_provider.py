@@ -15,7 +15,7 @@ import xml.etree.ElementTree as ET
 from typing import ClassVar
 
 from opencontractserver.enrichment.authorities import AuthoritySection
-from opencontractserver.enrichment.constants import _CFR_PREFIX_RE
+from opencontractserver.enrichment.constants import CFR_PREFIX_RE
 from opencontractserver.pipeline.base.base_authority_source_provider import (
     AuthorityRequest,
     BaseAuthoritySourceProvider,
@@ -154,7 +154,7 @@ class CFRAuthoritySourceProvider(BaseAuthoritySourceProvider):
     def can_handle(self, canonical_key: str) -> bool:
         """Accept any ``cfr-{digits}`` prefix."""
         prefix = canonical_key.split(":", 1)[0]
-        return bool(_CFR_PREFIX_RE.match(prefix))
+        return bool(CFR_PREFIX_RE.match(prefix))
 
     # ---- abstract implementations -----------------------------------------
 
@@ -248,11 +248,13 @@ class CFRAuthoritySourceProvider(BaseAuthoritySourceProvider):
         heading = (head_el.text or "").strip() if head_el is not None else ""
 
         # Text: concatenate all <P> descendants in document order, flattening
-        # inline tags (<I>, <E>, <a>, etc.).
+        # inline tags (<I>, <E>, <a>, etc.). The walrus binds each flattened
+        # string once so the traversal runs a single time per <P> (not twice:
+        # once for the value, once for the truthiness filter).
         p_parts: list[str] = [
-            _flatten_element_text(p_el)
+            text
             for p_el in section_el.iter("P")
-            if _flatten_element_text(p_el)
+            if (text := _flatten_element_text(p_el))
         ]
         text = " ".join(p_parts)
         text = re.sub(r"\s+", " ", text).strip()

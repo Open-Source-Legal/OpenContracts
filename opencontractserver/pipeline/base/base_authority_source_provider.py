@@ -14,6 +14,10 @@ class AuthorityRequest:
 
     locate() turns a canonical_key into this; fetch() executes it. Keeping them
     separate lets tests assert URL/param derivation without any network call.
+
+    ``params`` and ``extra`` are provider-owned mutable scratch, freshly built by
+    each ``locate()`` call (never shared/aliased between callers), so a provider
+    may read or mutate them in ``fetch()`` without copying.
     """
 
     canonical_key: str  # "usc-15:78j"

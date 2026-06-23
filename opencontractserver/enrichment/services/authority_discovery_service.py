@@ -25,6 +25,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from opencontractserver.annotations.models import AuthorityFrontier
+from opencontractserver.enrichment import constants as C
 from opencontractserver.shared.services.base import BaseService
 
 logger = logging.getLogger(__name__)
@@ -83,15 +84,21 @@ class AuthorityDiscoveryService(BaseService):
             key=lambda d: getattr(d.component_class, "priority", 100),
         )
 
+        # Instantiate each enabled provider ONCE per call and reuse the instances
+        # across every candidate key below. ``can_handle`` is pure given the key,
+        # so re-instantiating a provider for each candidate (the prior behaviour)
+        # was wasted work that grew with the candidate-key fan-out.
+        providers = [
+            (defn.name, defn.component_class())
+            for defn in defns
+            if defn.component_class is not None
+            and getattr(defn.component_class, "enabled", True)
+        ]
+
         def _match(key: str):
-            for defn in defns:
-                if defn.component_class is None:
-                    continue
-                if not getattr(defn.component_class, "enabled", True):
-                    continue
-                provider = defn.component_class()
+            for name, provider in providers:
                 if provider.can_handle(key):
-                    return defn.name, provider
+                    return name, provider
             return None
 
         from opencontractserver.enrichment.data import mappings as _mappings
@@ -221,8 +228,11 @@ class AuthorityDiscoveryService(BaseService):
         name, provider, fetch_key = cls._provider_for(canonical_key)
 
         if provider is None:
-            AuthorityFrontierService.mark(frontier_row, "unsupported")
-            return {"status": "unsupported", "canonical_key": canonical_key}
+            AuthorityFrontierService.mark(frontier_row, C.DISCOVERY_STATE_UNSUPPORTED)
+            return {
+                "status": C.DISCOVERY_STATE_UNSUPPORTED,
+                "canonical_key": canonical_key,
+            }
 
         # ``_provider_for`` only returns a non-None provider alongside a non-None
         # ``fetch_key`` (the matched candidate key); the ``(None, None, None)``
@@ -234,7 +244,7 @@ class AuthorityDiscoveryService(BaseService):
         # Record which provider was selected and mark in-flight.
         frontier_row.provider = name
         frontier_row.save(update_fields=["provider", "modified"])
-        AuthorityFrontierService.mark(frontier_row, "in_progress")
+        AuthorityFrontierService.mark(frontier_row, C.DISCOVERY_STATE_IN_PROGRESS)
 
         # --- fetch -----------------------------------------------------------
         try:
@@ -257,17 +267,17 @@ class AuthorityDiscoveryService(BaseService):
             candidate_record = cls._audit_record(
                 provider_name=name,
                 provider_license=provider.license,
-                outcome="failed",
+                outcome=C.DISCOVERY_STATE_FAILED,
                 error=str(exc),
             )
             AuthorityFrontierService.mark(
                 frontier_row,
-                "failed",
+                C.DISCOVERY_STATE_FAILED,
                 error=str(exc),
                 candidate_record=candidate_record,
             )
             return {
-                "status": "failed",
+                "status": C.DISCOVERY_STATE_FAILED,
                 "error": str(exc),
                 "canonical_key": canonical_key,
             }
@@ -298,7 +308,11 @@ class AuthorityDiscoveryService(BaseService):
             provider_license=provider.license,
             source_domain=decision.source_domain,
             verify=decision.verify,
-            outcome=decision.verdict if decision.verdict != GATE_OK else "ingested",
+            outcome=(
+                decision.verdict
+                if decision.verdict != GATE_OK
+                else C.DISCOVERY_STATE_INGESTED
+            ),
             error=None if decision.verdict == GATE_OK else decision.reason,
         )
         if decision.verdict != GATE_OK:
@@ -378,9 +392,11 @@ class AuthorityDiscoveryService(BaseService):
             result["equivalence_relink"] = relink_result
 
             # --- mark ingested -----------------------------------------------
+            # mark() clears any stale last_error from a prior failed attempt on
+            # this SUCCESS transition (see C.DISCOVERY_SUCCESS_STATES).
             AuthorityFrontierService.mark(
                 frontier_row,
-                "ingested",
+                C.DISCOVERY_STATE_INGESTED,
                 document_id=ingested_doc.id if ingested_doc else None,
                 candidate_record=candidate_record,
             )
@@ -394,25 +410,25 @@ class AuthorityDiscoveryService(BaseService):
             )
             AuthorityFrontierService.mark(
                 frontier_row,
-                "failed",
+                C.DISCOVERY_STATE_FAILED,
                 error=str(exc),
                 candidate_record=cls._audit_record(
                     provider_name=name,
                     provider_license=provider.license,
                     source_domain=decision.source_domain,
                     verify=decision.verify,
-                    outcome="failed",
+                    outcome=C.DISCOVERY_STATE_FAILED,
                     error=str(exc),
                 ),
             )
             return {
-                "status": "failed",
+                "status": C.DISCOVERY_STATE_FAILED,
                 "error": str(exc),
                 "canonical_key": canonical_key,
             }
 
         return {
-            "status": "ingested",
+            "status": C.DISCOVERY_STATE_INGESTED,
             **result,
             "relinked_count": relinked_count,
             "canonical_key": canonical_key,

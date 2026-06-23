@@ -215,8 +215,11 @@ def doc_max_concurrency() -> int:
 
 
 # --- Phase 3: prefix classifier ---------------------------------------- #
-_USC_PREFIX_RE = _re.compile(r"^usc-\d+$")
-_CFR_PREFIX_RE = _re.compile(r"^cfr-\d+$")
+# Public (no leading underscore): these are imported cross-module by the USC /
+# CFR authority source providers' ``can_handle`` overrides, so they are part of
+# the package's intentional surface, not module-private helpers.
+USC_PREFIX_RE = _re.compile(r"^usc-\d+$")
+CFR_PREFIX_RE = _re.compile(r"^cfr-\d+$")
 # Municipal grammar keys (issue #1995): the ``muni`` catch-all (bare "Municipal
 # Code § N") and per-city ``muni-<city-slug>`` keys (both the table-keyed codes
 # and open-vocab city captures). Matched by shape so a city added to the table
@@ -237,6 +240,59 @@ _MUNI_PREFIX_RE = _re.compile(r"^muni(?:-[a-z0-9-]+)?$")
 GRAMMAR_STATUTE_META_PREFIXES = frozenset({"act", "publ", "stat"})
 
 
+# --- Phase 3/5: AuthorityFrontier discovery-state machine ------------------ #
+# Single source of truth for the frontier state vocabulary (CLAUDE.md item 4:
+# no magic strings). The model field choices (annotations.models.AuthorityFrontier
+# .DISCOVERY_STATE_CHOICES), the transition primitive (AuthorityFrontierService
+# .mark), the discovery orchestrator, and the crawl driver all reference these
+# names so a rename is a one-line edit. The verify+license gate
+# (AuthorityGateService) reuses the overlapping subset for its GATE_* verdicts.
+DISCOVERY_STATE_QUEUED = "queued"
+DISCOVERY_STATE_IN_PROGRESS = "in_progress"
+DISCOVERY_STATE_INGESTED = "ingested"
+DISCOVERY_STATE_FAILED = "failed"
+DISCOVERY_STATE_UNSUPPORTED = "unsupported"
+# Phase 4: visible, non-silent gate outcomes.
+DISCOVERY_STATE_BLOCKED_LICENSE = "blocked_license"
+DISCOVERY_STATE_BLOCKED_DOMAIN = "blocked_domain"
+DISCOVERY_STATE_UNLOCATED = "unlocated"
+DISCOVERY_STATE_PENDING_APPROVAL = "pending_approval"
+# Phase 5: per-jurisdiction cap reached; row parked so dequeue can skip it.
+DISCOVERY_STATE_DEFERRED_CAP = "deferred_cap"
+
+# (value, human label) pairs for the model field. The labels live with the
+# vocabulary so the model, admin, and any serializer share one definition.
+# NOTE: the historical ``discovered`` and ``resolved`` states were retired
+# (Authority Console Phase 4): no production code path ever assigned them
+# (discovery jumps in_progress -> ingested, and the resolution outcome lives on
+# the relink result / Analysis, not the frontier row), so carrying them as
+# choices was a dead-vocabulary trap.
+DISCOVERY_STATE_CHOICES = [
+    (DISCOVERY_STATE_QUEUED, "Queued"),
+    (DISCOVERY_STATE_IN_PROGRESS, "In progress"),
+    (DISCOVERY_STATE_INGESTED, "Document imported"),
+    (DISCOVERY_STATE_FAILED, "No source found"),
+    (DISCOVERY_STATE_UNSUPPORTED, "No provider can_handle"),
+    (DISCOVERY_STATE_BLOCKED_LICENSE, "Provider license is not public-domain"),
+    (
+        DISCOVERY_STATE_BLOCKED_DOMAIN,
+        "Source domain not on the public-domain allowlist",
+    ),
+    (
+        DISCOVERY_STATE_UNLOCATED,
+        "Located text did not verify against the requested key",
+    ),
+    (DISCOVERY_STATE_PENDING_APPROVAL, "Found, awaiting human approval before ingest"),
+    (DISCOVERY_STATE_DEFERRED_CAP, "Deferred: per-jurisdiction cap reached"),
+]
+
+# States that represent a successful terminal ingest. ``mark()`` clears
+# ``last_error`` when transitioning into one of these, so a healthy row never
+# retains a stale error string from an earlier failed attempt. Only "ingested"
+# qualifies today ("resolved" was retired — see the note above).
+DISCOVERY_SUCCESS_STATES = frozenset({DISCOVERY_STATE_INGESTED})
+
+
 def classify_prefix(prefix: str) -> tuple:
     """(jurisdiction, authority_type) for a canonical_key prefix.
 
@@ -249,9 +305,9 @@ def classify_prefix(prefix: str) -> tuple:
     Falls back to ``PREFIX_CLASSIFICATION`` for named registry bodies (dgcl,
     exchange-act, irc, …) and returns ``(None, None)`` for unknown prefixes.
     """
-    if _USC_PREFIX_RE.match(prefix):
+    if USC_PREFIX_RE.match(prefix):
         return (JURISDICTION_US_FEDERAL, AUTHORITY_TYPE_STATUTE)
-    if _CFR_PREFIX_RE.match(prefix):
+    if CFR_PREFIX_RE.match(prefix):
         return (JURISDICTION_US_FEDERAL, AUTHORITY_TYPE_REGULATION)
     if prefix == "fedreg":
         return (JURISDICTION_US_FEDERAL, AUTHORITY_TYPE_ADMIN_RULE)

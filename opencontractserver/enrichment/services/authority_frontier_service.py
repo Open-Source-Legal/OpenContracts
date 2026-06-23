@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+from django.db import transaction
 from django.db.models import Count, Q
 from django.utils import timezone
 
@@ -60,28 +61,45 @@ class AuthorityFrontierService(BaseService):
             juris, atype = C.classify_prefix(authority)
             for key_entry in auth["top_keys"]:
                 root = key_entry["canonical_key"]
-                row, was_created = AuthorityFrontier.objects.get_or_create(
-                    canonical_key=root,
-                    defaults={
-                        "authority": authority,
-                        "jurisdiction": juris,
-                        "authority_type": atype,
-                    },
-                )
-                row.mention_count = key_entry["mention_count"]
-                row.distinct_corpus_count = key_entry["corpus_count"]
-                # jurisdiction/authority_type may have been unknown at create
-                row.jurisdiction = row.jurisdiction or juris
-                row.authority_type = row.authority_type or atype
-                row.save(
-                    update_fields=[
-                        "mention_count",
-                        "distinct_corpus_count",
-                        "jurisdiction",
-                        "authority_type",
-                        "modified",
-                    ]
-                )
+                # Atomic create-or-refresh under a row lock. Collapsing the old
+                # get_or_create + unconditional save into one ``select_for_update``
+                # critical section closes a TOCTOU race: two concurrent seed
+                # passes could previously both pass get_or_create and then have
+                # one silently clobber the other's count update, and a fresh row
+                # was briefly visible at mention_count=0 (the default) between the
+                # insert and its follow-up save. The lock serialises the second
+                # writer behind the first and seeds the real counts atomically.
+                with transaction.atomic():
+                    locked = AuthorityFrontier.objects.select_for_update()
+                    row, was_created = locked.get_or_create(
+                        canonical_key=root,
+                        defaults={
+                            "authority": authority,
+                            "jurisdiction": juris,
+                            "authority_type": atype,
+                            "mention_count": key_entry["mention_count"],
+                            "distinct_corpus_count": key_entry["corpus_count"],
+                        },
+                    )
+                    if not was_created:
+                        row.mention_count = key_entry["mention_count"]
+                        row.distinct_corpus_count = key_entry["corpus_count"]
+                        # jurisdiction/authority_type use "prefer existing
+                        # non-null": a row first seeded before its prefix was
+                        # classifiable is filled in later, but a known value is
+                        # never overwritten (so this is NOT update_or_create with
+                        # the pair in defaults, which would clobber on every run).
+                        row.jurisdiction = row.jurisdiction or juris
+                        row.authority_type = row.authority_type or atype
+                        row.save(
+                            update_fields=[
+                                "mention_count",
+                                "distinct_corpus_count",
+                                "jurisdiction",
+                                "authority_type",
+                                "modified",
+                            ]
+                        )
                 created += int(was_created)
                 updated += int(not was_created)
         return {"frontier_created": created, "frontier_updated": updated}
@@ -150,7 +168,7 @@ class AuthorityFrontierService(BaseService):
         ranked by ``-mention_count``, optionally bounded by depth and a minimum
         demand floor.  Provider selection happens later in the discovery service.
         """
-        qs = AuthorityFrontier.objects.filter(discovery_state="queued")
+        qs = AuthorityFrontier.objects.filter(discovery_state=C.DISCOVERY_STATE_QUEUED)
         if max_depth is not None:
             qs = qs.filter(depth__lte=max_depth)
         if min_demand:
@@ -184,7 +202,7 @@ class AuthorityFrontierService(BaseService):
                     "authority_type": atype,
                     "depth": child_depth,
                     "mention_count": 1,
-                    "discovery_state": "queued",
+                    "discovery_state": C.DISCOVERY_STATE_QUEUED,
                 },
             )
             created += int(was_created)
@@ -195,10 +213,19 @@ class AuthorityFrontierService(BaseService):
     def dequeue_for_provider(
         cls, provider: str, limit: int = 10
     ) -> list[AuthorityFrontier]:
-        """Return up to ``limit`` queued rows assigned to ``provider``."""
+        """Return up to ``limit`` queued rows already STAMPED with ``provider``.
+
+        This is NOT the primary dispatch entrypoint — the crawl driver uses
+        ``dequeue_queued`` (provider-agnostic) and provider selection happens
+        mid-flight inside ``AuthorityDiscoveryService.discover_and_bootstrap``.
+        Freshly seeded rows carry ``provider=None`` until then, so this method
+        returns ZERO rows for them by design. Its real use is crash recovery:
+        re-draining rows whose ``provider`` was recorded before a Celery task
+        died, so a named provider can resume exactly where it left off.
+        """
         return list(
             AuthorityFrontier.objects.filter(
-                provider=provider, discovery_state="queued"
+                provider=provider, discovery_state=C.DISCOVERY_STATE_QUEUED
             ).order_by("-mention_count")[:limit]
         )
 
@@ -226,6 +253,11 @@ class AuthorityFrontierService(BaseService):
         that still carries a document, so a requeue MUST clear it here rather than
         leave a constraint-violating row.
 
+        Transitioning into a terminal SUCCESS state (``C.DISCOVERY_SUCCESS_STATES``
+        — i.e. ``ingested``) also clears ``last_error`` implicitly, so a row that
+        succeeds on retry does not retain the error string from its earlier failed
+        attempt (the audit trail in ``candidate_sources`` keeps that history).
+
         Args:
             row: The ``AuthorityFrontier`` instance to update.
             state: New ``discovery_state`` value.
@@ -235,7 +267,8 @@ class AuthorityFrontierService(BaseService):
                 audit trail — earlier attempts are never overwritten).
             clear_document: If True, NULL ``ingested_document`` (mutually exclusive
                 with ``document_id``).
-            clear_error: If True, NULL ``last_error`` (mutually exclusive with ``error``).
+            clear_error: If True, NULL ``last_error`` (mutually exclusive with
+                ``error``). Redundant for SUCCESS states, which clear it anyway.
             clear_provider: If True, NULL ``provider``.
         """
         if document_id is not None and clear_document:
@@ -260,7 +293,13 @@ class AuthorityFrontierService(BaseService):
         if error is not None:
             row.last_error = error
             update_fields.append("last_error")
-        elif clear_error:
+        elif clear_error or state in C.DISCOVERY_SUCCESS_STATES:
+            # A row that reaches a terminal SUCCESS state (ingested) carries no
+            # error: clear any stale last_error from an earlier failed attempt so
+            # a row that transitions failed -> ingested is not misread as broken
+            # by health checks. Callers need not remember clear_error=True on the
+            # happy path; an explicit error= (guarded exclusive with clear_error
+            # above) still wins for non-success states.
             row.last_error = None
             update_fields.append("last_error")
         if set_provider is not None:
@@ -297,7 +336,7 @@ class AuthorityFrontierService(BaseService):
         its own (``pending_approval``-only) state guard, so this is for the
         re-queueing verbs requeue / reset / reroute.
         """
-        if row.discovery_state == "in_progress":
+        if row.discovery_state == C.DISCOVERY_STATE_IN_PROGRESS:
             return FrontierActionResult(
                 False,
                 "Row is in_progress (a crawl worker is ingesting it); wait for it "
@@ -319,7 +358,7 @@ class AuthorityFrontierService(BaseService):
         blocked = cls._reject_if_in_progress(row)
         if blocked is not None:
             return blocked
-        cls.mark(row, "queued", clear_document=True, clear_error=True)
+        cls.mark(row, C.DISCOVERY_STATE_QUEUED, clear_document=True, clear_error=True)
         cls.log_action("Requeued", row, user)
         return FrontierActionResult(True, obj=row)
 
@@ -334,7 +373,7 @@ class AuthorityFrontierService(BaseService):
             return blocked
         cls.mark(
             row,
-            "queued",
+            C.DISCOVERY_STATE_QUEUED,
             clear_document=True,
             clear_error=True,
             clear_provider=True,
@@ -358,7 +397,7 @@ class AuthorityFrontierService(BaseService):
         # clearing the prior ingested doc so the new provider re-fetches cleanly.
         cls.mark(
             row,
-            "queued",
+            C.DISCOVERY_STATE_QUEUED,
             set_provider=provider,
             clear_document=True,
             clear_error=True,
@@ -372,11 +411,11 @@ class AuthorityFrontierService(BaseService):
         row = cls._get_admin_row(user, pk)
         if row is None:
             return FrontierActionResult(False, DENIED)
-        if row.discovery_state != "pending_approval":
+        if row.discovery_state != C.DISCOVERY_STATE_PENDING_APPROVAL:
             return FrontierActionResult(
                 False, "Only pending-approval rows can be approved."
             )
-        cls.mark(row, "queued", clear_error=True)
+        cls.mark(row, C.DISCOVERY_STATE_QUEUED, clear_error=True)
         cls.log_action("Approved", row, user)
         return FrontierActionResult(True, obj=row)
 

@@ -155,7 +155,9 @@ class CrawlAuthoritiesService(BaseService):
                 # min_demand floor and/or the max_depth bound — the single key
                 # does not attribute each row to one cause or the other.
                 blocked_by_bound["min_demand_or_depth"] = (
-                    AuthorityFrontier.objects.filter(discovery_state="queued").count()
+                    AuthorityFrontier.objects.filter(
+                        discovery_state=C.DISCOVERY_STATE_QUEUED
+                    ).count()
                 )
                 stop_reason = "frontier_drained"
                 break
@@ -171,7 +173,7 @@ class CrawlAuthoritiesService(BaseService):
                 # Park at "deferred_cap" so dequeue_queued (which filters on
                 # discovery_state="queued") cannot re-return this row this run —
                 # the structural guarantee that the cap branch terminates.
-                AuthorityFrontierService.mark(row, "deferred_cap")
+                AuthorityFrontierService.mark(row, C.DISCOVERY_STATE_DEFERRED_CAP)
                 continue
 
             result = AuthorityDiscoveryService.discover_and_bootstrap(
@@ -189,7 +191,7 @@ class CrawlAuthoritiesService(BaseService):
                 row.depth,
             )
 
-            if status != "ingested":
+            if status != C.DISCOVERY_STATE_INGESTED:
                 # discover_and_bootstrap already marked the row terminal.
                 continue
 
@@ -321,7 +323,7 @@ class CrawlAuthoritiesService(BaseService):
             "processed": len(rows),
             "not_found": len(not_found),
             "outcomes": dict(outcomes),
-            "ingested": outcomes.get("ingested", 0),
+            "ingested": outcomes.get(C.DISCOVERY_STATE_INGESTED, 0),
         }
         log("discover_selected complete: %s", summary)
         return summary
@@ -335,7 +337,7 @@ class CrawlAuthoritiesService(BaseService):
         current run, which is the structural guarantee that the per-jurisdiction
         cap branch terminates.
         """
-        AuthorityFrontierService.mark(row, "deferred_cap")
+        AuthorityFrontierService.mark(row, C.DISCOVERY_STATE_DEFERRED_CAP)
 
     @staticmethod
     def _estimate_tokens(corpus_id: int, user: User) -> int:
