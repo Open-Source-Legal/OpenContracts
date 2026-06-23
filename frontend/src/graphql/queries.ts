@@ -1,5 +1,6 @@
 import { gql } from "@apollo/client";
 import { LabelSet } from "../components/types";
+import type { LlmProviderOption } from "../types/graphql-api";
 import {
   AnnotationLabelTypeEdge,
   ServerAnnotationType,
@@ -383,6 +384,7 @@ export const RESOLVE_CORPUS_BY_SLUGS_FULL = gql`
       myPermissions
       allowComments
       preferredEmbedder
+      preferredLlm
       created
       modified
       creator {
@@ -7341,3 +7343,50 @@ export const GET_RESEARCH_REPORTS = gql`
     }
   }
 `;
+
+// ---------------------------------------------------------------------------
+// LLM model selection (per-corpus Language Model setting)
+// ---------------------------------------------------------------------------
+// Slim, secret-free projections of the pipeline registry used by the corpus
+// LlmModelPicker. Both resolvers are @login_required (any authenticated user
+// may READ), and we deliberately omit settingsSchema/currentValue so no
+// provider credentials are ever exposed to non-superuser corpus owners.
+
+export const GET_LLM_PROVIDERS = gql`
+  query GetLlmProviders {
+    pipelineComponents {
+      llmProviders {
+        name
+        title
+        className
+        providerKey
+        supportedModels
+        requiresApiKey
+        enabled
+      }
+    }
+  }
+`;
+
+export interface LlmProvidersQueryResult {
+  pipelineComponents: {
+    // Reuse the shared option shape so the GraphQL projection and the picker
+    // component can't silently drift apart (LlmProviderOption carries the
+    // optional `enabled` flag this query selects for client-side filtering).
+    llmProviders: LlmProviderOption[];
+  };
+}
+
+export const GET_SYSTEM_DEFAULT_LLM = gql`
+  query GetSystemDefaultLlm {
+    pipelineSettings {
+      defaultLlm
+    }
+  }
+`;
+
+export interface SystemDefaultLlmQueryResult {
+  pipelineSettings: {
+    defaultLlm?: string | null;
+  };
+}

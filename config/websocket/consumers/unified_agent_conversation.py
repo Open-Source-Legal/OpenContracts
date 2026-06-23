@@ -743,30 +743,46 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
     async def _generate_conversation_title(self, user_query: str) -> str:
         """
         Generate a concise conversation title based on the initial user query.
+
+        Routes through the LLM registry (per-corpus ``preferred_llm`` →
+        install-wide ``PipelineSettings.default_llm`` → Django settings) via
+        :func:`~opencontractserver.llms.completions.agenerate_text` rather than a
+        hardcoded model, so titles honour the configured LLM. Title generation
+        is incidental infra — not a deliberate model override — so it must
+        consume the same default the rest of the corpus uses.
         """
         try:
-            from opencontractserver.llms.client import ChatMessage, create_client
+            from opencontractserver.llms.completions import agenerate_text
 
-            system_prompt = (
+            instructions = (
                 "You are a helpful assistant that creates very concise chat titles. "
                 "Create a brief (maximum 5 words) title that captures the essence "
                 "of what the user is asking about."
             )
 
-            user_prompt = (
+            prompt = (
                 f"Create a brief title for a conversation starting with this query: "
                 f"{user_query}"
             )
 
-            client = create_client()  # Uses settings defaults
+            # Defer to the corpus's preferred LLM when present; otherwise the
+            # helper falls back to the install-wide default / Django settings.
+            # ``self.corpus`` may be unset (document-only sessions / early calls),
+            # so resolve defensively.
+            corpus = getattr(self, "corpus", None)
+            corpus_preferred = getattr(corpus, "preferred_llm", None)
 
-            messages = [
-                ChatMessage(role="system", content=system_prompt),
-                ChatMessage(role="user", content=user_prompt),
-            ]
+            from opencontractserver.constants.llm import (
+                TITLE_GENERATION_TEMPERATURE,
+            )
 
-            response = client.chat(messages)
-            return response.content.strip()
+            title = await agenerate_text(
+                prompt,
+                instructions=instructions,
+                corpus_preferred=corpus_preferred,
+                temperature=TITLE_GENERATION_TEMPERATURE,
+            )
+            return title or f"Conversation {uuid.uuid4()}"
         except Exception as e:
             logger.error(
                 f"[Session {self.session_id}] Error generating conversation title: {e}"

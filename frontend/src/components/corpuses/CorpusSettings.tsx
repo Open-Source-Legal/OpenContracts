@@ -39,6 +39,7 @@ import { RunCorpusActionModal } from "./RunCorpusActionModal";
 import { BatchRunCorpusActionModal } from "./BatchRunCorpusActionModal";
 import { CorpusMetadataSettings } from "./CorpusMetadataSettings";
 import { CorpusAgentSettings } from "./CorpusAgentSettings";
+import { CorpusLanguageModelCard } from "./CorpusLanguageModelCard";
 import { CorpusAgentManagement } from "./CorpusAgentManagement";
 import { ActionExecutionTrail } from "./ActionExecutionTrail";
 import { PermissionTypes } from "../types";
@@ -74,6 +75,7 @@ interface CorpusSettingsProps {
     description: string;
     allowComments: boolean;
     preferredEmbedder?: string | null;
+    preferredLlm?: string | null;
     slug?: string | null;
     creator?: {
       id?: string;
@@ -438,6 +440,12 @@ export const CorpusSettings: React.FC<CorpusSettingsProps> = ({ corpus }) => {
             />
           </SettingsCardContent>
         </SettingsCard>
+
+        <CorpusLanguageModelCard
+          corpusId={corpus.id}
+          initialPreferredLlm={corpus.preferredLlm}
+          canUpdate={canUpdate}
+        />
 
         <SettingsCard>
           <SettingsCardHeader>

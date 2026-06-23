@@ -97,6 +97,9 @@ export interface UpdateCorpusInputs {
   icon?: string;
   filename?: string;
   preferredEmbedder?: string;
+  // pydantic-ai model spec ("provider:model") for this corpus's agents. Empty
+  // string clears it and falls back to the install-wide default LLM.
+  preferredLlm?: string;
   labelSet?: string;
   slug?: string;
   // NOTE: isPublic removed - use SET_CORPUS_VISIBILITY mutation instead
@@ -129,6 +132,7 @@ export const UPDATE_CORPUS = gql`
     $labelSet: String
     $title: String
     $preferredEmbedder: String
+    $preferredLlm: String
     $slug: String
     $corpusAgentInstructions: String
     $documentAgentInstructions: String
@@ -143,6 +147,7 @@ export const UPDATE_CORPUS = gql`
       labelSet: $labelSet
       title: $title
       preferredEmbedder: $preferredEmbedder
+      preferredLlm: $preferredLlm
       slug: $slug
       corpusAgentInstructions: $corpusAgentInstructions
       documentAgentInstructions: $documentAgentInstructions
