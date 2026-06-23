@@ -485,11 +485,12 @@ class DocumentLifecycleService(BaseService):
         if not document_ids:
             return 0
 
-        # Initialised before the transaction so the trailing logger/return below
-        # cannot ``NameError`` if a future edit adds an early ``return`` between
-        # here and the in-block assignment (a ``with`` does not introduce a new
-        # scope). The early returns above and inside the block already exit
-        # before the logger, so this is defensive hardening, not a live bug.
+        # Pre-initialised before the transaction so the post-block logger/return
+        # below always sees a bound name (a ``with`` does not introduce a new
+        # scope). Purely defensive: today the in-block assignment always runs
+        # before the block exits normally, but a future edit that makes it
+        # conditional — letting the ``with`` complete without it — would
+        # otherwise ``NameError`` at the logger.
         trashed_doc_ids: set[int] = set()
 
         # Self-contained transaction so a standalone/test caller still gets

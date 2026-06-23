@@ -1,11 +1,12 @@
-"""DocumentPath disambiguation internals for the corpus service layer.
+"""DocumentPath path-manipulation + signal-replay internals for the corpus service layer.
 
-``CorpusPathService`` holds the low-level :class:`DocumentPath` path
-manipulation helpers used by the folder write operations when documents are
-moved between folders or displaced by a folder deletion. Every method here is
-an internal helper (underscore-prefixed): the path layer performs NO
-permission checks — callers gate corpus permissions *before* reaching these
-helpers.
+``CorpusPathService`` holds the low-level :class:`DocumentPath` helpers used
+across the corpus/document layers when documents are moved between folders,
+displaced by a folder deletion, soft-deleted, or restored. The naming
+convention is mixed (a couple of methods are public, the rest are
+underscore-prefixed package-internal helpers) — see the class docstring for
+the distinction. No method here performs permission checks — callers gate
+corpus permissions *before* reaching these helpers.
 
 Split out of the former ``corpus_objs_service.py`` monolith — see
 ``docs/refactor_plans/2026-05-21-service-layer-phase2-corpus-services-plan.md``
