@@ -183,6 +183,11 @@ def safe_fetch_bytes(
     - Follows up to ``MAX_REDIRECTS`` redirects MANUALLY, re-validating each hop.
     - Streams the body and aborts past *max_bytes* (Content-Length AND actual bytes).
     - Enforces connect + read timeouts via the module-level ``_DEFAULT_TIMEOUT``.
+
+    Caller headers note: on a cross-host redirect only the STANDARD credential
+    headers (``CROSS_HOST_STRIPPED_HEADERS``) are stripped. Do NOT pass a
+    non-standard per-service credential header (``X-Api-Key``, ``X-Auth-Token``,
+    …) — it would be forwarded to the redirect target host.
     """
     # Default User-Agent so fetches identify OpenContracts to .gov servers
     # rather than going out as an anonymous httpx client; a caller-supplied

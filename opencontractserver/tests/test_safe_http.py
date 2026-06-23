@@ -66,7 +66,11 @@ def _mock_stream(status_code: int, body: bytes = b"", headers: dict | None = Non
     """Context-manager factory returned by a mocked ``httpx.Client.stream``."""
     resp = MagicMock()
     resp.status_code = status_code
-    hdr_dict = headers or {}
+    # Real httpx.Response.headers is case-insensitive; lowercase the keys (and the
+    # lookups below) so a test passing {"Location": ...} (the conventional capital
+    # L) is not silently misrouted to has_redirect_location=False the way a plain
+    # case-sensitive dict would.
+    hdr_dict = {k.lower(): v for k, v in (headers or {}).items()}
     # Mirror httpx 0.28.x: ``is_redirect`` is ANY 3xx, while
     # ``has_redirect_location`` additionally requires a redirect status code AND a
     # Location header present. safe_fetch_bytes keys off the latter.
@@ -75,7 +79,7 @@ def _mock_stream(status_code: int, body: bytes = b"", headers: dict | None = Non
         status_code in (301, 302, 303, 307, 308) and "location" in hdr_dict
     )
     resp.headers = MagicMock()
-    resp.headers.get = lambda k, default=None: hdr_dict.get(k, default)
+    resp.headers.get = lambda k, default=None: hdr_dict.get(k.lower(), default)
     resp.raise_for_status = MagicMock()
 
     def iter_bytes():
@@ -345,6 +349,9 @@ class TestSafeFetchBytesRedirect:
         """
 
         def _stream_dispatch(self_client, method, url, **kwargs):
+            # The body here is a test artifact to prove we reach the return path;
+            # a real 304 carries no body (RFC 9110 §15.4.5) and raise_for_status
+            # (a MagicMock no-op here) does not raise for a 3xx in httpx.
             return _mock_stream(304, b"not-modified-body")  # no Location header
 
         with patch("socket.getaddrinfo", side_effect=_fake_getaddrinfo_public):
@@ -352,6 +359,28 @@ class TestSafeFetchBytesRedirect:
                 body, host = safe_fetch_bytes(ALLOWED_URL)
         assert body == b"not-modified-body"
         assert host == ALLOWED_HOST
+
+    def test_capital_location_header_is_followed(self):
+        """A capital-L ``Location`` (the conventional casing) is honoured.
+
+        Real httpx headers are case-insensitive; this pins that ``_mock_stream``
+        matches, so a future redirect test written with ``{"Location": ...}`` is
+        not silently a no-op (``has_redirect_location`` False).
+        """
+        call_count = 0
+
+        def _stream_dispatch(self_client, method, url, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return _mock_stream(302, b"", {"Location": f"https://{ALLOWED_HOST}/x"})
+            return _mock_stream(200, b"final")
+
+        with patch("socket.getaddrinfo", side_effect=_fake_getaddrinfo_public):
+            with patch("httpx.Client.stream", _stream_dispatch):
+                body, _ = safe_fetch_bytes(ALLOWED_URL)
+        assert body == b"final"
+        assert call_count == 2, "the capital-L redirect must actually be followed"
 
     def test_redirect_to_private_ip_rejected(self):
         """
