@@ -136,8 +136,27 @@ class CrawlAuthoritiesService(BaseService):
         # iterations rather than constructing a fresh object on every BFS hop.
         enrichment = EnrichmentService()
 
+        # One provenance Analysis per authority corpus, reused across the run.
+        # Every section of a given authority bootstraps into ONE corpus — the
+        # provider's ``title`` is a constant, so every ``usc-*`` section lands in
+        # the single "United States Code" corpus — so a crawl that ingests N
+        # sections of an authority calls apply() on the SAME corpus N times.
+        # Letting each call mint its own Analysis (apply()'s default when
+        # ``analysis=None``) would leave N provenance rows on that one corpus;
+        # instead we capture the Analysis the first apply creates and feed it back
+        # into the rest, capping it at one per corpus (issue #2027).
+        from opencontractserver.analyzer.models import Analysis
+
+        apply_analyses: dict[int, Analysis] = {}
+
         while True:
-            # Hard cap checks before dequeue so the summary is honest.
+            # Hard cap checks before dequeue so the summary is honest. On these
+            # early stops we intentionally do NOT populate
+            # blocked_by_bound["min_demand_or_depth"]: rows still queued when a cap
+            # fires were simply not reached, and may be perfectly eligible (above
+            # min_demand, within max_depth) — attributing them to a bound would be
+            # a lie. The frontier_residual census (computed below for EVERY stop
+            # reason) accounts for them, so the summary is still non-silent.
             if ingested >= max_authorities:
                 stop_reason = "max_authorities"
                 break
@@ -150,10 +169,13 @@ class CrawlAuthoritiesService(BaseService):
                 limit=1, max_depth=max_depth, min_demand=min_demand
             )
             if not rows:
-                # Count how many queued rows remain so the summary is non-silent
-                # about what was left. This is the UNION of rows excluded by the
-                # min_demand floor and/or the max_depth bound — the single key
-                # does not attribute each row to one cause or the other.
+                # frontier_drained: dequeue returned nothing, so EVERY remaining
+                # queued row failed the (min_demand AND max_depth) filters. Here —
+                # and only here — is attributing the residual queued count to those
+                # bounds correct (the early max_authorities / token_budget breaks
+                # above leave their unreached-but-eligible rows to
+                # frontier_residual instead). The single key is the UNION of the
+                # two exclusions; it does not split each row by cause.
                 blocked_by_bound["min_demand_or_depth"] = (
                     AuthorityFrontier.objects.filter(discovery_state="queued").count()
                 )
@@ -206,14 +228,26 @@ class CrawlAuthoritiesService(BaseService):
             # Re-extract the authority's OWN outbound citations and seed the
             # frontier at depth+1 — only when we haven't reached max_depth.
             if row.depth < max_depth:
-                # Authority corpora hold one small document per statute section,
-                # so this apply scan is bounded (not a large-corpus scan).
+                # Reuse this corpus's provenance Analysis across sections (see the
+                # apply_analyses note above) so the BFS doesn't accumulate one
+                # Analysis row per section on a shared authority corpus.
+                apply_analysis = apply_analyses.get(authority_corpus_id)
                 apply_res = enrichment.apply(
                     corpus_id=authority_corpus_id,
                     creator_id=creator_id,
                     types=[C.REF_LAW],
                     extra_tiers=[C.DETECTION_TIER_GRAMMAR],
+                    analysis=apply_analysis,
                 )
+                if apply_analysis is None:
+                    # First apply on this corpus created the provenance Analysis;
+                    # cache it so the corpus's remaining sections reattach to it
+                    # instead of each minting a fresh one.
+                    new_analysis_id = apply_res.get("analysis_id")
+                    if new_analysis_id is not None:
+                        apply_analyses[authority_corpus_id] = Analysis.objects.get(
+                            pk=new_analysis_id
+                        )
 
                 outbound = list(
                     CorpusReferenceService.for_corpus(user, authority_corpus_id)

@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+from django.db import transaction
 from django.db.models import Count, Q
 from django.utils import timezone
 
@@ -143,19 +144,47 @@ class AuthorityFrontierService(BaseService):
         max_depth: int | None = None,
         min_demand: int = 0,
     ) -> list[AuthorityFrontier]:
-        """Highest-demand queued rows regardless of assigned provider.
+        """Atomically CLAIM the highest-demand queued rows for the crawl driver.
 
         Unlike ``dequeue_for_provider`` (which requires a stamped provider),
         this serves the crawl driver: it picks ``discovery_state="queued"`` rows
         ranked by ``-mention_count``, optionally bounded by depth and a minimum
         demand floor.  Provider selection happens later in the discovery service.
+
+        The returned rows are transitioned to ``in_progress`` inside a single
+        ``SELECT ... FOR UPDATE SKIP LOCKED`` transaction, so the dequeue is an
+        atomic *claim* rather than a plain read: two ``crawl_authorities`` tasks
+        running concurrently (e.g. two manual triggers on the same corpus) can
+        never return — and therefore never ``discover_and_bootstrap`` — the same
+        frontier row twice (issue #2027). ``skip_locked`` lets a second worker
+        pick the next available rows instead of blocking on the first worker's
+        lock. Rows excluded by ``max_depth`` / ``min_demand`` are never claimed,
+        so the crawl's ``frontier_drained`` residual census still sees them as
+        ``queued``.
         """
         qs = AuthorityFrontier.objects.filter(discovery_state="queued")
         if max_depth is not None:
             qs = qs.filter(depth__lte=max_depth)
         if min_demand:
             qs = qs.filter(mention_count__gte=min_demand)
-        return list(qs.order_by("-mention_count")[:limit])
+        with transaction.atomic():
+            rows = list(
+                qs.select_for_update(skip_locked=True).order_by("-mention_count")[
+                    :limit
+                ]
+            )
+            if rows:
+                now = timezone.now()
+                for row in rows:
+                    row.discovery_state = "in_progress"
+                    row.last_attempt = now
+                    # bulk_update bypasses auto_now — stamp ``modified`` so the
+                    # claim matches the single-row ``mark()`` writer.
+                    row.modified = now
+                AuthorityFrontier.objects.bulk_update(
+                    rows, ["discovery_state", "last_attempt", "modified"]
+                )
+        return rows
 
     @classmethod
     def seed_child_keys(
