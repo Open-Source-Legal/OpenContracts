@@ -164,7 +164,7 @@ authority's own outbound citations at `depth+1`.
 
 Each frontier row carries a `discovery_state`:
 
-`queued` · `in_progress` · `discovered` · `ingested` · `resolved` · `failed` ·
+`queued` · `in_progress` · `ingested` · `failed` ·
 `unsupported` · `blocked_license` · `unlocated` · `pending_approval` · `deferred_cap`
 
 Two pieces worth calling out:
@@ -207,7 +207,7 @@ The Runs tab's job list shows each `Analysis` live (`RUNNING` / `COMPLETED` /
 `FAILED`, elapsed, result summary) via an `Analysis → Notification` signal over the
 notification WebSocket.
 
-For the instance-wide picture, the read-only **Queue tab** of the Authority Console
+For the instance-wide picture, the **Queue tab** of the Authority Console
 at `/admin/authority/queue` (superuser-only) is the ingestion backlog over the whole
 `AuthorityFrontier`: per-state count chips, jurisdiction / type / provider filters,
 search, and a backlog-first table. It is powered by the `authorityFrontier` relay
