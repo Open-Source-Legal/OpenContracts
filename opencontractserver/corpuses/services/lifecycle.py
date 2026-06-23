@@ -462,6 +462,14 @@ class DocumentLifecycleService(BaseService):
         ``Corpus.remove_document`` produces, so trashed documents stay in the
         trash listing and remain restorable.
 
+        Scaling caveat — O(1) in *queries*, not in *memory*: this primitive
+        still materializes both ``document_ids`` and the locked ``active_paths``
+        fully into Python lists (see the in-body PERF/MEMORY comment), so there
+        is **no built-in document-count ceiling**. That is fine for realistic
+        corpus sizes, but chunk/iterate the doc set here before exposing an
+        unbounded ``empty_corpus`` / folder cascade-delete to arbitrarily large
+        corpora (memory follow-up to #1951).
+
         NOTE: This is an internal primitive that performs **no permission
         check** — callers (``empty_corpus``, folder cascade-delete) must already
         have verified corpus DELETE permission. It does not touch the folder
@@ -600,10 +608,14 @@ class DocumentLifecycleService(BaseService):
                         is_public=False
                     )
 
-        logger.info(
-            "Bulk soft-deleted %s document(s) in corpus %s by user %s",
-            len(trashed_doc_ids),
-            corpus.id,
-            user.id,
-        )
-        return len(trashed_doc_ids)
+            # ``trashed_doc_ids`` is defined and consumed entirely inside this
+            # atomic block (like the early ``return 0`` above), so the success
+            # log + return live here too — keeping the set's scope obvious
+            # instead of referencing it after the ``with`` has exited.
+            logger.info(
+                "Bulk soft-deleted %s document(s) in corpus %s by user %s",
+                len(trashed_doc_ids),
+                corpus.id,
+                user.id,
+            )
+            return len(trashed_doc_ids)
