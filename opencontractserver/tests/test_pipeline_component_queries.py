@@ -375,6 +375,55 @@ class TestPostProcessor(BasePostProcessor):
         thumbnailer_names = [t["name"] for t in data["thumbnailers"]]
         self.assertIn("TestThumbnailer", thumbnailer_names)
 
+    def test_llm_providers_visible_to_non_superuser_without_secret_leak(self):
+        """Non-superusers see the FULL llmProviders list but no credentials.
+
+        The per-corpus model picker (PR #2035) relies on corpus editors being
+        able to read every registered provider + its suggested models, while
+        ``settingsSchema`` (which can carry a configured ``base_url`` /
+        ``hasValue`` flag) must stay superuser-only.  This pins both halves of
+        that boundary so a future refactor can't silently (a) start filtering
+        providers out for editors or (b) expose provider settings to them.
+        """
+        query = """
+        query {
+            pipelineComponents {
+                llmProviders {
+                    name
+                    providerKey
+                    supportedModels
+                    requiresApiKey
+                    settingsSchema { name currentValue hasValue }
+                }
+            }
+        }
+        """
+
+        # Non-superuser: full provider list, every settingsSchema null.
+        result = self.graphene_client.execute(query)
+        self.assertIsNone(result.get("errors"))
+        providers = result["data"]["pipelineComponents"]["llmProviders"]
+        self.assertGreater(
+            len(providers), 0, "Corpus editors must see registered LLM providers"
+        )
+        provider_keys = {p["providerKey"] for p in providers}
+        self.assertIn("anthropic", provider_keys)
+        for provider in providers:
+            self.assertIsNone(
+                provider["settingsSchema"],
+                f"Non-superuser leaked settingsSchema for {provider['name']}",
+            )
+
+        # Superuser: same providers, but settingsSchema IS populated (the
+        # credential-bearing surface the gate protects).
+        su_result = self.superuser_client.execute(query)
+        self.assertIsNone(su_result.get("errors"))
+        su_providers = su_result["data"]["pipelineComponents"]["llmProviders"]
+        self.assertTrue(
+            any(p["settingsSchema"] for p in su_providers),
+            "Superuser should receive settingsSchema for credentialed providers",
+        )
+
     def test_pipeline_components_query_with_mimetype(self):
         """Test querying pipeline components filtered by mimetype."""
         query = """

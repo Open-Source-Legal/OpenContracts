@@ -72,7 +72,7 @@ class CorpusSerializer(serializers.ModelSerializer):
         ]
 
     def validate_preferred_llm(self, value: str | None) -> str | None:
-        """Normalise empty / whitespace ``preferred_llm`` to ``None``.
+        """Normalise ``""`` / whitespace to ``None`` and validate the spec.
 
         The corpus update mutation documents ``""`` as "clear the
         override," but the DB column is nullable and the resolver
@@ -82,10 +82,44 @@ class CorpusSerializer(serializers.ModelSerializer):
         empty-string rows).  Normalising at the serializer layer keeps
         the DB state consistent regardless of which input the frontend
         sends.
+
+        A non-empty value must also be a well-formed, registered
+        pydantic-ai model spec (``"provider:model"``).  ``Corpus.save()``
+        already enforces this, but a model-layer ``ValidationError`` raised
+        from ``save()`` is caught by the mutation base as a generic
+        "internal error" rather than a clean field message (the free-text
+        picker lets a user type an unregistered provider / malformed spec).
+        Validating here — *before* ``save()`` — surfaces the real reason as
+        a DRF field error the mutation renders as ``ok=False`` with a
+        helpful message.  Normalisation is left to ``Corpus.save()`` so it
+        stays the single source of truth for the canonical stored form.
         """
         if value is None or not value.strip():
             return None
-        return value
+        cleaned = value.strip()
+
+        from opencontractserver.llms.llm_registry import (
+            LLMProviderNotRegistered,
+            parse_model_spec,
+            validate_model_spec,
+        )
+
+        try:
+            validate_model_spec(cleaned)
+        except LLMProviderNotRegistered as exc:
+            # Surface the real, user-actionable reason (the typed provider
+            # prefix is not registered) without echoing ``str(exc)``, whose
+            # message embeds an internal source path — a CodeQL
+            # "information exposure through an exception" finding. ``provider``
+            # is derived from the user's own input, not the exception, so no
+            # internal detail crosses the API boundary.
+            provider, _ = parse_model_spec(cleaned)
+            raise serializers.ValidationError(
+                f"Model provider '{provider}' is not registered."
+            ) from exc
+        except ValueError as exc:
+            raise serializers.ValidationError("Invalid model specification.") from exc
+        return cleaned
 
     def validate(self, attrs) -> Any:
         attrs = super().validate(attrs)

@@ -318,6 +318,9 @@ export type RawCorpusType = Node & {
   annotationCount?: Scalars["Int"];
   labelSet?: Maybe<LabelSetType>;
   preferredEmbedder?: Maybe<Scalars["String"]>;
+  // pydantic-ai model spec ("provider:model") for this corpus's agents. Null
+  // means "inherit the install-wide PipelineSettings.default_llm".
+  preferredLlm?: Maybe<Scalars["String"]>;
   creator?: UserType;
   parent?: CorpusType;
   backendLock?: Scalars["Boolean"];
@@ -1895,6 +1898,23 @@ export type PipelineComponentType = {
 
 /** Valid setting types for pipeline component configuration. */
 export type SettingTypeEnum = "required" | "optional" | "secret";
+
+/**
+ * Narrow projection of an LLM provider used by the model-spec picker UI
+ * (LlmModelPicker). A structural subset of PipelineComponentType, kept here in
+ * the shared types module so the picker component and the GraphQL query result
+ * type both depend on `types/` rather than on each other.
+ */
+export interface LlmProviderOption {
+  className?: string | null;
+  name?: string | null;
+  title?: string | null;
+  providerKey?: string | null;
+  supportedModels?: (string | null)[] | null;
+  requiresApiKey?: boolean | null;
+  // false = explicitly disabled in PipelineSettings; null/undefined = enabled.
+  enabled?: boolean | null;
+}
 
 /** Common Python type hints used in settings schemas. */
 export type PythonTypeEnum = "str" | "int" | "float" | "bool" | "any" | string;

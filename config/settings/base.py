@@ -1652,13 +1652,6 @@ merely resemble place names unless they clearly refer to the place.
 - Do not invent text. Every `exact_string` must be copied verbatim from the document.
 - If you find no recognizable places, do nothing and say so briefly."""
 
-# LLM Client Provider Settings
-# ------------------------------------------------------------------------------
-LLM_CLIENT_PROVIDER = env.str("LLM_CLIENT_PROVIDER", default="openai")
-LLM_CLIENT_MODEL = env.str("LLM_CLIENT_MODEL", default="gpt-4o-mini")
-LLM_CLIENT_TEMPERATURE = env.float("LLM_CLIENT_TEMPERATURE", default=0.7)
-LLM_CLIENT_MAX_TOKENS = env.int("LLM_CLIENT_MAX_TOKENS", default=None)
-
 # Global cap on concurrent per-chunk LLM calls in the Tier-2b enrichment pass
 # (across all documents in a run). None => use the code default
 # (opencontractserver.enrichment.constants.LLM_MAX_CONCURRENCY, 8). Raise it for
