@@ -172,6 +172,48 @@ class TestAssertPublicIp:
             with pytest.raises(SSRFValidationError, match="DNS resolution failed"):
                 _assert_public_ip("nonexistent.host.invalid")
 
+    @pytest.mark.parametrize(
+        "cgnat_ip",
+        [
+            "100.64.0.1",  # first usable CGNAT address
+            "100.100.100.100",  # mid-range
+            "100.127.255.254",  # last usable CGNAT address
+        ],
+    )
+    def test_cgnat_shared_address_space_rejected(self, cgnat_ip):
+        """RFC 6598 CGNAT (100.64.0.0/10) must be rejected (issue #2026).
+
+        ``ipaddress`` classifies this block as neither private nor reserved nor
+        global on current CPython (verified on 3.11 and 3.12), so the property
+        denylist alone would let a host resolving here through. The explicit
+        ``_CGNAT_NETWORK`` membership check closes the gap version-independently.
+        """
+        with patch(
+            "socket.getaddrinfo",
+            side_effect=_fake_getaddrinfo_private(cgnat_ip),
+        ):
+            with pytest.raises(SSRFValidationError, match="non-public"):
+                _assert_public_ip(ALLOWED_HOST)
+
+    @pytest.mark.parametrize(
+        "public_ip",
+        [
+            "100.63.255.255",  # one below the CGNAT block (public 100.0.0.0/8)
+            "100.128.0.0",  # one above the CGNAT block
+        ],
+    )
+    def test_cgnat_boundary_addresses_outside_block_pass(self, public_ip):
+        """Addresses adjacent to but outside 100.64.0.0/10 are public and pass.
+
+        Guards against the explicit CGNAT check being widened into an
+        off-by-one over-block of legitimate 100.0.0.0/8 public space.
+        """
+        with patch(
+            "socket.getaddrinfo",
+            side_effect=_fake_getaddrinfo_private(public_ip),
+        ):
+            _assert_public_ip(ALLOWED_HOST)  # must not raise
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # safe_fetch_bytes — redirect re-validation
@@ -218,6 +260,86 @@ class TestSafeFetchBytesRedirect:
             with patch("httpx.Client.stream", _stream_dispatch):
                 with pytest.raises(SSRFValidationError, match="allowlist"):
                     safe_fetch_bytes(ALLOWED_URL)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# safe_fetch_bytes — redirect-count cap (MAX_REDIRECTS exhaustion)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestSafeFetchBytesRedirectCap:
+    def test_redirect_chain_exhaustion_raises(self):
+        """More than ``MAX_REDIRECTS`` consecutive redirects must raise, not loop.
+
+        Every hop redirects to another *allowlisted* path so that ONLY the
+        redirect-count cap (not an allowlist or IP failure) can terminate the
+        loop — proving the ``range(MAX_REDIRECTS + 1)`` bound is what stops it.
+        """
+
+        def _always_redirect(self_client, method, url, **kwargs):
+            return _mock_stream(302, b"", {"location": f"https://{ALLOWED_HOST}/next"})
+
+        with patch("socket.getaddrinfo", side_effect=_fake_getaddrinfo_public):
+            with patch("httpx.Client.stream", _always_redirect):
+                with pytest.raises(SSRFValidationError, match="redirects"):
+                    safe_fetch_bytes(ALLOWED_URL)
+
+    def test_max_redirects_followed_then_success(self):
+        """A chain of exactly ``MAX_REDIRECTS`` hops then a 200 must succeed."""
+        from opencontractserver.constants.safe_http import MAX_REDIRECTS
+
+        call_count = 0
+
+        def _stream_dispatch(self_client, method, url, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count <= MAX_REDIRECTS:
+                return _mock_stream(302, b"", {"location": f"https://{ALLOWED_HOST}/h"})
+            return _mock_stream(200, b"final")
+
+        with patch("socket.getaddrinfo", side_effect=_fake_getaddrinfo_public):
+            with patch("httpx.Client.stream", _stream_dispatch):
+                body, host = safe_fetch_bytes(ALLOWED_URL)
+        assert body == b"final"
+        assert host == ALLOWED_HOST
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# safe_fetch_bytes — default User-Agent (caller header overrides)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestSafeFetchBytesUserAgent:
+    @staticmethod
+    def _capture_headers(captured: dict):
+        def _stream_dispatch(self_client, method, url, **kwargs):
+            captured["headers"] = kwargs.get("headers")
+            return _mock_stream(200, b"ok")
+
+        return _stream_dispatch
+
+    def test_default_user_agent_applied_when_none_supplied(self):
+        captured: dict = {}
+        with patch("socket.getaddrinfo", side_effect=_fake_getaddrinfo_public):
+            with patch("httpx.Client.stream", self._capture_headers(captured)):
+                safe_fetch_bytes(ALLOWED_URL)
+        assert "OpenContracts" in captured["headers"]["User-Agent"]
+
+    def test_caller_user_agent_overrides_default(self):
+        captured: dict = {}
+        with patch("socket.getaddrinfo", side_effect=_fake_getaddrinfo_public):
+            with patch("httpx.Client.stream", self._capture_headers(captured)):
+                safe_fetch_bytes(ALLOWED_URL, headers={"User-Agent": "custom-agent/9"})
+        assert captured["headers"]["User-Agent"] == "custom-agent/9"
+
+    def test_caller_headers_preserved_alongside_default_ua(self):
+        """A caller header that is not User-Agent coexists with the default UA."""
+        captured: dict = {}
+        with patch("socket.getaddrinfo", side_effect=_fake_getaddrinfo_public):
+            with patch("httpx.Client.stream", self._capture_headers(captured)):
+                safe_fetch_bytes(ALLOWED_URL, headers={"Accept": "application/json"})
+        assert captured["headers"]["Accept"] == "application/json"
+        assert "OpenContracts" in captured["headers"]["User-Agent"]
 
 
 # ─────────────────────────────────────────────────────────────────────────────

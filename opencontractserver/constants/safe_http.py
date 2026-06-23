@@ -18,10 +18,31 @@ PUBLIC_DOMAIN_SOURCE_HOSTS: frozenset[str] = frozenset(
     }
 )
 
-ALLOWED_SCHEMES: frozenset[str] = frozenset({"https"})  # gov sources are all TLS
+# HTTPS only. ``http://`` is intentionally excluded even for local/test
+# convenience: a downgraded hop is an SSRF/MITM foothold and every allowlisted
+# .gov source serves TLS. Do NOT add "http" here to make a test pass — mock the
+# transport instead (see test_safe_http.py::TestValidateUrlScheme).
+ALLOWED_SCHEMES: frozenset[str] = frozenset({"https"})
 MAX_REDIRECTS: int = 5
 CONNECT_TIMEOUT_SECONDS: float = 5.0
 READ_TIMEOUT_SECONDS: float = 60.0  # OLRC title ZIPs are large
+
+# RFC 6598 Carrier-Grade NAT / shared address space. ``ipaddress`` does NOT
+# classify this block as private/reserved/global on any current CPython
+# (verified False for is_private AND is_reserved on 3.11 and 3.12), so the
+# property-based denylist in ``_assert_public_ip`` would let a host resolving
+# here slip through. It is rejected explicitly and version-independently.
+CGNAT_SHARED_ADDRESS_SPACE_CIDR: str = "100.64.0.0/10"
+
+# Identifies OpenContracts to public-domain .gov servers when a caller does not
+# supply its own User-Agent (the FR/CFR providers pass a more specific one that
+# overrides this). Sending a real UA — rather than the bare ``httpx`` default —
+# is polite and reduces the chance of being rate-limited or outright blocked.
+DEFAULT_USER_AGENT: str = (
+    "OpenContracts/1.0 "
+    "(+https://github.com/Open-Source-Legal/OpenContracts; "
+    "contact: opensource@opencontracts.dev)"
+)
 
 # Conservative DEFAULT body cap. Most authority fetches (FR JSON, eCFR/FR raw
 # text bodies) are well under this; a constrained worker should never buffer
@@ -33,3 +54,9 @@ MAX_RESPONSE_BYTES: int = 50 * 1024 * 1024  # 50 MB default cap
 # (Title 26, Tax) ships well under 100 MB, so 200 MB is generous headroom while
 # still bounding a runaway download far below the old 500 MB blanket default.
 OLRC_TITLE_ZIP_MAX_BYTES: int = 200 * 1024 * 1024  # 200 MB
+
+# UTF-8 worst-case encodes one Unicode scalar in up to 4 bytes. Callers that cap
+# *characters* (e.g. the agentic locator's ``max_fetch_chars``) multiply by this
+# to derive the *byte* cap passed to ``safe_fetch_*`` — so streaming aborts at
+# the byte ceiling instead of buffering a huge body before truncating to chars.
+UTF8_MAX_BYTES_PER_CHAR: int = 4

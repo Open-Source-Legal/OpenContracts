@@ -29,6 +29,7 @@ from typing import ClassVar
 from asgiref.sync import async_to_sync, sync_to_async
 from pydantic import BaseModel, Field
 
+from opencontractserver.constants.safe_http import UTF8_MAX_BYTES_PER_CHAR
 from opencontractserver.enrichment.authorities import AuthoritySection
 from opencontractserver.pipeline.base.base_authority_source_provider import (
     AuthorityRequest,
@@ -228,7 +229,17 @@ class AgenticWebLocatorProvider(BaseAuthoritySourceProvider):
     # --- agent tools (must be async; PydanticAIToolWrapper enforces this) -----
 
     async def _tool_web_search(self, query: str) -> str:
-        """Search the public web. Returns formatted result text."""
+        """Search the public web. Returns formatted result text.
+
+        Trust boundary: ``query`` is LLM-generated and forwarded to
+        ``aweb_search`` unsanitized — deliberately. ``_sanitize_for_prompt``
+        guards the LLM *input* (the citation we embed in instructions); this is
+        an *output* path, and ``aweb_search`` only returns text (it does not
+        fetch attacker-chosen URLs), so there is no SSRF here. The residual risk
+        is that a prompt-injected agent could use the query as an exfiltration
+        channel to the search provider — bounded by ``max_agent_requests`` and
+        accepted for this opt-in, approval-gated provider.
+        """
         from opencontractserver.llms.tools.web_search_tools import aweb_search
 
         return await aweb_search(query=query, num_results=5)
@@ -249,11 +260,12 @@ class AgenticWebLocatorProvider(BaseAuthoritySourceProvider):
         )
 
         try:
-            # Cap the download at the character budget (UTF-8 worst case is 4
-            # bytes/char) so safe_fetch_text aborts streaming at the cap instead
-            # of buffering an entire multi-hundred-MB body before truncating.
+            # Cap the download at the character budget (UTF8_MAX_BYTES_PER_CHAR
+            # is the UTF-8 worst case) so safe_fetch_text aborts streaming at the
+            # byte cap instead of buffering a multi-hundred-MB body before
+            # truncating to chars.
             text, _ = await sync_to_async(safe_fetch_text)(
-                url, max_bytes=self.max_fetch_chars * 4
+                url, max_bytes=self.max_fetch_chars * UTF8_MAX_BYTES_PER_CHAR
             )
             return text[: self.max_fetch_chars]
         except SSRFValidationError as exc:

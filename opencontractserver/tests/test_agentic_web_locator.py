@@ -266,6 +266,13 @@ class ToolFetchAllowlistedTests(TestCase):
         provider = AgenticWebLocatorProvider()
 
         async def _direct():
+            # Patch the SOURCE module, not the provider module:
+            # ``_tool_fetch_allowlisted`` does a lazy in-function
+            # ``from opencontractserver.utils.safe_http import safe_fetch_text``,
+            # which re-reads the name from the source module at call time — so
+            # patching it there is what the running function actually sees. If
+            # that import is ever hoisted to module level, switch the target to
+            # ``...agentic_web_locator_provider.safe_fetch_text``.
             with patch(
                 "opencontractserver.utils.safe_http.safe_fetch_text",
                 side_effect=SSRFValidationError("blocked"),
@@ -300,6 +307,47 @@ class ToolFetchAllowlistedTests(TestCase):
         result = asyncio.run(_inner())
         self.assertIsInstance(result, str)
         self.assertIn("blocked", result)
+
+
+class ToolWebSearchTests(TestCase):
+    """_tool_web_search delegates to aweb_search and propagates its result/errors."""
+
+    def test_delegates_to_aweb_search_and_forwards_query(self):
+        provider = AgenticWebLocatorProvider()
+
+        async def _run():
+            # Patch at the SOURCE module: _tool_web_search lazily imports
+            # aweb_search from web_search_tools at call time, so the running
+            # function reads the patched name there (same rationale as the
+            # safe_fetch_text patch in ToolFetchAllowlistedTests).
+            with patch(
+                "opencontractserver.llms.tools.web_search_tools.aweb_search",
+                new=AsyncMock(return_value="formatted results"),
+            ) as mock_search:
+                result = await provider._tool_web_search("15 USC 78j official source")
+                return result, mock_search
+
+        result, mock_search = asyncio.run(_run())
+        self.assertEqual(result, "formatted results")
+        mock_search.assert_awaited_once()
+        # The query is forwarded verbatim (sanitization guards the LLM input,
+        # not this search-tool output path — see _tool_web_search docstring).
+        _, kwargs = mock_search.call_args
+        self.assertEqual(kwargs.get("query"), "15 USC 78j official source")
+
+    def test_search_error_propagates(self):
+        """A search-backend error propagates so the agent run surfaces it."""
+        provider = AgenticWebLocatorProvider()
+
+        async def _run():
+            with patch(
+                "opencontractserver.llms.tools.web_search_tools.aweb_search",
+                new=AsyncMock(side_effect=RuntimeError("search backend down")),
+            ):
+                return await provider._tool_web_search("q")
+
+        with self.assertRaises(RuntimeError):
+            asyncio.run(_run())
 
 
 # ---------------------------------------------------------------------------

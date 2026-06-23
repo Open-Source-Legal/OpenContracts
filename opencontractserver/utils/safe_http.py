@@ -6,7 +6,8 @@ or ``safe_fetch_text``.  They enforce:
 - Scheme allowlist (HTTPS only).
 - Host allowlist (government public-domain hosts only).
 - DNS-resolved IP must be public — no private/loopback/link-local/multicast/
-  reserved/unspecified addresses (closes multi-A-record / DNS-rebinding windows).
+  reserved/unspecified/CGNAT addresses (closes multi-A-record / DNS-rebinding
+  windows).
 - Manual redirect loop that re-validates EVERY hop independently.
 - Streamed size cap (both Content-Length header and actual bytes).
 - Connect + read timeouts.
@@ -22,7 +23,7 @@ practice it is not exploitable here because the allowlist is a fixed set of
 public-domain ``.gov`` hosts whose DNS the attacker cannot control, and
 ``_assert_public_ip`` rejects if ANY resolved address is non-public.
 Full DNS-pinning (resolve once, connect to the pinned IP with the hostname as
-SNI) is a documented follow-up improvement for defence-in-depth.
+SNI) is the defence-in-depth follow-up tracked in issue #2048.
 """
 
 from __future__ import annotations
@@ -35,12 +36,21 @@ import httpx
 
 from opencontractserver.constants.safe_http import (
     ALLOWED_SCHEMES,
+    CGNAT_SHARED_ADDRESS_SPACE_CIDR,
     CONNECT_TIMEOUT_SECONDS,
+    DEFAULT_USER_AGENT,
     MAX_REDIRECTS,
     MAX_RESPONSE_BYTES,
     PUBLIC_DOMAIN_SOURCE_HOSTS,
     READ_TIMEOUT_SECONDS,
 )
+
+# Built once at import. ``ip in _CGNAT_NETWORK`` is a cheap containment check and
+# is version-independent (see CGNAT_SHARED_ADDRESS_SPACE_CIDR for why the
+# ipaddress property denylist alone is insufficient). An IPv6 address tested
+# against this IPv4 network returns False (no error), so the single membership
+# test is safe for both address families.
+_CGNAT_NETWORK = ipaddress.ip_network(CGNAT_SHARED_ADDRESS_SPACE_CIDR)
 
 
 class SSRFValidationError(ValueError):
@@ -74,6 +84,12 @@ def _assert_public_ip(host: str) -> None:
 
     Rejecting when *any* address is unsafe (not just the first) closes the
     multi-A-record / partial-rebind window.
+
+    The ``ipaddress`` property denylist (private/loopback/link-local/multicast/
+    reserved/unspecified) does NOT cover RFC 6598 CGNAT shared address space
+    (``100.64.0.0/10``): on current CPython that block is neither ``is_private``
+    nor ``is_reserved`` nor ``is_global``, so it would slip through. It is
+    rejected explicitly via ``_CGNAT_NETWORK``.
     """
     try:
         infos = socket.getaddrinfo(host, None)
@@ -88,6 +104,7 @@ def _assert_public_ip(host: str) -> None:
             or ip.is_multicast
             or ip.is_reserved
             or ip.is_unspecified
+            or ip in _CGNAT_NETWORK
         ):
             raise SSRFValidationError(f"{host!r} resolves to non-public address {ip}")
 
@@ -136,16 +153,29 @@ def safe_fetch_bytes(
         write=READ_TIMEOUT_SECONDS,
         pool=READ_TIMEOUT_SECONDS,
     )
+    # Default User-Agent so fetches identify OpenContracts to .gov servers
+    # rather than going out as an anonymous httpx client; a caller-supplied
+    # User-Agent (e.g. the FR/CFR providers) overrides it.
+    request_headers = {"User-Agent": DEFAULT_USER_AGENT}
+    if headers:
+        request_headers.update(headers)
     current = url
     with httpx.Client(follow_redirects=False, timeout=timeout) as client:
         for _ in range(MAX_REDIRECTS + 1):
             final_host = validate_url(current, allowlist=allowlist)
-            with client.stream("GET", current, params=params, headers=headers) as r:
+            with client.stream(
+                "GET", current, params=params, headers=request_headers
+            ) as r:
                 if r.is_redirect:
                     loc = r.headers.get("location", "")
                     # Resolve relative Location against the current URL.
                     current = str(httpx.URL(current).join(loc))
                     params = None  # only the first hop carries query params
+                    # Exiting this ``with`` on ``continue`` closes the response
+                    # and releases the connection. We deliberately do NOT call
+                    # ``r.read()`` first: the redirect body is unused, and
+                    # reading an attacker-influenced redirect body would be an
+                    # unbounded read that bypasses the per-hop size cap below.
                     continue
                 r.raise_for_status()
                 cl = r.headers.get("content-length")
