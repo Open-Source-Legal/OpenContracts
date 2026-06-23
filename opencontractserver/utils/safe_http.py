@@ -55,6 +55,18 @@ from opencontractserver.constants.safe_http import (
 # 3.11+ and raises TypeError on 3.10.
 _CGNAT_NETWORK = ipaddress.ip_network(CGNAT_SHARED_ADDRESS_SPACE_CIDR)
 
+# Built once at import (like _CGNAT_NETWORK) — a pure-constant object derived
+# from the module-level timeout constants. httpx requires either a single
+# default or all four phases set explicitly; spell them out so
+# READ_TIMEOUT_SECONDS clearly applies to read/write/pool and
+# CONNECT_TIMEOUT_SECONDS only to connect.
+_DEFAULT_TIMEOUT = httpx.Timeout(
+    connect=CONNECT_TIMEOUT_SECONDS,
+    read=READ_TIMEOUT_SECONDS,
+    write=READ_TIMEOUT_SECONDS,
+    pool=READ_TIMEOUT_SECONDS,
+)
+
 
 class SSRFValidationError(ValueError):
     """Raised when a URL/host/IP/redirect fails an SSRF safety check.
@@ -160,17 +172,8 @@ def safe_fetch_bytes(
     - Validates the initial URL (scheme / allowlist / public-IP).
     - Follows up to ``MAX_REDIRECTS`` redirects MANUALLY, re-validating each hop.
     - Streams the body and aborts past *max_bytes* (Content-Length AND actual bytes).
-    - Enforces connect + read timeouts via ``httpx.Timeout``.
+    - Enforces connect + read timeouts via the module-level ``_DEFAULT_TIMEOUT``.
     """
-    # httpx requires either a single default or all four phases set explicitly;
-    # spell them out so READ_TIMEOUT_SECONDS clearly applies to read/write/pool
-    # and CONNECT_TIMEOUT_SECONDS only to connect.
-    timeout = httpx.Timeout(
-        connect=CONNECT_TIMEOUT_SECONDS,
-        read=READ_TIMEOUT_SECONDS,
-        write=READ_TIMEOUT_SECONDS,
-        pool=READ_TIMEOUT_SECONDS,
-    )
     # Default User-Agent so fetches identify OpenContracts to .gov servers
     # rather than going out as an anonymous httpx client; a caller-supplied
     # User-Agent (e.g. the FR/CFR providers) overrides it. httpx.Headers is
@@ -180,7 +183,7 @@ def safe_fetch_bytes(
     if headers:
         request_headers.update(headers)
     current = url
-    with httpx.Client(follow_redirects=False, timeout=timeout) as client:
+    with httpx.Client(follow_redirects=False, timeout=_DEFAULT_TIMEOUT) as client:
         for _ in range(MAX_REDIRECTS + 1):
             final_host = validate_url(current, allowlist=allowlist)
             with client.stream(

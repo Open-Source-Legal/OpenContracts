@@ -13,6 +13,10 @@
     consistently to `.gov` hosts. The default/caller merge uses `httpx.Headers`
     (case-insensitive), so a caller passing `user-agent` in any casing overrides
     the default rather than emitting two conflicting `User-Agent` lines.
+    `AUTHORITY_PROVIDER_USER_AGENT` also gains a `+` before its info URL
+    (`(+https://github.com/...)`, the conventional "informational URL" marker)
+    to match `DEFAULT_USER_AGENT` — a cosmetic change to the UA bytes the
+    FR/CFR/US Code providers send to `.gov` hosts, with no behavioural impact.
   - Replaced the bare `* 4` UTF-8 worst-case byte factor in
     `opencontractserver/pipeline/authority_source_providers/agentic_web_locator_provider.py`
     with the named `UTF8_MAX_BYTES_PER_CHAR` constant

@@ -8,6 +8,7 @@ Run with:
 
 from __future__ import annotations
 
+import socket
 from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 from urllib.parse import urlparse
@@ -33,27 +34,31 @@ ALLOWED_URL = f"https://{ALLOWED_HOST}/path"
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _fake_getaddrinfo_public(host, port, *args, **kwargs):
-    """Simulate a public IP (1.1.1.1) for any host."""
-    return [(2, 1, 6, "", ("1.1.1.1", 0))]
-
-
 def _fake_getaddrinfo(ip_str):
     """Return a getaddrinfo patcher that resolves any host to *ip_str*.
 
     Accepts ANY address string (public, private, CGNAT, IPv4-mapped, or native
     IPv6) — each test decides whether that address should be accepted or
     rejected, so this helper is intentionally neutral about the IP's class.
+
+    The family + sockaddr shape mirror real ``socket.getaddrinfo`` (AF_INET6 +
+    4-tuple for IPv6, AF_INET + 2-tuple for IPv4), so a future check on the
+    address family (``info[0]``) would still see faithful data.
     """
+    is_ipv6 = ":" in ip_str
+    family = socket.AF_INET6 if is_ipv6 else socket.AF_INET
+    sockaddr = (ip_str, 0, 0, 0) if is_ipv6 else (ip_str, 0)
 
     def _inner(host, port, *args, **kwargs):
-        return [(2, 1, 6, "", (ip_str, 0))]
+        return [(family, 1, 6, "", sockaddr)]
 
     return _inner
 
 
-def _fake_getaddrinfo_ipv6_loopback(host, port, *args, **kwargs):
-    return [(10, 1, 6, "", ("::1", 0, 0, 0))]
+# Defined as aliases so the family/sockaddr shape lives in exactly one place
+# (see _fake_getaddrinfo) rather than being duplicated per fixed address.
+_fake_getaddrinfo_public = _fake_getaddrinfo("1.1.1.1")
+_fake_getaddrinfo_ipv6_loopback = _fake_getaddrinfo("::1")
 
 
 @contextmanager
@@ -183,11 +188,9 @@ class TestAssertPublicIp:
             _assert_public_ip(ALLOWED_HOST)  # must not raise
 
     def test_dns_failure_raises_ssrf_error(self):
-        import socket as _socket
-
         with patch(
             "socket.getaddrinfo",
-            side_effect=_socket.gaierror("NXDOMAIN"),
+            side_effect=socket.gaierror("NXDOMAIN"),
         ):
             with pytest.raises(SSRFValidationError, match="DNS resolution failed"):
                 _assert_public_ip("nonexistent.host.invalid")
