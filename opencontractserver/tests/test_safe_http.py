@@ -215,6 +215,32 @@ class TestAssertPublicIp:
         ):
             _assert_public_ip(ALLOWED_HOST)  # must not raise
 
+    @pytest.mark.parametrize(
+        "mapped_ip",
+        [
+            "::ffff:100.64.0.1",  # IPv4-mapped CGNAT — slips past on 3.11 unmapped
+            "::ffff:10.0.0.1",  # IPv4-mapped RFC-1918
+            "::ffff:127.0.0.1",  # IPv4-mapped loopback
+            "::ffff:169.254.169.254",  # IPv4-mapped cloud metadata
+        ],
+    )
+    def test_ipv4_mapped_ipv6_rejected(self, mapped_ip):
+        """IPv4-mapped IPv6 is unwrapped and checked as its embedded IPv4 (issue #2026).
+
+        On CPython 3.11 the IPv6 ``is_private`` / ``_CGNAT_NETWORK`` checks do
+        NOT reflect the mapped IPv4 for the CGNAT-mapped form, so a resolver
+        returning ``::ffff:100.64.0.1`` (or a mapped private/loopback/metadata
+        address) would otherwise slip past every check. ``_assert_public_ip``
+        unwraps ``ipv4_mapped`` first, so all of these are rejected
+        version-independently.
+        """
+        with patch(
+            "socket.getaddrinfo",
+            side_effect=_fake_getaddrinfo_private(mapped_ip),
+        ):
+            with pytest.raises(SSRFValidationError, match="non-public"):
+                _assert_public_ip(ALLOWED_HOST)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # safe_fetch_bytes — redirect re-validation
@@ -339,6 +365,32 @@ class TestSafeFetchBytesUserAgent:
                 safe_fetch_bytes(ALLOWED_URL, headers={"Accept": "application/json"})
         assert captured["headers"]["Accept"] == "application/json"
         assert "OpenContracts" in captured["headers"]["User-Agent"]
+
+    def test_user_agent_forwarded_on_every_redirect_hop(self):
+        """The UA is sent on the post-redirect hop too, not just the first.
+
+        ``request_headers`` is built once before the redirect loop and reused on
+        every hop. This captures the headers on each hop and asserts the UA is
+        present on the second (post-redirect) request — so a future refactor that
+        moved header construction into the loop, or reverted to ``headers=headers``
+        after a redirect, would be caught.
+        """
+        seen_user_agents: list = []
+
+        def _stream_dispatch(self_client, method, url, **kwargs):
+            seen_user_agents.append((kwargs.get("headers") or {}).get("User-Agent"))
+            if len(seen_user_agents) == 1:  # first hop → redirect to an allowed path
+                return _mock_stream(302, b"", {"location": f"https://{ALLOWED_HOST}/n"})
+            return _mock_stream(200, b"ok")  # second hop → final response
+
+        with patch("socket.getaddrinfo", side_effect=_fake_getaddrinfo_public):
+            with patch("httpx.Client.stream", _stream_dispatch):
+                safe_fetch_bytes(ALLOWED_URL)
+
+        assert len(seen_user_agents) == 2, "expected one redirect hop + the final hop"
+        assert all(
+            "OpenContracts" in (ua or "") for ua in seen_user_agents
+        ), f"User-Agent missing on a hop: {seen_user_agents}"
 
 
 # ─────────────────────────────────────────────────────────────────────────────

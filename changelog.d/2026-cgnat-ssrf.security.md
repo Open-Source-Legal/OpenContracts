@@ -16,3 +16,11 @@
   `opencontractserver/tests/test_safe_http.py` rejects the CGNAT block and
   proves the adjacent public addresses (`100.63.255.255`, `100.128.0.0`) still
   pass.
+- **Closed an IPv4-mapped IPv6 bypass of the same guard.** `_assert_public_ip`
+  now unwraps an IPv4-mapped IPv6 address (`::ffff:a.b.c.d`) to its embedded
+  IPv4 before the property/CGNAT checks. On CPython 3.11 the IPv6
+  `is_private` / `_CGNAT_NETWORK` checks do not reflect the mapped IPv4 for the
+  CGNAT-mapped form, so a resolver returning `::ffff:100.64.0.1` would have
+  slipped past every check; unwrapping makes the guard version-independent for
+  the mapped forms of private/loopback/link-local/CGNAT addresses. Covered by a
+  parametrized regression in `test_safe_http.py`.

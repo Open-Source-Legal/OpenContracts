@@ -45,11 +45,12 @@ from opencontractserver.constants.safe_http import (
     READ_TIMEOUT_SECONDS,
 )
 
-# Built once at import. ``ip in _CGNAT_NETWORK`` is a cheap containment check and
-# is version-independent (see CGNAT_SHARED_ADDRESS_SPACE_CIDR for why the
-# ipaddress property denylist alone is insufficient). An IPv6 address tested
-# against this IPv4 network returns False (no error), so the single membership
-# test is safe for both address families.
+# Built once at import. ``ip in _CGNAT_NETWORK`` is a cheap containment check
+# (see CGNAT_SHARED_ADDRESS_SPACE_CIDR for why the ipaddress property denylist
+# alone is insufficient). It is an IPv4 network: ``_assert_public_ip`` unwraps an
+# IPv4-mapped IPv6 address to its embedded IPv4 BEFORE this check, so the
+# membership test only ever sees an IPv4 address (a native IPv6 address returns
+# False here and is instead covered by the is_* properties).
 _CGNAT_NETWORK = ipaddress.ip_network(CGNAT_SHARED_ADDRESS_SPACE_CIDR)
 
 
@@ -86,6 +87,11 @@ def _assert_public_ip(host: str) -> None:
     multi-A-record / partial-rebind window. RFC 6598 CGNAT space, which the
     ``ipaddress`` property denylist below does not cover, is rejected explicitly
     via ``_CGNAT_NETWORK`` (see ``CGNAT_SHARED_ADDRESS_SPACE_CIDR`` for why).
+    IPv4-mapped IPv6 addresses (``::ffff:a.b.c.d``) are unwrapped to their
+    embedded IPv4 first: the OS connects to that IPv4, but its is_private /
+    _CGNAT_NETWORK membership do not reflect the mapping on every CPython
+    version (the CGNAT-mapped form slips through on 3.11), so the mapped form of
+    a private/CGNAT address must not bypass the checks.
     """
     try:
         infos = socket.getaddrinfo(host, None)
@@ -93,6 +99,10 @@ def _assert_public_ip(host: str) -> None:
         raise SSRFValidationError(f"DNS resolution failed for {host!r}") from exc
     for info in infos:
         ip = ipaddress.ip_address(info[4][0])
+        # Unwrap IPv4-mapped IPv6 so the checks below run against the real IPv4
+        # destination (see docstring). Native IPv6 is left as-is.
+        if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+            ip = ip.ipv4_mapped
         if (
             ip.is_private
             or ip.is_loopback
