@@ -1,0 +1,44 @@
+# Bolivia authority pack — namespace registry + classification.
+#
+# Same schema as opencontractserver/enrichment/data/authority_mappings.yaml.
+# Loaded (idempotently) via the load_authority_pack management command, which
+# calls AuthorityMappingLoader.load_all(path=<this file>). `jurisdiction` is a
+# free-text CharField ("bo"); every `authority_type` MUST be one of the nine
+# ALL_AUTHORITY_TYPES (opencontractserver/enrichment/constants.py). Aliases are
+# free-form lowercased surface strings (Spanish fully supported) and drive
+# Tier-1 citation extraction.
+#
+# Phase 1 (this pack) declares the namespace taxonomy so Bolivian citations are
+# recognised, and seeds curated public-domain content per area via specs/.
+# Deterministic key->URL fetch providers are deferred to Phase 2 (issue #2054):
+# the Bolivian official sources (Gaceta Oficial / TSJ / TCP) are listing-page
+# publishers, not key-addressable, so equivalences/rewrite_rules (which bridge
+# popular-name citations to a codification a provider materialises) are
+# intentionally omitted here until that discovery provider lands.
+prefixes:
+  cpe:
+    display_name: "Constitución Política del Estado (2009)"
+    jurisdiction: "bo"
+    authority_type: "constitution"
+    aliases: ["constitución política del estado", "cpe", "constitución"]
+  bo-ley:
+    display_name: "Leyes del Estado Plurinacional de Bolivia"
+    jurisdiction: "bo"
+    authority_type: "statute"
+    aliases: ["ley", "leyes"]
+  bo-ds:
+    display_name: "Decretos Supremos"
+    jurisdiction: "bo"
+    authority_type: "regulation"
+    aliases: ["decreto supremo", "ds", "decretos supremos"]
+  bo-scp:
+    display_name: "Sentencias Constitucionales Plurinacionales (TCP)"
+    jurisdiction: "bo"
+    authority_type: "case"
+    aliases:
+      ["sentencia constitucional plurinacional", "scp", "sentencia constitucional"]
+  bo-as:
+    display_name: "Autos Supremos (Tribunal Supremo de Justicia)"
+    jurisdiction: "bo"
+    authority_type: "case"
+    aliases: ["auto supremo", "autos supremos"]

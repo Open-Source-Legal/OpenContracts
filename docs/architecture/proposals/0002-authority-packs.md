@@ -24,6 +24,19 @@ auto-discovery + frontier/enrichment runtime), so the "extract the missing
 primitives" intent of #1444 is re-expressed here against what actually shipped,
 rather than against a `scraping/` app that was never built.
 
+> **Implementation status (Phase 1, shipped in this PR).** The seed-based
+> reference Bolivia pack and the generic `load_authority_pack` loader are
+> implemented — see
+> `opencontractserver/enrichment/data/authority_packs/bolivia/` and
+> `opencontractserver/corpuses/management/commands/load_authority_pack.py`
+> (tests: `opencontractserver/tests/test_authority_pack.py`). The live-fetch
+> **provider folds into Phase 2**: reading PR #1305's actual scrapers confirmed
+> the Bolivian sources (Gaceta Oficial / TSJ / TCP) are **listing-page** sites,
+> **not key-addressable**, so a deterministic `canonical_key → URL` provider
+> cannot be built today — that is the bulk-discovery work of issue #2054. Phase 1
+> therefore ships taxonomy + curated content + personas (no live fetch, so no
+> host-allowlist edit is needed yet).
+
 ## 1. Context — three artifacts, one intent
 
 | Artifact | What it is | Status |
@@ -81,16 +94,24 @@ one declaration per seam; the runtime does the rest with **zero changes**.
 | Corpus + content seed (per legal area) | `bootstrap_authority_corpus()` via `bootstrap_authority --file` | JSON fixture | ✅ |
 | Agent persona (per corpus) | `corpus_agent_instructions` / `AgentConfiguration` | DB row / fixture | optional |
 | Provider credentials | `PipelineSettings.encrypted_secrets` vault | DB row | optional |
-| **Source-host allowlist entry** | `PUBLIC_DOMAIN_SOURCE_HOSTS` in `opencontractserver/constants/safe_http.py` | **source edit** | ✅ ⚠️ |
+| **Source-host allowlist entry** | `PUBLIC_DOMAIN_SOURCE_HOSTS` in `opencontractserver/constants/safe_http.py` | **source edit** | Phase 2 ⚠️ |
 
-**The one binding a pack cannot self-declare.** Every fetch is SSRF-gated to a
-hardcoded registrable-suffix allowlist (`PUBLIC_DOMAIN_SOURCE_HOSTS`). An
-un-listed host raises `SSRFValidationError`, and `AuthorityGateService` parks the
-result at `GATE_BLOCKED_DOMAIN`. So a pack for a new jurisdiction needs a one-line
-same-PR edit to `safe_http.py` adding its government host(s). This is the single
-honest seam the pack format does not own as data; §7 proposes a path to close it.
+**The one binding a pack cannot self-declare** (only relevant once a pack ships a
+live-fetch provider — Phase 2). Every fetch is SSRF-gated to a hardcoded
+registrable-suffix allowlist (`PUBLIC_DOMAIN_SOURCE_HOSTS`). An un-listed host
+raises `SSRFValidationError`, and `AuthorityGateService` parks the result at
+`GATE_BLOCKED_DOMAIN`. So a *fetching* pack needs a one-line same-PR edit to
+`safe_http.py` adding its government host(s). A seed-based pack (Phase 1) does no
+live fetch and needs no such edit; §7 proposes making this declarative (issue
+#2057) so even fetching packs stay pure data.
 
 ## 4. Drop-in lifecycle
+
+For a **seed-based pack (Phase 1, implemented)** the whole lifecycle is one
+idempotent command — `manage.py load_authority_pack --path <dir> --creator USER
+[--public]` — which loads the taxonomy YAML, bootstraps each area corpus from its
+section spec, and applies each persona. The fuller, provider-driven lifecycle
+below adds live fetch and is the **Phase 2** target.
 
 1. **Drop in** — place the provider module(s) in
    `opencontractserver/pipeline/authority_source_providers/` and the pack's YAML +
@@ -161,11 +182,11 @@ co-author.
 
 | # | Gap | Severity | Needed for Bolivia? | Phase |
 |---|---|---|---|---|
-| 1 | Host allowlist is a hardcoded frozenset — a pack cannot open a new fetch host as data | **Blocker** (trivial fix) | Yes | Phase 1 (one-line edit) |
+| 1 | Host allowlist is a hardcoded frozenset — a pack cannot open a new fetch host as data | **Blocker** (trivial fix) | Only with a live provider | Phase 2 (one-line edit) / #2057 makes it declarative |
 | 2 | No scheduled/recurring scraping (`CELERY_BEAT_SCHEDULE` has no crawl entries) | Major | If continuous ingestion is in scope | Phase 3 (= #1444 Phase A) |
 | 3 | Provider rail is citation-keyed; no listing-page bulk-discovery shape | Major | If publisher-crawl is in scope | Phase 2 |
 | 4 | No multi-corpus orchestration (`CorpusGroup` / cross-corpus retrieval) | Major | No (per-area corpora work independently) | Phase 4 (= #1444 Phase B) |
-| 5 | Spanish / sala-aware classification has no core primitive | Minor | Yes | Phase 1 (provider code) |
+| 5 | Spanish / sala-aware classification has no core primitive | Minor | Spanish: no (data); sala-aware: with provider | Phase 1 handles Spanish via aliases/persona; sala-aware → Phase 2 provider code |
 | 6 | Provider discovery scans one hardcoded package — no out-of-tree isolation | Minor | No | Future (enables entry-point packs + DB-driven allowlist) |
 | 7 | Loader reads one default path; no multi-YAML merge; two baseline writers can collide on a prefix | Minor | No | Future |
 
@@ -173,10 +194,13 @@ co-author.
 of cited/known authorities — binds cleanly today. Everything beyond that is the
 two primitives #1444 already identified as genuinely missing.
 
-- **Phase 1 — the citation-driven Bolivia pack (now).** Taxonomy YAML +
-  one provider + per-area corpus seeds + personas + the host-allowlist edit.
-  Resolves authorities cited in existing corpus documents. ~1–2 day PR.
-  *Closes gaps 1, 5.*
+- **Phase 1 — the seed-based Bolivia pack (shipped in this PR).** Taxonomy YAML
+  + per-area curated content seeds + personas, loaded by the generic
+  `load_authority_pack` command. Recognises Bolivian citations and seeds
+  public-domain content; no live fetch (so no provider and no host-allowlist
+  edit). The live-fetch provider folds into Phase 2 because the Bolivian sources
+  are listing-page, not key-addressable. *Handles the Spanish half of gap 5 via
+  data.*
 - **Phase 2 — listing-page discovery (optional).** A `DiscoveryProvider`
   abstraction that crawls a publisher index for *unknown* new documents and
   seeds frontier rows. Needed only if the pack must find documents nobody has

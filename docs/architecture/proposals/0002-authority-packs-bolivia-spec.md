@@ -1,12 +1,20 @@
 # 0002 (companion) — The Bolivia authority pack: concrete spec + provider skeleton
 
-Companion to [`0002-authority-packs.md`](./0002-authority-packs.md). This is the
-**Phase 1** (citation-driven) artifact: a buildable specification for repackaging
-PR #1305's Bolivian-law work as an authority pack. Like the parent proposal and
-#1444, it ships **no live code** — the provider below is an illustrative skeleton
-(it is *not* placed in the auto-discovered package and would not register), and
-the URL templates / parse selectors are placeholders to be filled from the live
-publisher endpoints.
+Companion to [`0002-authority-packs.md`](./0002-authority-packs.md).
+
+> **Status.** Phase 1 is **implemented as a seed-based pack** in this PR:
+> `opencontractserver/enrichment/data/authority_packs/bolivia/` (the
+> `authority_mappings.bolivia.yaml` taxonomy, `pack.yaml` manifest,
+> `specs/constitucional.json` content, `personas/constitucional.es.txt`), loaded
+> by `manage.py load_authority_pack`
+> (`opencontractserver/corpuses/management/commands/load_authority_pack.py`).
+> Slots 1, 3, 4 below are shipped. The **source provider (Slot 2)** and the
+> **host-allowlist edit (Slot 5)** are **deferred to Phase 2 (issue #2054)**:
+> reading PR #1305's scrapers confirmed the Bolivian sources are listing-page
+> publishers, **not key-addressable**, so the citation-keyed provider below
+> cannot do real live fetching yet. It is retained as the **Phase-2 reference
+> skeleton** — illustrative only (not placed in the auto-discovered package; its
+> URL templates / parse selectors are placeholders for the live endpoints).
 
 All shapes below are taken verbatim from the current source:
 `authority_mappings.yaml`, `BaseAuthoritySourceProvider`
@@ -21,23 +29,26 @@ A pack is a directory of mostly-data plus one provider module. The provider must
 ultimately live in the core auto-discovered package (gap 6 in the parent); the
 rest is loaded by existing commands.
 
+As shipped (Phase 1), under the package so it loads via the `--path` argument and
+is covered by tests:
+
 ```
-authority-packs/bolivia/
-├── README.md                         # what this pack ingests + the host-allowlist edit it needs
+opencontractserver/enrichment/data/authority_packs/bolivia/
+├── README.md                         # what it ships, how to load, how to extend
+├── pack.yaml                         # manifest → load_authority_pack
 ├── authority_mappings.bolivia.yaml   # → AuthorityMappingLoader.load_all(path=…)
-├── providers/
-│   └── bolivia_gaceta_provider.py    # → copied into pipeline/authority_source_providers/
-├── specs/                            # → bootstrap_authority --file <each>
-│   ├── constitucional.json
-│   ├── penal.json
-│   ├── civil.json
-│   └── … (administrativo, laboral, tributario, familia, comercial, agrario, ambiental, otros)
+├── specs/
+│   └── constitucional.json           # → bootstrap_authority_corpus
 └── personas/
     └── constitucional.es.txt         # → Corpus.corpus_agent_instructions
+# Phase 2 adds: providers/bolivia_gaceta_provider.py (→ auto-discovered package)
 ```
 
-PR #1305's eleven `LegalArea` values become the eleven `specs/*.json` corpora; its
-authorities (CPE, codes, decrees, rulings) become the `prefixes:` in the YAML.
+PR #1305's eleven `LegalArea` values become one seeded corpus per area (the
+`corpora[]` list in `pack.yaml`); its authorities (CPE, codes, decrees, rulings)
+become the `prefixes:` in the YAML. Phase 1 ships the `constitucional` area; the
+remaining ten are added by dropping in `specs/<area>.json` +
+`personas/<area>.es.txt` + a `corpora[]` entry (see the pack README).
 
 ## Slot 1 — Taxonomy (`authority_mappings.bolivia.yaml`)
 
@@ -91,7 +102,7 @@ equivalences:
 `bo-ley:1970` (Ley N° 1970), `bo-ds:29894` (Decreto Supremo 29894),
 `bo-scp:0123-2018`, `bo-as:…`.
 
-## Slot 2 — Source provider skeleton (`providers/bolivia_gaceta_provider.py`)
+## Slot 2 — Source provider skeleton (Phase 2 reference, *not* in this PR)
 
 Modeled on `USCodeAuthoritySourceProvider`. One provider serves the three
 Gaceta-published prefixes (`cpe`, `bo-ley`, `bo-ds`); sibling providers
@@ -249,7 +260,7 @@ jurisprudencia del Tribunal Constitucional Plurinacional. Cita siempre el
 artículo o la sentencia exacta y distingue entre norma vigente y derogada.
 ```
 
-## Slot 5 (required, not pack data) — host-allowlist edit
+## Slot 5 (Phase 2, not pack data) — host-allowlist edit
 
 The one binding a pack cannot self-declare. Add the pack's government hosts to
 `PUBLIC_DOMAIN_SOURCE_HOSTS` in `opencontractserver/constants/safe_http.py` in the
@@ -272,34 +283,26 @@ the specific hosts the providers fetch):
  )
 ```
 
-## Drop-in commands (Phase 1)
+## Drop-in command (Phase 1, shipped)
+
+The whole seed-based pack loads with one idempotent command:
 
 ```bash
-# 1) Provider: copy the skeleton into the auto-discovered package, then restart.
-cp authority-packs/bolivia/providers/bolivia_gaceta_provider.py \
-   opencontractserver/pipeline/authority_source_providers/
-
-# 2) Apply the host-allowlist edit (Slot 5) and restart the django/celery procs.
-
-# 3) Load the taxonomy (idempotent).
-docker compose -f local.yml run --rm django python manage.py shell -c \
-  "from opencontractserver.enrichment.services.authority_mapping_loader import AuthorityMappingLoader; \
-   print(AuthorityMappingLoader.load_all(path='authority-packs/bolivia/authority_mappings.bolivia.yaml'))"
-
-# 4) Verify the provider registered (Authority Console → Scrapers tab, or):
-docker compose -f local.yml run --rm django python manage.py shell -c \
-  "from opencontractserver.pipeline.registry import get_all_authority_source_providers_cached as g; \
-   print([d.name for d in g()])"
-
-# 5) Seed each area corpus + persona.
-docker compose -f local.yml run --rm django python manage.py bootstrap_authority \
-  --creator <username> --title 'Bolivia — Derecho Constitucional' \
-  --file authority-packs/bolivia/specs/constitucional.json --public
-#   … repeat for penal.json, civil.json, … (10 more)
-
-# 6) Trigger discovery for authorities cited in those corpora (frontier-driven),
-#    or directly via the Authority Console / RunAuthorityDiscoveryMutation.
+docker compose -f local.yml run --rm django python manage.py load_authority_pack \
+  --path opencontractserver/enrichment/data/authority_packs/bolivia \
+  --creator <username> --public
 ```
+
+It loads `authority_mappings.bolivia.yaml` into `AuthorityNamespace`, bootstraps
+each `corpora[]` entry's `spec` via `bootstrap_authority_corpus`, and writes each
+`persona` into `Corpus.corpus_agent_instructions`. `--path` accepts any
+directory, so out-of-tree packs load identically.
+
+**Phase 2 (provider) adds, on top:** copy the Slot-2 provider into
+`opencontractserver/pipeline/authority_source_providers/`, apply the Slot-5
+host-allowlist edit, restart, confirm registration in the Authority Console
+**Scrapers** tab, then trigger discovery (frontier-driven, or
+`RunAuthorityDiscoveryMutation`) so cited-but-unseeded authorities are fetched.
 
 ## What Phase 1 deliberately does NOT include
 
