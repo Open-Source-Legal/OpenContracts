@@ -611,14 +611,14 @@ class DocumentLifecycleService(BaseService):
             # Defer the audit log to on_commit so it reports only durably
             # committed trashing (never a false "soft-deleted N" on a rolled-back
             # block) — the rollback-safety contract the signals above rely on.
-            # Capturing the count keeps ``trashed_doc_ids`` consumed in-scope.
             trashed_count = len(trashed_doc_ids)
+            corpus_id, user_id = corpus.id, user.id
             transaction.on_commit(
                 lambda: logger.info(
                     "Bulk soft-deleted %s document(s) in corpus %s by user %s",
                     trashed_count,
-                    corpus.id,
-                    user.id,
+                    corpus_id,
+                    user_id,
                 )
             )
             return trashed_count
