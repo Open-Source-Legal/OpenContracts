@@ -193,3 +193,35 @@ class AuthorityFrontierQueryTests(TestCase):
         self.assertEqual(
             {r["state"]: r["count"] for r in cfr["by_state"]}, {"failed": 1}
         )
+
+    def test_service_admin_state_counts_remaining_facets(self):
+        # The non-state facet branches the GraphQL surface doesn't expose:
+        # authority_type, authority, and free-text search.
+
+        # Facet: authority_type — 3 statutes (usc-15 ingested + 2 dgcl queued).
+        by_type = AuthorityFrontierService.admin_state_counts(
+            self.superuser, authority_type="statute"
+        )
+        self.assertEqual(by_type["total_count"], 3)
+        self.assertEqual(
+            {r["state"]: r["count"] for r in by_type["by_state"]},
+            {"ingested": 1, "queued": 2},
+        )
+
+        # Facet: authority — the two Delaware (dgcl) queued rows.
+        by_authority = AuthorityFrontierService.admin_state_counts(
+            self.superuser, authority="dgcl"
+        )
+        self.assertEqual(by_authority["total_count"], 2)
+        self.assertEqual(
+            {r["state"]: r["count"] for r in by_authority["by_state"]}, {"queued": 2}
+        )
+
+        # Facet: free-text search over canonical_key / authority (icontains).
+        by_search = AuthorityFrontierService.admin_state_counts(
+            self.superuser, search="dgcl"
+        )
+        self.assertEqual(by_search["total_count"], 2)
+        self.assertEqual(
+            {r["state"]: r["count"] for r in by_search["by_state"]}, {"queued": 2}
+        )

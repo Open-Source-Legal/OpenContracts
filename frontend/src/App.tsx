@@ -71,10 +71,8 @@ import {
   SystemSettings,
   WorkerAccountManagement,
   IngestionMonitor,
-  AuthoritySourcesMonitor,
-  AuthorityMappings,
+  AuthorityConsole,
   CorpusCategoryManagement,
-  AdminEnrichment,
 } from "./components/admin";
 import { useEnv } from "./components/hooks/UseEnv";
 import { ExtractDetailRoute } from "./components/routes/ExtractDetailRoute";
@@ -420,15 +418,31 @@ export const App = () => {
             element={<WorkerAccountManagement />}
           />
           <Route path="/admin/ingestion" element={<IngestionMonitor />} />
+          {/*
+            Unified Authority Console — the single front door for managing legal
+            authorities. All five concerns (authorities, aliases & relationships,
+            discovery queue, scrapers, runs) are absorbed as tabs; the three
+            former standalone panels (/admin/authorities, /admin/authority-mappings,
+            /admin/enrichment) have been deleted.
+          */}
+          <Route path="/admin/authority/*" element={<AuthorityConsole />} />
+          {/*
+            Permanent redirects for the three deleted standalone panels so old
+            bookmarks / history / doc links land on the equivalent console tab
+            instead of the 404 catch-all (mirrors the /badges → /profile pattern).
+          */}
           <Route
             path="/admin/authorities"
-            element={<AuthoritySourcesMonitor />}
+            element={<Navigate to="/admin/authority/queue" replace />}
           />
           <Route
             path="/admin/authority-mappings"
-            element={<AuthorityMappings />}
+            element={<Navigate to="/admin/authority/mappings" replace />}
           />
-          <Route path="/admin/enrichment" element={<AdminEnrichment />} />
+          <Route
+            path="/admin/enrichment"
+            element={<Navigate to="/admin/authority/runs" replace />}
+          />
           <Route
             path="/admin/corpus-categories"
             element={<CorpusCategoryManagement />}

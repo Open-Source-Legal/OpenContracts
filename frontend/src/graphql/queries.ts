@@ -851,9 +851,9 @@ export interface GovernanceGraphNode {
   authorityType?: string | null;
   /**
    * Authority-frontier crawl status for ghost nodes — "queued",
-   * "in_progress", "discovered", "ingested", "resolved", "failed",
-   * "unsupported", "blocked_license", "unlocated", "pending_approval",
-   * "deferred_cap" — or null when not tracked (all document nodes).
+   * "in_progress", "ingested", "failed", "unsupported", "blocked_license",
+   * "blocked_domain", "unlocated", "pending_approval", "deferred_cap" — or null
+   * when not tracked (all document nodes).
    */
   discoveryState?: string | null;
   degree: number;
@@ -1029,12 +1029,13 @@ export const GET_WANTED_AUTHORITIES = gql`
   }
 `;
 
-// --- Global authority-sources monitor (superuser-only) ---------------------
+// --- Authority discovery queue (superuser-only) ----------------------------
 // The AuthorityFrontier is the instance-wide discovery queue: one row per
 // wanted section-root canonical key, tracking crawl/ingestion state across all
-// corpora. See /admin/authorities. Args are plain Strings (the backend filter
-// uses Char filters, not the model's choices enum) so the summary chips' raw
-// discovery_state values feed straight back as the filter.
+// corpora. See the Authority Console Discovery Queue tab (/admin/authority/queue).
+// Args are plain Strings (the backend filter uses Char filters, not the model's
+// choices enum) so the summary chips' raw discovery_state values feed straight
+// back as the filter.
 
 export interface AuthorityFrontierRow {
   id: string;
@@ -1042,8 +1043,8 @@ export interface AuthorityFrontierRow {
   authority?: string | null;
   jurisdiction?: string | null;
   authorityType?: string | null;
-  /** queued | in_progress | discovered | ingested | resolved | failed |
-   * unsupported | blocked_license | unlocated | pending_approval | deferred_cap */
+  /** queued | in_progress | ingested | failed | unsupported | blocked_license |
+   * blocked_domain | unlocated | pending_approval | deferred_cap */
   discoveryState: string;
   /** Source-provider registry class name (e.g. "USCodeAuthoritySourceProvider"). */
   provider?: string | null;
@@ -1176,7 +1177,8 @@ export const GET_AUTHORITY_FRONTIER_STATS = gql`
 // maps an act-section style key (e.g. a popular-name act § N) to the canonical
 // USC/CFR key the reference web resolves against. Rows carry a ``source``
 // (baseline | popular_name | uslm | manual); only ``manual`` rows are editable
-// or deletable. See /admin/authority-mappings.
+// or deletable. See the Authority Console Aliases & Relationships tab
+// (/admin/authority/mappings).
 
 export interface AuthorityKeyEquivalenceRow {
   id: string;
@@ -1266,6 +1268,316 @@ export const GET_AUTHORITY_MAPPING_STATS = gql`
         source
         count
       }
+    }
+  }
+`;
+
+// ---- Authority Namespaces (the registry of bodies of law) ----------------- //
+
+export interface AuthorityNamespaceCorpus {
+  id: string;
+  title?: string | null;
+}
+
+export interface AuthorityNamespaceNode {
+  id: string;
+  prefix: string;
+  displayName: string;
+  jurisdiction?: string | null;
+  authorityType?: string | null;
+  scope: string; // "global" | "corpus"
+  source: string; // "baseline" | "manual"
+  aliases: string[];
+  provider?: string | null;
+  sourceRootUrl?: string | null;
+  license?: string | null;
+  isGlobal: boolean;
+  effectiveProvider?: string | null;
+  equivalenceCount?: number | null;
+  frontierCount?: number | null;
+  referenceCount?: number | null;
+  createdByUsername?: string | null;
+  created?: string | null;
+  modified?: string | null;
+  authorityCorpus?: AuthorityNamespaceCorpus | null;
+}
+
+export interface GetAuthorityNamespacesInputs {
+  jurisdiction?: string | null;
+  authorityType?: string | null;
+  scope?: string | null;
+  search?: string | null;
+  first?: number | null;
+  after?: string | null;
+}
+
+export interface GetAuthorityNamespacesOutputs {
+  authorityNamespaces: {
+    pageInfo: { hasNextPage: boolean; endCursor?: string | null };
+    edges: { node: AuthorityNamespaceNode }[];
+  };
+}
+
+export const GET_AUTHORITY_NAMESPACES = gql`
+  query AuthorityNamespaces(
+    $jurisdiction: String
+    $authorityType: String
+    $scope: String
+    $search: String
+    $first: Int
+    $after: String
+  ) {
+    authorityNamespaces(
+      jurisdiction: $jurisdiction
+      authorityType: $authorityType
+      scope: $scope
+      search: $search
+      first: $first
+      after: $after
+    ) {
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+      edges {
+        node {
+          id
+          prefix
+          displayName
+          jurisdiction
+          authorityType
+          scope
+          source
+          aliases
+          provider
+          sourceRootUrl
+          license
+          isGlobal
+          # effectiveProvider / equivalenceCount / frontierCount are per-row
+          # resolver-backed (each fires its own COUNT / can_handle() loop) and are
+          # only rendered on the single-authority detail view — selecting them in
+          # the 50-row master list caused an N+1 storm. They live on
+          # GET_AUTHORITY_NAMESPACE_DETAIL instead.
+          referenceCount
+          createdByUsername
+          created
+          modified
+          authorityCorpus {
+            id
+            title
+          }
+        }
+      }
+    }
+  }
+`;
+
+export interface AuthorityNamespaceFacetCount {
+  value: string;
+  count: number;
+}
+
+export interface GetAuthorityNamespaceStatsInputs {
+  search?: string | null;
+}
+
+export interface GetAuthorityNamespaceStatsOutputs {
+  authorityNamespaceStats: {
+    totalCount: number;
+    byJurisdiction: AuthorityNamespaceFacetCount[];
+    byAuthorityType: AuthorityNamespaceFacetCount[];
+    byScope: AuthorityNamespaceFacetCount[];
+  };
+}
+
+export const GET_AUTHORITY_NAMESPACE_STATS = gql`
+  query AuthorityNamespaceStats($search: String) {
+    authorityNamespaceStats(search: $search) {
+      totalCount
+      byJurisdiction {
+        value
+        count
+      }
+      byAuthorityType {
+        value
+        count
+      }
+      byScope {
+        value
+        count
+      }
+    }
+  }
+`;
+
+export interface AuthorityDetailEquivalence {
+  id: string;
+  fromKey: string;
+  toKey: string;
+  source: string;
+  note?: string | null;
+  editable: boolean;
+  createdByUsername?: string | null;
+  modified?: string | null;
+}
+
+export interface AuthorityDetailFrontierRow {
+  id: string;
+  canonicalKey: string;
+  discoveryState: string;
+  mentionCount: number;
+  depth: number;
+  provider?: string | null;
+  lastError?: string | null;
+  ingestedDocument?: { id: string; title?: string | null } | null;
+}
+
+export interface AuthorityDetailReference {
+  id: string;
+  referenceType: string;
+  canonicalKey?: string | null;
+  resolutionStatus: string;
+  detectionTier?: string | null;
+  isProvisional: boolean;
+}
+
+export interface AuthorityDetailCount {
+  state?: string;
+  status?: string;
+  count: number;
+}
+
+export interface GetAuthorityNamespaceDetailInputs {
+  prefix: string;
+}
+
+export interface GetAuthorityNamespaceDetailOutputs {
+  authorityNamespaceDetail: {
+    namespace: AuthorityNamespaceNode;
+    equivalencesOut: AuthorityDetailEquivalence[];
+    equivalencesIn: AuthorityDetailEquivalence[];
+    frontierRows: AuthorityDetailFrontierRow[];
+    frontierStateCounts: { state: string; count: number }[];
+    referenceTotal: number;
+    referenceStatusCounts: { status: string; count: number }[];
+    referenceSample: AuthorityDetailReference[];
+    effectiveProvider?: string | null;
+  } | null;
+}
+
+export const GET_AUTHORITY_NAMESPACE_DETAIL = gql`
+  query AuthorityNamespaceDetail($prefix: String!) {
+    authorityNamespaceDetail(prefix: $prefix) {
+      namespace {
+        id
+        prefix
+        displayName
+        jurisdiction
+        authorityType
+        scope
+        source
+        aliases
+        provider
+        sourceRootUrl
+        license
+        isGlobal
+        effectiveProvider
+        equivalenceCount
+        frontierCount
+        referenceCount
+        createdByUsername
+        created
+        modified
+        authorityCorpus {
+          id
+          title
+        }
+      }
+      equivalencesOut {
+        id
+        fromKey
+        toKey
+        source
+        note
+        editable
+        createdByUsername
+        modified
+      }
+      equivalencesIn {
+        id
+        fromKey
+        toKey
+        source
+        note
+        editable
+        createdByUsername
+        modified
+      }
+      frontierRows {
+        id
+        canonicalKey
+        discoveryState
+        mentionCount
+        depth
+        provider
+        lastError
+        ingestedDocument {
+          id
+          title
+        }
+      }
+      frontierStateCounts {
+        state
+        count
+      }
+      referenceTotal
+      referenceStatusCounts {
+        status
+        count
+      }
+      referenceSample {
+        id
+        referenceType
+        canonicalKey
+        resolutionStatus
+        detectionTier
+        isProvisional
+      }
+      effectiveProvider
+    }
+  }
+`;
+
+// ---- Authority source providers (the registered "scrapers") --------------- //
+
+export interface AuthoritySourceProvider {
+  name: string;
+  className?: string | null;
+  title?: string | null;
+  supportedPrefixes: string[];
+  license?: string | null;
+  priority?: number | null;
+  requiresApproval: boolean;
+  enabled: boolean;
+  hasCredentials: boolean;
+}
+
+export interface GetAuthoritySourceProvidersOutputs {
+  authoritySourceProviders: AuthoritySourceProvider[];
+}
+
+export const GET_AUTHORITY_SOURCE_PROVIDERS = gql`
+  query AuthoritySourceProviders {
+    authoritySourceProviders {
+      name
+      className
+      title
+      supportedPrefixes
+      license
+      priority
+      requiresApproval
+      enabled
+      hasCredentials
     }
   }
 `;
