@@ -57,6 +57,12 @@ async def agenerate_text(
         intended for infrequent one-shot calls (e.g. title generation); hot
         paths should build an agent once and reuse it.
     """
+    # These collaborators are imported lazily (function-body scope) — not at
+    # module level — to break an import cycle: the factory / registry / pipeline
+    # modules transitively import this package. Keep them here. If any is ever
+    # hoisted to module scope, the source-module patches in
+    # ``test_llms_completions.py`` stop intercepting and must move to
+    # ``opencontractserver.llms.completions.<name>`` (the test documents this).
     from opencontractserver.llms.agents.pydantic_ai_factory import (
         make_pydantic_ai_agent,
     )
