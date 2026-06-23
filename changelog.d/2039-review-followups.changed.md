@@ -16,8 +16,9 @@
   deliberately shared across sibling services, while public `disambiguate_path`
   is also called from the model layer (`Corpus.add_document`) and
   `documents.versioning`. `mypy.ini`'s `python_version` comment is trimmed from
-  12 lines to 4, keeping the numpy detail inline rather than cross-referencing
-  the `2030-mypy-py312` changelog fragment (which `collate_changelog.py --apply`
-  deletes at release). `test_query_count_independent_of_document_count` gains
+  12 lines to 6 — dropping prose while keeping the numpy detail and the
+  dual-usage note (pre-commit hook + standalone CI `Run mypy` step) inline,
+  rather than cross-referencing the `2030-mypy-py312` changelog fragment (which
+  `collate_changelog.py --apply` deletes at release). `test_query_count_independent_of_document_count` gains
   `msg=` strings on both its query-count floor and the O(1) equality assertions
   so a future failure is self-documenting.
