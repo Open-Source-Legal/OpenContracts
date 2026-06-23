@@ -762,6 +762,7 @@ class TestToolRegistry(TestCase):
 
         for tool_name in action_tools:
             tool = get_tool_by_name(tool_name)
+            self.assertIsNotNone(tool, f"Tool {tool_name} should be registered")
             assert tool is not None
             self.assertTrue(
                 tool["requiresApproval"],
@@ -780,6 +781,7 @@ class TestToolRegistry(TestCase):
 
         for tool_name in read_tools:
             tool = get_tool_by_name(tool_name)
+            self.assertIsNotNone(tool, f"Tool {tool_name} should be registered")
             assert tool is not None
             self.assertFalse(
                 tool["requiresApproval"],
