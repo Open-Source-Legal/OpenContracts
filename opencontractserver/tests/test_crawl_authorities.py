@@ -306,7 +306,7 @@ class ApplyAnalysisReuseTests(TransactionTestCase):
                 "canonical_key": frontier_row.canonical_key,
             }
 
-        seen_analyses: list[object] = []
+        seen_analyses: list[Analysis | None] = []
 
         def _mock_apply(
             *, corpus_id, creator_id, types=None, analysis=None, extra_tiers=None
@@ -352,8 +352,9 @@ class ApplyAnalysisReuseTests(TransactionTestCase):
         # First section lets apply mint the provenance Analysis (None passed in);
         # the second section REUSES it rather than minting a second row.
         self.assertIsNone(seen_analyses[0])
-        self.assertIsNotNone(seen_analyses[1])
-        self.assertEqual(seen_analyses[1].id, provenance.id)
+        reused = seen_analyses[1]
+        assert reused is not None  # narrows Analysis | None -> Analysis for mypy
+        self.assertEqual(reused.id, provenance.id)
         # No second enrichment Analysis was created for the corpus.
         self.assertEqual(
             Analysis.objects.filter(analyzed_corpus=corpus).count(),
