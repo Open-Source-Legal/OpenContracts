@@ -11,7 +11,6 @@ These tests cover:
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from django.contrib.auth import get_user_model
 from django.test import TestCase, TransactionTestCase
 
 from opencontractserver.agents.models import AgentActionResult, AgentConfiguration
@@ -39,8 +38,7 @@ from opencontractserver.llms.tools.moderation_tools import (
     unlock_thread,
     unpin_thread,
 )
-
-User = get_user_model()
+from opencontractserver.users.models import User
 
 
 class TestCorpusActionTriggerEnum(TestCase):
@@ -65,6 +63,9 @@ class TestCorpusActionTriggerEnum(TestCase):
 
 class TestModerationTools(TestCase):
     """Test moderation tool functions."""
+
+    user: User
+    corpus: Corpus
 
     @classmethod
     def setUpClass(cls):
@@ -195,6 +196,7 @@ class TestModerationTools(TestCase):
             conversation=self.thread, action_type="lock_thread"
         ).first()
         self.assertIsNotNone(mod_action)
+        assert mod_action is not None
         self.assertEqual(mod_action.reason, "Test lock")
 
     def test_lock_thread_already_locked(self):
@@ -479,6 +481,11 @@ class TestThreadCorpusActionSignals(TransactionTestCase):
 class TestCorpusActionExecutionModel(TestCase):
     """Test CorpusActionExecution model changes."""
 
+    user: User
+    corpus: Corpus
+    agent_config: AgentConfiguration
+    corpus_action: CorpusAction
+
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
@@ -600,6 +607,11 @@ class TestCorpusActionExecutionModel(TestCase):
 
 class TestAgentActionResultModel(TestCase):
     """Test AgentActionResult model changes."""
+
+    user: User
+    corpus: Corpus
+    agent_config: AgentConfiguration
+    corpus_action: CorpusAction
 
     @classmethod
     def setUpClass(cls):
@@ -728,6 +740,7 @@ class TestToolRegistry(TestCase):
         for tool_name in moderation_tools:
             tool = get_tool_by_name(tool_name)
             self.assertIsNotNone(tool, f"Tool {tool_name} should be registered")
+            assert tool is not None
             self.assertEqual(
                 tool["category"],
                 "moderation",
@@ -749,6 +762,7 @@ class TestToolRegistry(TestCase):
 
         for tool_name in action_tools:
             tool = get_tool_by_name(tool_name)
+            assert tool is not None
             self.assertTrue(
                 tool["requiresApproval"],
                 f"Tool {tool_name} should require approval",
@@ -766,6 +780,7 @@ class TestToolRegistry(TestCase):
 
         for tool_name in read_tools:
             tool = get_tool_by_name(tool_name)
+            assert tool is not None
             self.assertFalse(
                 tool["requiresApproval"],
                 f"Tool {tool_name} should not require approval",
@@ -1474,6 +1489,7 @@ class TestRunAgentThreadActionAsync(TransactionTestCase):
             ).afirst()
 
             self.assertIsNotNone(action_result)
+            assert action_result is not None
             self.assertEqual(action_result.status, AgentActionResult.Status.FAILED)
             self.assertIn("Agent execution failed", action_result.error_message)
 

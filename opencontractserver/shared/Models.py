@@ -18,6 +18,14 @@ class BaseOCModel(InstanceUserCanMixin, models.Model):
     managed model exposes the same ergonomic surface.
     """
 
+    # Out-of-band flag (not a DB field) read by the signal handlers in
+    # ``*/signals.py`` via ``hasattr``/``getattr`` to suppress side effects
+    # (notifications, badge awards, corpus-action triggers) during fixture
+    # creation and a handful of internal saves (e.g.
+    # ``llms/tools/moderation_tools.py``). It is normally absent at runtime —
+    # the annotation only declares the type for the call sites that set it.
+    _skip_signals: bool
+
     # All BaseOCModel subclasses get BaseVisibilityManager by default, providing
     # the visible_to_user() method for consistent permission filtering
     objects = BaseVisibilityManager()
