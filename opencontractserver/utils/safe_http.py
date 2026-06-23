@@ -163,8 +163,10 @@ def safe_fetch_bytes(
     )
     # Default User-Agent so fetches identify OpenContracts to .gov servers
     # rather than going out as an anonymous httpx client; a caller-supplied
-    # User-Agent (e.g. the FR/CFR providers) overrides it.
-    request_headers = {"User-Agent": DEFAULT_USER_AGENT}
+    # User-Agent (e.g. the FR/CFR providers) overrides it. httpx.Headers is
+    # case-insensitive, so a caller passing "user-agent" in any casing replaces
+    # the default instead of producing two conflicting User-Agent header lines.
+    request_headers = httpx.Headers({"User-Agent": DEFAULT_USER_AGENT})
     if headers:
         request_headers.update(headers)
     current = url

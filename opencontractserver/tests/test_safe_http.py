@@ -385,6 +385,21 @@ class TestSafeFetchBytesUserAgent:
         assert captured["headers"]["Accept"] == "application/json"
         assert "OpenContracts" in captured["headers"]["User-Agent"]
 
+    def test_caller_user_agent_override_is_case_insensitive(self):
+        """A lowercase caller ``user-agent`` overrides the default, not duplicates it.
+
+        The merge target is ``httpx.Headers`` (case-insensitive), so a caller
+        header in any casing collapses onto the single canonical ``User-Agent``
+        line rather than emitting two conflicting ones.
+        """
+        captured: dict = {}
+        with patch("socket.getaddrinfo", side_effect=_fake_getaddrinfo_public):
+            with patch("httpx.Client.stream", self._capture_headers(captured)):
+                safe_fetch_bytes(ALLOWED_URL, headers={"user-agent": "lower-cased/1"})
+        assert captured["headers"]["User-Agent"] == "lower-cased/1"
+        ua_lines = [k for k, _ in captured["headers"].raw if k.lower() == b"user-agent"]
+        assert len(ua_lines) == 1, f"expected exactly one User-Agent line: {ua_lines}"
+
     def test_user_agent_forwarded_on_every_redirect_hop(self):
         """The UA is sent on the post-redirect hop too, not just the first.
 

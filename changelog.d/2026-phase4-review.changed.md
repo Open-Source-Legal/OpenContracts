@@ -10,7 +10,9 @@
     neighbourhood) so the contact address can no longer drift between them, and
     `us_code_provider.py` (the third deterministic authority provider, previously
     sending the generic default) now sends the same UA so all three present
-    consistently to `.gov` hosts.
+    consistently to `.gov` hosts. The default/caller merge uses `httpx.Headers`
+    (case-insensitive), so a caller passing `user-agent` in any casing overrides
+    the default rather than emitting two conflicting `User-Agent` lines.
   - Replaced the bare `* 4` UTF-8 worst-case byte factor in
     `opencontractserver/pipeline/authority_source_providers/agentic_web_locator_provider.py`
     with the named `UTF8_MAX_BYTES_PER_CHAR` constant

@@ -334,6 +334,9 @@ class ToolWebSearchTests(TestCase):
         # not this search-tool output path — see _tool_web_search docstring).
         _, kwargs = mock_search.call_args
         self.assertEqual(kwargs.get("query"), "15 USC 78j official source")
+        # num_results comes from the tunable ClassVar, not a hardcoded literal,
+        # so dropping num_results=self.web_search_results would fail here.
+        self.assertEqual(kwargs.get("num_results"), provider.web_search_results)
 
     def test_search_error_propagates(self):
         """A search-backend error propagates so the agent run surfaces it."""
