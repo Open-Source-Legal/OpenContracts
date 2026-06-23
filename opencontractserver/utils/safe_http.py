@@ -47,10 +47,12 @@ from opencontractserver.constants.safe_http import (
 
 # Built once at import. ``ip in _CGNAT_NETWORK`` is a cheap containment check
 # (see CGNAT_SHARED_ADDRESS_SPACE_CIDR for why the ipaddress property denylist
-# alone is insufficient). It is an IPv4 network: ``_assert_public_ip`` unwraps an
-# IPv4-mapped IPv6 address to its embedded IPv4 BEFORE this check, so the
-# membership test only ever sees an IPv4 address (a native IPv6 address returns
-# False here and is instead covered by the is_* properties).
+# alone is insufficient). It is an IPv4 network, so ``_assert_public_ip`` guards
+# the membership test with ``isinstance(ip, IPv4Address)``: an IPv4-mapped IPv6
+# address is already unwrapped to its embedded IPv4 before then, and a native
+# IPv6 address is skipped here (it is covered by the is_* properties) rather than
+# relying on ``IPv6Address in IPv4Network`` — which returns False only on CPython
+# 3.11+ and raises TypeError on 3.10.
 _CGNAT_NETWORK = ipaddress.ip_network(CGNAT_SHARED_ADDRESS_SPACE_CIDR)
 
 
@@ -110,7 +112,7 @@ def _assert_public_ip(host: str) -> None:
             or ip.is_multicast
             or ip.is_reserved
             or ip.is_unspecified
-            or ip in _CGNAT_NETWORK
+            or (isinstance(ip, ipaddress.IPv4Address) and ip in _CGNAT_NETWORK)
         ):
             raise SSRFValidationError(f"{host!r} resolves to non-public address {ip}")
 

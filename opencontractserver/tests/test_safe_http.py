@@ -163,6 +163,20 @@ class TestAssertPublicIp:
             # Should not raise
             _assert_public_ip(ALLOWED_HOST)
 
+    def test_public_native_ipv6_passes(self):
+        """A public native IPv6 address passes and does not trip the CGNAT check.
+
+        The CGNAT membership test is an IPv4 network; the ``isinstance(ip,
+        IPv4Address)`` guard means a native IPv6 address skips it entirely (rather
+        than relying on ``IPv6Address in IPv4Network`` returning False, which only
+        holds on CPython 3.11+). 2606:4700:4700::1111 is Cloudflare's public DNS.
+        """
+        with patch(
+            "socket.getaddrinfo",
+            side_effect=_fake_getaddrinfo_private("2606:4700:4700::1111"),
+        ):
+            _assert_public_ip(ALLOWED_HOST)  # must not raise
+
     def test_dns_failure_raises_ssrf_error(self):
         import socket as _socket
 

@@ -29,9 +29,12 @@ READ_TIMEOUT_SECONDS: float = 60.0  # OLRC title ZIPs are large
 
 # RFC 6598 Carrier-Grade NAT / shared address space. ``ipaddress`` does NOT
 # classify this block as private/reserved/global on any current CPython
-# (verified False for is_private AND is_reserved on 3.11 and 3.12), so the
+# (verified False for is_private AND is_reserved on 3.11 and 3.12) — it is simply
+# absent from CPython's ``ipaddress`` ``_private_networks`` list — so the
 # property-based denylist in ``_assert_public_ip`` would let a host resolving
-# here slip through. It is rejected explicitly and version-independently.
+# here slip through. Rejected explicitly and version-independently; the behaviour
+# is pinned by ``test_safe_http.py::test_cgnat_shared_address_space_rejected``
+# (re-run it to re-verify the gap after a Python upgrade).
 CGNAT_SHARED_ADDRESS_SPACE_CIDR: str = "100.64.0.0/10"
 
 # Identifies OpenContracts to public-domain .gov servers when a caller does not

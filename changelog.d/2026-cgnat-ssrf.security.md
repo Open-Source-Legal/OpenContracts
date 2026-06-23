@@ -22,5 +22,9 @@
   `is_private` / `_CGNAT_NETWORK` checks do not reflect the mapped IPv4 for the
   CGNAT-mapped form, so a resolver returning `::ffff:100.64.0.1` would have
   slipped past every check; unwrapping makes the guard version-independent for
-  the mapped forms of private/loopback/link-local/CGNAT addresses. Covered by a
-  parametrized regression in `test_safe_http.py`.
+  the mapped forms of private/loopback/link-local/CGNAT addresses. The CGNAT
+  membership test is additionally guarded by `isinstance(ip, IPv4Address)` so a
+  native IPv6 address is skipped rather than relying on `IPv6Address in
+  IPv4Network` returning `False` (true only on CPython 3.11+; 3.10 raises
+  `TypeError`). Covered by parametrized regressions in `test_safe_http.py`
+  (mapped forms rejected; public native IPv6 passes).
