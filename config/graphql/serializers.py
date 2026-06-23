@@ -100,12 +100,24 @@ class CorpusSerializer(serializers.ModelSerializer):
 
         from opencontractserver.llms.llm_registry import (
             LLMProviderNotRegistered,
+            parse_model_spec,
             validate_model_spec,
         )
 
         try:
             validate_model_spec(cleaned)
-        except (LLMProviderNotRegistered, ValueError) as exc:
+        except LLMProviderNotRegistered as exc:
+            # Surface the real, user-actionable reason (the typed provider
+            # prefix is not registered) without echoing ``str(exc)``, whose
+            # message embeds an internal source path — a CodeQL
+            # "information exposure through an exception" finding. ``provider``
+            # is derived from the user's own input, not the exception, so no
+            # internal detail crosses the API boundary.
+            provider, _ = parse_model_spec(cleaned)
+            raise serializers.ValidationError(
+                f"Model provider '{provider}' is not registered."
+            ) from exc
+        except ValueError as exc:
             raise serializers.ValidationError("Invalid model specification.") from exc
         return cleaned
 
