@@ -4,7 +4,11 @@
     and the agentic fetch tool identify OpenContracts to `.gov` servers instead
     of going out as an anonymous `httpx` client (politeness + fewer rate-limit
     blocks); a caller-supplied `User-Agent` (the FR/CFR providers) still
-    overrides it. The two byte-identical `_USER_AGENT` literals in
+    overrides it. This applies to **every** no-`headers` caller of
+    `safe_fetch_bytes`/`safe_fetch_text`, not only the providers — notably
+    `enrichment/services/popular_name_importer.py`, which now sends
+    `DEFAULT_USER_AGENT` instead of the bare `httpx` default (no test asserts on
+    the old UA string, so nothing regresses). The two byte-identical `_USER_AGENT` literals in
     `cfr_provider.py` / `federal_register_provider.py` are consolidated into a
     single `AUTHORITY_PROVIDER_USER_AGENT` constant (same `constants/safe_http.py`
     neighbourhood) so the contact address can no longer drift between them, and
@@ -27,6 +31,12 @@
     caller passed it and no test exercised it, so it was speculative API surface
     over a single source of truth (the domain gate reads
     `sections[0].source_url`).
+  - Moved the agentic provider's private `_sanitize_for_prompt` helper into
+    `opencontractserver/utils/prompt_sanitization.py` as the public
+    `sanitize_for_prompt_strict` (its stricter, ASCII-only companion to the
+    existing `sanitize_plaintext_for_prompt`), so this security helper is
+    discoverable alongside the other prompt-injection utilities rather than
+    buried in a provider file. Tests moved to `test_prompt_sanitization.py`.
   - Documented the deliberate trust boundary on the agentic
     `_tool_web_search` query (LLM-generated, forwarded unsanitized to a
     text-only search tool — no SSRF surface), why `AuthorityGateService` does

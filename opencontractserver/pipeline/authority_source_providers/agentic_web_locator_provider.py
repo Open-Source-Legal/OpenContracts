@@ -23,7 +23,6 @@ Design constraints
 from __future__ import annotations
 
 import logging
-import re
 from typing import ClassVar
 
 from asgiref.sync import async_to_sync, sync_to_async
@@ -36,24 +35,9 @@ from opencontractserver.pipeline.base.base_authority_source_provider import (
     AuthorityRequest,
     BaseAuthoritySourceProvider,
 )
+from opencontractserver.utils.prompt_sanitization import sanitize_for_prompt_strict
 
 logger = logging.getLogger(__name__)
-
-
-def _sanitize_for_prompt(value: str) -> str:
-    """Reduce *value* to a single line of printable ASCII for safe prompt embedding.
-
-    ``[^\\x20-\\x7E]`` drops EVERYTHING outside printable ASCII, then whitespace
-    is collapsed. This is deliberately ASCII-only: every Unicode prompt-injection
-    / homoglyph vector worth guarding against — RIGHT-TO-LEFT OVERRIDE (U+202E),
-    bidi/zero-width format chars (category Cf), non-breaking and other Unicode
-    spaces (category Zs), look-alike letters — lies above U+007E and is therefore
-    already removed. Control chars and newlines (below U+0020) go too, so a
-    tainted citation cannot inject extra instruction lines. Legal citations are
-    plain ASCII, so this is loss-free in practice.
-    """
-    cleaned = re.sub(r"[^\x20-\x7E]", " ", value)
-    return re.sub(r"\s+", " ", cleaned).strip()
 
 
 class _LocatorOutput(BaseModel):
@@ -163,10 +147,10 @@ class AgenticWebLocatorProvider(BaseAuthoritySourceProvider):
         # Sanitize inputs before embedding in instructions: reduce to printable
         # ASCII and collapse whitespace to prevent prompt injection (control
         # chars, bidi/zero-width Unicode, homoglyphs) via a malformed citation
-        # or jurisdiction string. See _sanitize_for_prompt for why ASCII-only
-        # already covers the Unicode attack classes.
-        citation = _sanitize_for_prompt(citation)
-        jurisdiction = _sanitize_for_prompt(jurisdiction)
+        # or jurisdiction string. See sanitize_for_prompt_strict for why
+        # ASCII-only already covers the Unicode attack classes.
+        citation = sanitize_for_prompt_strict(citation)
+        jurisdiction = sanitize_for_prompt_strict(jurisdiction)
 
         # Resolve the deployment-configured model spec (no explicit override).
         spec = resolve_model_spec(explicit=None)
@@ -237,7 +221,7 @@ class AgenticWebLocatorProvider(BaseAuthoritySourceProvider):
         """Search the public web. Returns formatted result text.
 
         Trust boundary: ``query`` is LLM-generated and forwarded to
-        ``aweb_search`` unsanitized — deliberately. ``_sanitize_for_prompt``
+        ``aweb_search`` unsanitized — deliberately. ``sanitize_for_prompt_strict``
         guards the LLM *input* (the citation we embed in instructions); this is
         an *output* path, and ``aweb_search`` only returns text (it does not
         fetch attacker-chosen URLs), so there is no SSRF here. The residual risk
