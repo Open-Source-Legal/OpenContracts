@@ -263,6 +263,37 @@ class TestAssertPublicIp:
             with pytest.raises(SSRFValidationError, match="non-public"):
                 _assert_public_ip(ALLOWED_HOST)
 
+    @pytest.mark.parametrize(
+        "tunnel_ip",
+        [
+            "64:ff9b::10.0.0.1",  # NAT64 well-known prefix (RFC 6052) -> 10.0.0.1
+            "64:ff9b:1::a00:1",  # NAT64 local prefix (RFC 8215) -> 10.0.0.1
+            "2002:6440:1::",  # 6to4 (RFC 3056) embedding CGNAT 100.64.0.1
+            "2002:c0a8:0101::",  # 6to4 embedding 192.168.1.1
+            "2001:0:4136:e378:8000:63bf:3fff:fdd2",  # Teredo (RFC 4380)
+            "::100.64.0.1",  # deprecated IPv4-compatible (::/96), CGNAT payload
+        ],
+    )
+    def test_ipv6_embedded_ipv4_tunnels_rejected(self, tunnel_ip):
+        """NAT64 / 6to4 / Teredo / IPv4-compatible forms are rejected (issue #2049).
+
+        Unlike IPv4-mapped IPv6 (which needs the explicit ``ipv4_mapped`` unwrap
+        because a mapped CGNAT address reports ``is_private=False``), CPython
+        already classifies these whole prefixes as ``is_private`` / ``is_reserved``
+        — verified on 3.11 and 3.12 — so the property denylist covers them without
+        any per-form extraction. This pins that coverage: if a future Python ever
+        stopped classifying one of these prefixes, this test would fail rather than
+        silently opening an SSRF hole. (Counters the review claim that these forms
+        bypass the guard; e.g. ``2002:0a00:0001::`` reports ``is_private=True``,
+        not False.)
+        """
+        with patch(
+            "socket.getaddrinfo",
+            side_effect=_fake_getaddrinfo(tunnel_ip),
+        ):
+            with pytest.raises(SSRFValidationError, match="non-public"):
+                _assert_public_ip(ALLOWED_HOST)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # safe_fetch_bytes — redirect re-validation
@@ -428,6 +459,59 @@ class TestSafeFetchBytesUserAgent:
         assert all(
             "OpenContracts" in (ua or "") for ua in seen_user_agents
         ), f"User-Agent missing on a hop: {seen_user_agents}"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# safe_fetch_bytes — cross-host redirect credential stripping (RFC 9110 §15.4)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestSafeFetchBytesCredentialStripping:
+    def test_credentials_stripped_on_cross_host_redirect(self):
+        """Authorization/Cookie are dropped when a redirect crosses to a new host.
+
+        httpx forwards request headers verbatim across origins; safe_fetch_bytes
+        strips per-service credentials so a caller's Authorization/Cookie cannot
+        leak from one allowlisted .gov host to another (here uscode.house.gov ->
+        www.ecfr.gov, both allowlisted).
+        """
+        captured: list = []
+
+        def _dispatch(self_client, method, url, **kwargs):
+            captured.append(kwargs.get("headers"))
+            if len(captured) == 1:  # first hop → cross-host redirect
+                return _mock_stream(302, b"", {"location": "https://www.ecfr.gov/x"})
+            return _mock_stream(200, b"ok")
+
+        with patch("socket.getaddrinfo", side_effect=_fake_getaddrinfo_public):
+            with patch("httpx.Client.stream", _dispatch):
+                safe_fetch_bytes(
+                    ALLOWED_URL,
+                    headers={"Authorization": "Bearer secret", "Cookie": "sid=1"},
+                )
+
+        # Hop 1 (original host) carries the credentials; hop 2 (new host) must not.
+        assert captured[0].get("Authorization") == "Bearer secret"
+        assert "Authorization" not in captured[1]
+        assert "Cookie" not in captured[1]
+        # The default User-Agent still travels to the redirect target.
+        assert "OpenContracts" in captured[1].get("User-Agent", "")
+
+    def test_credentials_preserved_on_same_host_redirect(self):
+        """A same-host redirect keeps the credentials — no cross-origin leak occurs."""
+        captured: list = []
+
+        def _dispatch(self_client, method, url, **kwargs):
+            captured.append(kwargs.get("headers"))
+            if len(captured) == 1:  # first hop → SAME-host redirect
+                return _mock_stream(302, b"", {"location": f"https://{ALLOWED_HOST}/n"})
+            return _mock_stream(200, b"ok")
+
+        with patch("socket.getaddrinfo", side_effect=_fake_getaddrinfo_public):
+            with patch("httpx.Client.stream", _dispatch):
+                safe_fetch_bytes(ALLOWED_URL, headers={"Authorization": "Bearer s"})
+
+        assert captured[1].get("Authorization") == "Bearer s"
 
 
 # ─────────────────────────────────────────────────────────────────────────────

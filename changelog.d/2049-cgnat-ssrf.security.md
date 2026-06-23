@@ -27,4 +27,20 @@
   native IPv6 address is skipped rather than relying on `IPv6Address in
   IPv4Network` returning `False` (true only on CPython 3.11+; 3.10 raises
   `TypeError`). Covered by parametrized regressions in `test_safe_http.py`
-  (mapped forms rejected; public native IPv6 passes).
+  (mapped forms rejected; public native IPv6 passes). Other IPv6-embedded-IPv4
+  forms (NAT64 `64:ff9b::/96` + RFC 8215 `64:ff9b:1::/48`, 6to4 `2002::/16`,
+  Teredo `2001:0::/32`, deprecated IPv4-compatible `::/96`) need no special
+  handling — CPython already flags those whole prefixes `is_private`/
+  `is_reserved` on 3.11 and 3.12 — and `test_ipv6_embedded_ipv4_tunnels_rejected`
+  now pins that coverage so a future Python change couldn't silently open the
+  hole.
+- **Strip per-service credentials on cross-host redirects in `safe_fetch_bytes`.**
+  Request headers are now dropped of `Authorization` / `Cookie` /
+  `Proxy-Authorization` (`CROSS_HOST_STRIPPED_HEADERS`) when a redirect crosses to
+  a different host (RFC 9110 §15.4). httpx — unlike browsers / `requests` —
+  forwards request headers verbatim across origins, so without this a future
+  caller passing a `.gov` API credential could leak it from one allowlisted host
+  to another (e.g. `ecfr.gov` → `federalregister.gov`) while following a redirect.
+  No current caller passes credentials, so this is forward-looking hardening; the
+  default `User-Agent` is preserved across the hop. Covered by
+  `TestSafeFetchBytesCredentialStripping`.

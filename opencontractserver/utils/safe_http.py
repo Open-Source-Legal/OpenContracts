@@ -38,6 +38,7 @@ from opencontractserver.constants.safe_http import (
     ALLOWED_SCHEMES,
     CGNAT_SHARED_ADDRESS_SPACE_CIDR,
     CONNECT_TIMEOUT_SECONDS,
+    CROSS_HOST_STRIPPED_HEADERS,
     DEFAULT_USER_AGENT,
     MAX_REDIRECTS,
     MAX_RESPONSE_BYTES,
@@ -116,15 +117,15 @@ def _assert_public_ip(host: str) -> None:
         # Unwrap IPv4-mapped IPv6 so the checks below run against the real IPv4
         # destination (see docstring). Native IPv6 is left as-is.
         #
-        # Known limitation (tracked in #2048): other IPv6-embedded-IPv4 forms —
-        # NAT64 (64:ff9b::/96 and RFC 8215 64:ff9b:1::/48), 6to4 (2002::/16), and
-        # Teredo (2001::/32) — can also smuggle a private IPv4 past these checks,
-        # but only in a deployment that actually has the matching NAT64 gateway /
-        # 6to4 relay. They are deferred to the DNS-pinning follow-up, which fixes
-        # the root cause (validate-time vs connect-time divergence) for the whole
-        # class at once; correct extraction is also subtle — the NAT64 /48 IPv4
-        # straddles the RFC 6052 u-byte, so a naive low-32-bits mask is wrong.
-        # The .gov host allowlist is the active control in the meantime.
+        # Only IPv4-MAPPED IPv6 needs this: it is the one embedded form whose
+        # is_private / CGNAT status does not reflect the embedded IPv4 (a mapped
+        # CGNAT address reports is_private=False). The OTHER IPv6-embedded-IPv4
+        # forms — NAT64 (64:ff9b::/96 and RFC 8215 64:ff9b:1::/48), 6to4
+        # (2002::/16), Teredo (2001:0::/32), and deprecated IPv4-compatible
+        # (::/96) — are already rejected because CPython flags those whole
+        # prefixes is_private / is_reserved (verified on 3.11 and 3.12; pinned by
+        # test_ipv6_embedded_ipv4_tunnels_rejected), so no per-form extraction is
+        # needed. The separate DNS-rebind TOCTOU is tracked in #2048.
         if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
             ip = ip.ipv4_mapped
         if (
@@ -192,7 +193,22 @@ def safe_fetch_bytes(
                 if r.is_redirect:
                     loc = r.headers.get("location", "")
                     # Resolve relative Location against the current URL.
-                    current = str(httpx.URL(current).join(loc))
+                    next_url = str(httpx.URL(current).join(loc))
+                    # On a cross-host redirect (e.g. ecfr.gov -> federalregister
+                    # .gov) drop per-service credential headers: httpx, unlike
+                    # browsers/requests, forwards them verbatim across origins
+                    # (RFC 9110 §15.4), so a caller-supplied Authorization/Cookie
+                    # would otherwise leak from one allowlisted .gov service to
+                    # another. The default User-Agent is preserved.
+                    if httpx.URL(next_url).host != httpx.URL(current).host:
+                        request_headers = httpx.Headers(
+                            {
+                                k: v
+                                for k, v in request_headers.items()
+                                if k.lower() not in CROSS_HOST_STRIPPED_HEADERS
+                            }
+                        )
+                    current = next_url
                     params = None  # only the first hop carries query params
                     # Exiting this ``with`` on ``continue`` closes the response
                     # and releases the connection. We deliberately do NOT call

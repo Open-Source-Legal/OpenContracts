@@ -56,6 +56,15 @@ AUTHORITY_PROVIDER_USER_AGENT: str = (
     "contact: opensource@opencontracts.dev)"
 )
 
+# Per-service credential headers stripped when ``safe_fetch_bytes`` follows a
+# redirect to a DIFFERENT host (RFC 9110 §15.4). httpx — unlike browsers and
+# ``requests`` — forwards request headers verbatim across a cross-origin
+# redirect, so a caller-supplied Authorization/Cookie must not leak from one
+# allowlisted .gov service to another. Lowercase for case-insensitive matching.
+CROSS_HOST_STRIPPED_HEADERS: frozenset[str] = frozenset(
+    {"authorization", "cookie", "proxy-authorization"}
+)
+
 # Conservative DEFAULT body cap. Most authority fetches (FR JSON, eCFR/FR raw
 # text bodies) are well under this; a constrained worker should never buffer
 # hundreds of MB by default. Callers that genuinely need a larger body (only the
