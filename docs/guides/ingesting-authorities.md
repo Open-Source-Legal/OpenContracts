@@ -135,9 +135,10 @@ print(summary)
 task — a worker must be running, and it won't be reflected the instant the crawl
 reports `ingested`.
 
-### Option C — the enrichment runner (no shell)
+### Option C — the Runs tab (no shell)
 
-`/admin/authority/runs` (and the per-corpus enrichment card) drives the same path via
+`/admin/authority/runs` (the Authority Console Runs tab, and the per-corpus
+enrichment card) drives the same path via
 the `runCorpusEnrichment` mutation. It requires corpus **UPDATE** (superusers
 are exempt from UPDATE but still need READ).
 
@@ -173,18 +174,16 @@ finalized references to seed from.
 
 ### Spotting what needs a provider
 
-The read-only authority-sources monitor at `/admin/authority/queue`
+The read-only Queue tab of the Authority Console at `/admin/authority/queue`
 (superuser-only) is the instance-wide ingestion backlog over the whole
 `AuthorityFrontier`.
 
-![Global authority-sources monitor](../assets/images/screenshots/auto/authorities--sources-monitor--with-data.png)
+![Authority Console — Queue tab](../assets/images/screenshots/auto/authorities--console-queue--with-data.png)
 
 Click the **Unsupported** state chip to filter to the cited authorities no
 provider can handle. These — bodies of law with demand but no `.gov` source the
 system knows how to fetch — are exactly the candidates for a new provider (or a
-no-code alternative below):
-
-![Authority-sources monitor filtered to the unsupported state](../assets/images/screenshots/auto/authorities--sources-monitor--unsupported.png)
+no-code alternative below).
 
 ### The provider contract
 
@@ -329,5 +328,6 @@ the `Unsupported` chip count on `/admin/authority/queue` should drop.
 - The gate enforces **`public-domain` license + an allowlisted `.gov` source
   host + key verification** before any text is ingested; agentic results require
   human approval.
-- `/admin/authority/queue` is **read-only and superuser-gated** — it observes the
-  frontier; triggering stays in the enrichment runner.
+- `/admin/authority/queue` (the Authority Console Queue tab) is **superuser-gated**
+  — it observes the frontier and offers per-row requeue/reset/reroute/approve/delete
+  verbs; triggering enrichment runs stays on the Runs tab (`/admin/authority/runs`).
