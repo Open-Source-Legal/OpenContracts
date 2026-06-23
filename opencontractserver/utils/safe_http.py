@@ -60,7 +60,9 @@ _CGNAT_NETWORK = ipaddress.ip_network(CGNAT_SHARED_ADDRESS_SPACE_CIDR)
 # from the module-level timeout constants. httpx requires either a single
 # default or all four phases set explicitly; spell them out so
 # READ_TIMEOUT_SECONDS clearly applies to read/write/pool and
-# CONNECT_TIMEOUT_SECONDS only to connect.
+# CONNECT_TIMEOUT_SECONDS only to connect. Because it is frozen at import, a test
+# that needs to override timeouts must patch ``safe_http._DEFAULT_TIMEOUT``
+# directly — patching the CONNECT_/READ_TIMEOUT_SECONDS constants has no effect.
 _DEFAULT_TIMEOUT = httpx.Timeout(
     connect=CONNECT_TIMEOUT_SECONDS,
     read=READ_TIMEOUT_SECONDS,

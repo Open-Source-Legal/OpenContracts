@@ -61,6 +61,11 @@ AUTHORITY_PROVIDER_USER_AGENT: str = (
 # ``requests`` — forwards request headers verbatim across a cross-origin
 # redirect, so a caller-supplied Authorization/Cookie must not leak from one
 # allowlisted .gov service to another. Lowercase for case-insensitive matching.
+#
+# NOTE: this is the standard credential set, NOT an exhaustive safe-list.
+# Non-standard per-service headers (``X-Api-Key``, ``X-Auth-Token``, …) are NOT
+# stripped, so a caller that sends such a header for a specific service must not
+# rely on this set to protect it across a cross-host redirect.
 CROSS_HOST_STRIPPED_HEADERS: frozenset[str] = frozenset(
     {"authorization", "cookie", "proxy-authorization"}
 )
