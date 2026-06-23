@@ -30,6 +30,7 @@ from asgiref.sync import async_to_sync, sync_to_async
 from pydantic import BaseModel, Field
 
 from opencontractserver.constants.safe_http import UTF8_MAX_BYTES_PER_CHAR
+from opencontractserver.constants.web_search import WEB_SEARCH_DEFAULT_NUM_RESULTS
 from opencontractserver.enrichment.authorities import AuthoritySection
 from opencontractserver.pipeline.base.base_authority_source_provider import (
     AuthorityRequest,
@@ -94,10 +95,11 @@ class AgenticWebLocatorProvider(BaseAuthoritySourceProvider):
     # max_fetch_chars: cap on characters returned from a fetched page, keeping
     #   the agent context bounded.
     # web_search_results: number of results web_search returns to the agent per
-    #   query (tunable here rather than a bare literal in the tool body).
+    #   query (defaults to the shared WEB_SEARCH_DEFAULT_NUM_RESULTS, which is
+    #   also aweb_search's own default; tunable here rather than a bare literal).
     max_agent_requests: ClassVar[int] = 10
     max_fetch_chars: ClassVar[int] = 50_000
-    web_search_results: ClassVar[int] = 5
+    web_search_results: ClassVar[int] = WEB_SEARCH_DEFAULT_NUM_RESULTS
 
     def can_handle(self, canonical_key: str) -> bool:
         """Claims every key when enabled; disabled → never selected."""

@@ -103,6 +103,16 @@ def _assert_public_ip(host: str) -> None:
         ip = ipaddress.ip_address(info[4][0])
         # Unwrap IPv4-mapped IPv6 so the checks below run against the real IPv4
         # destination (see docstring). Native IPv6 is left as-is.
+        #
+        # Known limitation (tracked in #2048): other IPv6-embedded-IPv4 forms —
+        # NAT64 (64:ff9b::/96 and RFC 8215 64:ff9b:1::/48), 6to4 (2002::/16), and
+        # Teredo (2001::/32) — can also smuggle a private IPv4 past these checks,
+        # but only in a deployment that actually has the matching NAT64 gateway /
+        # 6to4 relay. They are deferred to the DNS-pinning follow-up, which fixes
+        # the root cause (validate-time vs connect-time divergence) for the whole
+        # class at once; correct extraction is also subtle — the NAT64 /48 IPv4
+        # straddles the RFC 6052 u-byte, so a naive low-32-bits mask is wrong.
+        # The .gov host allowlist is the active control in the meantime.
         if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
             ip = ip.ipv4_mapped
         if (

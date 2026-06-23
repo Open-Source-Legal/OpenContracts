@@ -52,7 +52,7 @@ DEFAULT_USER_AGENT: str = (
 # providers cannot drift the contact address / URL apart.
 AUTHORITY_PROVIDER_USER_AGENT: str = (
     "OpenContracts-authority-provider/1.0 "
-    "(https://github.com/Open-Source-Legal/OpenContracts; "
+    "(+https://github.com/Open-Source-Legal/OpenContracts; "
     "contact: opensource@opencontracts.dev)"
 )
 
