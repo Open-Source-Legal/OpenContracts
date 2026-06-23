@@ -164,7 +164,7 @@ authority's own outbound citations at `depth+1`.
 
 Each frontier row carries a `discovery_state`:
 
-`queued` · `in_progress` · `discovered` · `ingested` · `resolved` · `failed` ·
+`queued` · `in_progress` · `ingested` · `failed` ·
 `unsupported` · `blocked_license` · `unlocated` · `pending_approval` · `deferred_cap`
 
 Two pieces worth calling out:
@@ -184,13 +184,16 @@ Two pieces worth calling out:
 ## Operating it
 
 > **Step-by-step how-to:** for runnable procedures — ingesting a supported
-> source (shell, crawl, or the runner UI) and adding a new provider to flip an
+> source (shell, crawl, or the Runs tab) and adding a new provider to flip an
 > authority from `unsupported` to supported — see
 > [Ingesting Authorities & Adding Providers](../guides/ingesting-authorities.md).
+> The admin surfaces named below are tabs of the
+> [Authority Console](authority-console.md) at `/admin/authority`.
 
-### Trigger — the enrichment runner
+### Trigger — the Runs tab
 
-`/admin/authority/runs` (and a per-corpus card) drives runs via the
+`/admin/authority/runs` (the Runs tab of the Authority Console, and a per-corpus
+card) drives runs via the
 `runCorpusEnrichment` mutation. Pick reference enrichment and/or authority crawl,
 optionally enable the LLM detection tier and the advanced crawl bounds (max depth,
 min demand, max authorities, per-jurisdiction cap, token budget), and Run. The
@@ -198,21 +201,22 @@ mutation is gated on corpus **UPDATE** (see Permissions below).
 
 ![Enrichment runner with a live job list](../assets/images/screenshots/auto/enrichment--runner-and-jobs--with-data.png)
 
-### Monitor — live job status & the authority-sources monitor
+### Monitor — live job status & the Queue tab
 
-The runner's job list shows each `Analysis` live (`RUNNING` / `COMPLETED` /
+The Runs tab's job list shows each `Analysis` live (`RUNNING` / `COMPLETED` /
 `FAILED`, elapsed, result summary) via an `Analysis → Notification` signal over the
 notification WebSocket.
 
-For the instance-wide picture, the read-only **authority-sources monitor** at
-`/admin/authority/queue` (superuser-only) is the ingestion backlog over the whole
+For the instance-wide picture, the **Queue tab** of the Authority Console
+at `/admin/authority/queue` (superuser-only) is the ingestion backlog over the whole
 `AuthorityFrontier`: per-state count chips, jurisdiction / type / provider filters,
 search, and a backlog-first table. It is powered by the `authorityFrontier` relay
 connection + `authorityFrontierStats` (both superuser-gated) and
-`AuthorityFrontierService.admin_state_counts`. It is observational — triggering
-stays in the runner.
+`AuthorityFrontierService.admin_state_counts`. Beyond observing, it exposes per-row
+**requeue / reset / reroute / approve / delete** verbs; triggering enrichment runs
+stays on the Runs tab.
 
-![Global authority-sources monitor](../assets/images/screenshots/auto/authorities--sources-monitor--with-data.png)
+![Authority Console — Queue tab](../assets/images/screenshots/auto/authorities--console-queue--with-data.png)
 
 ### Explore — the governance graph
 
@@ -241,7 +245,7 @@ exception: they may trigger enrichment/crawl on any corpus they can **READ**
 without holding `UPDATE` — a retained admin privilege documented in
 `docs/permissioning/consolidated_permissioning_guide.md`. The exemption widens the
 *write-trigger* only; a superuser still cannot see a corpus they lack READ on (no
-blanket bypass). The `/admin/authority/queue` monitor and the `authorityFrontier`
+blanket bypass). The `/admin/authority/queue` Queue tab and the `authorityFrontier`
 queries are superuser-gated at the node level.
 
 ---
@@ -263,8 +267,8 @@ queries are superuser-gated at the node level.
   the new section version — see `docs/architecture/reference-web-versioning.md`.
 - **Live per-document progress counter (deferred).** Progress during a run is
   conveyed today by the RUNNING job status, the incrementally-appearing refs, and
-  the "In progress" badge. A live per-document counter on the enrichment runner
-  (e.g. "12 / 75 documents · 31 references") would need a transient
+  the "In progress" badge. A live per-document counter on the Authority Console
+  Runs tab (e.g. "12 / 75 documents · 31 references") would need a transient
   `ENRICHMENT_PROGRESS` WebSocket message emitted from both `apply` paths and a
   new handler in `useNotificationWebSocket` → `useEnrichmentJobs` →
   `EnrichmentJobList`. Deferred as its own change (the WS path is not

@@ -354,6 +354,57 @@ class TestCorpusSerializerNormalisesPreferredLLM(TestCase):
         corpus.refresh_from_db()
         self.assertIsNone(corpus.preferred_llm)
 
+    def test_unknown_provider_rejected_with_clean_field_error(self):
+        """A bad spec must fail serializer validation (clean ``ok=False``
+        message), NOT bubble out of ``save()`` as a generic internal error.
+
+        The free-text picker lets a user type an unregistered provider; the
+        update mutation should return the real reason on the
+        ``preferred_llm`` field rather than "internal error".
+        """
+        from config.graphql.serializers import CorpusSerializer
+
+        corpus = Corpus.objects.create(
+            title="Bad Spec",
+            creator=self.user,
+            preferred_llm="anthropic:claude-opus-4-6",
+        )
+        serializer = CorpusSerializer(
+            instance=corpus,
+            data={"preferred_llm": "not-a-provider:foo"},
+            partial=True,
+        )
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("preferred_llm", serializer.errors)
+        self.assertIn("not registered", str(serializer.errors["preferred_llm"]))
+        # The bad value never reached the DB.
+        corpus.refresh_from_db()
+        self.assertEqual(corpus.preferred_llm, "anthropic:claude-opus-4-6")
+
+    def test_malformed_spec_rejected_at_serializer(self):
+        from config.graphql.serializers import CorpusSerializer
+
+        corpus = Corpus.objects.create(title="Malformed", creator=self.user)
+        serializer = CorpusSerializer(
+            instance=corpus, data={"preferred_llm": "anthropic:"}, partial=True
+        )
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("preferred_llm", serializer.errors)
+
+    def test_valid_spec_passes_serializer_validation(self):
+        from config.graphql.serializers import CorpusSerializer
+
+        corpus = Corpus.objects.create(title="Valid", creator=self.user)
+        serializer = CorpusSerializer(
+            instance=corpus,
+            data={"preferred_llm": "anthropic:claude-opus-4-6"},
+            partial=True,
+        )
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        serializer.save()
+        corpus.refresh_from_db()
+        self.assertEqual(corpus.preferred_llm, "anthropic:claude-opus-4-6")
+
 
 class TestAgentConfigurationPreferredLLMField(TestCase):
     user: UserModel

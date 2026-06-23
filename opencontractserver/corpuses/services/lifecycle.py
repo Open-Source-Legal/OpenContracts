@@ -462,6 +462,14 @@ class DocumentLifecycleService(BaseService):
         ``Corpus.remove_document`` produces, so trashed documents stay in the
         trash listing and remain restorable.
 
+        Scaling caveat — O(1) in *queries*, not in *memory*: this primitive
+        still materializes both ``document_ids`` and the locked ``active_paths``
+        fully into Python lists, so there is **no built-in document-count
+        ceiling**. That is fine for realistic corpus sizes, but chunk/iterate
+        the doc set here before exposing an unbounded ``empty_corpus`` / folder
+        cascade-delete to arbitrarily large corpora (memory follow-up tracked
+        in #2045; #1951 was the now-closed query-count fix).
+
         NOTE: This is an internal primitive that performs **no permission
         check** — callers (``empty_corpus``, folder cascade-delete) must already
         have verified corpus DELETE permission. It does not touch the folder
@@ -485,14 +493,6 @@ class DocumentLifecycleService(BaseService):
         if not document_ids:
             return 0
 
-        # Pre-initialised before the transaction so the post-block logger/return
-        # below always sees a bound name (a ``with`` does not introduce a new
-        # scope). Purely defensive: today the in-block assignment always runs
-        # before the block exits normally, but a future edit that makes it
-        # conditional — letting the ``with`` complete without it — would
-        # otherwise ``NameError`` at the logger.
-        trashed_doc_ids: set[int] = set()
-
         # Self-contained transaction so a standalone/test caller still gets
         # all-or-nothing semantics; when invoked from within a caller's
         # ``transaction.atomic()`` (empty_corpus, folder cascade-delete) this is
@@ -513,15 +513,10 @@ class DocumentLifecycleService(BaseService):
             # absent here (skipped, never double-trashed) and one added after it
             # is left alone — the same semantics as the prior per-document loop.
             #
-            # PERF/MEMORY: both ``document_ids`` and ``active_paths`` are fully
-            # materialized in memory, bounded by the in-scope document count —
-            # which the current callers (empty_corpus, folder cascade-delete)
-            # leave unbounded. Fine for realistic corpus sizes; this is the
-            # allocation point to revisit (chunk/iterate the doc set) before
-            # raising any hard document-count ceiling on these paths. #1951
-            # fixed the O(N) *query count*; bounding peak *memory* is tracked
-            # separately in #2045 (chunking trades the O(1) query-count
-            # guarantee this primitive currently makes).
+            # PERF/MEMORY: this ``list()`` (plus the caller's ``document_ids``
+            # snapshot) is the unbounded allocation point behind the docstring
+            # "Scaling caveat" — chunk/iterate here to add a document-count
+            # ceiling for the empty_corpus / cascade-delete callers (#2045).
             active_paths = list(
                 DocumentPath.objects.select_for_update(of=("self",))
                 .select_related("document")
@@ -611,10 +606,17 @@ class DocumentLifecycleService(BaseService):
                         is_public=False
                     )
 
-        logger.info(
-            "Bulk soft-deleted %s document(s) in corpus %s by user %s",
-            len(trashed_doc_ids),
-            corpus.id,
-            user.id,
-        )
-        return len(trashed_doc_ids)
+            # Defer the audit log to on_commit so it reports only durably
+            # committed trashing (never a false "soft-deleted N" on a rolled-back
+            # block) — the rollback-safety contract the signals above rely on.
+            trashed_count = len(trashed_doc_ids)
+            corpus_id, user_id = corpus.id, user.id
+            transaction.on_commit(
+                lambda: logger.info(
+                    "Bulk soft-deleted %s document(s) in corpus %s by user %s",
+                    trashed_count,
+                    corpus_id,
+                    user_id,
+                )
+            )
+            return trashed_count

@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { toast } from "react-toastify";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
+import { LlmModelPicker } from "../common/LlmModelPicker";
 import { PipelineComponentType } from "../../types/graphql-api";
 import { getComponentDisplayName } from "./PipelineIcons";
 import { PIPELINE_UI } from "../../assets/configurations/constants";
@@ -1073,110 +1074,20 @@ export const SystemSettings: React.FC = () => {
           onClose={() => setShowDefaultLlmModal(false)}
         />
         <ModalBody>
-          <FormField>
-            <FormLabel>Default LLM Model Spec</FormLabel>
-            <Input
-              id="default-llm"
-              value={defaultLlmValue}
-              onChange={(e) => setDefaultLlmValue(e.target.value)}
-              placeholder="e.g., anthropic:claude-opus-4-6"
-              fullWidth
-            />
-            <FormHelperText>
-              pydantic-ai model spec in "provider:model" form. Leave empty to
-              fall back to the server default. Per-corpus and per-agent settings
-              still take precedence over this value.
-            </FormHelperText>
-          </FormField>
-          {componentsByStage.llmProviders.length > 0 && (
-            <div style={{ marginTop: "1rem" }}>
-              <FormLabel>
-                Registered Providers &amp; Suggested Models:
-              </FormLabel>
-              {componentsByStage.llmProviders.map((provider) => {
-                const providerKey = provider.providerKey || "";
-                const models = (provider.supportedModels || []).filter(
-                  (m): m is string => Boolean(m)
-                );
-                return (
-                  <div
-                    key={provider.className}
-                    style={{ marginTop: "0.75rem" }}
-                  >
-                    <div
-                      style={{
-                        fontSize: "0.8125rem",
-                        fontWeight: 600,
-                        marginBottom: "0.375rem",
-                      }}
-                    >
-                      {provider.title || provider.name}
-                      {provider.requiresApiKey && (
-                        <span
-                          style={{
-                            marginLeft: 6,
-                            fontSize: "0.75rem",
-                            fontWeight: 400,
-                            color: OS_LEGAL_COLORS.textSecondary,
-                          }}
-                        >
-                          (API key required)
-                        </span>
-                      )}
-                    </div>
-                    <div
-                      style={{
-                        display: "flex",
-                        flexWrap: "wrap",
-                        gap: "0.375rem",
-                      }}
-                    >
-                      {models.length > 0 ? (
-                        models.map((model) => {
-                          const spec = providerKey
-                            ? `${providerKey}:${model}`
-                            : model;
-                          const selected = defaultLlmValue === spec;
-                          return (
-                            <button
-                              key={spec}
-                              type="button"
-                              onClick={() => setDefaultLlmValue(spec)}
-                              style={{
-                                padding: "0.25rem 0.625rem",
-                                fontSize: "0.75rem",
-                                cursor: "pointer",
-                                borderRadius: "9999px",
-                                background: selected
-                                  ? "#e0e7ff"
-                                  : OS_LEGAL_COLORS.surfaceHover,
-                                border: `1px solid ${
-                                  selected ? "#6366f1" : OS_LEGAL_COLORS.border
-                                }`,
-                                color: OS_LEGAL_COLORS.textPrimary,
-                              }}
-                            >
-                              {model}
-                            </button>
-                          );
-                        })
-                      ) : (
-                        <span
-                          style={{
-                            fontSize: "0.75rem",
-                            color: OS_LEGAL_COLORS.textSecondary,
-                          }}
-                        >
-                          No suggested models — enter a spec manually
-                          {providerKey ? ` (prefix: ${providerKey}:)` : ""}.
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+          <LlmModelPicker
+            id="default-llm"
+            label="Default LLM Model Spec"
+            value={defaultLlmValue}
+            onChange={setDefaultLlmValue}
+            providers={componentsByStage.llmProviders}
+            placeholder="e.g., anthropic:claude-opus-4-6"
+            showApiKeyBadge
+            helperText={
+              'pydantic-ai model spec in "provider:model" form. Leave empty to ' +
+              "fall back to the server default. Per-corpus and per-agent " +
+              "settings still take precedence over this value."
+            }
+          />
         </ModalBody>
         <ModalFooter>
           <Button

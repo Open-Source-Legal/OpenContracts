@@ -1,13 +1,16 @@
 - **Post-merge review follow-ups for the bulk-trash primitive (#2039, follow-up
-  to #2030).** Hardening + documentation polish, no behavior change:
-  `DocumentLifecycleService.bulk_soft_delete_documents`
-  (`opencontractserver/corpuses/services/lifecycle.py`) now initialises
-  `trashed_doc_ids` before the `transaction.atomic()` block so the trailing
-  logger/return can never `NameError` if a future early-return is added (a
-  `with` does not introduce a scope); its `PERF/MEMORY` comment's dangling
-  forward-reference now points to #2045 for the memory-bounding (chunking)
-  follow-up, with #1951 retained as the query-count fix it actually was. Both
-  the module and class docstrings in
+  to #2030).** Documentation + test polish, no behavior change. This work landed
+  after the overlapping #2046 (review #2036) merged, so the
+  `bulk_soft_delete_documents` parts are reconciled with it: in
+  `opencontractserver/corpuses/services/lifecycle.py` the *memory* follow-up
+  references (the docstring "Scaling caveat" and the `PERF/MEMORY` comment) are
+  retargeted from the now-closed #1951 to the open #2045 — completing the #2039
+  point that the `(#1951)` forward-reference dangles once #1951 is closed (#2046
+  added the caveat but kept pointing at the closed #1951). The separate #2039
+  nit about `trashed_doc_ids` being read outside its `with` block is now moot:
+  #2046 moved the audit log into `transaction.on_commit` *inside* the block, so
+  there is no outside-block reference left to guard and no pre-initialisation is
+  needed. Both the module and class docstrings in
   `opencontractserver/corpuses/services/paths.py` are corrected to describe the
   mixed convention accurately — they previously claimed *all* methods were
   underscore-prefixed, which the public `disambiguate_path` /
@@ -19,6 +22,7 @@
   12 lines to 6 — dropping prose while keeping the numpy detail and the
   dual-usage note (pre-commit hook + standalone CI `Run mypy` step) inline,
   rather than cross-referencing the `2030-mypy-py312` changelog fragment (which
-  `collate_changelog.py --apply` deletes at release). `test_query_count_independent_of_document_count` gains
-  `msg=` strings on both its query-count floor and the O(1) equality assertions
-  so a future failure is self-documenting.
+  `collate_changelog.py --apply` deletes at release).
+  `test_query_count_independent_of_document_count` gains `msg=` strings on both
+  its query-count floor and the O(1) equality assertions so a future failure is
+  self-documenting.

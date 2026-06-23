@@ -24,3 +24,13 @@ NONE_RESULT_TOOL_LOOP = "tool_loop_no_output"
 NONE_RESULT_UNKNOWN = "unknown"
 
 EXTRACT_DEFAULT_TEMPERATURE = 0.3
+
+# Low temperature for conversation-title generation: a title is a short,
+# deterministic summary, so consistency matters more than creativity.
+TITLE_GENERATION_TEMPERATURE = 0.3
+
+# General-purpose default sampling temperature for the one-shot completion
+# helper (``llms.completions.agenerate_text``) when a caller does not pass an
+# explicit temperature. Mirrors the bare ``0.7`` default used across the agent
+# API; named here so the helper signature carries no magic number.
+DEFAULT_COMPLETION_TEMPERATURE = 0.7
