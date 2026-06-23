@@ -608,14 +608,17 @@ class DocumentLifecycleService(BaseService):
                         is_public=False
                     )
 
-            # ``trashed_doc_ids`` is defined and consumed entirely inside this
-            # atomic block (like the early ``return 0`` above), so the success
-            # log + return live here too — keeping the set's scope obvious
-            # instead of referencing it after the ``with`` has exited.
-            logger.info(
-                "Bulk soft-deleted %s document(s) in corpus %s by user %s",
-                len(trashed_doc_ids),
-                corpus.id,
-                user.id,
+            # Defer the audit log to on_commit so it reports only durably
+            # committed trashing (never a false "soft-deleted N" on a rolled-back
+            # block) — the rollback-safety contract the signals above rely on.
+            # Capturing the count keeps ``trashed_doc_ids`` consumed in-scope.
+            trashed_count = len(trashed_doc_ids)
+            transaction.on_commit(
+                lambda: logger.info(
+                    "Bulk soft-deleted %s document(s) in corpus %s by user %s",
+                    trashed_count,
+                    corpus.id,
+                    user.id,
+                )
             )
-            return len(trashed_doc_ids)
+            return trashed_count
