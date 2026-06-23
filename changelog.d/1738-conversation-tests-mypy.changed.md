@@ -18,19 +18,23 @@
   `User = get_user_model()` alias for the concrete
   `from opencontractserver.users.models import User` import, since mypy rejects
   a `get_user_model()` variable as a type annotation.
-- **Declared the `_skip_signals` fixture flag on `BaseOCModel`
-  (`opencontractserver/shared/Models.py`).** `_skip_signals` is an out-of-band
-  attribute that tests/fixtures and one production path
+- **Declared the `_skip_signals` fixture flag on `InstanceUserCanMixin`
+  (`opencontractserver/shared/user_can_mixin.py`).** `_skip_signals` is an
+  out-of-band attribute that tests/fixtures and one production path
   (`llms/tools/moderation_tools.py`) set on model instances so the signal
   handlers in `*/signals.py` skip their side effects (notifications, badge
   awards, corpus-action triggers). It was undeclared, which forced a
   `# type: ignore[attr-defined]` in `moderation_tools.py` and produced 26
   `attr-defined` errors in `test_thread_corpus_actions`. Declaring it once as
-  `_skip_signals: bool` on the shared base (a type-only bare annotation;
-  Django's model metaclass ignores it at runtime, so `hasattr`/`getattr`
-  guards still behave identically) removes the existing ignore, clears all 26
-  test errors, and future-proofs the other still-baselined tests that use the
-  flag (`test_badges`, `test_leaderboard`, `test_notifications`). The full
+  `_skip_signals: bool` on the mixin shared by `BaseOCModel` *and* the
+  `TreeNode`-rooted `Corpus` / `CorpusFolder` (a type-only bare annotation;
+  Django's model metaclass ignores it at runtime, so the presence-based
+  `hasattr`/`getattr` guards still behave identically) removes the existing
+  ignore, clears all 26 test errors, and types the flag across both model
+  lineages — future-proofing the other still-baselined tests that use it on
+  `Conversation`/`ChatMessage` (`test_badges`, `test_leaderboard`,
+  `test_notifications`) as well as on `Corpus` (`test_caml_intelligence_block`).
+  The full
   project surface (`mypy --config-file mypy.ini opencontractserver config`)
   stays clean under both the pre-commit pin (`mypy==2.0.0`) and CI's pin
   (`mypy==2.1.0`).

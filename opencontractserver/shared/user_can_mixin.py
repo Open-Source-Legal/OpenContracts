@@ -153,6 +153,21 @@ class InstanceUserCanMixin:
     or fix the manager — never paper over the ``AttributeError``.
     """
 
+    # Out-of-band signal-suppression flag (NOT a DB field). The signal
+    # handlers in ``*/signals.py`` check it on the instance to skip their
+    # side effects (notifications, badge awards, corpus-action triggers)
+    # during fixture creation and a handful of internal saves (e.g.
+    # ``llms/tools/moderation_tools.py``). Declared here — on the mixin shared
+    # by ``BaseOCModel`` *and* the ``TreeNode``-rooted ``Corpus`` /
+    # ``CorpusFolder`` — so the attribute is typed across both model lineages
+    # (a bare annotation Django's metaclass ignores at runtime).
+    #
+    # The protocol is PRESENCE-based: set it to ``True`` to suppress. Most
+    # handlers use ``hasattr(instance, "_skip_signals")``, so assigning
+    # ``False`` does NOT re-enable signals — ``del instance._skip_signals`` is
+    # the only reliable re-enable. Normally absent at runtime.
+    _skip_signals: bool
+
     def __getstate__(self) -> Any:
         """Strip the Tier 1 permission cache before pickling.
 
