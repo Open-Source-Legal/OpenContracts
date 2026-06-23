@@ -165,7 +165,10 @@ class InstanceUserCanMixin:
     # The protocol is PRESENCE-based: set it to ``True`` to suppress. Most
     # handlers use ``hasattr(instance, "_skip_signals")``, so assigning
     # ``False`` does NOT re-enable signals — ``del instance._skip_signals`` is
-    # the only reliable re-enable. Normally absent at runtime.
+    # the only reliable re-enable. (The lone exception is
+    # ``notifications/signals.py``'s ``emit_analysis_status_notification``,
+    # which reads ``getattr(instance, "_skip_signals", False)`` and so IS
+    # value-sensitive.) Normally absent at runtime.
     _skip_signals: bool
 
     def __getstate__(self) -> Any:
