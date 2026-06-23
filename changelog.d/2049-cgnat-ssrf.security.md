@@ -52,3 +52,15 @@
   declared safe (fail-open) while httpx still resolves independently at connect
   time. It now raises `SSRFValidationError` when no addresses resolve. Covered by
   `test_empty_getaddrinfo_rejected`.
+- **Redirect-loop robustness in `safe_fetch_bytes`.** The hop check now keys off
+  `r.has_redirect_location` rather than `r.is_redirect` — in httpx `is_redirect`
+  is true for *any* 3xx, so a `304 Not Modified` (or any non-`Location` 3xx) was
+  treated as a redirect, resolved `Location: ""` back to the current URL, and
+  looped to the redirect cap with a misleading "exceeded N redirects". A present-
+  but-empty `Location:` now fails fast with a clear error, and a negative
+  `Content-Length` (e.g. `-1`, which parsed cleanly and slipped the `> max_bytes`
+  guard) is rejected as malformed. None are SSRF bypasses (the loop is bounded
+  and the streamed-bytes cap is the real backstop), but they remove wasted hops
+  and misleading diagnostics under server misbehaviour. Covered by
+  `test_empty_location_header_rejected`, `test_non_location_3xx_not_followed_as_redirect`,
+  and `test_negative_content_length_raises`.

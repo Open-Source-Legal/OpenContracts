@@ -66,10 +66,15 @@ def _mock_stream(status_code: int, body: bytes = b"", headers: dict | None = Non
     """Context-manager factory returned by a mocked ``httpx.Client.stream``."""
     resp = MagicMock()
     resp.status_code = status_code
-    resp.is_redirect = status_code in (301, 302, 303, 307, 308)
-    resp.has_redirect_location = resp.is_redirect
-    resp.headers = MagicMock()
     hdr_dict = headers or {}
+    # Mirror httpx 0.28.x: ``is_redirect`` is ANY 3xx, while
+    # ``has_redirect_location`` additionally requires a redirect status code AND a
+    # Location header present. safe_fetch_bytes keys off the latter.
+    resp.is_redirect = 300 <= status_code < 400
+    resp.has_redirect_location = (
+        status_code in (301, 302, 303, 307, 308) and "location" in hdr_dict
+    )
+    resp.headers = MagicMock()
     resp.headers.get = lambda k, default=None: hdr_dict.get(k, default)
     resp.raise_for_status = MagicMock()
 
@@ -209,9 +214,11 @@ class TestAssertPublicIp:
     @pytest.mark.parametrize(
         "cgnat_ip",
         [
+            "100.64.0.0",  # network address — low boundary of the /10 block
             "100.64.0.1",  # first usable CGNAT address
             "100.100.100.100",  # mid-range
             "100.127.255.254",  # last usable CGNAT address
+            "100.127.255.255",  # high boundary of the /10 block
         ],
     )
     def test_cgnat_shared_address_space_rejected(self, cgnat_ip):
@@ -312,6 +319,40 @@ class TestAssertPublicIp:
 
 
 class TestSafeFetchBytesRedirect:
+    def test_empty_location_header_rejected(self):
+        """A redirect status with a present-but-empty Location fails fast.
+
+        ``Location: `` (header present, value empty) would otherwise resolve to
+        the current URL and loop to the redirect cap with a misleading "exceeded
+        N redirects". It now raises a clear empty-Location error on the first hop.
+        """
+
+        def _stream_dispatch(self_client, method, url, **kwargs):
+            return _mock_stream(302, b"", {"location": ""})
+
+        with patch("socket.getaddrinfo", side_effect=_fake_getaddrinfo_public):
+            with patch("httpx.Client.stream", _stream_dispatch):
+                with pytest.raises(SSRFValidationError, match="empty Location"):
+                    safe_fetch_bytes(ALLOWED_URL)
+
+    def test_non_location_3xx_not_followed_as_redirect(self):
+        """A 3xx without a Location (e.g. 304) is NOT treated as a redirect.
+
+        httpx reports ``is_redirect=True`` for any 3xx including 304; keying off
+        ``has_redirect_location`` instead means a 304 falls through to normal
+        handling rather than looping. Here the 304 carries a body, which is
+        returned (raise_for_status is a MagicMock no-op for the 3xx).
+        """
+
+        def _stream_dispatch(self_client, method, url, **kwargs):
+            return _mock_stream(304, b"not-modified-body")  # no Location header
+
+        with patch("socket.getaddrinfo", side_effect=_fake_getaddrinfo_public):
+            with patch("httpx.Client.stream", _stream_dispatch):
+                body, host = safe_fetch_bytes(ALLOWED_URL)
+        assert body == b"not-modified-body"
+        assert host == ALLOWED_HOST
+
     def test_redirect_to_private_ip_rejected(self):
         """
         First hop: allowlisted host → 302 → Location: https://127.0.0.1/
@@ -698,6 +739,23 @@ class TestMalformedContentLength:
             with patch("httpx.Client.stream", _stream_dispatch):
                 with pytest.raises(
                     SSRFValidationError, match="malformed content-length"
+                ):
+                    safe_fetch_bytes(ALLOWED_URL)
+
+    def test_negative_content_length_raises(self):
+        """A negative Content-Length (e.g. -1) parses but must be rejected as malformed.
+
+        ``int("-1")`` succeeds and ``-1 > max_bytes`` is False, so without an
+        explicit guard the header fast-fail would be skipped for negative values.
+        """
+
+        def _stream_dispatch(self_client, method, url, **kwargs):
+            return _mock_stream(200, b"hi", {"content-length": "-1"})
+
+        with patch("socket.getaddrinfo", side_effect=_fake_getaddrinfo_public):
+            with patch("httpx.Client.stream", _stream_dispatch):
+                with pytest.raises(
+                    SSRFValidationError, match="negative content-length"
                 ):
                     safe_fetch_bytes(ALLOWED_URL)
 

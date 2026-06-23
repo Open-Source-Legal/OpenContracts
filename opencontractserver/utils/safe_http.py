@@ -199,8 +199,20 @@ def safe_fetch_bytes(
             with client.stream(
                 "GET", current, params=params, headers=request_headers
             ) as r:
-                if r.is_redirect:
+                # ``has_redirect_location`` (not ``is_redirect``) is the precise
+                # check: in httpx ``is_redirect`` is ANY 3xx, so a 304 Not Modified
+                # (or any non-Location 3xx) would otherwise be treated as a
+                # redirect, resolve Location "" back to the current URL, and loop
+                # to the redirect cap with a misleading error.
+                if r.has_redirect_location:
                     loc = r.headers.get("location", "")
+                    if not loc:
+                        # Redirect status with a present-but-empty Location: would
+                        # resolve to the current URL and loop until the cap. Fail
+                        # fast with the real reason instead.
+                        raise SSRFValidationError(
+                            f"redirect from {current!r} has an empty Location header"
+                        )
                     # Resolve relative Location against the current URL (reuse the
                     # parsed objects rather than re-parsing the string twice).
                     current_url = httpx.URL(current)
@@ -236,6 +248,12 @@ def safe_fetch_bytes(
                         cl_int = int(cl)
                     except (ValueError, TypeError):
                         raise SSRFValidationError(f"malformed content-length {cl!r}")
+                    if cl_int < 0:
+                        # A negative Content-Length (some servers send -1 for
+                        # streamed responses) parses fine but would silently slip
+                        # the > max_bytes guard below, making the header fast-fail
+                        # dead code. Treat it as malformed.
+                        raise SSRFValidationError(f"negative content-length {cl!r}")
                     if cl_int > max_bytes:
                         raise SSRFValidationError(
                             f"content-length {cl} exceeds cap of {max_bytes} bytes"
