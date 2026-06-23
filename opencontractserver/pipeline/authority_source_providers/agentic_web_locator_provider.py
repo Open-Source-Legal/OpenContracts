@@ -93,8 +93,11 @@ class AgenticWebLocatorProvider(BaseAuthoritySourceProvider):
     #   pydantic-ai raises UsageLimitExceeded past this bound.
     # max_fetch_chars: cap on characters returned from a fetched page, keeping
     #   the agent context bounded.
+    # web_search_results: number of results web_search returns to the agent per
+    #   query (tunable here rather than a bare literal in the tool body).
     max_agent_requests: ClassVar[int] = 10
     max_fetch_chars: ClassVar[int] = 50_000
+    web_search_results: ClassVar[int] = 5
 
     def can_handle(self, canonical_key: str) -> bool:
         """Claims every key when enabled; disabled → never selected."""
@@ -242,7 +245,7 @@ class AgenticWebLocatorProvider(BaseAuthoritySourceProvider):
         """
         from opencontractserver.llms.tools.web_search_tools import aweb_search
 
-        return await aweb_search(query=query, num_results=5)
+        return await aweb_search(query=query, num_results=self.web_search_results)
 
     async def _tool_fetch_allowlisted(self, url: str) -> str:
         """Fetch text from a gov-domain URL.

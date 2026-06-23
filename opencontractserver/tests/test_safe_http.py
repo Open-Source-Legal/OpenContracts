@@ -38,8 +38,13 @@ def _fake_getaddrinfo_public(host, port, *args, **kwargs):
     return [(2, 1, 6, "", ("1.1.1.1", 0))]
 
 
-def _fake_getaddrinfo_private(ip_str):
-    """Return a getaddrinfo patcher that resolves to *ip_str*."""
+def _fake_getaddrinfo(ip_str):
+    """Return a getaddrinfo patcher that resolves any host to *ip_str*.
+
+    Accepts ANY address string (public, private, CGNAT, IPv4-mapped, or native
+    IPv6) — each test decides whether that address should be accepted or
+    rejected, so this helper is intentionally neutral about the IP's class.
+    """
 
     def _inner(host, port, *args, **kwargs):
         return [(2, 1, 6, "", (ip_str, 0))]
@@ -145,7 +150,7 @@ class TestAssertPublicIp:
     def test_ipv4_private_rejected(self, private_ip):
         with patch(
             "socket.getaddrinfo",
-            side_effect=_fake_getaddrinfo_private(private_ip),
+            side_effect=_fake_getaddrinfo(private_ip),
         ):
             with pytest.raises(SSRFValidationError, match="non-public"):
                 _assert_public_ip(ALLOWED_HOST)
@@ -173,7 +178,7 @@ class TestAssertPublicIp:
         """
         with patch(
             "socket.getaddrinfo",
-            side_effect=_fake_getaddrinfo_private("2606:4700:4700::1111"),
+            side_effect=_fake_getaddrinfo("2606:4700:4700::1111"),
         ):
             _assert_public_ip(ALLOWED_HOST)  # must not raise
 
@@ -205,7 +210,7 @@ class TestAssertPublicIp:
         """
         with patch(
             "socket.getaddrinfo",
-            side_effect=_fake_getaddrinfo_private(cgnat_ip),
+            side_effect=_fake_getaddrinfo(cgnat_ip),
         ):
             with pytest.raises(SSRFValidationError, match="non-public"):
                 _assert_public_ip(ALLOWED_HOST)
@@ -225,7 +230,7 @@ class TestAssertPublicIp:
         """
         with patch(
             "socket.getaddrinfo",
-            side_effect=_fake_getaddrinfo_private(public_ip),
+            side_effect=_fake_getaddrinfo(public_ip),
         ):
             _assert_public_ip(ALLOWED_HOST)  # must not raise
 
@@ -250,7 +255,7 @@ class TestAssertPublicIp:
         """
         with patch(
             "socket.getaddrinfo",
-            side_effect=_fake_getaddrinfo_private(mapped_ip),
+            side_effect=_fake_getaddrinfo(mapped_ip),
         ):
             with pytest.raises(SSRFValidationError, match="non-public"):
                 _assert_public_ip(ALLOWED_HOST)
