@@ -228,27 +228,29 @@ class TestFederalRegisterFetchImpl(SimpleTestCase):
         with self.assertRaises(ValueError):
             provider._fetch_impl(req)
 
-    def test_fetch_raises_on_url_special_chars_in_doc_number(
+    def test_fetch_raises_on_invalid_doc_number_chars(
         self, mock_get: MagicMock, _mock_bytes, _mock_text
     ):
-        """A Location whose doc-number segment carries URL-special chars must raise.
+        """A Location whose doc-number segment isn't ``[\\d-]+`` must raise, not fetch.
 
-        ``_LOCATION_DOC_NUMBER_RE`` restricts the capture to ``[\\w-]+`` so a
-        malformed/attacker-influenced Location like
-        ``/documents/2023/01/13/2023-00485?q=x/slug`` does not match (and raises
-        ValueError) rather than silently interpolating ``2023-00485?q=x`` into the
-        step-2 URL and hitting the wrong endpoint.
+        ``_LOCATION_DOC_NUMBER_RE`` restricts the capture to digits + hyphen (real
+        FR numbers are ``YYYY-NNNNN``), so a Location carrying URL-special chars
+        (``?``, ``#``) OR letters/underscores does not match — it raises ValueError
+        instead of silently interpolating the garbage into the step-2 URL and
+        hitting the wrong endpoint.
         """
-        bad_redirect = MagicMock()
-        bad_redirect.status_code = 302
-        bad_redirect.headers = {"Location": "/documents/2023/01/13/2023-00485?q=x/s"}
-        bad_redirect.raise_for_status = MagicMock()
-
-        mock_get.return_value = bad_redirect
         provider = FederalRegisterAuthoritySourceProvider()
         req = provider._locate_impl("fedreg:88.1722")
-        with self.assertRaises(ValueError):
-            provider._fetch_impl(req)
+        for bad_segment in ("2023-00485?q=x", "2023-00485_injected", "2023-00485abc"):
+            bad_redirect = MagicMock()
+            bad_redirect.status_code = 302
+            bad_redirect.headers = {
+                "Location": f"/documents/2023/01/13/{bad_segment}/s"
+            }
+            bad_redirect.raise_for_status = MagicMock()
+            mock_get.return_value = bad_redirect
+            with self.assertRaises(ValueError, msg=f"should raise for {bad_segment!r}"):
+                provider._fetch_impl(req)
 
     def test_step2_ssrf_block_propagates(
         self, _mock_get, mock_bytes: MagicMock, _mock_text

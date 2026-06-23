@@ -54,11 +54,12 @@ _FR_DOC_JSON_URL_TEMPLATE = "{base}/api/v1/documents/{document_number}.json"
 
 # Regex to extract the document number from the redirect Location path.
 # e.g. /documents/2023/01/13/2023-00485/some-slug  →  group(1) = "2023-00485"
-# The capture is restricted to word chars + hyphen (real FR document numbers are
-# ``YYYY-NNNNN``) so a malformed/attacker-influenced Location carrying URL-special
-# characters (``?``, ``#``, …) fails to match and raises rather than silently
-# interpolating them into the step-2 URL and hitting the wrong endpoint.
-_LOCATION_DOC_NUMBER_RE = re.compile(r"/documents/\d{4}/\d{2}/\d{2}/([\w-]+)/")
+# The capture is restricted to digits + hyphen (real FR document numbers are
+# ``YYYY-NNNNN``) so a malformed/attacker-influenced Location carrying letters,
+# underscores, or URL-special characters (``?``, ``#``, …) fails to match and
+# raises rather than silently interpolating them into the step-2 URL and hitting
+# the wrong endpoint.
+_LOCATION_DOC_NUMBER_RE = re.compile(r"/documents/\d{4}/\d{2}/\d{2}/([\d-]+)/")
 
 # Regex for parsing a Federal Register citation to derive volume and page.
 # Matches e.g. "88 FR 2371" and "88 FR 12345".

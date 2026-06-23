@@ -296,6 +296,8 @@ def safe_fetch_text(
 
     Thin wrapper around ``safe_fetch_bytes`` that decodes the body as UTF-8
     (replacing undecodable bytes) and returns the text alongside the final host.
+    Inherits ``safe_fetch_bytes``' behaviour, including the default ``User-Agent``
+    and the cross-host credential-header stripping (see its docstring).
     """
     body, final_host = safe_fetch_bytes(
         url,
