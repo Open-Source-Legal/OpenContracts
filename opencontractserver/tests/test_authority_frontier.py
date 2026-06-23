@@ -339,7 +339,7 @@ class AuthorityFrontierServiceDequeueMarkTests(TestCase):
         AuthorityFrontier.objects.create(
             canonical_key="usc-15:78j-noprov",
             authority="usc-15",
-            discovery_state="queued",
+            discovery_state=C.DISCOVERY_STATE_QUEUED,
             provider=None,
             mention_count=10,
         )
@@ -453,15 +453,19 @@ class AuthorityFrontierServiceDequeueMarkTests(TestCase):
         caller does NOT pass clear_error=True — ``mark()`` clears it implicitly on
         the SUCCESS transition (C.DISCOVERY_SUCCESS_STATES).
         """
-        row = self._make_row("usc-15:78j-retry", provider="TestProv", state="failed")
-        AuthorityFrontierService.mark(row, "failed", error="timeout fetching USLM")
+        row = self._make_row(
+            "usc-15:78j-retry", provider="TestProv", state=C.DISCOVERY_STATE_FAILED
+        )
+        AuthorityFrontierService.mark(
+            row, C.DISCOVERY_STATE_FAILED, error="timeout fetching USLM"
+        )
         row.refresh_from_db()
         self.assertEqual(row.last_error, "timeout fetching USLM")
 
         # Successful retry, no explicit clear_error.
         AuthorityFrontierService.mark(row, C.DISCOVERY_STATE_INGESTED)
         row.refresh_from_db()
-        self.assertEqual(row.discovery_state, "ingested")
+        self.assertEqual(row.discovery_state, C.DISCOVERY_STATE_INGESTED)
         self.assertIsNone(row.last_error)
 
     def test_mark_non_success_state_preserves_error(self):
@@ -471,9 +475,13 @@ class AuthorityFrontierServiceDequeueMarkTests(TestCase):
         error message keeps that message so operators can see why it failed.
         """
         row = self._make_row(
-            "usc-15:78j-stillbad", provider="TestProv", state="in_progress"
+            "usc-15:78j-stillbad",
+            provider="TestProv",
+            state=C.DISCOVERY_STATE_IN_PROGRESS,
         )
-        AuthorityFrontierService.mark(row, "failed", error="still broken")
+        AuthorityFrontierService.mark(
+            row, C.DISCOVERY_STATE_FAILED, error="still broken"
+        )
         row.refresh_from_db()
         self.assertEqual(row.last_error, "still broken")
 

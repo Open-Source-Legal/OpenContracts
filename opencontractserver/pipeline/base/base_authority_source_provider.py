@@ -55,6 +55,15 @@ class BaseAuthoritySourceProvider(PipelineComponentBase, ABC):
 
     # ---- public API (registry/orchestrator calls these) ---------------------
     def can_handle(self, canonical_key: str) -> bool:
+        """Return True if this provider serves *canonical_key*.
+
+        MUST be stateless. The discovery orchestrator instantiates each provider
+        once per ``_provider_for`` call and probes the SAME instance with multiple
+        candidate keys (then reuses it for ``locate``/``fetch``), so an override
+        that stashed match state on ``self`` here would leak stale state across
+        keys. Derive everything ``locate``/``fetch`` need from the key passed to
+        them instead.
+        """
         prefix = canonical_key.split(":", 1)[0]
         return prefix in self.supported_prefixes
 

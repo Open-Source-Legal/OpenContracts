@@ -277,6 +277,14 @@ class AuthorityFrontierService(BaseService):
             raise ValueError("mark(): error and clear_error are exclusive.")
         if set_provider is not None and clear_provider:
             raise ValueError("mark(): set_provider and clear_provider are exclusive.")
+        if error is not None and state in C.DISCOVERY_SUCCESS_STATES:
+            # A terminal SUCCESS row must carry no error (the invariant the
+            # last_error auto-clear below establishes); refuse the contradiction
+            # loudly rather than persist an "ingested but errored" row.
+            raise ValueError(
+                "mark(): cannot set error on a terminal success transition "
+                f"({state!r}); omit error= (success states clear last_error)."
+            )
 
         row.discovery_state = state
         row.last_attempt = timezone.now()
