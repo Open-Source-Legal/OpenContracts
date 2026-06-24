@@ -130,7 +130,10 @@ class LoadAuthorityPackCommandTests(TestCase):
             "constitucional", (corpus.corpus_agent_instructions or "").lower()
         )
         self.assertEqual(
-            CorpusDocumentService.get_corpus_documents(self.owner, corpus).count(), 4
+            CorpusDocumentService.get_corpus_documents_visible_to_user(
+                self.owner, corpus
+            ).count(),
+            4,
         )
         self.assertIn("4 created", output)
 
@@ -142,7 +145,10 @@ class LoadAuthorityPackCommandTests(TestCase):
         self.assertIn("0 created", second)
         corpus = Corpus.objects.get(title=CONSTITUCIONAL_TITLE)
         self.assertEqual(
-            CorpusDocumentService.get_corpus_documents(self.owner, corpus).count(), 4
+            CorpusDocumentService.get_corpus_documents_visible_to_user(
+                self.owner, corpus
+            ).count(),
+            4,
         )
 
 
@@ -208,6 +214,13 @@ class LoadAuthorityPackEdgeCaseTests(TestCase):
         self._run(public=True)
         corpus = Corpus.objects.get(title="Pack Area A")
         self.assertTrue(corpus.is_public)
+        # --public must also cascade to the seeded documents: the authority
+        # would resolve for nobody but the owner otherwise. The cascade is
+        # synchronous — Corpus.save() with is_public transitioning runs
+        # _propagate_public_status_to_documents() inline (no Celery needed).
+        docs = CorpusDocumentService.get_corpus_documents(self.owner, corpus)
+        self.assertTrue(docs.exists())
+        self.assertTrue(all(d.is_public for d in docs))
 
     def test_relink_summary_printed_once(self):
         # Two corpora → exactly ONE re-link sweep (deferred until after the
@@ -382,3 +395,41 @@ class LoadAuthorityPackEdgeCaseTests(TestCase):
         )
         with self.assertRaises(CommandError):
             self._run()
+
+    def test_taxonomy_not_loaded_when_corpora_invalid(self):
+        # The pack is validated end-to-end BEFORE any DB write, so a manifest
+        # with valid mappings but a malformed corpora entry (missing spec file)
+        # must abort WITHOUT persisting taxonomy — no hybrid "namespaces loaded,
+        # zero corpora" state that the idempotent re-run can't surface.
+        self._write_pack(
+            {
+                "name": "p",
+                "mappings": "m.yaml",
+                "corpora": [{"title": "A", "spec": "missing.json"}],
+            },
+            copy_mappings=True,
+        )
+        with self.assertRaises(CommandError):
+            self._run()
+        self.assertEqual(
+            AuthorityNamespace.objects.filter(jurisdiction="bo").count(), 0
+        )
+
+    def test_aliases_wrong_type_rejected(self):
+        # A spec whose 'aliases' is a bare string (not a list) would be iterated
+        # character-by-character downstream and corrupt the alias registry, so
+        # the loader must reject it instead of seeding the corpus.
+        self._write_pack(
+            {"name": "p", "corpora": [{"title": "A", "spec": "a.json"}]},
+            specs={
+                "a.json": {
+                    "aliases": "CPE",
+                    "sections": [
+                        {"key": "cpe:1", "heading": "Artículo 1", "text": "Texto."}
+                    ],
+                }
+            },
+        )
+        with self.assertRaises(CommandError):
+            self._run()
+        self.assertFalse(Corpus.objects.filter(title="A").exists())

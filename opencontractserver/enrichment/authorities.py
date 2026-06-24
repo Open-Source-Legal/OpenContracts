@@ -89,7 +89,22 @@ def parse_section_spec(
                 source_url=sec.get("source_url"),
             )
         )
-    return sections, spec.get("aliases")
+
+    # ``aliases`` flows untouched into ``custom_meta.authority_aliases``, which
+    # ``authority_alias_registry`` iterates as ``for alias in aliases or []``. A
+    # bare string there is truthy, so ``or []`` is skipped and Python iterates it
+    # character-by-character — registering 'C','P','E' as separate alias keys
+    # from "CPE" and corrupting the alias map. Reject any non-list-of-strings
+    # here so a malformed spec fails loudly instead of silently corrupting state.
+    raw_aliases = spec.get("aliases")
+    if raw_aliases is not None and not (
+        isinstance(raw_aliases, list) and all(isinstance(a, str) for a in raw_aliases)
+    ):
+        raise ValueError(
+            f"{label}: 'aliases' must be a list of strings, got "
+            f"{type(raw_aliases).__name__!r}."
+        )
+    return sections, raw_aliases
 
 
 def read_section_spec(

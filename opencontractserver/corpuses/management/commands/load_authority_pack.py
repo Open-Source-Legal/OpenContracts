@@ -89,41 +89,35 @@ class Command(BaseCommand):
         except User.DoesNotExist as exc:
             raise CommandError(f"No user named {options['creator']!r}") from exc
 
-        # 1) Taxonomy ------------------------------------------------------------
-        loaded_taxonomy = self._load_taxonomy(manifest, pack_dir)
-
-        # 2) Corpora + content + personas ---------------------------------------
+        # Validate the WHOLE pack BEFORE any DB write. ``_load_taxonomy`` commits
+        # AuthorityNamespace / AuthorityKeyEquivalence rows immediately, so every
+        # structural check (mappings file present, corpora shape, per-entry
+        # title/spec, spec schema, persona file) must pass first — otherwise a
+        # malformed corpus entry would abort with the taxonomy already durably
+        # written and zero corpora created, a hybrid state the idempotent re-run
+        # can't surface as "nothing happened".
+        mappings_path = self._resolve_mappings_path(manifest, pack_dir)
         corpora = self._manifest_corpora(manifest)
-        if not corpora and not loaded_taxonomy:
+        if not corpora and mappings_path is None:
             raise CommandError(
                 "Pack manifest declares neither 'mappings' nor 'corpora' — "
                 "nothing to load. Check the pack.yaml keys for typos."
             )
 
-        # Defer the reactive re-link until the whole pack has loaded: each
-        # bootstrap_authority_corpus(relink=True) scans the full CorpusReference
-        # table for its own narrow key set, so an N-corpus pack would run N
-        # separate sweeps. Collect every seeded key and run ONE sweep at the end.
+        validated = [self._validate_corpus_entry(entry, pack_dir) for entry in corpora]
+
+        # ---- DB writes start here (pack fully validated) ----------------------
+        # 1) Taxonomy
+        if mappings_path is not None:
+            self._load_taxonomy(mappings_path)
+
+        # 2) Corpora + content + personas. Defer the reactive re-link until the
+        # whole pack has loaded: each bootstrap_authority_corpus(relink=True)
+        # scans the full CorpusReference table for its own narrow key set, so an
+        # N-corpus pack would run N separate sweeps. Collect every seeded key and
+        # run ONE sweep at the end.
         all_keys: list[str] = []
-        for entry in corpora:
-            title = (entry or {}).get("title")
-            spec_rel = (entry or {}).get("spec")
-            if not title or not spec_rel:
-                raise CommandError("Each corpora[] entry needs a 'title' and a 'spec'.")
-            spec_path = pack_dir / spec_rel
-            try:
-                sections, aliases = read_section_spec(
-                    spec_path, label=f"corpus {title!r} spec {spec_path}"
-                )
-            except ValueError as exc:
-                raise CommandError(str(exc)) from exc
-
-            # Resolve the declared persona BEFORE bootstrapping: bootstrap_
-            # authority_corpus commits the corpus and its documents, so a
-            # missing persona file discovered afterwards would strand a
-            # half-loaded corpus. Failing here keeps the first run all-or-nothing.
-            persona_text = self._read_persona(entry, pack_dir)
-
+        for title, sections, aliases, persona_text, entry in validated:
             out = bootstrap_authority_corpus(
                 creator_id=creator.id,
                 corpus_title=title,
@@ -140,7 +134,8 @@ class Command(BaseCommand):
                     f"corpus {out['corpus_id']} ({title}): "
                     f"{out['documents_created']} created, "
                     f"{out['documents_updated']} updated, "
-                    f"{out['documents_skipped']} skipped."
+                    f"{out['documents_skipped']} skipped, "
+                    f"{out['documents_restamped']} restamped."
                 )
             )
 
@@ -159,15 +154,26 @@ class Command(BaseCommand):
                 )
             )
 
-    def _load_taxonomy(self, manifest: dict, pack_dir: Path) -> bool:
-        """Load the pack's authority-mappings YAML (if declared). Returns whether
-        a mappings file was processed."""
+    @staticmethod
+    def _resolve_mappings_path(manifest: dict, pack_dir: Path) -> Path | None:
+        """Validate (without loading) the pack's mappings file.
+
+        Returns the resolved path when a mappings file is declared and present,
+        or ``None`` when the pack declares no taxonomy (a content-only pack,
+        allowed). Raises ``CommandError`` when declared-but-missing — a
+        structural error caught up-front, before :meth:`_load_taxonomy` writes
+        any AuthorityNamespace rows.
+        """
         mappings_rel = manifest.get("mappings")
         if not mappings_rel:
-            return False
+            return None
         mappings_path = pack_dir / mappings_rel
         if not mappings_path.is_file():
             raise CommandError(f"Manifest 'mappings' not found: {mappings_path}")
+        return mappings_path
+
+    def _load_taxonomy(self, mappings_path: Path) -> None:
+        """Load a pre-validated authority-mappings YAML into the registry."""
         summary = AuthorityMappingLoader.load_all(path=mappings_path)
         ns, eq = summary["namespaces"], summary["equivalences"]
         self.stdout.write(
@@ -178,7 +184,29 @@ class Command(BaseCommand):
                 f"total={eq['total']}"
             )
         )
-        return True
+
+    def _validate_corpus_entry(self, entry: dict, pack_dir: Path) -> tuple:
+        """Validate one ``corpora[]`` entry without touching the database.
+
+        Returns ``(title, sections, aliases, persona_text, entry)``. Reading the
+        spec and persona here — before any corpus is bootstrapped — keeps a
+        malformed entry from stranding a half-loaded pack (taxonomy + earlier
+        corpora committed, this one aborted). Raises ``CommandError`` on any
+        structural problem.
+        """
+        title = (entry or {}).get("title")
+        spec_rel = (entry or {}).get("spec")
+        if not title or not spec_rel:
+            raise CommandError("Each corpora[] entry needs a 'title' and a 'spec'.")
+        spec_path = pack_dir / spec_rel
+        try:
+            sections, aliases = read_section_spec(
+                spec_path, label=f"corpus {title!r} spec {spec_path}"
+            )
+        except ValueError as exc:
+            raise CommandError(str(exc)) from exc
+        persona_text = self._read_persona(entry, pack_dir)
+        return title, sections, aliases, persona_text, entry
 
     @staticmethod
     def _manifest_corpora(manifest: dict) -> list:
