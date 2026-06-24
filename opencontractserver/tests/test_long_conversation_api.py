@@ -161,6 +161,7 @@ class TestLongConversationAPI(TransactionTestCase):
             self.assertIsNotNone(
                 conversation_id, "User conversations should have a real ID"
             )
+            assert conversation_id is not None
             self.assertEqual(conversation_info["user_id"], self.user.id)
             self.assertIn(self.document.title, conversation_info["title"])
 
@@ -456,6 +457,7 @@ class TestLongConversationAPI(TransactionTestCase):
             self.assertIsNotNone(
                 conversation_id, "User corpus conversations should have a real ID"
             )
+            assert conversation_id is not None
 
             # Verify database record created
             final_conversation_count = await Conversation.objects.acount()
