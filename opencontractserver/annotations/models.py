@@ -2187,28 +2187,18 @@ class AuthorityFrontier(django.db.models.Model):
     # ("top_detection_tier" is one of enrichment_constants.ALL_DETECTION_TIERS).
     candidate_sources = django.db.models.JSONField(default=list, blank=True)
 
-    # Discovery state machine. NOTE: the historical ``discovered`` and
-    # ``resolved`` states were retired (Authority Console Phase 4): no production
-    # code path ever assigned them (discovery jumps in_progress -> ingested, and
-    # the resolution outcome lives on the relink result / Analysis, not the
-    # frontier row), so carrying them as choices was a dead-vocabulary trap.
-    DISCOVERY_STATE_CHOICES = [
-        ("queued", "Queued"),
-        ("in_progress", "In progress"),
-        ("ingested", "Document imported"),
-        ("failed", "No source found"),
-        ("unsupported", "No provider can_handle"),
-        # Phase 4: visible, non-silent gate outcomes
-        ("blocked_license", "Provider license is not public-domain"),
-        ("blocked_domain", "Source domain not on the public-domain allowlist"),
-        ("unlocated", "Located text did not verify against the requested key"),
-        ("pending_approval", "Found, awaiting human approval before ingest"),
-        # Phase 5: per-jurisdiction cap reached; row parked so dequeue can skip it
-        ("deferred_cap", "Deferred: per-jurisdiction cap reached"),
-    ]
+    # Discovery state machine. The state vocabulary + labels are the single
+    # source of truth in ``enrichment.constants`` (CLAUDE.md item 4: no magic
+    # strings) so the model, the frontier service transition verbs, the
+    # discovery orchestrator, and the gate cannot drift. Re-exported here as a
+    # class attribute so existing references (e.g.
+    # config/graphql/annotation_types.py) keep resolving
+    # ``AuthorityFrontier.DISCOVERY_STATE_CHOICES``. See the constants module for
+    # the note on the retired ``discovered``/``resolved`` states.
+    DISCOVERY_STATE_CHOICES = enrichment_constants.DISCOVERY_STATE_CHOICES
     discovery_state = django.db.models.CharField(
         max_length=32,
-        default="queued",
+        default=enrichment_constants.DISCOVERY_STATE_QUEUED,
         db_index=True,
         choices=DISCOVERY_STATE_CHOICES,
     )
@@ -2261,6 +2251,11 @@ class AuthorityKeyEquivalence(django.db.models.Model):
     that they denote the same authority so find_authority_target can hop across
     namespaces. Plain Model: derived reference data (populated from USLM
     @identifier + <sourceCredit> <ref>s), never user content.
+
+    Direction convention (``from_key`` = popular-name act citation, ``to_key`` =
+    USC codification) is for documentation only: every caller queries both
+    columns, so equivalence is treated as symmetric and a developer reading the
+    model in isolation should not assume lookups are one-directional.
     """
 
     # Single-column indexes are declared once in Meta.indexes below (a bare
