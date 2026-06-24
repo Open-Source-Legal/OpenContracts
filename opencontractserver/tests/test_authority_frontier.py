@@ -603,6 +603,59 @@ class DequeueQueuedTests(TestCase):
         self.assertNotIn("usc-15:7b", keys)
         self.assertNotIn("usc-15:7c", keys)
 
+    def test_dequeue_atomically_claims_rows_in_progress(self):
+        """dequeue_queued is an atomic CLAIM, not a plain read (issue #2027).
+
+        Each returned row must be flipped to ``in_progress`` — both in the
+        returned object and in the DB — so a second concurrent dequeue cannot
+        re-return it and re-run ``discover_and_bootstrap`` on the same key.
+        """
+        self._make_row("usc-15:claim-a", mention_count=10)
+        self._make_row("usc-15:claim-b", mention_count=5)
+
+        first = AuthorityFrontierService.dequeue_queued(limit=1)
+        self.assertEqual(len(first), 1)
+        self.assertEqual(first[0].canonical_key, "usc-15:claim-a")
+        # Claimed in the returned object AND persisted to the DB.
+        self.assertEqual(first[0].discovery_state, "in_progress")
+        self.assertEqual(
+            AuthorityFrontier.objects.get(
+                canonical_key="usc-15:claim-a"
+            ).discovery_state,
+            "in_progress",
+        )
+        self.assertIsNotNone(first[0].last_attempt)
+
+        # A second dequeue must skip the already-claimed row and pick the next.
+        second = AuthorityFrontierService.dequeue_queued(limit=10)
+        keys = {r.canonical_key for r in second}
+        self.assertNotIn("usc-15:claim-a", keys)
+        self.assertIn("usc-15:claim-b", keys)
+
+    def test_filtered_out_rows_are_not_claimed(self):
+        """Rows excluded by min_demand/max_depth must stay ``queued`` (unclaimed).
+
+        The crawl's frontier_drained residual census counts ``queued`` rows, so
+        the claim must touch only rows it actually returns.
+        """
+        self._make_row("usc-15:keep", mention_count=5, depth=0)
+        self._make_row("usc-15:low", mention_count=1, depth=0)  # below min_demand
+        self._make_row("usc-15:deep", mention_count=5, depth=9)  # beyond max_depth
+
+        claimed = AuthorityFrontierService.dequeue_queued(
+            limit=10, max_depth=2, min_demand=2
+        )
+        self.assertEqual({r.canonical_key for r in claimed}, {"usc-15:keep"})
+        # The excluded rows are untouched — still queued for a later, looser pass.
+        self.assertEqual(
+            AuthorityFrontier.objects.get(canonical_key="usc-15:low").discovery_state,
+            "queued",
+        )
+        self.assertEqual(
+            AuthorityFrontier.objects.get(canonical_key="usc-15:deep").discovery_state,
+            "queued",
+        )
+
 
 class SeedChildKeysTests(TestCase):
     """Tests for AuthorityFrontierService.seed_child_keys (Phase-5 idempotent seeding)."""

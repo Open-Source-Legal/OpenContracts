@@ -247,14 +247,18 @@ def crawl_authorities(
     max_depth: int = C.CRAWL_DEFAULT_MAX_DEPTH,
     min_demand: int = C.CRAWL_DEFAULT_MIN_DEMAND,
     max_authorities: int = C.CRAWL_DEFAULT_MAX_AUTHORITIES,
-    per_jurisdiction_cap: int | None = None,
-    token_budget: int | None = None,
+    per_jurisdiction_cap: int = C.CRAWL_DEFAULT_PER_JURISDICTION_CAP,
+    token_budget: int = C.CRAWL_DEFAULT_TOKEN_BUDGET,
 ) -> dict:
     """Bounded recursive crawl: discover & ingest the authorities a corpus
     cites, then the authorities THOSE cite, up to ``max_depth`` hops. Returns a
     summary with per-state counts, per-jurisdiction tallies, the stop reason,
     and the full frontier residual census. Idempotent: already-ingested
     authorities are skipped, re-crawling creates zero duplicate documents.
+
+    All five bound parameters default to the ``C.CRAWL_DEFAULT_*`` constants —
+    a uniform signature so a caller reading it sees the same default style for
+    every bound (no None-sentinel for two of them and constants for the rest).
     """
     from opencontractserver.enrichment.services.crawl_authorities_service import (
         CrawlAuthoritiesService,
@@ -266,14 +270,8 @@ def crawl_authorities(
         max_depth=max_depth,
         min_demand=min_demand,
         max_authorities=max_authorities,
-        per_jurisdiction_cap=(
-            per_jurisdiction_cap
-            if per_jurisdiction_cap is not None
-            else C.CRAWL_DEFAULT_PER_JURISDICTION_CAP
-        ),
-        token_budget=(
-            token_budget if token_budget is not None else C.CRAWL_DEFAULT_TOKEN_BUDGET
-        ),
+        per_jurisdiction_cap=per_jurisdiction_cap,
+        token_budget=token_budget,
     )
 
 
@@ -284,8 +282,8 @@ async def acrawl_authorities(
     max_depth: int = C.CRAWL_DEFAULT_MAX_DEPTH,
     min_demand: int = C.CRAWL_DEFAULT_MIN_DEMAND,
     max_authorities: int = C.CRAWL_DEFAULT_MAX_AUTHORITIES,
-    per_jurisdiction_cap: int | None = None,
-    token_budget: int | None = None,
+    per_jurisdiction_cap: int = C.CRAWL_DEFAULT_PER_JURISDICTION_CAP,
+    token_budget: int = C.CRAWL_DEFAULT_TOKEN_BUDGET,
 ) -> dict:
     return await _db_sync_to_async(crawl_authorities)(
         creator_id=creator_id,
