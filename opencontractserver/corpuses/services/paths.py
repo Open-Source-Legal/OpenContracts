@@ -1,11 +1,12 @@
-"""DocumentPath disambiguation internals for the corpus service layer.
+"""DocumentPath path-manipulation + signal-replay internals for the corpus service layer.
 
-``CorpusPathService`` holds the low-level :class:`DocumentPath` path
-manipulation helpers used by the folder write operations when documents are
-moved between folders or displaced by a folder deletion. Every method here is
-an internal helper (underscore-prefixed): the path layer performs NO
-permission checks — callers gate corpus permissions *before* reaching these
-helpers.
+``CorpusPathService`` holds the low-level :class:`DocumentPath` helpers used
+across the corpus/document layers when documents are moved between folders,
+displaced by a folder deletion, soft-deleted, or restored. The naming
+convention is mixed (a couple of methods are public, the rest are
+underscore-prefixed package-internal helpers) — see the class docstring for
+the distinction. No method here performs permission checks — callers gate
+corpus permissions *before* reaching these helpers.
 
 Split out of the former ``corpus_objs_service.py`` monolith — see
 ``docs/refactor_plans/2026-05-21-service-layer-phase2-corpus-services-plan.md``
@@ -37,15 +38,25 @@ logger = logging.getLogger(__name__)
 
 
 class CorpusPathService(BaseService):
-    """Low-level :class:`DocumentPath` disambiguation helpers.
+    """Low-level :class:`DocumentPath` path-manipulation + signal-replay helpers.
 
-    All methods are internal helpers (underscore-prefixed) shared by the
-    folder write operations in
-    :class:`~opencontractserver.corpuses.services.folders.FolderCRUDService`
+    Shared across the corpus/document layers; they perform NO permission
+    checks — the calling code gates corpus permissions first.
+
+    The naming convention is mixed. ``disambiguate_path`` and
+    ``reconcile_paths_after_folder_change`` are **public**: ``disambiguate_path``
+    is called throughout the corpus service layer and beyond it — e.g.
+    ``Corpus.add_document`` in the model layer and
+    ``documents.versioning.restore_document``. The remaining methods are
+    underscore-prefixed **package-internal** helpers — NOT class-private.
+    ``_dispatch_document_path_created_signals`` in particular is deliberately
+    invoked from the bulk write paths in sibling services
+    (:class:`~opencontractserver.corpuses.services.folders.FolderCRUDService`,
+    :class:`~opencontractserver.corpuses.services.folder_documents.FolderDocumentService`,
     and
-    :class:`~opencontractserver.corpuses.services.folder_documents.FolderDocumentService`.
-    They perform NO permission checks — the calling service is responsible
-    for gating corpus permissions first.
+    :class:`~opencontractserver.corpuses.services.lifecycle.DocumentLifecycleService`)
+    after each ``bulk_create`` of path rows, so a cross-service caller reaching
+    it is expected, not a leak.
     """
 
     @staticmethod
