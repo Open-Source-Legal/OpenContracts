@@ -31,7 +31,6 @@ Manifest (``pack.yaml``) shape::
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
@@ -40,50 +39,14 @@ from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
 
 from opencontractserver.enrichment.authorities import (
-    AuthoritySection,
     bootstrap_authority_corpus,
+    read_section_spec,
 )
 from opencontractserver.enrichment.services.authority_mapping_loader import (
     AuthorityMappingLoader,
 )
 
 User = get_user_model()
-
-
-def _parse_sections(spec_path: Path) -> tuple[list[AuthoritySection], list[str] | None]:
-    """Read and validate a JSON section spec into ``AuthoritySection`` objects.
-
-    Mirrors the validation in the ``bootstrap_authority`` command so a pack spec
-    and a standalone spec are held to the same contract.
-    """
-    try:
-        spec = json.loads(spec_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise CommandError(f"Could not read spec {spec_path}: {exc}") from exc
-
-    raw_sections = spec.get("sections")
-    if not isinstance(raw_sections, list) or not raw_sections:
-        raise CommandError(f"{spec_path}: must contain a non-empty 'sections' list.")
-
-    sections: list[AuthoritySection] = []
-    for i, sec in enumerate(raw_sections):
-        if not isinstance(sec, dict) or not all(
-            isinstance(sec.get(f), str) and sec[f].strip()
-            for f in ("key", "heading", "text")
-        ):
-            raise CommandError(
-                f"{spec_path}: sections[{i}] must have non-empty 'key', 'heading' "
-                "and 'text' (optional 'source_url')."
-            )
-        sections.append(
-            AuthoritySection(
-                key=sec["key"].strip(),
-                heading=sec["heading"].strip(),
-                text=sec["text"],
-                source_url=sec.get("source_url"),
-            )
-        )
-    return sections, spec.get("aliases")
 
 
 class Command(BaseCommand):
@@ -127,46 +90,50 @@ class Command(BaseCommand):
             raise CommandError(f"No user named {options['creator']!r}") from exc
 
         # 1) Taxonomy ------------------------------------------------------------
-        mappings_rel = manifest.get("mappings")
-        if mappings_rel:
-            mappings_path = pack_dir / mappings_rel
-            if not mappings_path.is_file():
-                raise CommandError(f"Manifest 'mappings' not found: {mappings_path}")
-            summary = AuthorityMappingLoader.load_all(path=mappings_path)
-            ns, eq = summary["namespaces"], summary["equivalences"]
-            self.stdout.write(
-                self.style.SUCCESS(
-                    f"taxonomy loaded: namespaces created={ns['created']} "
-                    f"updated={ns['updated']} total={ns['total']}; "
-                    f"equivalences created={eq['created']} updated={eq['updated']} "
-                    f"total={eq['total']}"
-                )
-            )
+        loaded_taxonomy = self._load_taxonomy(manifest, pack_dir)
 
         # 2) Corpora + content + personas ---------------------------------------
-        corpora = manifest.get("corpora") or []
-        if not isinstance(corpora, list):
-            raise CommandError("Manifest 'corpora' must be a list.")
+        corpora = self._manifest_corpora(manifest)
+        if not corpora and not loaded_taxonomy:
+            raise CommandError(
+                "Pack manifest declares neither 'mappings' nor 'corpora' — "
+                "nothing to load. Check the pack.yaml keys for typos."
+            )
 
+        # Defer the reactive re-link until the whole pack has loaded: each
+        # bootstrap_authority_corpus(relink=True) scans the full CorpusReference
+        # table for its own narrow key set, so an N-corpus pack would run N
+        # separate sweeps. Collect every seeded key and run ONE sweep at the end.
+        all_keys: list[str] = []
         for entry in corpora:
             title = (entry or {}).get("title")
             spec_rel = (entry or {}).get("spec")
             if not title or not spec_rel:
                 raise CommandError("Each corpora[] entry needs a 'title' and a 'spec'.")
             spec_path = pack_dir / spec_rel
-            if not spec_path.is_file():
-                raise CommandError(f"corpus {title!r}: spec not found: {spec_path}")
+            try:
+                sections, aliases = read_section_spec(
+                    spec_path, label=f"corpus {title!r} spec {spec_path}"
+                )
+            except ValueError as exc:
+                raise CommandError(str(exc)) from exc
 
-            sections, aliases = _parse_sections(spec_path)
+            # Resolve the declared persona BEFORE bootstrapping: bootstrap_
+            # authority_corpus commits the corpus and its documents, so a
+            # missing persona file discovered afterwards would strand a
+            # half-loaded corpus. Failing here keeps the first run all-or-nothing.
+            persona_text = self._read_persona(entry, pack_dir)
+
             out = bootstrap_authority_corpus(
                 creator_id=creator.id,
                 corpus_title=title,
                 sections=sections,
                 aliases=aliases,
                 make_public=options["public"],
-                relink=not options["no_relink"],
+                relink=False,
             )
-            self._apply_corpus_overrides(out["corpus_id"], entry, pack_dir)
+            self._apply_corpus_overrides(out["corpus_id"], entry, persona_text)
+            all_keys.extend(sec.key for sec in sections)
 
             self.stdout.write(
                 self.style.SUCCESS(
@@ -177,33 +144,96 @@ class Command(BaseCommand):
                 )
             )
 
+        # 3) One reactive re-link across every key the pack seeded.
+        if all_keys and not options["no_relink"]:
+            from opencontractserver.enrichment.services import EnrichmentService
+
+            relink = EnrichmentService().relink_corpora_for_keys(all_keys)
+            self.stdout.write(
+                self.style.SUCCESS(
+                    f"Re-link: {relink['corpora_relinked']}/"
+                    f"{relink['corpora_checked']} corpora upgraded, "
+                    f"{relink['law_references_linked']} references linked, "
+                    f"{relink['links_restamped']} links restamped, "
+                    f"{relink['corpora_failed']} failures."
+                )
+            )
+
+    def _load_taxonomy(self, manifest: dict, pack_dir: Path) -> bool:
+        """Load the pack's authority-mappings YAML (if declared). Returns whether
+        a mappings file was processed."""
+        mappings_rel = manifest.get("mappings")
+        if not mappings_rel:
+            return False
+        mappings_path = pack_dir / mappings_rel
+        if not mappings_path.is_file():
+            raise CommandError(f"Manifest 'mappings' not found: {mappings_path}")
+        summary = AuthorityMappingLoader.load_all(path=mappings_path)
+        ns, eq = summary["namespaces"], summary["equivalences"]
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"taxonomy loaded: namespaces created={ns['created']} "
+                f"updated={ns['updated']} total={ns['total']}; "
+                f"equivalences created={eq['created']} updated={eq['updated']} "
+                f"total={eq['total']}"
+            )
+        )
+        return True
+
+    @staticmethod
+    def _manifest_corpora(manifest: dict) -> list:
+        """Return the manifest's ``corpora`` list, distinguishing omitted (a
+        taxonomy-only pack, allowed) from null/wrong-type (a malformed manifest,
+        rejected) so a typo can't silently no-op."""
+        raw = manifest.get("corpora")
+        if raw is None:
+            if "corpora" in manifest:
+                raise CommandError(
+                    "Manifest 'corpora' is null; provide a list or omit the key."
+                )
+            return []
+        if not isinstance(raw, list):
+            raise CommandError("Manifest 'corpora' must be a list.")
+        return raw
+
+    @staticmethod
+    def _read_persona(entry: dict, pack_dir: Path) -> str | None:
+        """Read the persona file a corpus entry declares (validated up-front)."""
+        persona_rel = (entry or {}).get("persona")
+        if not persona_rel:
+            return None
+        persona_path = pack_dir / persona_rel
+        if not persona_path.is_file():
+            raise CommandError(f"persona not found: {persona_path}")
+        return persona_path.read_text(encoding="utf-8").strip()
+
     def _apply_corpus_overrides(
-        self, corpus_id: int, entry: dict, pack_dir: Path
+        self, corpus_id: int, entry: dict, persona_text: str | None
     ) -> None:
-        """Set the persona / model overrides a pack corpus declares (if any).
+        """Apply the persona / model overrides a pack corpus declares (if any).
 
         ``bootstrap_authority_corpus`` creates the corpus but does not carry
-        persona/model config, so the pack applies them here.
+        persona/model config, so the pack applies them here. Idempotent: skips
+        the SELECT entirely when nothing is declared, and skips the UPDATE when
+        every declared value already matches what is stored.
         """
-        from opencontractserver.corpuses.models import Corpus
-
-        fields: list[str] = []
-        corpus = Corpus.objects.get(pk=corpus_id)
-
-        persona_rel = entry.get("persona")
-        if persona_rel:
-            persona_path = pack_dir / persona_rel
-            if not persona_path.is_file():
-                raise CommandError(f"persona not found: {persona_path}")
-            corpus.corpus_agent_instructions = persona_path.read_text(
-                encoding="utf-8"
-            ).strip()
-            fields.append("corpus_agent_instructions")
-
+        overrides: dict[str, str] = {}
+        if persona_text is not None:
+            overrides["corpus_agent_instructions"] = persona_text
         for fld in ("preferred_embedder", "preferred_llm"):
             if entry.get(fld):
-                setattr(corpus, fld, entry[fld])
-                fields.append(fld)
+                overrides[fld] = entry[fld]
+        if not overrides:
+            return
 
-        if fields:
-            corpus.save(update_fields=fields)
+        from opencontractserver.corpuses.models import Corpus
+
+        corpus = Corpus.objects.get(pk=corpus_id)
+        changed = [fld for fld, val in overrides.items() if getattr(corpus, fld) != val]
+        if not changed:
+            return
+        for fld in changed:
+            setattr(corpus, fld, overrides[fld])
+        # Include "modified": Corpus.save() bumps it, but update_fields would
+        # otherwise filter that write back out and leave the column stale.
+        corpus.save(update_fields=[*changed, "modified"])

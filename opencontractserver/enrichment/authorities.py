@@ -15,9 +15,12 @@ other corpus document.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
 
 from django.contrib.auth import get_user_model
 from django.db.models import Q
@@ -50,6 +53,60 @@ class AuthoritySection:
     heading: str  # document title, e.g. "DGCL § 145 — Indemnification"
     text: str  # full section text
     source_url: str | None = None
+
+
+def parse_section_spec(
+    spec: Mapping, *, label: str = "spec"
+) -> tuple[list[AuthoritySection], list[str] | None]:
+    """Validate a parsed section-spec mapping into ``AuthoritySection`` objects.
+
+    The single section-spec contract, shared by the ``bootstrap_authority`` and
+    ``load_authority_pack`` management commands so a standalone spec and a pack
+    spec are held to exactly the same schema. Raises ``ValueError`` on any
+    violation (callers wrap it into a ``CommandError``); ``label`` prefixes the
+    message so a multi-spec pack run names the offending file. Returns
+    ``(sections, aliases)``.
+    """
+    raw_sections = spec.get("sections")
+    if not isinstance(raw_sections, list) or not raw_sections:
+        raise ValueError(f"{label}: must contain a non-empty 'sections' list.")
+
+    sections: list[AuthoritySection] = []
+    for i, sec in enumerate(raw_sections):
+        if not isinstance(sec, dict) or not all(
+            isinstance(sec.get(f), str) and sec[f].strip()
+            for f in ("key", "heading", "text")
+        ):
+            raise ValueError(
+                f"{label}: sections[{i}] must have non-empty 'key', 'heading' "
+                "and 'text' (optional 'source_url')."
+            )
+        sections.append(
+            AuthoritySection(
+                key=sec["key"].strip(),
+                heading=sec["heading"].strip(),
+                text=sec["text"],
+                source_url=sec.get("source_url"),
+            )
+        )
+    return sections, spec.get("aliases")
+
+
+def read_section_spec(
+    path, *, label: str | None = None
+) -> tuple[list[AuthoritySection], list[str] | None]:
+    """Read a JSON section-spec file and validate it via :func:`parse_section_spec`.
+
+    Raises ``ValueError`` on an unreadable/invalid-JSON file or a schema
+    violation, so both authority-bootstrap commands share one read-and-validate
+    path. ``label`` defaults to the file path.
+    """
+    path = Path(path)
+    try:
+        spec = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"Could not read spec {path}: {exc}") from exc
+    return parse_section_spec(spec, label=label or str(path))
 
 
 def candidate_keys(canonical_key: str) -> list[str]:

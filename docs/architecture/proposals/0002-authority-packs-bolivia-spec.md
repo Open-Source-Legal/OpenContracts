@@ -111,6 +111,13 @@ same template against their courts' sites. `_locate_impl` is pure (URL/citation
 derivation, unit-testable with no network); `_fetch_impl` does the one HTTP call
 via the SSRF-safe helper and parses into `AuthoritySection[]`.
 
+`AuthorityRequest` (in `pipeline/base/base_authority_source_provider.py`) carries
+five fields — `canonical_key`, `url`, `params: dict` (query string for APIs that
+take one; defaults to `{}`), `citation`, and `extra: dict`. The Gaceta skeleton
+builds a path-only URL so it never sets `params`, but a provider hitting a
+query-string endpoint (e.g. `?norma=1970`) populates it here rather than
+hand-concatenating the URL.
+
 > **Skeleton.** The `_URL_TEMPLATE` and the parse logic in `_fetch_impl` are
 > placeholders — fill them from the live Gaceta Oficial endpoints (PR #1305's
 > `GacetaOficialScraper` is the reference for the real selectors). Keep the
@@ -159,8 +166,10 @@ _CITATION = {
 # URL path segment per prefix.
 _KIND = {"cpe": "constitucion", "bo-ley": "ley", "bo-ds": "decreto-supremo"}
 
-# Identifier component validation (no URL/selector injection).
-_NUMBER_RE = re.compile(r"^[0-9][0-9a-z\-]*$", re.IGNORECASE)
+# Identifier component validation (no URL/selector injection). The class is
+# already lowercase-only — canonical keys are normalised to lowercase upstream —
+# so no IGNORECASE flag (it would silently widen the pattern to accept uppercase).
+_NUMBER_RE = re.compile(r"^[0-9][0-9a-z\-]*$")
 
 
 def _validate_number(prefix: str, number: str) -> None:
@@ -181,6 +190,11 @@ class BoliviaGacetaProvider(BaseAuthoritySourceProvider):
 
     # ---- pure: derive the fetch plan (no I/O) -----------------------------
     def _locate_impl(self, canonical_key: str, **all_kwargs) -> AuthorityRequest:
+        # can_handle() guarantees a "prefix:ident" key in production, but guard
+        # the split so a direct unit-test call fails loudly instead of with an
+        # opaque "not enough values to unpack".
+        if ":" not in canonical_key:
+            raise ValueError(f"Not a prefixed canonical key: {canonical_key!r}")
         prefix, ident = canonical_key.split(":", 1)
         _validate_number(prefix, ident)
         return AuthorityRequest(
