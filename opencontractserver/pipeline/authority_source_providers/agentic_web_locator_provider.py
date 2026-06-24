@@ -23,35 +23,21 @@ Design constraints
 from __future__ import annotations
 
 import logging
-import re
 from typing import ClassVar
 
 from asgiref.sync import async_to_sync, sync_to_async
 from pydantic import BaseModel, Field
 
+from opencontractserver.constants.safe_http import UTF8_MAX_BYTES_PER_CHAR
+from opencontractserver.constants.web_search import WEB_SEARCH_DEFAULT_NUM_RESULTS
 from opencontractserver.enrichment.authorities import AuthoritySection
 from opencontractserver.pipeline.base.base_authority_source_provider import (
     AuthorityRequest,
     BaseAuthoritySourceProvider,
 )
+from opencontractserver.utils.prompt_sanitization import sanitize_for_prompt_strict
 
 logger = logging.getLogger(__name__)
-
-
-def _sanitize_for_prompt(value: str) -> str:
-    """Reduce *value* to a single line of printable ASCII for safe prompt embedding.
-
-    ``[^\\x20-\\x7E]`` drops EVERYTHING outside printable ASCII, then whitespace
-    is collapsed. This is deliberately ASCII-only: every Unicode prompt-injection
-    / homoglyph vector worth guarding against — RIGHT-TO-LEFT OVERRIDE (U+202E),
-    bidi/zero-width format chars (category Cf), non-breaking and other Unicode
-    spaces (category Zs), look-alike letters — lies above U+007E and is therefore
-    already removed. Control chars and newlines (below U+0020) go too, so a
-    tainted citation cannot inject extra instruction lines. Legal citations are
-    plain ASCII, so this is loss-free in practice.
-    """
-    cleaned = re.sub(r"[^\x20-\x7E]", " ", value)
-    return re.sub(r"\s+", " ", cleaned).strip()
 
 
 class _LocatorOutput(BaseModel):
@@ -92,8 +78,12 @@ class AgenticWebLocatorProvider(BaseAuthoritySourceProvider):
     #   pydantic-ai raises UsageLimitExceeded past this bound.
     # max_fetch_chars: cap on characters returned from a fetched page, keeping
     #   the agent context bounded.
+    # web_search_results: number of results web_search returns to the agent per
+    #   query (defaults to the shared WEB_SEARCH_DEFAULT_NUM_RESULTS, which is
+    #   also aweb_search's own default; tunable here rather than a bare literal).
     max_agent_requests: ClassVar[int] = 10
     max_fetch_chars: ClassVar[int] = 50_000
+    web_search_results: ClassVar[int] = WEB_SEARCH_DEFAULT_NUM_RESULTS
 
     def can_handle(self, canonical_key: str) -> bool:
         """Claims every key when enabled; disabled → never selected."""
@@ -157,10 +147,10 @@ class AgenticWebLocatorProvider(BaseAuthoritySourceProvider):
         # Sanitize inputs before embedding in instructions: reduce to printable
         # ASCII and collapse whitespace to prevent prompt injection (control
         # chars, bidi/zero-width Unicode, homoglyphs) via a malformed citation
-        # or jurisdiction string. See _sanitize_for_prompt for why ASCII-only
-        # already covers the Unicode attack classes.
-        citation = _sanitize_for_prompt(citation)
-        jurisdiction = _sanitize_for_prompt(jurisdiction)
+        # or jurisdiction string. See sanitize_for_prompt_strict for why
+        # ASCII-only already covers the Unicode attack classes.
+        citation = sanitize_for_prompt_strict(citation)
+        jurisdiction = sanitize_for_prompt_strict(jurisdiction)
 
         # Resolve the deployment-configured model spec (no explicit override).
         spec = resolve_model_spec(explicit=None)
@@ -228,10 +218,20 @@ class AgenticWebLocatorProvider(BaseAuthoritySourceProvider):
     # --- agent tools (must be async; PydanticAIToolWrapper enforces this) -----
 
     async def _tool_web_search(self, query: str) -> str:
-        """Search the public web. Returns formatted result text."""
+        """Search the public web. Returns formatted result text.
+
+        Trust boundary: ``query`` is LLM-generated and forwarded to
+        ``aweb_search`` unsanitized — deliberately. ``sanitize_for_prompt_strict``
+        guards the LLM *input* (the citation we embed in instructions); this is
+        an *output* path, and ``aweb_search`` only returns text (it does not
+        fetch attacker-chosen URLs), so there is no SSRF here. The residual risk
+        is that a prompt-injected agent could use the query as an exfiltration
+        channel to the search provider — bounded by ``max_agent_requests`` and
+        accepted for this opt-in, approval-gated provider.
+        """
         from opencontractserver.llms.tools.web_search_tools import aweb_search
 
-        return await aweb_search(query=query, num_results=5)
+        return await aweb_search(query=query, num_results=self.web_search_results)
 
     async def _tool_fetch_allowlisted(self, url: str) -> str:
         """Fetch text from a gov-domain URL.
@@ -249,11 +249,12 @@ class AgenticWebLocatorProvider(BaseAuthoritySourceProvider):
         )
 
         try:
-            # Cap the download at the character budget (UTF-8 worst case is 4
-            # bytes/char) so safe_fetch_text aborts streaming at the cap instead
-            # of buffering an entire multi-hundred-MB body before truncating.
+            # Cap the download at the character budget (UTF8_MAX_BYTES_PER_CHAR
+            # is the UTF-8 worst case) so safe_fetch_text aborts streaming at the
+            # byte cap instead of buffering a multi-hundred-MB body before
+            # truncating to chars.
             text, _ = await sync_to_async(safe_fetch_text)(
-                url, max_bytes=self.max_fetch_chars * 4
+                url, max_bytes=self.max_fetch_chars * UTF8_MAX_BYTES_PER_CHAR
             )
             return text[: self.max_fetch_chars]
         except SSRFValidationError as exc:

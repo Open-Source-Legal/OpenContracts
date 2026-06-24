@@ -41,6 +41,11 @@ class AuthorityGateService:
        public-domain allowlist (else GATE_BLOCKED_DOMAIN).
     4. At least one section key or heading must match the canonical_key.
     5. If require_approval_for_agentic, park at pending_approval.
+
+    Unlike the other authority services this does NOT extend ``BaseService``:
+    ``evaluate`` is a pure, stateless classmethod with no user context and no
+    ORM access, so the Tier-0 visibility/permission helpers BaseService provides
+    have nothing to operate on here.
     """
 
     @classmethod
@@ -50,7 +55,6 @@ class AuthorityGateService:
         canonical_key: str,
         sections: list[AuthoritySection],
         provider_license: str,
-        source_url: str | None = None,
         require_approval_for_agentic: bool = False,
     ) -> GateDecision:
         """Evaluate whether fetched sections may be ingested.
@@ -58,9 +62,8 @@ class AuthorityGateService:
         Args:
             canonical_key: The requested authority key (e.g. "usc-15:78j").
             sections: List of AuthoritySection objects returned by the provider.
+                The domain gate checks ``sections[0].source_url``.
             provider_license: The provider's declared license ClassVar.
-            source_url: Optional override for the URL to check against the
-                allowlist. When None, uses sections[0].source_url if available.
             require_approval_for_agentic: When True, gate returns
                 PENDING_APPROVAL for an otherwise-valid result.
 
@@ -74,11 +77,11 @@ class AuthorityGateService:
               (fix the provider's license metadata vs. an allowlist/security
               review), so operators can filter on state alone without parsing
               ``reason``.
-            - A missing source URL (``source_url`` None/"" AND no
-              ``sections[0].source_url``) is treated as ``GATE_UNLOCATED`` when
-              sections are present: a result we cannot attribute to an
-              allowlisted domain must NOT bypass the domain gate on its license
-              alone. See ``test_none_source_url_is_unlocated``.
+            - A missing source URL (``sections[0].source_url`` None/"") is
+              treated as ``GATE_UNLOCATED`` when sections are present: a result
+              we cannot attribute to an allowlisted domain must NOT bypass the
+              domain gate on its license alone. See
+              ``test_none_source_url_is_unlocated``.
         """
         # 1) License gate -------------------------------------------------------
         if provider_license != "public-domain":
@@ -99,10 +102,7 @@ class AuthorityGateService:
             )
 
         first = sections[0]
-        effective_url = (
-            source_url if source_url is not None else (first.source_url or "")
-        )
-        domain = urlparse(effective_url).hostname or None
+        domain = urlparse(first.source_url or "").hostname or None
 
         # 3) Source-domain allowlist --------------------------------------------
         # A missing/un-parseable source URL means we cannot attribute the result

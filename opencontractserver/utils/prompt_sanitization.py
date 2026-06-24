@@ -117,3 +117,24 @@ def sanitize_plaintext_for_prompt(content: str, *, max_length: int = 300) -> str
     # spaces so the value stays on one line and can't fake a new prompt section.
     collapsed = re.sub(r"\s+", " ", no_quotes).strip()
     return collapsed[:max_length]
+
+
+def sanitize_for_prompt_strict(value: str) -> str:
+    """Reduce *value* to a single line of printable ASCII for safe prompt embedding.
+
+    Stricter companion to :func:`sanitize_plaintext_for_prompt`: where that one
+    strips quotes and collapses whitespace but preserves Unicode, this drops
+    EVERYTHING outside printable ASCII (``[^\\x20-\\x7E]``) and then collapses
+    whitespace. The ASCII-only filter is deliberate — every Unicode
+    prompt-injection / homoglyph vector worth guarding against (RIGHT-TO-LEFT
+    OVERRIDE ``U+202E``, bidi/zero-width format chars in category Cf, non-breaking
+    and other Unicode spaces in category Zs, look-alike letters) lies above
+    ``U+007E`` and is therefore removed in one pass, and control chars/newlines
+    (below ``U+0020``) go too so a tainted value cannot inject extra instruction
+    lines.
+
+    Use this for short, known-ASCII values (e.g. legal citations) where the loss
+    is acceptable; it is NOT a faithful echo of arbitrary input.
+    """
+    cleaned = re.sub(r"[^\x20-\x7E]", " ", value)
+    return re.sub(r"\s+", " ", cleaned).strip()
