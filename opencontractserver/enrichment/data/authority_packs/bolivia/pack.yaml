@@ -1,0 +1,26 @@
+# Authority-pack manifest, consumed by `manage.py load_authority_pack --path <dir>`.
+#
+# Fields:
+#   name / display_name / jurisdiction  — descriptive metadata.
+#   mappings                            — path (relative to this file) of the
+#                                         authority_mappings YAML to load.
+#   corpora[]                           — one authority corpus per legal area:
+#     title    — corpus title (get-or-created by (title, creator)).
+#     spec     — JSON section spec ({aliases?, sections:[{key, heading, text,
+#                source_url?}]}) bootstrapped via bootstrap_authority_corpus.
+#     persona  — (optional) text file written to Corpus.corpus_agent_instructions.
+#     preferred_embedder / preferred_llm — (optional) corpus model overrides.
+#
+# This Phase-1 reference pack ships one fully-seeded area (constitucional). The
+# remaining ten areas from the reference implementation (PR #1305 — penal, civil,
+# administrativo, laboral, tributario, familia, comercial, agrario, ambiental,
+# otros) are added by dropping in a specs/<area>.json + personas/<area>.es.txt and
+# a corpora[] entry here. See README.md.
+name: "bolivia"
+display_name: "Bolivia — Derecho del Estado Plurinacional"
+jurisdiction: "bo"
+mappings: "authority_mappings.bolivia.yaml"
+corpora:
+  - title: "Bolivia — Derecho Constitucional"
+    spec: "specs/constitucional.json"
+    persona: "personas/constitucional.es.txt"
