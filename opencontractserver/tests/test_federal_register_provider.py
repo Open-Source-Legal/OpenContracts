@@ -228,6 +228,30 @@ class TestFederalRegisterFetchImpl(SimpleTestCase):
         with self.assertRaises(ValueError):
             provider._fetch_impl(req)
 
+    def test_fetch_raises_on_invalid_doc_number_chars(
+        self, mock_get: MagicMock, _mock_bytes, _mock_text
+    ):
+        """A Location whose doc-number segment isn't ``[\\d-]+`` must raise, not fetch.
+
+        ``_LOCATION_DOC_NUMBER_RE`` restricts the capture to digits + hyphen (real
+        FR numbers are ``YYYY-NNNNN``), so a Location carrying URL-special chars
+        (``?``, ``#``) OR letters/underscores does not match — it raises ValueError
+        instead of silently interpolating the garbage into the step-2 URL and
+        hitting the wrong endpoint.
+        """
+        provider = FederalRegisterAuthoritySourceProvider()
+        req = provider._locate_impl("fedreg:88.1722")
+        for bad_segment in ("2023-00485?q=x", "2023-00485_injected", "2023-00485abc"):
+            bad_redirect = MagicMock()
+            bad_redirect.status_code = 302
+            bad_redirect.headers = {
+                "Location": f"/documents/2023/01/13/{bad_segment}/s"
+            }
+            bad_redirect.raise_for_status = MagicMock()
+            mock_get.return_value = bad_redirect
+            with self.assertRaises(ValueError, msg=f"should raise for {bad_segment!r}"):
+                provider._fetch_impl(req)
+
     def test_step2_ssrf_block_propagates(
         self, _mock_get, mock_bytes: MagicMock, _mock_text
     ):
@@ -330,6 +354,34 @@ class TestFederalRegisterSecurity(SimpleTestCase):
 
         self.assertEqual(len(sections), 1)
         self.assertEqual(sections[0].text, fixture_json_offhost["abstract"])
+
+    def test_raw_text_url_oversize_falls_back_to_abstract(self):
+        """A size-cap SSRFValidationError on the step-3 body fetch degrades to abstract.
+
+        Regression for issue #2026: the raw-text size cap now lives inside the
+        SSRF-safe fetch helper, which raises ``SSRFValidationError`` when the
+        body exceeds ``max_bytes`` (``content-length``/streamed bytes). This
+        proves an oversize ``raw_text_url`` body still degrades to the abstract
+        rather than propagating — the behaviour the removed
+        ``test_fetch_oversize_raw_text_falls_back_to_abstract`` used to guard,
+        now flowing through the same ``except SSRFValidationError`` branch as the
+        off-host case above.
+        """
+        from opencontractserver.utils.safe_http import SSRFValidationError
+
+        with patch(_REQUESTS_GET_PATH, return_value=_make_redirect_mock()):
+            with patch(_SAFE_FETCH_BYTES_PATH, return_value=_json_bytes()):
+                with patch(
+                    _SAFE_FETCH_TEXT_PATH,
+                    side_effect=SSRFValidationError(
+                        "response exceeded size cap of 50000 bytes"
+                    ),
+                ):
+                    req = self.provider._locate_impl("fedreg:88.1722")
+                    sections = self.provider._fetch_impl(req)
+
+        self.assertEqual(len(sections), 1)
+        self.assertEqual(sections[0].text, _FIXTURE_JSON["abstract"])
 
     def test_malformed_citation_falls_back_to_request_key(self):
         """If JSON citation doesn't match FR regex, key falls back to request key."""

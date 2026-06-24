@@ -60,7 +60,7 @@ class ConversationMutationsTestCase(TestCase):
         )
 
         # Create GraphQL client
-        self.client = Client(schema)
+        self.graphene_client = Client(schema)
 
     def _execute_with_user(self, query, user, variables=None):
         """Execute a GraphQL query with a specific user context."""
@@ -72,7 +72,7 @@ class ConversationMutationsTestCase(TestCase):
                 self.META = {}
 
         context_value = MockRequest(user)
-        return self.client.execute(
+        return self.graphene_client.execute(
             query, variables=variables, context_value=context_value
         )
 
@@ -122,7 +122,9 @@ class ConversationMutationsTestCase(TestCase):
         # Verify initial message was created
         messages = ChatMessage.objects.filter(conversation=conversation)
         self.assertEqual(messages.count(), 1)
-        self.assertEqual(messages.first().content, "This is the first message")
+        first_message = messages.first()
+        assert first_message is not None
+        self.assertEqual(first_message.content, "This is the first message")
 
     def test_create_thread_without_permission(self):
         """Test creating a thread without corpus permission."""

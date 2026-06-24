@@ -14,8 +14,9 @@ import re
 import xml.etree.ElementTree as ET
 from typing import ClassVar
 
+from opencontractserver.constants.safe_http import AUTHORITY_PROVIDER_USER_AGENT
 from opencontractserver.enrichment.authorities import AuthoritySection
-from opencontractserver.enrichment.constants import _CFR_PREFIX_RE
+from opencontractserver.enrichment.constants import CFR_PREFIX_RE
 from opencontractserver.pipeline.base.base_authority_source_provider import (
     AuthorityRequest,
     BaseAuthoritySourceProvider,
@@ -44,13 +45,6 @@ _ECFR_FULL_URL_TEMPLATE = (
 # Human-readable eCFR URL template.
 _ECFR_HUMAN_URL_TEMPLATE = (
     "https://www.ecfr.gov/current/title-{title}/section-{section}"
-)
-
-# HTTP User-Agent header.
-_USER_AGENT = (
-    "OpenContracts-authority-provider/1.0 "
-    "(https://github.com/Open-Source-Legal/OpenContracts; "
-    "contact: opensource@opencontracts.dev)"
 )
 
 # Regex patterns for validating citation components before URL construction.
@@ -154,7 +148,7 @@ class CFRAuthoritySourceProvider(BaseAuthoritySourceProvider):
     def can_handle(self, canonical_key: str) -> bool:
         """Accept any ``cfr-{digits}`` prefix."""
         prefix = canonical_key.split(":", 1)[0]
-        return bool(_CFR_PREFIX_RE.match(prefix))
+        return bool(CFR_PREFIX_RE.match(prefix))
 
     # ---- abstract implementations -----------------------------------------
 
@@ -218,7 +212,7 @@ class CFRAuthoritySourceProvider(BaseAuthoritySourceProvider):
         body, _ = safe_fetch_bytes(
             request.url,
             params=request.params,
-            headers={"User-Agent": _USER_AGENT},
+            headers={"User-Agent": AUTHORITY_PROVIDER_USER_AGENT},
         )
 
         root = ET.fromstring(body)
@@ -248,11 +242,13 @@ class CFRAuthoritySourceProvider(BaseAuthoritySourceProvider):
         heading = (head_el.text or "").strip() if head_el is not None else ""
 
         # Text: concatenate all <P> descendants in document order, flattening
-        # inline tags (<I>, <E>, <a>, etc.).
+        # inline tags (<I>, <E>, <a>, etc.). The walrus binds each flattened
+        # string once so the traversal runs a single time per <P> (not twice:
+        # once for the value, once for the truthiness filter).
         p_parts: list[str] = [
-            _flatten_element_text(p_el)
+            text
             for p_el in section_el.iter("P")
-            if _flatten_element_text(p_el)
+            if (text := _flatten_element_text(p_el))
         ]
         text = " ".join(p_parts)
         text = re.sub(r"\s+", " ", text).strip()

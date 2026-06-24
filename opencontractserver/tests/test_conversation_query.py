@@ -42,7 +42,7 @@ class GraphQLConversationTestCase(TestCase):
         )
 
         # Graphene client with context as self.user
-        self.client = Client(schema, context_value=TestContext(self.user))
+        self.graphene_client = Client(schema, context_value=TestContext(self.user))
 
         # Create a test corpus and document
         self.corpus = Corpus.objects.create(
@@ -167,7 +167,7 @@ class GraphQLConversationTestCase(TestCase):
         corpus_global_id = to_global_id("CorpusType", self.corpus.id)
         variables = {"corpusId": corpus_global_id}
 
-        response = self.client.execute(query, variables=variables)
+        response = self.graphene_client.execute(query, variables=variables)
         self.assertIsNone(
             response.get("errors"),
             f"GraphQL returned errors: {response.get('errors')}",
@@ -212,7 +212,7 @@ class GraphQLConversationTestCase(TestCase):
             }
         }
         """
-        response = self.client.execute(
+        response = self.graphene_client.execute(
             query, variables={"titleContains": "conversation with corpus"}
         )
         self.assertIsNone(
@@ -258,7 +258,7 @@ class GraphQLConversationTestCase(TestCase):
         document_global_id = to_global_id("DocumentType", self.doc.id)
         variables = {"documentId": document_global_id}
 
-        response = self.client.execute(query, variables=variables)
+        response = self.graphene_client.execute(query, variables=variables)
         self.assertIsNone(
             response.get("errors"),
             f"GraphQL returned errors: {response.get('errors')}",
@@ -307,7 +307,7 @@ class GraphQLConversationTestCase(TestCase):
         }
         """
 
-        response = self.client.execute(query)
+        response = self.graphene_client.execute(query)
         self.assertIsNone(
             response.get("errors"),
             f"GraphQL returned errors: {response.get('errors')}",

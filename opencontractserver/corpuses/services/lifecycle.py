@@ -467,7 +467,8 @@ class DocumentLifecycleService(BaseService):
         fully into Python lists, so there is **no built-in document-count
         ceiling**. That is fine for realistic corpus sizes, but chunk/iterate
         the doc set here before exposing an unbounded ``empty_corpus`` / folder
-        cascade-delete to arbitrarily large corpora (memory follow-up to #1951).
+        cascade-delete to arbitrarily large corpora (memory follow-up tracked
+        in #2045; #1951 was the now-closed query-count fix).
 
         NOTE: This is an internal primitive that performs **no permission
         check** — callers (``empty_corpus``, folder cascade-delete) must already
@@ -515,7 +516,7 @@ class DocumentLifecycleService(BaseService):
             # PERF/MEMORY: this ``list()`` (plus the caller's ``document_ids``
             # snapshot) is the unbounded allocation point behind the docstring
             # "Scaling caveat" — chunk/iterate here to add a document-count
-            # ceiling for the empty_corpus / cascade-delete callers (#1951).
+            # ceiling for the empty_corpus / cascade-delete callers (#2045).
             active_paths = list(
                 DocumentPath.objects.select_for_update(of=("self",))
                 .select_related("document")
