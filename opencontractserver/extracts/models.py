@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 import django
+import django.core.exceptions
 from django.contrib.auth import get_user_model
 from guardian.models import GroupObjectPermissionBase, UserObjectPermissionBase
 
