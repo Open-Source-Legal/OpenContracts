@@ -22,9 +22,12 @@ import xml.etree.ElementTree as ET
 import zipfile
 from typing import ClassVar
 
-from opencontractserver.constants.safe_http import OLRC_TITLE_ZIP_MAX_BYTES
+from opencontractserver.constants.safe_http import (
+    AUTHORITY_PROVIDER_USER_AGENT,
+    OLRC_TITLE_ZIP_MAX_BYTES,
+)
 from opencontractserver.enrichment.authorities import AuthoritySection
-from opencontractserver.enrichment.constants import _USC_PREFIX_RE
+from opencontractserver.enrichment.constants import USC_PREFIX_RE
 from opencontractserver.pipeline.base.base_authority_source_provider import (
     AuthorityRequest,
     BaseAuthoritySourceProvider,
@@ -167,6 +170,10 @@ def _collect_text(element: ET.Element) -> list[str]:
     for child in element:
         parts.extend(_collect_text(child))
         # Text that follows the child's closing tag (tail belongs to parent).
+        # An EXCLUDED child's tail is intentionally dropped too: in USLM XML the
+        # text immediately after a <num>/<heading>/<sourceCredit>/<note> is
+        # structural whitespace or a closing paren, never body prose, so
+        # skipping it keeps the excluded element fully out of the output.
         if not _is_excluded(child) and child.tail and child.tail.strip():
             parts.append(child.tail.strip())
 
@@ -235,7 +242,7 @@ class USCodeAuthoritySourceProvider(BaseAuthoritySourceProvider):
     def can_handle(self, canonical_key: str) -> bool:
         """Accept any ``usc-{digits}`` prefix (not just the listed titles)."""
         prefix = canonical_key.split(":", 1)[0]
-        return bool(_USC_PREFIX_RE.match(prefix))
+        return bool(USC_PREFIX_RE.match(prefix))
 
     # ---- abstract implementations ----------------------------------------- #
 
@@ -408,7 +415,14 @@ class USCodeAuthoritySourceProvider(BaseAuthoritySourceProvider):
         # inside safe_http, superseding the earlier raw requests/urlopen path.
         # OLRC title ZIPs are the one fetch that legitimately exceeds the 50 MB
         # default body cap, so pass the dedicated larger override.
-        zip_bytes, _ = safe_fetch_bytes(request.url, max_bytes=OLRC_TITLE_ZIP_MAX_BYTES)
+        # Identify as the authority-provider crawler (same UA as the FR/CFR
+        # providers) rather than the generic default, so all three deterministic
+        # authority fetchers present consistently to .gov hosts.
+        zip_bytes, _ = safe_fetch_bytes(
+            request.url,
+            max_bytes=OLRC_TITLE_ZIP_MAX_BYTES,
+            headers={"User-Agent": AUTHORITY_PROVIDER_USER_AGENT},
+        )
 
         with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
             return zf.read(member_name)

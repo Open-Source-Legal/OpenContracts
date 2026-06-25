@@ -27,16 +27,14 @@ version-ups the existing document.
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
 from typing import Any
 
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
 
 from opencontractserver.enrichment.authorities import (
-    AuthoritySection,
     bootstrap_authority_corpus,
+    read_section_spec,
 )
 
 User = get_user_model()
@@ -83,39 +81,16 @@ class Command(BaseCommand):
         except User.DoesNotExist as exc:
             raise CommandError(f"No user named {options['creator']!r}") from exc
 
-        path = Path(options["file"])
         try:
-            spec = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            raise CommandError(f"Could not read spec {path}: {exc}") from exc
-
-        raw_sections = spec.get("sections")
-        if not isinstance(raw_sections, list) or not raw_sections:
-            raise CommandError("Spec must contain a non-empty 'sections' list.")
-        sections: list[AuthoritySection] = []
-        for i, sec in enumerate(raw_sections):
-            if not isinstance(sec, dict) or not all(
-                isinstance(sec.get(f), str) and sec[f].strip()
-                for f in ("key", "heading", "text")
-            ):
-                raise CommandError(
-                    f"sections[{i}] must have non-empty 'key', 'heading' and "
-                    "'text' (optional 'source_url')."
-                )
-            sections.append(
-                AuthoritySection(
-                    key=sec["key"].strip(),
-                    heading=sec["heading"].strip(),
-                    text=sec["text"],
-                    source_url=sec.get("source_url"),
-                )
-            )
+            sections, aliases = read_section_spec(options["file"], label="Spec")
+        except ValueError as exc:
+            raise CommandError(str(exc)) from exc
 
         out = bootstrap_authority_corpus(
             creator_id=user.id,
             corpus_title=options["title"],
             sections=sections,
-            aliases=spec.get("aliases"),
+            aliases=aliases,
             corpus_id=options["corpus_id"],
             make_public=options["public"],
             relink=not options["no_relink"],

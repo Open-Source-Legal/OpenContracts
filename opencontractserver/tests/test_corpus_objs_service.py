@@ -1190,8 +1190,16 @@ class TestBulkSoftDeletePrimitive(_CorpusObjsServiceFolderTestBase):
         # Floor so the equality below isn't vacuously satisfied by 0 == 0 (a
         # regression that silently skips all work): real trashing always runs at
         # least the SELECT-FOR-UPDATE + is_current UPDATE + bulk_create.
-        self.assertGreaterEqual(len(small_ctx), 3)
-        self.assertEqual(len(small_ctx), len(large_ctx))
+        self.assertGreaterEqual(
+            len(small_ctx),
+            3,
+            "Expected at least SELECT FOR UPDATE + is_current UPDATE + bulk_create",
+        )
+        self.assertEqual(
+            len(small_ctx),
+            len(large_ctx),
+            "Query count must not vary with document count (the O(1) guarantee)",
+        )
 
         # The ``is_public`` revocation branch is skipped for private corpora
         # above, so prove it is ALSO O(1) in the document count: the
@@ -1215,7 +1223,11 @@ class TestBulkSoftDeletePrimitive(_CorpusObjsServiceFolderTestBase):
                 large_pub, large_pub_ids, self.owner
             )
 
-        self.assertEqual(len(small_pub_ctx), len(large_pub_ctx))
+        self.assertEqual(
+            len(small_pub_ctx),
+            len(large_pub_ctx),
+            "is_public revocation query count must not vary with document count",
+        )
         # The public path adds the (constant) is_public revocation cost on top
         # of the private path. Assert only that it is strictly greater — the
         # cross-size equality above is the real O(1) guarantee; a hardcoded delta

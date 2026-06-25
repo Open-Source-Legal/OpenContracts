@@ -148,10 +148,12 @@ class ConversationVectorSearchTest(TestCase):
         test_vector = [0.5] * 384
         embedding = self.conv1.add_embedding("test/new-embedder", test_vector)
         self.assertIsNotNone(embedding)
+        assert embedding is not None
         self.assertEqual(embedding.conversation_id, self.conv1.pk)
 
         # Test get_embedding
         retrieved_vector = self.conv1.get_embedding("test/new-embedder", 384)
+        assert retrieved_vector is not None
         self.assertEqual(len(retrieved_vector), 384)
 
     def test_conversation_queryset_vector_search(self):
@@ -409,10 +411,12 @@ class MessageVectorSearchTest(TestCase):
         test_vector = [0.5] * 384
         embedding = self.msg1.add_embedding("test/new-embedder", test_vector)
         self.assertIsNotNone(embedding)
+        assert embedding is not None
         self.assertEqual(embedding.message_id, self.msg1.pk)
 
         # Test get_embedding
         retrieved_vector = self.msg1.get_embedding("test/new-embedder", 384)
+        assert retrieved_vector is not None
         self.assertEqual(len(retrieved_vector), 384)
 
     def test_message_queryset_vector_search(self):
@@ -567,7 +571,7 @@ class GraphQLConversationSearchTest(TestCase):
         self.user = User.objects.create_user(
             username="graphql_search_user", password="testpassword"
         )
-        self.client = Client(schema, context_value=TestContext(self.user))
+        self.graphene_client = Client(schema, context_value=TestContext(self.user))
 
         # Create corpus
         self.corpus = Corpus.objects.create(
@@ -637,7 +641,7 @@ class GraphQLConversationSearchTest(TestCase):
 
         corpus_global_id = to_global_id("CorpusType", self.corpus.id)
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             query,
             variables={
                 "query": "test search query",
@@ -704,7 +708,7 @@ class GraphQLConversationSearchTest(TestCase):
         corpus_global_id = to_global_id("CorpusType", self.corpus.id)
 
         # First request - get first page
-        first_result = self.client.execute(
+        first_result = self.graphene_client.execute(
             query,
             variables={
                 "query": "test query",
@@ -729,7 +733,7 @@ class GraphQLConversationSearchTest(TestCase):
             ]
 
             # Second request - get next page using cursor
-            second_result = self.client.execute(
+            second_result = self.graphene_client.execute(
                 query,
                 variables={
                     "query": "test query",
@@ -768,7 +772,7 @@ class GraphQLConversationSearchTest(TestCase):
 
         conversation_global_id = to_global_id("ConversationType", self.conversation.id)
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             query,
             variables={
                 "query": "test message query",
@@ -864,7 +868,7 @@ class GraphQLConversationSearchTest(TestCase):
 
         doc_global_id = to_global_id("DocumentType", doc.id)
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             query,
             variables={
                 "query": "test document query",
@@ -893,7 +897,7 @@ class GraphQLConversationSearchTest(TestCase):
 
         corpus_global_id = to_global_id("CorpusType", self.corpus.id)
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             query,
             variables={
                 "query": "test message query",
@@ -927,7 +931,7 @@ class GraphQLConversationSearchTest(TestCase):
 
         conversation_global_id = to_global_id("ConversationType", self.conversation.id)
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             query,
             variables={
                 "query": "test message",
@@ -961,7 +965,7 @@ class GraphQLConversationSearchTest(TestCase):
 
         corpus_global_id = to_global_id("CorpusType", self.corpus.id)
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             query,
             variables={
                 "query": "test",
@@ -1307,7 +1311,7 @@ class SearchConversationsResolverCoverageTest(TestCase):
             creator=self.user,
         )
 
-        self.client = Client(schema, context_value=TestContext(self.user))
+        self.graphene_client = Client(schema, context_value=TestContext(self.user))
 
     def test_search_conversations_with_conversation_type_filter(self):
         """Test searchConversations with conversation_type filter."""
@@ -1325,7 +1329,7 @@ class SearchConversationsResolverCoverageTest(TestCase):
             }
         """
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             query,
             variables={
                 "query": "test query",
@@ -1366,7 +1370,7 @@ class SearchConversationsResolverCoverageTest(TestCase):
 
         doc_global_id = to_global_id("DocumentType", doc.id)
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             query,
             variables={
                 "query": "test document search",
@@ -1490,7 +1494,7 @@ class SearchConversationsResolverCoverageTest(TestCase):
             "opencontractserver.llms.vector_stores.core_conversation_vector_stores.CoreConversationVectorStore",
             return_value=mock_store,
         ) as mock_vector_store_class:
-            result = self.client.execute(
+            result = self.graphene_client.execute(
                 query,
                 variables={
                     "query": "test query",
@@ -1553,7 +1557,7 @@ class SearchConversationsResolverCoverageTest(TestCase):
         corpus_global_id = to_global_id("CorpusType", self.corpus.id)
         doc_global_id = to_global_id("DocumentType", doc.id)
 
-        result = self.client.execute(
+        result = self.graphene_client.execute(
             query,
             variables={
                 "query": "test query with all params",
@@ -2745,7 +2749,7 @@ class GraphQLResolverEdgeCasesTest(TestCase):
         self.corpus = Corpus.objects.create(
             title="Resolver Edge Case Corpus", creator=self.user
         )
-        self.client = Client(schema, context_value=TestContext(self.user))
+        self.graphene_client = Client(schema, context_value=TestContext(self.user))
 
         # Create conversation with embedding
         self.conv = Conversation.objects.create(
@@ -2817,7 +2821,7 @@ class GraphQLResolverEdgeCasesTest(TestCase):
         ):
             # Mock settings to provide DEFAULT_EMBEDDER_PATH
             with override_settings(DEFAULT_EMBEDDER_PATH="default/embedder"):
-                result = self.client.execute(
+                result = self.graphene_client.execute(
                     query,
                     variables={"query": "test query without corpus"},
                 )
@@ -2843,7 +2847,7 @@ class GraphQLResolverEdgeCasesTest(TestCase):
 
         # Mock settings with no DEFAULT_EMBEDDER_PATH
         with override_settings(DEFAULT_EMBEDDER_PATH=None):
-            result = self.client.execute(
+            result = self.graphene_client.execute(
                 query,
                 variables={"query": "test query"},
             )
@@ -2885,7 +2889,7 @@ class GraphQLResolverEdgeCasesTest(TestCase):
         ):
             # Mock settings to provide DEFAULT_EMBEDDER_PATH
             with override_settings(DEFAULT_EMBEDDER_PATH="default/embedder"):
-                result = self.client.execute(
+                result = self.graphene_client.execute(
                     query,
                     variables={"query": "test message query"},
                 )
@@ -2909,7 +2913,7 @@ class GraphQLResolverEdgeCasesTest(TestCase):
 
         # Mock settings with no DEFAULT_EMBEDDER_PATH
         with override_settings(DEFAULT_EMBEDDER_PATH=None):
-            result = self.client.execute(
+            result = self.graphene_client.execute(
                 query,
                 variables={"query": "test message query"},
             )
@@ -2957,7 +2961,7 @@ class GraphQLResolverEdgeCasesTest(TestCase):
             "opencontractserver.llms.vector_stores.core_conversation_vector_stores.CoreConversationVectorStore",
             return_value=mock_store,
         ):
-            result = self.client.execute(
+            result = self.graphene_client.execute(
                 query,
                 variables={
                     "query": "test query",
@@ -3035,7 +3039,7 @@ class GraphQLResolverEdgeCasesTest(TestCase):
         ):
             # Need DEFAULT_EMBEDDER_PATH since no corpus_id/document_id provided
             with override_settings(DEFAULT_EMBEDDER_PATH="default/embedder"):
-                result = self.client.execute(
+                result = self.graphene_client.execute(
                     query,
                     variables={
                         "query": "test query",
@@ -3101,7 +3105,7 @@ class GraphQLResolverEdgeCasesTest(TestCase):
         ):
             # Need DEFAULT_EMBEDDER_PATH since no corpus_id/conversation_id provided
             with override_settings(DEFAULT_EMBEDDER_PATH="default/embedder"):
-                result = self.client.execute(
+                result = self.graphene_client.execute(
                     query,
                     variables={
                         "query": "test message query",

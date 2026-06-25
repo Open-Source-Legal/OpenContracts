@@ -248,6 +248,121 @@ def _make_empty_corpus_ref_mock():
     return mock_qs
 
 
+class ApplyAnalysisReuseTests(TransactionTestCase):
+    """A crawl must reuse ONE provenance Analysis per authority corpus.
+
+    Every section of an authority bootstraps into the SAME corpus (the
+    provider ``title`` is constant — all ``usc-*`` sections land in the single
+    "United States Code" corpus), so the BFS calls apply() on that one corpus
+    once per ingested section. Without reuse, each apply() would mint a fresh
+    Analysis, leaving N provenance rows on one corpus (issue #2027).
+    """
+
+    def test_apply_reuses_one_analysis_per_authority_corpus(self):
+        from opencontractserver.analyzer.models import Analysis
+        from opencontractserver.corpuses.models import Corpus
+        from opencontractserver.enrichment.services import (
+            AuthorityFrontierService,
+            EnrichmentService,
+        )
+        from opencontractserver.types.enums import JobStatus
+
+        user = _make_user("apply-reuse-user")
+
+        # Two depth-0 rows of the same authority; both bootstrap into ONE corpus.
+        for i in range(2):
+            AuthorityFrontier.objects.create(
+                canonical_key=f"usc-15:{500 + i}",
+                authority="usc-15",
+                jurisdiction="us-federal",
+                authority_type=C.AUTHORITY_TYPE_STATUTE,
+                mention_count=5,
+                depth=0,
+                discovery_state="queued",
+            )
+
+        # The shared authority corpus + the provenance Analysis the FIRST apply
+        # "creates" (apply is mocked, so we stand it up here and hand back its id).
+        corpus = Corpus.objects.create(title="United States Code", creator=user)
+        analyzer = EnrichmentService.get_or_create_analyzer(user.id)
+        provenance = Analysis.objects.create(
+            analyzer=analyzer,
+            analyzed_corpus=corpus,
+            creator_id=user.id,
+            status=JobStatus.RUNNING.value,
+        )
+
+        def _ingest_same_corpus(
+            *, creator_id, frontier_row, make_public=True, relink_async=True
+        ):
+            AuthorityFrontierService.mark(frontier_row, "ingested")
+            return {
+                "status": "ingested",
+                "corpus_id": corpus.id,
+                "documents_created": 1,
+                "documents_updated": 0,
+                "documents_skipped": 0,
+                "documents_restamped": 0,
+                "canonical_key": frontier_row.canonical_key,
+            }
+
+        seen_analyses: list[Analysis | None] = []
+
+        def _mock_apply(
+            *, corpus_id, creator_id, types=None, analysis=None, extra_tiers=None
+        ):
+            # Record what the crawl threaded in, and mimic apply()'s real return
+            # contract: a fresh provenance Analysis on the first (analysis=None)
+            # call, the same one echoed back when reused.
+            seen_analyses.append(analysis)
+            return {
+                "references_created": 0,
+                "analysis_id": provenance.id if analysis is None else analysis.id,
+            }
+
+        with patch(
+            "opencontractserver.enrichment.services.crawl_authorities_service"
+            ".AuthorityDiscoveryService.discover_and_bootstrap",
+            side_effect=_ingest_same_corpus,
+        ), patch(
+            "opencontractserver.enrichment.services.crawl_authorities_service"
+            ".EnrichmentService.apply",
+            side_effect=_mock_apply,
+        ), patch(
+            "opencontractserver.enrichment.services.crawl_authorities_service"
+            ".CorpusReferenceService.for_corpus",
+            return_value=_make_empty_corpus_ref_mock(),
+        ), patch(
+            "opencontractserver.enrichment.services.crawl_authorities_service"
+            ".AuthorityFrontierService.seed_from_wanted_authorities",
+            return_value={"frontier_created": 0, "frontier_updated": 0},
+        ):
+            summary = CrawlAuthoritiesService.crawl(
+                creator_id=user.id,
+                max_depth=1,
+                min_demand=1,
+                max_authorities=50,
+                per_jurisdiction_cap=100,
+                token_budget=0,
+            )
+
+        self.assertEqual(summary["authorities_ingested"], 2)
+        # apply() ran once per ingested section, both on the shared corpus.
+        self.assertEqual(len(seen_analyses), 2)
+        # First section lets apply mint the provenance Analysis (None passed in);
+        # the second section REUSES it rather than minting a second row.
+        self.assertIsNone(seen_analyses[0])
+        reused = seen_analyses[1]
+        assert reused is not None  # narrows Analysis | None -> Analysis for mypy
+        self.assertEqual(reused.id, provenance.id)
+        # No second enrichment Analysis was created for the corpus.
+        self.assertEqual(
+            Analysis.objects.filter(analyzed_corpus=corpus).count(),
+            1,
+            "crawl must reuse one provenance Analysis per authority corpus",
+        )
+
+
 class BoundsTerminationTests(TransactionTestCase):
     """Each bound must set the matching stop_reason and the loop must terminate."""
 
