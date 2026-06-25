@@ -78,6 +78,11 @@ docker run --rm --device /dev/dri --device /dev/accel/accel0 \
   oc-embedder:auto python3 /opt/accel/accel_detect.py
 ```
 
+> `--device /dev/accel/accel0` is the **Intel NPU** (Lunar Lake-class SoCs).
+> Hosts without an NPU — including discrete Intel Arc, NVIDIA, and AMD — have no
+> such node and Docker errors with "no such file or directory"; drop that
+> `--device` and keep only `--device /dev/dri`.
+
 ## The NPU embedder (static-shape engine)
 
 The Intel NPU requires a **fully static** compute graph; sentence-transformers'

@@ -49,10 +49,21 @@ from one ingested in-cluster.
 
 ## Setup
 
+> **Target prerequisite (easy to miss):** worker uploads are ingested
+> asynchronously — the endpoint only stages each upload (HTTP 202) and a Celery
+> task creates the Document. The target instance **must** run a Celery worker on
+> the `worker_uploads` queue **and** the default `celery` queue (thumbnails), plus
+> Celery Beat (periodic drain + stalled-upload recovery). The stock compose images
+> already do this (`-Q celery,worker_uploads`). **If nothing drains that queue,
+> uploads stage as `PENDING` forever and no documents are created** — the worker
+> still reports success, so the failure is silent. See [Troubleshooting](#troubleshooting).
+
 ### 1. On the target server — mint a corpus-scoped token (one command)
 
 ```bash
-python manage.py mint_worker_token --corpus <CORPUS_PK> --worker-name <name>
+# mint_worker_token runs inside the Django container:
+docker compose -f production.yml run --rm django \
+    python manage.py mint_worker_token --corpus <CORPUS_PK> --worker-name <name>
 ```
 
 This prints a one-time `OC_WORKER_TOKEN` (and the `OC_CORPUS_ID`). The token is
@@ -72,7 +83,11 @@ cd opencontracts/scripts/remote_ingest
 export OC_TARGET_URL=https://opencontracts.example.com
 export OC_WORKER_TOKEN=<token from step 1>
 export OC_DATA_DIR=/data/pdfs            # your directory tree of PDFs
-export VECTOR_EMBEDDER_API_KEY=<key>     # any value; the embedder enforces it
+# The bundle wires this SAME value to both the embedder service and the worker.
+# The embedder authorizes by comparing it to the request's X-API-Key header
+# (default "abc123"); a mismatch -> HTTP 401 on every embed. Any value works as
+# long as both sides match — which the bundle guarantees from this one var.
+export VECTOR_EMBEDDER_API_KEY=<any-value>
 
 # Start the parser + embedder microservices (one-time, ~minutes to pull):
 docker compose -f remote_worker.yml up -d --build docling-parser vector-embedder
@@ -104,14 +119,26 @@ docker compose -f remote_worker.yml -f remote_worker.accel.yml build \
     docling-parser vector-embedder
 docker compose -f remote_worker.yml -f remote_worker.accel.yml up -d \
     docling-parser vector-embedder
+docker compose -f remote_worker.yml -f remote_worker.accel.yml run --rm worker plan
 docker compose -f remote_worker.yml -f remote_worker.accel.yml run --rm worker run --max-workers 8
 ```
 
-A **discrete Intel Arc Pro B-series** (Battlemage, e.g. Arc Pro B70 — 32 GB, 256
+> Always pass **both** `-f` files to every subcommand once you've merged the
+> override (including `plan`, `verify`, `status`) so the worker keeps using the
+> accelerated backend.
+
+The override defaults target **Intel** (`/dev/dri` + the render group). A
+**discrete Intel Arc Pro B-series** (Battlemage, e.g. Arc Pro B70 — 32 GB, 256
 XMX engines) is an ideal target: defaults (`OC_DOCLING_ACCEL=xpu`,
 `OC_EMBED_ACCEL=auto`) run Docling on the GPU and the embedder on OpenVINO.
-NVIDIA: `OC_DOCLING_ACCEL=cuda OC_EMBED_ACCEL=cuda` + the nvidia runtime. AMD:
-`ACCEL=rocm` + `/dev/kfd`. **Benchmark Docling on YOUR GPU**
+
+**NVIDIA and AMD/ROCm hosts must edit the device passthrough** in
+`remote_worker.accel.yml` — its `docling-parser`/`vector-embedder` services pass
+`/dev/dri` by default, which is wrong for NVIDIA and incomplete for ROCm. The
+file ships commented stanzas: NVIDIA → set `OC_DOCLING_ACCEL=cuda
+OC_EMBED_ACCEL=cuda` and swap the `devices:` block for the nvidia runtime
+(`deploy.resources.reservations.devices` / `--gpus all`); AMD → set `ACCEL=rocm`
+and add `/dev/kfd` + `--group-add video`. **Benchmark Docling on YOUR GPU**
 (`compose/accelerated/bench_parse.py`) — the speedup is hardware-specific (a
 discrete GPU helps a lot; a weak integrated GPU may not).
 
@@ -129,7 +156,9 @@ discrete GPU helps a lot; a weak integrated GPU may not).
 Useful flags (append after the subcommand):
 
 - `--max-workers N` — parse/upload concurrency (default 4). The Docling parse is
-  the bottleneck; scale this to your CPU.
+  the bottleneck. On CPU each OCR parse is serial and uses **3-6 GB RAM**, so size
+  this to **available RAM** (and parser replicas), not raw CPU count —
+  over-parallelizing OCR on CPU can exhaust memory/swap. On a capable GPU, scale up.
 - `--no-embeddings` — skip remote embedding and let the **server** embed instead
   (the worker still offloads parsing). By default the worker embeds and the
   server is told not to re-embed.
@@ -141,6 +170,9 @@ Useful flags (append after the subcommand):
   below low).
 - `--enricher MODULE:CALLABLE` — run a pre-processing enricher (repeatable; also
   `OC_ENRICHERS`, comma-separated). See below.
+- `--max-attempts N` — retries per document before it is PARKED (default 5).
+- `--insecure` — disable TLS verification (testing only; e.g. a self-signed or
+  local HTTPS target).
 
 ---
 
@@ -285,8 +317,24 @@ state so the whole run is crash-resumable.
 - Docker + Docker Compose.
 - The OpenContracts repo (the worker image is built from it).
 - Outbound HTTPS to the target.
-- Enough RAM for the Docling microservice (~2 GB) plus the worker.
+- RAM for the Docling microservice plus the worker. The service idles at ~2 GB,
+  but **each in-flight OCR parse adds ~3-6 GB**, so budget for
+  `~3-6 GB x concurrent parses` (≈ `--max-workers`, capped by parser replicas) on
+  CPU. On a GPU, VRAM is the constraint instead.
 
 The driver itself runs inside the OpenContracts image and uses
 `config.settings.remote_worker`, which points Django at a throwaway SQLite file
 so the worker needs **no Postgres and no Redis**.
+
+---
+
+## Troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| `run` reports success (HTTP 202) but `verify` reports docs **still-processing forever** — the ledger sits at `UPLOADED` (never reaches `COMPLETED`), **no documents appear**, and the target backlog never drains | No Celery worker consuming the `worker_uploads` queue on the **target** — uploads stage as `PENDING` forever. | Run the target's Celery worker (`-Q celery,worker_uploads`) + Beat. See the prerequisite note at the top of [Setup](#setup). |
+| Docs `FAILED` with `401 ... /embeddings` | `VECTOR_EMBEDDER_API_KEY` differs between the worker and the embedder service (the embedder checks `X-API-Key`, default `abc123`). | Export one `VECTOR_EMBEDDER_API_KEY` before `up` so the bundle wires it to both; recreate the embedder if you change it. |
+| Opaque **HTTP 400** from the target (empty body), docs marked failed | `OC_TARGET_URL`'s host isn't in the target's `DJANGO_ALLOWED_HOSTS` (Django `Host`-header rejection). | Add the host to `DJANGO_ALLOWED_HOSTS` on the target. |
+| `nothing to do` on `run` after merging the accel override | You ran `plan` without both `-f` files, or never ran `plan`. | Run `plan` with the **same** `-f remote_worker.yml -f remote_worker.accel.yml` you use for `run`. |
+| Host runs out of RAM/swap during a run | Too many concurrent CPU OCR parses (3-6 GB each). | Lower `--max-workers`; add parser replicas only up to available RAM; or use GPU acceleration. |
+| A few uploads stuck `PROCESSING` after a crash/restart | Claimed but unfinished uploads. | `recover_stalled_uploads` (Beat) re-queues them after `WORKER_UPLOAD_STALE_MINUTES` (default 15); ensure Beat runs. |

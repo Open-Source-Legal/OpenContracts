@@ -80,6 +80,7 @@ nav:
       - Bulk Zip Import: upload_methods/bulk_zip_import.md
       - Worker Uploads (REST): upload_methods/worker_uploads.md
       - Remote Ingest Worker: upload_methods/remote_ingest_worker.md
+      - Worker Celery Setup: upload_methods/worker_celery_setup.md
       - Annotated Document Import: upload_methods/annotated_document_import.md
       - Corpus Export / Import: upload_methods/corpus_export_import.md
       - Annotation Side Effects: upload_methods/annotation_side_effects.md

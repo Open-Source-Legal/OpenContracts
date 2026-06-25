@@ -18,7 +18,9 @@
 #   export OC_TARGET_URL=https://opencontracts.example.com
 #   export OC_WORKER_TOKEN=<token from `manage.py mint_worker_token` on the server>
 #   export OC_DATA_DIR=/data/pdfs           # directory tree of PDFs to ingest
-#   export VECTOR_EMBEDDER_API_KEY=change-me # must match the embedder's API_KEY
+#   export VECTOR_EMBEDDER_API_KEY=change-me # one value, wired to BOTH the
+#                                            # embedder service + the worker below
+#                                            # (mismatch -> HTTP 401 on embedding)
 #
 #   cd scripts/remote_ingest
 #   docker compose -f remote_worker.yml up -d --build docling-parser vector-embedder
@@ -48,8 +50,10 @@ services:
     restart: unless-stopped
     environment:
       PORT: 8000
-      # Must match VECTOR_EMBEDDER_API_KEY passed to the worker below.
-      API_KEY: ${VECTOR_EMBEDDER_API_KEY:-}
+      # The embedder image reads VECTOR_EMBEDDER_API_KEY (default "abc123") and
+      # checks it against the request's X-API-Key header. Must match the
+      # VECTOR_EMBEDDER_API_KEY passed to the worker below.
+      VECTOR_EMBEDDER_API_KEY: ${VECTOR_EMBEDDER_API_KEY:-}
 
   # The worker driver. Built from the OpenContracts repo so it runs the real
   # parser code. Invoked on demand via `docker compose run --rm worker <cmd>`.
