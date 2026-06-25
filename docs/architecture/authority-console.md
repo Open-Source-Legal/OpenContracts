@@ -118,7 +118,9 @@ prefixes, license, priority, the enabled and requires-approval flags, and whethe
 the secrets vault holds credentials. Enabling/disabling stays in code; credentials
 are edited through System Settings' component-secrets vault
 (`updateComponentSecrets`), **not** here — the console never invents a parallel
-credential store.
+credential store. Providers can be shipped *inside* an authority pack
+(`<pack>/providers/`) so a scraper travels with its jurisdiction — see
+[Authoring an Authority Pack](../guides/authoring-authority-packs.md).
 
 ### Runs tab
 

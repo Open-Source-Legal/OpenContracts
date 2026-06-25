@@ -125,6 +125,15 @@ class AuthorityMappingLoaderTests(TestCase):
         with self.assertRaises(ValueError):
             AuthorityMappingLoader.load(path=path)
 
+    def test_rejects_self_equivalence(self):
+        # A key cannot bridge to itself; the reader must reject it fail-fast
+        # rather than letting the loader silently drop it from the tally.
+        path = _write_yaml(
+            'equivalences:\n  - {from_key: "test-act:1", to_key: "test-act:1"}\n'
+        )
+        with self.assertRaises(ValueError):
+            AuthorityMappingLoader.load(path=path)
+
     def test_default_yaml_loads(self):
         summary = AuthorityMappingLoader.load()
         assert summary["total"] >= 19
@@ -249,6 +258,80 @@ class AuthorityNamespaceLoaderTests(TestCase):
         ns = AuthorityNamespace.objects.get(prefix="exchange-act")
         assert ns.display_name == "Securities Exchange Act of 1934"
         assert "exchange act" in ns.aliases
+
+
+class NamespaceReseedOwnershipTests(TestCase):
+    """The ``post_migrate`` namespace convergence (``ensure_seeded``) must honour
+    the same source-ownership partition as ``AuthorityMappingLoader.load_namespaces``.
+
+    Regression for the seed-clobber bug: ``ensure_seeded`` runs on every
+    production ``migrate`` (and every test flush) and used to ``update_or_create``
+    every shipped-prefix namespace unconditionally — silently reverting a
+    curator's ``source="manual"`` edits (display_name / jurisdiction /
+    authority_type / aliases) on the next deploy, defeating the console's headline
+    "a re-load can no longer clobber a curator's runtime edits" guarantee. The
+    loader already skips manual/corpus-linked rows; the seed must too.
+    """
+
+    def test_reseed_preserves_manual_namespace_edits(self):
+        from opencontractserver.enrichment._namespace_seed import ensure_seeded
+
+        # "dgcl" is a shipped baseline prefix the seed converges. A curator edits
+        # it through the console (stamped source="manual").
+        AuthorityNamespace.objects.update_or_create(
+            prefix="dgcl",
+            defaults={
+                "display_name": "CURATOR EDITED",
+                "jurisdiction": "us-de",
+                "authority_type": "statute",
+                "aliases": ["curator alias", "dgcl"],
+                "is_global": True,
+                "source": "manual",
+            },
+        )
+
+        ensure_seeded()  # simulate the post_migrate / flush convergence
+
+        ns = AuthorityNamespace.objects.get(prefix="dgcl")
+        assert ns.source == "manual"
+        assert ns.display_name == "CURATOR EDITED"
+        assert "curator alias" in ns.aliases
+
+    def test_reseed_skips_corpus_linked_row(self):
+        from django.contrib.auth import get_user_model
+
+        from opencontractserver.corpuses.models import Corpus
+        from opencontractserver.enrichment._namespace_seed import ensure_seeded
+
+        User = get_user_model()
+        user = User.objects.create_user(username="reseed-owner", password="x")
+        corpus = Corpus.objects.create(title="Reseed Authority Corpus", creator=user)
+        # A corpus-scoped namespace owning a shipped prefix must never be flipped
+        # global / clobbered by the convergence.
+        AuthorityNamespace.objects.filter(prefix="dgcl").delete()
+        AuthorityNamespace.objects.create(
+            prefix="dgcl",
+            display_name="Corpus-owned DGCL",
+            is_global=False,
+            authority_corpus=corpus,
+        )
+
+        ensure_seeded()
+
+        ns = AuthorityNamespace.objects.get(prefix="dgcl")
+        assert ns.is_global is False
+        assert ns.display_name == "Corpus-owned DGCL"
+
+    def test_reseed_still_converges_baseline_rows(self):
+        # The convergence must still (re)create a shipped baseline prefix that is
+        # absent — its whole reason for existing (post-flush re-seed).
+        from opencontractserver.enrichment._namespace_seed import ensure_seeded
+
+        AuthorityNamespace.objects.filter(prefix="dgcl").delete()
+        ensure_seeded()
+        ns = AuthorityNamespace.objects.get(prefix="dgcl")
+        assert ns.is_global is True
+        assert ns.source == "baseline"
 
 
 class LoadAuthorityMappingsCommandTests(TestCase):

@@ -294,15 +294,27 @@ class GenericCitationExtractor:
     """Run all Tier-2a shape grammars over text → list[Candidate]."""
 
     def __init__(self) -> None:
+        # Merge pack-declared abbreviations onto the Python baseline so a pack can
+        # carry its jurisdiction's citation vocabulary in its own directory
+        # (portable with the pack). The shipped baseline WINS a key collision — a
+        # pack extends, it never overrides the engine's vocab. Lazy import: this
+        # reaches the pipeline registry to enumerate packs, which would cycle
+        # through the very-early enrichment.constants import if done at module top.
+        from opencontractserver.enrichment.services.authority_pack_config import (
+            pack_declared_abbreviations,
+        )
+
+        pack_state, pack_muni = pack_declared_abbreviations()
+        state_table = {**pack_state, **STATE_CODE_ABBREVIATIONS}
+        muni_table = {**pack_muni, **MUNICIPAL_CODE_ABBREVIATIONS}
+
         # State-code alternation, longest-first so "Del. Code Ann. tit. 8" wins
         # over a hypothetical "Del. Code". Escaped spaces become ``\s+`` so OCR
         # double-spaces / line-break wraps still match; the captured text is
         # whitespace-normalized before lookup (``_state_canon``).
-        ordered = sorted(STATE_CODE_ABBREVIATIONS, key=len, reverse=True)
+        ordered = sorted(state_table, key=len, reverse=True)
         self._state_alt = "|".join(re.escape(a).replace(r"\ ", r"\s+") for a in ordered)
-        self._state_canon = {
-            re.sub(r"\s+", " ", a): v for a, v in STATE_CODE_ABBREVIATIONS.items()
-        }
+        self._state_canon = {re.sub(r"\s+", " ", a): v for a, v in state_table.items()}
         self._state_re = (
             re.compile(
                 r"(?P<abbr>" + self._state_alt + r")\s+(?:§+\s*)?(?P<sec>" + _SEC + r")"
@@ -312,13 +324,11 @@ class GenericCitationExtractor:
         )
         # Municipal-code table alternation — same construction as the state
         # table (longest-first, OCR-tolerant whitespace, normalized lookup).
-        ordered_muni = sorted(MUNICIPAL_CODE_ABBREVIATIONS, key=len, reverse=True)
+        ordered_muni = sorted(muni_table, key=len, reverse=True)
         self._muni_alt = "|".join(
             re.escape(a).replace(r"\ ", r"\s+") for a in ordered_muni
         )
-        self._muni_canon = {
-            re.sub(r"\s+", " ", a): v for a, v in MUNICIPAL_CODE_ABBREVIATIONS.items()
-        }
+        self._muni_canon = {re.sub(r"\s+", " ", a): v for a, v in muni_table.items()}
         # NOTE the ``§`` is OPTIONAL here (``(?:§+\s*)?``) — intentional and the
         # SAME as ``_state_re`` above: a table-matched code is already a KNOWN
         # authority (the named abbreviation is the precision guard), and Bluebook

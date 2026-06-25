@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| **Status** | Proposed (design doc only — no code, migrations, or tests in this PR) |
-| **Supersedes / builds on** | 0001 — Generic scheduled scraping + corpus groups ([PR #1444](https://github.com/Open-Source-Legal/OpenContracts/pull/1444); doc lands at `./0001-scheduled-scraping-and-corpus-groups.md` once merged) |
+| **Status** | Partially implemented — this doc is the original design rationale + gap analysis. For the operator/author how-to (and the now-self-contained pack layout: in-pack providers + `source_hosts`), see the guide: [Authoring an Authority Pack](../../guides/authoring-authority-packs.md). |
+| **Supersedes / builds on** | 0001 — Generic scheduled scraping + corpus groups (PR #1444; the `0001-…` proposal doc is not yet written) |
 | **Relates to** | PR #1305 (Bolivian-law contributor PR, closed/reference), the Authority architecture (PRs #1990 / #1997 / #2037), [`authority-console.md`](../authority-console.md), [`reference-web-enrichment.md`](../reference-web-enrichment.md) |
 | **Author** | follow-up to #1305 / #1444 |
 
@@ -36,6 +36,19 @@ rather than against a `scraping/` app that was never built.
 > cannot be built today — that is the bulk-discovery work of issue #2054. Phase 1
 > therefore ships taxonomy + curated content + personas (no live fetch, so no
 > host-allowlist edit is needed yet).
+
+> **Update — packs are now self-contained (gaps 1 & 6 closed).** A pack may now
+> ship its scraper inside the pack (`<pack>/providers/*.py`, discovered by the
+> pipeline registry from in-tree packs and out-of-tree dirs on the
+> `AUTHORITY_PACK_PATHS` setting) and declare the hosts it fetches from in
+> `pack.yaml` (`source_hosts:`, merged into the SSRF allowlist at runtime). The
+> "one un-packable edit" of §3 (the hardcoded host allowlist) and the
+> "single hardcoded package" of gap 6 (§7) no longer hold — a fetching pack is
+> portable as a directory, secrets still living in the `PipelineSettings` vault.
+> See [Authoring an Authority Pack](../../guides/authoring-authority-packs.md)
+> (tests: `test_authority_pack_providers.py`, `test_authority_source_hosts.py`).
+> The remaining gaps (scheduled scraping, multi-corpus orchestration,
+> config-declarable `authority_type`/shape grammars) are unchanged.
 
 ## 1. Context — three artifacts, one intent
 

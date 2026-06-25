@@ -115,6 +115,15 @@ def iter_equivalences(data: Any = None) -> list[dict]:
                 raise ValueError(
                     f"Invalid canonical key {key!r}: expected '<prefix>:<section>'"
                 )
+        # A self-equivalence bridges a key to itself — a no-op that the DB
+        # CheckConstraint and the atomic upsert both reject as SKIPPED_INVALID.
+        # Reject it here too so the loader's tally can never silently drop a pair
+        # it counted into ``total`` (the reader is the single fail-fast surface).
+        if from_key == to_key:
+            raise ValueError(
+                f"authority_mappings equivalence is self-referential "
+                f"(from_key == to_key == {from_key!r}); a key cannot bridge to itself"
+            )
         out.append(
             {
                 "from_key": from_key,

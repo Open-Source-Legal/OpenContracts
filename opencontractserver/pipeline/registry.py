@@ -13,12 +13,15 @@ Performance:
 """
 
 import importlib
+import importlib.util
 import inspect
 import logging
 import pkgutil
+import sys
 from dataclasses import dataclass, field
 from enum import Enum
 from functools import lru_cache
+from pathlib import Path
 from typing import Any, Optional, TypedDict
 
 from opencontractserver.pipeline.base.base_authority_source_provider import (
@@ -41,6 +44,43 @@ from opencontractserver.pipeline.base.thumbnailer import BaseThumbnailGenerator
 from opencontractserver.types.enums import ContentModality
 
 logger = logging.getLogger(__name__)
+
+
+# In-tree authority packs live here; each immediate subdirectory is a
+# self-contained pack (``pack.yaml`` + optional ``providers/``). Out-of-tree packs
+# are pointed at via the ``AUTHORITY_PACK_PATHS`` setting (a list of pack
+# directories), so a pack copied to another OpenContracts install brings its
+# provider module(s) with it — the provider lives WITH its authority instead of
+# in the shared ``pipeline/authority_source_providers/`` package.
+_AUTHORITY_PACKS_ROOT = (
+    Path(__file__).resolve().parents[1] / "enrichment" / "data" / "authority_packs"
+)
+
+
+def authority_pack_dirs() -> list[Path]:
+    """Return every authority-pack directory to scan for in-pack providers.
+
+    Union of (a) every immediate subdirectory of the in-tree
+    ``enrichment/data/authority_packs/`` root and (b) each path listed in the
+    ``AUTHORITY_PACK_PATHS`` setting (out-of-tree pack directories). Order is
+    deterministic (sorted in-tree packs first) so duplicate-prefix warnings are
+    reproducible. Never raises — a misconfigured setting is logged and skipped.
+    """
+    dirs: list[Path] = []
+    if _AUTHORITY_PACKS_ROOT.is_dir():
+        dirs.extend(p for p in sorted(_AUTHORITY_PACKS_ROOT.iterdir()) if p.is_dir())
+    try:
+        from django.conf import settings
+
+        for raw in getattr(settings, "AUTHORITY_PACK_PATHS", []) or []:
+            p = Path(raw).expanduser()
+            if p.is_dir():
+                dirs.append(p.resolve())
+            else:
+                logger.warning("AUTHORITY_PACK_PATHS entry is not a directory: %s", raw)
+    except Exception as e:  # pragma: no cover - settings always importable in app
+        logger.warning("Could not read AUTHORITY_PACK_PATHS: %s", e)
+    return dirs
 
 
 class ComponentType(str, Enum):
@@ -228,6 +268,52 @@ class PipelineComponentRegistry:
             logger.error(f"Failed to discover components in {module_name}: {e}")
 
         return subclasses
+
+    def _discover_pack_provider_classes(self) -> list[type]:
+        """Discover ``BaseAuthoritySourceProvider`` subclasses shipped INSIDE
+        authority packs (``<pack>/providers/*.py``).
+
+        This is what makes a pack self-contained: its scraper lives in the pack
+        directory rather than in core's ``authority_source_providers/`` package, so
+        copying the pack to another install brings the provider with it. Each
+        module is imported by file path under a synthetic, collision-free module
+        name; an import failure is logged and skipped so a bad pack never crashes
+        registry build (matching ``_discover_subclasses``' isolation). Only classes
+        DEFINED in the pack module are registered — base/imported classes that
+        merely happen to be in scope are ignored via the ``__module__`` check.
+        """
+        seen: set[type] = set()
+        found: list[type] = []
+        for pack_dir in authority_pack_dirs():
+            providers_dir = pack_dir / "providers"
+            if not providers_dir.is_dir():
+                continue
+            for py in sorted(providers_dir.glob("*.py")):
+                if py.name.startswith("_"):
+                    continue
+                mod_name = f"_authority_pack_providers.{pack_dir.name}.{py.stem}"
+                try:
+                    spec = importlib.util.spec_from_file_location(mod_name, py)
+                    if spec is None or spec.loader is None:
+                        continue
+                    module = importlib.util.module_from_spec(spec)
+                    # Register before exec so intra-module relative references and
+                    # re-discovery (reset_registry) resolve to one module object.
+                    sys.modules[mod_name] = module
+                    spec.loader.exec_module(module)
+                    for _, obj in inspect.getmembers(module, inspect.isclass):
+                        if (
+                            issubclass(obj, BaseAuthoritySourceProvider)
+                            and obj is not BaseAuthoritySourceProvider
+                            and obj not in seen
+                            and not inspect.isabstract(obj)
+                            and obj.__module__ == mod_name
+                        ):
+                            seen.add(obj)
+                            found.append(obj)
+                except Exception as e:
+                    logger.warning("Failed to import pack provider %s: %s", py, e)
+        return found
 
     def _get_class_or_instance_attr(
         self, component_class: type, attr_name: str, default: Any = None
@@ -466,17 +552,44 @@ class PipelineComponentRegistry:
                 )
         self._llm_providers = tuple(llm_providers)
 
-        # Discover authority source providers
+        # Discover authority source providers: core package + in-pack providers.
+        # In-pack discovery lets a self-contained pack ship its own scraper under
+        # <pack>/providers/, so the provider travels with the authority.
         authority_source_provider_classes = self._discover_subclasses(
             "opencontractserver.pipeline.authority_source_providers",
             BaseAuthoritySourceProvider,
         )
+        seen_classes = set(authority_source_provider_classes)
+        for cls in self._discover_pack_provider_classes():
+            if cls not in seen_classes:
+                seen_classes.add(cls)
+                authority_source_provider_classes.append(cls)
+
         authority_source_providers = []
+        prefix_owner: dict[str, str] = {}
         for cls in authority_source_provider_classes:
             defn = self._create_definition(cls, ComponentType.AUTHORITY_SOURCE_PROVIDER)
             authority_source_providers.append(defn)
             self._by_name[defn.name] = defn
             self._by_class_name[defn.class_name] = defn
+            # Warn on supported_prefix collisions: AuthorityDiscoveryService.
+            # _provider_for returns the FIRST can_handle match in priority order,
+            # so two providers claiming the same prefix family resolve
+            # non-deterministically (by priority, then discovery order) with no
+            # other signal — make a shadowing install loud, mirroring the LLM
+            # provider_key collision warning above.
+            for pfx in getattr(cls, "supported_prefixes", ()) or ():
+                if pfx in prefix_owner:
+                    logger.warning(
+                        "Duplicate authority-source-provider prefix %r: %s also "
+                        "claims it (already owned by %s); _provider_for routing is "
+                        "priority-then-discovery-order.",
+                        pfx,
+                        defn.class_name,
+                        prefix_owner[pfx],
+                    )
+                else:
+                    prefix_owner[pfx] = defn.class_name
         self._authority_source_providers = tuple(authority_source_providers)
 
         logger.info(

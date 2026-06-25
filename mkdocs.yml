@@ -86,6 +86,7 @@ nav:
   - Guides:
       - Building Document Imports with CAML: guides/building-document-imports-with-caml.md
       - Ingesting Authorities & Adding Providers: guides/ingesting-authorities.md
+      - Authoring an Authority Pack: guides/authoring-authority-packs.md
   - Architecture:
       - System Data Flow: architecture/components/Data-flow-diagram.md
       - PDF Data Layer (PAWLs): architecture/PDF-data-layer.md
@@ -98,6 +99,7 @@ nav:
       - Document Analyzers: architecture/analyzers.md
       - Reference-Web Enrichment & Authority Discovery: architecture/reference-web-enrichment.md
       - Authority Console: architecture/authority-console.md
+      - 'Proposal: Authority Packs': architecture/proposals/0002-authority-packs.md
       - Discovery System (llms.txt, MCP, robots.txt): architecture/discovery_system.md
       - Corpus Actions: architecture/opencontract-corpus-actions.md
       - Agent Corpus Actions: architecture/agent_corpus_actions_design.md

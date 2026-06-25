@@ -433,3 +433,50 @@ class LoadAuthorityPackEdgeCaseTests(TestCase):
         with self.assertRaises(CommandError):
             self._run()
         self.assertFalse(Corpus.objects.filter(title="A").exists())
+
+    def test_malformed_source_hosts_rejected(self):
+        # source_hosts widen the SSRF allowlist for a scraping pack; a value that
+        # is not a bare hostname (scheme/port/path) is a manifest error and must
+        # fail at load, not silently as a later GATE_BLOCKED_DOMAIN.
+        self._write_pack(
+            {
+                "name": "p",
+                "source_hosts": ["https://nope.gov"],
+                "corpora": [{"title": "A", "spec": "a.json"}],
+            },
+            specs={"a.json": self._one_section_spec()},
+        )
+        with self.assertRaises(CommandError):
+            self._run()
+        self.assertFalse(Corpus.objects.filter(title="A").exists())
+
+    def test_valid_source_hosts_accepted(self):
+        # A well-formed source_hosts list loads fine (the hosts themselves are
+        # discovered from the pack dir at runtime, not persisted by the command).
+        self._write_pack(
+            {
+                "name": "p",
+                "source_hosts": ["tcpbolivia.bo"],
+                "corpora": [{"title": "Area A", "spec": "a.json"}],
+            },
+            specs={"a.json": self._one_section_spec()},
+        )
+        self._run()
+        self.assertTrue(Corpus.objects.filter(title="Area A").exists())
+
+    def test_malformed_pack_shape_rule_rejected(self):
+        # A pack's mappings YAML may carry shape_rules / abbreviations (its
+        # citation vocabulary); a bad regex must fail at load, not be silently
+        # skipped at runtime.
+        self._write_pack(
+            {
+                "name": "p",
+                "mappings": "m.yaml",
+                "corpora": [{"title": "A", "spec": "a.json"}],
+            },
+            specs={"a.json": self._one_section_spec()},
+        )
+        self._write("m.yaml", "shape_rules:\n  - pattern: '['\n")
+        with self.assertRaises(CommandError):
+            self._run()
+        self.assertFalse(Corpus.objects.filter(title="A").exists())

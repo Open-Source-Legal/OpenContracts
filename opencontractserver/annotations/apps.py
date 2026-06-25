@@ -83,5 +83,19 @@ class AnnotationsConfig(AppConfig):
                 sender=self,
                 dispatch_uid="annotations_seed_authority_namespaces",
             )
+
+            # Make safe_http's default SSRF allowlist resolve to baseline ∪ the
+            # installed authority packs' declared source_hosts, so a self-contained
+            # scraping pack can carry the hosts it fetches from in its pack.yaml
+            # instead of editing constants/safe_http.py. Injected as a callable so
+            # the pure safe_http util never imports the enrichment/pipeline layer.
+            from opencontractserver.enrichment.services.authority_source_hosts import (
+                effective_source_allowlist,
+            )
+            from opencontractserver.utils.safe_http import (
+                register_allowlist_provider,
+            )
+
+            register_allowlist_provider(effective_source_allowlist)
         except ImportError:
             pass
