@@ -1,0 +1,67 @@
+# ===========================================================================
+# GPU-acceleration override for the remote-ingest worker bundle.
+# ===========================================================================
+# Swaps the stock docling-parser + vector-embedder for the locally-built,
+# auto-detecting accelerated images (see compose/accelerated/) and passes the
+# GPU/NPU device nodes through. This is what makes the remote-ingest worker run
+# the parse + embed on the beefy workstation's GPU instead of its CPU.
+#
+# Merge it ON TOP of remote_worker.yml — it is OPT-IN because the device
+# passthrough requires the GPU to be present (a CPU-only host should NOT use it;
+# the stock bundle already runs on CPU):
+#
+#   export OC_TARGET_URL=...  OC_WORKER_TOKEN=...  OC_DATA_DIR=/data/pdfs
+#   export VECTOR_EMBEDDER_API_KEY=change-me
+#   export RENDER_GID=$(stat -c '%g' /dev/dri/renderD128)   # host-specific
+#
+#   cd scripts/remote_ingest
+#   docker compose -f remote_worker.yml -f remote_worker.accel.yml build \
+#       docling-parser vector-embedder
+#   docker compose -f remote_worker.yml -f remote_worker.accel.yml up -d \
+#       docling-parser vector-embedder
+#   docker compose -f remote_worker.yml -f remote_worker.accel.yml run --rm worker plan
+#   docker compose -f remote_worker.yml -f remote_worker.accel.yml run --rm worker run --max-workers 8
+#
+# Accelerator family (torch wheel) is chosen per-host via env. Defaults target
+# Intel (discrete Arc / Battlemage, e.g. Arc Pro B70 — the recommended target):
+#   OC_DOCLING_ACCEL : auto|cpu|xpu|cuda|rocm   (default: xpu)
+#   OC_EMBED_ACCEL   : auto|cpu|xpu|cuda|rocm   (default: auto; embedder also uses
+#                      OpenVINO so on Intel it routes NPU>GPU automatically)
+#
+# NVIDIA: set OC_DOCLING_ACCEL=cuda OC_EMBED_ACCEL=cuda and replace the `devices`
+#   blocks below with the nvidia runtime (`deploy.resources...devices` / `--gpus all`).
+# AMD ROCm: set ACCEL=rocm and pass `/dev/kfd` + `/dev/dri` + `--group-add video`.
+# ===========================================================================
+
+services:
+  docling-parser:
+    image: oc-docling:${OC_DOCLING_ACCEL:-xpu}
+    build:
+      context: ../../compose/accelerated
+      dockerfile: docling/Dockerfile
+      args:
+        ACCEL: ${OC_DOCLING_ACCEL:-xpu}
+    devices:
+      - /dev/dri:/dev/dri
+    group_add:
+      - "${RENDER_GID:-993}"   # = $(stat -c '%g' /dev/dri/renderD128); host-specific
+    environment:
+      DOCLING_ACCEL: auto      # entrypoint auto-selects xpu/cuda/cpu at start
+
+  vector-embedder:
+    image: oc-embedder:${OC_EMBED_ACCEL:-auto}
+    build:
+      context: ../../compose/accelerated
+      dockerfile: embedder/Dockerfile
+      args:
+        ACCEL: ${OC_EMBED_ACCEL:-auto}
+    devices:
+      - /dev/dri:/dev/dri
+      # NPU only exists on Intel SoCs (e.g. Lunar Lake), not on discrete Arc.
+      # Harmless to omit on a discrete-GPU box; uncomment if the host has an NPU:
+      # - /dev/accel/accel0:/dev/accel/accel0
+    group_add:
+      - "${RENDER_GID:-993}"
+    environment:
+      EMBED_ACCEL: auto        # entrypoint auto-selects NPU>GPU>xpu>cpu at start
+      VECTOR_EMBEDDER_API_KEY: ${VECTOR_EMBEDDER_API_KEY:-}
