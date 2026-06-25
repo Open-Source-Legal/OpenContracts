@@ -896,3 +896,29 @@ class WorkerDocumentUploadMetadataType(TypedDict):
 
     # Pre-computed embeddings from the external worker
     embeddings: NotRequired[WorkerEmbeddingsType]
+
+    # Provenance of the parser that produced the structural layer on the remote
+    # worker. Recorded on the document's StructuralAnnotationSet so a remotely
+    # parsed document carries the same provenance as one parsed in-cluster.
+    parser_name: NotRequired[Optional[str]]
+    parser_version: NotRequired[Optional[str]]
+
+    # Arbitrary structured document metadata calculated by the remote worker's
+    # pre-processing/enrichment stage. Stored verbatim on Document.custom_meta.
+    custom_meta: NotRequired[Optional[dict]]
+
+    # Typed corpus metadata (the Column/Datacell metadata system — the UI's
+    # "document metadata", successor to legacy metadata annotations). Each entry
+    # get-or-creates a manual-entry Column in the corpus metadata schema and sets
+    # the document's value.
+    metadata: NotRequired[list["WorkerMetadataFieldType"]]
+
+
+class WorkerMetadataFieldType(TypedDict):
+    """One typed metadata value to set on a worker-uploaded document."""
+
+    column_name: str  # metadata column name (created on demand in the corpus)
+    data_type: str  # STRING / TEXT / BOOLEAN / INTEGER / FLOAT / DATE / DATETIME /
+    #                 URL / EMAIL / CHOICE / MULTI_CHOICE / JSON
+    value: Any  # the value (must match data_type; wrapped as {"value": value})
+    validation_config: NotRequired[Optional[dict]]  # e.g. {"choices": [...]}

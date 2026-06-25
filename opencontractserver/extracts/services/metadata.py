@@ -577,3 +577,105 @@ class MetadataService(BaseService):
             return False, "Only manual entry columns can be modified", None
 
         return True, "", column
+
+    # Valid metadata column data types (mirrors CreateMetadataColumn mutation).
+    METADATA_DATA_TYPES = (
+        "STRING",
+        "TEXT",
+        "BOOLEAN",
+        "INTEGER",
+        "FLOAT",
+        "DATE",
+        "DATETIME",
+        "URL",
+        "EMAIL",
+        "CHOICE",
+        "MULTI_CHOICE",
+        "JSON",
+    )
+
+    @classmethod
+    def upsert_document_metadata(
+        cls,
+        *,
+        corpus,
+        document,
+        user,
+        column_name: str,
+        data_type: str,
+        value,
+        validation_config: dict | None = None,
+    ) -> Datacell:
+        """Set a manual metadata value on *document* in *corpus*, creating the
+        corpus metadata fieldset and column on demand.
+
+        This is the INTERNAL ingestion entry point (worker upload / pipeline) for
+        the same Column/Datacell metadata an end user sets via the
+        ``SetMetadataValue`` GraphQL mutation. It does NOT run the request-scoped
+        permission gate: callers (e.g. the worker-upload task) operate as the
+        corpus owner and have already established that context. The created
+        Datacell is ``extract=NULL`` manual metadata, with the value wrapped as
+        ``{"value": value}`` and type-validated by ``Datacell.clean()`` against
+        the column's ``data_type`` (a mismatch raises ``ValidationError``).
+
+        Returns the created/updated ``Datacell``.
+        """
+        from django.utils import timezone
+
+        from opencontractserver.extracts.models import Datacell, Fieldset
+        from opencontractserver.types.enums import PermissionTypes
+        from opencontractserver.utils.permissioning import (
+            set_permissions_for_obj_to_user,
+        )
+
+        if data_type not in cls.METADATA_DATA_TYPES:
+            raise ValueError(
+                f"Invalid metadata data_type {data_type!r}; must be one of "
+                f"{', '.join(cls.METADATA_DATA_TYPES)}"
+            )
+
+        # Get-or-create the corpus metadata fieldset (OneToOne corpus.metadata_schema).
+        fieldset = getattr(corpus, "metadata_schema", None)
+        if fieldset is None:
+            fieldset = Fieldset.objects.create(
+                name=f"{corpus.title} Metadata",
+                description=f"Metadata schema for {corpus.title}",
+                corpus=corpus,
+                creator=user,
+            )
+            set_permissions_for_obj_to_user(
+                user, fieldset, [PermissionTypes.CRUD], is_new=True
+            )
+
+        # Get-or-create the manual-entry metadata column by name in the fieldset.
+        # The FIRST writer defines the column's data_type; later values must
+        # conform to it (Datacell.clean validates).
+        column = Column.objects.filter(
+            fieldset=fieldset, name=column_name, is_manual_entry=True
+        ).first()
+        if column is None:
+            column = Column.objects.create(
+                fieldset=fieldset,
+                name=column_name,
+                data_type=data_type,
+                validation_config=validation_config or {},
+                is_manual_entry=True,
+                output_type=data_type.lower(),
+                creator=user,
+            )
+            set_permissions_for_obj_to_user(
+                user, column, [PermissionTypes.CRUD], is_new=True
+            )
+
+        datacell, _created = Datacell.objects.update_or_create(
+            document=document,
+            column=column,
+            extract=None,
+            defaults={
+                "data": {"value": value},
+                "data_definition": column.output_type,
+                "creator": user,
+                "completed": timezone.now(),
+            },
+        )
+        return datacell

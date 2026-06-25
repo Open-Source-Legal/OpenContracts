@@ -79,6 +79,7 @@ def import_annotations(
     label_lookup: dict[str, AnnotationLabel],
     label_type: str = TOKEN_LABEL,
     pawls_data: list[dict] | None = None,
+    dispatch_embeddings: bool = True,
 ) -> dict[str | int, int]:
     """
     Import annotations, handling parent relationships, and return a mapping of old IDs
@@ -94,6 +95,11 @@ def import_annotations(
         pawls_data (List[dict]): Optional PAWLs data for extracting image content.
             If provided, annotations with IMAGE modality will have their images
             pre-extracted for faster embedding.
+        dispatch_embeddings (bool): When True (default), dispatch server-side
+            batch embedding tasks for the created annotations. Set False when the
+            caller supplies pre-computed embeddings (e.g. the worker-upload path,
+            where an external worker already embedded every annotation) so the
+            server does not redundantly re-embed them.
 
     Returns:
         Dict[Union[str, int], int]: A dictionary mapping the "id" field from each incoming annotation
@@ -190,38 +196,44 @@ def import_annotations(
         # strategy here: dispatch one batch task with the default embedder
         # for global search, plus a second batch task with the corpus's
         # preferred embedder when it differs.
-        from opencontractserver.constants.document_processing import (
-            EMBEDDING_BATCH_SIZE,
-        )
-        from opencontractserver.pipeline.utils import get_default_embedder_path
-        from opencontractserver.tasks.embeddings_task import (
-            calculate_embeddings_for_annotation_batch,
-        )
+        #
+        # Skipped entirely when ``dispatch_embeddings`` is False: a caller that
+        # supplies pre-computed embeddings (worker-upload) owns the embedding
+        # layer, and re-embedding here would both waste the target's embedder
+        # and defeat the point of offloading enrichment to a remote worker.
+        if dispatch_embeddings:
+            from opencontractserver.constants.document_processing import (
+                EMBEDDING_BATCH_SIZE,
+            )
+            from opencontractserver.pipeline.utils import get_default_embedder_path
+            from opencontractserver.tasks.embeddings_task import (
+                calculate_embeddings_for_annotation_batch,
+            )
 
-        annotation_ids = [a.pk for a in instances]
-        corpus_id_for_batch = corpus_obj.id if corpus_obj is not None else None
+            annotation_ids = [a.pk for a in instances]
+            corpus_id_for_batch = corpus_obj.id if corpus_obj is not None else None
 
-        embedder_paths_to_dispatch: list[str] = []
-        default_embedder_path = get_default_embedder_path()
-        if default_embedder_path:
-            embedder_paths_to_dispatch.append(default_embedder_path)
-        # If the corpus has a different preferred embedder, dual-embed too.
-        if corpus_obj is not None:
-            corpus_pref = getattr(corpus_obj, "preferred_embedder", None)
-            if corpus_pref and corpus_pref != default_embedder_path:
-                embedder_paths_to_dispatch.append(corpus_pref)
+            embedder_paths_to_dispatch: list[str] = []
+            default_embedder_path = get_default_embedder_path()
+            if default_embedder_path:
+                embedder_paths_to_dispatch.append(default_embedder_path)
+            # If the corpus has a different preferred embedder, dual-embed too.
+            if corpus_obj is not None:
+                corpus_pref = getattr(corpus_obj, "preferred_embedder", None)
+                if corpus_pref and corpus_pref != default_embedder_path:
+                    embedder_paths_to_dispatch.append(corpus_pref)
 
-        # Sub-batch by EMBEDDING_BATCH_SIZE to match corpus_tasks dispatch
-        # pattern; the embedder's own ``embed_texts_batch`` further
-        # sub-batches by EMBEDDING_API_BATCH_SIZE for the wire request.
-        for embedder_path in embedder_paths_to_dispatch:
-            for i in range(0, len(annotation_ids), EMBEDDING_BATCH_SIZE):
-                chunk = annotation_ids[i : i + EMBEDDING_BATCH_SIZE]
-                calculate_embeddings_for_annotation_batch.delay(
-                    annotation_ids=chunk,
-                    corpus_id=corpus_id_for_batch,
-                    embedder_path=embedder_path,
-                )
+            # Sub-batch by EMBEDDING_BATCH_SIZE to match corpus_tasks dispatch
+            # pattern; the embedder's own ``embed_texts_batch`` further
+            # sub-batches by EMBEDDING_API_BATCH_SIZE for the wire request.
+            for embedder_path in embedder_paths_to_dispatch:
+                for i in range(0, len(annotation_ids), EMBEDDING_BATCH_SIZE):
+                    chunk = annotation_ids[i : i + EMBEDDING_BATCH_SIZE]
+                    calculate_embeddings_for_annotation_batch.delay(
+                        annotation_ids=chunk,
+                        corpus_id=corpus_id_for_batch,
+                        embedder_path=embedder_path,
+                    )
 
     # Second pass: Set parent relationships.
     # Legacy V1 exports — and V2 exports written before parent_id was

@@ -15,6 +15,7 @@ effects that certain annotation types trigger on import.
 | [Corpus Export/Import](corpus_export_import.md) | Exporting and re-importing full corpuses with annotations, labels, and configuration |
 | [Annotated Document Import](annotated_document_import.md) | Importing a single document with pre-built annotations into an existing corpus |
 | [Worker Uploads (REST API)](worker_uploads.md) | Token-scoped REST API for external pipelines to push pre-processed documents with annotations and embeddings |
+| [Remote Ingest Worker](remote_ingest_worker.md) | Run the full parse + embed pipeline on your own hardware and stream finished documents (with calculated metadata/annotations) to a target instance |
 | [Annotation Side Effects](annotation_side_effects.md) | Special annotation types that create document indexes, hierarchies, and structural data on import |
 
 ## Quick Reference: Which Method to Use
@@ -23,7 +24,8 @@ effects that certain annotation types trigger on import.
 |----------|--------|
 | Upload a few documents for manual annotation | [Single Upload](single_upload.md) |
 | Upload hundreds of documents preserving folder organization | [Bulk ZIP Import](bulk_zip_import.md) |
-| Bulk-load a very large local PDF tree (100k+ files), resumably | [Bulk ZIP Import](bulk_zip_import.md) (`scripts/bulk_import` CLI driver) |
+| Bulk-load a very large local PDF tree (100k+ files), resumably -- server parses | [Bulk ZIP Import](bulk_zip_import.md) (`scripts/bulk_import` CLI driver) |
+| Bulk-load a very large local tree, offloading parse + embed to your own hardware | [Remote Ingest Worker](remote_ingest_worker.md) (`scripts/remote_ingest` CLI driver) |
 | Migrate a fully-annotated corpus to another instance | [Corpus Export/Import](corpus_export_import.md) |
 | Programmatically inject a document with pre-built annotations | [Annotated Document Import](annotated_document_import.md) |
 | Feed documents from an external processing pipeline via REST API | [Worker Uploads](worker_uploads.md) |

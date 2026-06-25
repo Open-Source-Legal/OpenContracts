@@ -25,8 +25,10 @@ from rest_framework.test import APIClient
 
 from config.graphql.schema import schema
 from opencontractserver.annotations.models import (
+    Annotation,
     Embedding,
     LabelSet,
+    StructuralAnnotationSet,
 )
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.types.enums import PermissionTypes
@@ -1599,3 +1601,359 @@ class TestWorkerGraphQLQueries(TestCase):
             variables={"workerId": inactive_worker.id},
         )
         self.assertIsNotNone(result.get("errors"))
+
+
+# ============================================================================
+# Worker-upload fidelity: structural set, thumbnail, embedding ownership
+# ============================================================================
+
+# 384 is the default MicroserviceEmbedder dimension and is in EMBEDDING_DIMENSIONS.
+_VEC = [0.01] * 384
+
+
+def _structural_metadata(with_embeddings: bool = False, **overrides):
+    """Metadata with two structural TOKEN_LABEL annotations (parent -> child),
+    mirroring what a remote Docling parse ships."""
+    labelled_text = [
+        {
+            "id": "c0_sec-1",
+            "annotationLabel": "section_header",
+            "rawText": "SECTION 1",
+            "page": 0,
+            "annotation_type": "TOKEN_LABEL",
+            "structural": True,
+            "parent_id": None,
+            "annotation_json": {
+                "0": {
+                    "bounds": {
+                        "left": 10.0,
+                        "top": 10.0,
+                        "right": 60.0,
+                        "bottom": 22.0,
+                    },
+                    "tokensJsons": [{"pageIndex": 0, "tokenIndex": 0}],
+                    "rawText": "SECTION 1",
+                }
+            },
+        },
+        {
+            "id": "c0_txt-1",
+            "annotationLabel": "text",
+            "rawText": "Body paragraph.",
+            "page": 0,
+            "annotation_type": "TOKEN_LABEL",
+            "structural": True,
+            "parent_id": "c0_sec-1",
+            "annotation_json": {
+                "0": {
+                    "bounds": {
+                        "left": 10.0,
+                        "top": 24.0,
+                        "right": 80.0,
+                        "bottom": 36.0,
+                    },
+                    "tokensJsons": [{"pageIndex": 0, "tokenIndex": 0}],
+                    "rawText": "Body paragraph.",
+                }
+            },
+        },
+    ]
+    text_labels = {
+        "section_header": {
+            "label_type": "TOKEN_LABEL",
+            "color": "grey",
+            "description": "Parser Structural Label",
+            "icon": "expand",
+            "text": "section_header",
+        },
+        "text": {
+            "label_type": "TOKEN_LABEL",
+            "color": "grey",
+            "description": "Parser Structural Label",
+            "icon": "expand",
+            "text": "text",
+        },
+    }
+    meta = _make_metadata(
+        labelled_text=labelled_text,
+        text_labels=text_labels,
+        parser_name="Docling Parser (REST)",
+        parser_version="1.0",
+        **overrides,
+    )
+    if with_embeddings:
+        meta["embeddings"] = {
+            "embedder_path": "opencontractserver.pipeline.embedders."
+            "sent_transformer_microservice.MicroserviceEmbedder",
+            "document_embedding": list(_VEC),
+            "annotation_embeddings": {"c0_sec-1": list(_VEC), "c0_txt-1": list(_VEC)},
+        }
+    return meta
+
+
+class TestWorkerUploadFidelity(TestCase):
+    """The worker-upload path must mirror the parser pipeline: structural
+    annotations migrate into a StructuralAnnotationSet, a thumbnail is generated,
+    and supplied embeddings suppress server-side re-embedding."""
+
+    def setUp(self):
+        self.admin = User.objects.create_superuser(
+            username="admin_fidelity",
+            password="testpass",
+            email="admin_fidelity@test.com",
+        )
+        self.label_set = LabelSet.objects.create(
+            title="Fidelity LS", creator=self.admin
+        )
+        self.corpus = Corpus.objects.create(
+            title="Fidelity Corpus", creator=self.admin, label_set=self.label_set
+        )
+        set_permissions_for_obj_to_user(self.admin, self.corpus, [PermissionTypes.ALL])
+        self.account = WorkerAccount.create_with_user(
+            name="fidelity-worker", creator=self.admin
+        )
+        self.token, _ = CorpusAccessToken.create_token(
+            worker_account=self.account, corpus=self.corpus
+        )
+
+    def _stage(self, metadata):
+        return WorkerDocumentUpload.objects.create(
+            corpus_access_token=self.token,
+            corpus=self.corpus,
+            file=_make_fake_pdf(),
+            metadata=metadata,
+            status=UploadStatus.PENDING,
+        )
+
+    def _process(self, upload):
+        from opencontractserver.worker_uploads.tasks import process_pending_uploads
+
+        # Thumbnail generation is dispatched post-commit; patch it out (it needs a
+        # real PDF + thumbnailer that the fake test PDF can't satisfy).
+        with patch(
+            "opencontractserver.tasks.doc_tasks.extract_thumbnail.apply_async"
+        ) as mock_thumb:
+            process_pending_uploads.apply().get()
+        upload.refresh_from_db()
+        return upload, mock_thumb
+
+    def test_structural_annotations_migrated_to_set(self):
+        upload = self._stage(_structural_metadata())
+        upload, _ = self._process(upload)
+
+        self.assertEqual(upload.status, UploadStatus.COMPLETED)
+        doc = upload.result_document
+        self.assertIsNotNone(doc)
+
+        # The document is now linked to a StructuralAnnotationSet...
+        self.assertIsNotNone(doc.structural_annotation_set)
+        self.assertIsInstance(doc.structural_annotation_set, StructuralAnnotationSet)
+
+        # ...and the structural annotations live on the set (document=NULL),
+        # exactly as in-cluster ingestion produces.
+        on_set = Annotation.objects.filter(
+            structural_set=doc.structural_annotation_set, structural=True
+        )
+        self.assertEqual(on_set.count(), 2)
+        self.assertFalse(on_set.filter(document__isnull=False).exists())
+
+        # No structural annotations were left dangling on the document.
+        self.assertFalse(
+            Annotation.objects.filter(
+                document=doc, structural=True, structural_set__isnull=True
+            ).exists()
+        )
+
+        # The parent->child tree survived the migration.
+        child = on_set.get(raw_text="Body paragraph.")
+        parent = on_set.get(raw_text="SECTION 1")
+        self.assertEqual(child.parent_id, parent.id)
+
+    def test_thumbnail_dispatched(self):
+        upload = self._stage(_structural_metadata())
+        upload, mock_thumb = self._process(upload)
+
+        self.assertEqual(upload.status, UploadStatus.COMPLETED)
+        mock_thumb.assert_called_once()
+        # Dispatched for the corpus-linked document.
+        self.assertEqual(
+            mock_thumb.call_args.kwargs["kwargs"]["doc_id"],
+            upload.result_document.id,
+        )
+
+    def test_custom_meta_stored_on_corpus_doc(self):
+        """Structured metadata calculated by the worker's enrichment stage is
+        persisted on the corpus-linked Document.custom_meta."""
+        meta = {"jurisdiction": "TX", "contract_number": "058000", "year": 2025}
+        upload = self._stage(_structural_metadata(custom_meta=meta))
+        upload, _ = self._process(upload)
+
+        self.assertEqual(upload.status, UploadStatus.COMPLETED)
+        corpus_doc = upload.result_document
+        self.assertEqual(corpus_doc.custom_meta, meta)
+
+    def test_no_custom_meta_leaves_default(self):
+        """Uploads without custom_meta do not break (field keeps its default)."""
+        upload = self._stage(_structural_metadata())
+        upload, _ = self._process(upload)
+        self.assertEqual(upload.status, UploadStatus.COMPLETED)
+
+    def test_injected_nonstructural_annotation_lands_on_document(self):
+        """An enricher-injected NON-structural annotation is created on the
+        corpus document (NOT migrated to the structural set) with its label
+        auto-created — the server-side half of the enrichment stage."""
+        injected = {
+            "id": "enr-0",
+            "annotationLabel": "DETECTED_DATE",
+            "rawText": "January 1, 2025",
+            "page": 0,
+            "annotation_type": "TOKEN_LABEL",
+            "structural": False,
+            "annotation_json": {
+                "0": {
+                    "bounds": {
+                        "top": 10.0,
+                        "bottom": 22.0,
+                        "left": 10.0,
+                        "right": 90.0,
+                    },
+                    "tokensJsons": [{"pageIndex": 0, "tokenIndex": 0}],
+                    "rawText": "January 1, 2025",
+                }
+            },
+        }
+        meta = _structural_metadata()
+        meta["labelled_text"].append(injected)
+        meta["text_labels"]["DETECTED_DATE"] = {
+            "label_type": "TOKEN_LABEL",
+            "color": "#2563EB",
+            "description": "Worker enrichment label",
+            "icon": "tag",
+            "text": "DETECTED_DATE",
+        }
+        upload = self._stage(meta)
+        upload, _ = self._process(upload)
+
+        self.assertEqual(upload.status, UploadStatus.COMPLETED)
+        doc = upload.result_document
+        ann = Annotation.objects.get(document=doc, raw_text="January 1, 2025")
+        # Non-structural -> stays on the document, NOT migrated to the set.
+        self.assertFalse(ann.structural)
+        self.assertIsNone(ann.structural_set_id)
+        self.assertEqual(ann.annotation_label.text, "DETECTED_DATE")
+
+    def test_metadata_datacells_created(self):
+        """Typed metadata entries create manual-entry Columns in the corpus
+        metadata schema + extract=NULL Datacells on the document (the
+        Column/Datacell metadata system)."""
+        from opencontractserver.extracts.models import Column, Datacell, Fieldset
+
+        meta = _structural_metadata(
+            metadata=[
+                {
+                    "column_name": "Contract Number",
+                    "data_type": "STRING",
+                    "value": "058000",
+                },
+                {
+                    "column_name": "Contract Type",
+                    "data_type": "CHOICE",
+                    "value": "General",
+                    "validation_config": {"choices": ["General", "Amendment"]},
+                },
+                {"column_name": "Pages", "data_type": "INTEGER", "value": 6},
+            ]
+        )
+        upload = self._stage(meta)
+        upload, _ = self._process(upload)
+
+        self.assertEqual(upload.status, UploadStatus.COMPLETED)
+        corpus_doc = upload.result_document
+
+        fieldset = Fieldset.objects.filter(corpus=self.corpus).first()
+        self.assertIsNotNone(fieldset)  # auto-created metadata schema
+        cols = {c.name: c for c in Column.objects.filter(fieldset=fieldset)}
+        self.assertEqual(set(cols), {"Contract Number", "Contract Type", "Pages"})
+        self.assertTrue(all(c.is_manual_entry for c in cols.values()))
+
+        for name, expected in [
+            ("Contract Number", "058000"),
+            ("Contract Type", "General"),
+            ("Pages", 6),
+        ]:
+            dc = Datacell.objects.get(
+                document=corpus_doc, column=cols[name], extract__isnull=True
+            )
+            self.assertEqual(dc.data, {"value": expected})
+
+    def test_metadata_idempotent_reuses_column(self):
+        """A second document with the same metadata column reuses the Column
+        (one column per corpus, one datacell per (doc, column))."""
+        from opencontractserver.extracts.models import Column, Fieldset
+
+        for value in ("058000", "059000"):
+            up = self._stage(
+                _structural_metadata(
+                    metadata=[
+                        {
+                            "column_name": "Contract Number",
+                            "data_type": "STRING",
+                            "value": value,
+                        }
+                    ]
+                )
+            )
+            up, _ = self._process(up)
+            self.assertEqual(up.status, UploadStatus.COMPLETED)
+
+        fieldset = Fieldset.objects.filter(corpus=self.corpus).first()
+        self.assertEqual(
+            Column.objects.filter(fieldset=fieldset, name="Contract Number").count(), 1
+        )
+
+    def test_metadata_bad_value_type_fails_upload(self):
+        """A value that violates the column's data_type fails the upload loudly."""
+        meta = _structural_metadata(
+            metadata=[
+                {"column_name": "Year", "data_type": "INTEGER", "value": "not-an-int"}
+            ]
+        )
+        upload = self._stage(meta)
+        upload, _ = self._process(upload)
+        self.assertEqual(upload.status, UploadStatus.FAILED)
+
+    def test_supplied_embeddings_suppress_server_dispatch(self):
+        upload = self._stage(_structural_metadata(with_embeddings=True))
+
+        with patch(
+            "opencontractserver.tasks.embeddings_task."
+            "calculate_embeddings_for_annotation_batch.delay"
+        ) as mock_batch:
+            upload, _ = self._process(upload)
+
+        self.assertEqual(upload.status, UploadStatus.COMPLETED)
+        # The worker owns the embedding layer -> server must NOT re-embed.
+        mock_batch.assert_not_called()
+
+        # The supplied embeddings were stored (document + both annotations).
+        doc = upload.result_document
+        self.assertTrue(Embedding.objects.filter(document=doc).exists())
+        ann_pks = Annotation.objects.filter(
+            structural_set=doc.structural_annotation_set
+        ).values_list("id", flat=True)
+        self.assertEqual(
+            Embedding.objects.filter(annotation_id__in=list(ann_pks)).count(), 2
+        )
+
+    def test_no_embeddings_server_dispatches(self):
+        upload = self._stage(_structural_metadata(with_embeddings=False))
+
+        with patch(
+            "opencontractserver.tasks.embeddings_task."
+            "calculate_embeddings_for_annotation_batch.delay"
+        ) as mock_batch:
+            upload, _ = self._process(upload)
+
+        self.assertEqual(upload.status, UploadStatus.COMPLETED)
+        # With no embeddings supplied, the server falls back to embedding.
+        mock_batch.assert_called()

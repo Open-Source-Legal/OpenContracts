@@ -39,6 +39,7 @@ from opencontractserver.documents.models import (
     DocumentPath,
     DocumentProcessingStatus,
 )
+from opencontractserver.extracts.services.metadata import MetadataService
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.compact_pawls import compact_pawls_pages
 from opencontractserver.utils.importing import (
@@ -47,6 +48,8 @@ from opencontractserver.utils.importing import (
     load_or_create_labels,
 )
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
+from opencontractserver.utils.structural_sets import create_structural_annotation_set
+from opencontractserver.utils.subtree_groups import build_subtree_groups_for_document
 from opencontractserver.worker_uploads.models import (
     UploadStatus,
     WorkerDocumentUpload,
@@ -253,23 +256,33 @@ def _process_single_upload(upload_id: UUID) -> None:
             name="extracted_text.txt",
         )
 
+        # Optional structured metadata calculated by the remote worker's
+        # pre-processing stage (e.g. jurisdiction, parsed dates, contract
+        # number). Stored verbatim on Document.custom_meta. Only applied when
+        # provided so non-enriched uploads keep the field's default.
+        custom_meta = metadata.get("custom_meta")
+
+        create_kwargs: dict[str, Any] = {
+            "title": safe_title,
+            "description": metadata.get("description", ""),
+            "pdf_file": File(upload.file, doc_filename),
+            "pawls_parse_file": pawls_file,
+            "txt_extract_file": txt_file,
+            "file_type": metadata.get("file_type", "application/pdf"),
+            "page_count": metadata.get("page_count", len(pawls_content)),
+            "backend_lock": True,
+            "creator": user,
+            # Mark as already processed — worker did the processing
+            "processing_started": timezone.now(),
+            "processing_status": DocumentProcessingStatus.COMPLETED,
+        }
+        if custom_meta is not None:
+            create_kwargs["custom_meta"] = custom_meta
+
         # Open the uploaded file
         upload.file.open("rb")
         try:
-            doc = Document.objects.create(
-                title=safe_title,
-                description=metadata.get("description", ""),
-                pdf_file=File(upload.file, doc_filename),
-                pawls_parse_file=pawls_file,
-                txt_extract_file=txt_file,
-                file_type=metadata.get("file_type", "application/pdf"),
-                page_count=metadata.get("page_count", len(pawls_content)),
-                backend_lock=True,
-                creator=user,
-                # Mark as already processed — worker did the processing
-                processing_started=timezone.now(),
-                processing_status=DocumentProcessingStatus.COMPLETED,
-            )
+            doc = Document.objects.create(**create_kwargs)
         finally:
             upload.file.close()
 
@@ -290,6 +303,12 @@ def _process_single_upload(upload_id: UUID) -> None:
             path=target_path,
         )
 
+        # add_document creates a corpus-isolated COPY; make sure the worker's
+        # structured metadata is present on the copy users actually see.
+        if custom_meta is not None and corpus_doc.custom_meta != custom_meta:
+            corpus_doc.custom_meta = custom_meta
+            corpus_doc.save(update_fields=["custom_meta"])
+
         # 4. Import document-level labels
         for doc_label_name in metadata.get("doc_labels", []):
             label_obj = doc_label_lookup.get(doc_label_name)
@@ -302,13 +321,21 @@ def _process_single_upload(upload_id: UUID) -> None:
                 )
                 set_permissions_for_obj_to_user(user, annot, [PermissionTypes.ALL])
 
-        # 5. Import text annotations
+        # 5. Import text annotations.
+        # When the worker shipped pre-computed embeddings it OWNS the embedding
+        # layer, so suppress the server-side batch-embedding dispatch that
+        # import_annotations would otherwise fire (re-embedding here both wastes
+        # the target's embedder and defeats the point of offloading enrichment
+        # to the remote worker). When no embeddings are supplied, fall back to
+        # the default behaviour and let the server embed.
+        embeddings_data = metadata.get("embeddings")
         annot_id_map = import_annotations(
             user_id=user.id,
             doc_obj=corpus_doc,
             corpus_obj=corpus,
             annotations_data=metadata.get("labelled_text", []),
             label_lookup=label_lookup,
+            dispatch_embeddings=not bool(embeddings_data),
         )
 
         # 6. Import relationships
@@ -323,13 +350,46 @@ def _process_single_upload(upload_id: UUID) -> None:
             )
 
         # 7. Store pre-computed embeddings
-        embeddings_data = metadata.get("embeddings")
         if embeddings_data:
             _store_embeddings(
                 embeddings_data=embeddings_data,
                 corpus_doc=corpus_doc,
                 annot_id_map=annot_id_map,
                 user=user,
+            )
+
+        # 7.5. Materialise the structural layer exactly as the parser pipeline
+        # does (save_parsed_data): build subtree-group relationships from the
+        # structural parent-child tree, then migrate structural annotations and
+        # relationships into a StructuralAnnotationSet (document=NULL,
+        # structural_set=set). This is what makes a remotely-parsed document a
+        # FAITHFUL mirror: structural annotations resolve through the same
+        # structural-set join the rest of the platform relies on
+        # (AnnotationService.get_document_annotations), instead of lingering as
+        # plain per-document annotations.
+        build_subtree_groups_for_document(document=corpus_doc, user_id=user.id)
+        create_structural_annotation_set(
+            corpus_doc,
+            user,
+            parser_name=metadata.get("parser_name") or "Remote Worker",
+            parser_version=metadata.get("parser_version") or "1.0",
+        )
+
+        # 7.6. Structured metadata (datacells) — the corpus Column/Datacell
+        # metadata system (what the UI calls document metadata, successor to the
+        # old "metadata annotations"). Each entry get-or-creates a manual-entry
+        # Column in the corpus metadata schema and sets the document's value. A
+        # type mismatch raises (Datacell.clean) and fails the upload, surfacing
+        # the bad value rather than silently dropping it.
+        for md in metadata.get("metadata", []) or []:
+            MetadataService.upsert_document_metadata(
+                corpus=corpus,
+                document=corpus_doc,
+                user=user,
+                column_name=md["column_name"],
+                data_type=md["data_type"],
+                value=md.get("value"),
+                validation_config=md.get("validation_config"),
             )
 
         # 8. Place in target folder if specified
@@ -346,6 +406,22 @@ def _process_single_upload(upload_id: UUID) -> None:
         upload.result_document = corpus_doc
         upload.processing_finished = timezone.now()
         upload.save(update_fields=["status", "result_document", "processing_finished"])
+
+    # Generate the document thumbnail after commit. The worker-upload metadata
+    # carries no thumbnail, but the source file IS stored, so the server can
+    # regenerate Document.icon the same way the parser pipeline does. This is a
+    # standalone task (NOT the ingest chain), so it only thumbnails — it never
+    # re-parses the already-processed document. Dispatched post-commit so the
+    # row is visible to the worker.
+    try:
+        from opencontractserver.tasks.doc_tasks import extract_thumbnail
+
+        extract_thumbnail.apply_async(kwargs={"doc_id": corpus_doc.id})
+    except Exception:
+        logger.warning(
+            f"Failed to dispatch thumbnail generation for upload {upload_id}",
+            exc_info=True,
+        )
 
     # Clean up staging file after successful commit
     if upload.file:
@@ -430,8 +506,12 @@ def _store_embeddings(
     for old_annot_id, vector in annot_embeddings.items():
         new_pk = annot_id_map.get(old_annot_id) or annot_id_map.get(str(old_annot_id))
         if not new_pk:
-            logger.debug(
-                f"Skipping embedding for unknown annotation ID: {old_annot_id}"
+            # A supplied annotation embedding whose id does not map to a created
+            # annotation is dropped — surface it (a worker that ships embeddings
+            # keyed by a stale/duplicate id loses that vector silently otherwise).
+            logger.warning(
+                f"Skipping embedding for unmapped annotation id "
+                f"{old_annot_id!r} (not in annotation_id_map)."
             )
             continue
 

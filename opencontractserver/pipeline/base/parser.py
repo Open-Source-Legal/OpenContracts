@@ -7,12 +7,7 @@ from django.conf import settings
 from django.core.files.base import ContentFile
 from plasmapdf.models.PdfDataLayer import build_translation_layer
 
-from opencontractserver.annotations.models import (
-    RELATIONSHIP_LABEL,
-    Annotation,
-    Relationship,
-    StructuralAnnotationSet,
-)
+from opencontractserver.annotations.models import RELATIONSHIP_LABEL
 from opencontractserver.documents.models import Document
 from opencontractserver.pipeline.base.exceptions import DocumentParsingError
 from opencontractserver.pipeline.base.file_types import FileTypeEnum
@@ -23,6 +18,7 @@ from opencontractserver.utils.importing import (
     import_relationships,
     load_or_create_labels,
 )
+from opencontractserver.utils.structural_sets import create_structural_annotation_set
 from opencontractserver.utils.subtree_groups import build_subtree_groups_for_document
 
 from .base_component import PipelineComponentBase
@@ -299,90 +295,19 @@ class BaseParser(PipelineComponentBase, ABC):
         annotations and relationships to it.
 
         This ensures structural annotations are properly isolated per document and
-        can be embedded using corpus-specific embedders.
+        can be embedded using corpus-specific embedders. The migration logic lives
+        in :func:`opencontractserver.utils.structural_sets.create_structural_annotation_set`
+        so the worker-upload ingestion path produces an identical structural layer.
 
         Args:
             document: The Document object
             user: The user creating the set
         """
-        # Check if document already has a structural annotation set
-        if document.structural_annotation_set:
-            logger.info(
-                f"Document {document.pk} already has StructuralAnnotationSet "
-                f"{document.structural_annotation_set.pk}"
-            )
-            return
-
-        # Find structural annotations on this document
-        structural_annotations = Annotation.objects.filter(
-            document=document, structural=True, structural_set__isnull=True
-        )
-
-        if not structural_annotations.exists():
-            logger.info(
-                f"Document {document.pk} has no structural annotations to migrate"
-            )
-            return
-
-        # Generate content hash for the set
-        content_hash = document.pdf_file_hash or f"doc_{document.pk}"
-
-        # Use get_or_create to handle retry scenarios where the set was created
-        # but the document link wasn't saved (e.g., task failed after line 298
-        # but before document.save() at line 337)
-        struct_set, created = StructuralAnnotationSet.objects.get_or_create(
-            content_hash=content_hash,
-            defaults={
-                "creator": user,
-                "parser_name": self.title or self.__class__.__name__,
-                "parser_version": "1.0",
-                "page_count": document.page_count,
-                "pawls_parse_file": document.pawls_parse_file,
-                "txt_extract_file": document.txt_extract_file,
-            },
-        )
-
-        if created:
-            logger.info(
-                f"Created StructuralAnnotationSet {struct_set.pk} for document {document.pk}"
-            )
-        else:
-            logger.info(
-                f"Reusing existing StructuralAnnotationSet {struct_set.pk} "
-                f"for document {document.pk} (retry scenario)"
-            )
-
-        # Migrate structural annotations to the set
-        structural_annotation_ids = set(
-            structural_annotations.values_list("id", flat=True)
-        )
-
-        for annot in structural_annotations:
-            annot.structural_set = struct_set
-            annot.document = None  # XOR constraint: either document or structural_set
-            annot.save()
-
-        # Migrate structural relationships to the set
-        structural_relationships = Relationship.objects.filter(
-            document=document, structural=True, structural_set__isnull=True
-        ).filter(
-            source_annotations__id__in=structural_annotation_ids,
-            target_annotations__id__in=structural_annotation_ids,
-        )
-
-        for rel in structural_relationships:
-            rel.structural_set = struct_set
-            rel.document = None  # XOR constraint
-            rel.save()
-
-        # Link document to the structural set
-        document.structural_annotation_set = struct_set
-        document.save()
-
-        logger.info(
-            f"Migrated {structural_annotations.count()} annotations and "
-            f"{structural_relationships.count()} relationships to StructuralAnnotationSet "
-            f"{struct_set.pk}"
+        create_structural_annotation_set(
+            document,
+            user,
+            parser_name=self.title or self.__class__.__name__,
+            parser_version="1.0",
         )
 
     def _run_enrichment_stage(
