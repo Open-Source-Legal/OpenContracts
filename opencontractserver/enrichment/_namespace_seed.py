@@ -18,6 +18,19 @@ def seed(apps, schema_editor):
 
     AuthorityNamespace = apps.get_model("annotations", "AuthorityNamespace")
 
+    # Source-ownership partition (mirrors AuthorityMappingLoader.load_namespaces):
+    # the convergence owns only ``source="baseline"`` rows. ``ensure_seeded`` runs
+    # this on EVERY production ``migrate`` and every test flush, so without the
+    # guard a curator's console edit to a shipped prefix (stamped
+    # ``source="manual"``) — or a corpus-linked namespace — would be silently
+    # reverted to the constants baseline on the next deploy, defeating the
+    # console's "a re-load can no longer clobber a curator's runtime edits"
+    # guarantee. The ``source`` column was added in migration 0099, so the
+    # 0082/0085/0086/0090 historical seed states predate it; guard the check on
+    # the field's presence (no manual/corpus rows can exist before the console
+    # shipped anyway, so seeding unconditionally at those states is correct).
+    has_source = any(f.name == "source" for f in AuthorityNamespace._meta.get_fields())
+
     # Collect aliases per prefix from the reverse of AUTHORITY_PREFIX.
     aliases_by_prefix: dict[str, list[str]] = {}
     for alias, prefix in C.AUTHORITY_PREFIX.items():
@@ -25,19 +38,34 @@ def seed(apps, schema_editor):
 
     prefixes = set(C.AUTHORITY_PREFIX.values()) | {C.SEC_RULE_PREFIX}
     for prefix in prefixes:
+        if has_source:
+            existing = AuthorityNamespace.objects.filter(prefix=prefix).first()
+            if existing is not None and (
+                existing.authority_corpus_id or existing.source == "manual"
+            ):
+                # A curator (manual) or a corpus bootstrap owns this prefix —
+                # never clobber it. (authority_corpus predates ``source``, so it
+                # is always present when ``source`` is.)
+                continue
+
         # Graceful fallback so adding a prefix to AUTHORITY_PREFIX without its
         # classification/display-name entry can never crash ``migrate`` on a
         # clean schema (the constants test still enforces full coverage in CI).
         jur, typ = C.PREFIX_CLASSIFICATION.get(prefix, (None, None))
+        defaults = {
+            "display_name": C.PREFIX_DISPLAY_NAME.get(prefix, prefix),
+            "jurisdiction": jur,
+            "authority_type": typ,
+            "aliases": sorted(set(aliases_by_prefix.get(prefix, []))),
+            "is_global": True,
+        }
+        if has_source:
+            # Stamp ownership explicitly so a re-converged row is unambiguously
+            # loader-owned (matches load_namespaces' source="baseline").
+            defaults["source"] = "baseline"
         AuthorityNamespace.objects.update_or_create(
             prefix=prefix,
-            defaults={
-                "display_name": C.PREFIX_DISPLAY_NAME.get(prefix, prefix),
-                "jurisdiction": jur,
-                "authority_type": typ,
-                "aliases": sorted(set(aliases_by_prefix.get(prefix, []))),
-                "is_global": True,
-            },
+            defaults=defaults,
         )
 
 

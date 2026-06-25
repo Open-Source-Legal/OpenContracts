@@ -21,12 +21,19 @@ Manifest (``pack.yaml``) shape::
     display_name: "Bolivia — Derecho del Estado Plurinacional"
     jurisdiction: bo
     mappings: authority_mappings.bolivia.yaml
+    source_hosts:                                        # optional (scraping packs)
+      - tcpbolivia.bo                                    # widens the SSRF allowlist
     corpora:
       - title: "Bolivia — Derecho Constitucional"
         spec: specs/constitucional.json
         persona: personas/constitucional.es.txt        # optional
         preferred_embedder: "..."                        # optional
         preferred_llm: "..."                             # optional
+
+A pack may also ship its fetch provider(s) under ``<pack>/providers/*.py``; those
+and ``source_hosts`` are discovered from the pack directory at runtime (the
+pipeline registry / SSRF allowlist), not persisted by this command. This command
+loads the *DB-side* of a pack: taxonomy, per-area corpus content, and personas.
 """
 
 from __future__ import annotations
@@ -44,6 +51,9 @@ from opencontractserver.enrichment.authorities import (
 )
 from opencontractserver.enrichment.services.authority_mapping_loader import (
     AuthorityMappingLoader,
+)
+from opencontractserver.enrichment.services.authority_source_hosts import (
+    is_valid_source_host,
 )
 
 User = get_user_model()
@@ -104,6 +114,20 @@ class Command(BaseCommand):
                 "nothing to load. Check the pack.yaml keys for typos."
             )
 
+        self._validate_source_hosts(manifest)
+        if mappings_path is not None:
+            # A pack's mappings YAML may carry shape_rules / abbreviations
+            # (its citation vocabulary). Validate them fail-fast here rather than
+            # let a malformed regex / unknown authority_type be silently skipped
+            # at runtime.
+            from opencontractserver.enrichment.services.authority_pack_config import (
+                validate_pack_taxonomy_extensions,
+            )
+
+            try:
+                validate_pack_taxonomy_extensions(mappings_path)
+            except ValueError as exc:
+                raise CommandError(str(exc)) from exc
         validated = [self._validate_corpus_entry(entry, pack_dir) for entry in corpora]
 
         # ---- DB writes start here (pack fully validated) ----------------------
@@ -207,6 +231,28 @@ class Command(BaseCommand):
             raise CommandError(str(exc)) from exc
         persona_text = self._read_persona(entry, pack_dir)
         return title, sections, aliases, persona_text, entry
+
+    @staticmethod
+    def _validate_source_hosts(manifest: dict) -> None:
+        """Fail-fast on a malformed ``source_hosts`` declaration.
+
+        ``source_hosts`` widen the SSRF allowlist for this pack's scraping
+        provider(s); they are discovered from the pack directory at runtime (this
+        command does NOT persist them), but validating their shape here surfaces a
+        manifest typo at load time rather than as a silent ``GATE_BLOCKED_DOMAIN``
+        during a later fetch.
+        """
+        raw = manifest.get("source_hosts")
+        if raw is None:
+            return
+        if not isinstance(raw, list):
+            raise CommandError("Manifest 'source_hosts' must be a list of hostnames.")
+        for host in raw:
+            if not is_valid_source_host(str(host)):
+                raise CommandError(
+                    f"Manifest 'source_hosts' entry {host!r} is not a bare hostname "
+                    "(e.g. 'tcpbolivia.bo') — no scheme, port, or path."
+                )
 
     @staticmethod
     def _manifest_corpora(manifest: dict) -> list:

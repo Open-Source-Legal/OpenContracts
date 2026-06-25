@@ -11,7 +11,6 @@ import re
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
-from opencontractserver.constants.safe_http import PUBLIC_DOMAIN_SOURCE_HOSTS
 from opencontractserver.enrichment import constants as C
 from opencontractserver.enrichment.authorities import AuthoritySection
 from opencontractserver.utils.safe_http import host_on_allowlist
@@ -120,8 +119,10 @@ class AuthorityGateService:
                 None,
             )
         # An off-allowlist domain is a security block, distinct from a license
-        # block — operators filter the two states differently.
-        if not host_on_allowlist(domain, allowlist=PUBLIC_DOMAIN_SOURCE_HOSTS):
+        # block — operators filter the two states differently. ``allowlist`` is
+        # omitted so this resolves to the effective allowlist (baseline ∪ installed
+        # packs' source_hosts), matching what safe_fetch enforced during the fetch.
+        if not host_on_allowlist(domain):
             return GateDecision(
                 GATE_BLOCKED_DOMAIN,
                 f"source domain {domain!r} not on public-domain allowlist",

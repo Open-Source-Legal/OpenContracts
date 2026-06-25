@@ -319,4 +319,20 @@ def classify_prefix(prefix: str) -> tuple:
         # The authority_type is always recoverable, so a muni key is never
         # stranded at (None, None).
         return (None, AUTHORITY_TYPE_MUNICIPAL)
-    return PREFIX_CLASSIFICATION.get(prefix, (None, None))
+    named = PREFIX_CLASSIFICATION.get(prefix)
+    if named is not None:
+        return named
+    # Pack-declared shape families: a pack's authority_mappings ``shape_rules``
+    # let a new jurisdiction's numbered-code family (e.g. ``bo-ley-<n>``) classify
+    # without a core edit — the citation vocabulary travels with the pack. The
+    # shipped baseline above always wins; packs only extend. Lazy import: this
+    # module is imported very early and the pack scan reaches the pipeline
+    # registry, so a top-level import would cycle.
+    from opencontractserver.enrichment.services.authority_pack_config import (
+        pack_declared_shape_rules,
+    )
+
+    for pattern, jur, typ in pack_declared_shape_rules():
+        if pattern.match(prefix):
+            return (jur, typ)
+    return (None, None)

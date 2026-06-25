@@ -22,6 +22,9 @@ from django.test import SimpleTestCase, TestCase
 
 from opencontractserver import enrichment
 from opencontractserver.annotations.models import AuthorityNamespace
+from opencontractserver.corpuses.management.commands.load_authority_pack import (
+    Command as LoadAuthorityPackCommand,
+)
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.corpuses.services.corpus_documents import (
     CorpusDocumentService,
@@ -40,6 +43,32 @@ BOLIVIA_MAPPINGS = PACK_DIR / "authority_mappings.bolivia.yaml"
 
 def _load_yaml(path: Path) -> dict:
     return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
+class ValidateSourceHostsTests(SimpleTestCase):
+    """``_validate_source_hosts`` fails fast on a malformed manifest declaration."""
+
+    def test_missing_source_hosts_is_ok(self):
+        # Absent / null source_hosts is valid (a non-scraping pack).
+        LoadAuthorityPackCommand._validate_source_hosts({})
+        LoadAuthorityPackCommand._validate_source_hosts({"source_hosts": None})
+
+    def test_source_hosts_not_a_list_raises(self):
+        with self.assertRaisesMessage(CommandError, "must be a list of hostnames"):
+            LoadAuthorityPackCommand._validate_source_hosts(
+                {"source_hosts": "tcpbolivia.bo"}
+            )
+
+    def test_source_hosts_entry_not_a_bare_host_raises(self):
+        with self.assertRaisesMessage(CommandError, "is not a bare hostname"):
+            LoadAuthorityPackCommand._validate_source_hosts(
+                {"source_hosts": ["https://tcpbolivia.bo"]}
+            )
+
+    def test_valid_source_hosts_pass(self):
+        LoadAuthorityPackCommand._validate_source_hosts(
+            {"source_hosts": ["tcpbolivia.bo", "gacetaoficialdebolivia.gob.bo"]}
+        )
 
 
 class BoliviaPackContentTests(SimpleTestCase):
@@ -430,6 +459,53 @@ class LoadAuthorityPackEdgeCaseTests(TestCase):
                 }
             },
         )
+        with self.assertRaises(CommandError):
+            self._run()
+        self.assertFalse(Corpus.objects.filter(title="A").exists())
+
+    def test_malformed_source_hosts_rejected(self):
+        # source_hosts widen the SSRF allowlist for a scraping pack; a value that
+        # is not a bare hostname (scheme/port/path) is a manifest error and must
+        # fail at load, not silently as a later GATE_BLOCKED_DOMAIN.
+        self._write_pack(
+            {
+                "name": "p",
+                "source_hosts": ["https://nope.gov"],
+                "corpora": [{"title": "A", "spec": "a.json"}],
+            },
+            specs={"a.json": self._one_section_spec()},
+        )
+        with self.assertRaises(CommandError):
+            self._run()
+        self.assertFalse(Corpus.objects.filter(title="A").exists())
+
+    def test_valid_source_hosts_accepted(self):
+        # A well-formed source_hosts list loads fine (the hosts themselves are
+        # discovered from the pack dir at runtime, not persisted by the command).
+        self._write_pack(
+            {
+                "name": "p",
+                "source_hosts": ["tcpbolivia.bo"],
+                "corpora": [{"title": "Area A", "spec": "a.json"}],
+            },
+            specs={"a.json": self._one_section_spec()},
+        )
+        self._run()
+        self.assertTrue(Corpus.objects.filter(title="Area A").exists())
+
+    def test_malformed_pack_shape_rule_rejected(self):
+        # A pack's mappings YAML may carry shape_rules / abbreviations (its
+        # citation vocabulary); a bad regex must fail at load, not be silently
+        # skipped at runtime.
+        self._write_pack(
+            {
+                "name": "p",
+                "mappings": "m.yaml",
+                "corpora": [{"title": "A", "spec": "a.json"}],
+            },
+            specs={"a.json": self._one_section_spec()},
+        )
+        self._write("m.yaml", "shape_rules:\n  - pattern: '['\n")
         with self.assertRaises(CommandError):
             self._run()
         self.assertFalse(Corpus.objects.filter(title="A").exists())

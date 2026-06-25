@@ -1665,6 +1665,17 @@ ENRICHMENT_LLM_MAX_CONCURRENCY = env.int("ENRICHMENT_LLM_MAX_CONCURRENCY", defau
 # latency against DB/connection pressure.
 ENRICHMENT_DOC_MAX_CONCURRENCY = env.int("ENRICHMENT_DOC_MAX_CONCURRENCY", default=None)
 
+# Out-of-tree authority-pack directories. Each entry is a self-contained pack
+# directory (pack.yaml + optional providers/ + mappings/specs/personas). The
+# pipeline registry scans every pack here — in addition to the in-tree packs under
+# opencontractserver/enrichment/data/authority_packs/ — for provider modules under
+# <pack>/providers/, so an authority pack copied to this install brings its scraper
+# with it WITHOUT dropping a .py into core. Comma-separated absolute paths in the
+# AUTHORITY_PACK_PATHS env var; empty by default. (Provider discovery happens at
+# registry build, so adding a path needs a worker/web restart — same as any new
+# in-tree provider.)
+AUTHORITY_PACK_PATHS = env.list("AUTHORITY_PACK_PATHS", default=[])
+
 # Rate Limiting Configuration
 # ------------------------------------------------------------------------------
 # Import rate limiting settings

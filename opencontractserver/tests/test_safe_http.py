@@ -16,11 +16,17 @@ from urllib.parse import urlparse
 import httpx
 import pytest
 
-from opencontractserver.constants.safe_http import MAX_REDIRECTS
+from opencontractserver.constants.safe_http import (
+    MAX_REDIRECTS,
+    PUBLIC_DOMAIN_SOURCE_HOSTS,
+)
+from opencontractserver.utils import safe_http as _safe_http_module
 from opencontractserver.utils.safe_http import (
     SSRFValidationError,
     _assert_public_ip,
+    _resolve_allowlist,
     host_on_allowlist,
+    register_allowlist_provider,
     safe_fetch_bytes,
     safe_fetch_text,
     validate_url,
@@ -835,3 +841,36 @@ class TestMalformedContentLength:
             with patch("httpx.Client.stream", _stream_dispatch):
                 result, _ = safe_fetch_bytes(ALLOWED_URL)
         assert result == body
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# _resolve_allowlist — fail-closed to the hardcoded baseline
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestResolveAllowlistBaselineFallback:
+    """With no dynamic provider registered, the effective allowlist is exactly
+    the hardcoded ``PUBLIC_DOMAIN_SOURCE_HOSTS`` baseline (fail-closed)."""
+
+    @contextmanager
+    def _no_provider(self):
+        # The app installs the pack-aware provider at startup; drop it for the
+        # duration of the test and always restore the original afterwards.
+        original = _safe_http_module._allowlist_provider
+        register_allowlist_provider(None)
+        try:
+            yield
+        finally:
+            register_allowlist_provider(original)
+
+    def test_resolves_to_baseline_without_provider(self):
+        with self._no_provider():
+            assert _resolve_allowlist(None) is PUBLIC_DOMAIN_SOURCE_HOSTS
+            # And host checks fall through to the baseline set.
+            assert host_on_allowlist(ALLOWED_HOST)
+            assert not host_on_allowlist("tcpbolivia.bo")  # pack host, not baseline
+
+    def test_explicit_allowlist_overrides_even_without_provider(self):
+        with self._no_provider():
+            custom = frozenset({"example.gov"})
+            assert _resolve_allowlist(custom) is custom

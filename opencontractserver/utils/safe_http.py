@@ -29,7 +29,9 @@ SNI) is the defence-in-depth follow-up tracked in issue #2048.
 from __future__ import annotations
 
 import ipaddress
+import logging
 import socket
+from collections.abc import Callable
 from urllib.parse import urlparse
 
 import httpx
@@ -80,14 +82,55 @@ class SSRFValidationError(ValueError):
     """
 
 
-def host_on_allowlist(
-    host: str, *, allowlist: frozenset[str] = PUBLIC_DOMAIN_SOURCE_HOSTS
-) -> bool:
-    """Return True if *host* is on *allowlist* (exact or dotted-suffix match).
+logger = logging.getLogger(__name__)
 
+# Injectable default-allowlist provider. The authority subsystem registers
+# ``effective_source_allowlist`` (baseline ∪ installed packs' source_hosts) at app
+# startup so a self-contained pack can widen WHICH hosts are reachable without this
+# pure SSRF util importing the enrichment/pipeline layer. When ``allowlist`` is
+# omitted (None) the registered provider is consulted; if none is registered (or it
+# raises) the call falls back to the hardcoded baseline — fail-CLOSED to the
+# smallest trusted set, never wider. The SSRF checks themselves (scheme, public-IP,
+# per-hop revalidation, size caps) are unaffected: only the host set changes.
+_allowlist_provider: Callable[[], frozenset[str]] | None = None
+
+
+def register_allowlist_provider(
+    provider: Callable[[], frozenset[str]] | None,
+) -> None:
+    """Install (or clear, with ``None``) the dynamic default-allowlist provider."""
+    global _allowlist_provider
+    _allowlist_provider = provider
+
+
+def _resolve_allowlist(allowlist: frozenset[str] | None) -> frozenset[str]:
+    """Resolve the effective allowlist for a call.
+
+    An explicit ``allowlist`` (a caller passing its own set) always wins. When
+    omitted (``None``) the registered provider is consulted, falling back to the
+    hardcoded baseline if none is registered or it raises (fail-closed).
+    """
+    if allowlist is not None:
+        return allowlist
+    if _allowlist_provider is not None:
+        try:
+            return _allowlist_provider()
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning(
+                "allowlist provider failed; falling back to baseline: %s", exc
+            )
+    return PUBLIC_DOMAIN_SOURCE_HOSTS
+
+
+def host_on_allowlist(host: str, *, allowlist: frozenset[str] | None = None) -> bool:
+    """Return True if *host* is on the effective allowlist (exact or dotted-suffix).
+
+    ``allowlist=None`` (the default) resolves to the registered effective allowlist
+    (baseline ∪ installed packs' source_hosts), else the hardcoded baseline.
     ``"uscode.house.gov"`` matches the allowlist entry ``"uscode.house.gov"``
     (exact) or ``"house.gov"`` (suffix).
     """
+    allowlist = _resolve_allowlist(allowlist)
     host = host.lower().rstrip(".")
     if host in allowlist:
         return True
@@ -149,14 +192,14 @@ def _assert_public_ip(host: str) -> None:
             raise SSRFValidationError(f"{host!r} resolves to non-public address {ip}")
 
 
-def validate_url(
-    url: str, *, allowlist: frozenset[str] = PUBLIC_DOMAIN_SOURCE_HOSTS
-) -> str:
+def validate_url(url: str, *, allowlist: frozenset[str] | None = None) -> str:
     """Validate scheme + host allowlist + public-IP.
 
     Returns the (lowercased) hostname on success.
-    Raises ``SSRFValidationError`` on any violation.
+    Raises ``SSRFValidationError`` on any violation. ``allowlist=None`` resolves to
+    the registered effective allowlist (see :func:`host_on_allowlist`).
     """
+    allowlist = _resolve_allowlist(allowlist)
     parsed = urlparse(url)
     if parsed.scheme not in ALLOWED_SCHEMES:
         raise SSRFValidationError(f"scheme {parsed.scheme!r} not allowed")
@@ -174,7 +217,7 @@ def safe_fetch_bytes(
     *,
     params: dict | None = None,
     headers: dict | None = None,
-    allowlist: frozenset[str] = PUBLIC_DOMAIN_SOURCE_HOSTS,
+    allowlist: frozenset[str] | None = None,
     max_bytes: int = MAX_RESPONSE_BYTES,
 ) -> tuple[bytes, str]:
     """SSRF-safe GET. Returns ``(body_bytes, final_host)``.
@@ -195,6 +238,10 @@ def safe_fetch_bytes(
     non-standard per-service credential header (``X-Api-Key``, ``X-Auth-Token``,
     …) — it would be forwarded to the redirect target host.
     """
+    # Resolve the effective allowlist ONCE so every redirect hop below is
+    # validated against the same host set (the registered provider is consulted
+    # only here, not per-hop).
+    allowlist = _resolve_allowlist(allowlist)
     # Default User-Agent so fetches identify OpenContracts to .gov servers
     # rather than going out as an anonymous httpx client; a caller-supplied
     # User-Agent (e.g. the FR/CFR providers) overrides it. httpx.Headers is
@@ -295,7 +342,7 @@ def safe_fetch_text(
     *,
     params: dict | None = None,
     headers: dict | None = None,
-    allowlist: frozenset[str] = PUBLIC_DOMAIN_SOURCE_HOSTS,
+    allowlist: frozenset[str] | None = None,
     max_bytes: int = MAX_RESPONSE_BYTES,
 ) -> tuple[str, str]:
     """SSRF-safe GET returning ``(text, final_host)``.

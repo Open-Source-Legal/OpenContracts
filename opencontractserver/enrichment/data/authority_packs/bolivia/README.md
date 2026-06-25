@@ -6,6 +6,11 @@ It stands up a Bolivian body-of-law deployment as **data** (taxonomy + curated
 content + persona) bound to the existing Authority architecture — no bespoke
 Django app.
 
+> **Authoring your own pack?** This directory is the canonical worked example;
+> the step-by-step how-to (pack layout, shipping a scraper inside the pack,
+> `source_hosts`, add/remove/copy) lives in
+> [Authoring an Authority Pack](../../../../../docs/guides/authoring-authority-packs.md).
+
 ## What it ships
 
 | File | Binds to |

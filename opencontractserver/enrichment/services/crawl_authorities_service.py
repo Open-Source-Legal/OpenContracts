@@ -195,7 +195,7 @@ class CrawlAuthoritiesService(BaseService):
                 # Park at "deferred_cap" so dequeue_queued (which filters on
                 # discovery_state="queued") cannot re-return this row this run —
                 # the structural guarantee that the cap branch terminates.
-                AuthorityFrontierService.mark(row, C.DISCOVERY_STATE_DEFERRED_CAP)
+                cls._park_for_cap(row)
                 continue
 
             result = AuthorityDiscoveryService.discover_and_bootstrap(
