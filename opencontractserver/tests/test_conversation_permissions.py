@@ -17,7 +17,6 @@ Key test scenarios:
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser, Group
 from django.test import TestCase
 from guardian.shortcuts import assign_perm
@@ -32,14 +31,18 @@ from opencontractserver.conversations.services import ConversationService
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
 from opencontractserver.types.enums import PermissionTypes
-
-User = get_user_model()
+from opencontractserver.users.models import User
 
 
 class TestConversationBifurcatedPermissions(TestCase):
     """
     Test the bifurcated permission model for Conversation visibility.
     """
+
+    superuser: User
+    alice: User
+    bob: User
+    charlie: User
 
     @classmethod
     def setUpClass(cls):
@@ -479,6 +482,10 @@ class TestChatMessageInheritedPermissions(TestCase):
     Test that ChatMessage visibility inherits from Conversation visibility.
     """
 
+    alice: User
+    bob: User
+    charlie: User
+
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
@@ -691,6 +698,11 @@ class TestConversationGroupGrants(TestCase):
     extracts).
     """
 
+    owner: User
+    member: User
+    outsider: User
+    group: Group
+
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
@@ -897,6 +909,10 @@ class TestConversationService(TestCase):
     ``get_request_optimizer`` style in Phase 4 of the service-layer
     centralization roadmap.
     """
+
+    alice: User
+    bob: User
+    superuser: User
 
     @classmethod
     def setUpClass(cls):
@@ -1122,6 +1138,8 @@ class TestEdgeCases(TestCase):
     """
     Test edge cases and boundary conditions.
     """
+
+    alice: User
 
     @classmethod
     def setUpClass(cls):

@@ -1,0 +1,25 @@
+{
+  "aliases": ["Constitución Política del Estado", "CPE", "CPE 2009"],
+  "sections": [
+    {
+      "key": "cpe:1",
+      "heading": "CPE art. 1 — Modelo de Estado",
+      "text": "Bolivia se constituye en un Estado Unitario Social de Derecho Plurinacional Comunitario, libre, independiente, soberano, democrático, intercultural, descentralizado y con autonomías. Bolivia se funda en la pluralidad y el pluralismo político, económico, jurídico, cultural y lingüístico, dentro del proceso integrador del país."
+    },
+    {
+      "key": "cpe:8",
+      "heading": "CPE art. 8 — Principios, valores y fines del Estado",
+      "text": "I. El Estado asume y promueve como principios ético-morales de la sociedad plural: ama qhilla, ama llulla, ama suwa (no seas flojo, no seas mentiroso ni seas ladrón), suma qamaña (vivir bien), ñandereko (vida armoniosa), teko kavi (vida buena), ivi maraei (tierra sin mal) y qhapaj ñan (camino o vida noble). II. El Estado se sustenta en los valores de unidad, igualdad, inclusión, dignidad, libertad, solidaridad, reciprocidad, respeto, complementariedad, armonía, transparencia, equilibrio, igualdad de oportunidades, equidad social y de género en la participación, bienestar común, responsabilidad, justicia social, distribución y redistribución de los productos y bienes sociales, para vivir bien."
+    },
+    {
+      "key": "cpe:13",
+      "heading": "CPE art. 13 — Derechos fundamentales",
+      "text": "I. Los derechos reconocidos por esta Constitución son inviolables, universales, interdependientes, indivisibles y progresivos. El Estado tiene el deber de promoverlos, protegerlos y respetarlos. II. Los derechos que proclama esta Constitución no serán entendidos como negación de otros derechos no enunciados. III. La clasificación de los derechos establecida en esta Constitución no determina jerarquía alguna ni superioridad de unos derechos sobre otros. IV. Los tratados y convenios internacionales ratificados por la Asamblea Legislativa Plurinacional, que reconocen los derechos humanos y que prohíben su limitación en los Estados de Excepción prevalecen en el orden interno."
+    },
+    {
+      "key": "cpe:14",
+      "heading": "CPE art. 14 — Igualdad y no discriminación",
+      "text": "I. Todo ser humano tiene personalidad y capacidad jurídica con arreglo a las leyes y goza de los derechos reconocidos por esta Constitución, sin distinción alguna. II. El Estado prohíbe y sanciona toda forma de discriminación fundada en razón de sexo, color, edad, orientación sexual, identidad de género, origen, cultura, nacionalidad, ciudadanía, idioma, credo religioso, ideología, filiación política o filosófica, estado civil, condición económica o social, tipo de ocupación, grado de instrucción, discapacidad, embarazo, u otras que tengan por objetivo o resultado anular o menoscabar el reconocimiento, goce o ejercicio, en condiciones de igualdad, de los derechos de toda persona."
+    }
+  ]
+}

@@ -15,7 +15,6 @@ Tests cover:
 
 from datetime import timedelta
 
-from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.utils import timezone
 
@@ -26,12 +25,14 @@ from opencontractserver.conversations.models import (
     ConversationTypeChoices,
 )
 from opencontractserver.corpuses.models import Corpus
-
-User = get_user_model()
+from opencontractserver.users.models import User
 
 
 class TestConversationTypes(TestCase):
     """Test conversation type functionality (CHAT vs THREAD)."""
+
+    user: User
+    corpus: Corpus
 
     @classmethod
     def setUpTestData(cls):
@@ -101,6 +102,9 @@ class TestConversationTypes(TestCase):
 
 class TestAgentTypes(TestCase):
     """Test agent type tracking on messages."""
+
+    user: User
+    conversation: Conversation
 
     @classmethod
     def setUpTestData(cls):
@@ -193,6 +197,9 @@ class TestAgentTypes(TestCase):
 
 class TestThreadedReplies(TestCase):
     """Test parent-child message relationships for nested replies."""
+
+    user: User
+    thread: Conversation
 
     @classmethod
     def setUpTestData(cls):
@@ -366,6 +373,8 @@ class TestThreadedReplies(TestCase):
 
 class TestSoftDelete(TestCase):
     """Test soft delete functionality for conversations and messages."""
+
+    user: User
 
     @classmethod
     def setUpTestData(cls):
@@ -567,6 +576,8 @@ class TestSoftDelete(TestCase):
 class TestBackwardCompatibility(TestCase):
     """Test that new features maintain backward compatibility."""
 
+    user: User
+
     @classmethod
     def setUpTestData(cls):
         """Create test data."""
@@ -635,6 +646,10 @@ class TestBackwardCompatibility(TestCase):
 
 class TestThreadIntegration(TestCase):
     """Integration tests for complete thread scenarios."""
+
+    user1: User
+    user2: User
+    corpus: Corpus
 
     @classmethod
     def setUpTestData(cls):
@@ -770,5 +785,6 @@ class TestThreadIntegration(TestCase):
         # Verify msg3 can still reference msg2 (for structure preservation)
         msg3_refreshed = ChatMessage.objects.get(id=msg3.id)
         # The parent_message FK should still work even if parent is soft-deleted
+        assert msg3_refreshed.parent_message is not None
         msg3_parent = ChatMessage.all_objects.get(id=msg3_refreshed.parent_message.id)
         self.assertEqual(msg3_parent, msg2)

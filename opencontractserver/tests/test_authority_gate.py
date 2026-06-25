@@ -197,3 +197,57 @@ class GateHeadingFalsePositiveTests(TestCase):
         )
         self.assertEqual(decision.verdict, GATE_UNLOCATED)
         self.assertEqual(decision.verify, "mismatch")
+
+
+class GateNoColonKeyTests(TestCase):
+    """Edge case: a canonical_key with no ':' uses the whole key as the section id.
+
+    ``section_id = canonical_key.split(":", 1)[-1]`` yields the full key when
+    there is no colon, so the heading fallback then searches for the whole key
+    as a word-boundary token. Production keys always carry a prefix colon, but
+    the verify path must still behave sanely if one does not.
+    """
+
+    def test_no_colon_key_exact_match_ok(self):
+        """A colon-less key still verifies via an exact section-key match."""
+        decision = AuthorityGateService.evaluate(
+            canonical_key="fedreg",
+            sections=[_section(key="fedreg")],
+            provider_license="public-domain",
+        )
+        self.assertEqual(decision.verdict, GATE_OK)
+        self.assertEqual(decision.verify, "match")
+
+    def test_no_colon_key_heading_fallback_matches(self):
+        """With no exact key match, the whole colon-less key is the heading token."""
+        decision = AuthorityGateService.evaluate(
+            canonical_key="fedreg",
+            sections=[_section(key="other", heading="See fedreg notice")],
+            provider_license="public-domain",
+        )
+        self.assertEqual(decision.verdict, GATE_OK)
+        self.assertEqual(decision.verify, "match")
+
+    def test_no_colon_key_absent_everywhere_is_mismatch(self):
+        """A colon-less key absent from both key and heading → UNLOCATED."""
+        decision = AuthorityGateService.evaluate(
+            canonical_key="fedreg",
+            sections=[_section(key="other", heading="Unrelated heading")],
+            provider_license="public-domain",
+        )
+        self.assertEqual(decision.verdict, GATE_UNLOCATED)
+        self.assertEqual(decision.verify, "mismatch")
+
+    def test_no_colon_key_substring_does_not_falsely_match(self):
+        """Word-boundary matching still holds for a colon-less key.
+
+        'fedreg' must NOT match a heading that only contains it as a substring
+        of a longer token (e.g. 'fedregister').
+        """
+        decision = AuthorityGateService.evaluate(
+            canonical_key="fedreg",
+            sections=[_section(key="other", heading="fedregister daily edition")],
+            provider_license="public-domain",
+        )
+        self.assertEqual(decision.verdict, GATE_UNLOCATED)
+        self.assertEqual(decision.verify, "mismatch")

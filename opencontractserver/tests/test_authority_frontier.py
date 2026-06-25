@@ -1,8 +1,9 @@
 """Tests for AuthorityFrontier, AuthorityKeyEquivalence, and AuthorityFrontierService."""
 
 from django.contrib.auth import get_user_model
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 
 from opencontractserver.annotations.models import (
     SPAN_LABEL,
@@ -258,6 +259,34 @@ class AuthorityFrontierServiceSeedTests(TestCase):
         row.refresh_from_db()
         self.assertEqual(row.discovery_state, "in_progress")
 
+    def test_seed_upsert_locks_row_for_update(self):
+        """Re-seed refreshes counts under SELECT ... FOR UPDATE (atomic upsert).
+
+        Regression guard for the seed TOCTOU race (issue #2020 finding 1): the
+        create-or-refresh runs as one locked critical section so two concurrent
+        seed passes cannot silently drop a count update or expose the transient
+        ``mention_count=0`` window between an insert and its follow-up save. We
+        assert the row lock is actually taken by capturing the SQL of the re-seed
+        (the update path) and checking for ``FOR UPDATE``. Reverting to the prior
+        ``get_or_create`` + ``save`` would drop the lock and fail this test.
+        """
+        user, corpus, _ = _build_corpus_with_external_ref(
+            "seed-lock-user", "usc-15:78j"
+        )
+        # First seed creates the row.
+        AuthorityFrontierService.seed_from_wanted_authorities(user, corpus_id=corpus.id)
+        self.assertTrue(
+            AuthorityFrontier.objects.filter(canonical_key="usc-15:78j").exists()
+        )
+
+        # Second seed takes the locked update path; capture its SQL.
+        with CaptureQueriesContext(connection) as ctx:
+            AuthorityFrontierService.seed_from_wanted_authorities(
+                user, corpus_id=corpus.id
+            )
+        sql_blob = " ".join(q["sql"].upper() for q in ctx.captured_queries)
+        self.assertIn("FOR UPDATE", sql_blob)
+
 
 class AuthorityFrontierServiceDequeueMarkTests(TestCase):
     """Tests for dequeue_for_provider and mark."""
@@ -297,6 +326,30 @@ class AuthorityFrontierServiceDequeueMarkTests(TestCase):
             self._make_row(f"usc-15:{i+100}", provider=p)
         rows = AuthorityFrontierService.dequeue_for_provider(p, limit=3)
         self.assertEqual(len(rows), 3)
+
+    def test_dequeue_for_provider_excludes_unprovidered_rows(self):
+        """A freshly-seeded row (provider=None) must NOT match a provider dequeue.
+
+        The normal seed path leaves ``provider`` unset until discovery stamps it,
+        so ``dequeue_for_provider`` (used for crash recovery of already-stamped
+        rows) must skip these — the most common production state. Without this the
+        method would silently re-dispatch un-routed rows. (Issue #2020 finding 11.)
+        """
+        p = "USCodeAuthoritySourceProvider"
+        AuthorityFrontier.objects.create(
+            canonical_key="usc-15:78j-noprov",
+            authority="usc-15",
+            discovery_state=C.DISCOVERY_STATE_QUEUED,
+            provider=None,
+            mention_count=10,
+        )
+        # A correctly-stamped row for the same provider should still appear.
+        self._make_row("usc-15:78m-prov", provider=p, mention_count=5)
+
+        rows = AuthorityFrontierService.dequeue_for_provider(p, limit=10)
+        keys = [r.canonical_key for r in rows]
+        self.assertIn("usc-15:78m-prov", keys)
+        self.assertNotIn("usc-15:78j-noprov", keys)
 
     def test_mark_ingested_with_document(self):
         user = User.objects.create_user(username="mark-test-user", password="p")
@@ -390,6 +443,47 @@ class AuthorityFrontierServiceDequeueMarkTests(TestCase):
         # Only the pre-existing record should remain
         self.assertEqual(len(row.candidate_sources), 1)
         self.assertEqual(row.candidate_sources[0]["outcome"], "prior")
+
+    def test_mark_ingested_clears_stale_error_from_prior_failure(self):
+        """A failed -> ingested transition must clear the stale last_error.
+
+        Regression guard for issue #2020 finding 2: a healthy ingested row must
+        not retain the error string from an earlier failed attempt, or a
+        downstream health check reading ``last_error`` misreads it as broken. The
+        caller does NOT pass clear_error=True — ``mark()`` clears it implicitly on
+        the SUCCESS transition (C.DISCOVERY_SUCCESS_STATES).
+        """
+        row = self._make_row(
+            "usc-15:78j-retry", provider="TestProv", state=C.DISCOVERY_STATE_FAILED
+        )
+        AuthorityFrontierService.mark(
+            row, C.DISCOVERY_STATE_FAILED, error="timeout fetching USLM"
+        )
+        row.refresh_from_db()
+        self.assertEqual(row.last_error, "timeout fetching USLM")
+
+        # Successful retry, no explicit clear_error.
+        AuthorityFrontierService.mark(row, C.DISCOVERY_STATE_INGESTED)
+        row.refresh_from_db()
+        self.assertEqual(row.discovery_state, C.DISCOVERY_STATE_INGESTED)
+        self.assertIsNone(row.last_error)
+
+    def test_mark_non_success_state_preserves_error(self):
+        """A non-success transition must NOT auto-clear last_error.
+
+        Only SUCCESS states clear it; e.g. moving in_progress -> failed with an
+        error message keeps that message so operators can see why it failed.
+        """
+        row = self._make_row(
+            "usc-15:78j-stillbad",
+            provider="TestProv",
+            state=C.DISCOVERY_STATE_IN_PROGRESS,
+        )
+        AuthorityFrontierService.mark(
+            row, C.DISCOVERY_STATE_FAILED, error="still broken"
+        )
+        row.refresh_from_db()
+        self.assertEqual(row.last_error, "still broken")
 
 
 class AuthorityFrontierGateStateTests(TestCase):
@@ -508,6 +602,59 @@ class DequeueQueuedTests(TestCase):
         self.assertIn("usc-15:7a", keys)
         self.assertNotIn("usc-15:7b", keys)
         self.assertNotIn("usc-15:7c", keys)
+
+    def test_dequeue_atomically_claims_rows_in_progress(self):
+        """dequeue_queued is an atomic CLAIM, not a plain read (issue #2027).
+
+        Each returned row must be flipped to ``in_progress`` — both in the
+        returned object and in the DB — so a second concurrent dequeue cannot
+        re-return it and re-run ``discover_and_bootstrap`` on the same key.
+        """
+        self._make_row("usc-15:claim-a", mention_count=10)
+        self._make_row("usc-15:claim-b", mention_count=5)
+
+        first = AuthorityFrontierService.dequeue_queued(limit=1)
+        self.assertEqual(len(first), 1)
+        self.assertEqual(first[0].canonical_key, "usc-15:claim-a")
+        # Claimed in the returned object AND persisted to the DB.
+        self.assertEqual(first[0].discovery_state, "in_progress")
+        self.assertEqual(
+            AuthorityFrontier.objects.get(
+                canonical_key="usc-15:claim-a"
+            ).discovery_state,
+            "in_progress",
+        )
+        self.assertIsNotNone(first[0].last_attempt)
+
+        # A second dequeue must skip the already-claimed row and pick the next.
+        second = AuthorityFrontierService.dequeue_queued(limit=10)
+        keys = {r.canonical_key for r in second}
+        self.assertNotIn("usc-15:claim-a", keys)
+        self.assertIn("usc-15:claim-b", keys)
+
+    def test_filtered_out_rows_are_not_claimed(self):
+        """Rows excluded by min_demand/max_depth must stay ``queued`` (unclaimed).
+
+        The crawl's frontier_drained residual census counts ``queued`` rows, so
+        the claim must touch only rows it actually returns.
+        """
+        self._make_row("usc-15:keep", mention_count=5, depth=0)
+        self._make_row("usc-15:low", mention_count=1, depth=0)  # below min_demand
+        self._make_row("usc-15:deep", mention_count=5, depth=9)  # beyond max_depth
+
+        claimed = AuthorityFrontierService.dequeue_queued(
+            limit=10, max_depth=2, min_demand=2
+        )
+        self.assertEqual({r.canonical_key for r in claimed}, {"usc-15:keep"})
+        # The excluded rows are untouched — still queued for a later, looser pass.
+        self.assertEqual(
+            AuthorityFrontier.objects.get(canonical_key="usc-15:low").discovery_state,
+            "queued",
+        )
+        self.assertEqual(
+            AuthorityFrontier.objects.get(canonical_key="usc-15:deep").discovery_state,
+            "queued",
+        )
 
 
 class SeedChildKeysTests(TestCase):
