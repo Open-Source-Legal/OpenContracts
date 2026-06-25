@@ -513,6 +513,57 @@ class TestBaseChunkedParserIntegration(TestCase):
         assert result is not None
         self.assertEqual(result["title"], "HOOKED")
 
+    def test_parse_pdf_bytes_no_database_single_chunk(self):
+        """parse_pdf_bytes produces a full export from raw bytes with NO Document
+        row and NO storage access — the headless entry point the remote-ingest
+        worker relies on."""
+        parser = ConcreteChunkedParser()
+        parser.min_pages_for_chunking = 75
+
+        # No Document, no doc_id, no default_storage mock — pure bytes in.
+        result = parser.parse_pdf_bytes(make_test_pdf(10))
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertEqual(result["page_count"], 2)  # from _make_chunk_result default
+        # Single-chunk docs still get consistent c0_-prefixed IDs.
+        self.assertEqual(result["labelled_text"][0]["id"], "c0_ann-1")
+
+    def test_parse_pdf_bytes_no_database_chunked(self):
+        """parse_pdf_bytes chunks + reassembles large PDFs without a Document."""
+        parser = ConcreteChunkedParser()
+        parser.max_pages_per_chunk = 50
+        parser.min_pages_for_chunking = 75
+        parser.max_concurrent_chunks = 1  # sequential for determinism
+
+        result = parser.parse_pdf_bytes(make_test_pdf(100))
+
+        assert result is not None
+        self.assertEqual(result["page_count"], 4)
+        indices = [p["page"]["index"] for p in result["pawls_file_content"]]
+        self.assertEqual(indices, [0, 1, 50, 51])
+
+    @patch("opencontractserver.pipeline.base.chunked_parser.default_storage.open")
+    def test_parse_document_impl_delegates_to_parse_pdf_bytes(self, mock_open):
+        """_parse_document_impl reads the Document's bytes then delegates to the
+        DB-free parse_pdf_bytes — proving the two paths share one implementation."""
+        small_pdf = make_test_pdf(10)
+        mock_file = MagicMock()
+        mock_file.read.return_value = small_pdf
+        mock_open.return_value.__enter__.return_value = mock_file
+
+        parser = ConcreteChunkedParser()
+        parser.min_pages_for_chunking = 75
+
+        with patch.object(
+            parser, "parse_pdf_bytes", wraps=parser.parse_pdf_bytes
+        ) as spy:
+            parser._parse_document_impl(user_id=self.user.id, doc_id=self.doc.id)
+
+        spy.assert_called_once()
+        # The PDF bytes read from storage are passed positionally.
+        self.assertEqual(spy.call_args.args[0], small_pdf)
+
     @patch("opencontractserver.pipeline.base.chunked_parser.default_storage.open")
     @patch("opencontractserver.pipeline.base.chunked_parser.time.sleep")
     def test_chunk_retry_on_transient_error(self, mock_sleep, mock_open):

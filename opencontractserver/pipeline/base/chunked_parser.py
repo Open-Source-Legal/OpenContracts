@@ -272,12 +272,9 @@ class BaseChunkedParser(BaseParser):
         """
         Parse a document, automatically chunking large PDFs.
 
-        The method reads the PDF from storage, counts pages, and decides
-        whether to chunk.  If chunking is needed, it splits the PDF, parses
-        each chunk via ``_parse_single_chunk_impl``, and reassembles.
-
-        Otherwise it delegates to ``_parse_single_chunk_impl`` with the
-        full PDF as a single chunk.
+        The method reads the PDF from storage, then delegates the entire
+        (database-free) parse to :meth:`parse_pdf_bytes`.  Persistence
+        (``save_parsed_data``) is handled separately by ``process_document``.
         """
         document = Document.objects.get(pk=doc_id)
         doc_path = document.pdf_file.name
@@ -296,6 +293,46 @@ class BaseChunkedParser(BaseParser):
                 is_transient=True,
             )
 
+        return self.parse_pdf_bytes(
+            pdf_bytes, user_id=user_id, doc_id=doc_id, **all_kwargs
+        )
+
+    def parse_pdf_bytes(
+        self,
+        pdf_bytes: bytes,
+        *,
+        user_id: int = 0,
+        doc_id: int = 0,
+        **all_kwargs,
+    ) -> Optional[OpenContractDocExport]:
+        """
+        Parse raw PDF bytes into an ``OpenContractDocExport`` **without any
+        database access**.
+
+        This is the database-free core of the chunked parse path: it counts
+        pages, decides whether to chunk, parses each chunk via the pure
+        :meth:`_parse_single_chunk_impl`, reassembles with correct global page
+        offsets, and runs :meth:`_post_reassemble_hook` (e.g. image extraction).
+        No ``Document`` row is read or written, and ``save_parsed_data`` (the
+        only DB-writing step) is intentionally not called.
+
+        Because it is DB-free, this method can be driven headlessly by a remote
+        worker that mirrors the server's ingestion pipeline and ships the result
+        through the worker-upload API (see ``scripts/remote_ingest``).
+        ``_parse_document_impl`` is a thin wrapper that fetches the PDF bytes
+        from a stored ``Document`` and delegates here.
+
+        Args:
+            pdf_bytes: Raw bytes of the PDF to parse.
+            user_id: Optional; used only for logging.
+            doc_id: Optional; used only for logging and image storage path keys.
+            **all_kwargs: Merged pipeline + direct kwargs (``force_ocr``,
+                ``extract_images``, ...).
+
+        Returns:
+            ``OpenContractDocExport`` with globally-indexed pages, or ``None``
+            if the underlying chunk parse returned nothing.
+        """
         # Determine page count and chunk boundaries
         try:
             page_count = get_pdf_page_count(pdf_bytes)

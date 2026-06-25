@@ -5,11 +5,13 @@ from typing import Any
 from rest_framework import serializers
 
 from opencontractserver.annotations.models import EMBEDDING_DIMENSIONS
+from opencontractserver.extracts.services.metadata import MetadataService
 from opencontractserver.worker_uploads.models import WorkerDocumentUpload
 
 logger = logging.getLogger(__name__)
 
 _SUPPORTED_DIMS = frozenset(dim for dim, _ in EMBEDDING_DIMENSIONS)
+_METADATA_DATA_TYPES = frozenset(MetadataService.METADATA_DATA_TYPES)
 
 
 class WorkerDocumentUploadSerializer(serializers.Serializer):
@@ -68,6 +70,36 @@ class WorkerDocumentUploadSerializer(serializers.Serializer):
                     _validate_vector(
                         vec,
                         f"embeddings.annotation_embeddings[{annot_id}]",
+                    )
+
+        # Structured document metadata, if present, must be a JSON object —
+        # it is stored verbatim on Document.custom_meta.
+        custom_meta = data.get("custom_meta")
+        if custom_meta is not None and not isinstance(custom_meta, dict):
+            raise serializers.ValidationError("custom_meta must be a JSON object.")
+
+        # Typed corpus metadata (Column/Datacell): a list of entries, each with a
+        # column_name + data_type. Value type is validated server-side against the
+        # column on ingestion (Datacell.clean).
+        md = data.get("metadata")
+        if md is not None:
+            if not isinstance(md, list):
+                raise serializers.ValidationError("metadata must be a list.")
+            for i, entry in enumerate(md):
+                if not isinstance(entry, dict):
+                    raise serializers.ValidationError(
+                        f"metadata[{i}] must be a JSON object."
+                    )
+                if not entry.get("column_name") or not isinstance(
+                    entry.get("column_name"), str
+                ):
+                    raise serializers.ValidationError(
+                        f"metadata[{i}].column_name is required (string)."
+                    )
+                if entry.get("data_type") not in _METADATA_DATA_TYPES:
+                    raise serializers.ValidationError(
+                        f"metadata[{i}].data_type must be one of "
+                        f"{sorted(_METADATA_DATA_TYPES)}."
                     )
 
         return data

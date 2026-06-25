@@ -134,3 +134,13 @@ Settings for accounts, Corpus Settings for tokens) and via GraphQL mutations.
 For the complete setup walkthrough with examples, UI screenshots, and the full
 metadata schema reference, see the
 [Worker Upload System Walkthrough](../worker_uploads/walkthrough.md).
+
+## Higher-Level Driver: The Remote Ingest Worker
+
+You usually do not call this REST API by hand. The
+[Remote Ingest Worker](remote_ingest_worker.md) (`scripts/remote_ingest`) is a
+turnkey, resumable CLI + docker-compose bundle that runs the **real** Docling
+parser and embedder on your own hardware, optionally calculates extra metadata
+and annotations, and streams the finished documents to this endpoint -- so the
+upload metadata above is produced faithfully for you rather than assembled by
+hand. Also mints tokens with one command: `python manage.py mint_worker_token`.

@@ -1,0 +1,83 @@
+# ===========================================================================
+# OpenContracts remote-ingest worker bundle
+# ===========================================================================
+# Run the FULL ingestion pipeline (Docling parse + embeddings) on a beefy
+# off-cluster host and stream faithful, fully-processed documents to a target
+# OpenContracts instance via the worker-upload REST API. No database, no
+# inbound ports, no access to the target's Postgres — just outbound HTTPS to
+# the target's /api/worker-uploads/ endpoint with a corpus-scoped token.
+#
+# This bundle runs the SAME Docling microservice and the SAME embedder image
+# the server uses, and the worker driver imports the SAME DoclingParser code,
+# so the PAWLs token layer, structural annotations and embeddings are identical
+# to an in-cluster ingestion (faithful by construction).
+#
+# ---------------------------------------------------------------------------
+# Quick start (a remote host with Docker + this repo cloned):
+#
+#   export OC_TARGET_URL=https://opencontracts.example.com
+#   export OC_WORKER_TOKEN=<token from `manage.py mint_worker_token` on the server>
+#   export OC_DATA_DIR=/data/pdfs           # directory tree of PDFs to ingest
+#   export VECTOR_EMBEDDER_API_KEY=change-me # must match the embedder's API_KEY
+#
+#   cd scripts/remote_ingest
+#   docker compose -f remote_worker.yml up -d --build docling-parser vector-embedder
+#   docker compose -f remote_worker.yml run --rm worker plan
+#   docker compose -f remote_worker.yml run --rm worker run --max-workers 8
+#   docker compose -f remote_worker.yml run --rm worker verify
+#
+# The ledger is persisted in a named volume, so `run` is fully resumable —
+# re-run it after an interruption and it skips finished documents.
+# ===========================================================================
+name: oc-remote-worker
+
+volumes:
+  oc_remote_ledger: {}
+
+services:
+  # The exact Docling microservice image the server uses — identical
+  # tokenisation, so PAWLs token indices match an in-cluster parse.
+  docling-parser:
+    image: jscrudato/docsling-local
+    restart: unless-stopped
+
+  # The exact vector-embedder image the server uses — identical 384-dim
+  # embeddings over identical inputs.
+  vector-embedder:
+    image: ghcr.io/jsv4/vectorembeddermicroservice:latest
+    restart: unless-stopped
+    environment:
+      PORT: 8000
+      # Must match VECTOR_EMBEDDER_API_KEY passed to the worker below.
+      API_KEY: ${VECTOR_EMBEDDER_API_KEY:-}
+
+  # The worker driver. Built from the OpenContracts repo so it runs the real
+  # parser code. Invoked on demand via `docker compose run --rm worker <cmd>`.
+  worker:
+    build:
+      # Repo root is two levels up from scripts/remote_ingest/.
+      context: ../..
+      dockerfile: ./compose/local/django/Dockerfile
+      cache_from:
+        - type=registry,ref=ghcr.io/open-source-legal/opencontracts/django-local-cache:main
+    image: opencontractserver_local_django
+    entrypoint: ["/app/scripts/remote_ingest/worker-entrypoint.sh"]
+    depends_on:
+      - docling-parser
+      - vector-embedder
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.remote_worker
+      DOCLING_PARSER_SERVICE_URL: http://docling-parser:8000/parse/
+      EMBEDDINGS_MICROSERVICE_URL: http://vector-embedder:8000
+      VECTOR_EMBEDDER_API_KEY: ${VECTOR_EMBEDDER_API_KEY:-}
+      # Target instance + corpus-scoped token (set on the host before running).
+      OC_TARGET_URL: ${OC_TARGET_URL:?set OC_TARGET_URL to your OpenContracts host}
+      OC_WORKER_TOKEN: ${OC_WORKER_TOKEN:?set OC_WORKER_TOKEN (see manage.py mint_worker_token)}
+      OC_CORPUS_ID: ${OC_CORPUS_ID:-}
+      # Optional Docling tuning (defaults match the server):
+      DOCLING_MAX_CONCURRENT_CHUNKS: ${DOCLING_MAX_CONCURRENT_CHUNKS:-3}
+    volumes:
+      - ../..:/app
+      - ${OC_DATA_DIR:?set OC_DATA_DIR to the directory tree of PDFs to ingest}:/data:ro
+      - oc_remote_ledger:/ledger
+    working_dir: /app
