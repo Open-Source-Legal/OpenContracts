@@ -22,6 +22,9 @@ from django.test import SimpleTestCase, TestCase
 
 from opencontractserver import enrichment
 from opencontractserver.annotations.models import AuthorityNamespace
+from opencontractserver.corpuses.management.commands.load_authority_pack import (
+    Command as LoadAuthorityPackCommand,
+)
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.corpuses.services.corpus_documents import (
     CorpusDocumentService,
@@ -40,6 +43,32 @@ BOLIVIA_MAPPINGS = PACK_DIR / "authority_mappings.bolivia.yaml"
 
 def _load_yaml(path: Path) -> dict:
     return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
+class ValidateSourceHostsTests(SimpleTestCase):
+    """``_validate_source_hosts`` fails fast on a malformed manifest declaration."""
+
+    def test_missing_source_hosts_is_ok(self):
+        # Absent / null source_hosts is valid (a non-scraping pack).
+        LoadAuthorityPackCommand._validate_source_hosts({})
+        LoadAuthorityPackCommand._validate_source_hosts({"source_hosts": None})
+
+    def test_source_hosts_not_a_list_raises(self):
+        with self.assertRaisesMessage(CommandError, "must be a list of hostnames"):
+            LoadAuthorityPackCommand._validate_source_hosts(
+                {"source_hosts": "tcpbolivia.bo"}
+            )
+
+    def test_source_hosts_entry_not_a_bare_host_raises(self):
+        with self.assertRaisesMessage(CommandError, "is not a bare hostname"):
+            LoadAuthorityPackCommand._validate_source_hosts(
+                {"source_hosts": ["https://tcpbolivia.bo"]}
+            )
+
+    def test_valid_source_hosts_pass(self):
+        LoadAuthorityPackCommand._validate_source_hosts(
+            {"source_hosts": ["tcpbolivia.bo", "gacetaoficialdebolivia.gob.bo"]}
+        )
 
 
 class BoliviaPackContentTests(SimpleTestCase):

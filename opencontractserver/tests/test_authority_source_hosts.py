@@ -11,16 +11,20 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
+from unittest import mock
 
 import yaml
 from django.test import SimpleTestCase, override_settings
 
+from opencontractserver.enrichment.services import authority_source_hosts as ash
 from opencontractserver.enrichment.services.authority_source_hosts import (
     effective_source_allowlist,
     is_valid_source_host,
     reset_source_hosts_cache,
 )
 from opencontractserver.utils.safe_http import host_on_allowlist
+
+_MODULE = "opencontractserver.enrichment.services.authority_source_hosts"
 
 
 class SourceHostValidationTests(SimpleTestCase):
@@ -90,3 +94,49 @@ class PackSourceHostAllowlistTests(SimpleTestCase):
                 eff = effective_source_allowlist()
                 self.assertIn("tcpbolivia.bo", eff)
                 self.assertNotIn("https://nope.gov", eff)
+
+
+class PackSourceHostManifestSkipTests(SimpleTestCase):
+    """Manifest-level fault isolation: an unusable pack is skipped, never raised.
+
+    The discoverable pack set is pinned (``authority_pack_dirs`` patched) so each
+    case asserts on exactly the malformed pack — one bad manifest must not break
+    the union for every other pack.
+    """
+
+    def setUp(self):
+        self.addCleanup(reset_source_hosts_cache)
+
+    def _patch_dirs(self, *dirs: Path):
+        return mock.patch.object(ash, "authority_pack_dirs", return_value=list(dirs))
+
+    def test_pack_without_manifest_is_skipped(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = Path(tmp) / "no-manifest"
+            pack.mkdir()
+            with self._patch_dirs(pack):
+                reset_source_hosts_cache()
+                self.assertEqual(ash.pack_declared_source_hosts(), frozenset())
+
+    def test_pack_with_malformed_manifest_is_skipped(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = Path(tmp) / "bad-manifest"
+            pack.mkdir()
+            (pack / "pack.yaml").write_text("a: [unterminated", encoding="utf-8")
+            with self._patch_dirs(pack):
+                reset_source_hosts_cache()
+                with self.assertLogs(_MODULE, level="WARNING"):
+                    self.assertEqual(ash.pack_declared_source_hosts(), frozenset())
+
+    def test_source_hosts_not_a_list_is_skipped(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = Path(tmp) / "scalar-hosts"
+            pack.mkdir()
+            # ``source_hosts`` as a bare string (not a list) is a manifest error.
+            (pack / "pack.yaml").write_text(
+                "name: x\nsource_hosts: tcpbolivia.bo\n", encoding="utf-8"
+            )
+            with self._patch_dirs(pack):
+                reset_source_hosts_cache()
+                with self.assertLogs(_MODULE, level="WARNING"):
+                    self.assertEqual(ash.pack_declared_source_hosts(), frozenset())

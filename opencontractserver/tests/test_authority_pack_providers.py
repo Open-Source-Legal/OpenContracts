@@ -17,9 +17,12 @@ from pathlib import Path
 from django.test import SimpleTestCase, override_settings
 
 from opencontractserver.pipeline.registry import (
+    authority_pack_dirs,
     get_all_authority_source_providers_cached,
     reset_registry,
 )
+
+_REGISTRY_LOGGER = "opencontractserver.pipeline.registry"
 
 # A minimal, importable provider shipped "inside a pack". Imported by file path
 # under a synthetic module name, so its real OpenContracts imports must resolve.
@@ -91,3 +94,61 @@ class PackProviderDiscoveryTests(SimpleTestCase):
             self.assertNotIn("DemoPackProvider", names)
             # The shipped core providers are still discovered.
             self.assertIn("CFRAuthoritySourceProvider", names)
+
+    def test_broken_pack_provider_is_logged_and_skipped(self):
+        # A provider module that fails to import must be logged + skipped without
+        # breaking discovery of the pack's other (valid) providers — one bad file
+        # never crashes registry build.
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = self._write_pack(Path(tmp))
+            (pack / "providers" / "broken.py").write_text(
+                "raise RuntimeError('boom in pack provider')\n", encoding="utf-8"
+            )
+            with override_settings(AUTHORITY_PACK_PATHS=[str(pack)]):
+                reset_registry()
+                with self.assertLogs(_REGISTRY_LOGGER, level="WARNING") as cm:
+                    names = {
+                        p.name for p in get_all_authority_source_providers_cached()
+                    }
+            # The valid sibling still loads despite the broken module.
+            self.assertIn("DemoPackProvider", names)
+            self.assertTrue(
+                any("Failed to import pack provider" in m for m in cm.output),
+                cm.output,
+            )
+
+    def test_duplicate_provider_prefix_is_warned(self):
+        # Two providers claiming the same supported_prefixes family resolve
+        # non-deterministically; the registry makes the shadowing install loud.
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = self._write_pack(Path(tmp))
+            dup_src = _DEMO_PROVIDER_SRC.replace("DemoPackProvider", "DupPackProvider")
+            (pack / "providers" / "dup_provider.py").write_text(
+                dup_src, encoding="utf-8"
+            )
+            with override_settings(AUTHORITY_PACK_PATHS=[str(pack)]):
+                reset_registry()
+                with self.assertLogs(_REGISTRY_LOGGER, level="WARNING") as cm:
+                    get_all_authority_source_providers_cached()
+            self.assertTrue(
+                any(
+                    "Duplicate authority-source-provider prefix" in m for m in cm.output
+                ),
+                cm.output,
+            )
+
+
+class AuthorityPackDirsTests(SimpleTestCase):
+    """``authority_pack_dirs`` never raises on a misconfigured setting entry."""
+
+    def setUp(self):
+        self.addCleanup(reset_registry)
+
+    def test_non_directory_path_entry_is_warned_and_skipped(self):
+        with override_settings(AUTHORITY_PACK_PATHS=["/no/such/authority/pack/dir"]):
+            with self.assertLogs(_REGISTRY_LOGGER, level="WARNING") as cm:
+                dirs = authority_pack_dirs()
+            self.assertTrue(
+                any("is not a directory" in m for m in cm.output), cm.output
+            )
+            self.assertNotIn(Path("/no/such/authority/pack/dir"), dirs)
