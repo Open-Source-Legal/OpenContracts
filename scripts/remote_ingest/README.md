@@ -90,6 +90,31 @@ That's it. The directory tree under `OC_DATA_DIR` is mirrored into the corpus's
 folder structure (each PDF's path becomes its folder path). `run` is resumable —
 if it's interrupted, just run it again; finished documents are skipped.
 
+### GPU acceleration (recommended on beefy workstations)
+
+The slow step is the Docling parse. If the host has a GPU, merge the
+`remote_worker.accel.yml` override to run the parser + embedder on it — this is
+the whole point of "beefy workstations sitting around". It swaps in the
+auto-detecting [accelerated images](../../compose/accelerated/README.md) and
+passes the GPU through (auto-selects the device, falls back to CPU):
+
+```bash
+export RENDER_GID=$(stat -c '%g' /dev/dri/renderD128)   # Intel/AMD; host-specific
+docker compose -f remote_worker.yml -f remote_worker.accel.yml build \
+    docling-parser vector-embedder
+docker compose -f remote_worker.yml -f remote_worker.accel.yml up -d \
+    docling-parser vector-embedder
+docker compose -f remote_worker.yml -f remote_worker.accel.yml run --rm worker run --max-workers 8
+```
+
+A **discrete Intel Arc Pro B-series** (Battlemage, e.g. Arc Pro B70 — 32 GB, 256
+XMX engines) is an ideal target: defaults (`OC_DOCLING_ACCEL=xpu`,
+`OC_EMBED_ACCEL=auto`) run Docling on the GPU and the embedder on OpenVINO.
+NVIDIA: `OC_DOCLING_ACCEL=cuda OC_EMBED_ACCEL=cuda` + the nvidia runtime. AMD:
+`ACCEL=rocm` + `/dev/kfd`. **Benchmark Docling on YOUR GPU**
+(`compose/accelerated/bench_parse.py`) — the speedup is hardware-specific (a
+discrete GPU helps a lot; a weak integrated GPU may not).
+
 ---
 
 ## Subcommands
