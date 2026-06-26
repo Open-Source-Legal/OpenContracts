@@ -104,6 +104,7 @@ from config.graphql.corpus_folder_mutations import (
 from config.graphql.corpus_mutations import (
     AddDocumentsToCorpus,
     AddTemplateToCorpus,
+    CreateArtifact,
     CreateCorpusAction,
     CreateCorpusMutation,
     DeleteCorpusAction,
@@ -111,11 +112,13 @@ from config.graphql.corpus_mutations import (
     ReEmbedCorpus,
     RemoveDocumentsFromCorpus,
     RunCorpusAction,
+    SetArtifactImage,
     SetCorpusVisibility,
     SetupCorpusIntelligence,
     StartCorpusActionBatchRun,
     StartCorpusFork,
     ToggleCorpusMemory,
+    UpdateArtifact,
     UpdateCorpusAction,
     UpdateCorpusDescription,
     UpdateCorpusMutation,
@@ -366,6 +369,10 @@ class Mutation(graphene.ObjectType):
     add_template_to_corpus = AddTemplateToCorpus.Field()
     setup_corpus_intelligence = SetupCorpusIntelligence.Field()
     toggle_corpus_memory = ToggleCorpusMemory.Field()
+    # Shareable artifacts (corpus posters)
+    create_artifact = CreateArtifact.Field()
+    update_artifact = UpdateArtifact.Field()
+    set_artifact_image = SetArtifactImage.Field()
 
     # CORPUS CATEGORY MUTATIONS (superuser-only) ###############################
     create_corpus_category = CreateCorpusCategory.Field()

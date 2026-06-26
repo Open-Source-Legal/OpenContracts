@@ -75,6 +75,13 @@ interface DocumentGraphGlimpseProps {
    * doesn't masquerade as a genuinely empty corpus.
    */
   error?: boolean;
+  /**
+   * When true, render nothing (not the empty/skeleton card) while the graph
+   * has no nodes — for the CAML-article embed, where a "no relationships yet"
+   * card is dead weight on a public corpus home. The owner-facing fallback
+   * overview leaves this false so it still shows the explanatory empty state.
+   */
+  hideWhenEmpty?: boolean;
   /** Escape hatch to the fuller documents/relationships view. */
   onExplore?: () => void;
   testId?: string;
@@ -147,6 +154,7 @@ export const DocumentGraphGlimpse: React.FC<DocumentGraphGlimpseProps> = ({
   truncated,
   loading = false,
   error = false,
+  hideWhenEmpty = false,
   onExplore,
   testId = "document-graph-glimpse",
 }) => {
@@ -174,6 +182,10 @@ export const DocumentGraphGlimpse: React.FC<DocumentGraphGlimpseProps> = ({
   );
 
   if (nodes.length === 0) {
+    // Embed mode: stay invisible until there is an actual graph to show, so a
+    // relationship-free collection's home doesn't carry a dead card. Covers the
+    // loading and error states too — the section simply doesn't appear.
+    if (hideWhenEmpty) return null;
     // While the query is in flight an empty node list means "unknown", not
     // "no relationships" — show a skeleton so first load doesn't flash the
     // misleading empty message.

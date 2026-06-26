@@ -2604,3 +2604,72 @@ class CorpusVoteGroupObjectPermission(GroupObjectPermissionBase):
     content_object = django.db.models.ForeignKey(
         "CorpusVote", on_delete=django.db.models.CASCADE
     )
+
+
+class Artifact(BaseOCModel):
+    """A shareable, data-driven visualization ("poster") of a corpus.
+
+    A reusable, corpus-agnostic *template* (e.g. ``spending-beeswarm``) rendered
+    from one corpus's live data, with configurable captions (title / subtitle /
+    byline) and template options (``config``). Exposed at a public ``/a/<slug>``
+    route plus a server-served ``/a/<slug>.png`` for sharing + link unfurling.
+
+    Templates carry no per-corpus logic — the corpus + the caption/config fields
+    are the only per-artifact state, so the same template generalises to any
+    collection whose data supports it. Visibility is corpus-as-gate (the source
+    corpus must be READ-visible) OR ``is_public``; managed by ``ArtifactService``,
+    so no per-object guardian tables are needed.
+    """
+
+    corpus = django.db.models.ForeignKey(
+        "Corpus",
+        related_name="artifacts",
+        on_delete=django.db.models.CASCADE,
+        null=False,
+    )
+    # Template id, e.g. "spending-beeswarm" / "reference-web". Validated against
+    # the frontend registry at the GraphQL layer, kept a free string here so a
+    # new template never needs a migration.
+    template = django.db.models.CharField(max_length=64, null=False, blank=False)
+    # Configurable captions — blank means "auto-derive a generic default".
+    title = django.db.models.CharField(max_length=255, blank=True, default="")
+    subtitle = django.db.models.TextField(blank=True, default="")
+    byline = django.db.models.CharField(max_length=255, blank=True, default="")
+    # Template-specific options (e.g. the "noun", colour overrides). Opaque here.
+    config = django.db.models.JSONField(default=dict, blank=True)
+    # Globally-unique short slug for /a/<slug>.
+    slug = django.db.models.CharField(
+        max_length=128, unique=True, db_index=True, blank=True
+    )
+    # Cached rendered PNG (the og:image / download). Filled by the share flow.
+    image = django.db.models.FileField(
+        upload_to="artifact_images/", null=True, blank=True
+    )
+    # NOTE: ``creator`` stays the BaseOCModel non-null default on purpose — an
+    # artifact is a shareable poster of a corpus you can read, but minting one
+    # requires an authenticated user (``ArtifactService.create`` rejects
+    # anonymous callers). A non-null creator is the DB-level backstop against
+    # anonymous writes.
+
+    class Meta:
+        indexes = [
+            django.db.models.Index(fields=["corpus"]),
+            django.db.models.Index(fields=["slug"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"Artifact({self.template}) {self.slug}"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        if not self.slug or not isinstance(self.slug, str) or not self.slug.strip():
+            base = self.title or f"{self.template}-{self.corpus_id}"
+            self.slug = generate_unique_slug(
+                base_value=base,
+                scope_qs=Artifact.objects.exclude(pk=self.pk),
+                slug_field="slug",
+                max_length=128,
+                fallback_prefix="artifact",
+            )
+        else:
+            self.slug = sanitize_slug(self.slug, max_length=128)
+        super().save(*args, **kwargs)

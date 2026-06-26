@@ -10,11 +10,12 @@ from django.conf import settings
 from django.core.exceptions import PermissionDenied
 from django.db import DatabaseError, transaction
 from django.utils import timezone
+from graphene.types.generic import GenericScalar
 from graphql_jwt.decorators import login_required, user_passes_test
 from graphql_relay import from_global_id, to_global_id
 
 from config.graphql.base import DRFDeletion, DRFMutation
-from config.graphql.corpus_types import CorpusIntelligenceSetupSummaryType
+from config.graphql.corpus_types import ArtifactType, CorpusIntelligenceSetupSummaryType
 from config.graphql.graphene_types import (
     CorpusActionExecutionType,
     CorpusActionType,
@@ -1747,4 +1748,154 @@ class ToggleCorpusMemory(graphene.Mutation):
             ok=True,
             message=f"Agent memory {status} for corpus '{corpus.title}'",
             corpus=corpus,
+        )
+
+
+class CreateArtifact(graphene.Mutation):
+    """Create a shareable poster (Artifact) of a corpus from a template.
+
+    READ-gated on the corpus (you can make a poster of any collection you can
+    see); the artifact is public by default so its ``/a/<slug>`` link is
+    shareable, but its data still only renders to viewers who can read the
+    corpus. ``template`` is validated against the service's registry.
+    """
+
+    class Arguments:
+        corpus_id = graphene.ID(required=True)
+        template = graphene.String(required=True)
+        title = graphene.String()
+        subtitle = graphene.String()
+        byline = graphene.String()
+        config = GenericScalar()
+
+    ok = graphene.Boolean()
+    message = graphene.String()
+    artifact = graphene.Field(ArtifactType)
+
+    @login_required
+    @graphql_ratelimit(rate=RateLimits.WRITE_MEDIUM)
+    def mutate(
+        root,
+        info,
+        corpus_id,
+        template,
+        title="",
+        subtitle="",
+        byline="",
+        config=None,
+    ) -> "CreateArtifact":
+        from config.graphql.corpus_queries import _artifact_to_type
+        from opencontractserver.corpuses.services.artifact_service import (
+            ArtifactService,
+        )
+
+        fail = "Couldn't create artifact (unknown template or no access)."
+        try:
+            corpus_pk = int(from_global_id(corpus_id)[1])
+        except Exception:
+            return CreateArtifact(ok=False, message="Invalid corpus id.", artifact=None)
+        artifact = ArtifactService.create(
+            info.context.user,
+            corpus_pk,
+            template,
+            title=title or "",
+            subtitle=subtitle or "",
+            byline=byline or "",
+            config=config or {},
+            request=info.context,
+        )
+        if artifact is None:
+            return CreateArtifact(ok=False, message=fail, artifact=None)
+        return CreateArtifact(
+            ok=True, message="Artifact created.", artifact=_artifact_to_type(artifact)
+        )
+
+
+class UpdateArtifact(graphene.Mutation):
+    """Edit an artifact's configurable captions — creator only."""
+
+    class Arguments:
+        slug = graphene.String(required=True)
+        title = graphene.String()
+        subtitle = graphene.String()
+        byline = graphene.String()
+        config = GenericScalar()
+
+    ok = graphene.Boolean()
+    message = graphene.String()
+    artifact = graphene.Field(ArtifactType)
+
+    @login_required
+    @graphql_ratelimit(rate=RateLimits.WRITE_MEDIUM)
+    def mutate(
+        root, info, slug, title=None, subtitle=None, byline=None, config=None
+    ) -> "UpdateArtifact":
+        from config.graphql.corpus_queries import _artifact_to_type
+        from opencontractserver.corpuses.services.artifact_service import (
+            ArtifactService,
+        )
+
+        artifact = ArtifactService.update_captions(
+            info.context.user,
+            slug,
+            title=title,
+            subtitle=subtitle,
+            byline=byline,
+            config=config,
+            request=info.context,
+        )
+        if artifact is None:
+            return UpdateArtifact(
+                ok=False,
+                message="Artifact not found or you don't have permission.",
+                artifact=None,
+            )
+        return UpdateArtifact(
+            ok=True, message="Artifact updated.", artifact=_artifact_to_type(artifact)
+        )
+
+
+class SetArtifactImage(graphene.Mutation):
+    """Persist the rendered poster PNG so ``/a/<slug>`` has a stable og:image.
+
+    The poster is an SVG rendered client-side; the editor rasterises it and
+    uploads the bytes here on save. (A production deploy can swap in a headless
+    server render behind the same field without changing the contract.)
+    Creator-only.
+    """
+
+    class Arguments:
+        slug = graphene.String(required=True)
+        base64_png = graphene.String(
+            required=True, description="data-URL or raw base64 PNG bytes."
+        )
+
+    ok = graphene.Boolean()
+    message = graphene.String()
+    image_url = graphene.String()
+
+    @login_required
+    @graphql_ratelimit(rate=RateLimits.WRITE_MEDIUM)
+    def mutate(root, info, slug, base64_png) -> "SetArtifactImage":
+        import base64
+
+        from django.core.files.base import ContentFile
+
+        from opencontractserver.corpuses.models import Artifact
+
+        artifact = Artifact.objects.filter(slug=slug).first()
+        if artifact is None or artifact.creator_id != getattr(
+            info.context.user, "id", None
+        ):
+            return SetArtifactImage(
+                ok=False, message="Artifact not found or not yours.", image_url=None
+            )
+        raw = base64_png.split(",", 1)[-1] if "," in base64_png else base64_png
+        try:
+            data = base64.b64decode(raw)
+        except Exception:
+            return SetArtifactImage(ok=False, message="Bad image data.", image_url=None)
+        artifact.image.save(f"{artifact.slug}.png", ContentFile(data), save=True)
+        return SetArtifactImage(
+            ok=True, message="Image saved.", image_url=artifact.image.url
         )

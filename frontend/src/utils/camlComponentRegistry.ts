@@ -11,6 +11,7 @@ import { InsightPanelEmbed } from "../components/corpuses/CorpusHome/intelligenc
 import { DocumentGraphEmbed } from "../components/corpuses/CorpusHome/intelligence/embeds/DocumentGraphEmbed";
 import { GovernanceGraphEmbed } from "../components/corpuses/CorpusHome/intelligence/embeds/GovernanceGraphEmbed";
 import { AskAcrossDocsEmbed } from "../components/corpuses/CorpusHome/intelligence/embeds/AskAcrossDocsEmbed";
+import { CollectionDataStoryEmbed } from "../components/corpuses/CorpusHome/intelligence/embeds/CollectionDataStoryEmbed";
 import type { CamlComponentRegistry } from "./camlComponents";
 
 export const CAML_COMPONENTS: CamlComponentRegistry = {
@@ -18,6 +19,7 @@ export const CAML_COMPONENTS: CamlComponentRegistry = {
   // Corpus Intelligence embeds — corpus id + chat/explore callbacks come from
   // CamlEmbedContext (provided by CorpusArticleView / the editor preview).
   "insight-panel": InsightPanelEmbed,
+  "collection-datastory": CollectionDataStoryEmbed,
   "document-graph": DocumentGraphEmbed,
   "governance-graph": GovernanceGraphEmbed,
   "ask-across-docs": AskAcrossDocsEmbed,

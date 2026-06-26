@@ -7,6 +7,7 @@ import graphene
 from django.contrib.auth import get_user_model
 from django.db.models import OuterRef, Q, Subquery
 from graphene import relay
+from graphene.types.generic import GenericScalar
 from graphene_django import DjangoObjectType
 from graphql_relay import from_global_id
 
@@ -841,6 +842,37 @@ class CorpusIntelligenceAggregatesType(graphene.ObjectType):
     )
 
 
+class CorpusDataStoryProfileType(graphene.ObjectType):
+    """One document's normalised structured profile for the corpus data story.
+
+    Values are cleaned server-side (markdown stripped, dates parsed to ISO out of
+    LLM prose, value coerced to a positive float) so the frontend only renders.
+    """
+
+    document_id = graphene.ID(required=True)
+    title = graphene.String(required=True)
+    slug = graphene.String()
+    type = graphene.String(description="Short document/agreement category.")
+    party = graphene.String(description="Primary counterparty / organisation.")
+    effective_date = graphene.String(description="Effective date, ISO YYYY-MM-DD.")
+    value = graphene.Float(description="Primary dollar value, positive or null.")
+
+
+class CorpusDataStoryType(graphene.ObjectType):
+    """Per-document structured profiles for the corpus-home data story.
+
+    The frontend aggregates these rows into composition / timeline / value views.
+    Built corpus-as-gate from the default ``Collection Profile`` extract (the
+    source corpus must be READ-visible); ``null`` when no profile extract exists
+    yet, so the embed self-hides until the extraction has run.
+    """
+
+    total_documents = graphene.Int(required=True)
+    profiles = graphene.List(
+        graphene.NonNull(CorpusDataStoryProfileType), required=True
+    )
+
+
 class CorpusFilterCountsType(graphene.ObjectType):
     """Counts of corpuses visible to the user, broken down by tab filter.
 
@@ -1039,3 +1071,37 @@ class CorpusIntelligenceSetupStatusType(graphene.ObjectType):
             "requires (CRUD) — drives the setup CTA's visibility."
         ),
     )
+
+
+class ArtifactType(graphene.ObjectType):
+    """A shareable, data-driven corpus poster (an :class:`Artifact`).
+
+    Built corpus-as-gate by ``ArtifactService`` — exposed only when the source
+    corpus is READ-visible to the caller. Carries the template id + configurable
+    captions the public ``/a/<slug>`` poster route renders from live corpus data.
+    """
+
+    id = graphene.ID(required=True)
+    slug = graphene.String(required=True)
+    template = graphene.String(required=True)
+    title = graphene.String()
+    subtitle = graphene.String()
+    byline = graphene.String()
+    config = GenericScalar()
+    corpus_id = graphene.ID(required=True)
+    corpus_slug = graphene.String()
+    creator_slug = graphene.String()
+    is_public = graphene.Boolean()
+    image_url = graphene.String()
+    created = graphene.DateTime()
+
+
+class ArtifactTemplateType(graphene.ObjectType):
+    """A template the artifact gallery can offer a corpus, with data-gated
+    eligibility (a corpus only sees templates its own data can fill)."""
+
+    id = graphene.String(required=True)
+    label = graphene.String(required=True)
+    description = graphene.String()
+    eligible = graphene.Boolean(required=True)
+    reason = graphene.String()

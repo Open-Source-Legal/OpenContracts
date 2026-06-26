@@ -20,5 +20,13 @@ export const GovernanceGraphEmbed: React.FC<
   const { corpusId: ctxCorpusId, onExploreGraph } = useCamlEmbedContext();
   const corpusId = corpusIdProp || ctxCorpusId;
   if (!corpusId) return null;
-  return <GovernanceGraphLive corpusId={corpusId} onExplore={onExploreGraph} />;
+  // On the article home, a collection that cites no in-system law shows nothing
+  // here rather than an owner-only bootstrap CTA.
+  return (
+    <GovernanceGraphLive
+      corpusId={corpusId}
+      onExplore={onExploreGraph}
+      hideWhenEmpty
+    />
+  );
 };

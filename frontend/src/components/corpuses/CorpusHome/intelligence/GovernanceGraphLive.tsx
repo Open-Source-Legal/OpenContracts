@@ -110,12 +110,17 @@ const WeavingNote = styled.span`
 interface GovernanceGraphLiveProps {
   corpusId: string;
   onExplore?: () => void;
+  /** Render nothing (rather than the bootstrap/empty card) when the corpus has
+   * no reference web yet — used by the CAML-article embed so a public corpus
+   * that cites no in-system law stays clean. See GovernanceGraphGlimpse. */
+  hideWhenEmpty?: boolean;
   testId?: string;
 }
 
 export const GovernanceGraphLive: React.FC<GovernanceGraphLiveProps> = ({
   corpusId,
   onExplore,
+  hideWhenEmpty = false,
   testId = "governance-graph-live",
 }) => {
   const navigateToDocument = useNavigateToDocumentById();
@@ -287,6 +292,7 @@ export const GovernanceGraphLive: React.FC<GovernanceGraphLiveProps> = ({
         onSelectDocument={handleSelectDocument}
         onExplore={onExplore}
         emptyAction={emptyAction}
+        hideWhenEmpty={hideWhenEmpty}
         testId={testId}
       />
       {/* The graph's dashed ghost nodes, as an actionable backlog. Renders
