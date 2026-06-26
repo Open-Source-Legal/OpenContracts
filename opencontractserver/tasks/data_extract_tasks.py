@@ -9,7 +9,10 @@ from asgiref.sync import sync_to_async
 from pydantic_ai.messages import ModelResponse, ToolCallPart
 
 from opencontractserver.annotations.compact_json import iter_page_annotations
-from opencontractserver.constants.extraction import DEFAULT_EXTRACT_MODEL
+from opencontractserver.constants.extraction import (
+    DEFAULT_EXTRACT_MODEL,
+    EXTRACT_FULL_TEXT_CHAR_LIMIT,
+)
 from opencontractserver.constants.llm import (
     EXTRACT_DEFAULT_TEMPERATURE,
     NONE_RESULT_AGENT_COMMITTED,
@@ -201,24 +204,6 @@ def get_relationship_label_text(relationship):
     )
 
 
-@sync_to_async
-def get_column_extraction_params(datacell):
-    """
-    Safely get the output_type, instructions, and extract_is_list from a datacell's column.
-
-    Args:
-        datacell: The datacell object to get extraction parameters from.
-
-    Returns:
-        tuple: A tuple containing (output_type, instructions, extract_is_list).
-    """
-    return (
-        datacell.column.output_type,
-        datacell.column.instructions,
-        datacell.column.extract_is_list,
-    )
-
-
 @celery_task_with_async_to_sync()
 async def doc_extract_query_task(
     cell_id: int,
@@ -393,6 +378,78 @@ async def doc_extract_query_task(
                     + "\n".join(f"- {ex}" for ex in examples)
                 )
                 logger.info(f"Added {len(examples)} few-shot examples from match_text")
+
+        # Re-wire per-column constraint fields into the extraction prompt.
+        # The marvin -> doc-agent rewrite (commit 184903f62) silently dropped
+        # these three persisted, GraphQL-settable Column fields, so any
+        # user-configured guidance/scoping had ZERO effect on extraction. The
+        # dead ``get_column_extraction_params`` helper (now removed) still
+        # claimed to surface ``instructions``. Restore the pre-rewrite behavior
+        # by folding the constraints into the prompt the agent actually runs.
+        column_constraints: list[str] = []
+        if column.instructions:
+            column_constraints.append(f"Additional instructions: {column.instructions}")
+        if column.must_contain_text:
+            column_constraints.append(
+                "Only extract data from sections that contain the text: "
+                f"'{column.must_contain_text}'."
+            )
+        if column.limit_to_label:
+            column_constraints.append(
+                f"Only consider content labeled as: '{column.limit_to_label}'."
+            )
+        if column_constraints:
+            prompt += "\n\n" + "\n".join(column_constraints)
+            logger.info(
+                "Applied %d column constraint(s) "
+                "(instructions/must_contain_text/limit_to_label) to extraction "
+                "prompt for cell %s",
+                len(column_constraints),
+                cell_id,
+            )
+
+        # For short documents, inject the FULL extracted text (fenced) into the
+        # prompt so the agent can answer directly — and, crucially, confirm the
+        # ABSENCE of a clause in a single read — instead of issuing many
+        # low-signal ``similarity_search`` calls. Retrieval tools stay available
+        # (and remain the primary path for longer documents above the budget).
+        # This collapses the per-cell tool-call count and eliminates the
+        # ``tool_loop_no_output`` / ``no_final_response`` failures that short
+        # contracts otherwise trigger. The document text is genuinely untrusted,
+        # so it is wrapped with ``fence_user_content``.
+        @sync_to_async
+        def _load_doc_text():
+            try:
+                f = document.txt_extract_file
+                if not f:
+                    return ""
+                f.open("rb")
+                raw = f.read()
+                f.close()
+                if isinstance(raw, bytes):
+                    return raw.decode("utf-8", errors="replace")
+                return str(raw)
+            except Exception:  # noqa: BLE001 - best-effort; fall back to retrieval
+                return ""
+
+        full_text = await _load_doc_text()
+        if full_text and len(full_text) <= EXTRACT_FULL_TEXT_CHAR_LIMIT:
+            from opencontractserver.utils.prompt_sanitization import (
+                fence_user_content,
+            )
+
+            prompt += (
+                "\n\nThe full text of the document is provided below. Use it to "
+                "answer directly; if the requested information is genuinely not "
+                "present in the document, commit to that (e.g. false, or null) "
+                "rather than continuing to search.\n"
+                + fence_user_content(full_text, label="document text")
+            )
+            logger.info(
+                "Injected full document text (%d chars) into prompt for cell %s",
+                len(full_text),
+                cell_id,
+            )
 
         # 4. EXTRACT! 🚀
         logger.info(f"Starting extraction for datacell {cell_id}:")

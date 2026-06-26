@@ -30,6 +30,7 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 from pydantic_ai.toolsets import FunctionToolset
+from pydantic_ai.usage import UsageLimits
 from pydantic_graph import End
 
 from opencontractserver.constants.context_guardrails import (
@@ -38,7 +39,10 @@ from opencontractserver.constants.context_guardrails import (
     LARGE_IMPLICIT_CHUNK_WARN_RATIO,
     MIN_IMPLICIT_DOCUMENT_CHUNK_CHARS,
 )
-from opencontractserver.constants.llm import STRUCTURED_OUTPUT_RETRIES
+from opencontractserver.constants.llm import (
+    EXTRACT_AGENT_REQUEST_LIMIT,
+    STRUCTURED_OUTPUT_RETRIES,
+)
 from opencontractserver.conversations.models import Conversation
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
@@ -1801,9 +1805,14 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
             if history_result.messages:
                 run_kwargs["message_history"] = history_result.messages
 
-            # Run the agent with the user's prompt and full dependencies
+            # Run the agent with the user's prompt and full dependencies.
+            # ``usage_limits`` caps model requests so a weak model cannot run
+            # away making dozens-to-hundreds of redundant tool calls on a hard
+            # or absent value (the ``tool_loop_no_output`` pathology); a capable
+            # model commits well within this budget.
             run_result = await structured_agent.run(
                 prompt,
+                usage_limits=UsageLimits(request_limit=EXTRACT_AGENT_REQUEST_LIMIT),
                 **run_kwargs,
             )
 
