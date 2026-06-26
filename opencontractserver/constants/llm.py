@@ -23,15 +23,18 @@ NONE_RESULT_NO_FINAL = "no_final_response"
 NONE_RESULT_TOOL_LOOP = "tool_loop_no_output"
 NONE_RESULT_UNKNOWN = "unknown"
 
-# Hard ceiling on model requests for a single structured-extraction run.
-# Without a budget a weak model (e.g. gpt-4o-mini) can run away making
-# dozens-to-hundreds of identical ``similarity_search`` calls on a hard or
-# absent value before pydantic-ai's loop gives up — observed at 100 calls /
-# 770KB message logs / ~100s per cell in the diligence eval, surfacing as
-# ``failure_mode=tool_loop_no_output``. A capable model commits within a
-# handful of requests; this ceiling bounds cost/latency for the pathological
-# case while leaving generous headroom for legitimate multi-search +
-# ``STRUCTURED_OUTPUT_RETRIES`` final_result retries.
+# Default ceiling on model requests for a single structured-response run
+# (applied via ``setdefault``, so any caller may override it per-call). Without
+# a budget a weak model (e.g. gpt-4o-mini) can run away making dozens-to-
+# hundreds of identical ``similarity_search`` calls on a hard or absent value
+# before pydantic-ai's loop gives up — observed at 100 calls / 770KB message
+# logs / ~100s per cell in the diligence eval, surfacing as
+# ``failure_mode=tool_loop_no_output``. A capable model commits within a handful
+# of requests; this tightens pydantic-ai's own default of 50 to bound
+# cost/latency for the pathological case while leaving generous headroom for
+# legitimate multi-search + ``STRUCTURED_OUTPUT_RETRIES`` final_result retries.
+# A caller that legitimately needs more (e.g. a future corpus-wide structured
+# analytic) can pass its own ``usage_limits``.
 EXTRACT_AGENT_REQUEST_LIMIT = 20
 
 EXTRACT_DEFAULT_TEMPERATURE = 0.3

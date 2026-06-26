@@ -27,6 +27,7 @@ from opencontractserver.utils.compact_pawls import expand_pawls_pages
 from opencontractserver.utils.extraction_grounding import (
     ground_extraction_to_annotations,
 )
+from opencontractserver.utils.files import read_field_file_text
 from opencontractserver.utils.llm import is_anthropic_model
 
 logger = logging.getLogger(__name__)
@@ -382,10 +383,17 @@ async def doc_extract_query_task(
         # Re-wire per-column constraint fields into the extraction prompt.
         # The marvin -> doc-agent rewrite (commit 184903f62) silently dropped
         # these three persisted, GraphQL-settable Column fields, so any
-        # user-configured guidance/scoping had ZERO effect on extraction. The
-        # dead ``get_column_extraction_params`` helper (now removed) still
-        # claimed to surface ``instructions``. Restore the pre-rewrite behavior
-        # by folding the constraints into the prompt the agent actually runs.
+        # user-configured guidance had ZERO effect on extraction. The dead
+        # ``get_column_extraction_params`` helper (now removed) still claimed to
+        # surface ``instructions``. Restore the pre-rewrite behavior by folding
+        # the constraints into the prompt the agent actually runs.
+        #
+        # NOTE: ``must_contain_text`` / ``limit_to_label`` are applied as
+        # ADVISORY prompt guidance, not enforced retrieval filters — the
+        # document-agent retrieval tools do not support label/text-scoped
+        # filtering today (that capability lives only in the standalone
+        # VectorStoreAPI ``must_have_text`` path). A future change could wire
+        # them into retrieval for hard enforcement.
         column_constraints: list[str] = []
         if column.instructions:
             column_constraints.append(f"Additional instructions: {column.instructions}")
@@ -408,42 +416,51 @@ async def doc_extract_query_task(
                 cell_id,
             )
 
-        # For short documents, inject the FULL extracted text (fenced) into the
-        # prompt so the agent can answer directly — and, crucially, confirm the
-        # ABSENCE of a clause in a single read — instead of issuing many
-        # low-signal ``similarity_search`` calls. Retrieval tools stay available
-        # (and remain the primary path for longer documents above the budget).
-        # This collapses the per-cell tool-call count and eliminates the
+        # For short documents, inject the FULL extracted text into the prompt so
+        # the agent can answer directly — and, crucially, confirm the ABSENCE of
+        # a clause in a single read — instead of issuing many low-signal
+        # ``similarity_search`` calls. Retrieval tools stay available (and remain
+        # the primary path for longer documents above the budget). This
+        # collapses the per-cell tool-call count and eliminates the
         # ``tool_loop_no_output`` / ``no_final_response`` failures that short
         # contracts otherwise trigger. The document text is genuinely untrusted,
-        # so it is wrapped with ``fence_user_content``.
-        @sync_to_async
-        def _load_doc_text():
+        # so it is prefixed with ``UNTRUSTED_CONTENT_NOTICE`` and wrapped with
+        # ``fence_user_content``.
+        full_text = ""
+        if document.txt_extract_file:
             try:
-                f = document.txt_extract_file
-                if not f:
-                    return ""
-                f.open("rb")
-                raw = f.read()
-                f.close()
-                if isinstance(raw, bytes):
-                    return raw.decode("utf-8", errors="replace")
-                return str(raw)
-            except Exception:  # noqa: BLE001 - best-effort; fall back to retrieval
-                return ""
-
-        full_text = await _load_doc_text()
+                full_text = await sync_to_async(read_field_file_text)(
+                    document.txt_extract_file, errors="replace"
+                )
+            except (
+                Exception
+            ) as exc:  # noqa: BLE001 - best-effort; fall back to retrieval
+                logger.warning(
+                    "Could not load txt_extract_file for cell %s: %s",
+                    cell_id,
+                    exc,
+                    exc_info=True,
+                )
         if full_text and len(full_text) <= EXTRACT_FULL_TEXT_CHAR_LIMIT:
             from opencontractserver.utils.prompt_sanitization import (
+                UNTRUSTED_CONTENT_NOTICE,
                 fence_user_content,
+                warn_if_content_large,
             )
 
+            warn_if_content_large(full_text, context="extraction document text")
+            # The full document is in context, so the system prompt's mandatory
+            # multi-search NEGATIVE-CASE rule no longer applies — tell the agent
+            # it can confirm absence directly rather than search-looping.
             prompt += (
-                "\n\nThe full text of the document is provided below. Use it to "
-                "answer directly; if the requested information is genuinely not "
-                "present in the document, commit to that (e.g. false, or null) "
-                "rather than continuing to search.\n"
-                + fence_user_content(full_text, label="document text")
+                "\n\n"
+                + UNTRUSTED_CONTENT_NOTICE
+                + "\n\nThe full text of the document is provided below. Because "
+                "you have the COMPLETE document here, you do NOT need to issue "
+                "multiple searches to confirm a value is absent — answer "
+                "directly from the text below, and if the requested information "
+                "is genuinely not present, commit to that (e.g. false, or "
+                "null).\n" + fence_user_content(full_text, label="document text")
             )
             logger.info(
                 "Injected full document text (%d chars) into prompt for cell %s",
