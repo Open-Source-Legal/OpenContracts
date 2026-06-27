@@ -550,6 +550,307 @@ class TestLiteParseParser(TestCase):
     )
     @patch("liteparse.LiteParse")
     @patch("opencontractserver.pipeline.parsers.liteparse_parser.default_storage.open")
+    def test_token_extraction_failure_falls_back_to_empty_pages(
+        self,
+        mock_open,
+        mock_liteparse_class,
+        mock_extract_tokens,
+        mock_find_tokens,
+        mock_extract_images,
+    ):
+        """If word-token extraction raises, empty PAWLs pages are synthesized."""
+        mock_file = MagicMock()
+        mock_file.read.return_value = b"mock pdf content"
+        mock_open.return_value.__enter__.return_value = mock_file
+
+        result = make_result(
+            pages=[
+                make_page(
+                    1,
+                    612,
+                    792,
+                    "doc",
+                    [
+                        make_item("Title", 72, 40, 400, 28, font_size=20),
+                        make_item("body", 72, 120, 300, 14, font_size=11),
+                    ],
+                )
+            ],
+            text="doc",
+        )
+        mock_parser = MagicMock()
+        mock_parser.parse.return_value = result
+        mock_liteparse_class.return_value = mock_parser
+
+        mock_extract_tokens.side_effect = Exception("pdfplumber boom")
+        mock_find_tokens.return_value = []
+        mock_extract_images.return_value = {}
+
+        parser = patch_parser_settings(LiteParseParser())
+        out = parser.parse_document(user_id=self.user.id, doc_id=self.doc.id)
+
+        self.assertIsNotNone(out)
+        # A page was synthesized from LiteParse page dimensions, with no tokens.
+        self.assertEqual(len(out["pawls_file_content"]), 1)
+        self.assertEqual(out["pawls_file_content"][0]["tokens"], [])
+        self.assertEqual(out["pawls_file_content"][0]["page"]["width"], 612)
+        # Annotations are still produced (with empty token refs).
+        self.assertEqual(len(out["labelled_text"]), 2)
+        self.assertEqual(
+            out["labelled_text"][0]["annotation_json"]["0"]["tokensJsons"], []
+        )
+
+    @patch(
+        "opencontractserver.pipeline.parsers.liteparse_parser.extract_images_from_pdf"
+    )
+    @patch("opencontractserver.pipeline.parsers.liteparse_parser.find_tokens_in_bbox")
+    @patch(
+        "opencontractserver.pipeline.parsers.liteparse_parser.extract_pawls_tokens_from_pdf"
+    )
+    @patch("liteparse.LiteParse")
+    @patch("opencontractserver.pipeline.parsers.liteparse_parser.default_storage.open")
+    def test_image_extraction_failure_graceful(
+        self,
+        mock_open,
+        mock_liteparse_class,
+        mock_extract_tokens,
+        mock_find_tokens,
+        mock_extract_images,
+    ):
+        """An image-extraction failure is swallowed; parsing still succeeds."""
+        mock_file = MagicMock()
+        mock_file.read.return_value = b"mock pdf content"
+        mock_open.return_value.__enter__.return_value = mock_file
+
+        result = make_result(
+            pages=[
+                make_page(
+                    1,
+                    612,
+                    792,
+                    "doc",
+                    [make_item("body", 72, 120, 300, 14, font_size=11)],
+                )
+            ],
+            text="doc",
+        )
+        mock_parser = MagicMock()
+        mock_parser.parse.return_value = result
+        mock_liteparse_class.return_value = mock_parser
+
+        mock_extract_tokens.return_value = create_mock_token_extraction_result(1, 3)
+        mock_find_tokens.return_value = []
+        mock_extract_images.side_effect = Exception("image boom")
+
+        parser = patch_parser_settings(LiteParseParser())
+        out = parser.parse_document(user_id=self.user.id, doc_id=self.doc.id)
+
+        self.assertIsNotNone(out)
+        self.assertEqual(len(out["pawls_file_content"][0]["tokens"]), 3)
+        self.assertFalse(
+            any(a["annotationLabel"] == "Image" for a in out["labelled_text"])
+        )
+
+    @patch(
+        "opencontractserver.pipeline.parsers.liteparse_parser.extract_images_from_pdf"
+    )
+    @patch("opencontractserver.pipeline.parsers.liteparse_parser.find_tokens_in_bbox")
+    @patch(
+        "opencontractserver.pipeline.parsers.liteparse_parser.extract_pawls_tokens_from_pdf"
+    )
+    @patch("liteparse.LiteParse")
+    @patch("opencontractserver.pipeline.parsers.liteparse_parser.default_storage.open")
+    def test_construct_kwargs_includes_optional_settings(
+        self,
+        mock_open,
+        mock_liteparse_class,
+        mock_extract_tokens,
+        mock_find_tokens,
+        mock_extract_images,
+    ):
+        """Optional settings (ocr_server_url, target_pages, max_pages, password)
+        are forwarded to the LiteParse constructor only when set."""
+        mock_file = MagicMock()
+        mock_file.read.return_value = b"mock pdf content"
+        mock_open.return_value.__enter__.return_value = mock_file
+
+        mock_parser = MagicMock()
+        mock_parser.parse.return_value = make_result(
+            pages=[make_page(1, 612, 792, "x", [])], text="x"
+        )
+        mock_liteparse_class.return_value = mock_parser
+        mock_extract_tokens.return_value = create_mock_token_extraction_result(1, 0)
+        mock_find_tokens.return_value = []
+        mock_extract_images.return_value = {}
+
+        parser = patch_parser_settings(
+            LiteParseParser(),
+            ocr_server_url="http://ocr:1234",
+            target_pages="1-2",
+            max_pages=5,
+            password="secret",
+        )
+        parser.parse_document(user_id=self.user.id, doc_id=self.doc.id)
+
+        call_kwargs = mock_liteparse_class.call_args.kwargs
+        self.assertEqual(call_kwargs["ocr_server_url"], "http://ocr:1234")
+        self.assertEqual(call_kwargs["target_pages"], "1-2")
+        self.assertEqual(call_kwargs["max_pages"], 5)
+        self.assertEqual(call_kwargs["password"], "secret")
+
+    @patch(
+        "opencontractserver.pipeline.parsers.liteparse_parser.extract_pawls_tokens_from_pdf"
+    )
+    @patch("liteparse.LiteParse")
+    @patch("opencontractserver.pipeline.parsers.liteparse_parser.default_storage.open")
+    def test_parse_handles_liteparse_exception(
+        self, mock_open, mock_liteparse_class, mock_extract_tokens
+    ):
+        """A raised exception from LiteParse.parse() degrades to None."""
+        mock_file = MagicMock()
+        mock_file.read.return_value = b"mock pdf content"
+        mock_open.return_value.__enter__.return_value = mock_file
+
+        mock_parser = MagicMock()
+        mock_parser.parse.side_effect = Exception("liteparse boom")
+        mock_liteparse_class.return_value = mock_parser
+
+        parser = patch_parser_settings(LiteParseParser())
+        self.assertIsNone(
+            parser.parse_document(user_id=self.user.id, doc_id=self.doc.id)
+        )
+
+    @patch(
+        "opencontractserver.pipeline.parsers.liteparse_parser.extract_images_from_pdf"
+    )
+    @patch("opencontractserver.pipeline.parsers.liteparse_parser.find_tokens_in_bbox")
+    @patch(
+        "opencontractserver.pipeline.parsers.liteparse_parser.extract_pawls_tokens_from_pdf"
+    )
+    @patch("liteparse.LiteParse")
+    @patch("opencontractserver.pipeline.parsers.liteparse_parser.default_storage.open")
+    def test_invalid_page_metadata_uses_defaults(
+        self,
+        mock_open,
+        mock_liteparse_class,
+        mock_extract_tokens,
+        mock_find_tokens,
+        mock_extract_images,
+    ):
+        """Bad page_num / width / height values fall back to defaults."""
+        mock_file = MagicMock()
+        mock_file.read.return_value = b"mock pdf content"
+        mock_open.return_value.__enter__.return_value = mock_file
+
+        result = make_result(
+            pages=[
+                # page_num None -> int() raises -> use position; width <=0 -> default
+                make_page(None, -5, 792, "a", []),
+                # page_num 0 -> idx -1 < 0 -> use position; width non-numeric -> default
+                make_page(0, "bad", 792, "b", []),
+            ],
+            text="",
+        )
+        mock_parser = MagicMock()
+        mock_parser.parse.return_value = result
+        mock_liteparse_class.return_value = mock_parser
+
+        mock_extract_tokens.return_value = create_mock_token_extraction_result(2, 0)
+        mock_find_tokens.return_value = []
+        mock_extract_images.return_value = {}
+
+        parser = patch_parser_settings(LiteParseParser())
+        out = parser.parse_document(user_id=self.user.id, doc_id=self.doc.id)
+
+        self.assertIsNotNone(out)
+        self.assertEqual(out["page_count"], 2)
+
+    @patch(
+        "opencontractserver.pipeline.parsers.liteparse_parser.extract_images_from_pdf"
+    )
+    @patch("opencontractserver.pipeline.parsers.liteparse_parser.find_tokens_in_bbox")
+    @patch(
+        "opencontractserver.pipeline.parsers.liteparse_parser.extract_pawls_tokens_from_pdf"
+    )
+    @patch("liteparse.LiteParse")
+    @patch("opencontractserver.pipeline.parsers.liteparse_parser.default_storage.open")
+    def test_image_full_metadata_and_out_of_range_page_skipped(
+        self,
+        mock_open,
+        mock_liteparse_class,
+        mock_extract_tokens,
+        mock_find_tokens,
+        mock_extract_images,
+    ):
+        """All optional image metadata is copied; out-of-range image pages skip."""
+        mock_file = MagicMock()
+        mock_file.read.return_value = b"mock pdf content"
+        mock_open.return_value.__enter__.return_value = mock_file
+
+        result = make_result(
+            pages=[
+                make_page(
+                    1,
+                    612,
+                    792,
+                    "doc",
+                    [make_item("body", 72, 120, 300, 14, font_size=11)],
+                )
+            ],
+            text="doc",
+        )
+        mock_parser = MagicMock()
+        mock_parser.parse.return_value = result
+        mock_liteparse_class.return_value = mock_parser
+
+        mock_extract_tokens.return_value = create_mock_token_extraction_result(1, 2)
+        mock_find_tokens.return_value = []
+        mock_extract_images.return_value = {
+            0: [
+                {
+                    "x": 100,
+                    "y": 200,
+                    "width": 300,
+                    "height": 250,
+                    "text": "",
+                    "is_image": True,
+                    "format": "jpeg",
+                    "image_path": "p.jpg",
+                    "content_hash": "h",
+                    "original_width": 800,
+                    "original_height": 600,
+                    "image_type": "embedded",
+                }
+            ],
+            # Page index beyond the synthesized PAWLs pages -> skipped by guard.
+            99: [{"x": 0, "y": 0, "width": 60, "height": 60}],
+        }
+
+        parser = patch_parser_settings(LiteParseParser())
+        out = parser.parse_document(user_id=self.user.id, doc_id=self.doc.id)
+
+        tok = out["pawls_file_content"][0]["tokens"][2]
+        self.assertTrue(tok["is_image"])
+        self.assertEqual(tok["content_hash"], "h")
+        self.assertEqual(tok["original_width"], 800)
+        self.assertEqual(tok["original_height"], 600)
+        self.assertEqual(tok["image_type"], "embedded")
+        self.assertEqual(tok["image_path"], "p.jpg")
+
+        image_annos = [
+            a for a in out["labelled_text"] if a["annotationLabel"] == "Image"
+        ]
+        self.assertEqual(len(image_annos), 1)
+
+    @patch(
+        "opencontractserver.pipeline.parsers.liteparse_parser.extract_images_from_pdf"
+    )
+    @patch("opencontractserver.pipeline.parsers.liteparse_parser.find_tokens_in_bbox")
+    @patch(
+        "opencontractserver.pipeline.parsers.liteparse_parser.extract_pawls_tokens_from_pdf"
+    )
+    @patch("liteparse.LiteParse")
+    @patch("opencontractserver.pipeline.parsers.liteparse_parser.default_storage.open")
     def test_kwargs_override_settings(
         self,
         mock_open,
@@ -707,6 +1008,31 @@ class TestLiteParseHeuristics(TestCase):
         self.assertEqual(bounds["top"], 100)
         self.assertEqual(bounds["right"], 272)
         self.assertEqual(bounds["bottom"], 114)
+
+    def test_classify_item_non_numeric_font_size(self):
+        """A non-numeric font_size is treated as body text (no crash)."""
+        level, label = self.parser._classify_item(
+            make_item("x", 0, 0, 1, 1, font_size="big"), [24.0]
+        )
+        self.assertEqual((level, label), (None, LABEL_TEXT_BLOCK))
+
+    def test_bounds_from_item_non_numeric_coords(self):
+        """Non-numeric coordinates fall back to a clamped, non-degenerate box."""
+        bounds = LiteParseParser._bounds_from_item(
+            make_item("x", "bad", 0, 1, 1), 612, 792
+        )
+        self.assertGreaterEqual(bounds["right"] - bounds["left"], 1)
+        self.assertGreaterEqual(bounds["bottom"] - bounds["top"], 1)
+
+    def test_bounds_from_item_swaps_inverted_box(self):
+        """Negative width/height (inverted box) is normalized via a swap."""
+        bounds = LiteParseParser._bounds_from_item(
+            make_item("x", 100, 100, -50, -20), 612, 792
+        )
+        self.assertEqual(bounds["left"], 50)
+        self.assertEqual(bounds["right"], 100)
+        self.assertEqual(bounds["top"], 80)
+        self.assertEqual(bounds["bottom"], 100)
 
     def test_bounds_from_item_at_page_edge_stays_nondegenerate(self):
         """An item pinned to the page edge still yields a >=1pt box."""
