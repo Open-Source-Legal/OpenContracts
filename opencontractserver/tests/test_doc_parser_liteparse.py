@@ -609,6 +609,78 @@ class TestLiteParseParser(TestCase):
     )
     @patch("liteparse.LiteParse")
     @patch("opencontractserver.pipeline.parsers.liteparse_parser.default_storage.open")
+    def test_fallback_pages_keep_absolute_index_for_images(
+        self,
+        mock_open,
+        mock_liteparse_class,
+        mock_extract_tokens,
+        mock_find_tokens,
+        mock_extract_images,
+    ):
+        """Fallback PAWLs pages stay position==index so images land correctly.
+
+        Regression for the case where token extraction fails AND a single parsed
+        page has a non-zero absolute index (e.g. target_pages='2'): the
+        synthesized page list must keep list position == page index so an image
+        for absolute page 1 is written to the page-1 entry, not compacted to 0.
+        """
+        mock_file = MagicMock()
+        mock_file.read.return_value = b"mock pdf content"
+        mock_open.return_value.__enter__.return_value = mock_file
+
+        # Single LiteParse page numbered 2 -> absolute page index 1.
+        result = make_result(
+            pages=[
+                make_page(
+                    2,
+                    612,
+                    792,
+                    "p2",
+                    [make_item("body", 72, 120, 300, 14, font_size=11)],
+                )
+            ],
+            text="p2",
+        )
+        mock_parser = MagicMock()
+        mock_parser.parse.return_value = result
+        mock_liteparse_class.return_value = mock_parser
+
+        # Token extraction fails -> fallback page synthesis.
+        mock_extract_tokens.side_effect = Exception("pdfplumber boom")
+        mock_find_tokens.return_value = []
+        # Image on absolute page index 1.
+        mock_extract_images.return_value = {
+            1: [{"x": 100, "y": 200, "width": 300, "height": 250, "format": "jpeg"}]
+        }
+
+        parser = patch_parser_settings(LiteParseParser())
+        out = parser.parse_document(user_id=self.user.id, doc_id=self.doc.id)
+
+        pages = out["pawls_file_content"]
+        # Two synthesized entries: index 0 (gap) empty, index 1 holds the image.
+        self.assertEqual(len(pages), 2)
+        self.assertEqual(pages[0]["page"]["index"], 0)
+        self.assertEqual(pages[0]["tokens"], [])
+        self.assertEqual(pages[1]["page"]["index"], 1)
+        self.assertEqual(len(pages[1]["tokens"]), 1)
+        self.assertTrue(pages[1]["tokens"][0].get("is_image"))
+
+        image_annos = [
+            a for a in out["labelled_text"] if a["annotationLabel"] == "Image"
+        ]
+        self.assertEqual(len(image_annos), 1)
+        ref = image_annos[0]["annotation_json"]["1"]["tokensJsons"][0]
+        self.assertEqual(ref, {"pageIndex": 1, "tokenIndex": 0})
+
+    @patch(
+        "opencontractserver.pipeline.parsers.liteparse_parser.extract_images_from_pdf"
+    )
+    @patch("opencontractserver.pipeline.parsers.liteparse_parser.find_tokens_in_bbox")
+    @patch(
+        "opencontractserver.pipeline.parsers.liteparse_parser.extract_pawls_tokens_from_pdf"
+    )
+    @patch("liteparse.LiteParse")
+    @patch("opencontractserver.pipeline.parsers.liteparse_parser.default_storage.open")
     def test_image_extraction_failure_graceful(
         self,
         mock_open,

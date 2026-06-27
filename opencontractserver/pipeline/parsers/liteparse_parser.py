@@ -526,10 +526,20 @@ class LiteParseParser(BaseParser):
             tokens_by_page = {}
             token_indices_by_page = {}
 
-        # Ensure a PAWLs page exists for every LiteParse page index.
+        # Ensure a PAWLs page exists for every LiteParse page index, with the
+        # list position equal to the absolute page index. The successful
+        # extraction path returns pages in 0..N-1 order (one entry per page), an
+        # invariant downstream consumers — including ``_append_image_tokens``,
+        # which indexes ``pawls_pages`` by absolute page number — rely on. Build
+        # the fallback the same way (filling any gaps, e.g. when ``target_pages``
+        # restricts parsing to a non-zero-starting range) so a compacted list
+        # never misaligns image/token writes with their page.
         if not pawls_pages:
-            for page_idx in sorted(page_dimensions):
-                width, height = page_dimensions[page_idx]
+            max_idx = max(page_dimensions) if page_dimensions else -1
+            for page_idx in range(max_idx + 1):
+                width, height = page_dimensions.get(
+                    page_idx, (DEFAULT_WIDTH, DEFAULT_HEIGHT)
+                )
                 pawls_pages.append(
                     {
                         "page": {
@@ -701,6 +711,12 @@ class LiteParseParser(BaseParser):
         )
         try:
             logger.info("Extracting images from PDF for LLM consumption...")
+            # NOTE: self.dpi is LiteParse's own page-render DPI; it is
+            # intentionally NOT forwarded here. extract_images_from_pdf only
+            # rasterizes as a fallback for embedded streams it cannot decode and
+            # uses the pipeline-wide IMAGE_EXTRACTION_DPI default — matching the
+            # Docling and LlamaParse parsers, which likewise don't couple their
+            # parser DPI to embedded-image extraction.
             raw_images_by_page = extract_images_from_pdf(
                 pdf_bytes,
                 min_width=self.min_image_width,

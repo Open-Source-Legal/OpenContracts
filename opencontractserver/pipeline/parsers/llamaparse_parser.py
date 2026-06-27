@@ -21,6 +21,8 @@ from shapely.strtree import STRtree
 
 from opencontractserver.annotations.models import TOKEN_LABEL
 from opencontractserver.constants.document_processing import (
+    DEFAULT_PDF_PAGE_HEIGHT,
+    DEFAULT_PDF_PAGE_WIDTH,
     DOCUMENT_IMAGE_STORAGE_PREFIX,
 )
 from opencontractserver.documents.models import Document
@@ -421,9 +423,10 @@ class LlamaParseParser(BaseParser):
         annotations: list[OpenContractsAnnotationPythonType] = []
         page_dimensions: dict[int, tuple[float, float]] = {}
 
-        # Default page dimensions
-        DEFAULT_WIDTH = 612
-        DEFAULT_HEIGHT = 792
+        # Default page dimensions (shared constants; aliased locally for brevity
+        # at the several call sites below).
+        DEFAULT_WIDTH = DEFAULT_PDF_PAGE_WIDTH
+        DEFAULT_HEIGHT = DEFAULT_PDF_PAGE_HEIGHT
 
         # First pass: collect page dimensions from LlamaParse
         for page_idx, page in enumerate(pages):
