@@ -44,6 +44,11 @@ MAX_FILE_UPLOAD_SIZE_BYTES = 5_242_880_000
 DEFAULT_PDF_PAGE_WIDTH = 612.0
 DEFAULT_PDF_PAGE_HEIGHT = 792.0
 
+# Storage-path prefix under which parsers persist extracted/cropped document
+# images, as ``{prefix}/{document_id}/images``. Shared by every parser that
+# extracts images so the layout stays in one place.
+DOCUMENT_IMAGE_STORAGE_PREFIX = "documents"
+
 # Default path prefix for documents uploaded without explicit path
 # Used when generating document paths in corpus operations
 DEFAULT_DOCUMENT_PATH_PREFIX = "/documents"

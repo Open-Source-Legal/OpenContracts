@@ -1439,10 +1439,25 @@ PARSER_KWARGS = {
         "language": "en",
         "verbose": False,
     },
+    # Every key here is honored as a per-call override by
+    # LiteParseParser._parse_document_impl. (image_format/image_quality/
+    # min_image_* are read from the resolved settings inside _append_image_tokens
+    # rather than per-call, so they are configured via PipelineSettings/env, not
+    # listed here — mirroring LlamaParseParser, whose image settings are also
+    # absent from its PARSER_KWARGS entry.)
     "opencontractserver.pipeline.parsers.liteparse_parser.LiteParseParser": {
         "output_format": LITEPARSE_OUTPUT_FORMAT,
         "ocr_enabled": LITEPARSE_OCR_ENABLED,
+        "ocr_language": LITEPARSE_OCR_LANGUAGE,
+        "ocr_server_url": LITEPARSE_OCR_SERVER_URL,
+        "dpi": LITEPARSE_DPI,
+        "num_workers": LITEPARSE_NUM_WORKERS,
+        "target_pages": LITEPARSE_TARGET_PAGES,
+        "max_pages": LITEPARSE_MAX_PAGES,
+        "password": LITEPARSE_PASSWORD,
+        "image_mode": LITEPARSE_IMAGE_MODE,
         "detect_headings": LITEPARSE_DETECT_HEADINGS,
+        "heading_size_ratio": LITEPARSE_HEADING_SIZE_RATIO,
         "extract_images": LITEPARSE_EXTRACT_IMAGES,
     },
 }

@@ -20,6 +20,9 @@ from django.core.files.storage import default_storage
 from shapely.strtree import STRtree
 
 from opencontractserver.annotations.models import TOKEN_LABEL
+from opencontractserver.constants.document_processing import (
+    DOCUMENT_IMAGE_STORAGE_PREFIX,
+)
 from opencontractserver.documents.models import Document
 from opencontractserver.pipeline.base.file_types import FileTypeEnum
 from opencontractserver.pipeline.base.parser import BaseParser
@@ -505,7 +508,7 @@ class LlamaParseParser(BaseParser):
         # image_token_offsets tracks where image tokens start in each page's tokens array
         image_token_offsets: dict[int, int] = {}
         # Construct storage path for images based on document ID
-        image_storage_path = f"documents/{document.pk}/images"
+        image_storage_path = f"{DOCUMENT_IMAGE_STORAGE_PREFIX}/{document.pk}/images"
         if pdf_bytes and extract_images:
             try:
                 logger.info("Extracting images from PDF for LLM consumption...")

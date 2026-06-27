@@ -14,6 +14,7 @@ from opencontractserver.constants import (
 )
 from opencontractserver.constants.document_processing import (
     DOCLING_PARSER_REQUEST_TIMEOUT_SECONDS,
+    DOCUMENT_IMAGE_STORAGE_PREFIX,
 )
 from opencontractserver.pipeline.base.chunked_parser import BaseChunkedParser
 from opencontractserver.pipeline.base.exceptions import DocumentParsingError
@@ -485,7 +486,7 @@ class DoclingParser(BaseChunkedParser):
         """
         extract_images_flag = all_kwargs.get("extract_images", self.extract_images)
         if extract_images_flag:
-            image_storage_path = f"documents/{doc_id}/images"
+            image_storage_path = f"{DOCUMENT_IMAGE_STORAGE_PREFIX}/{doc_id}/images"
             reassembled = cast(
                 OpenContractDocExport,
                 self._add_images_to_result(

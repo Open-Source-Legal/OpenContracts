@@ -851,6 +851,43 @@ class TestLiteParseParser(TestCase):
     )
     @patch("liteparse.LiteParse")
     @patch("opencontractserver.pipeline.parsers.liteparse_parser.default_storage.open")
+    def test_unsupported_image_format_is_clamped(
+        self,
+        mock_open,
+        mock_liteparse_class,
+        mock_extract_tokens,
+        mock_find_tokens,
+        mock_extract_images,
+    ):
+        """An unsupported image_format (e.g. 'webp') is clamped to a real encoder."""
+        mock_file = MagicMock()
+        mock_file.read.return_value = b"mock pdf content"
+        mock_open.return_value.__enter__.return_value = mock_file
+
+        mock_parser = MagicMock()
+        mock_parser.parse.return_value = make_result(
+            pages=[make_page(1, 612, 792, "x", [])], text="x"
+        )
+        mock_liteparse_class.return_value = mock_parser
+        mock_extract_tokens.return_value = create_mock_token_extraction_result(1, 0)
+        mock_find_tokens.return_value = []
+        mock_extract_images.return_value = {}
+
+        parser = patch_parser_settings(LiteParseParser(), image_format="webp")
+        parser.parse_document(user_id=self.user.id, doc_id=self.doc.id)
+
+        mock_extract_images.assert_called_once()
+        self.assertEqual(mock_extract_images.call_args.kwargs["image_format"], "jpeg")
+
+    @patch(
+        "opencontractserver.pipeline.parsers.liteparse_parser.extract_images_from_pdf"
+    )
+    @patch("opencontractserver.pipeline.parsers.liteparse_parser.find_tokens_in_bbox")
+    @patch(
+        "opencontractserver.pipeline.parsers.liteparse_parser.extract_pawls_tokens_from_pdf"
+    )
+    @patch("liteparse.LiteParse")
+    @patch("opencontractserver.pipeline.parsers.liteparse_parser.default_storage.open")
     def test_kwargs_override_settings(
         self,
         mock_open,
@@ -975,19 +1012,19 @@ class TestLiteParseHeuristics(TestCase):
         self.assertIsNone(body_size)
 
     def test_classify_item_levels(self):
-        heading_sizes = [24.0, 16.0]
+        level_by_size = {24.0: 0, 16.0: 1}
         level, label = self.parser._classify_item(
-            make_item("t", 0, 0, 1, 1, font_size=24), heading_sizes
+            make_item("t", 0, 0, 1, 1, font_size=24), level_by_size
         )
         self.assertEqual((level, label), (0, LABEL_TITLE))
 
         level, label = self.parser._classify_item(
-            make_item("s", 0, 0, 1, 1, font_size=16), heading_sizes
+            make_item("s", 0, 0, 1, 1, font_size=16), level_by_size
         )
         self.assertEqual((level, label), (1, LABEL_SECTION_HEADER))
 
         level, label = self.parser._classify_item(
-            make_item("b", 0, 0, 1, 1, font_size=11), heading_sizes
+            make_item("b", 0, 0, 1, 1, font_size=11), level_by_size
         )
         self.assertEqual((level, label), (None, LABEL_TEXT_BLOCK))
 
@@ -1012,7 +1049,7 @@ class TestLiteParseHeuristics(TestCase):
     def test_classify_item_non_numeric_font_size(self):
         """A non-numeric font_size is treated as body text (no crash)."""
         level, label = self.parser._classify_item(
-            make_item("x", 0, 0, 1, 1, font_size="big"), [24.0]
+            make_item("x", 0, 0, 1, 1, font_size="big"), {24.0: 0}
         )
         self.assertEqual((level, label), (None, LABEL_TEXT_BLOCK))
 

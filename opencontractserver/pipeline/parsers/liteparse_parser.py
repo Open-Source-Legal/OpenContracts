@@ -35,7 +35,7 @@ command ``migrate_pipeline_settings`` to seed initial values from environment.
 import logging
 from collections import Counter
 from dataclasses import dataclass, field
-from typing import Any, Literal, Optional, Union, cast
+from typing import Any, Literal, Optional, Union
 
 import numpy as np
 from django.core.files.storage import default_storage
@@ -45,6 +45,7 @@ from opencontractserver.annotations.models import TOKEN_LABEL
 from opencontractserver.constants.document_processing import (
     DEFAULT_PDF_PAGE_HEIGHT,
     DEFAULT_PDF_PAGE_WIDTH,
+    DOCUMENT_IMAGE_STORAGE_PREFIX,
 )
 from opencontractserver.documents.models import Document
 from opencontractserver.pipeline.base.file_types import FileTypeEnum
@@ -543,18 +544,20 @@ class LiteParseParser(BaseParser):
         # Extract embedded images and append them to the unified token array.
         images_by_page: dict[int, list[PawlsTokenPythonType]] = {}
         image_token_offsets: dict[int, int] = {}
-        image_storage_path = f"documents/{document.pk}/images"
+        image_storage_path = f"{DOCUMENT_IMAGE_STORAGE_PREFIX}/{document.pk}/images"
         if pdf_bytes and extract_images:
             images_by_page, image_token_offsets = self._append_image_tokens(
                 pawls_pages, pdf_bytes, image_storage_path
             )
 
-        # Classify font sizes for heading detection (document-wide).
+        # Classify font sizes for heading detection (document-wide). Build a
+        # size -> level map once so per-item classification is an O(1) lookup.
         heading_sizes, body_size = self._classify_heading_sizes(
             pages,
             detect_headings=detect_headings,
             heading_size_ratio=heading_size_ratio,
         )
+        level_by_size = {size: idx for idx, size in enumerate(heading_sizes)}
 
         annotations: list[OpenContractsAnnotationPythonType] = []
         annotation_id_counter = 0
@@ -575,7 +578,7 @@ class LiteParseParser(BaseParser):
                     continue
 
                 bounds = self._bounds_from_item(item, page_width, page_height)
-                level, label = self._classify_item(item, heading_sizes)
+                level, label = self._classify_item(item, level_by_size)
 
                 # Resolve parent from the heading stack. Headings pop shallower-
                 # or-equal levels first so equal-level headings become siblings.
@@ -689,13 +692,20 @@ class LiteParseParser(BaseParser):
         """
         images_by_page: dict[int, list[PawlsTokenPythonType]] = {}
         image_token_offsets: dict[int, int] = {}
+        # Clamp to a format the storage layer actually encodes. ``cast`` is a
+        # type-checker hint only; an operator-supplied value like "webp" would
+        # otherwise be saved as PNG bytes but tagged/extensioned "webp",
+        # yielding broken data: URLs downstream.
+        image_format: Literal["jpeg", "png"] = (
+            "png" if str(self.image_format).lower() == "png" else "jpeg"
+        )
         try:
             logger.info("Extracting images from PDF for LLM consumption...")
             raw_images_by_page = extract_images_from_pdf(
                 pdf_bytes,
                 min_width=self.min_image_width,
                 min_height=self.min_image_height,
-                image_format=cast(Literal["jpeg", "png"], self.image_format),
+                image_format=image_format,
                 jpeg_quality=self.image_quality,
                 storage_path=image_storage_path,
             )
@@ -767,7 +777,10 @@ class LiteParseParser(BaseParser):
         if not detect_headings:
             return [], None
 
-        sizes: list[float] = []
+        # Count rounded font sizes incrementally — memory stays proportional to
+        # the number of distinct sizes (typically a handful), not the total
+        # number of text items.
+        counts: Counter[float] = Counter()
         for page in pages:
             for item in _attr(page, "text_items", []) or []:
                 fs = _attr(item, "font_size")
@@ -778,33 +791,33 @@ class LiteParseParser(BaseParser):
                 except (TypeError, ValueError):
                     continue
                 if fs_f > 0:
-                    sizes.append(round(fs_f, 1))
+                    counts[round(fs_f, 1)] += 1
 
-        if not sizes:
+        if not counts:
             return [], None
 
         # Body size = the most frequent rounded size. On a frequency tie prefer
         # the SMALLEST tied size: body text is the smallest of the common sizes,
         # and on short documents a heading size can tie body for frequency.
-        counts = Counter(sizes)
         max_count = max(counts.values())
         body_size = min(size for size, count in counts.items() if count == max_count)
 
         threshold = body_size * heading_size_ratio
-        heading_sizes = sorted({s for s in sizes if s > threshold}, reverse=True)
+        heading_sizes = sorted((s for s in counts if s > threshold), reverse=True)
         return heading_sizes, body_size
 
     def _classify_item(
-        self, item: Any, heading_sizes: list[float]
+        self, item: Any, level_by_size: dict[float, int]
     ) -> tuple[Optional[int], str]:
         """Classify a text item into (heading_level, label).
 
-        ``heading_level`` is ``None`` for body text; otherwise it is the item's
-        index within ``heading_sizes`` (0 = largest). Body text maps to
-        ``Text Block``; the largest heading size maps to ``Title`` and all other
-        heading sizes to ``Section Header``.
+        ``level_by_size`` maps a rounded font size to its heading level
+        (0 = largest). ``heading_level`` is ``None`` for body text; otherwise it
+        is the item's level. Body text maps to ``Text Block``; level 0 maps to
+        ``Title`` and all other heading levels to ``Section Header``. The dict
+        lookup keeps this O(1) per item (it runs once per text line).
         """
-        if not heading_sizes:
+        if not level_by_size:
             return None, LABEL_TEXT_BLOCK
 
         fs = _attr(item, "font_size")
@@ -815,8 +828,8 @@ class LiteParseParser(BaseParser):
         except (TypeError, ValueError):
             return None, LABEL_TEXT_BLOCK
 
-        if rounded in heading_sizes:
-            level = heading_sizes.index(rounded)
+        level = level_by_size.get(rounded)
+        if level is not None:
             label = LABEL_TITLE if level == 0 else LABEL_SECTION_HEADER
             return level, label
         return None, LABEL_TEXT_BLOCK
