@@ -552,6 +552,14 @@ class LiteParseParser(BaseParser):
                 )
 
         # Extract embedded images and append them to the unified token array.
+        # NOTE: like the pdfplumber word-token pass above, image extraction runs
+        # over the WHOLE PDF (pdfplumber doesn't honour target_pages). So when
+        # target_pages restricts parsing to a subset, the full document's token
+        # layer (text AND image tokens) is present, but only the parsed pages get
+        # annotations — image tokens on un-parsed pages are simply unreferenced.
+        # This is consistent with the text-token behaviour and harmless: token
+        # indices are per-page, so unreferenced tokens never shift any other
+        # page's indices.
         images_by_page: dict[int, list[PawlsTokenPythonType]] = {}
         image_token_offsets: dict[int, int] = {}
         image_storage_path = f"{DOCUMENT_IMAGE_STORAGE_PREFIX}/{document.pk}/images"
@@ -736,6 +744,14 @@ class LiteParseParser(BaseParser):
                 token_offset = len(pawls_pages[page_idx].get("tokens", []))
                 image_token_offsets[page_idx] = token_offset
                 for img_data in page_images:
+                    # Skip malformed image dicts defensively: appending mutates
+                    # the shared pawls_pages in place, so a mid-loop KeyError on a
+                    # missing required key would strand partial image tokens that
+                    # the except block cannot roll back. extract_images_from_pdf
+                    # always supplies these keys; the guard just keeps the loop
+                    # exception-free so the only failure boundary is extraction.
+                    if not all(k in img_data for k in ("x", "y", "width", "height")):
+                        continue
                     # Required fields first; optional metadata is added only when
                     # present so we don't violate the NotRequired-but-non-None
                     # contract of PawlsTokenPythonType (mirrors the other parsers).
@@ -774,10 +790,19 @@ class LiteParseParser(BaseParser):
     ) -> tuple[list[float], Optional[float]]:
         """Determine which font sizes count as headings.
 
-        The modal (most common) rounded font size is treated as body text; any
-        rounded size strictly larger than ``body_size * heading_size_ratio`` is a
-        heading size. The returned list is sorted descending so its index gives
-        the heading level (0 = largest = Title).
+        Body text is taken to be the font size carrying the most *characters*
+        (not the most lines). Any rounded size strictly larger than
+        ``body_size * heading_size_ratio`` is a heading size. The returned list
+        is sorted descending so its index gives the heading level
+        (0 = largest = Title).
+
+        Weighting by character mass — rather than line frequency — is what makes
+        this robust on documents where heading-style lines are *more numerous*
+        than body lines (slide decks, tables of contents, legal exhibits with
+        many repeated section labels) or where small footnote/caption text is as
+        frequent as body: body prose still dominates the character count, while
+        headings/footnotes are short. A frequency-only count would mis-pick the
+        heading or footnote size as body in those cases.
 
         ``detect_headings`` / ``heading_size_ratio`` default to the instance
         settings when ``None`` so call-time overrides from ``parse_document``
@@ -793,10 +818,12 @@ class LiteParseParser(BaseParser):
         if not detect_headings:
             return [], None
 
-        # Count rounded font sizes incrementally — memory stays proportional to
-        # the number of distinct sizes (typically a handful), not the total
-        # number of text items.
-        counts: Counter[float] = Counter()
+        # Accumulate character mass per rounded font size. Memory stays
+        # proportional to the number of distinct sizes (a handful), not the
+        # total number of text items. A floor of 1 char/line keeps blank-ish
+        # lines counting so the weighting degrades to frequency when every line
+        # has the same length.
+        weights: Counter[float] = Counter()
         for page in pages:
             for item in _attr(page, "text_items", []) or []:
                 fs = _attr(item, "font_size")
@@ -806,20 +833,22 @@ class LiteParseParser(BaseParser):
                     fs_f = float(fs)
                 except (TypeError, ValueError):
                     continue
-                if fs_f > 0:
-                    counts[round(fs_f, 1)] += 1
+                if fs_f <= 0:
+                    continue
+                text = _attr(item, "text", "") or ""
+                weights[round(fs_f, 1)] += max(len(text.strip()), 1)
 
-        if not counts:
+        if not weights:
             return [], None
 
-        # Body size = the most frequent rounded size. On a frequency tie prefer
-        # the SMALLEST tied size: body text is the smallest of the common sizes,
-        # and on short documents a heading size can tie body for frequency.
-        max_count = max(counts.values())
-        body_size = min(size for size, count in counts.items() if count == max_count)
+        # Body size = the size carrying the most characters. On a tie prefer the
+        # SMALLEST tied size (body is smaller than headings; a heading rarely
+        # out-masses body, but a short doc can tie).
+        max_weight = max(weights.values())
+        body_size = min(size for size, w in weights.items() if w == max_weight)
 
         threshold = body_size * heading_size_ratio
-        heading_sizes = sorted((s for s in counts if s > threshold), reverse=True)
+        heading_sizes = sorted((s for s in weights if s > threshold), reverse=True)
         return heading_sizes, body_size
 
     def _classify_item(

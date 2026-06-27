@@ -1315,13 +1315,16 @@ _SELECTED_PDF_PARSER = _PDF_PARSER_MAP.get(
     PDF_PARSER.lower(), _PDF_PARSER_MAP["docling"]
 )
 
-# Parser for Office formats (DOCX/PPTX). LiteParse is PDF-only (PDFium), so when
-# it is the selected PDF engine we fall back to Docling for Office documents
-# rather than routing them to a parser that can't read them. Docling and
-# LlamaParse both handle these formats themselves.
+# PDF-only engines (e.g. LiteParse/PDFium) cannot read Office formats. When one
+# is the selected PDF engine, DOCX/PPTX fall back to Docling rather than routing
+# to a parser that can't read them. Listing the PDF-only engine names here keeps
+# the fallback self-maintaining: a future PDF-only parser only needs to be added
+# to this set. (We can't introspect each parser's ``supported_file_types`` here
+# because settings load before the app/registry is importable.)
+_PDF_ONLY_PARSER_NAMES = {"liteparse"}
 _SELECTED_OFFICE_PARSER = (
     _PDF_PARSER_MAP["docling"]
-    if PDF_PARSER.lower() == "liteparse"
+    if PDF_PARSER.lower() in _PDF_ONLY_PARSER_NAMES
     else _SELECTED_PDF_PARSER
 )
 

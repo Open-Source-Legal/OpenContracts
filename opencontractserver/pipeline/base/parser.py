@@ -18,6 +18,7 @@ from opencontractserver.utils.importing import (
     import_relationships,
     load_or_create_labels,
 )
+from opencontractserver.utils.logging import redact_sensitive_kwargs
 from opencontractserver.utils.structural_sets import create_structural_annotation_set
 from opencontractserver.utils.subtree_groups import build_subtree_groups_for_document
 
@@ -84,8 +85,13 @@ class BaseParser(PipelineComponentBase, ABC):
         """
         # Merge component settings with direct kwargs, direct_kwargs take precedence
         merged_kwargs = {**self.get_component_settings(), **direct_kwargs}
+        # Redact before logging: merged_kwargs can carry SECRET settings (e.g. a
+        # parser API key or a PDF password) sourced from PipelineSettings or
+        # PARSER_KWARGS, and this INFO line runs before the per-parser impl gets
+        # a chance to redact. See opencontractserver.utils.logging.
         logger.info(
-            f"Calling _parse_document_impl for doc_id {doc_id} with merged kwargs: {merged_kwargs}"
+            f"Calling _parse_document_impl for doc_id {doc_id} with merged kwargs: "
+            f"{redact_sensitive_kwargs(merged_kwargs)}"
         )
         return self._parse_document_impl(user_id, doc_id, **merged_kwargs)
 

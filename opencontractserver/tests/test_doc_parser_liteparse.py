@@ -301,11 +301,28 @@ class TestLiteParseParser(TestCase):
                     792,
                     "doc",
                     [
+                        # Body lines are realistically longer than the headers so
+                        # the 11pt size wins on character mass even though the
+                        # 16pt header size appears just as many times.
                         make_item("Big Title", 72, 40, 400, 30, font_size=24),
                         make_item("Section A", 72, 100, 300, 20, font_size=16),
-                        make_item("body a1", 72, 130, 300, 14, font_size=11),
+                        make_item(
+                            "This is a full body paragraph line with plenty of text.",
+                            72,
+                            130,
+                            300,
+                            14,
+                            font_size=11,
+                        ),
                         make_item("Section B", 72, 200, 300, 20, font_size=16),
-                        make_item("body b1", 72, 230, 300, 14, font_size=11),
+                        make_item(
+                            "Another full body paragraph line, also fairly long here.",
+                            72,
+                            230,
+                            300,
+                            14,
+                            font_size=11,
+                        ),
                     ],
                 )
             ],
@@ -1032,7 +1049,9 @@ class TestLiteParseParser(TestCase):
         mock_file.read.return_value = b"mock pdf content"
         mock_open.return_value.__enter__.return_value = mock_file
 
-        original = sys.modules.get("liteparse")
+        # The module-level setdefault guarantees the stand-in is installed, so
+        # `original` is always the mock module; restore it unconditionally.
+        original = sys.modules["liteparse"]
         # Force `from liteparse import LiteParse` to raise ImportError.
         sys.modules["liteparse"] = None  # type: ignore[assignment]
         try:
@@ -1041,10 +1060,7 @@ class TestLiteParseParser(TestCase):
                 parser.parse_document(user_id=self.user.id, doc_id=self.doc.id)
             )
         finally:
-            if original is not None:
-                sys.modules["liteparse"] = original
-            else:
-                sys.modules.pop("liteparse", None)
+            sys.modules["liteparse"] = original
 
 
 class TestLiteParseHeuristics(TestCase):
@@ -1082,6 +1098,29 @@ class TestLiteParseHeuristics(TestCase):
         heading_sizes, body_size = self.parser._classify_heading_sizes(pages)
         self.assertEqual(heading_sizes, [])
         self.assertIsNone(body_size)
+
+    def test_classify_heading_sizes_body_wins_on_char_mass_not_frequency(self):
+        """Body is the size with the most characters, even if outnumbered.
+
+        Heading-heavy / footnote-heavy docs: short heading or footnote lines may
+        be as numerous as (or more numerous than) body lines, but body prose
+        still carries the most characters. A frequency-only count would mis-pick
+        the smaller/heading size; char weighting must pick 11pt body here.
+        """
+        items = []
+        # 6 short 16pt "headers" (8 chars each = 48 chars total)
+        items += [make_item("Header X", 0, 0, 1, 1, font_size=16) for _ in range(6)]
+        # 3 short 8pt "footnotes" (8 chars each = 24 chars total)
+        items += [make_item("note: ..", 0, 0, 1, 1, font_size=8) for _ in range(3)]
+        # 2 long 11pt body lines (~60 chars each = ~120 chars total -> the max)
+        body = "This is a long body paragraph that carries most of the characters."
+        items += [make_item(body, 0, 0, 1, 1, font_size=11) for _ in range(2)]
+
+        pages = [make_page(1, 612, 792, "x", items)]
+        heading_sizes, body_size = self.parser._classify_heading_sizes(pages)
+        self.assertEqual(body_size, 11.0)
+        # 16pt exceeds 11 * 1.2 = 13.2 and is a heading; 8pt is below body.
+        self.assertEqual(heading_sizes, [16.0])
 
     def test_classify_item_levels(self):
         level_by_size = {24.0: 0, 16.0: 1}
