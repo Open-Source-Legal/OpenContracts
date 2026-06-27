@@ -871,11 +871,16 @@ class LiteParseParser(BaseParser):
         if not weights:
             return [], None
 
-        # Body size = the size carrying the most characters. On a tie prefer the
-        # SMALLEST tied size (body is smaller than headings; a heading rarely
-        # out-masses body, but a short doc can tie).
+        # Body size = the size carrying the most characters. On an exact tie
+        # prefer the LARGER tied size as body, which raises the heading threshold
+        # and makes the failure mode UNDER-detection (flat output, same as
+        # headings-off) rather than OVER-detection (real body paragraphs
+        # mislabelled as headings). The latter is the worse, more visible error
+        # — e.g. footnote text tying body mass would otherwise drag the threshold
+        # below real body. Ties only occur on degenerate/short inputs; on normal
+        # documents body has a unique maximum and this choice is moot.
         max_weight = max(weights.values())
-        body_size = min(size for size, w in weights.items() if w == max_weight)
+        body_size = max(size for size, w in weights.items() if w == max_weight)
 
         threshold = body_size * heading_size_ratio
         heading_sizes = sorted((s for s in weights if s > threshold), reverse=True)

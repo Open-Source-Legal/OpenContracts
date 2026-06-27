@@ -1164,8 +1164,14 @@ class TestLiteParseHeuristics(TestCase):
     def setUp(self):
         self.parser = patch_parser_settings(LiteParseParser())
 
-    def test_classify_heading_sizes_tie_breaks_to_smaller_body(self):
-        """When body and a heading size tie on frequency, body is the smaller."""
+    def test_classify_heading_sizes_tie_breaks_to_larger_body(self):
+        """On an exact char-mass tie, the LARGER tied size is chosen as body.
+
+        This raises the heading threshold so the failure mode is under-detection
+        (flat) rather than over-detection (real body mislabelled as headings).
+        Here 16pt and 11pt tie on mass; body resolves to 16pt, so only 24pt
+        (> 16 * 1.2 = 19.2) is a heading.
+        """
         pages = [
             make_page(
                 1,
@@ -1182,9 +1188,8 @@ class TestLiteParseHeuristics(TestCase):
             )
         ]
         heading_sizes, body_size = self.parser._classify_heading_sizes(pages)
-        self.assertEqual(body_size, 11.0)
-        # 16 and 24 both exceed 11 * 1.2 = 13.2; sorted descending.
-        self.assertEqual(heading_sizes, [24.0, 16.0])
+        self.assertEqual(body_size, 16.0)
+        self.assertEqual(heading_sizes, [24.0])
 
     def test_classify_heading_sizes_no_fonts_returns_empty(self):
         pages = [
