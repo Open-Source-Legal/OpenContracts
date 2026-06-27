@@ -1235,6 +1235,27 @@ class TestLiteParseHeuristics(TestCase):
         self.assertEqual(body_size, 11.0)
         self.assertEqual(heading_sizes, [])
 
+    def test_classify_heading_sizes_ignores_blank_items(self):
+        """Whitespace-only items don't count toward body-size detection.
+
+        They are skipped by the annotation loop, so counting them here (as the
+        old +1 floor did) let a large number of blank lines at a non-body size
+        out-weigh real body prose and silently disable heading detection.
+        """
+        items = []
+        # Many blank 14pt items — would dominate if each counted as weight 1.
+        items += [make_item("   ", 0, 0, 1, 1, font_size=14) for _ in range(200)]
+        # A little real 12pt body prose.
+        items += [
+            make_item("Real body sentence here.", 0, 0, 1, 1, font_size=12)
+            for _ in range(3)
+        ]
+        pages = [make_page(1, 612, 792, "x", items)]
+        heading_sizes, body_size = self.parser._classify_heading_sizes(pages)
+        # Blanks are skipped, so 12pt body wins (not the 14pt blank size).
+        self.assertEqual(body_size, 12.0)
+        self.assertEqual(heading_sizes, [])
+
     def test_classify_item_levels(self):
         level_by_size = {24.0: 0, 16.0: 1}
         level, label = self.parser._classify_item(

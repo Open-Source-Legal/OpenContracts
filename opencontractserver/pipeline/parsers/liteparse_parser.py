@@ -847,9 +847,10 @@ class LiteParseParser(BaseParser):
 
         # Accumulate character mass per rounded font size. Memory stays
         # proportional to the number of distinct sizes (a handful), not the
-        # total number of text items. A floor of 1 char/line keeps blank-ish
-        # lines counting so the weighting degrades to frequency when every line
-        # has the same length.
+        # total number of text items. Blank/whitespace-only items are skipped so
+        # this pass counts the SAME population the annotation loop does (it skips
+        # them too) — otherwise many empty lines at a non-body size could
+        # out-weigh real body prose and zero out heading detection.
         weights: Counter[float] = Counter()
         for page in pages:
             for item in _attr(page, "text_items", []) or []:
@@ -862,8 +863,10 @@ class LiteParseParser(BaseParser):
                     continue
                 if fs_f < MIN_CONTENT_FONT_SIZE:
                     continue
-                text = _attr(item, "text", "") or ""
-                weights[round(fs_f, 1)] += max(len(text.strip()), 1)
+                stripped = (_attr(item, "text", "") or "").strip()
+                if not stripped:
+                    continue
+                weights[round(fs_f, 1)] += len(stripped)
 
         if not weights:
             return [], None
