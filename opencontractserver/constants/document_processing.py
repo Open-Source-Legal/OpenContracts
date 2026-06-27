@@ -37,6 +37,13 @@ TEXT_MIMETYPES = {"text/plain", MARKDOWN_MIME_TYPE, "application/txt"}
 # Used by Django's DATA_UPLOAD_MAX_MEMORY_SIZE setting.
 MAX_FILE_UPLOAD_SIZE_BYTES = 5_242_880_000
 
+# Fallback PDF page dimensions in PDF points (US Letter at 72 DPI), used by
+# parsers when an upstream parser reports an invalid/zero page size. Several
+# parsers (docling_parser_rest.py, compact_pawls.py) still inline these literals;
+# new code should import these constants instead.
+DEFAULT_PDF_PAGE_WIDTH = 612.0
+DEFAULT_PDF_PAGE_HEIGHT = 792.0
+
 # Default path prefix for documents uploaded without explicit path
 # Used when generating document paths in corpus operations
 DEFAULT_DOCUMENT_PATH_PREFIX = "/documents"

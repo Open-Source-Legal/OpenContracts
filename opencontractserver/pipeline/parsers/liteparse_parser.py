@@ -42,6 +42,10 @@ from django.core.files.storage import default_storage
 from shapely.strtree import STRtree
 
 from opencontractserver.annotations.models import TOKEN_LABEL
+from opencontractserver.constants.document_processing import (
+    DEFAULT_PDF_PAGE_HEIGHT,
+    DEFAULT_PDF_PAGE_WIDTH,
+)
 from opencontractserver.documents.models import Document
 from opencontractserver.pipeline.base.file_types import FileTypeEnum
 from opencontractserver.pipeline.base.parser import BaseParser
@@ -73,10 +77,11 @@ LABEL_SECTION_HEADER = "Section Header"
 LABEL_TEXT_BLOCK = "Text Block"
 LABEL_IMAGE = "Image"
 
-# Fallback page dimensions (US Letter at 72 DPI) when LiteParse reports an
-# invalid/zero page size.
-DEFAULT_WIDTH = 612.0
-DEFAULT_HEIGHT = 792.0
+# Fallback page dimensions when LiteParse reports an invalid/zero page size.
+# Sourced from the shared constants module (US Letter at 72 DPI) so the literal
+# lives in exactly one place (CLAUDE.md "no magic numbers").
+DEFAULT_WIDTH = DEFAULT_PDF_PAGE_WIDTH
+DEFAULT_HEIGHT = DEFAULT_PDF_PAGE_HEIGHT
 
 
 def _attr(obj: Any, name: str, default: Any = None) -> Any:
@@ -364,6 +369,10 @@ class LiteParseParser(BaseParser):
         password = all_kwargs.get("password", self.password)
         image_mode = all_kwargs.get("image_mode", self.image_mode)
         extract_images_flag = all_kwargs.get("extract_images", self.extract_images)
+        detect_headings = all_kwargs.get("detect_headings", self.detect_headings)
+        heading_size_ratio = all_kwargs.get(
+            "heading_size_ratio", self.heading_size_ratio
+        )
 
         # Get the document.
         try:
@@ -419,6 +428,8 @@ class LiteParseParser(BaseParser):
                 result,
                 doc_bytes,
                 extract_images=extract_images_flag,
+                detect_headings=detect_headings,
+                heading_size_ratio=heading_size_ratio,
             )
 
         except ImportError:
@@ -438,6 +449,8 @@ class LiteParseParser(BaseParser):
         result: Any,
         pdf_bytes: bytes,
         extract_images: bool = True,
+        detect_headings: Optional[bool] = None,
+        heading_size_ratio: Optional[float] = None,
     ) -> OpenContractDocExport:
         """Convert a LiteParse ``ParseResult`` to OpenContracts format.
 
@@ -446,6 +459,10 @@ class LiteParseParser(BaseParser):
             result: LiteParse ``ParseResult`` (or compatible object/dict).
             pdf_bytes: Raw PDF bytes for token and image extraction.
             extract_images: Whether to extract embedded images.
+            detect_headings: Override for heading detection; falls back to the
+                instance setting when ``None``.
+            heading_size_ratio: Override for the heading font-size ratio; falls
+                back to the instance setting when ``None``.
 
         Returns:
             ``OpenContractDocExport`` with parsed data.
@@ -533,7 +550,11 @@ class LiteParseParser(BaseParser):
             )
 
         # Classify font sizes for heading detection (document-wide).
-        heading_sizes, body_size = self._classify_heading_sizes(pages)
+        heading_sizes, body_size = self._classify_heading_sizes(
+            pages,
+            detect_headings=detect_headings,
+            heading_size_ratio=heading_size_ratio,
+        )
 
         annotations: list[OpenContractsAnnotationPythonType] = []
         annotation_id_counter = 0
@@ -621,7 +642,12 @@ class LiteParseParser(BaseParser):
             "content": full_text,
             "description": document.description or "",
             "pawls_file_content": pawls_pages,
-            "page_count": len(pages),
+            # Use the PAWLs page count (full document) rather than the count of
+            # LiteParse-parsed pages: save_parsed_data persists
+            # ``document.page_count = len(pawls_file_content)``, and with
+            # ``target_pages`` set the two differ. Keeping them equal makes the
+            # export self-consistent with what is stored.
+            "page_count": len(pawls_pages),
             "doc_labels": [],
             "labelled_text": annotations,
             "relationships": [],
@@ -715,7 +741,10 @@ class LiteParseParser(BaseParser):
         return images_by_page, image_token_offsets
 
     def _classify_heading_sizes(
-        self, pages: list[Any]
+        self,
+        pages: list[Any],
+        detect_headings: Optional[bool] = None,
+        heading_size_ratio: Optional[float] = None,
     ) -> tuple[list[float], Optional[float]]:
         """Determine which font sizes count as headings.
 
@@ -724,10 +753,18 @@ class LiteParseParser(BaseParser):
         heading size. The returned list is sorted descending so its index gives
         the heading level (0 = largest = Title).
 
+        ``detect_headings`` / ``heading_size_ratio`` default to the instance
+        settings when ``None`` so call-time overrides from ``parse_document``
+        are honoured.
+
         Returns ``([], None)`` when heading detection is disabled or no usable
         font sizes are present.
         """
-        if not self.detect_headings:
+        if detect_headings is None:
+            detect_headings = self.detect_headings
+        if heading_size_ratio is None:
+            heading_size_ratio = self.heading_size_ratio
+        if not detect_headings:
             return [], None
 
         sizes: list[float] = []
@@ -753,7 +790,7 @@ class LiteParseParser(BaseParser):
         max_count = max(counts.values())
         body_size = min(size for size, count in counts.items() if count == max_count)
 
-        threshold = body_size * self.heading_size_ratio
+        threshold = body_size * heading_size_ratio
         heading_sizes = sorted({s for s in sizes if s > threshold}, reverse=True)
         return heading_sizes, body_size
 
@@ -813,10 +850,17 @@ class LiteParseParser(BaseParser):
         top = max(0.0, min(top, page_height))
         bottom = max(0.0, min(bottom, page_height))
 
+        # Guarantee a >=1pt box even when the item sits exactly on the page edge.
+        # Expanding only to the right/bottom would be a no-op there (already at
+        # page_width/page_height), so fall back to expanding the other way.
         if right - left < 1:
             right = min(left + 1, page_width)
+            if right - left < 1:
+                left = max(0.0, right - 1)
         if bottom - top < 1:
             bottom = min(top + 1, page_height)
+            if bottom - top < 1:
+                top = max(0.0, bottom - 1)
 
         return {"left": left, "top": top, "right": right, "bottom": bottom}
 

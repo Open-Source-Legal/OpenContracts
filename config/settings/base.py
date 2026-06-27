@@ -1190,6 +1190,10 @@ LITEPARSE_IMAGE_MODE = env.str("LITEPARSE_IMAGE_MODE", default="off")
 LITEPARSE_DETECT_HEADINGS = env.bool("LITEPARSE_DETECT_HEADINGS", default=True)
 LITEPARSE_HEADING_SIZE_RATIO = env.float("LITEPARSE_HEADING_SIZE_RATIO", default=1.2)
 LITEPARSE_EXTRACT_IMAGES = env.bool("LITEPARSE_EXTRACT_IMAGES", default=True)
+LITEPARSE_IMAGE_FORMAT = env.str("LITEPARSE_IMAGE_FORMAT", default="jpeg")
+LITEPARSE_IMAGE_QUALITY = env.int("LITEPARSE_IMAGE_QUALITY", default=85)
+LITEPARSE_MIN_IMAGE_WIDTH = env.int("LITEPARSE_MIN_IMAGE_WIDTH", default=50)
+LITEPARSE_MIN_IMAGE_HEIGHT = env.int("LITEPARSE_MIN_IMAGE_HEIGHT", default=50)
 
 # ------------------------------------------------------------------------------
 # privacy-filter microservice (PII detection)

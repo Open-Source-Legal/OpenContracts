@@ -412,6 +412,69 @@ class TestLiteParseParser(TestCase):
     )
     @patch("liteparse.LiteParse")
     @patch("opencontractserver.pipeline.parsers.liteparse_parser.default_storage.open")
+    def test_detect_headings_disabled_via_call_kwarg(
+        self,
+        mock_open,
+        mock_liteparse_class,
+        mock_extract_tokens,
+        mock_find_tokens,
+        mock_extract_images,
+    ):
+        """A detect_headings=False call-time kwarg overrides the instance setting.
+
+        Regression guard: the instance is configured with detect_headings=True,
+        but the per-call kwarg must win and produce flat Text Blocks.
+        """
+        mock_file = MagicMock()
+        mock_file.read.return_value = b"mock pdf content"
+        mock_open.return_value.__enter__.return_value = mock_file
+
+        result = make_result(
+            pages=[
+                make_page(
+                    1,
+                    612,
+                    792,
+                    "doc",
+                    [
+                        make_item("Big Title", 72, 40, 400, 30, font_size=24),
+                        make_item("body", 72, 130, 300, 14, font_size=11),
+                    ],
+                )
+            ],
+            text="doc",
+        )
+        mock_parser = MagicMock()
+        mock_parser.parse.return_value = result
+        mock_liteparse_class.return_value = mock_parser
+
+        mock_extract_tokens.return_value = create_mock_token_extraction_result(1, 3)
+        mock_find_tokens.return_value = []
+        mock_extract_images.return_value = {}
+
+        # Instance setting leaves detection ON; the call kwarg turns it OFF.
+        parser = patch_parser_settings(LiteParseParser(), detect_headings=True)
+        out = parser.parse_document(
+            user_id=self.user.id,
+            doc_id=self.doc.id,
+            detect_headings=False,
+        )
+
+        annos = out["labelled_text"]
+        self.assertEqual(len(annos), 2)
+        for a in annos:
+            self.assertEqual(a["annotationLabel"], LABEL_TEXT_BLOCK)
+            self.assertIsNone(a["parent_id"])
+
+    @patch(
+        "opencontractserver.pipeline.parsers.liteparse_parser.extract_images_from_pdf"
+    )
+    @patch("opencontractserver.pipeline.parsers.liteparse_parser.find_tokens_in_bbox")
+    @patch(
+        "opencontractserver.pipeline.parsers.liteparse_parser.extract_pawls_tokens_from_pdf"
+    )
+    @patch("liteparse.LiteParse")
+    @patch("opencontractserver.pipeline.parsers.liteparse_parser.default_storage.open")
     def test_image_extraction_creates_image_annotations(
         self,
         mock_open,
@@ -644,6 +707,20 @@ class TestLiteParseHeuristics(TestCase):
         self.assertEqual(bounds["top"], 100)
         self.assertEqual(bounds["right"], 272)
         self.assertEqual(bounds["bottom"], 114)
+
+    def test_bounds_from_item_at_page_edge_stays_nondegenerate(self):
+        """An item pinned to the page edge still yields a >=1pt box."""
+        # Zero-size item whose origin is exactly the bottom-right corner.
+        bounds = LiteParseParser._bounds_from_item(
+            make_item("x", 612, 792, 0, 0), 612, 792
+        )
+        self.assertGreaterEqual(bounds["right"] - bounds["left"], 1)
+        self.assertGreaterEqual(bounds["bottom"] - bounds["top"], 1)
+        # Expansion happens inward, staying within the page.
+        self.assertLessEqual(bounds["right"], 612)
+        self.assertLessEqual(bounds["bottom"], 792)
+        self.assertGreaterEqual(bounds["left"], 0)
+        self.assertGreaterEqual(bounds["top"], 0)
 
     def test_create_annotation_with_parent(self):
         bounds: BoundingBoxPythonType = {
