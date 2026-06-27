@@ -38,9 +38,9 @@ TEXT_MIMETYPES = {"text/plain", MARKDOWN_MIME_TYPE, "application/txt"}
 MAX_FILE_UPLOAD_SIZE_BYTES = 5_242_880_000
 
 # Fallback PDF page dimensions in PDF points (US Letter at 72 DPI), used by
-# parsers when an upstream parser reports an invalid/zero page size. Several
-# parsers (docling_parser_rest.py, compact_pawls.py) still inline these literals;
-# new code should import these constants instead.
+# parsers when an upstream parser reports an invalid/zero page size. Imported by
+# the liteparse/llamaparse/docling parsers; new code should import these rather
+# than inlining the literals.
 DEFAULT_PDF_PAGE_WIDTH = 612.0
 DEFAULT_PDF_PAGE_HEIGHT = 792.0
 

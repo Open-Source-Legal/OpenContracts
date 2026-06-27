@@ -940,6 +940,73 @@ class TestLiteParseParser(TestCase):
     )
     @patch("liteparse.LiteParse")
     @patch("opencontractserver.pipeline.parsers.liteparse_parser.default_storage.open")
+    def test_skipped_malformed_image_keeps_token_indices_aligned(
+        self,
+        mock_open,
+        mock_liteparse_class,
+        mock_extract_tokens,
+        mock_find_tokens,
+        mock_extract_images,
+    ):
+        """A skipped (malformed) image must not shift the next image's tokenIndex."""
+        mock_file = MagicMock()
+        mock_file.read.return_value = b"mock pdf content"
+        mock_open.return_value.__enter__.return_value = mock_file
+
+        result = make_result(
+            pages=[
+                make_page(
+                    1,
+                    612,
+                    792,
+                    "doc",
+                    [make_item("body", 72, 120, 300, 14, font_size=11)],
+                )
+            ],
+            text="doc",
+        )
+        mock_parser = MagicMock()
+        mock_parser.parse.return_value = result
+        mock_liteparse_class.return_value = mock_parser
+
+        # 2 word tokens -> image tokens start at index 2.
+        mock_extract_tokens.return_value = create_mock_token_extraction_result(1, 2)
+        mock_find_tokens.return_value = []
+        mock_extract_images.return_value = {
+            0: [
+                # Malformed: missing "x" -> skipped, NOT appended as a token.
+                {"y": 200, "width": 300, "height": 250},
+                # Well-formed -> appended at token index 2 (offset 2 + position 0).
+                {"x": 100, "y": 200, "width": 300, "height": 250, "format": "jpeg"},
+            ]
+        }
+
+        parser = patch_parser_settings(LiteParseParser())
+        out = parser.parse_document(user_id=self.user.id, doc_id=self.doc.id)
+
+        # Only the well-formed image became a token: 2 words + 1 image = 3.
+        tokens = out["pawls_file_content"][0]["tokens"]
+        self.assertEqual(len(tokens), 3)
+        self.assertTrue(tokens[2].get("is_image"))
+
+        # Exactly one Image annotation, pointing at the appended slot (index 2),
+        # NOT index 3 (which would be the bug if the skipped image shifted it).
+        image_annos = [
+            a for a in out["labelled_text"] if a["annotationLabel"] == "Image"
+        ]
+        self.assertEqual(len(image_annos), 1)
+        ref = image_annos[0]["annotation_json"]["0"]["tokensJsons"][0]
+        self.assertEqual(ref, {"pageIndex": 0, "tokenIndex": 2})
+
+    @patch(
+        "opencontractserver.pipeline.parsers.liteparse_parser.extract_images_from_pdf"
+    )
+    @patch("opencontractserver.pipeline.parsers.liteparse_parser.find_tokens_in_bbox")
+    @patch(
+        "opencontractserver.pipeline.parsers.liteparse_parser.extract_pawls_tokens_from_pdf"
+    )
+    @patch("liteparse.LiteParse")
+    @patch("opencontractserver.pipeline.parsers.liteparse_parser.default_storage.open")
     def test_unsupported_image_format_is_clamped(
         self,
         mock_open,
@@ -1121,6 +1188,24 @@ class TestLiteParseHeuristics(TestCase):
         self.assertEqual(body_size, 11.0)
         # 16pt exceeds 11 * 1.2 = 13.2 and is a heading; 8pt is below body.
         self.assertEqual(heading_sizes, [16.0])
+
+    def test_classify_heading_sizes_ignores_sub_point_watermark(self):
+        """A sub-point watermark must not be picked as body, even if char-heavy."""
+        items = []
+        # A 0.1pt vector watermark with lots of characters (would dominate mass).
+        items += [
+            make_item("WATERMARK " * 5, 0, 0, 1, 1, font_size=0.1) for _ in range(5)
+        ]
+        # Real 11pt body text.
+        items += [
+            make_item("Real body sentence here.", 0, 0, 1, 1, font_size=11)
+            for _ in range(3)
+        ]
+        pages = [make_page(1, 612, 792, "x", items)]
+        heading_sizes, body_size = self.parser._classify_heading_sizes(pages)
+        # The 0.1pt size is excluded; body is the real 11pt text.
+        self.assertEqual(body_size, 11.0)
+        self.assertEqual(heading_sizes, [])
 
     def test_classify_item_levels(self):
         level_by_size = {24.0: 0, 16.0: 1}

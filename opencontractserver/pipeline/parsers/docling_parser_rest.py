@@ -13,6 +13,8 @@ from opencontractserver.constants import (
     DEFAULT_MIN_PAGES_FOR_CHUNKING,
 )
 from opencontractserver.constants.document_processing import (
+    DEFAULT_PDF_PAGE_HEIGHT,
+    DEFAULT_PDF_PAGE_WIDTH,
     DOCLING_PARSER_REQUEST_TIMEOUT_SECONDS,
     DOCUMENT_IMAGE_STORAGE_PREFIX,
 )
@@ -633,8 +635,8 @@ class DoclingParser(BaseChunkedParser):
             page_dims: dict[int, tuple[float, float]] = {}
             for page_idx, page in enumerate(pawls_pages):
                 page_info = page.get("page", {})
-                width = float(page_info.get("width", 612))
-                height = float(page_info.get("height", 792))
+                width = float(page_info.get("width", DEFAULT_PDF_PAGE_WIDTH))
+                height = float(page_info.get("height", DEFAULT_PDF_PAGE_HEIGHT))
                 page_dims[page_idx] = (width, height)
 
             # Process annotations to add image references for figure/image types
@@ -710,7 +712,9 @@ class DoclingParser(BaseChunkedParser):
 
         # If no embedded image found, crop the region and add as new token
         if not image_token_refs:
-            page_width, page_height = page_dims.get(page_idx, (612, 792))
+            page_width, page_height = page_dims.get(
+                page_idx, (DEFAULT_PDF_PAGE_WIDTH, DEFAULT_PDF_PAGE_HEIGHT)
+            )
 
             # Count image tokens for storage filename indexing
             img_idx = 0

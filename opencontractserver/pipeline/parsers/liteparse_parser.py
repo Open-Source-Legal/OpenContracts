@@ -84,6 +84,13 @@ LABEL_IMAGE = "Image"
 DEFAULT_WIDTH = DEFAULT_PDF_PAGE_WIDTH
 DEFAULT_HEIGHT = DEFAULT_PDF_PAGE_HEIGHT
 
+# Font sizes below this (PDF points) are treated as non-content — vector
+# watermarks, hairline artifacts — and excluded from heading-size detection.
+# Without this floor a sub-point watermark that happens to carry a lot of
+# characters could be picked as "body", dragging the heading threshold to ~0
+# and turning every legible line into a heading.
+MIN_CONTENT_FONT_SIZE = 1.0
+
 
 def _attr(obj: Any, name: str, default: Any = None) -> Any:
     """Read ``name`` from a LiteParse dataclass *or* a plain dict.
@@ -742,7 +749,12 @@ class LiteParseParser(BaseParser):
                 if page_idx >= len(pawls_pages) or not page_images:
                     continue
                 token_offset = len(pawls_pages[page_idx].get("tokens", []))
-                image_token_offsets[page_idx] = token_offset
+                # Track ONLY the images actually appended (in append order). The
+                # caller enumerates this list to build Image annotations as
+                # token_offset + position, so it must mirror the appended tokens
+                # exactly — storing the raw list would shift every annotation
+                # after a skipped image onto the wrong token slot.
+                appended: list[PawlsTokenPythonType] = []
                 for img_data in page_images:
                     # Skip malformed image dicts defensively: appending mutates
                     # the shared pawls_pages in place, so a mid-loop KeyError on a
@@ -775,7 +787,10 @@ class LiteParseParser(BaseParser):
                     if img_data.get("image_type") is not None:
                         unified_token["image_type"] = img_data["image_type"]
                     pawls_pages[page_idx]["tokens"].append(unified_token)
-                images_by_page[page_idx] = page_images
+                    appended.append(img_data)
+                if appended:
+                    image_token_offsets[page_idx] = token_offset
+                    images_by_page[page_idx] = appended
         except Exception as e:
             logger.warning(f"Failed to extract images from PDF: {e}")
             images_by_page = {}
@@ -833,7 +848,7 @@ class LiteParseParser(BaseParser):
                     fs_f = float(fs)
                 except (TypeError, ValueError):
                     continue
-                if fs_f <= 0:
+                if fs_f < MIN_CONTENT_FONT_SIZE:
                     continue
                 text = _attr(item, "text", "") or ""
                 weights[round(fs_f, 1)] += max(len(text.strip()), 1)
