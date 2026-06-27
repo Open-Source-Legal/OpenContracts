@@ -14,11 +14,13 @@ from opencontractserver.constants.extraction import (
     EXTRACT_FULL_TEXT_CHAR_LIMIT,
 )
 from opencontractserver.constants.llm import (
+    EXTRACT_AGENT_REQUEST_LIMIT,
     EXTRACT_DEFAULT_TEMPERATURE,
     NONE_RESULT_AGENT_COMMITTED,
     NONE_RESULT_NO_FINAL,
     NONE_RESULT_TOOL_LOOP,
     NONE_RESULT_UNKNOWN,
+    NONE_RESULT_USAGE_LIMIT,
     TOOL_LOOP_THRESHOLD,
 )
 from opencontractserver.extracts.models import Datacell
@@ -29,6 +31,11 @@ from opencontractserver.utils.extraction_grounding import (
 )
 from opencontractserver.utils.files import read_field_file_text
 from opencontractserver.utils.llm import is_anthropic_model
+from opencontractserver.utils.prompt_sanitization import (
+    UNTRUSTED_CONTENT_NOTICE,
+    fence_user_content,
+    warn_if_content_large,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -73,10 +80,18 @@ def _classify_none_result(messages: Optional[list[Any]]) -> str:
     # pydantic-ai routes structured outputs through this synthetic tool.
     saw_final_result = False
     tool_call_signatures: list[tuple[str, str]] = []
+    # Each ``ModelResponse`` is one model request, which is what
+    # ``UsageLimits.request_limit`` counts. When the structured run hits
+    # ``EXTRACT_AGENT_REQUEST_LIMIT`` pydantic-ai raises ``UsageLimitExceeded``
+    # (swallowed to ``None`` in ``_structured_response_raw``), leaving a history
+    # of ~``request_limit`` responses with no ``final_result`` — the structural
+    # fingerprint we use below to label this distinctly from a tool loop.
+    model_response_count = 0
 
     for msg in messages:
         if not isinstance(msg, ModelResponse):
             continue
+        model_response_count += 1
         for part in getattr(msg, "parts", []) or []:
             if isinstance(part, ToolCallPart):
                 tool_name = getattr(part, "tool_name", "") or ""
@@ -107,7 +122,15 @@ def _classify_none_result(messages: Optional[list[Any]]) -> str:
         # of data — legitimate.
         return NONE_RESULT_AGENT_COMMITTED
 
-    # No final_result anywhere. Look for tool-call repetition.
+    # No final_result anywhere. A run that exhausted the request budget is the
+    # more precise diagnosis than a tool loop (and the two overlap — a budget
+    # hit is usually also a repeated tool call), so check it FIRST. The
+    # response count reaching the budget with no final_result is the structural
+    # signature of ``UsageLimitExceeded`` (see ``model_response_count`` above).
+    if model_response_count >= EXTRACT_AGENT_REQUEST_LIMIT:
+        return NONE_RESULT_USAGE_LIMIT
+
+    # Look for tool-call repetition.
     if tool_call_signatures:
         most_common = Counter(tool_call_signatures).most_common(1)
         if most_common and most_common[0][1] >= TOOL_LOOP_THRESHOLD:
@@ -150,6 +173,16 @@ def _failure_message_for_classification(classification: str) -> str:
             "producing a final structured response. This is an integration "
             "failure, not a statement about the document. Check "
             "``llm_call_log`` for the repeated tool call."
+        )
+    elif classification == NONE_RESULT_USAGE_LIMIT:
+        return (
+            "The extraction agent exhausted its request budget "
+            f"(EXTRACT_AGENT_REQUEST_LIMIT={EXTRACT_AGENT_REQUEST_LIMIT}) "
+            "before producing a final structured response. This is an "
+            "integration/configuration outcome, not a statement about the "
+            "document — a more capable model commits well within the budget, "
+            "and a budget set too low for the model/document will trip here. "
+            "Check ``llm_call_log`` for the message history."
         )
     return (
         "The extraction returned None and the cause could not be classified. "
@@ -442,12 +475,6 @@ async def doc_extract_query_task(
                     exc_info=True,
                 )
         if full_text and len(full_text) <= EXTRACT_FULL_TEXT_CHAR_LIMIT:
-            from opencontractserver.utils.prompt_sanitization import (
-                UNTRUSTED_CONTENT_NOTICE,
-                fence_user_content,
-                warn_if_content_large,
-            )
-
             warn_if_content_large(full_text, context="extraction document text")
             # The full document is in context, so the system prompt's mandatory
             # multi-search NEGATIVE-CASE rule no longer applies — tell the agent
@@ -621,9 +648,8 @@ async def doc_extract_query_task(
                 )
 
         else:
-            # ``result is None`` rolls up at least three distinct failure
-            # modes that we can disambiguate from the captured message log
-            # (issue #1381):
+            # ``result is None`` rolls up several distinct failure modes that
+            # we disambiguate from the captured message log (issue #1381):
             #
             #  (a) ``agent_committed_none`` — agent issued a ``final_result``
             #      tool call and committed to ``None`` after good-faith
@@ -635,9 +661,13 @@ async def doc_extract_query_task(
             #  (c) ``tool_loop_no_output`` — agent looped on the same tool
             #      call (≥ ``TOOL_LOOP_THRESHOLD`` repetitions) without
             #      ever producing a ``final_result``.
+            #  (d) ``usage_limit_exceeded`` — the run hit
+            #      ``EXTRACT_AGENT_REQUEST_LIMIT`` (pydantic-ai raised
+            #      ``UsageLimitExceeded``) before committing. A budget/config
+            #      outcome, distinct from a genuine loop.
             #
             # Operators grep ``failure_mode=`` to separate (a) signal from
-            # (b)/(c) pipeline bugs.
+            # (b)/(c)/(d) pipeline/budget issues.
             classification = _classify_none_result(messages)
             failure_message = _failure_message_for_classification(classification)
             logger.warning(

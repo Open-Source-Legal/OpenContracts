@@ -21,6 +21,11 @@ TOOL_LOOP_THRESHOLD = 4
 NONE_RESULT_AGENT_COMMITTED = "agent_committed_none"
 NONE_RESULT_NO_FINAL = "no_final_response"
 NONE_RESULT_TOOL_LOOP = "tool_loop_no_output"
+# The structured run hit ``EXTRACT_AGENT_REQUEST_LIMIT`` and pydantic-ai raised
+# ``UsageLimitExceeded`` before the agent committed a ``final_result``. Distinct
+# from ``tool_loop_no_output`` (same-call repetition) so an operator can tell a
+# genuine runaway loop from a request budget set too tight for the model/doc.
+NONE_RESULT_USAGE_LIMIT = "usage_limit_exceeded"
 NONE_RESULT_UNKNOWN = "unknown"
 
 # Default ceiling on model requests for a single structured-response run
