@@ -471,14 +471,30 @@ def _make_fake_get_structured_response(answers_by_query: dict[str, str]):
     tests don't need real Annotation rows to pass.
     """
 
+    # ``doc_extract_query_task`` builds the agent prompt as ``column.query``
+    # (== ``task.query``) and then APPENDS extra guidance — per-column
+    # constraint fields and, for short documents, the full fenced document
+    # text. So the prompt the agent actually receives is no longer exactly
+    # ``task.query``; the canned ``task.query`` is a *prefix* of it. Resolve
+    # the canned answer by matching the query the prompt starts with (falling
+    # back to an exact lookup) so this mock stays correct as the real task
+    # augments the prompt.
+    def _lookup(prompt: str) -> str:
+        if prompt in answers_by_query:
+            return answers_by_query[prompt]
+        for query, answer in answers_by_query.items():
+            if prompt.startswith(query):
+                return answer
+        return ""
+
     # Accept arbitrary kwargs so these fakes don't break when new parameters
     # (e.g. ``embedder=``) are added to the real extract-API signatures — the
     # test only cares about mapping ``prompt`` to a canned answer.
     async def _fake_result_only(*, prompt, **kwargs):
-        return answers_by_query.get(prompt, "")
+        return _lookup(prompt)
 
     async def _fake_result_and_sources(*, prompt, **kwargs):
-        return answers_by_query.get(prompt, ""), []
+        return _lookup(prompt), []
 
     return _fake_result_only, _fake_result_and_sources
 
