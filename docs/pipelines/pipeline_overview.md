@@ -25,6 +25,7 @@ graph TD
         B --> B1[DoclingParser REST]
         B --> B2[TxtParser]
         B --> B3[LlamaParseParser]
+        B --> B4[LiteParseParser]
 
         C --> C1[PdfThumbnailGenerator]
         C --> C2[TextThumbnailGenerator]
@@ -76,7 +77,10 @@ Parsers inherit from [`BaseParser`](../../opencontractserver/pipeline/base/parse
 Current implementations:
 - **DoclingParser**: Advanced PDF parser using machine learning (REST microservice)
 - **LlamaParseParser**: Cloud-based parser using LlamaParse API with layout extraction
+- **LiteParseParser**: Fully-local PDF parser using [LiteParse](liteparse_parser.md) (PDFium) — spatial text + bounding boxes, word-level tokens, and font-size-derived feature labels / hierarchy
 - **TxtParser**: Simple text file parser
+
+Select the PDF engine with the `PDF_PARSER` environment variable (`docling` (default), `llamaparse`, or `liteparse`).
 
 ### Enrichers
 

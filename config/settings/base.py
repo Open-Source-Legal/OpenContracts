@@ -1174,6 +1174,23 @@ LLAMAPARSE_NUM_WORKERS = env.int("LLAMAPARSE_NUM_WORKERS", default=4)
 LLAMAPARSE_LANGUAGE = env.str("LLAMAPARSE_LANGUAGE", default="en")
 LLAMAPARSE_VERBOSE = env.bool("LLAMAPARSE_VERBOSE", default=False)
 
+# LiteParse Settings - for the fully-local LiteParse (PDFium) document parser.
+# These seed the PipelineSettings DB via `migrate_pipeline_settings` (the
+# env_var on each Settings field points back at the names below).
+LITEPARSE_OUTPUT_FORMAT = env.str("LITEPARSE_OUTPUT_FORMAT", default="markdown")
+LITEPARSE_OCR_ENABLED = env.bool("LITEPARSE_OCR_ENABLED", default=False)
+LITEPARSE_OCR_LANGUAGE = env.str("LITEPARSE_OCR_LANGUAGE", default="eng")
+LITEPARSE_OCR_SERVER_URL = env.str("LITEPARSE_OCR_SERVER_URL", default="")
+LITEPARSE_DPI = env.int("LITEPARSE_DPI", default=150)
+LITEPARSE_NUM_WORKERS = env.int("LITEPARSE_NUM_WORKERS", default=4)
+LITEPARSE_TARGET_PAGES = env.str("LITEPARSE_TARGET_PAGES", default="")
+LITEPARSE_MAX_PAGES = env.int("LITEPARSE_MAX_PAGES", default=0)
+LITEPARSE_PASSWORD = env.str("LITEPARSE_PASSWORD", default="")
+LITEPARSE_IMAGE_MODE = env.str("LITEPARSE_IMAGE_MODE", default="off")
+LITEPARSE_DETECT_HEADINGS = env.bool("LITEPARSE_DETECT_HEADINGS", default=True)
+LITEPARSE_HEADING_SIZE_RATIO = env.float("LITEPARSE_HEADING_SIZE_RATIO", default=1.2)
+LITEPARSE_EXTRACT_IMAGES = env.bool("LITEPARSE_EXTRACT_IMAGES", default=True)
+
 # ------------------------------------------------------------------------------
 # privacy-filter microservice (PII detection)
 # ------------------------------------------------------------------------------
@@ -1279,13 +1296,14 @@ DEFAULT_IMAGE = """data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAgAAAAIACAYAAAD
 DOCLING_MODELS_PATH = env.str("DOCLING_MODELS_PATH", default="/models/docling")
 
 # Parser selection via environment variable
-# Options: "docling" (default), "llamaparse"
+# Options: "docling" (default), "llamaparse", "liteparse"
 PDF_PARSER = env.str("PDF_PARSER", default="docling")
 
 # Map parser names to their full paths
 _PDF_PARSER_MAP = {
     "docling": "opencontractserver.pipeline.parsers.docling_parser_rest.DoclingParser",
     "llamaparse": "opencontractserver.pipeline.parsers.llamaparse_parser.LlamaParseParser",
+    "liteparse": "opencontractserver.pipeline.parsers.liteparse_parser.LiteParseParser",
 }
 
 # Get the selected PDF parser (with fallback to docling)
@@ -1293,13 +1311,23 @@ _SELECTED_PDF_PARSER = _PDF_PARSER_MAP.get(
     PDF_PARSER.lower(), _PDF_PARSER_MAP["docling"]
 )
 
+# Parser for Office formats (DOCX/PPTX). LiteParse is PDF-only (PDFium), so when
+# it is the selected PDF engine we fall back to Docling for Office documents
+# rather than routing them to a parser that can't read them. Docling and
+# LlamaParse both handle these formats themselves.
+_SELECTED_OFFICE_PARSER = (
+    _PDF_PARSER_MAP["docling"]
+    if PDF_PARSER.lower() == "liteparse"
+    else _SELECTED_PDF_PARSER
+)
+
 # Preferred parsers for each MIME type
 PREFERRED_PARSERS = {
     "application/pdf": _SELECTED_PDF_PARSER,
     "text/plain": "opencontractserver.pipeline.parsers.oc_text_parser.TxtParser",
     "application/txt": "opencontractserver.pipeline.parsers.oc_text_parser.TxtParser",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": _SELECTED_PDF_PARSER,  # noqa
-    "application/vnd.openxmlformats-officedocument.presentationml.presentation": _SELECTED_PDF_PARSER,  # noqa
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": _SELECTED_OFFICE_PARSER,  # noqa
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation": _SELECTED_OFFICE_PARSER,  # noqa
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "opencontractserver.pipeline.parsers.docling_parser_rest.DoclingParser",  # noqa
 }
 
@@ -1406,6 +1434,12 @@ PARSER_KWARGS = {
         "num_workers": 4,
         "language": "en",
         "verbose": False,
+    },
+    "opencontractserver.pipeline.parsers.liteparse_parser.LiteParseParser": {
+        "output_format": LITEPARSE_OUTPUT_FORMAT,
+        "ocr_enabled": LITEPARSE_OCR_ENABLED,
+        "detect_headings": LITEPARSE_DETECT_HEADINGS,
+        "extract_images": LITEPARSE_EXTRACT_IMAGES,
     },
 }
 
