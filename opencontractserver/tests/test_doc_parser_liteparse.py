@@ -817,9 +817,9 @@ class TestLiteParseParser(TestCase):
         result = make_result(
             pages=[
                 # page_num None -> int() raises -> use position; width <=0 -> default
-                make_page(None, -5, 792, "a", []),
+                make_page(None, -5, 792, "a", []),  # type: ignore[arg-type]
                 # page_num 0 -> idx -1 < 0 -> use position; width non-numeric -> default
-                make_page(0, "bad", 792, "b", []),
+                make_page(0, "bad", 792, "b", []),  # type: ignore[arg-type]
             ],
             text="",
         )
@@ -1121,14 +1121,15 @@ class TestLiteParseHeuristics(TestCase):
     def test_classify_item_non_numeric_font_size(self):
         """A non-numeric font_size is treated as body text (no crash)."""
         level, label = self.parser._classify_item(
-            make_item("x", 0, 0, 1, 1, font_size="big"), {24.0: 0}
+            make_item("x", 0, 0, 1, 1, font_size="big"),  # type: ignore[arg-type]
+            {24.0: 0},
         )
         self.assertEqual((level, label), (None, LABEL_TEXT_BLOCK))
 
     def test_bounds_from_item_non_numeric_coords(self):
         """Non-numeric coordinates fall back to a clamped, non-degenerate box."""
         bounds = LiteParseParser._bounds_from_item(
-            make_item("x", "bad", 0, 1, 1), 612, 792
+            make_item("x", "bad", 0, 1, 1), 612, 792  # type: ignore[arg-type]
         )
         self.assertGreaterEqual(bounds["right"] - bounds["left"], 1)
         self.assertGreaterEqual(bounds["bottom"] - bounds["top"], 1)
