@@ -12,6 +12,10 @@ import {
   GetCorpusDataStoryInput,
   GetCorpusDataStoryOutput,
 } from "../../../../graphql/queries";
+import {
+  formatCompactMoney as fmtMoney,
+  parseIsoDateMs as parseIso,
+} from "../../../../utils/formatters";
 
 /**
  * SpendingBeeswarm — a standalone, poster-grade "every contract, over time, by
@@ -75,21 +79,6 @@ interface Pt {
   r: number;
   color: string;
   labelRow?: number;
-}
-
-const fmtMoney = (n: number): string => {
-  if (n >= 1_000_000)
-    return `$${(n / 1_000_000).toFixed(n >= 10_000_000 ? 1 : 1)}M`;
-  if (n >= 1_000) return `$${Math.round(n / 1_000)}K`;
-  return `$${Math.round(n)}`;
-};
-
-function parseIso(d: string | null | undefined): number | null {
-  if (!d) return null;
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(d);
-  if (!m) return null;
-  const t = Date.parse(`${m[1]}-${m[2]}-${m[3]}T00:00:00Z`);
-  return Number.isNaN(t) ? null : t;
 }
 
 const Frame = styled.div`

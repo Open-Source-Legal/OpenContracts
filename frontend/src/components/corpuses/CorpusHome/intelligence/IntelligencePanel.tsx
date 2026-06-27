@@ -460,9 +460,12 @@ export const IntelligencePanel: React.FC<IntelligencePanelProps> = ({
                 onClick={() => setShowAll((v) => !v)}
                 data-testid={`${testId}-show-more`}
               >
+                {/* Label the loaded count, not the server total — the query
+                    fetches at most 100, so "Show all" must not promise more
+                    than expanding actually reveals. */}
                 {showAll
                   ? "Show fewer"
-                  : `Show all ${totalDocs.toLocaleString()} documents`}
+                  : `Show all ${docs.length.toLocaleString()} documents`}
                 <ChevronDown />
               </ShowMore>
             )}

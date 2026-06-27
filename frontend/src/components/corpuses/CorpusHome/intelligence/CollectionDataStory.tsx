@@ -13,6 +13,10 @@ import {
   GetCorpusDataStoryOutput,
   CorpusDataStoryProfile,
 } from "../../../../graphql/queries";
+import {
+  formatCompactMoney as fmtMoney,
+  parseIsoDateMs as parseIso,
+} from "../../../../utils/formatters";
 
 /**
  * CollectionDataStory — the "what the data says" surface of the corpus home.
@@ -54,21 +58,6 @@ interface ValuedDoc {
 
 const cleanLabel = (s: string | null | undefined): string =>
   (s ?? "").trim().replace(/\.$/, "");
-
-function parseIso(d: string | null | undefined): number | null {
-  if (!d) return null;
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(d.trim());
-  if (!m) return null;
-  const t = Date.parse(`${m[1]}-${m[2]}-${m[3]}T00:00:00Z`);
-  return Number.isNaN(t) ? null : t;
-}
-
-const fmtMoney = (n: number): string => {
-  if (n >= 1_000_000)
-    return `$${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`;
-  if (n >= 1_000) return `$${Math.round(n / 1_000)}K`;
-  return `$${Math.round(n)}`;
-};
 
 function aggregate(profiles: CorpusDataStoryProfile[]) {
   const typeMap = new Map<string, number>();

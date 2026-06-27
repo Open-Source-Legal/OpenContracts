@@ -112,7 +112,6 @@ class Command(BaseCommand):
         from opencontractserver.document_imports.services import (
             import_document_for_user,
         )
-        from opencontractserver.pipeline.registry import get_allowed_mime_types
 
         User = get_user_model()
 
@@ -130,7 +129,8 @@ class Command(BaseCommand):
         root = Path(options["path"]).expanduser()
         if not root.is_dir():
             raise CommandError(f"--path {root} is not a directory.")
-        allowed = get_allowed_mime_types()
+        # The extension gate and the log line are derived from the same set, so
+        # the reported filter can never drift from the one actually applied.
         ext_ok = {".pdf", ".txt", ".docx", ".xlsx", ".pptx"}
         files = sorted(
             p for p in root.rglob("*") if p.is_file() and p.suffix.lower() in ext_ok
@@ -142,7 +142,7 @@ class Command(BaseCommand):
 
         self.stdout.write(
             f"Ingesting {len(files)} file(s) as {owner.username} "
-            f"(allowed mime types: {len(allowed)})."
+            f"(accepted extensions: {', '.join(sorted(ext_ok))})."
         )
 
         # --- create corpus --------------------------------------------------

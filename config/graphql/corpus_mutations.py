@@ -1879,23 +1879,28 @@ class SetArtifactImage(graphene.Mutation):
     def mutate(root, info, slug, base64_png) -> "SetArtifactImage":
         import base64
 
-        from django.core.files.base import ContentFile
+        from opencontractserver.corpuses.services.artifact_service import (
+            MAX_ARTIFACT_IMAGE_BASE64_BYTES,
+            ArtifactService,
+        )
 
-        from opencontractserver.corpuses.models import Artifact
-
-        artifact = Artifact.objects.filter(slug=slug).first()
-        if artifact is None or artifact.creator_id != getattr(
-            info.context.user, "id", None
-        ):
+        # Reject oversized payloads before the decode allocates them in memory.
+        if len(base64_png) > MAX_ARTIFACT_IMAGE_BASE64_BYTES:
             return SetArtifactImage(
-                ok=False, message="Artifact not found or not yours.", image_url=None
+                ok=False, message="Image too large.", image_url=None
             )
         raw = base64_png.split(",", 1)[-1] if "," in base64_png else base64_png
         try:
             data = base64.b64decode(raw)
         except Exception:
             return SetArtifactImage(ok=False, message="Bad image data.", image_url=None)
-        artifact.image.save(f"{artifact.slug}.png", ContentFile(data), save=True)
+        artifact = ArtifactService.set_image(
+            info.context.user, slug, data, request=info.context
+        )
+        if artifact is None:
+            return SetArtifactImage(
+                ok=False, message="Artifact not found or not yours.", image_url=None
+            )
         return SetArtifactImage(
             ok=True, message="Image saved.", image_url=artifact.image.url
         )

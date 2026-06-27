@@ -332,3 +332,31 @@ export function titleCase(s?: string | null): string | null {
     ? s.charAt(0).toUpperCase() + s.slice(1).replace(/[_-]/g, " ")
     : null;
 }
+
+/**
+ * Compact currency formatting for collection data-story / poster surfaces.
+ * Values ≥ $10M drop the decimal ($15M); $1M–$10M keep one ($1.5M); thousands
+ * round to $K; below that to whole dollars.
+ * @param n - A dollar amount
+ * @returns A short currency string like "$15M", "$1.5M", "$250K", or "$900"
+ */
+export function formatCompactMoney(n: number): string {
+  if (n >= 1_000_000)
+    return `$${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`;
+  if (n >= 1_000) return `$${Math.round(n / 1_000)}K`;
+  return `$${Math.round(n)}`;
+}
+
+/**
+ * Parse a leading ISO date (YYYY-MM-DD…) to epoch milliseconds (UTC midnight).
+ * Tolerates surrounding whitespace and trailing time components.
+ * @param d - A date-ish string
+ * @returns Epoch ms, or null when there is no parseable leading ISO date
+ */
+export function parseIsoDateMs(d: string | null | undefined): number | null {
+  if (!d) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(d.trim());
+  if (!m) return null;
+  const t = Date.parse(`${m[1]}-${m[2]}-${m[3]}T00:00:00Z`);
+  return Number.isNaN(t) ? null : t;
+}

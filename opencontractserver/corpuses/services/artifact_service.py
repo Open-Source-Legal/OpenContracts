@@ -58,6 +58,11 @@ ARTIFACT_TEMPLATES: list[dict[str, str]] = [
 _MIN_DATED = 3
 _MIN_REFERENCES = 2
 
+# Reject oversized poster uploads *before* the base64 decode allocates the bytes
+# in memory (a slow-loris / OOM guard on the otherwise unbounded image field).
+# ~10 MB of base64 ≈ 7.5 MB decoded PNG — ample for a poster render.
+MAX_ARTIFACT_IMAGE_BASE64_BYTES = 10 * 1024 * 1024
+
 
 class ArtifactService(BaseService):
     """Create, read and enumerate corpus artifacts (corpus-as-gate)."""
@@ -90,7 +95,11 @@ class ArtifactService(BaseService):
         users; a private corpus's artifact stays hidden. Returns ``None`` (the
         resolver maps that to a null field) rather than leaking existence.
         """
-        artifact = Artifact.objects.filter(slug=slug).select_related("corpus").first()
+        artifact = (
+            Artifact.objects.filter(slug=slug)
+            .select_related("corpus", "creator")
+            .first()
+        )
         if artifact is None:
             return None
         if not cls._corpus_readable(user, artifact.corpus_id, request=request):
@@ -104,7 +113,13 @@ class ArtifactService(BaseService):
         """All artifacts of a corpus the caller can read (corpus-as-gate)."""
         if not cls._corpus_readable(user, corpus_id, request=request):
             return []
-        return list(Artifact.objects.filter(corpus_id=corpus_id).order_by("-created"))
+        # ``_artifact_to_type`` dereferences ``corpus`` and ``creator`` on every
+        # row, so prefetch both to avoid 2N follow-up queries.
+        return list(
+            Artifact.objects.filter(corpus_id=corpus_id)
+            .select_related("corpus", "creator")
+            .order_by("-created")
+        )
 
     # ------------------------------------------------------------------
     # Template eligibility (data-gated picker)
@@ -160,12 +175,16 @@ class ArtifactService(BaseService):
 
     @staticmethod
     def _reference_count(corpus_id: int) -> int:
-        try:
-            from opencontractserver.annotations.models import CorpusReference
+        """Number of mapped law references for the corpus.
 
-            return CorpusReference.objects.filter(corpus_id=corpus_id).count()
-        except Exception:
-            return 0
+        Deliberately does **not** swallow ORM errors. A bare ``except`` here
+        would turn a missing migration or a downed DB into a silent zero,
+        permanently suppressing the ``reference-web`` template's eligibility
+        with no observable error — far worse than surfacing the failure.
+        """
+        from opencontractserver.annotations.models import CorpusReference
+
+        return CorpusReference.objects.filter(corpus_id=corpus_id).count()
 
     # ------------------------------------------------------------------
     # Create / update
@@ -241,4 +260,32 @@ class ArtifactService(BaseService):
         if config is not None:
             artifact.config = config
         artifact.save()
+        return artifact
+
+    @classmethod
+    def set_image(
+        cls,
+        user: Any,
+        slug: str,
+        image_bytes: bytes,
+        *,
+        request: Any = None,
+    ) -> Artifact | None:
+        """Persist the rendered poster PNG for ``slug`` — creator/UPDATE only.
+
+        The GraphQL layer routes here rather than touching ``Artifact.objects``
+        directly (service-layer invariant), so any future image handling
+        (validation, audit, storage abstraction) has a single home. Caller is
+        responsible for size-capping and decoding the upload before this point.
+        """
+        from django.core.files.base import ContentFile
+
+        artifact = Artifact.objects.filter(slug=slug).first()
+        if artifact is None:
+            return None
+        if not cls.user_has(
+            artifact, user, PermissionTypes.UPDATE, request=request
+        ) and artifact.creator_id != getattr(user, "id", None):
+            return None
+        artifact.image.save(f"{artifact.slug}.png", ContentFile(image_bytes), save=True)
         return artifact

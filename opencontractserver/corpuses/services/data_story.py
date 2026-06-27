@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from opencontractserver.corpuses.models import Corpus
-from opencontractserver.extracts.models import Datacell
+from opencontractserver.extracts.models import Datacell, Extract
 from opencontractserver.shared.services.base import BaseService
 
 # The default profile fieldset + its columns. This is the single source of truth
@@ -251,12 +251,32 @@ class CorpusDataStoryService(BaseService):
         if corpus is None:
             return None
 
-        # Corpus-as-gate: every completed profile cell for this corpus, read
-        # without per-row user filtering (the corpus READ above is the gate).
+        # Corpus-as-gate: the corpus READ above is the gate, so cells are read
+        # without per-row user filtering. NOTE: this is intentionally NOT
+        # equivalent to per-document visibility — a private document inside a
+        # readable corpus (e.g. a cross-owner doc that
+        # ``_propagate_public_status_to_documents`` skipped) will still surface
+        # its profile here, unlike ``CorpusType.documents``. Acceptable for this
+        # aggregate surface; do not copy this pattern where per-doc privacy matters.
+        #
+        # Pin to a single canonical extract. Setup ``get_or_create``s exactly one
+        # Collection-Profile extract per corpus, but guard against historical
+        # duplicates by taking the most recent rather than silently mixing cells
+        # across extracts (which would let a stale prior run win per document).
+        profile_extract = (
+            Extract.objects.filter(
+                corpus_id=corpus_pk,
+                fieldset__name=DEFAULT_PROFILE_FIELDSET_NAME,
+            )
+            .order_by("-created")
+            .first()
+        )
+        if profile_extract is None:
+            return DataStory(total_documents=0, profiles=[])
+
         cells = (
             Datacell.objects.filter(
-                extract__corpus_id=corpus_pk,
-                extract__fieldset__name=DEFAULT_PROFILE_FIELDSET_NAME,
+                extract_id=profile_extract.id,
                 completed__isnull=False,
             )
             .select_related("column", "document")
