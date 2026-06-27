@@ -14,38 +14,17 @@ import { AskAcrossDocsEmbed } from "../src/components/corpuses/CorpusHome/intell
 import { DocumentGraphEmbed } from "../src/components/corpuses/CorpusHome/intelligence/embeds/DocumentGraphEmbed";
 import { InsightPanelEmbed } from "../src/components/corpuses/CorpusHome/intelligence/embeds/InsightPanelEmbed";
 import { CamlEmbedProvider } from "../src/components/corpuses/caml/CamlEmbedContext";
+import { MemoryRouter } from "react-router-dom";
 import { docScreenshot } from "./utils/docScreenshot";
+// Real query documents the rebuilt IntelligencePanel runs, so the insight-panel
+// mocks stay in lock-step with the component (no hand-copied gql to drift).
+import {
+  GET_CORPUS_COLLECTION_DOCS,
+  GET_GOVERNANCE_GRAPH,
+  GET_CORPUS_INTELLIGENCE_SETUP_STATUS,
+} from "../src/graphql/queries";
 
 const CORPUS_ID = "Q29ycHVzVHlwZTox";
-
-const GET_CORPUS_STATS = gql`
-  query corpusStats($corpusId: ID!) {
-    corpusStats(corpusId: $corpusId) {
-      totalDocs
-      totalComments
-      totalAnalyses
-      totalExtracts
-      totalAnnotations
-      totalThreads
-      totalChats
-      totalRelationships
-    }
-  }
-`;
-
-const GET_CORPUS_INTELLIGENCE_AGGREGATES = gql`
-  query corpusIntelligenceAggregates($corpusId: ID!) {
-    corpusIntelligenceAggregates(corpusId: $corpusId) {
-      labelDistribution {
-        label
-        color
-        count
-      }
-      documentsWithSummary
-      totalDocuments
-    }
-  }
-`;
 
 const GET_CORPUS_DOCUMENT_GRAPH = gql`
   query corpusDocumentGraph($corpusId: ID!, $limit: Int) {
@@ -70,37 +49,69 @@ const GET_CORPUS_DOCUMENT_GRAPH = gql`
   }
 `;
 
-const statsMock = {
-  request: { query: GET_CORPUS_STATS, variables: { corpusId: CORPUS_ID } },
+// The rebuilt IntelligencePanel issues the collection-docs query (the documents
+// index), the governance-graph query (the references metric), and — via the
+// mounted setup banner — the setup-status query. The embed test only verifies
+// the panel reads the ambient corpus id and renders, so these stay minimal.
+const collectionDocsMock = {
+  request: {
+    query: GET_CORPUS_COLLECTION_DOCS,
+    variables: { corpusId: CORPUS_ID, limit: 100 },
+  },
   result: {
     data: {
-      corpusStats: {
-        totalDocs: 3,
-        totalComments: 0,
-        totalAnalyses: 0,
-        totalExtracts: 1,
-        totalAnnotations: 12,
-        totalThreads: 0,
-        totalChats: 0,
-        totalRelationships: 2,
+      documents: {
+        totalCount: 1,
+        edges: [
+          {
+            node: {
+              id: "Doc:1",
+              slug: "alpha-agreement",
+              title: "Alpha Agreement",
+              description: "A representative collection document.",
+              pageCount: 6,
+              fileType: "application/pdf",
+            },
+          },
+        ],
       },
     },
   },
 };
 
-const aggMock = {
+const governanceMock = {
+  request: { query: GET_GOVERNANCE_GRAPH, variables: { corpusId: CORPUS_ID } },
+  result: {
+    data: {
+      governanceGraph: {
+        corpora: [],
+        nodes: [],
+        edges: [],
+        documentCount: 0,
+        externalKeyCount: 0,
+        edgeCount: 0,
+        mentionCount: 0,
+        truncated: false,
+      },
+    },
+  },
+};
+
+// A fully-set-up corpus keeps the mounted setup banner silent.
+const setupStatusSilentMock = {
   request: {
-    query: GET_CORPUS_INTELLIGENCE_AGGREGATES,
+    query: GET_CORPUS_INTELLIGENCE_SETUP_STATUS,
     variables: { corpusId: CORPUS_ID },
   },
   result: {
     data: {
-      corpusIntelligenceAggregates: {
-        labelDistribution: [
-          { label: "Risk Factor", color: "#ef4444", count: 8 },
-        ],
-        documentsWithSummary: 2,
-        totalDocuments: 3,
+      corpusIntelligenceSetupStatus: {
+        referenceAvailable: true,
+        referenceActionInstalled: true,
+        installedTemplateNames: [],
+        missingTemplateNames: [],
+        isFullySetUp: true,
+        canSetup: false,
       },
     },
   },
@@ -234,19 +245,27 @@ test.describe("CAML intelligence embeds", () => {
     page,
   }) => {
     const component = await mount(
-      <MockedProvider mocks={[statsMock, aggMock]} addTypename={false}>
-        <CamlEmbedProvider value={{ corpusId: CORPUS_ID }}>
-          <InsightPanelEmbed />
-        </CamlEmbedProvider>
-      </MockedProvider>
+      // MemoryRouter: the panel's index entries navigate via useNavigate.
+      <MemoryRouter>
+        <MockedProvider
+          mocks={[collectionDocsMock, governanceMock, setupStatusSilentMock]}
+          addTypename={false}
+        >
+          <CamlEmbedProvider value={{ corpusId: CORPUS_ID }}>
+            <InsightPanelEmbed />
+          </CamlEmbedProvider>
+        </MockedProvider>
+      </MemoryRouter>
     );
 
     await expect(
       page.locator('[data-testid="corpus-intelligence-panel"]')
     ).toBeVisible({ timeout: 10000 });
+    // The embed wired the ambient corpus id through to the panel, which renders
+    // the collection's documents index from that corpus's data.
     await expect(
       page.locator('[data-testid="corpus-intelligence-panel"]')
-    ).toContainText("Risk Factor", { timeout: 10000 });
+    ).toContainText("Alpha Agreement", { timeout: 10000 });
 
     await docScreenshot(page, "caml--insight-panel-embed--with-data");
 

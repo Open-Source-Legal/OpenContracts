@@ -29,6 +29,7 @@ from opencontractserver.corpuses.models import (
     CorpusActionTemplate,
 )
 from opencontractserver.corpuses.services import CorpusIntelligenceSetupService
+from opencontractserver.corpuses.services.data_story import PROFILE_ACTION_NAME
 from opencontractserver.documents.models import Document
 from opencontractserver.enrichment import constants as enrichment_constants
 from opencontractserver.shared.services.conventions import ServiceResult
@@ -157,10 +158,20 @@ class IntelligenceSetupServiceTestCase(TestCase):
             self.assertTrue(outcome.already_installed, outcome.template_name)
             self.assertEqual(outcome.queued_count, 0, outcome.template_name)
             self.assertEqual(outcome.skipped_already_run_count, 3)
-        # No duplicate action rows, no duplicate executions.
+        # No duplicate action rows, no duplicate executions. Setup installs the
+        # reference-enrichment action, one action per LLM template, and the
+        # structured Collection Profile add_document action.
         self.assertEqual(
             CorpusAction.objects.filter(corpus=self.corpus).count(),
-            1 + len(INTELLIGENCE_SETUP_TEMPLATE_NAMES),
+            1 + len(INTELLIGENCE_SETUP_TEMPLATE_NAMES) + 1,
+        )
+        # The structured-profile action is itself idempotent: re-running setup
+        # reuses the single accumulating action rather than cloning it.
+        self.assertEqual(
+            CorpusAction.objects.filter(
+                corpus=self.corpus, name=PROFILE_ACTION_NAME
+            ).count(),
+            1,
         )
         self.assertEqual(
             CorpusActionExecution.objects.filter(
