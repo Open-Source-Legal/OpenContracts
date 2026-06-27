@@ -809,6 +809,34 @@ class TestLiteParseParser(TestCase):
             parser.parse_document(user_id=self.user.id, doc_id=self.doc.id)
         )
 
+    @patch("liteparse.LiteParse")
+    @patch("opencontractserver.pipeline.parsers.liteparse_parser.default_storage.open")
+    def test_conversion_failure_returns_none(self, mock_open, mock_liteparse_class):
+        """An exception during conversion (not parsing) still degrades to None.
+
+        Conversion runs in its own try/except (separate from the parse step) so
+        the failure is logged distinctly; the return-None contract is preserved.
+        """
+        mock_file = MagicMock()
+        mock_file.read.return_value = b"mock pdf content"
+        mock_open.return_value.__enter__.return_value = mock_file
+
+        mock_parser = MagicMock()
+        mock_parser.parse.return_value = make_result(
+            pages=[make_page(1, 612, 792, "x", [])], text="x"
+        )
+        mock_liteparse_class.return_value = mock_parser
+
+        parser = patch_parser_settings(LiteParseParser())
+        with patch.object(
+            parser,
+            "_convert_result_to_opencontracts",
+            side_effect=Exception("convert boom"),
+        ):
+            self.assertIsNone(
+                parser.parse_document(user_id=self.user.id, doc_id=self.doc.id)
+            )
+
     @patch(
         "opencontractserver.pipeline.parsers.liteparse_parser.extract_images_from_pdf"
     )

@@ -358,12 +358,8 @@ class LiteParseParser(BaseParser):
         Returns:
             ``OpenContractDocExport`` with parsed data, or ``None`` on failure.
         """
-        from opencontractserver.utils.logging import redact_sensitive_kwargs
-
-        logger.info(
-            f"LiteParseParser - Parsing doc {doc_id} for user {user_id} "
-            f"with effective kwargs: {redact_sensitive_kwargs(all_kwargs)}"
-        )
+        # NB: BaseParser.parse_document already logs the (redacted) merged kwargs
+        # before dispatching here, so we don't repeat that log at the impl level.
 
         # Resolve effective options (call-time kwargs override instance settings).
         output_format = all_kwargs.get("output_format", self.output_format)
@@ -431,15 +427,6 @@ class LiteParseParser(BaseParser):
                 logger.error("LiteParse returned no pages")
                 return None
 
-            return self._convert_result_to_opencontracts(
-                document,
-                result,
-                doc_bytes,
-                extract_images=extract_images_flag,
-                detect_headings=detect_headings,
-                heading_size_ratio=heading_size_ratio,
-            )
-
         except ImportError:
             logger.error(
                 "liteparse library not installed. Install with: pip install liteparse"
@@ -449,6 +436,29 @@ class LiteParseParser(BaseParser):
             import traceback
 
             logger.error(f"LiteParse parsing failed: {e}\n{traceback.format_exc()}")
+            return None
+
+        # Conversion is deliberately OUTSIDE the parse try/except so that a
+        # failure in the pdfplumber token pass, the shapely spatial query, or
+        # annotation assembly is reported as a conversion error rather than being
+        # mislabelled "LiteParse parsing failed" — the two have very different
+        # triage paths. Still returns None on failure to preserve the contract.
+        try:
+            return self._convert_result_to_opencontracts(
+                document,
+                result,
+                doc_bytes,
+                extract_images=extract_images_flag,
+                detect_headings=detect_headings,
+                heading_size_ratio=heading_size_ratio,
+            )
+        except Exception as e:
+            import traceback
+
+            logger.error(
+                f"LiteParse output conversion failed for document {doc_id}: {e}\n"
+                f"{traceback.format_exc()}"
+            )
             return None
 
     def _convert_result_to_opencontracts(
@@ -746,6 +756,11 @@ class LiteParseParser(BaseParser):
             )
 
             for page_idx, page_images in raw_images_by_page.items():
+                # page_idx is an absolute 0-based PDF page; pawls_pages is indexed
+                # the same way (success path = one entry per page; fallback fills
+                # gaps). A page beyond the list is skipped: normally a page past
+                # the target_pages range, or — rarely — a page pdfplumber omitted
+                # after a per-page error, in which case its images are dropped.
                 if page_idx >= len(pawls_pages) or not page_images:
                     continue
                 token_offset = len(pawls_pages[page_idx].get("tokens", []))
