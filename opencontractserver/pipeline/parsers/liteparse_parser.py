@@ -650,16 +650,13 @@ class LiteParseParser(BaseParser):
             page_images = images_by_page.get(page_idx, [])
             token_offset = image_token_offsets.get(page_idx, 0)
             for img_idx, img_data in enumerate(page_images):
-                img_x = float(img_data.get("x", 0))
-                img_y = float(img_data.get("y", 0))
-                img_w = float(img_data.get("width", 0))
-                img_h = float(img_data.get("height", 0))
-                image_bounds: BoundingBoxPythonType = {
-                    "left": img_x,
-                    "top": img_y,
-                    "right": img_x + img_w,
-                    "bottom": img_y + img_h,
-                }
+                # Route through _bounds_from_item so image bounds get the same
+                # page clamping (and >=1pt guarantee) as text lines — a pdfplumber
+                # image whose stream bbox bleeds past the page edge would
+                # otherwise store out-of-page coordinates the frontend can't
+                # render. img_data carries x/y/width/height, which is exactly
+                # what _bounds_from_item reads.
+                image_bounds = self._bounds_from_item(img_data, page_width, page_height)
                 annotation = self._create_annotation(
                     annotation_id=str(annotation_id_counter),
                     label=LABEL_IMAGE,
