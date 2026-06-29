@@ -1,5 +1,6 @@
 """Tests for PydanticAI agent implementations following modern patterns."""
 
+import os
 import random
 from dataclasses import dataclass
 from typing import Optional
@@ -11,14 +12,17 @@ from django.test import TransactionTestCase, override_settings
 from django.utils import timezone
 from pydantic import BaseModel
 from pydantic_ai.agent import Agent
+from pydantic_ai.exceptions import UsageLimitExceeded
 from pydantic_ai.models.test import TestModel
 from pydantic_ai.tools import RunContext
+from pydantic_ai.usage import UsageLimits
 
+import opencontractserver.llms.agents.pydantic_ai_agents as pa_mod
 from opencontractserver.annotations.models import Annotation, AnnotationLabel
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document, DocumentPath
 from opencontractserver.llms.agents.agent_factory import UnifiedAgentFactory
-from opencontractserver.llms.agents.core_agents import UnifiedChatResponse
+from opencontractserver.llms.agents.core_agents import AgentConfig, UnifiedChatResponse
 from opencontractserver.llms.agents.pydantic_ai_agents import PydanticAIDocumentAgent
 from opencontractserver.llms.tools.pydantic_ai_tools import (
     PydanticAIToolFactory,
@@ -678,14 +682,6 @@ class TestPydanticAIAgents(TransactionTestCase):
         reflects the caller's override (7), decoupled from the hardcoded
         ``EXTRACT_AGENT_REQUEST_LIMIT`` default (=20) — issue #1381 follow-up.
         """
-        import os
-
-        from pydantic_ai.exceptions import UsageLimitExceeded
-        from pydantic_ai.usage import UsageLimits
-
-        import opencontractserver.llms.agents.pydantic_ai_agents as pa_mod
-        from opencontractserver.llms.agents.core_agents import AgentConfig
-
         config = AgentConfig(
             user_id=self.user.id,
             model_name="openai:gpt-4o-mini",
