@@ -72,6 +72,52 @@ class CeleryTaskImportTest(TransactionTestCase):
             "crawl_authorities must be decorated with @corpus_analyzer_task",
         )
 
+    def test_crawl_authorities_public_schema_caps_expensive_bounds(self):
+        from opencontractserver.enrichment import constants as C
+        from opencontractserver.tasks.corpus_analysis_tasks import crawl_authorities
+
+        properties = crawl_authorities._oc_corpus_analyzer_input_schema["properties"]
+        self.assertEqual(properties["max_depth"]["maximum"], C.CRAWL_MAX_DEPTH)
+        self.assertEqual(
+            properties["min_demand"]["maximum"], C.CRAWL_MAX_MIN_DEMAND
+        )
+        self.assertEqual(
+            properties["max_authorities"]["maximum"], C.CRAWL_MAX_AUTHORITIES
+        )
+        self.assertEqual(
+            properties["per_jurisdiction_cap"]["maximum"],
+            C.CRAWL_MAX_PER_JURISDICTION_CAP,
+        )
+        self.assertEqual(
+            properties["token_budget"]["maximum"], C.CRAWL_MAX_TOKEN_BUDGET
+        )
+        self.assertEqual(properties["token_budget"]["minimum"], 1)
+
+    def test_crawl_authorities_task_clamps_user_supplied_bounds(self):
+        from opencontractserver.enrichment import constants as C
+        from opencontractserver.tasks.corpus_analysis_tasks import _resolve_crawl_bound
+
+        self.assertEqual(
+            _resolve_crawl_bound(
+                name="max_authorities",
+                value=10**9,
+                default=C.CRAWL_DEFAULT_MAX_AUTHORITIES,
+                minimum=1,
+                maximum=C.CRAWL_MAX_AUTHORITIES,
+            ),
+            C.CRAWL_MAX_AUTHORITIES,
+        )
+        self.assertEqual(
+            _resolve_crawl_bound(
+                name="token_budget",
+                value=0,
+                default=C.CRAWL_DEFAULT_TOKEN_BUDGET,
+                minimum=1,
+                maximum=C.CRAWL_MAX_TOKEN_BUDGET,
+            ),
+            1,
+        )
+
 
 class IdempotencyTests(TransactionTestCase):
     """Crawling the same authority twice must not create duplicate rows.

@@ -79,6 +79,22 @@ def corpus_reference_enrichment(
     )
 
 
+def _resolve_crawl_bound(
+    *,
+    name: str,
+    value: int | None,
+    default: int,
+    minimum: int,
+    maximum: int,
+) -> int:
+    """Resolve and clamp user-supplied public analyzer crawl bounds."""
+    if value is None:
+        return default
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{name} must be an integer")
+    return min(max(value, minimum), maximum)
+
+
 @corpus_analyzer_task(
     input_schema={
         "type": "object",
@@ -86,27 +102,31 @@ def corpus_reference_enrichment(
             "max_depth": {
                 "type": "integer",
                 "minimum": 0,
-                "maximum": 5,
+                "maximum": C.CRAWL_MAX_DEPTH,
                 "default": C.CRAWL_DEFAULT_MAX_DEPTH,
             },
             "min_demand": {
                 "type": "integer",
                 "minimum": 0,
+                "maximum": C.CRAWL_MAX_MIN_DEMAND,
                 "default": C.CRAWL_DEFAULT_MIN_DEMAND,
             },
             "max_authorities": {
                 "type": "integer",
                 "minimum": 1,
+                "maximum": C.CRAWL_MAX_AUTHORITIES,
                 "default": C.CRAWL_DEFAULT_MAX_AUTHORITIES,
             },
             "per_jurisdiction_cap": {
                 "type": "integer",
                 "minimum": 1,
+                "maximum": C.CRAWL_MAX_PER_JURISDICTION_CAP,
                 "default": C.CRAWL_DEFAULT_PER_JURISDICTION_CAP,
             },
             "token_budget": {
                 "type": "integer",
-                "minimum": 0,
+                "minimum": 1,
+                "maximum": C.CRAWL_MAX_TOKEN_BUDGET,
                 "default": C.CRAWL_DEFAULT_TOKEN_BUDGET,
             },
             "make_public": {"type": "boolean", "default": True},
@@ -156,22 +176,40 @@ def crawl_authorities(
     return CrawlAuthoritiesService.crawl(
         creator_id=analysis.creator_id,
         corpus_id=corpus_id,
-        max_depth=max_depth if max_depth is not None else C.CRAWL_DEFAULT_MAX_DEPTH,
-        min_demand=(
-            min_demand if min_demand is not None else C.CRAWL_DEFAULT_MIN_DEMAND
+        max_depth=_resolve_crawl_bound(
+            name="max_depth",
+            value=max_depth,
+            default=C.CRAWL_DEFAULT_MAX_DEPTH,
+            minimum=0,
+            maximum=C.CRAWL_MAX_DEPTH,
         ),
-        max_authorities=(
-            max_authorities
-            if max_authorities is not None
-            else C.CRAWL_DEFAULT_MAX_AUTHORITIES
+        min_demand=_resolve_crawl_bound(
+            name="min_demand",
+            value=min_demand,
+            default=C.CRAWL_DEFAULT_MIN_DEMAND,
+            minimum=0,
+            maximum=C.CRAWL_MAX_MIN_DEMAND,
         ),
-        per_jurisdiction_cap=(
-            per_jurisdiction_cap
-            if per_jurisdiction_cap is not None
-            else C.CRAWL_DEFAULT_PER_JURISDICTION_CAP
+        max_authorities=_resolve_crawl_bound(
+            name="max_authorities",
+            value=max_authorities,
+            default=C.CRAWL_DEFAULT_MAX_AUTHORITIES,
+            minimum=1,
+            maximum=C.CRAWL_MAX_AUTHORITIES,
         ),
-        token_budget=(
-            token_budget if token_budget is not None else C.CRAWL_DEFAULT_TOKEN_BUDGET
+        per_jurisdiction_cap=_resolve_crawl_bound(
+            name="per_jurisdiction_cap",
+            value=per_jurisdiction_cap,
+            default=C.CRAWL_DEFAULT_PER_JURISDICTION_CAP,
+            minimum=1,
+            maximum=C.CRAWL_MAX_PER_JURISDICTION_CAP,
+        ),
+        token_budget=_resolve_crawl_bound(
+            name="token_budget",
+            value=token_budget,
+            default=C.CRAWL_DEFAULT_TOKEN_BUDGET,
+            minimum=1,
+            maximum=C.CRAWL_MAX_TOKEN_BUDGET,
         ),
         make_public=make_public,
         log=task_log,

@@ -92,6 +92,14 @@ CRAWL_DEFAULT_PER_JURISDICTION_CAP = 15  # max ingests per (jurisdiction) per ru
 CRAWL_DEFAULT_TOKEN_BUDGET = (
     2_000_000  # cumulative est. tokens (text len / 4) before stop
 )
+# Public analyzer safety caps. The crawl analyzer accepts user-provided bounds
+# from GraphQL, so keep those values at or below the defaults unless operators
+# intentionally raise these constants.
+CRAWL_MAX_DEPTH = CRAWL_DEFAULT_MAX_DEPTH
+CRAWL_MAX_MIN_DEMAND = CRAWL_DEFAULT_MIN_DEMAND
+CRAWL_MAX_AUTHORITIES = CRAWL_DEFAULT_MAX_AUTHORITIES
+CRAWL_MAX_PER_JURISDICTION_CAP = CRAWL_DEFAULT_PER_JURISDICTION_CAP
+CRAWL_MAX_TOKEN_BUDGET = CRAWL_DEFAULT_TOKEN_BUDGET
 # Punctuation stripped from the tail of a captured defined term
 # (e.g. (the "Notes," ...) -> "Notes").
 TRAILING_PUNCT = ",.;:"
