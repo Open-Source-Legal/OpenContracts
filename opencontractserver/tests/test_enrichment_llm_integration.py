@@ -276,23 +276,58 @@ class TestEnrichmentLLMIntegration(TransactionTestCase):
             llm_overlap_keys == []
         ), f"LLM candidate for grammar-detected span leaked into by_key: {llm_overlap_keys}"
 
-    def test_discover_uses_document_visibility_for_public_corpus(self):
-        """A user who can read a public corpus but not a private document in it
-        must not have that document scanned or leaked through review_candidates."""
+    def test_discover_uses_document_visibility_for_shared_corpus(self):
+        """A user who can READ a corpus but not a private document inside it must
+        not have that document scanned or leaked through review_candidates.
+
+        The corpus is *shared* (corpus-level READ granted) rather than public:
+        adding a document to a public corpus auto-propagates public status onto
+        the corpus-isolated copy (``Corpus.add_document``: ``is_public =
+        corpus.is_public or document.is_public``), which would make the document
+        legitimately visible and defeat the scenario. A shared, non-public
+        corpus keeps the copy ``is_public=False`` so document-level visibility —
+        the document side of ``MIN(corpus, document)`` — is what excludes it.
+        """
         from pydantic_ai.models.test import TestModel
 
         import opencontractserver.enrichment.llm_citation_extractor as mod
-
-        private_corpus = Corpus.objects.create(
-            title="PublicCorpusWithPrivateDoc", creator=self.user, is_public=True
+        from opencontractserver.corpuses.services.corpus_documents import (
+            CorpusDocumentService,
         )
+        from opencontractserver.types.enums import PermissionTypes
+        from opencontractserver.utils.permissioning import (
+            set_permissions_for_obj_to_user,
+        )
+
+        shared_corpus = Corpus.objects.create(
+            title="SharedCorpusWithPrivateDoc", creator=self.user, is_public=False
+        )
+        # other_user can READ the corpus (the corpus side of MIN) ...
+        set_permissions_for_obj_to_user(
+            self.other_user, shared_corpus, [PermissionTypes.READ]
+        )
+
         private_doc = Document.objects.create(
             title="PrivateLLMDoc", creator=self.user, is_public=False
         )
         private_doc.txt_extract_file.save(
             "private-llm-doc.txt", ContentFile(_TEXT.encode("utf-8"))
         )
-        private_corpus.add_document(document=private_doc, user=self.user)
+        # ... but NOT the document. Because the corpus is private, the
+        # corpus-isolated copy stays is_public=False, so other_user lacks
+        # document-level READ on it.
+        shared_corpus.add_document(document=private_doc, user=self.user)
+
+        # Sanity: the corpus genuinely contains a document under corpus-as-gate,
+        # so documents_scanned == 0 below reflects the visibility filter rather
+        # than an empty corpus — while the visible-to-user variant hides it from
+        # other_user.
+        assert CorpusDocumentService.get_corpus_documents(
+            self.user, shared_corpus, include_caml=False
+        ).exists()
+        assert not CorpusDocumentService.get_corpus_documents_visible_to_user(
+            self.other_user, shared_corpus, include_caml=False
+        ).exists()
 
         canned = _make_llm_citation(0.4)
         test_model = TestModel(custom_output_args={"citations": [canned]})
@@ -307,7 +342,7 @@ class TestEnrichmentLLMIntegration(TransactionTestCase):
         mod.abuild_agent_model = fake_build
         try:
             out = EnrichmentService().discover(
-                corpus_id=private_corpus.id,
+                corpus_id=shared_corpus.id,
                 creator_id=self.other_user.id,
                 use_llm=True,
             )
