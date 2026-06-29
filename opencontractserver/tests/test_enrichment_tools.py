@@ -2,6 +2,8 @@
 
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
+from unittest.mock import patch
+
 from django.test import TestCase
 
 from opencontractserver.annotations.models import Annotation, CorpusReference
@@ -439,6 +441,60 @@ class CrawlAuthoritiesToolRegistryTests(TestCase):
         from opencontractserver.llms.tools.core_tools import (  # noqa: F401
             acrawl_authorities,
             crawl_authorities,
+        )
+
+    def test_crawl_authorities_rejects_unsafe_bounds(self):
+        from opencontractserver.llms.tools.core_tools.corpus_references import (
+            crawl_authorities,
+        )
+
+        with patch(
+            "opencontractserver.enrichment.services.crawl_authorities_service."
+            "CrawlAuthoritiesService.crawl"
+        ) as crawl:
+            with self.assertRaises(ValueError):
+                crawl_authorities(
+                    creator_id=1,
+                    corpus_id=1,
+                    per_jurisdiction_cap=0,
+                )
+            with self.assertRaises(ValueError):
+                crawl_authorities(creator_id=1, corpus_id=1, token_budget=0)
+            with self.assertRaises(ValueError):
+                crawl_authorities(
+                    creator_id=1,
+                    corpus_id=1,
+                    max_authorities=1_000_000,
+                )
+
+        crawl.assert_not_called()
+
+    def test_crawl_authorities_forwards_valid_bounds(self):
+        from opencontractserver.llms.tools.core_tools.corpus_references import (
+            crawl_authorities,
+        )
+
+        with patch(
+            "opencontractserver.enrichment.services.crawl_authorities_service."
+            "CrawlAuthoritiesService.crawl",
+            return_value={"ok": True},
+        ) as crawl:
+            out = crawl_authorities(
+                creator_id=1,
+                corpus_id=2,
+                per_jurisdiction_cap=1,
+                token_budget=1,
+            )
+
+        assert out == {"ok": True}
+        crawl.assert_called_once_with(
+            creator_id=1,
+            corpus_id=2,
+            max_depth=2,
+            min_demand=2,
+            max_authorities=50,
+            per_jurisdiction_cap=1,
+            token_budget=1,
         )
 
     def test_crawl_authorities_in_function_registry(self):

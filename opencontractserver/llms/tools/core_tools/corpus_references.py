@@ -12,6 +12,52 @@ from opencontractserver.enrichment import constants as C
 from ._helpers import _db_sync_to_async
 
 
+def _validate_crawl_bound(name: str, value: int, *, minimum: int, maximum: int) -> int:
+    """Validate caller-controlled crawl bounds before reaching the shared queue."""
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise ValueError(f"{name} must be an integer")
+    if value < minimum or value > maximum:
+        raise ValueError(f"{name} must be between {minimum} and {maximum}")
+    return value
+
+
+def _validated_crawl_bounds(
+    *,
+    max_depth: int,
+    min_demand: int,
+    max_authorities: int,
+    per_jurisdiction_cap: int,
+    token_budget: int,
+) -> dict[str, int]:
+    """Enforce safe ranges for the approval-gated crawl_authorities tool."""
+    return {
+        "max_depth": _validate_crawl_bound(
+            "max_depth", max_depth, minimum=0, maximum=C.CRAWL_MAX_DEPTH
+        ),
+        "min_demand": _validate_crawl_bound(
+            "min_demand", min_demand, minimum=0, maximum=1_000_000
+        ),
+        "max_authorities": _validate_crawl_bound(
+            "max_authorities",
+            max_authorities,
+            minimum=1,
+            maximum=C.CRAWL_MAX_AUTHORITIES,
+        ),
+        "per_jurisdiction_cap": _validate_crawl_bound(
+            "per_jurisdiction_cap",
+            per_jurisdiction_cap,
+            minimum=1,
+            maximum=C.CRAWL_MAX_PER_JURISDICTION_CAP,
+        ),
+        "token_budget": _validate_crawl_bound(
+            "token_budget",
+            token_budget,
+            minimum=1,
+            maximum=C.CRAWL_MAX_TOKEN_BUDGET,
+        ),
+    }
+
+
 def scan_corpus_references(
     *,
     corpus_id: int,
@@ -264,14 +310,17 @@ def crawl_authorities(
         CrawlAuthoritiesService,
     )
 
-    return CrawlAuthoritiesService.crawl(
-        creator_id=creator_id,
-        corpus_id=corpus_id,
+    bounds = _validated_crawl_bounds(
         max_depth=max_depth,
         min_demand=min_demand,
         max_authorities=max_authorities,
         per_jurisdiction_cap=per_jurisdiction_cap,
         token_budget=token_budget,
+    )
+    return CrawlAuthoritiesService.crawl(
+        creator_id=creator_id,
+        corpus_id=corpus_id,
+        **bounds,
     )
 
 

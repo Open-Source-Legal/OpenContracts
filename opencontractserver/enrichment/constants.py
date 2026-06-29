@@ -92,6 +92,11 @@ CRAWL_DEFAULT_PER_JURISDICTION_CAP = 15  # max ingests per (jurisdiction) per ru
 CRAWL_DEFAULT_TOKEN_BUDGET = (
     2_000_000  # cumulative est. tokens (text len / 4) before stop
 )
+# Upper bounds for caller-controlled crawl runs exposed through analyzer/tool APIs.
+CRAWL_MAX_DEPTH = 5
+CRAWL_MAX_AUTHORITIES = CRAWL_DEFAULT_MAX_AUTHORITIES
+CRAWL_MAX_PER_JURISDICTION_CAP = CRAWL_DEFAULT_PER_JURISDICTION_CAP
+CRAWL_MAX_TOKEN_BUDGET = CRAWL_DEFAULT_TOKEN_BUDGET
 # Punctuation stripped from the tail of a captured defined term
 # (e.g. (the "Notes," ...) -> "Notes").
 TRAILING_PUNCT = ",.;:"

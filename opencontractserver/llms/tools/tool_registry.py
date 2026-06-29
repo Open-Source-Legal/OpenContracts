@@ -472,7 +472,7 @@ AVAILABLE_TOOLS: tuple[ToolDefinition, ...] = (
         parameters=(
             (
                 "max_depth",
-                "Authority-to-authority hops past the cited seeds (default 2)",
+                "Authority-to-authority hops past the cited seeds (0-5; default 2)",
                 False,
             ),
             (
@@ -482,17 +482,17 @@ AVAILABLE_TOOLS: tuple[ToolDefinition, ...] = (
             ),
             (
                 "max_authorities",
-                "Hard cap on authorities ingested this run (default 50)",
+                "Hard cap on authorities ingested this run (1-50; default 50)",
                 False,
             ),
             (
                 "per_jurisdiction_cap",
-                "Max authorities ingested per jurisdiction per run",
+                "Max authorities ingested per jurisdiction per run (1-15)",
                 False,
             ),
             (
                 "token_budget",
-                "Approx token budget before the crawl stops",
+                "Approx token budget before the crawl stops (1-2000000)",
                 False,
             ),
         ),

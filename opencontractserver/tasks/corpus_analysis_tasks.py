@@ -86,7 +86,7 @@ def corpus_reference_enrichment(
             "max_depth": {
                 "type": "integer",
                 "minimum": 0,
-                "maximum": 5,
+                "maximum": C.CRAWL_MAX_DEPTH,
                 "default": C.CRAWL_DEFAULT_MAX_DEPTH,
             },
             "min_demand": {
@@ -102,11 +102,13 @@ def corpus_reference_enrichment(
             "per_jurisdiction_cap": {
                 "type": "integer",
                 "minimum": 1,
+                "maximum": C.CRAWL_MAX_PER_JURISDICTION_CAP,
                 "default": C.CRAWL_DEFAULT_PER_JURISDICTION_CAP,
             },
             "token_budget": {
                 "type": "integer",
-                "minimum": 0,
+                "minimum": 1,
+                "maximum": C.CRAWL_MAX_TOKEN_BUDGET,
                 "default": C.CRAWL_DEFAULT_TOKEN_BUDGET,
             },
             "make_public": {"type": "boolean", "default": True},
