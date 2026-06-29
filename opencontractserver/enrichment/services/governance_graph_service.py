@@ -12,10 +12,14 @@ and enforced through the permission model:
 Visibility rules:
 
 * The source corpus must be READ-visible or the build returns ``None``.
-* Reference rows are corpus-as-gate (``CorpusReferenceService``), but every
-  *document* surfaced as a node must itself be READ-visible: invisible source
-  documents drop their edges entirely; invisible target documents degrade to
-  external ghost nodes so titles never leak.
+* Reference rows are sourced via
+  ``CorpusReferenceService.for_corpus_by_source`` — corpus READ plus a visible
+  source document, with the resolved *target* deliberately NOT pre-filtered so
+  this build can apply its own per-endpoint rule: invisible source documents
+  drop their edges entirely; invisible target documents degrade to external
+  ghost nodes so titles never leak. (The strict ``visible_to_user`` is reserved
+  for surfaces that expose target FKs directly, e.g. the GraphQL
+  ``corpusReferences`` query.)
 * Only READ-visible target corpora are listed in ``corpora``.
 
 The service returns plain data keyed by raw PKs / canonical keys; the GraphQL
@@ -71,7 +75,7 @@ class GovernanceGraphService:
             return None
 
         ref_rows = list(
-            CorpusReferenceService.for_corpus(user, corpus_pk)
+            CorpusReferenceService.for_corpus_by_source(user, corpus_pk)
             .filter(reference_type=C.REF_LAW)
             .exclude(canonical_key=None)
             .values_list(

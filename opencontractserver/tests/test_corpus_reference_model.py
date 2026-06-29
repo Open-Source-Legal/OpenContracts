@@ -205,3 +205,36 @@ class CorpusReferenceVisibilityTests(TestCase):
             .filter(pk=ref.pk)
             .exists()
         )
+
+    def test_visible_to_user_by_source_retains_hidden_target_for_ghosting(self):
+        # A reference with a visible source but a hidden target document is
+        # dropped by the strict ``visible_to_user`` (which backs the
+        # ``corpusReferences`` GraphQL surface that exposes target FKs) but
+        # RETAINED by ``visible_to_user_by_source`` so aggregate consumers (the
+        # governance graph) can degrade the hidden target to a ghost node rather
+        # than losing the citation entirely.
+        ref = self._reference(
+            self._mention(self.visible_doc), target_document=self.private_target_doc
+        )
+
+        assert (
+            not CorpusReferenceService.visible_to_user(self.viewer)
+            .filter(pk=ref.pk)
+            .exists()
+        )
+        assert (
+            CorpusReferenceService.visible_to_user_by_source(self.viewer)
+            .filter(pk=ref.pk)
+            .exists()
+        )
+
+    def test_visible_to_user_by_source_still_requires_visible_source(self):
+        # The source-privacy guard is preserved by the source-only variant: a
+        # citation made by a hidden document is never surfaced.
+        ref = self._reference(self._mention(self.private_source_doc))
+
+        assert (
+            not CorpusReferenceService.visible_to_user_by_source(self.viewer)
+            .filter(pk=ref.pk)
+            .exists()
+        )

@@ -20,6 +20,32 @@ class CorpusReferenceService(BaseService):
     """Read surface for CorpusReference rows."""
 
     @staticmethod
+    def visible_to_user_by_source(user):
+        """References whose parent corpus AND source document are visible.
+
+        Enforces corpus READ and source-annotation-document visibility, but
+        does NOT filter on the resolved *target* (document / corpus /
+        annotation). A citation made by a hidden document is suppressed (no
+        source leak), but a citation TO a hidden target is RETAINED so the
+        caller can degrade that target to a ghost rather than dropping the
+        reference outright.
+
+        Use this for aggregate surfaces that perform their own per-target
+        ghosting (the governance graph re-checks both endpoints and degrades
+        an invisible target to an external key node). For surfaces that expose
+        the target foreign keys directly (e.g. the ``corpusReferences``
+        GraphQL query), use :meth:`visible_to_user`, which additionally hides
+        references whose target is invisible.
+        """
+        visible_corpora = Corpus.objects.visible_to_user(user)
+        visible_documents = Document.objects.visible_to_user(user)
+
+        return CorpusReference.objects.filter(
+            corpus__in=visible_corpora,
+            source_annotation__document__in=visible_documents,
+        )
+
+    @staticmethod
     def visible_to_user(user):
         """Return only references whose exposed graph is visible to ``user``.
 
@@ -28,14 +54,18 @@ class CorpusReferenceService(BaseService):
         MIN(document_permission, corpus_permission) rule used by user-facing
         corpus document surfaces so a readable corpus cannot disclose private
         source annotations or private resolved targets.
+
+        Builds on :meth:`visible_to_user_by_source` (corpus + source) and adds
+        the target-visibility filter, so a reference is hidden when its
+        resolved target document / corpus / annotation is not visible. Callers
+        that ghost invisible targets themselves should use
+        :meth:`visible_to_user_by_source` instead so those references are not
+        dropped before they can be degraded.
         """
         visible_corpora = Corpus.objects.visible_to_user(user)
         visible_documents = Document.objects.visible_to_user(user)
 
-        return CorpusReference.objects.filter(
-            corpus__in=visible_corpora,
-            source_annotation__document__in=visible_documents,
-        ).filter(
+        return CorpusReferenceService.visible_to_user_by_source(user).filter(
             (Q(target_document__isnull=True) | Q(target_document__in=visible_documents))
             & (Q(target_corpus__isnull=True) | Q(target_corpus__in=visible_corpora))
             & (
@@ -47,6 +77,15 @@ class CorpusReferenceService(BaseService):
     @classmethod
     def for_corpus(cls, user, corpus_id: int):
         return cls.visible_to_user(user).filter(corpus_id=corpus_id)
+
+    @classmethod
+    def for_corpus_by_source(cls, user, corpus_id: int):
+        """Corpus-scoped variant of :meth:`visible_to_user_by_source`.
+
+        For callers (the governance graph) that ghost invisible targets
+        themselves and so must not have target-hidden references pre-filtered.
+        """
+        return cls.visible_to_user_by_source(user).filter(corpus_id=corpus_id)
 
     @classmethod
     def wanted_authorities(
