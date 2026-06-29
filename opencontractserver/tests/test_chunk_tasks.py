@@ -193,3 +193,33 @@ class TestChunkTasks(TestCase):
                     ).get()
                 replace_mock.assert_called_once()
                 inline_parse.assert_not_called()
+
+    def test_ingest_doc_large_pdf_falls_back_when_chunk_count_exceeds_limit(self):
+        """Do not enqueue more chord header tasks than max_concurrent_chunks."""
+        from unittest.mock import patch
+
+        from opencontractserver.tasks import doc_tasks
+
+        doc, user = self._doc(8)  # max_pages_per_chunk=2, min=2 → 4 chunks
+        parser = _FakeChunkedParser()
+        parser.max_concurrent_chunks = 3
+        with override_settings(CELERY_TASK_ALWAYS_EAGER=False):
+            with patch.object(
+                doc_tasks,
+                "_resolve_parser_for_ingest",
+                return_value=(
+                    "opencontractserver.tests.test_chunked_parser._FakeChunkedParser",
+                    parser,
+                    {},
+                ),
+            ), patch.object(
+                doc_tasks.ingest_doc, "replace"
+            ) as replace_mock, patch.object(
+                _FakeChunkedParser, "process_document", return_value=None
+            ) as inline_parse:
+                result = doc_tasks.ingest_doc.apply(
+                    kwargs=dict(user_id=user.id, doc_id=doc.id)
+                ).get()
+                self.assertEqual(result["status"], "success")
+                replace_mock.assert_not_called()
+                inline_parse.assert_called_once()

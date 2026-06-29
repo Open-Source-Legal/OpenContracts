@@ -643,7 +643,9 @@ def ingest_doc(self, user_id: int, doc_id: int) -> dict[str, Any]:
         # threshold (single request) and >= 2 descriptors otherwise — there is
         # no one-element case — so a truthiness check expresses the contract.
         chunk_inputs = parser_instance.prepare_chunk_inputs(doc_id)
-        if chunk_inputs:
+        chunk_count = len(chunk_inputs)
+        max_concurrent_chunks = parser_instance.max_concurrent_chunks
+        if chunk_inputs and chunk_count <= max_concurrent_chunks:
             from opencontractserver.tasks.chunk_tasks import (
                 parse_document_chunk,
                 reassemble_and_save_chunks,
@@ -670,12 +672,18 @@ def ingest_doc(self, user_id: int, doc_id: int) -> dict[str, Any]:
             )
             logger.info(
                 f"[ingest_doc] Document {doc_id}: dispatching "
-                f"{len(chunk_inputs)} chunks via chord"
+                f"{chunk_count} chunks via chord"
             )
             # Replaces this task with the chord; Celery appends the remaining
             # ingest chain (remap, unlock) after the callback, and the chain's
             # link_error errback still rescues failures.
             return self.replace(chord(header, callback))
+        if chunk_inputs:
+            logger.info(
+                f"[ingest_doc] Document {doc_id}: parsing {chunk_count} "
+                "chunks in-process because it exceeds max_concurrent_chunks="
+                f"{max_concurrent_chunks}"
+            )
 
     # Call the parser's process_document method (synchronous / non-chunked path)
     try:
