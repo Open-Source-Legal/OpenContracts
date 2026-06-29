@@ -132,7 +132,7 @@ class CeleryTaskImportTest(TransactionTestCase):
             with self.assertRaises(ValueError):
                 _resolve_crawl_bound(
                     name="max_depth",
-                    value=bad,
+                    value=bad,  # type: ignore[arg-type]  # intentional bad type
                     default=C.CRAWL_DEFAULT_MAX_DEPTH,
                     minimum=0,
                     maximum=C.CRAWL_MAX_DEPTH,
