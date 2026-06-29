@@ -59,6 +59,11 @@ class CorpusCardsStructuralDocumentResolutionTests(TestCase):
             password="testpass123",
             email="cards_struct_doc@test.com",
         )
+        self.other_user = User.objects.create_user(
+            username="cards_struct_doc_other_user",
+            password="testpass123",
+            email="cards_struct_doc_other@test.com",
+        )
 
         # A single content hash → a single StructuralAnnotationSet shared by
         # the source document and every corpus copy of it.
@@ -83,6 +88,18 @@ class CorpusCardsStructuralDocumentResolutionTests(TestCase):
         )
         set_permissions_for_obj_to_user(
             self.user, self.source_doc, [PermissionTypes.READ]
+        )
+        # A private document owned by another user that shares the structural
+        # set and sorts first in the unscoped structural document prefetch.
+        # Resolving through this row would leak another user's DocumentType.
+        self.private_doc = Document.objects.create(
+            title="Private shared S-1",
+            slug="aaa-private-shared-s-1",
+            creator=self.other_user,
+            pdf_file_hash=content_hash,
+            structural_annotation_set=self.structural_set,
+            page_count=3,
+            processing_started=timezone.now(),
         )
 
         # Two corpuses, each receiving an isolated copy that SHARES the set.
@@ -142,6 +159,20 @@ class CorpusCardsStructuralDocumentResolutionTests(TestCase):
     _QUERY = """
         query Cards($corpusId: ID!) {
             annotations(corpusId: $corpusId, structural: true, first: 100) {
+                edges {
+                    node {
+                        id
+                        structural
+                        document { id slug title }
+                    }
+                }
+            }
+        }
+    """
+
+    _UNSCOPED_QUERY = """
+        query Cards {
+            annotations(structural: true, first: 100) {
                 edges {
                     node {
                         id
@@ -255,4 +286,26 @@ class CorpusCardsStructuralDocumentResolutionTests(TestCase):
             [d.id for d in resolved],
             [self.doc_b.id],
             "document_id must take precedence over corpus_id in the prefetch",
+        )
+
+    def test_unscoped_structural_resolution_skips_private_shared_documents(self):
+        """Unscoped annotation browsing must not leak a private shared doc."""
+        annotations = self._make_structural_annotations(self.corpus_a, "A")
+        result = self._client().execute(self._UNSCOPED_QUERY)
+        self.assertIsNone(
+            result.get("errors"), f"GraphQL errors: {result.get('errors')}"
+        )
+        nodes = {
+            edge["node"]["id"]: edge["node"]
+            for edge in result["data"]["annotations"]["edges"]
+        }
+        expected_annotation_gid = to_global_id("AnnotationType", annotations[0].id)
+        self.assertIn(expected_annotation_gid, nodes)
+
+        resolved_doc = nodes[expected_annotation_gid]["document"]
+        self.assertIsNotNone(resolved_doc)
+        self.assertNotEqual(
+            resolved_doc["id"],
+            to_global_id("DocumentType", self.private_doc.id),
+            "resolve_document returned a private document from the shared set",
         )

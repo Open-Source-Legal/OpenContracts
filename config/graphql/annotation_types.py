@@ -657,15 +657,46 @@ class AnnotationType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         method ever ran.
         """
         if self.document_id:
-            return self.document
+            from opencontractserver.documents.models import Document
+
+            return (
+                BaseService.filter_visible_qs(
+                    Document.objects.filter(pk=self.document_id),
+                    info.context.user,
+                    request=info.context,
+                )
+                .select_related("creator")
+                .first()
+            )
         # Structural annotations have document=NULL; resolve via structural_set
         if self.structural_set_id:
+            from opencontractserver.documents.models import Document
+
             structural_set = self.structural_set
             if structural_set is not None:
-                # Use prefetched documents if available (evaluates prefetch cache)
+                # Use prefetched documents if available (evaluates prefetch cache),
+                # but do not trust the prefetch alone as a permission gate: the
+                # unscoped annotations query may prefetch every document sharing
+                # this structural set. Intersect candidates with visible_to_user
+                # before returning a DocumentType while preserving prefetch order.
                 prefetched = list(structural_set.documents.all())
                 if prefetched:
-                    return prefetched[0]
+                    prefetched_ids = [document.id for document in prefetched]
+                    visible_ids = set(
+                        BaseService.filter_visible_qs(
+                            Document.objects.filter(pk__in=prefetched_ids),
+                            info.context.user,
+                            request=info.context,
+                        ).values_list("pk", flat=True)
+                    )
+                    return next(
+                        (
+                            document
+                            for document in prefetched
+                            if document.id in visible_ids
+                        ),
+                        None,
+                    )
             # Fallback when the caller did not apply
             # ``AnnotationService.structural_document_prefetch`` (deferred import
             # avoids a module-level cycle with documents.models). Scope to this
@@ -673,8 +704,6 @@ class AnnotationType(AnnotatePermissionsForReadMixin, DjangoObjectType):
             # reintroduce the original arbitrary ``.documents.first()`` bug;
             # query-context scoping (which corpus is being viewed) only happens
             # via the prefetch above, so this is a best-effort degraded path.
-            from opencontractserver.documents.models import Document
-
             documents = Document.objects.filter(
                 structural_annotation_set_id=self.structural_set_id
             )
@@ -684,7 +713,15 @@ class AnnotationType(AnnotatePermissionsForReadMixin, DjangoObjectType):
                     path_records__is_current=True,
                     path_records__is_deleted=False,
                 )
-            return documents.order_by("slug").first()
+            return (
+                BaseService.filter_visible_qs(
+                    documents,
+                    info.context.user,
+                    request=info.context,
+                )
+                .order_by("slug")
+                .first()
+            )
         return None
 
     def resolve_annotation_type(self, info) -> Any:
