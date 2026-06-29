@@ -320,7 +320,11 @@ def crawl_authorities(
     return CrawlAuthoritiesService.crawl(
         creator_id=creator_id,
         corpus_id=corpus_id,
-        **bounds,
+        max_depth=bounds["max_depth"],
+        min_demand=bounds["min_demand"],
+        max_authorities=bounds["max_authorities"],
+        per_jurisdiction_cap=bounds["per_jurisdiction_cap"],
+        token_budget=bounds["token_budget"],
     )
 
 

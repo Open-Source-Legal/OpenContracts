@@ -1,9 +1,9 @@
 """Tool-registry + tool-function tests for corpus reference enrichment."""
 
-from django.contrib.auth import get_user_model
-from django.core.files.base import ContentFile
 from unittest.mock import patch
 
+from django.contrib.auth import get_user_model
+from django.core.files.base import ContentFile
 from django.test import TestCase
 
 from opencontractserver.annotations.models import Annotation, CorpusReference
