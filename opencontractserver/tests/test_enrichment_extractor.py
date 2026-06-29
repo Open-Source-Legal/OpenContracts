@@ -1,5 +1,7 @@
 """Unit tests for the deterministic ReferenceExtractor (no DB)."""
 
+from unittest.mock import patch
+
 from django.test import SimpleTestCase
 
 from opencontractserver.enrichment import constants as C
@@ -172,6 +174,15 @@ class ReferenceExtractorTests(SimpleTestCase):
         terms = [c for c in cands if c.reference_type == C.REF_DEFINED_TERM]
         assert len(terms) == C.MAX_DEFINED_TERMS
         assert not any(c.canonical_key == "term:change-of-control" for c in terms)
+
+    def test_reference_type_filter_skips_unwanted_defined_terms(self):
+        text = 'Fervo Energy, Inc. (the "Company") cites Exhibit 1.1.'
+        with patch.object(ReferenceExtractor, "_terms", side_effect=AssertionError):
+            cands = self.extractor.extract(
+                text, reference_types=C.DEFAULT_REFERENCE_TYPES
+            )
+        assert not [c for c in cands if c.reference_type == C.REF_DEFINED_TERM]
+        assert any(c.reference_type == C.REF_DOCUMENT for c in cands)
 
     def test_defined_terms_not_in_default_reference_types(self):
         # Opt-in: DEFINED_TERM is detected by the extractor but excluded from the

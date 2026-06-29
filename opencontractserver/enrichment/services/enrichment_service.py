@@ -151,7 +151,11 @@ class EnrichmentService:
         sections = sections_by_doc.get(doc.id, [])
         meta = doc.custom_meta if isinstance(doc.custom_meta, dict) else {}
         primary = list(
-            extractor.extract(doc_text, default_authority=meta.get("authority"))
+            extractor.extract(
+                doc_text,
+                default_authority=meta.get("authority"),
+                reference_types=wanted,
+            )
         )
         cands = reconcile(primary, generic.extract(doc_text)) if generic else primary
         if llm_cands:
