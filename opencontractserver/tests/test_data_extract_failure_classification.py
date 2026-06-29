@@ -181,6 +181,30 @@ class ClassifyNoneResultTests(SimpleTestCase):
         ] + [_make_response(_tool_call("final_result", {"value": None}))]
         self.assertEqual(_classify_none_result(messages), NONE_RESULT_AGENT_COMMITTED)
 
+    def test_usage_limit_tracks_the_request_limit_argument(self) -> None:
+        """The usage-limit fingerprint uses the passed ``request_limit``.
+
+        Decoupled from the hardcoded ``EXTRACT_AGENT_REQUEST_LIMIT`` (#2070): the
+        SAME history is ``usage_limit_exceeded`` under a tight budget but a plain
+        ``no_final_response`` under a generous one, so a caller-overridden budget
+        is classified correctly for any limit.
+        """
+        # 5 distinct (non-looping) tool calls, no final_result.
+        messages = [
+            _make_response(_tool_call("similarity_search", {"query": f"q{i}"}))
+            for i in range(5)
+        ]
+        # Budget of 5 → the 5 responses reach it ⇒ usage_limit_exceeded.
+        self.assertEqual(
+            _classify_none_result(messages, request_limit=5),
+            NONE_RESULT_USAGE_LIMIT,
+        )
+        # Budget of 50 → 5 responses are well under it ⇒ no_final_response.
+        self.assertEqual(
+            _classify_none_result(messages, request_limit=50),
+            NONE_RESULT_NO_FINAL,
+        )
+
     def test_text_and_single_tool_calls_are_no_final(self) -> None:
         """Mix of narration + tool calls (under threshold) ⇒ no_final_response.
 
@@ -307,6 +331,18 @@ class FailureMessageTests(SimpleTestCase):
                     "llm_call_log",
                     _failure_message_for_classification(classification),
                 )
+
+    def test_usage_limit_message_interpolates_actual_limit(self) -> None:
+        """The usage-limit message prints the budget actually in force (#2070).
+
+        A caller may override ``request_limit`` via ``UsageLimits``; the message
+        must reflect that value rather than the hardcoded default.
+        """
+        msg = _failure_message_for_classification(
+            NONE_RESULT_USAGE_LIMIT, request_limit=7
+        )
+        self.assertIn("request_limit=7", msg)
+        self.assertNotIn("request_limit=20", msg)
 
 
 class IsAnthropicModelTests(SimpleTestCase):

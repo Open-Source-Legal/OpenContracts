@@ -1700,6 +1700,11 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
             f"Generating structured response for target_type='{getattr(target_type, '__name__', str(target_type))}'"
         )
 
+        # Pre-bound so the ``except UsageLimitExceeded`` handler can log it even
+        # in the (defensive) case the error surfaces before the budget is
+        # resolved below; reassigned to the effective budget just before the run.
+        effective_request_limit = EXTRACT_AGENT_REQUEST_LIMIT
+
         try:
             # Build model settings with overrides.
             # ``_prepare_pydantic_ai_model_settings`` returns ``None`` when
@@ -1823,6 +1828,15 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
                 run_kwargs["usage_limits"] = UsageLimits(
                     request_limit=EXTRACT_AGENT_REQUEST_LIMIT
                 )
+            # The request budget actually in force for this run: a caller's
+            # override if they passed one, else the EXTRACT_AGENT_REQUEST_LIMIT
+            # default just applied. Surfaced in the UsageLimitExceeded log below
+            # so operators see the real ceiling, not the hardcoded default.
+            effective_request_limit = getattr(
+                run_kwargs.get("usage_limits"),
+                "request_limit",
+                EXTRACT_AGENT_REQUEST_LIMIT,
+            )
             run_result = await structured_agent.run(prompt, **run_kwargs)
 
             # Extract the structured result
@@ -1840,7 +1854,7 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
             # operator can tell a too-tight budget from a genuine runaway loop.
             logger.warning(
                 "Structured run hit the request budget (request_limit=%s): %s",
-                EXTRACT_AGENT_REQUEST_LIMIT,
+                effective_request_limit,
                 e,
             )
             return None

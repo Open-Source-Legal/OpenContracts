@@ -65,3 +65,14 @@ DEFAULT_EXTRACT_MODEL = "openai:gpt-4o-mini"
 # above this fall back to retrieval (where the request budget backstops any
 # looping). Raise cautiously and in tandem with the model context window.
 EXTRACT_FULL_TEXT_CHAR_LIMIT = 24_000
+
+# Maximum number of bytes a single character can occupy in UTF-8. Used as the
+# conservative bytes-per-char bound for the pre-read size guard in
+# ``doc_extract_query_task``: a ``txt_extract_file`` whose byte size exceeds
+# ``EXTRACT_FULL_TEXT_CHAR_LIMIT * MAX_UTF8_BYTES_PER_CHAR`` cannot possibly
+# fit the character budget (even if every byte were part of a 4-byte
+# codepoint), so the whole-file read is skipped instead of fetched and
+# discarded. Files at or below that bound are still read and then filtered by
+# the exact ``len(text) <= EXTRACT_FULL_TEXT_CHAR_LIMIT`` check, preserving
+# behavior for in-range documents.
+MAX_UTF8_BYTES_PER_CHAR = 4
