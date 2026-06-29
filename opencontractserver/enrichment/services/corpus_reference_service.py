@@ -1,13 +1,17 @@
 """Read surface for ``CorpusReference`` rows.
 
-Visibility derives from corpus visibility — ``CorpusReference`` carries no
+Visibility derives from the readable parent corpus plus the readable source
+and target objects carried by each row. ``CorpusReference`` carries no
 per-object guardian rows in v1.
 """
 
 from __future__ import annotations
 
+from django.db.models import Q
+
 from opencontractserver.annotations.models import CorpusReference
 from opencontractserver.corpuses.models import Corpus
+from opencontractserver.documents.models import Document
 from opencontractserver.enrichment import constants as C
 from opencontractserver.shared.services.base import BaseService
 
@@ -17,8 +21,27 @@ class CorpusReferenceService(BaseService):
 
     @staticmethod
     def visible_to_user(user):
+        """Return only references whose exposed graph is visible to ``user``.
+
+        Corpus references are reachable from a readable corpus, but each row
+        also carries document- and corpus-scoped foreign keys.  Apply the same
+        MIN(document_permission, corpus_permission) rule used by user-facing
+        corpus document surfaces so a readable corpus cannot disclose private
+        source annotations or private resolved targets.
+        """
+        visible_corpora = Corpus.objects.visible_to_user(user)
+        visible_documents = Document.objects.visible_to_user(user)
+
         return CorpusReference.objects.filter(
-            corpus__in=Corpus.objects.visible_to_user(user)
+            corpus__in=visible_corpora,
+            source_annotation__document__in=visible_documents,
+        ).filter(
+            (Q(target_document__isnull=True) | Q(target_document__in=visible_documents))
+            & (Q(target_corpus__isnull=True) | Q(target_corpus__in=visible_corpora))
+            & (
+                Q(target_annotation__isnull=True)
+                | Q(target_annotation__document__in=visible_documents)
+            )
         )
 
     @classmethod
