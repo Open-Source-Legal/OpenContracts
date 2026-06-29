@@ -115,6 +115,28 @@ class CeleryTaskImportTest(TransactionTestCase):
             ),
             1,
         )
+        # ``None`` (the schema default is absent) falls back to the default.
+        self.assertEqual(
+            _resolve_crawl_bound(
+                name="max_depth",
+                value=None,
+                default=C.CRAWL_DEFAULT_MAX_DEPTH,
+                minimum=0,
+                maximum=C.CRAWL_MAX_DEPTH,
+            ),
+            C.CRAWL_DEFAULT_MAX_DEPTH,
+        )
+        # Non-integers are rejected — including ``bool`` (an ``int`` subclass)
+        # so a stray ``True`` cannot slip through as ``1``.
+        for bad in ("5", 1.5, True):
+            with self.assertRaises(ValueError):
+                _resolve_crawl_bound(
+                    name="max_depth",
+                    value=bad,
+                    default=C.CRAWL_DEFAULT_MAX_DEPTH,
+                    minimum=0,
+                    maximum=C.CRAWL_MAX_DEPTH,
+                )
 
 
 class IdempotencyTests(TransactionTestCase):
