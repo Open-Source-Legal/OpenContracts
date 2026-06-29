@@ -128,17 +128,28 @@ docker compose -f remote_worker.yml run --rm worker verify
 The directory tree under `OC_DATA_DIR` is mirrored into the corpus's folder
 structure. See [`scripts/remote_ingest/README.md`](https://github.com/Open-Source-Legal/OpenContracts/blob/main/scripts/remote_ingest/README.md)
 for the full flag reference (`--no-embeddings`, `--flat`, `--limit`,
-`--queue-high/--queue-low`, `--insecure`, etc.).
+`--queue-high/--queue-low`, `--max-attempts N` (retries before a doc is PARKED),
+`--insecure`, etc.).
 
 ### GPU acceleration (optional)
 
 The slow step is the Docling parse. If the remote host has a GPU, merge the
 [accelerated images](https://github.com/Open-Source-Legal/OpenContracts/blob/main/compose/accelerated/README.md)
 override to run the parser + embedder on it (auto-detects CUDA / ROCm / Intel
-XPU·NPU, falls back to CPU):
+XPU·NPU, falls back to CPU).
+
+The override defaults target **Intel/AMD** (`/dev/dri` + render group). **NVIDIA
+and AMD/ROCm hosts must edit the device passthrough** in `remote_worker.accel.yml`
+before running the commands below (NVIDIA: the nvidia runtime / `--gpus`; ROCm:
+`/dev/kfd` + `--group-add video`) -- the file has commented stanzas for each.
+The Docling speedup is hardware-specific (a discrete GPU helps a lot; an
+integrated GPU is often a wash), so **benchmark your host** with
+`compose/accelerated/bench_parse.py`. Full details:
+[`scripts/remote_ingest/README.md`](https://github.com/Open-Source-Legal/OpenContracts/blob/main/scripts/remote_ingest/README.md#gpu-acceleration-recommended-on-beefy-workstations)
+and the [accelerated images README](https://github.com/Open-Source-Legal/OpenContracts/blob/main/compose/accelerated/README.md).
 
 ```bash
-export RENDER_GID=$(stat -c '%g' /dev/dri/renderD128)   # Intel/AMD; host-specific
+export RENDER_GID=$(stat -c '%g' /dev/dri/renderD128)   # Intel/AMD; not needed for NVIDIA
 docker compose -f remote_worker.yml -f remote_worker.accel.yml build \
     docling-parser vector-embedder
 docker compose -f remote_worker.yml -f remote_worker.accel.yml up -d \
@@ -146,15 +157,6 @@ docker compose -f remote_worker.yml -f remote_worker.accel.yml up -d \
 docker compose -f remote_worker.yml -f remote_worker.accel.yml run --rm worker plan
 docker compose -f remote_worker.yml -f remote_worker.accel.yml run --rm worker run --max-workers 8
 ```
-
-The override defaults target Intel (`/dev/dri` + render group). **NVIDIA and
-AMD/ROCm hosts must edit the device passthrough** in `remote_worker.accel.yml`
-(NVIDIA: the nvidia runtime / `--gpus`; ROCm: `/dev/kfd` + `--group-add video`)
--- the file has commented stanzas for each. The Docling speedup is
-hardware-specific (a discrete GPU helps a lot; an integrated GPU is often a
-wash), so **benchmark your host** with `compose/accelerated/bench_parse.py`. Full
-details: [`scripts/remote_ingest/README.md`](https://github.com/Open-Source-Legal/OpenContracts/blob/main/scripts/remote_ingest/README.md#gpu-acceleration-recommended-on-beefy-workstations)
-and the [accelerated images README](https://github.com/Open-Source-Legal/OpenContracts/blob/main/compose/accelerated/README.md).
 
 On CPU, the stock `docling-parser` handles **one parse at a time** and each
 scanned-PDF OCR can take minutes and use **3-6 GB RAM**. Size `--max-workers` (and

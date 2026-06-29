@@ -60,7 +60,9 @@ services:
     #   devices:
     #     - /dev/kfd:/dev/kfd
     #     - /dev/dri:/dev/dri
-    #   group_add: ["video", "render"]
+    #   group_add:
+    #     - "video"
+    #     - "render"
     environment:
       DOCLING_ACCEL: auto      # entrypoint auto-selects xpu/cuda/cpu at start
 
@@ -80,4 +82,4 @@ services:
       - "${RENDER_GID:-993}"
     environment:
       EMBED_ACCEL: auto        # entrypoint auto-selects NPU>GPU>xpu>cpu at start
-      VECTOR_EMBEDDER_API_KEY: ${VECTOR_EMBEDDER_API_KEY:-}
+      VECTOR_EMBEDDER_API_KEY: ${VECTOR_EMBEDDER_API_KEY:-abc123}

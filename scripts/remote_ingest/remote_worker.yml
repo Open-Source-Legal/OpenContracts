@@ -53,7 +53,7 @@ services:
       # The embedder image reads VECTOR_EMBEDDER_API_KEY (default "abc123") and
       # checks it against the request's X-API-Key header. Must match the
       # VECTOR_EMBEDDER_API_KEY passed to the worker below.
-      VECTOR_EMBEDDER_API_KEY: ${VECTOR_EMBEDDER_API_KEY:-}
+      VECTOR_EMBEDDER_API_KEY: ${VECTOR_EMBEDDER_API_KEY:-abc123}
 
   # The worker driver. Built from the OpenContracts repo so it runs the real
   # parser code. Invoked on demand via `docker compose run --rm worker <cmd>`.
@@ -73,7 +73,7 @@ services:
       DJANGO_SETTINGS_MODULE: config.settings.remote_worker
       DOCLING_PARSER_SERVICE_URL: http://docling-parser:8000/parse/
       EMBEDDINGS_MICROSERVICE_URL: http://vector-embedder:8000
-      VECTOR_EMBEDDER_API_KEY: ${VECTOR_EMBEDDER_API_KEY:-}
+      VECTOR_EMBEDDER_API_KEY: ${VECTOR_EMBEDDER_API_KEY:-abc123}
       # Target instance + corpus-scoped token (set on the host before running).
       OC_TARGET_URL: ${OC_TARGET_URL:?set OC_TARGET_URL to your OpenContracts host}
       OC_WORKER_TOKEN: ${OC_WORKER_TOKEN:?set OC_WORKER_TOKEN (see manage.py mint_worker_token)}
