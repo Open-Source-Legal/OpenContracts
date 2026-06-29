@@ -389,6 +389,7 @@ class RunCorpusEnrichmentMutationTests(TestCase):
             analyzer=analyzer,
             analyzed_corpus=self.corpus,
             creator=self.owner,
+            status="COMPLETED",
         )
 
         # First call (enrichment) succeeds, second call (crawl) fails.
@@ -441,3 +442,78 @@ class RunCorpusEnrichmentMutationTests(TestCase):
         # `partial` is a concrete False (never null) on every ok=False path.
         assert data["partial"] is False
         assert data["analyses"] == []
+
+    def test_rejects_unbounded_crawl_options(self):
+        """Hostile crawl bounds are rejected before any analysis is dispatched."""
+        from opencontractserver.analyzer.models import Analysis
+
+        result = self._execute(
+            {
+                "corpusId": to_global_id("CorpusType", self.corpus.id),
+                "runEnrichment": False,
+                "runCrawl": True,
+                "options": {
+                    "maxDepth": 999999,
+                    "maxAuthorities": 1000000000,
+                    "perJurisdictionCap": 1000000000,
+                    "tokenBudget": 0,
+                },
+            }
+        )
+        assert result.get("errors") is None, result
+        data = result["data"]["runCorpusEnrichment"]
+        assert data["ok"] is False
+        assert data["partial"] is False
+        assert "max_depth" in data["message"]
+        assert not Analysis.objects.filter(analyzed_corpus=self.corpus).exists()
+
+    def test_rejects_llm_tier_for_non_admin(self):
+        """Low-privileged UPDATE users cannot opt corpus text into LLM export."""
+        from opencontractserver.analyzer.models import Analysis
+
+        result = self._execute(
+            {
+                "corpusId": to_global_id("CorpusType", self.corpus.id),
+                "runEnrichment": True,
+                "runCrawl": False,
+                "options": {"useLlmTier": True},
+            }
+        )
+        assert result.get("errors") is None, result
+        data = result["data"]["runCorpusEnrichment"]
+        assert data["ok"] is False
+        assert "LLM tier" in data["message"]
+        assert not Analysis.objects.filter(analyzed_corpus=self.corpus).exists()
+
+    def test_rejects_duplicate_running_enrichment_job(self):
+        """The mutation enforces one active enrichment job per corpus."""
+        from opencontractserver.analyzer.models import Analysis
+        from opencontractserver.enrichment.services import EnrichmentService
+        from opencontractserver.types.enums import JobStatus
+
+        analyzer = EnrichmentService.get_or_create_analyzer(self.owner.id)
+        Analysis.objects.create(
+            analyzer=analyzer,
+            analyzed_corpus=self.corpus,
+            creator=self.owner,
+            status=JobStatus.RUNNING.value,
+        )
+
+        result = self._execute(
+            {
+                "corpusId": to_global_id("CorpusType", self.corpus.id),
+                "runEnrichment": True,
+                "runCrawl": False,
+            }
+        )
+        assert result.get("errors") is None, result
+        data = result["data"]["runCorpusEnrichment"]
+        assert data["ok"] is False
+        assert "already queued or running" in data["message"]
+        assert (
+            Analysis.objects.filter(
+                analyzed_corpus=self.corpus,
+                analyzer__task_name=C.ENRICHMENT_ANALYZER_TASK,
+            ).count()
+            == 1
+        )

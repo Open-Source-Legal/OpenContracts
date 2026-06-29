@@ -16,6 +16,8 @@ from graphql_jwt.decorators import login_required
 from graphql_relay import from_global_id
 
 from config.graphql.graphene_types import AnalysisType
+from config.graphql.ratelimits import RateLimits, graphql_ratelimit
+from opencontractserver.analyzer.models import Analysis
 from opencontractserver.analyzer.services.analysis_lifecycle_service import (
     AnalysisLifecycleService,
 )
@@ -28,8 +30,51 @@ from opencontractserver.enrichment.services.authority_permissions import (
 from opencontractserver.enrichment.services.crawl_authorities_service import (
     CrawlAuthoritiesService,
 )
+from opencontractserver.types.enums import JobStatus
 
 logger = logging.getLogger(__name__)
+
+CRAWL_BOUND_LIMITS: dict[str, tuple[int, int]] = {
+    "max_depth": (0, 5),
+    "min_demand": (0, C.CRAWL_DEFAULT_MIN_DEMAND),
+    "max_authorities": (1, C.CRAWL_DEFAULT_MAX_AUTHORITIES),
+    "per_jurisdiction_cap": (1, C.CRAWL_DEFAULT_PER_JURISDICTION_CAP),
+    # A zero token budget disables the crawl loop's budget stop check; require
+    # a positive budget when callers override the safe default.
+    "token_budget": (1, C.CRAWL_DEFAULT_TOKEN_BUDGET),
+}
+ACTIVE_ANALYSIS_STATUSES = (
+    JobStatus.CREATED.value,
+    JobStatus.QUEUED.value,
+    JobStatus.RUNNING.value,
+)
+
+
+def _validate_crawl_bounds(options: Any | None) -> tuple[dict[str, int], str | None]:
+    """Validate crawl options before queueing a worker-consuming job."""
+
+    bounds: dict[str, int] = {}
+    for field, (minimum, maximum) in CRAWL_BOUND_LIMITS.items():
+        val = getattr(options, field, None) if options is not None else None
+        if val is None:
+            continue
+        if val < minimum or val > maximum:
+            return (
+                {},
+                f"{field} must be between {minimum} and {maximum}.",
+            )
+        bounds[field] = val
+    return bounds, None
+
+
+def _active_analysis_exists(corpus_pk: Any, analyzer_task_name: str) -> bool:
+    """Return True when the same corpus/analyzer already has pending work."""
+
+    return Analysis.objects.filter(
+        analyzed_corpus_id=corpus_pk,
+        analyzer__task_name=analyzer_task_name,
+        status__in=ACTIVE_ANALYSIS_STATUSES,
+    ).exists()
 
 
 class RunEnrichmentOptionsInput(graphene.InputObjectType):
@@ -100,6 +145,7 @@ class RunCorpusEnrichmentMutation(graphene.Mutation):
     )
 
     @login_required
+    @graphql_ratelimit(rate=RateLimits.AI_ANALYSIS)
     def mutate(
         root,
         info,
@@ -139,11 +185,49 @@ class RunCorpusEnrichmentMutation(graphene.Mutation):
                 analyses=[],
             )
 
+        if run_enrichment:
+            use_llm = bool(getattr(options, "use_llm_tier", False) or False)
+            if use_llm and not is_authority_admin(user):
+                return RunCorpusEnrichmentMutation(
+                    ok=False,
+                    partial=False,
+                    message="Only authority administrators can enable the LLM tier.",
+                    analyses=[],
+                )
+            if _active_analysis_exists(corpus_pk, C.ENRICHMENT_ANALYZER_TASK):
+                return RunCorpusEnrichmentMutation(
+                    ok=False,
+                    partial=False,
+                    message="An enrichment analysis is already queued or running.",
+                    analyses=[],
+                )
+        else:
+            use_llm = False
+
+        if run_crawl:
+            bounds, bounds_error = _validate_crawl_bounds(options)
+            if bounds_error:
+                return RunCorpusEnrichmentMutation(
+                    ok=False,
+                    partial=False,
+                    message=bounds_error,
+                    analyses=[],
+                )
+            if _active_analysis_exists(corpus_pk, C.CRAWL_ANALYZER_TASK):
+                return RunCorpusEnrichmentMutation(
+                    ok=False,
+                    partial=False,
+                    message="An authority crawl is already queued or running.",
+                    analyses=[],
+                )
+        else:
+            bounds = {}
+
         created = []
 
         if run_enrichment:
             input_data: dict[str, Any] = {
-                "use_llm": bool(getattr(options, "use_llm_tier", False) or False),
+                "use_llm": use_llm,
             }
             ref_types = getattr(options, "reference_types", None)
             # An omitted field (None) or an explicitly empty list are both
@@ -200,17 +284,6 @@ class RunCorpusEnrichmentMutation(graphene.Mutation):
 
         if run_crawl:
             analyzer = CrawlAuthoritiesService.get_or_create_analyzer(user.id)
-            bounds = {}
-            for field in (
-                "max_depth",
-                "min_demand",
-                "max_authorities",
-                "per_jurisdiction_cap",
-                "token_budget",
-            ):
-                val = getattr(options, field, None) if options is not None else None
-                if val is not None:
-                    bounds[field] = val
 
             logger.info(
                 "RunCorpusEnrichmentMutation: dispatching crawl analyzer "
