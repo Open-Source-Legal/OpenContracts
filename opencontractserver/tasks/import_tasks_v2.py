@@ -14,6 +14,7 @@ import uuid
 import zipfile
 from typing import IO, TYPE_CHECKING, Any, cast
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
 from django.utils import timezone
@@ -82,6 +83,42 @@ _UNRESOLVED_FOLDER_KEY_SAMPLE_SIZE = 20
 # byte. Reingest cannot re-parse it, so such docs fall back to the baked import.
 # Kept as a named constant so it cross-references the exporter side.
 _NUL_SOURCE_PLACEHOLDER = b"\x00"
+
+
+def _read_reingest_source_bytes(
+    import_zip: zipfile.ZipFile, doc_filename: str
+) -> bytes | None:
+    """Read a reingest source member only when its expanded size is safe.
+
+    User-facing corpus-export imports default to reingest mode, so a crafted ZIP
+    can otherwise force Celery workers to allocate memory proportional to an
+    uncompressed member via ``ZipExtFile.read()``.  Return ``None`` to make the
+    caller use the baked-import fallback instead.
+    """
+    max_source_bytes = getattr(settings, "MAX_CORPUS_REINGEST_SOURCE_BYTES", 0)
+    zip_info = import_zip.getinfo(doc_filename)
+    if max_source_bytes and zip_info.file_size > max_source_bytes:
+        logger.warning(
+            "Skipping reingest for %s: uncompressed ZIP member size %s exceeds "
+            "MAX_CORPUS_REINGEST_SOURCE_BYTES=%s; using baked import fallback.",
+            doc_filename,
+            zip_info.file_size,
+            max_source_bytes,
+        )
+        return None
+
+    with import_zip.open(zip_info) as fh:
+        source_bytes = fh.read(max_source_bytes + 1 if max_source_bytes else -1)
+    if max_source_bytes and len(source_bytes) > max_source_bytes:
+        logger.warning(
+            "Skipping reingest for %s: ZIP member expanded beyond "
+            "MAX_CORPUS_REINGEST_SOURCE_BYTES=%s while reading; using baked "
+            "import fallback.",
+            doc_filename,
+            max_source_bytes,
+        )
+        return None
+    return source_bytes
 
 
 def import_corpus_v2_from_bytes(
@@ -311,9 +348,8 @@ def _import_document_with_annotations(
     # relationship fan-in can resolve this doc's annotation ids.
     reingest_fallback = False
     if reingest_and_remap:
-        with import_zip.open(doc_filename) as fh:
-            source_bytes = fh.read()
-        if _source_is_reingestable(source_bytes):
+        source_bytes = _read_reingest_source_bytes(import_zip, doc_filename)
+        if source_bytes is not None and _source_is_reingestable(source_bytes):
             return _reingest_document_with_deferred_remap(
                 doc_filename,
                 doc_data,

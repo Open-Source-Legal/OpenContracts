@@ -931,6 +931,14 @@ MAX_DOCUMENT_IMPORT_SIZE_BYTES = int(
     )
 )
 
+# Maximum uncompressed size (in bytes) for a single document member that the V2
+# corpus-export reingest path will read into memory. Larger members fall back to
+# the baked import path instead of risking Celery worker exhaustion. Set to 0 to
+# disable the per-member guard.
+MAX_CORPUS_REINGEST_SOURCE_BYTES = int(
+    env("MAX_CORPUS_REINGEST_SOURCE_BYTES", default=str(256 * 1024 * 1024))
+)
+
 # Chunked (resumable) upload limits
 # ------------------------------------------------------------------------------
 # Back the /api/imports/chunked/* endpoints, which slice a large file into

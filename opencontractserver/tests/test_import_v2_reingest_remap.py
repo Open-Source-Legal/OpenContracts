@@ -24,7 +24,7 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.db import transaction
-from django.test import TestCase, TransactionTestCase
+from django.test import TestCase, TransactionTestCase, override_settings
 from django.utils import timezone
 
 from opencontractserver.annotations.models import (
@@ -135,6 +135,43 @@ class TestSourceReingestability(TestCase):
 
         self.assertTrue(_source_is_reingestable(b"%PDF-1.4 ..."))
         self.assertTrue(_source_is_reingestable(b"plain text body"))
+
+    @override_settings(MAX_CORPUS_REINGEST_SOURCE_BYTES=4)
+    def test_read_reingest_source_bytes_rejects_oversized_zip_member(self):
+        import io
+        import zipfile
+
+        from opencontractserver.tasks.import_tasks_v2 import (
+            _read_reingest_source_bytes,
+        )
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("documents/large.pdf", b"%PDF-1.4 large")
+        buf.seek(0)
+
+        with zipfile.ZipFile(buf) as zf:
+            self.assertIsNone(_read_reingest_source_bytes(zf, "documents/large.pdf"))
+
+    @override_settings(MAX_CORPUS_REINGEST_SOURCE_BYTES=32)
+    def test_read_reingest_source_bytes_allows_member_under_limit(self):
+        import io
+        import zipfile
+
+        from opencontractserver.tasks.import_tasks_v2 import (
+            _read_reingest_source_bytes,
+        )
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("documents/small.pdf", b"%PDF-1.4 small")
+        buf.seek(0)
+
+        with zipfile.ZipFile(buf) as zf:
+            self.assertEqual(
+                _read_reingest_source_bytes(zf, "documents/small.pdf"),
+                b"%PDF-1.4 small",
+            )
 
 
 class TestCorpusImportFanIn(TestCase):
