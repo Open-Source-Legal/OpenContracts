@@ -351,6 +351,33 @@ class AuthorityFrontierServiceDequeueMarkTests(TestCase):
         self.assertIn("usc-15:78m-prov", keys)
         self.assertNotIn("usc-15:78j-noprov", keys)
 
+    def test_dequeue_queued_can_be_scoped_to_crawl_keys(self):
+        """Corpus crawl dequeue must not claim unrelated global frontier rows."""
+        scoped = AuthorityFrontier.objects.create(
+            canonical_key="usc-15:1-scoped",
+            authority="usc-15",
+            discovery_state=C.DISCOVERY_STATE_QUEUED,
+            mention_count=5,
+        )
+        unrelated = AuthorityFrontier.objects.create(
+            canonical_key="usc-15:2-global",
+            authority="usc-15",
+            discovery_state=C.DISCOVERY_STATE_QUEUED,
+            mention_count=100,
+        )
+
+        rows = AuthorityFrontierService.dequeue_queued(
+            limit=1,
+            min_demand=1,
+            canonical_keys={scoped.canonical_key},
+        )
+
+        self.assertEqual([row.canonical_key for row in rows], [scoped.canonical_key])
+        scoped.refresh_from_db()
+        unrelated.refresh_from_db()
+        self.assertEqual(scoped.discovery_state, C.DISCOVERY_STATE_IN_PROGRESS)
+        self.assertEqual(unrelated.discovery_state, C.DISCOVERY_STATE_QUEUED)
+
     def test_mark_ingested_with_document(self):
         user = User.objects.create_user(username="mark-test-user", password="p")
         doc = Document.objects.create(title="Authority Doc", creator=user)

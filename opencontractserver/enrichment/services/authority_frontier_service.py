@@ -56,11 +56,13 @@ class AuthorityFrontierService(BaseService):
             user, corpus_id=corpus_id, finalized_only=True
         )
         created = updated = 0
+        queued_keys: set[str] = set()
         for auth in wanted:
             authority = auth["authority"]
             juris, atype = C.classify_prefix(authority)
             for key_entry in auth["top_keys"]:
                 root = key_entry["canonical_key"]
+                queued_keys.add(root)
                 # Atomic create-or-refresh under a row lock. Collapsing the old
                 # get_or_create + unconditional save into one ``select_for_update``
                 # critical section closes a TOCTOU race: two concurrent seed
@@ -102,7 +104,11 @@ class AuthorityFrontierService(BaseService):
                         )
                 created += int(was_created)
                 updated += int(not was_created)
-        return {"frontier_created": created, "frontier_updated": updated}
+        return {
+            "frontier_created": created,
+            "frontier_updated": updated,
+            "queued_keys": sorted(queued_keys),
+        }
 
     @classmethod
     def admin_state_counts(
@@ -160,6 +166,7 @@ class AuthorityFrontierService(BaseService):
         limit: int = 10,
         max_depth: int | None = None,
         min_demand: int = 0,
+        canonical_keys: set[str] | list[str] | tuple[str, ...] | None = None,
     ) -> list[AuthorityFrontier]:
         """Atomically CLAIM the highest-demand queued rows for the crawl driver.
 
@@ -180,6 +187,10 @@ class AuthorityFrontierService(BaseService):
         ``queued``.
         """
         qs = AuthorityFrontier.objects.filter(discovery_state=C.DISCOVERY_STATE_QUEUED)
+        if canonical_keys is not None:
+            if not canonical_keys:
+                return []
+            qs = qs.filter(canonical_key__in=canonical_keys)
         if max_depth is not None:
             qs = qs.filter(depth__lte=max_depth)
         if min_demand:
@@ -217,9 +228,11 @@ class AuthorityFrontierService(BaseService):
         from opencontractserver.enrichment.authorities import candidate_keys
 
         created = skipped = 0
+        queued_keys: set[str] = set()
         child_depth = parent.depth + 1
         for raw in canonical_keys:
             root = candidate_keys(raw)[-1]
+            queued_keys.add(root)
             authority = root.split(":", 1)[0]
             juris, atype = C.classify_prefix(authority)
             _, was_created = AuthorityFrontier.objects.get_or_create(
@@ -235,7 +248,11 @@ class AuthorityFrontierService(BaseService):
             )
             created += int(was_created)
             skipped += int(not was_created)
-        return {"child_created": created, "child_skipped": skipped}
+        return {
+            "child_created": created,
+            "child_skipped": skipped,
+            "queued_keys": sorted(queued_keys),
+        }
 
     @classmethod
     def dequeue_for_provider(

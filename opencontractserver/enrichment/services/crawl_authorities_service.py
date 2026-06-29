@@ -69,6 +69,46 @@ class CrawlAuthoritiesService(BaseService):
             )
         return analyzer
 
+    @staticmethod
+    def _clamp_int(value: int, *, lower: int, upper: int) -> int:
+        """Clamp a caller-supplied crawl bound into the server-side safe range."""
+        try:
+            number = int(value)
+        except (TypeError, ValueError):
+            number = lower
+        return max(lower, min(number, upper))
+
+    @classmethod
+    def _sanitize_bounds(
+        cls,
+        *,
+        max_depth: int,
+        min_demand: int,
+        max_authorities: int,
+        per_jurisdiction_cap: int,
+        token_budget: int,
+    ) -> dict[str, int]:
+        """Apply hard server caps to model/user-controlled crawl parameters."""
+        return {
+            "max_depth": cls._clamp_int(
+                max_depth, lower=0, upper=C.CRAWL_MAX_MAX_DEPTH
+            ),
+            "min_demand": cls._clamp_int(
+                min_demand, lower=0, upper=C.CRAWL_MAX_MIN_DEMAND
+            ),
+            "max_authorities": cls._clamp_int(
+                max_authorities, lower=0, upper=C.CRAWL_MAX_MAX_AUTHORITIES
+            ),
+            "per_jurisdiction_cap": cls._clamp_int(
+                per_jurisdiction_cap,
+                lower=0,
+                upper=C.CRAWL_MAX_PER_JURISDICTION_CAP,
+            ),
+            "token_budget": cls._clamp_int(
+                token_budget, lower=0, upper=C.CRAWL_MAX_TOKEN_BUDGET
+            ),
+        }
+
     @classmethod
     def crawl(
         cls,
@@ -112,6 +152,19 @@ class CrawlAuthoritiesService(BaseService):
                 seed_created, seed_updated, authorities_ingested, children_seeded,
                 outcomes, blocked_by_bound, per_jurisdiction, frontier_residual.
         """
+        bounds = cls._sanitize_bounds(
+            max_depth=max_depth,
+            min_demand=min_demand,
+            max_authorities=max_authorities,
+            per_jurisdiction_cap=per_jurisdiction_cap,
+            token_budget=token_budget,
+        )
+        max_depth = bounds["max_depth"]
+        min_demand = bounds["min_demand"]
+        max_authorities = bounds["max_authorities"]
+        per_jurisdiction_cap = bounds["per_jurisdiction_cap"]
+        token_budget = bounds["token_budget"]
+
         user = User.objects.get(pk=creator_id)
 
         # --- depth-0 seed from the Wanted Authorities aggregation ---------------
@@ -123,6 +176,7 @@ class CrawlAuthoritiesService(BaseService):
             seed["frontier_created"],
             seed["frontier_updated"],
         )
+        crawl_keys = set(seed["queued_keys"]) if "queued_keys" in seed else None
 
         ingested = 0
         tokens_spent = 0
@@ -166,7 +220,10 @@ class CrawlAuthoritiesService(BaseService):
                 break
 
             rows = AuthorityFrontierService.dequeue_queued(
-                limit=1, max_depth=max_depth, min_demand=min_demand
+                limit=1,
+                max_depth=max_depth,
+                min_demand=min_demand,
+                canonical_keys=crawl_keys,
             )
             if not rows:
                 # frontier_drained: dequeue returned nothing, so EVERY remaining
@@ -263,6 +320,8 @@ class CrawlAuthoritiesService(BaseService):
                 )
                 seeded = AuthorityFrontierService.seed_child_keys(row, outbound)
                 child_seeded += seeded["child_created"]
+                if crawl_keys is not None:
+                    crawl_keys.update(seeded.get("queued_keys") or [])
                 log(
                     "  re-extract %s: %s outbound, %s new frontier rows "
                     "(refs_created=%s)",

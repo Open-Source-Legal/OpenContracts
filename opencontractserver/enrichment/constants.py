@@ -92,6 +92,13 @@ CRAWL_DEFAULT_PER_JURISDICTION_CAP = 15  # max ingests per (jurisdiction) per ru
 CRAWL_DEFAULT_TOKEN_BUDGET = (
     2_000_000  # cumulative est. tokens (text len / 4) before stop
 )
+# Security limits for user/LLM-triggered crawl runs. These caps keep exposed
+# tool parameters from turning one corpus action into an unbounded crawler.
+CRAWL_MAX_MAX_DEPTH = 5
+CRAWL_MAX_MIN_DEMAND = 1_000
+CRAWL_MAX_MAX_AUTHORITIES = 50
+CRAWL_MAX_PER_JURISDICTION_CAP = 15
+CRAWL_MAX_TOKEN_BUDGET = 2_000_000
 # Punctuation stripped from the tail of a captured defined term
 # (e.g. (the "Notes," ...) -> "Notes").
 TRAILING_PUNCT = ",.;:"
