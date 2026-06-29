@@ -76,11 +76,9 @@ class CeleryTaskImportTest(TransactionTestCase):
         from opencontractserver.enrichment import constants as C
         from opencontractserver.tasks.corpus_analysis_tasks import crawl_authorities
 
-        properties = crawl_authorities._oc_corpus_analyzer_input_schema["properties"]
+        properties = crawl_authorities._oc_corpus_analyzer_input_schema["properties"]  # type: ignore[attr-defined]
         self.assertEqual(properties["max_depth"]["maximum"], C.CRAWL_MAX_DEPTH)
-        self.assertEqual(
-            properties["min_demand"]["maximum"], C.CRAWL_MAX_MIN_DEMAND
-        )
+        self.assertEqual(properties["min_demand"]["maximum"], C.CRAWL_MAX_MIN_DEMAND)
         self.assertEqual(
             properties["max_authorities"]["maximum"], C.CRAWL_MAX_AUTHORITIES
         )
