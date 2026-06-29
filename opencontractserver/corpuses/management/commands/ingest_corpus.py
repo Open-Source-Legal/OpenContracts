@@ -33,6 +33,7 @@ from typing import Any
 from django.core.management.base import BaseCommand, CommandError
 
 from opencontractserver.corpuses.models import Corpus
+from opencontractserver.corpuses.services.corpus_service import CorpusService
 
 # Default real embedder (the per-mimetype default can be a TestEmbedder in some
 # installs — pin the microservice embedder so semantic search actually works).
@@ -154,6 +155,11 @@ class Command(BaseCommand):
             label_set=labelset,
             preferred_embedder=options["embedder"],
         )
+        # A bare ORM create() does NOT grant guardian object-level permissions
+        # (the Corpus post_save signal only queues branding). Without this the
+        # corpus is invisible to its own owner via ``visible_to_user`` (only
+        # superusers bypass guardian), so mirror the GraphQL CreateCorpus path.
+        CorpusService.grant_creator_permissions(owner, corpus)
         self.stdout.write(
             self.style.SUCCESS(f"Created corpus {corpus.pk} ({corpus.slug!r}).")
         )

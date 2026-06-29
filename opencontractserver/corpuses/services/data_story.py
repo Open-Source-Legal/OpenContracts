@@ -263,10 +263,14 @@ class CorpusDataStoryService(BaseService):
         # Collection-Profile extract per corpus, but guard against historical
         # duplicates by taking the most recent rather than silently mixing cells
         # across extracts (which would let a stale prior run win per document).
+        # ``corpus_action__isnull=False`` pins to the action-owned accumulating
+        # extract so a manually-created Extract that merely reuses the
+        # "Collection Profile" fieldset cannot shadow it.
         profile_extract = (
             Extract.objects.filter(
                 corpus_id=corpus_pk,
                 fieldset__name=DEFAULT_PROFILE_FIELDSET_NAME,
+                corpus_action__isnull=False,
             )
             .order_by("-created")
             .first()

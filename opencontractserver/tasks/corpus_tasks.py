@@ -245,12 +245,19 @@ def process_corpus_action(
             tasks = []
 
             with transaction.atomic():
+                # Keyed on ``(corpus, fieldset, corpus_action)`` — the canonical
+                # accumulating-extract key shared with ``_setup_structured_profile``.
+                # ``name`` (embeds the mutable ``corpus.title``) and ``creator_id``
+                # (the document-adder, who differs from the setup admin) live in
+                # ``defaults`` so they never fork a second extract for the action.
                 extract, created = Extract.objects.get_or_create(
                     corpus=action.corpus,
-                    name=f"Action {action.name} for {action.corpus.title}",
                     fieldset=action.fieldset,
-                    creator_id=int_user_id,
                     corpus_action=action,
+                    defaults={
+                        "name": f"Action {action.name} for {action.corpus.title}",
+                        "creator_id": int_user_id,
+                    },
                 )
                 extract.started = timezone.now()
 

@@ -485,15 +485,22 @@ class CorpusIntelligenceSetupService(BaseService):
                     user, action, [PermissionTypes.CRUD], request=request
                 )
 
-            # The single accumulating extract — the same get_or_create key
+            # The single accumulating extract — keyed on
+            # ``(corpus, fieldset, corpus_action)``, the same canonical key
             # ``process_corpus_action`` uses, so the add_document action appends
             # new documents' cells into THIS extract rather than a new one.
+            # ``name`` and ``creator`` are in ``defaults`` (NOT lookup fields):
+            # the name embeds the mutable ``corpus.title`` and the creator differs
+            # between the setup admin and later document-adders, so keying on
+            # either would fork a second accumulating extract.
             extract, extract_created = Extract.objects.get_or_create(
                 corpus=corpus,
-                name=f"Action {action.name} for {corpus.title}",
                 fieldset=fieldset,
-                creator=user,
                 corpus_action=action,
+                defaults={
+                    "name": f"Action {action.name} for {corpus.title}",
+                    "creator": user,
+                },
             )
             if extract_created:
                 set_permissions_for_obj_to_user(
