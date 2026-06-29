@@ -417,8 +417,8 @@ class DiscoverHelperTest(TestCase):
 
     def test_failed_query_vectors_are_not_cached(self):
         from config.graphql.discover_queries import (
-            _UncacheableQueryVector,
             _cached_query_vector,
+            _UncacheableQueryVector,
         )
 
         _cached_query_vector.cache_clear()
