@@ -46,15 +46,24 @@ class EnrichmentService:
 
     # -- shared internals -------------------------------------------------- #
 
-    def _load(self, corpus_id: int, creator_id: int):
+    def _load(
+        self,
+        corpus_id: int,
+        creator_id: int,
+        *,
+        require_document_visibility: bool = False,
+    ):
         user = User.objects.get(pk=creator_id)
         # Visibility-scoped fetch: invisible and nonexistent corpora raise the
         # same ``Corpus.DoesNotExist`` (no existence oracle for callers that
         # pass arbitrary PKs).
         corpus = Corpus.objects.visible_to_user(user).get(pk=corpus_id)
-        documents = list(
-            CorpusDocumentService.get_corpus_documents(user, corpus, include_caml=False)
+        document_loader = (
+            CorpusDocumentService.get_corpus_documents_visible_to_user
+            if require_document_visibility
+            else CorpusDocumentService.get_corpus_documents
         )
+        documents = list(document_loader(user, corpus, include_caml=False))
         return user, corpus, documents
 
     def _sections_by_doc(self, documents) -> dict[int, list[SectionAnno]]:
@@ -427,7 +436,9 @@ class EnrichmentService:
         """
         from opencontractserver.annotations.models import AuthorityNamespace
 
-        user, corpus, documents = self._load(corpus_id, creator_id)
+        user, corpus, documents = self._load(
+            corpus_id, creator_id, require_document_visibility=True
+        )
         documents_total = len(documents)
         documents_truncated = (
             max_documents is not None and documents_total > max_documents

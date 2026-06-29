@@ -61,6 +61,7 @@ class TestEnrichmentLLMIntegration(TransactionTestCase):
 
     def setUp(self):
         self.user = User.objects.create_user(username="llmtest", password="p")
+        self.other_user = User.objects.create_user(username="llmother", password="p")
         self.corpus = Corpus.objects.create(title="LLMTestCorpus", creator=self.user)
         self.doc = Document.objects.create(title="LLMDoc", creator=self.user)
         self.doc.txt_extract_file.save("llmdoc.txt", ContentFile(_TEXT.encode("utf-8")))
@@ -274,6 +275,50 @@ class TestEnrichmentLLMIntegration(TransactionTestCase):
         assert (
             llm_overlap_keys == []
         ), f"LLM candidate for grammar-detected span leaked into by_key: {llm_overlap_keys}"
+
+    def test_discover_uses_document_visibility_for_public_corpus(self):
+        """A user who can read a public corpus but not a private document in it
+        must not have that document scanned or leaked through review_candidates."""
+        from pydantic_ai.models.test import TestModel
+
+        import opencontractserver.enrichment.llm_citation_extractor as mod
+
+        private_corpus = Corpus.objects.create(
+            title="PublicCorpusWithPrivateDoc", creator=self.user, is_public=True
+        )
+        private_doc = Document.objects.create(
+            title="PrivateLLMDoc", creator=self.user, is_public=False
+        )
+        private_doc.txt_extract_file.save(
+            "private-llm-doc.txt", ContentFile(_TEXT.encode("utf-8"))
+        )
+        private_corpus.add_document(document=private_doc, user=self.user)
+
+        canned = _make_llm_citation(0.4)
+        test_model = TestModel(custom_output_args={"citations": [canned]})
+        original = mod.abuild_agent_model
+        call_count = 0
+
+        async def fake_build(spec):
+            nonlocal call_count
+            call_count += 1
+            return test_model
+
+        mod.abuild_agent_model = fake_build
+        try:
+            out = EnrichmentService().discover(
+                corpus_id=private_corpus.id,
+                creator_id=self.other_user.id,
+                use_llm=True,
+            )
+        finally:
+            mod.abuild_agent_model = original
+
+        assert out["documents_scanned"] == 0
+        assert out["documents_total"] == 0
+        assert out["total_candidates"] == 0
+        assert out["review_candidates"] == []
+        assert call_count == 0, "LLM was called for a document hidden from the user"
 
     def test_apply_skips_review_bucket(self):
         """apply() never writes a CorpusReference for a low-confidence (review-
