@@ -537,12 +537,18 @@ class DeleteMetadataColumnTestCase(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(username="del-owner", password="x")
         self.stranger = User.objects.create_user(username="del-stranger", password="x")
+        self.column_creator = User.objects.create_user(
+            username="del-column-creator", password="x"
+        )
         self.client_owner = Client(schema, context_value=TestContext(self.user))
         self.client_stranger = Client(schema, context_value=TestContext(self.stranger))
+        self.client_column_creator = Client(
+            schema, context_value=TestContext(self.column_creator)
+        )
         self.corpus = Corpus.objects.create(title="Del Corpus", creator=self.user)
         set_permissions_for_obj_to_user(self.user, self.corpus, [PermissionTypes.CRUD])
         self.fieldset = Fieldset.objects.create(
-            name="md", description="md", creator=self.user
+            name="md", description="md", corpus=self.corpus, creator=self.user
         )
         self.column = Column.objects.create(
             fieldset=self.fieldset,
@@ -567,6 +573,28 @@ class DeleteMetadataColumnTestCase(TestCase):
         payload = result["data"]["deleteMetadataColumn"]
         self.assertTrue(payload["ok"], payload["message"])
         self.assertFalse(Column.objects.filter(pk=self.column.pk).exists())
+
+    def test_column_creator_without_corpus_delete_cannot_delete(self):
+        vulnerable_column = Column.objects.create(
+            fieldset=self.fieldset,
+            name="Creator Owned",
+            output_type="str",
+            is_manual_entry=True,
+            creator=self.column_creator,
+        )
+        set_permissions_for_obj_to_user(
+            self.column_creator, vulnerable_column, [PermissionTypes.CRUD]
+        )
+
+        result = self.client_column_creator.execute(
+            self.MUTATION,
+            variables={"columnId": to_global_id("ColumnType", vulnerable_column.pk)},
+        )
+
+        payload = result["data"]["deleteMetadataColumn"]
+        self.assertFalse(payload["ok"])
+        self.assertIn("not found", payload["message"].lower())
+        self.assertTrue(Column.objects.filter(pk=vulnerable_column.pk).exists())
 
     def test_stranger_gets_unified_not_found(self):
         result = self.client_stranger.execute(

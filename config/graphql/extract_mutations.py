@@ -374,17 +374,24 @@ class DeleteMetadataColumn(graphene.Mutation):
 
         try:
             user = info.context.user
-            column = BaseService.get_or_none(
-                Column, from_global_id(column_id)[1], user, request=info.context
+            column = (
+                Column.objects.select_related("fieldset__corpus")
+                .filter(pk=from_global_id(column_id)[1])
+                .first()
             )
-            # require_permission returns "" on grant and a non-empty error
-            # string on denial, so a truthy result means "denied". Guard the
-            # None case first to avoid calling require_permission on a missing
-            # object.
             if column is None:
                 return DeleteMetadataColumn(ok=False, message=not_found_msg)
+
+            corpus = getattr(column.fieldset, "corpus", None)
+            if corpus is None:
+                return DeleteMetadataColumn(ok=False, message=not_found_msg)
+
+            # Metadata schemas are corpus-scoped objects. Authorize destructive
+            # schema changes against the parent corpus instead of the child
+            # Column so creator/direct Column grants cannot outlive corpus
+            # permissions and cascade-delete metadata values.
             if BaseService.require_permission(
-                column, user, PermissionTypes.DELETE, request=info.context
+                corpus, user, PermissionTypes.DELETE, request=info.context
             ):
                 return DeleteMetadataColumn(ok=False, message=not_found_msg)
 
