@@ -169,31 +169,39 @@ class CorpusReferenceVisibilityTests(TestCase):
     def test_visible_to_user_requires_visible_source_document(self):
         ref = self._reference(self._mention(self.private_source_doc))
 
-        assert not CorpusReferenceService.visible_to_user(self.viewer).filter(
-            pk=ref.pk
-        ).exists()
+        assert (
+            not CorpusReferenceService.visible_to_user(self.viewer)
+            .filter(pk=ref.pk)
+            .exists()
+        )
 
     def test_visible_to_user_requires_visible_target_document(self):
         ref = self._reference(
             self._mention(self.visible_doc), target_document=self.private_target_doc
         )
 
-        assert not CorpusReferenceService.visible_to_user(self.viewer).filter(
-            pk=ref.pk
-        ).exists()
+        assert (
+            not CorpusReferenceService.visible_to_user(self.viewer)
+            .filter(pk=ref.pk)
+            .exists()
+        )
 
     def test_visible_to_user_requires_visible_target_corpus(self):
         ref = self._reference(
             self._mention(self.visible_doc), target_corpus=self.private_target_corpus
         )
 
-        assert not CorpusReferenceService.visible_to_user(self.viewer).filter(
-            pk=ref.pk
-        ).exists()
+        assert (
+            not CorpusReferenceService.visible_to_user(self.viewer)
+            .filter(pk=ref.pk)
+            .exists()
+        )
 
     def test_visible_to_user_returns_reference_when_all_edges_visible(self):
         ref = self._reference(self._mention(self.visible_doc))
 
-        assert CorpusReferenceService.visible_to_user(self.viewer).filter(
-            pk=ref.pk
-        ).exists()
+        assert (
+            CorpusReferenceService.visible_to_user(self.viewer)
+            .filter(pk=ref.pk)
+            .exists()
+        )
