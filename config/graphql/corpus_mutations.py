@@ -1879,8 +1879,10 @@ class SetArtifactImage(graphene.Mutation):
     def mutate(root, info, slug, base64_png) -> "SetArtifactImage":
         import base64
 
-        from opencontractserver.corpuses.services.artifact_service import (
+        from opencontractserver.constants.artifacts import (
             MAX_ARTIFACT_IMAGE_BASE64_BYTES,
+        )
+        from opencontractserver.corpuses.services.artifact_service import (
             ArtifactService,
         )
 

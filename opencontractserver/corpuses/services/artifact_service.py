@@ -15,6 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from opencontractserver.constants.artifacts import _MIN_DATED, _MIN_REFERENCES
 from opencontractserver.corpuses.models import Artifact, Corpus
 from opencontractserver.shared.services.base import BaseService
 from opencontractserver.types.enums import PermissionTypes
@@ -54,14 +55,10 @@ ARTIFACT_TEMPLATES: list[dict[str, str]] = [
     },
 ]
 
-# Minimum data for a template to be worth offering.
-_MIN_DATED = 3
-_MIN_REFERENCES = 2
-
-# Reject oversized poster uploads *before* the base64 decode allocates the bytes
-# in memory (a slow-loris / OOM guard on the otherwise unbounded image field).
-# ~10 MB of base64 ≈ 7.5 MB decoded PNG — ample for a poster render.
-MAX_ARTIFACT_IMAGE_BASE64_BYTES = 10 * 1024 * 1024
+# Eligibility thresholds (``_MIN_DATED`` / ``_MIN_REFERENCES``) and the upload
+# size guard (``MAX_ARTIFACT_IMAGE_BASE64_BYTES``) live in
+# ``opencontractserver.constants.artifacts``. The size guard is enforced by the
+# ``SetArtifactImage`` mutation before the decode, so it is imported there.
 
 
 class ArtifactService(BaseService):

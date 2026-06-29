@@ -438,6 +438,80 @@ class IntelligenceSetupServiceTestCase(TestCase):
             ).exists()
         )
 
+    # ------------------------------------------------------------------
+    # Structured-profile setup branches (the data-story backfill)
+    # ------------------------------------------------------------------
+    def test_structured_profile_skips_empty_corpus(self):
+        """A corpus with no documents installs the accumulating extract but
+        adds no docs and never schedules a backfill (the ``if not docs``
+        early return)."""
+        from opencontractserver.extracts.models import Extract
+
+        empty = Corpus.objects.create(title="Empty Profile Corpus", creator=self.user)
+        CorpusIntelligenceSetupService._setup_structured_profile(self.user, empty)
+
+        extract = Extract.objects.filter(corpus=empty).first()
+        self.assertIsNotNone(extract)
+        assert extract is not None
+        self.assertEqual(extract.documents.count(), 0)
+        self.assertIsNone(extract.started)
+
+    def test_structured_profile_skips_backfill_when_cells_exist(self):
+        """Once the accumulating extract already has cells, re-running setup
+        returns before fetching documents (the datacell-exists guard) so a
+        prior run's profile is never recomputed."""
+        from opencontractserver.corpuses.services.data_story import (
+            DEFAULT_PROFILE_FIELDSET_NAME,
+        )
+        from opencontractserver.extracts.models import Column, Datacell, Extract
+
+        # First run builds the extract and backfills the corpus's 3 documents.
+        CorpusIntelligenceSetupService._setup_structured_profile(self.user, self.corpus)
+        extract = Extract.objects.get(
+            corpus=self.corpus,
+            fieldset__name=DEFAULT_PROFILE_FIELDSET_NAME,
+            corpus_action__isnull=False,
+        )
+        self.assertEqual(extract.documents.count(), 3)
+        column = Column.objects.filter(fieldset=extract.fieldset).first()
+        document = extract.documents.first()
+        assert column is not None and document is not None
+        Datacell.objects.create(
+            extract=extract,
+            column=column,
+            document=document,
+            data_definition="profile",
+            creator=self.user,
+        )
+
+        # Second run: the datacell-exists guard returns before the document
+        # fetch, so ``get_corpus_documents`` is never reached.
+        with patch(
+            "opencontractserver.corpuses.services.corpus_documents."
+            "CorpusDocumentService.get_corpus_documents"
+        ) as mock_get_docs:
+            CorpusIntelligenceSetupService._setup_structured_profile(
+                self.user, self.corpus
+            )
+        mock_get_docs.assert_not_called()
+
+    def test_structured_profile_swallows_setup_exception(self):
+        """A failure inside structured-profile setup is logged, never raised —
+        the data story is an enhancement, not a precondition for the bundle."""
+        from opencontractserver.extracts.models import Extract
+
+        with patch(
+            "opencontractserver.corpuses.services.data_story."
+            "get_or_create_default_profile_fieldset",
+            side_effect=RuntimeError("boom"),
+        ):
+            # Must not raise.
+            CorpusIntelligenceSetupService._setup_structured_profile(
+                self.user, self.corpus
+            )
+        # The exception fires before any row is written.
+        self.assertFalse(Extract.objects.filter(corpus=self.corpus).exists())
+
 
 class IntelligenceSetupGraphQLTestCase(TestCase):
     """Schema-level smoke tests via graphql_sync execution."""

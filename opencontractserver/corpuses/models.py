@@ -8,11 +8,12 @@ import django
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.core.validators import URLValidator
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 from guardian.models import GroupObjectPermissionBase, UserObjectPermissionBase
 from tree_queries.models import TreeNode
 
+from opencontractserver.constants.artifacts import ARTIFACT_SLUG_RETRY_ATTEMPTS
 from opencontractserver.constants.document_processing import (
     DEFAULT_DOCUMENT_PATH_PREFIX,
     MARKDOWN_MIME_TYPE,
@@ -2661,15 +2662,47 @@ class Artifact(BaseOCModel):
         return f"Artifact({self.template}) {self.slug}"
 
     def save(self, *args: Any, **kwargs: Any) -> None:
-        if not self.slug or not isinstance(self.slug, str) or not self.slug.strip():
-            base = self.title or f"{self.template}-{self.corpus_id}"
-            self.slug = generate_unique_slug(
+        # A caller-supplied slug is sanitized and saved as-is — a uniqueness
+        # collision is then the caller's to handle. Only an AUTO-generated slug
+        # gets the collision retry below (we picked it, so we may re-roll it).
+        if self.slug and isinstance(self.slug, str) and self.slug.strip():
+            self.slug = sanitize_slug(self.slug, max_length=128)
+            super().save(*args, **kwargs)
+            return
+
+        base = self.title or f"{self.template}-{self.corpus_id}"
+
+        def _roll_slug() -> str:
+            return generate_unique_slug(
                 base_value=base,
                 scope_qs=Artifact.objects.exclude(pk=self.pk),
                 slug_field="slug",
                 max_length=128,
                 fallback_prefix="artifact",
             )
-        else:
-            self.slug = sanitize_slug(self.slug, max_length=128)
-        super().save(*args, **kwargs)
+
+        # ``generate_unique_slug`` checks uniqueness with a non-locking
+        # ``.exists()`` query, so two concurrent creates can sample the same
+        # candidate before either commits; the second INSERT then trips the
+        # global ``unique=True`` slug constraint. Catch that IntegrityError and
+        # re-roll, bounded to avoid pathological loops — mirrors the handle race
+        # handled in ``User.save`` (see ``HANDLE_INSERT_RETRY_ATTEMPTS``).
+        self.slug = _roll_slug()
+        for attempt in range(ARTIFACT_SLUG_RETRY_ATTEMPTS):
+            try:
+                super().save(*args, **kwargs)
+                return
+            except IntegrityError:
+                # Don't string-parse the DB error message (formats vary across
+                # drivers). Instead query for an existing row holding our chosen
+                # slug: a hit means this WAS a slug collision and we re-roll; a
+                # miss means the IntegrityError came from another column and must
+                # propagate. ``self.pk`` stays None across failed INSERTs, so a
+                # brand-new row is checked against every existing slug.
+                chosen = self.slug
+                collided = (
+                    Artifact.objects.exclude(pk=self.pk).filter(slug=chosen).exists()
+                )
+                if not collided or attempt == ARTIFACT_SLUG_RETRY_ATTEMPTS - 1:
+                    raise
+                self.slug = _roll_slug()
