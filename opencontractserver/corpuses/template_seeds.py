@@ -96,8 +96,8 @@ TEMPLATES = [
     {
         "name": "Document Description Updater",
         "description": (
-            "Reads a newly added document and writes a concise description "
-            "summarising its type, purpose, and key parties."
+            "Reads a newly added document and writes a one-sentence summary "
+            "leading with its subject matter and key parties."
         ),
         "trigger": _TRIGGER_ADD_DOCUMENT,
         "sort_order": 10,
