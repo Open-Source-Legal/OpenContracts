@@ -649,23 +649,47 @@ class AnnotationType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     )
 
     def resolve_document(self, info) -> Any:
-        """Return the document, resolving via structural_set for structural annotations.
+        """Return the visible document for this annotation.
 
-        Runs because ``document`` is declared as an explicit ``graphene.Field``
-        above — graphene-django's auto-generated FK field would short-circuit to
-        ``None`` for structural annotations (``document_id=NULL``) before this
-        method ever ran.
+        Structural annotations carry ``document_id=NULL`` and resolve through a
+        shared structural set. Because a set can be shared by public and private
+        documents, every path below intersects candidate documents with
+        ``Document.visible_to_user`` before returning a nested ``DocumentType``.
         """
+        from opencontractserver.documents.models import Document
+
+        user = info.context.user if hasattr(info.context, "user") else None
+        visible_documents = BaseService.filter_visible(
+            Document, user, request=info.context
+        )
+
         if self.document_id:
-            return self.document
+            return visible_documents.filter(id=self.document_id).first()
         # Structural annotations have document=NULL; resolve via structural_set
         if self.structural_set_id:
             structural_set = self.structural_set
             if structural_set is not None:
-                # Use prefetched documents if available (evaluates prefetch cache)
-                prefetched = list(structural_set.documents.all())
-                if prefetched:
-                    return prefetched[0]
+                # Use prefetched documents if available. The GraphQL query
+                # builders prefilter this relation by caller visibility; this
+                # final intersection keeps the resolver safe for any caller that
+                # forgot to use ``AnnotationService.structural_document_prefetch``
+                # or reused an unfiltered prefetched cache. If the prefetch ran
+                # and found no visible in-context documents, return ``None``
+                # instead of falling back to a different structural-set member.
+                prefetch_cache = getattr(
+                    structural_set, "_prefetched_objects_cache", {}
+                )
+                if "documents" in prefetch_cache:
+                    prefetched_ids = [
+                        document.id for document in prefetch_cache["documents"]
+                    ]
+                    if not prefetched_ids:
+                        return None
+                    return (
+                        visible_documents.filter(id__in=prefetched_ids)
+                        .order_by("slug")
+                        .first()
+                    )
             # Fallback when the caller did not apply
             # ``AnnotationService.structural_document_prefetch`` (deferred import
             # avoids a module-level cycle with documents.models). Scope to this
@@ -673,9 +697,7 @@ class AnnotationType(AnnotatePermissionsForReadMixin, DjangoObjectType):
             # reintroduce the original arbitrary ``.documents.first()`` bug;
             # query-context scoping (which corpus is being viewed) only happens
             # via the prefetch above, so this is a best-effort degraded path.
-            from opencontractserver.documents.models import Document
-
-            documents = Document.objects.filter(
+            documents = visible_documents.filter(
                 structural_annotation_set_id=self.structural_set_id
             )
             if self.corpus_id:

@@ -536,6 +536,8 @@ class AnnotationQueryMixin:
             AnnotationService.structural_document_prefetch(
                 corpus_id=corpus_django_pk,
                 document_id=doc_django_pk,
+                user=info.context.user,
+                context=info.context,
             ),
         )
 

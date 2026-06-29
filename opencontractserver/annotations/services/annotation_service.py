@@ -782,6 +782,8 @@ class AnnotationService(BaseService):
         cls,
         corpus_id: Optional[int] = None,
         document_id: Optional[int] = None,
+        user: Any = None,
+        context: Any = None,
     ) -> Prefetch:
         """Build the ``structural_set__documents`` prefetch consumed by
         ``AnnotationType.resolve_document``.
@@ -814,6 +816,10 @@ class AnnotationService(BaseService):
                 path in this corpus.
             document_id: When set, restrict to exactly this document — the
                 document being viewed.
+            user: Requesting user. When supplied, intersect the prefetched
+                documents with ``Document.visible_to_user`` so a structural
+                annotation cannot resolve to an inaccessible sibling document.
+            context: Optional request context for service-layer permission APIs.
 
         Returns:
             A ``Prefetch`` for ``structural_set__documents`` whose queryset is
@@ -823,7 +829,12 @@ class AnnotationService(BaseService):
         """
         from opencontractserver.documents.models import Document
 
-        documents = Document.objects.select_related("creator")
+        if user is not None:
+            documents = BaseService.filter_visible(
+                Document, user, request=context
+            ).select_related("creator")
+        else:
+            documents = Document.objects.select_related("creator")
         if document_id is not None:
             documents = documents.filter(id=document_id)
         elif corpus_id is not None:
