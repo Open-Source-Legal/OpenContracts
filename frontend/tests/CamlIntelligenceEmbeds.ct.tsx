@@ -13,6 +13,7 @@ import { MockedProvider } from "@apollo/client/testing";
 import { AskAcrossDocsEmbed } from "../src/components/corpuses/CorpusHome/intelligence/embeds/AskAcrossDocsEmbed";
 import { DocumentGraphEmbed } from "../src/components/corpuses/CorpusHome/intelligence/embeds/DocumentGraphEmbed";
 import { InsightPanelEmbed } from "../src/components/corpuses/CorpusHome/intelligence/embeds/InsightPanelEmbed";
+import { CollectionDataStoryEmbed } from "../src/components/corpuses/CorpusHome/intelligence/embeds/CollectionDataStoryEmbed";
 import { CamlEmbedProvider } from "../src/components/corpuses/caml/CamlEmbedContext";
 import { MemoryRouter } from "react-router-dom";
 import { docScreenshot } from "./utils/docScreenshot";
@@ -22,6 +23,7 @@ import {
   GET_CORPUS_COLLECTION_DOCS,
   GET_GOVERNANCE_GRAPH,
   GET_CORPUS_INTELLIGENCE_SETUP_STATUS,
+  GET_CORPUS_DATA_STORY,
 } from "../src/graphql/queries";
 
 const CORPUS_ID = "Q29ycHVzVHlwZTox";
@@ -116,6 +118,41 @@ const setupStatusSilentMock = {
     },
   },
 };
+
+// The collection-datastory embed mounts BOTH the beeswarm and the data story,
+// each issuing GET_CORPUS_DATA_STORY for the ambient corpus id. Apollo dedupes
+// the concurrent identical request, but extra copies are harmless and keep the
+// mock supply robust to fetch-policy timing.
+const dataStoryMock = () => ({
+  request: { query: GET_CORPUS_DATA_STORY, variables: { corpusId: CORPUS_ID } },
+  result: {
+    data: {
+      corpusDataStory: {
+        totalDocuments: 2,
+        profiles: [
+          {
+            documentId: "Doc1",
+            title: "Grant Agreement",
+            slug: "doc1",
+            type: "Grant",
+            party: "Alpha Corp",
+            effectiveDate: "2021-01-15",
+            value: 12_000_000,
+          },
+          {
+            documentId: "Doc2",
+            title: "Renewal",
+            slug: "doc2",
+            type: "Renewal",
+            party: "Beta LLC",
+            effectiveDate: "2022-06-01",
+            value: 1_500_000,
+          },
+        ],
+      },
+    },
+  },
+});
 
 const graphMock = {
   request: {
@@ -268,6 +305,55 @@ test.describe("CAML intelligence embeds", () => {
     ).toContainText("Alpha Agreement", { timeout: 10000 });
 
     await docScreenshot(page, "caml--insight-panel-embed--with-data");
+
+    await component.unmount();
+  });
+
+  test("collection-datastory embed renders the beeswarm + data story from the ambient corpus id", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <MockedProvider
+        mocks={[dataStoryMock(), dataStoryMock(), dataStoryMock()]}
+        addTypename={false}
+      >
+        <CamlEmbedProvider value={{ corpusId: CORPUS_ID }}>
+          <CollectionDataStoryEmbed />
+        </CamlEmbedProvider>
+      </MockedProvider>
+    );
+
+    // The embed wires the ambient corpus id through to both child surfaces.
+    await expect(page.locator('[data-testid="spending-beeswarm"]')).toBeVisible(
+      { timeout: 10000 }
+    );
+    await expect(
+      page.locator('[data-testid="collection-data-story"]')
+    ).toBeVisible({ timeout: 10000 });
+
+    await component.unmount();
+  });
+
+  test("collection-datastory embed renders nothing without an ambient corpus id", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <MockedProvider mocks={[]} addTypename={false}>
+        <CamlEmbedProvider value={{}}>
+          <CollectionDataStoryEmbed />
+        </CamlEmbedProvider>
+      </MockedProvider>
+    );
+
+    // No corpus id (neither prop nor context) -> the embed short-circuits to null.
+    await expect(page.locator('[data-testid="spending-beeswarm"]')).toHaveCount(
+      0
+    );
+    await expect(
+      page.locator('[data-testid="collection-data-story"]')
+    ).toHaveCount(0);
 
     await component.unmount();
   });

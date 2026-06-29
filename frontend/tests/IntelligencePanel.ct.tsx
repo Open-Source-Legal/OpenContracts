@@ -25,6 +25,7 @@ import {
   GET_CORPUS_COLLECTION_DOCS,
   GET_GOVERNANCE_GRAPH,
   GET_CORPUS_INTELLIGENCE_SETUP_STATUS,
+  GET_DOCUMENT_BY_ID_FOR_REDIRECT,
 } from "../src/graphql/queries";
 
 const CORPUS_ID = "Q29ycHVzVHlwZTox";
@@ -324,6 +325,120 @@ test.describe("IntelligencePanel", () => {
       "No documents in this collection yet.",
       { timeout: 10000 }
     );
+
+    await component.unmount();
+  });
+
+  test("uses singular labels, an untitled fallback, and navigates an entry by keyboard", async ({
+    mount,
+    page,
+  }) => {
+    // A single, untitled, one-page document with exactly one law reference
+    // exercises every singular metric label ("Document" / "Page" /
+    // "Law reference"), the "Untitled document" title fallback, and the
+    // singular "page" meta — none of which the multi-document cases reach.
+    const docs: DocSeed[] = [{ id: "Doc1", title: "", pageCount: 1 }];
+
+    // Activating an entry (click or keyboard) resolves its canonical path via
+    // the redirect query, so mock it to keep navigation a clean no-op. Two
+    // copies — one for the click, one for the Enter press (mocks are single-use).
+    const redirectMock = () => ({
+      request: {
+        query: GET_DOCUMENT_BY_ID_FOR_REDIRECT,
+        variables: { id: "Doc1" },
+      },
+      result: {
+        data: {
+          document: {
+            id: "Doc1",
+            slug: "doc1",
+            title: "Untitled document",
+            creator: {
+              id: "User:1",
+              slug: "tester",
+              username: "tester",
+              email: "tester@example.com",
+            },
+          },
+        },
+      },
+    });
+
+    const component = await mount(
+      <MemoryRouter>
+        <MockedProvider
+          mocks={[
+            docsMock(docs, 1),
+            governanceMock(1),
+            setupStatusSilentMock,
+            redirectMock(),
+            redirectMock(),
+          ]}
+          addTypename={false}
+        >
+          <IntelligencePanel corpusId={CORPUS_ID} />
+        </MockedProvider>
+      </MemoryRouter>
+    );
+
+    const metrics = page.locator(METRICS);
+    await expect(metrics).toContainText("Document", { timeout: 10000 });
+    // Singular forms, not "Documents" / "Pages" / "Law references".
+    await expect(metrics).toContainText("Page");
+    await expect(metrics).toContainText("Law reference");
+
+    // The untitled document falls back to a placeholder title, and its single
+    // page reads in the singular.
+    const entry = page.locator(ENTRY).first();
+    await expect(entry).toContainText("Untitled document");
+    await expect(entry).toContainText("1 page");
+
+    // The entry is activable by click and by keyboard (role=link, tabIndex=0);
+    // both resolve+navigate without crashing the panel.
+    await entry.click();
+    await expect(page.locator(PANEL)).toBeVisible();
+    await entry.focus();
+    await entry.press("Enter");
+    await expect(page.locator(PANEL)).toBeVisible();
+
+    await component.unmount();
+  });
+
+  test("toggles a large index back to 'Show fewer' after expanding", async ({
+    mount,
+    page,
+  }) => {
+    const docs: DocSeed[] = Array.from({ length: 8 }, (_, i) => ({
+      id: `Doc${i + 1}`,
+      title: `Document ${i + 1}`,
+      pageCount: i + 1,
+    }));
+
+    const component = await mount(
+      <MemoryRouter>
+        <MockedProvider
+          mocks={[docsMock(docs, 8), governanceMock(0), setupStatusSilentMock]}
+          addTypename={false}
+        >
+          <IntelligencePanel corpusId={CORPUS_ID} />
+        </MockedProvider>
+      </MemoryRouter>
+    );
+
+    const showMore = page.locator(
+      '[data-testid="corpus-intelligence-panel-show-more"]'
+    );
+    await expect(showMore).toBeVisible({ timeout: 10000 });
+
+    // Expand, then collapse — the collapse path renders the "Show fewer" label
+    // and restores the six-entry preview.
+    await showMore.click();
+    await expect(page.locator(ENTRY)).toHaveCount(8);
+    await expect(showMore).toContainText("Show fewer");
+
+    await showMore.click();
+    await expect(page.locator(ENTRY)).toHaveCount(6);
+    await expect(showMore).toContainText("Show all 8 documents");
 
     await component.unmount();
   });
