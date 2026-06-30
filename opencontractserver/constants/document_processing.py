@@ -37,6 +37,13 @@ TEXT_MIMETYPES = {"text/plain", MARKDOWN_MIME_TYPE, "application/txt"}
 # Used by Django's DATA_UPLOAD_MAX_MEMORY_SIZE setting.
 MAX_FILE_UPLOAD_SIZE_BYTES = 5_242_880_000
 
+# Default cap (256 MB) on the uncompressed size of a single document source
+# member the V2 corpus-export importer will read into memory — on BOTH the
+# reingest peek and the baked-import fallback. Backs the
+# ``MAX_CORPUS_REINGEST_SOURCE_BYTES`` setting; an operator may override it via
+# the env var of the same name (a negative value disables the guard entirely).
+DEFAULT_MAX_CORPUS_REINGEST_SOURCE_BYTES = 256 * 1024 * 1024
+
 # Default path prefix for documents uploaded without explicit path
 # Used when generating document paths in corpus operations
 DEFAULT_DOCUMENT_PATH_PREFIX = "/documents"

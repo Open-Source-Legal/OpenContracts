@@ -13,6 +13,7 @@ from opencontractserver.constants.agent_memory import (
 )
 from opencontractserver.constants.celery import CELERY_REDIS_VISIBILITY_TIMEOUT_SECONDS
 from opencontractserver.constants.document_processing import (
+    DEFAULT_MAX_CORPUS_REINGEST_SOURCE_BYTES,
     DOCLING_PARSER_REQUEST_TIMEOUT_SECONDS,
     MAX_FILE_UPLOAD_SIZE_BYTES,
 )
@@ -931,12 +932,24 @@ MAX_DOCUMENT_IMPORT_SIZE_BYTES = int(
     )
 )
 
-# Maximum uncompressed size (in bytes) for a single document member that the V2
-# corpus-export reingest path will read into memory. Larger members fall back to
-# the baked import path instead of risking Celery worker exhaustion. Set to 0 to
-# disable the per-member guard.
-MAX_CORPUS_REINGEST_SOURCE_BYTES = int(
-    env("MAX_CORPUS_REINGEST_SOURCE_BYTES", default=str(256 * 1024 * 1024))
+# Maximum uncompressed size (in bytes) for a single document source member that
+# the V2 corpus-export importer reads into memory — enforced on BOTH the
+# reingest peek and the baked-import fallback so an over-size member cannot
+# bypass the guard by falling through to the baked path. Over-size members are
+# skipped (the document is not imported) rather than risking worker exhaustion.
+#
+# Sentinel: a NEGATIVE value disables the guard entirely (the read becomes
+# unbounded). 0 is NOT a disable — it is a literal zero-byte limit that rejects
+# every non-empty member, so an operator who zeroes the value to *harden* gets
+# stricter behavior, not an accidental full-disable.
+_max_corpus_reingest_source_bytes = int(
+    env(
+        "MAX_CORPUS_REINGEST_SOURCE_BYTES",
+        default=str(DEFAULT_MAX_CORPUS_REINGEST_SOURCE_BYTES),
+    )
+)
+MAX_CORPUS_REINGEST_SOURCE_BYTES: int | None = (
+    None if _max_corpus_reingest_source_bytes < 0 else _max_corpus_reingest_source_bytes
 )
 
 # Chunked (resumable) upload limits

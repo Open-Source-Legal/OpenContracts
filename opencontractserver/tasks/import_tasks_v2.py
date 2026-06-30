@@ -8,6 +8,7 @@ creation, and corpus.add_document() for proper corpus isolation.
 
 from __future__ import annotations
 
+import io
 import json
 import logging
 import uuid
@@ -86,54 +87,66 @@ _UNRESOLVED_FOLDER_KEY_SAMPLE_SIZE = 20
 _NUL_SOURCE_PLACEHOLDER = b"\x00"
 
 
-def _read_reingest_source_bytes(
+def _read_guarded_source_bytes(
     import_zip: zipfile.ZipFile, doc_filename: str
 ) -> bytes | None:
-    """Read a reingest source member only when its expanded size is safe.
+    """Read a document source member into memory only when its size is safe.
 
-    User-facing corpus-export imports default to reingest mode, so a crafted ZIP
-    can otherwise force Celery workers to allocate memory proportional to an
-    uncompressed member via ``ZipExtFile.read()``.  Return ``None`` to make the
-    caller use the baked-import fallback instead.
+    This is the single choke point for reading a source member off the import
+    ZIP — used by BOTH the reingest peek and the baked-import fallback. User-facing
+    corpus-export imports default to reingest mode, so a crafted ZIP can otherwise
+    force Celery workers to allocate memory proportional to an uncompressed member
+    via ``ZipExtFile.read()``. Routing the baked path through the same guard means
+    an over-size member cannot bypass the limit by falling through to baked import.
+
+    ``settings.MAX_CORPUS_REINGEST_SOURCE_BYTES`` is the per-member cap. A negative
+    value is parsed in ``config/settings/base.py`` into ``None`` (guard disabled →
+    unbounded read); ``0`` is a literal zero-byte limit that rejects every
+    non-empty member (so zeroing the setting hardens rather than disables).
+
+    Returns the member bytes, or ``None`` when the member exceeds the cap or
+    cannot be read safely — the caller then skips the document.
     """
-    # Read the limit directly (base.py always defines it, 256 MiB default) so a
-    # misconfiguration fails loudly rather than silently disabling the guard: a
-    # ``getattr(..., 0)`` fallback would make the bounded read below ``read(-1)``
-    # — unbounded — which is exactly the memory exhaustion this guards against.
+    # ``None`` is the disable sentinel (negative setting; see base.py); any int is
+    # a literal cap. Compared via ``is not None`` so mypy narrows ``int | None``.
     max_source_bytes = settings.MAX_CORPUS_REINGEST_SOURCE_BYTES
-    zip_info = import_zip.getinfo(doc_filename)
-    if max_source_bytes and zip_info.file_size > max_source_bytes:
-        logger.warning(
-            "Skipping reingest for %s: uncompressed ZIP member size %s exceeds "
-            "MAX_CORPUS_REINGEST_SOURCE_BYTES=%s; using baked import fallback.",
-            doc_filename,
-            zip_info.file_size,
-            max_source_bytes,
-        )
-        return None
-
     try:
+        zip_info = import_zip.getinfo(doc_filename)
+        if max_source_bytes is not None and zip_info.file_size > max_source_bytes:
+            logger.warning(
+                "Skipping source read for %s: uncompressed ZIP member size %s "
+                "exceeds MAX_CORPUS_REINGEST_SOURCE_BYTES=%s.",
+                doc_filename,
+                zip_info.file_size,
+                max_source_bytes,
+            )
+            return None
         with import_zip.open(zip_info) as fh:
-            source_bytes = fh.read(max_source_bytes + 1 if max_source_bytes else -1)
-    except (zipfile.BadZipFile, OSError, EOFError, zlib.error) as exc:
-        # A crafted member whose central-directory ``file_size`` under-reports
+            source_bytes = fh.read(
+                max_source_bytes + 1 if max_source_bytes is not None else -1
+            )
+    except (KeyError, zipfile.BadZipFile, OSError, EOFError, zlib.error) as exc:
+        # ``KeyError``: a missing member (so a single absent file falls back
+        # gracefully rather than aborting the whole corpus import). The others:
+        # a crafted member whose central-directory ``file_size`` under-reports
         # the real data (so the metadata guard above is skipped) does not yield
         # a clean over-limit buffer — the bounded read trips CRC validation /
         # decompression and raises. Treat any member we cannot read safely as
-        # non-reingestable and fall back to the baked import for just that doc,
-        # instead of letting the exception abort the whole corpus import.
+        # unreadable and let the caller skip the document.
         logger.warning(
-            "Skipping reingest for %s: source member could not be read safely "
-            "(%s); using baked import fallback.",
+            "Skipping source read for %s: ZIP member could not be read safely (%s).",
             doc_filename,
             exc,
         )
         return None
-    if max_source_bytes and len(source_bytes) > max_source_bytes:
+    if max_source_bytes is not None and len(source_bytes) > max_source_bytes:
+        # Post-read guard. For a ``ZIP_STORED`` (uncompressed) member there is no
+        # mid-stream CRC, so a lying-metadata STORED member is caught HERE, not by
+        # the exception handler above: the bounded read returns ``max + 1`` raw
+        # bytes cleanly and this length check rejects it.
         logger.warning(
-            "Skipping reingest for %s: ZIP member expanded beyond "
-            "MAX_CORPUS_REINGEST_SOURCE_BYTES=%s while reading; using baked "
-            "import fallback.",
+            "Skipping source read for %s: ZIP member expanded beyond "
+            "MAX_CORPUS_REINGEST_SOURCE_BYTES=%s while reading.",
             doc_filename,
             max_source_bytes,
         )
@@ -367,8 +380,12 @@ def _import_document_with_annotations(
     # still recording a DONE ``PendingDocumentAnnotations`` row so the
     # relationship fan-in can resolve this doc's annotation ids.
     reingest_fallback = False
+    # Bytes the reingest peek already read, reused by the baked block so it never
+    # re-opens the same member a second time. ``None`` means "not yet read" (the
+    # direct baked path) OR "the guard rejected an over-size / unreadable member".
+    baked_source_bytes: bytes | None = None
     if reingest_and_remap:
-        source_bytes = _read_reingest_source_bytes(import_zip, doc_filename)
+        source_bytes = _read_guarded_source_bytes(import_zip, doc_filename)
         if source_bytes is not None and _source_is_reingestable(source_bytes):
             return _reingest_document_with_deferred_remap(
                 doc_filename,
@@ -380,6 +397,7 @@ def _import_document_with_annotations(
                 label_lookup,
             )
         reingest_fallback = True
+        baked_source_bytes = source_bytes
         # Distinguish a size-guarded / unreadable source (source_bytes is None)
         # from a genuine NUL placeholder (bytes present but not reingestable),
         # so a ZIP-bomb / crafted-member probe stays visible in normal logs
@@ -399,7 +417,21 @@ def _import_document_with_annotations(
         )
 
     try:
-        with import_zip.open(doc_filename) as pdf_file_handle:
+        if baked_source_bytes is None:
+            # Either a direct baked import (reingest_and_remap=False) that has not
+            # read the member yet, or a reingest fallback whose source was
+            # size-rejected / unreadable. Read through the SAME size guard so the
+            # baked path can never stream an unbounded member into storage — the
+            # reingest guard must not be bypassable by falling through to baked.
+            baked_source_bytes = _read_guarded_source_bytes(import_zip, doc_filename)
+        if baked_source_bytes is None:
+            logger.warning(
+                "Skipping import of %s: source member exceeds "
+                "MAX_CORPUS_REINGEST_SOURCE_BYTES or could not be read safely.",
+                doc_filename,
+            )
+            return None, {}
+        with io.BytesIO(baked_source_bytes) as pdf_file_handle:
             # Check for structural annotation set (V2 feature)
             structural_set = None
             struct_hash = doc_data.get("structural_set_hash")

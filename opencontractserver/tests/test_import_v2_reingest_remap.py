@@ -50,7 +50,8 @@ from opencontractserver.tasks.doc_tasks import (
 )
 from opencontractserver.tasks.export_tasks_v2 import package_corpus_export_v2
 from opencontractserver.tasks.import_tasks_v2 import (
-    _read_reingest_source_bytes,
+    _import_document_with_annotations,
+    _read_guarded_source_bytes,
     _source_is_reingestable,
 )
 from opencontractserver.types.enums import PermissionTypes
@@ -139,17 +140,17 @@ class TestSourceReingestability(TestCase):
         self.assertTrue(_source_is_reingestable(b"plain text body"))
 
     @override_settings(MAX_CORPUS_REINGEST_SOURCE_BYTES=4)
-    def test_read_reingest_source_bytes_rejects_oversized_zip_member(self):
+    def test_read_guarded_source_bytes_rejects_oversized_zip_member(self):
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
             zf.writestr("documents/large.pdf", b"%PDF-1.4 large")
         buf.seek(0)
 
         with zipfile.ZipFile(buf) as zf:
-            self.assertIsNone(_read_reingest_source_bytes(zf, "documents/large.pdf"))
+            self.assertIsNone(_read_guarded_source_bytes(zf, "documents/large.pdf"))
 
     @override_settings(MAX_CORPUS_REINGEST_SOURCE_BYTES=32)
-    def test_read_reingest_source_bytes_allows_member_under_limit(self):
+    def test_read_guarded_source_bytes_allows_member_under_limit(self):
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
             zf.writestr("documents/small.pdf", b"%PDF-1.4 small")
@@ -157,21 +158,64 @@ class TestSourceReingestability(TestCase):
 
         with zipfile.ZipFile(buf) as zf:
             self.assertEqual(
-                _read_reingest_source_bytes(zf, "documents/small.pdf"),
+                _read_guarded_source_bytes(zf, "documents/small.pdf"),
                 b"%PDF-1.4 small",
             )
 
-    @override_settings(MAX_CORPUS_REINGEST_SOURCE_BYTES=4)
-    def test_read_reingest_source_bytes_rejects_metadata_lie_on_read(self):
-        """A crafted ZIP whose central-directory file_size under-reports the
-        real member is rejected (returns None → baked fallback).
+    @override_settings(MAX_CORPUS_REINGEST_SOURCE_BYTES=None)
+    def test_read_guarded_source_bytes_none_disables_guard(self):
+        """``None`` is the disable sentinel base.py parses a negative env value
+        into: the member is read unbounded regardless of size (0 must NOT do
+        this — see the zero-rejects test below)."""
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("documents/any.pdf", b"%PDF-1.4 unbounded body")
+        buf.seek(0)
 
-        Setting a small file_size in the central directory bypasses the first
-        (metadata) guard, but the stored bytes no longer match that size, so the
-        bounded read trips CRC validation and raises. ``_read_reingest_source_bytes``
-        treats any member it cannot read safely as non-reingestable and returns
-        None, so a crafted member falls back to the baked import for that doc
-        rather than aborting the whole corpus import.
+        with zipfile.ZipFile(buf) as zf:
+            self.assertEqual(
+                _read_guarded_source_bytes(zf, "documents/any.pdf"),
+                b"%PDF-1.4 unbounded body",
+            )
+
+    @override_settings(MAX_CORPUS_REINGEST_SOURCE_BYTES=0)
+    def test_read_guarded_source_bytes_zero_rejects_nonempty_member(self):
+        """0 is a literal zero-byte limit, not a disable: every non-empty member
+        is rejected (so zeroing the setting hardens rather than opens a hole)."""
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("documents/any.pdf", b"%PDF-1.4 x")
+        buf.seek(0)
+
+        with zipfile.ZipFile(buf) as zf:
+            self.assertIsNone(_read_guarded_source_bytes(zf, "documents/any.pdf"))
+
+    @override_settings(MAX_CORPUS_REINGEST_SOURCE_BYTES=4)
+    def test_read_guarded_source_bytes_missing_member_returns_none(self):
+        """A member absent from the ZIP is skipped gracefully (KeyError caught)
+        rather than aborting the whole corpus import."""
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("documents/present.pdf", b"x")
+        buf.seek(0)
+
+        with zipfile.ZipFile(buf) as zf:
+            self.assertIsNone(_read_guarded_source_bytes(zf, "documents/missing.pdf"))
+
+    @override_settings(MAX_CORPUS_REINGEST_SOURCE_BYTES=4)
+    def test_read_guarded_source_bytes_rejects_metadata_lie_on_read(self):
+        """A crafted ZIP whose central-directory file_size under-reports the
+        real member is rejected (returns None → document skipped).
+
+        Shrinking the reported ``file_size`` to 3 (<= 4) bypasses the metadata
+        guard. For a ``ZIP_STORED`` member ``ZipExtFile`` caps the decompressed
+        output at ``file_size``, so the bounded ``read(5)`` stops at 3 bytes,
+        hits end-of-member, and validates the stored CRC-32 (computed over the
+        real 10 bytes) against the 3 it returned — the mismatch raises
+        ``BadZipFile``. The rejection therefore comes from the EXCEPTION HANDLER,
+        not the post-read length guard (which a real STORED member can never
+        reach, since the output is already capped at ``file_size``). This test
+        asserts on the emitted log so the actual guard stays pinned.
         """
         # 10-byte stored entry: compress_size == 10.
         buf = io.BytesIO()
@@ -182,21 +226,29 @@ class TestSourceReingestability(TestCase):
         with zipfile.ZipFile(buf) as real_zf:
             # ZipFile.getinfo() returns the live ZipInfo from NameToInfo, so
             # modifying it in-place is seen by the subsequent getinfo() call
-            # inside _read_reingest_source_bytes.
+            # inside _read_guarded_source_bytes.
             real_info = real_zf.getinfo("documents/liar.pdf")
             # Lie: shrink reported file_size to 3 so the first guard (3 > 4) is
             # skipped. The actual stored data is 10 bytes, so the bounded read
-            # fails its CRC check and raises BadZipFile → caught → None.
+            # trips CRC validation and raises BadZipFile → caught → None.
             real_info.file_size = 3
-            result = _read_reingest_source_bytes(real_zf, "documents/liar.pdf")
+            with self.assertLogs(
+                "opencontractserver.tasks.import_tasks_v2", level="WARNING"
+            ) as captured:
+                result = _read_guarded_source_bytes(real_zf, "documents/liar.pdf")
 
         self.assertIsNone(result)
+        # Assert the EXCEPTION handler fired (CRC trip), not the post-read guard.
+        self.assertTrue(
+            any("could not be read safely" in line for line in captured.output),
+            f"expected read-error (CRC) warning, got {captured.output}",
+        )
 
     @override_settings(MAX_CORPUS_REINGEST_SOURCE_BYTES=4)
-    def test_read_reingest_source_bytes_rejects_overlong_read(self):
+    def test_read_guarded_source_bytes_rejects_overlong_read(self):
         """Defense-in-depth: a member that slips past the metadata guard but
         whose bounded read still yields more than the limit is rejected by the
-        post-read length check (returns None → baked fallback).
+        post-read length check (returns None → document skipped).
 
         Real crafted ZIPs trip CRC validation instead, but this guards against
         any reader path that returns extra bytes without raising.
@@ -215,7 +267,53 @@ class TestSourceReingestability(TestCase):
         fake_zip.getinfo.return_value = SimpleNamespace(file_size=2)
         fake_zip.open.return_value = member_cm
 
-        self.assertIsNone(_read_reingest_source_bytes(fake_zip, "documents/x.pdf"))
+        self.assertIsNone(_read_guarded_source_bytes(fake_zip, "documents/x.pdf"))
+
+    @override_settings(MAX_CORPUS_REINGEST_SOURCE_BYTES=4)
+    def test_oversized_member_rejected_on_both_reingest_and_baked_paths(self):
+        """An over-size source member is skipped on BOTH paths — proving the
+        guard cannot be bypassed by falling through to the baked import.
+
+        Regression for the critical finding: when the reingest peek rejected an
+        over-size member, the caller previously re-opened the SAME member with
+        ``import_zip.open(doc_filename)`` (no size limit) for the baked import,
+        streaming the whole entry to storage. The baked block now routes through
+        the same size guard, so the document is skipped on either path.
+        """
+        user = User.objects.create_user(username="baked_guard_user", password="pw")
+        labelset = LabelSet.objects.create(title="LS", creator=user)
+        corpus = Corpus.objects.create(title="C", creator=user, label_set=labelset)
+
+        # Real (non-placeholder) PDF bytes so the reingest path would otherwise
+        # treat the member as reingestable; the size guard must reject it first.
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("documents/huge.pdf", b"%PDF-1.4 oversized body")
+        zip_bytes = buf.getvalue()
+
+        for reingest in (True, False):
+            with self.subTest(reingest_and_remap=reingest):
+                doc_count_before = Document.objects.count()
+                with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+                    corpus_doc, annot_id_map = _import_document_with_annotations(
+                        doc_filename="documents/huge.pdf",
+                        doc_data={
+                            "title": "Huge",
+                            "content": "x",
+                            "pawls_file_content": [],
+                        },
+                        import_zip=zf,
+                        user_obj=user,
+                        corpus_obj=corpus,
+                        label_lookup={},
+                        doc_label_lookup={},
+                        reingest_and_remap=reingest,
+                    )
+
+                self.assertIsNone(corpus_doc)
+                self.assertEqual(annot_id_map, {})
+                # The over-size member was never streamed into storage.
+                self.assertEqual(Document.objects.count(), doc_count_before)
 
 
 class TestCorpusImportFanIn(TestCase):
