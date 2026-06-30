@@ -15,10 +15,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from opencontractserver.constants.artifacts import _MIN_DATED, _MIN_REFERENCES
+from opencontractserver.constants.artifacts import _MIN_DATED
 from opencontractserver.corpuses.models import Artifact, Corpus
 from opencontractserver.shared.services.base import BaseService
-from opencontractserver.types.enums import PermissionTypes
 
 
 @dataclass
@@ -30,10 +29,17 @@ class TemplateInfo:
     reason: str
 
 
-# The artifact template registry. ``id`` matches the frontend poster registry;
-# ``needs`` names the data signal the eligibility check looks for. Adding a
-# template here (and its frontend poster) never needs a migration — the model
-# stores ``template`` as a free string.
+# The artifact template registry. ``id`` matches the frontend poster registry
+# (``POSTER_TEMPLATES`` in ``ArtifactPosterRoute.tsx``); ``needs`` names the data
+# signal the eligibility check looks for. A template is only listed here once its
+# frontend renderer exists — otherwise users could mint an artifact that
+# ``/a/<slug>`` cannot render. Adding a template (and its frontend poster) never
+# needs a migration — the model stores ``template`` as a free string.
+#
+# ``reference-web`` (the citation-network poster) is intentionally NOT listed yet:
+# its frontend renderer is not built, so offering it would create unviewable
+# artifacts. Re-add it here (and its ``_MIN_REFERENCES`` eligibility branch) when
+# the poster ships.
 ARTIFACT_TEMPLATES: list[dict[str, str]] = [
     {
         "id": "spending-beeswarm",
@@ -44,19 +50,10 @@ ARTIFACT_TEMPLATES: list[dict[str, str]] = [
         ),
         "needs": "dated",
     },
-    {
-        "id": "reference-web",
-        "label": "Reference web",
-        "description": (
-            "How the collection is wired together through shared legal "
-            "authority — the hidden citation network."
-        ),
-        "needs": "references",
-    },
 ]
 
-# Eligibility thresholds (``_MIN_DATED`` / ``_MIN_REFERENCES``) and the upload
-# size guard (``MAX_ARTIFACT_IMAGE_BASE64_BYTES``) live in
+# Eligibility threshold (``_MIN_DATED``) and the upload size guard
+# (``MAX_ARTIFACT_IMAGE_BASE64_BYTES``) live in
 # ``opencontractserver.constants.artifacts``. The size guard is enforced by the
 # ``SetArtifactImage`` mutation before the decode, so it is imported there.
 
@@ -139,7 +136,6 @@ class ArtifactService(BaseService):
             if story is not None
             else 0
         )
-        references = cls._reference_count(corpus_id)
 
         out: list[TemplateInfo] = []
         for t in ARTIFACT_TEMPLATES:
@@ -149,13 +145,6 @@ class ArtifactService(BaseService):
                     f"{dated} dated documents"
                     if eligible
                     else "needs dated documents (run the profile extract)"
-                )
-            elif t["needs"] == "references":
-                eligible = references >= _MIN_REFERENCES
-                reason = (
-                    f"{references} law references"
-                    if eligible
-                    else "needs a mapped reference web"
                 )
             else:  # pragma: no cover - future templates
                 eligible, reason = False, "unknown requirement"
@@ -169,19 +158,6 @@ class ArtifactService(BaseService):
                 )
             )
         return out
-
-    @staticmethod
-    def _reference_count(corpus_id: int) -> int:
-        """Number of mapped law references for the corpus.
-
-        Deliberately does **not** swallow ORM errors. A bare ``except`` here
-        would turn a missing migration or a downed DB into a silent zero,
-        permanently suppressing the ``reference-web`` template's eligibility
-        with no observable error — far worse than surfacing the failure.
-        """
-        from opencontractserver.annotations.models import CorpusReference
-
-        return CorpusReference.objects.filter(corpus_id=corpus_id).count()
 
     # ------------------------------------------------------------------
     # Create / update
@@ -254,9 +230,7 @@ class ArtifactService(BaseService):
         # indistinguishable from a nonexistent one.
         if not cls._corpus_readable(user, artifact.corpus_id, request=request):
             return None
-        if not cls.user_has(
-            artifact, user, PermissionTypes.UPDATE, request=request
-        ) and artifact.creator_id != getattr(user, "id", None):
+        if not cls._can_edit(artifact, user):
             return None
         if title is not None:
             artifact.title = title
@@ -267,7 +241,12 @@ class ArtifactService(BaseService):
         if config is not None:
             artifact.config = config
         artifact.save()
-        return artifact
+        # Refetch with corpus/creator prefetched (as ``create`` does): the
+        # UpdateArtifact mutation serializes the result via ``_artifact_to_type``,
+        # which reads ``a.corpus.slug`` / ``a.creator.slug`` — returning the bare
+        # saved instance forces an extra SELECT per call (and raises
+        # ``SynchronousOnlyOperation`` in an async context).
+        return Artifact.objects.select_related("corpus", "creator").get(pk=artifact.pk)
 
     @classmethod
     def set_image(
@@ -295,9 +274,22 @@ class ArtifactService(BaseService):
         # corpus they cannot read (IDOR).
         if not cls._corpus_readable(user, artifact.corpus_id, request=request):
             return None
-        if not cls.user_has(
-            artifact, user, PermissionTypes.UPDATE, request=request
-        ) and artifact.creator_id != getattr(user, "id", None):
+        if not cls._can_edit(artifact, user):
             return None
         artifact.image.save(f"{artifact.slug}.png", ContentFile(image_bytes), save=True)
         return artifact
+
+    @staticmethod
+    def _can_edit(artifact: Artifact, user: Any) -> bool:
+        """Whether ``user`` may mutate ``artifact`` (captions / image).
+
+        ``Artifact`` has no guardian permission tables, so object-level
+        ``user_has(... UPDATE ...)`` can only ever return ``True`` for the
+        creator — the same condition checked directly here — making it dead
+        weight that also implied future guardian grants are possible (they
+        aren't). Edit rights are the creator, plus superusers for admin
+        override.
+        """
+        return artifact.creator_id == getattr(user, "id", None) or bool(
+            getattr(user, "is_superuser", False)
+        )

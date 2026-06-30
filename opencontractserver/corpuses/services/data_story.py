@@ -240,6 +240,34 @@ class CorpusDataStoryService(BaseService):
     def build(
         cls, user: Any, corpus_pk: int, *, request: Any = None
     ) -> DataStory | None:
+        """Request-memoized entry point.
+
+        The corpus home fetches ``corpusDataStory`` and
+        ``corpusArtifactTemplates`` in one round trip, and both resolve through
+        this build (the latter via ``ArtifactService.templates_for_corpus``).
+        The full datacell aggregation is expensive, so memoize it on the request
+        keyed by ``(corpus, user)`` to run it once per request. Non-GraphQL
+        callers (``request is None``) and context objects that reject attribute
+        assignment fall through to an uncached build.
+        """
+        if request is None:
+            return cls._build_uncached(user, corpus_pk, request=request)
+        cache = getattr(request, "_corpus_data_story_cache", None)
+        if cache is None:
+            cache = {}
+            try:
+                request._corpus_data_story_cache = cache
+            except Exception:
+                return cls._build_uncached(user, corpus_pk, request=request)
+        key = (corpus_pk, getattr(user, "id", None))
+        if key not in cache:
+            cache[key] = cls._build_uncached(user, corpus_pk, request=request)
+        return cache[key]
+
+    @classmethod
+    def _build_uncached(
+        cls, user: Any, corpus_pk: int, *, request: Any = None
+    ) -> DataStory | None:
         # READ gate: the corpus must be visible to the caller (a public corpus is
         # visible to anonymous users). Returns None — the resolver maps that to a
         # null field and the embed self-hides.

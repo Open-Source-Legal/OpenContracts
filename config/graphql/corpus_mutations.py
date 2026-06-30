@@ -1896,6 +1896,13 @@ class SetArtifactImage(graphene.Mutation):
             data = base64.b64decode(raw)
         except Exception:
             return SetArtifactImage(ok=False, message="Bad image data.", image_url=None)
+        # The bytes are persisted as ``<slug>.png`` at a public media URL, so
+        # reject anything that isn't actually a PNG (an SVG with embedded script,
+        # an executable, a polyglot) before it reaches storage.
+        if not data.startswith(b"\x89PNG\r\n\x1a\n"):
+            return SetArtifactImage(
+                ok=False, message="Image must be a PNG.", image_url=None
+            )
         artifact = ArtifactService.set_image(
             info.context.user, slug, data, request=info.context
         )

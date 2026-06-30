@@ -139,8 +139,13 @@ async function downloadPosterPng(root: HTMLElement | null, filename: string) {
   const w = vb && vb.width ? vb.width : svg.clientWidth || 1200;
   const h = vb && vb.height ? vb.height : svg.clientHeight || 660;
   const scale = 2;
-  const svg64 =
-    "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(xml)));
+  // btoa() only accepts Latin-1, so UTF-8-encode first. `unescape` is the
+  // legacy idiom for this but is removed from the WHATWG spec (and breaks on
+  // non-ASCII captions like accented names or currency symbols), so encode
+  // explicitly via TextEncoder.
+  const utf8 = new TextEncoder().encode(xml);
+  const binary = Array.from(utf8, (b) => String.fromCharCode(b)).join("");
+  const svg64 = "data:image/svg+xml;base64," + btoa(binary);
   const img = new Image();
   await new Promise<void>((resolve, reject) => {
     img.onload = () => resolve();

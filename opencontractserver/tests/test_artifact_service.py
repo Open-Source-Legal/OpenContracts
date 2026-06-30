@@ -16,14 +16,16 @@ from django.contrib.auth.models import AnonymousUser
 from django.db import IntegrityError
 from django.test import TestCase, TransactionTestCase
 
-from opencontractserver.constants.artifacts import _MIN_DATED, _MIN_REFERENCES
+from opencontractserver.constants.artifacts import _MIN_DATED
 from opencontractserver.corpuses.models import Artifact, Corpus
 from opencontractserver.corpuses.services.artifact_service import ArtifactService
 from opencontractserver.corpuses.services.data_story import DataStory, ProfileRow
 from opencontractserver.users.models import User
 
-_TEMPLATE = "spending-beeswarm"  # a valid id in ARTIFACT_TEMPLATES
-_REFERENCE_TEMPLATE = "reference-web"  # the other id in ARTIFACT_TEMPLATES
+_TEMPLATE = "spending-beeswarm"  # the only id currently in ARTIFACT_TEMPLATES
+# "reference-web" is intentionally NOT registered yet (no frontend renderer), so
+# the service treats it as an unknown/rejected template and never offers it.
+_DEFERRED_TEMPLATE = "reference-web"
 
 
 def _make_corpus(creator: User, *, title: str, is_public: bool = False) -> Corpus:
@@ -76,11 +78,12 @@ class ArtifactServiceCreateAuthTests(TestCase):
         self.assertEqual(Artifact.objects.count(), before)
 
     def test_unknown_template_is_rejected(self):
+        # An outright-unknown id and the deferred ``reference-web`` (no renderer
+        # yet, so not in the registry) are both rejected before any DB write.
         before = Artifact.objects.count()
-        artifact = ArtifactService.create(
-            self.owner, self.corpus.id, "no-such-template"
-        )
-        self.assertIsNone(artifact)
+        for bad in ("no-such-template", _DEFERRED_TEMPLATE):
+            artifact = ArtifactService.create(self.owner, self.corpus.id, bad)
+            self.assertIsNone(artifact)
         self.assertEqual(Artifact.objects.count(), before)
 
 
@@ -143,14 +146,13 @@ class ArtifactServiceReadAndEditTests(TestCase):
 
     # -- templates_for_corpus (data-gated eligibility) -----------------------
     def test_templates_not_eligible_for_empty_corpus(self):
-        # No profile extract -> 0 dated; no references -> 0 (real _reference_count
-        # is exercised here). Both signals below threshold -> not eligible.
+        # No profile extract -> 0 dated -> below threshold -> not eligible. Only
+        # the dated-signal template is offered; reference-web is deferred.
         infos = ArtifactService.templates_for_corpus(self.owner, self.private_corpus.id)
         by_id = {t.id: t for t in infos}
         self.assertFalse(by_id[_TEMPLATE].eligible)
-        self.assertFalse(by_id[_REFERENCE_TEMPLATE].eligible)
         self.assertIn("needs dated documents", by_id[_TEMPLATE].reason)
-        self.assertIn("needs a mapped reference web", by_id[_REFERENCE_TEMPLATE].reason)
+        self.assertNotIn(_DEFERRED_TEMPLATE, by_id)
 
     def test_templates_eligible_when_thresholds_met(self):
         story = DataStory(
@@ -172,19 +174,13 @@ class ArtifactServiceReadAndEditTests(TestCase):
             "opencontractserver.corpuses.services.data_story."
             "CorpusDataStoryService.build",
             return_value=story,
-        ), patch.object(
-            ArtifactService, "_reference_count", return_value=_MIN_REFERENCES
         ):
             infos = ArtifactService.templates_for_corpus(
                 self.owner, self.private_corpus.id
             )
         by_id = {t.id: t for t in infos}
         self.assertTrue(by_id[_TEMPLATE].eligible)
-        self.assertTrue(by_id[_REFERENCE_TEMPLATE].eligible)
         self.assertIn(f"{_MIN_DATED} dated documents", by_id[_TEMPLATE].reason)
-        self.assertIn(
-            f"{_MIN_REFERENCES} law references", by_id[_REFERENCE_TEMPLATE].reason
-        )
 
     def test_templates_empty_for_unreadable_corpus(self):
         self.assertEqual(
@@ -220,6 +216,19 @@ class ArtifactServiceReadAndEditTests(TestCase):
         self.assertIsNone(result)
         art.refresh_from_db()
         self.assertNotEqual(art.title, "Hijack")
+
+    def test_update_captions_allowed_for_superuser(self):
+        # ``_can_edit`` grants superusers an admin override on artifacts they do
+        # not own (corpus-as-gate READ is satisfied because superusers see all).
+        admin = User.objects.create_user(
+            username="artifact-admin", password="x", is_superuser=True
+        )
+        art = ArtifactService.create(self.owner, self.private_corpus.id, _TEMPLATE)
+        assert art is not None
+        updated = ArtifactService.update_captions(admin, art.slug, title="Admin Edit")
+        self.assertIsNotNone(updated)
+        assert updated is not None
+        self.assertEqual(updated.title, "Admin Edit")
 
     def test_update_captions_missing_slug_returns_none(self):
         self.assertIsNone(
