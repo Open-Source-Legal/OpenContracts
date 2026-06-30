@@ -61,6 +61,13 @@ DISCOVER_OVERSAMPLE = 4
 # small module-level cache lets those requests share one embedding call.
 DISCOVER_QUERY_VECTOR_CACHE_SIZE = 32
 
+# Maximum accepted Discover text search length. Keep this intentionally small
+# because the same user-controlled string is used for database text predicates
+# and, when semantic search is enabled, as input to the per-process query-vector
+# cache. Longer GraphQL values are ignored before reaching either arm so workers
+# never retain attacker-sized strings in cache keys.
+DISCOVER_TEXT_SEARCH_MAX_LENGTH = 512
+
 # Extra oversample applied to the corpus "content match" pre-filters
 # (documents/annotations whose text matches), on top of ``fetch_k``. A corpus
 # is reached transitively through many matching documents/annotations, so this
