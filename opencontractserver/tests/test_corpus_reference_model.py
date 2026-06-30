@@ -19,11 +19,14 @@ from opencontractserver.annotations.models import (
     SPAN_LABEL,
     Annotation,
     CorpusReference,
+    StructuralAnnotationSet,
 )
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
 from opencontractserver.enrichment import constants as C
 from opencontractserver.enrichment.services import CorpusReferenceService
+from opencontractserver.types.enums import PermissionTypes
+from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
 User = get_user_model()
 
@@ -237,4 +240,118 @@ class CorpusReferenceVisibilityTests(TestCase):
             not CorpusReferenceService.visible_to_user_by_source(self.viewer)
             .filter(pk=ref.pk)
             .exists()
+        )
+
+    def _structural_mention(self) -> Annotation:
+        """A structural source annotation: ``document=None`` (linked only via a
+        structural set). Its ``document`` FK is NULL, the case the NULL-guard in
+        the visibility filters must not silently drop.
+        """
+        structural_set = StructuralAnnotationSet.objects.create(
+            content_hash=f"struct-{self.corpus.id}",
+            creator=self.owner,
+        )
+        return Annotation.objects.create(
+            raw_text="structural mention",
+            page=1,
+            json={},
+            annotation_label=self.label,
+            document=None,
+            structural_set=structural_set,
+            corpus=self.corpus,
+            creator=self.owner,
+            annotation_type=SPAN_LABEL,
+            structural=True,
+        )
+
+    def test_visible_to_user_retains_structural_source_annotation(self):
+        # A structural source annotation has document=None; NULL is never a
+        # member of an ``__in`` list, so without the isnull guard the reference
+        # (the corpus owner's own) would be silently dropped from both surfaces
+        # even though there is no private document to gate on.
+        ref = self._reference(self._structural_mention())
+
+        assert (
+            CorpusReferenceService.visible_to_user(self.viewer)
+            .filter(pk=ref.pk)
+            .exists()
+        )
+        assert (
+            CorpusReferenceService.visible_to_user_by_source(self.viewer)
+            .filter(pk=ref.pk)
+            .exists()
+        )
+
+    def test_visible_to_user_requires_visible_target_annotation_corpus(self):
+        # IDOR: a target annotation whose DOCUMENT is public but whose CORPUS is
+        # private must not leak through. The old filter only checked the target
+        # annotation's document; MIN(document, corpus) requires the corpus too.
+        hidden_target_annotation = Annotation.objects.create(
+            raw_text="target",
+            page=1,
+            json={"start": 0, "end": 6},
+            annotation_label=self.label,
+            document=self.visible_doc,  # public document (passes the doc check)
+            corpus=self.private_target_corpus,  # ...but a private corpus
+            creator=self.owner,
+            annotation_type=SPAN_LABEL,
+        )
+        ref = self._reference(
+            self._mention(self.visible_doc),
+            target_annotation=hidden_target_annotation,
+        )
+
+        assert (
+            not CorpusReferenceService.visible_to_user(self.viewer)
+            .filter(pk=ref.pk)
+            .exists()
+        )
+
+    def test_visible_to_user_honors_guardian_read_grants(self):
+        # The most common real sharing path is is_public=False + an explicit
+        # guardian READ grant, not is_public=True. Exercise both the positive
+        # (granted) and negative (ungranted) guardian branches.
+        grantee = User.objects.create_user(username="grantee", password="p")
+        shared_corpus = Corpus.objects.create(
+            title="Shared", creator=self.owner, is_public=False
+        )
+        shared_doc = Document.objects.create(
+            title="Shared Doc", creator=self.owner, is_public=False
+        )
+        label = shared_corpus.ensure_label_and_labelset(
+            label_text=C.LABEL_REF_LAW,
+            creator_id=self.owner.id,
+            label_type=SPAN_LABEL,
+        )
+        mention = Annotation.objects.create(
+            raw_text="mention",
+            page=1,
+            json={"start": 0, "end": 7},
+            annotation_label=label,
+            document_id=shared_doc.id,
+            corpus=shared_corpus,
+            creator=self.owner,
+            annotation_type=SPAN_LABEL,
+        )
+        ref = CorpusReference.objects.create(
+            corpus=shared_corpus,
+            reference_type=C.REF_LAW,
+            source_annotation=mention,
+            canonical_key=f"dgcl:{mention.id}",
+            resolution_status=C.STATUS_EXTERNAL,
+            creator=self.owner,
+        )
+
+        # No grant yet → hidden.
+        assert (
+            not CorpusReferenceService.visible_to_user(grantee)
+            .filter(pk=ref.pk)
+            .exists()
+        )
+
+        # Grant guardian READ on both the corpus and the source document → visible.
+        set_permissions_for_obj_to_user(grantee, shared_corpus, [PermissionTypes.READ])
+        set_permissions_for_obj_to_user(grantee, shared_doc, [PermissionTypes.READ])
+        assert (
+            CorpusReferenceService.visible_to_user(grantee).filter(pk=ref.pk).exists()
         )

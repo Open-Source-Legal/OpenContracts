@@ -20,7 +20,18 @@ class CorpusReferenceService(BaseService):
     """Read surface for CorpusReference rows."""
 
     @staticmethod
-    def visible_to_user_by_source(user):
+    def _build_visibility_querysets(user):
+        """The ``(visible_corpora, visible_documents)`` pair both visibility
+        filters need — built in one place so the source-side and target-side
+        filters cannot drift apart.
+        """
+        return (
+            Corpus.objects.visible_to_user(user),
+            Document.objects.visible_to_user(user),
+        )
+
+    @classmethod
+    def visible_to_user_by_source(cls, user):
         """References whose parent corpus AND source document are visible.
 
         Enforces corpus READ and source-annotation-document visibility, but
@@ -37,16 +48,24 @@ class CorpusReferenceService(BaseService):
         GraphQL query), use :meth:`visible_to_user`, which additionally hides
         references whose target is invisible.
         """
-        visible_corpora = Corpus.objects.visible_to_user(user)
-        visible_documents = Document.objects.visible_to_user(user)
+        visible_corpora, visible_documents = cls._build_visibility_querysets(user)
 
         return CorpusReference.objects.filter(
-            corpus__in=visible_corpora,
-            source_annotation__document__in=visible_documents,
+            # Corpus READ gates the reference row itself.
+            Q(corpus__in=visible_corpora)
+            # Source-annotation document visibility. ``Annotation.document`` is
+            # NULL for structural annotations in shared sets, and NULL is never a
+            # member of an ``__in`` list — without this guard every
+            # structural-annotation-sourced reference (including the corpus
+            # owner's own) would be silently dropped.
+            & (
+                Q(source_annotation__document__isnull=True)
+                | Q(source_annotation__document__in=visible_documents)
+            )
         )
 
-    @staticmethod
-    def visible_to_user(user):
+    @classmethod
+    def visible_to_user(cls, user):
         """Return only references whose exposed graph is visible to ``user``.
 
         Corpus references are reachable from a readable corpus, but each row
@@ -62,15 +81,26 @@ class CorpusReferenceService(BaseService):
         :meth:`visible_to_user_by_source` instead so those references are not
         dropped before they can be degraded.
         """
-        visible_corpora = Corpus.objects.visible_to_user(user)
-        visible_documents = Document.objects.visible_to_user(user)
+        visible_corpora, visible_documents = cls._build_visibility_querysets(user)
 
-        return CorpusReferenceService.visible_to_user_by_source(user).filter(
+        return cls.visible_to_user_by_source(user).filter(
             (Q(target_document__isnull=True) | Q(target_document__in=visible_documents))
             & (Q(target_corpus__isnull=True) | Q(target_corpus__in=visible_corpora))
+            # Target-annotation document visibility, with the same NULL-document
+            # guard as the source side (structural target annotations).
             & (
                 Q(target_annotation__isnull=True)
+                | Q(target_annotation__document__isnull=True)
                 | Q(target_annotation__document__in=visible_documents)
+            )
+            # MIN(document, corpus): also gate on the target annotation's CORPUS,
+            # so an annotation whose document is public but whose corpus is
+            # private does not expose the annotation FK. ``Annotation.corpus`` is
+            # nullable, so a NULL corpus passes.
+            & (
+                Q(target_annotation__isnull=True)
+                | Q(target_annotation__corpus__isnull=True)
+                | Q(target_annotation__corpus__in=visible_corpora)
             )
         )
 
