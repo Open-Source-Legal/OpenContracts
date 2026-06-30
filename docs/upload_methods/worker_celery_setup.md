@@ -83,10 +83,16 @@ recovery and the periodic safety-net drain stop** — uploads orphaned in
 |---|---|---|
 | `WORKER_UPLOAD_BATCH_SIZE` | `50` | uploads claimed per `process_pending_uploads` run |
 | `WORKER_UPLOAD_STALE_MINUTES` | `15` | `PROCESSING` → `PENDING` reset threshold |
-| `MAX_WORKER_UPLOAD_SIZE_BYTES` | `256 MB` | per-file cap |
-| `MAX_WORKER_METADATA_SIZE_BYTES` | `500 MB` | per-upload metadata JSON cap |
+| `MAX_WORKER_UPLOAD_SIZE_BYTES` | `256 MiB` | per-file cap (`256 * 1024 * 1024` bytes ≈ 268 MB decimal) |
+| `MAX_WORKER_METADATA_SIZE_BYTES` | `500 MiB` | per-upload metadata JSON cap (binary MiB, not decimal MB) |
 | `CELERY_BROKER_URL` / `REDIS_URL` | `redis://…/0` | broker = Redis |
 | `CELERY_WORKER_MAX_MEMORY_PER_CHILD` | `~14 GB` | worker child recycled after this |
+
+The four `WORKER_UPLOAD_*` / `MAX_WORKER_*` rows above are the canonical
+worker-upload knobs documented in
+[Worker Uploads – Configuration](worker_uploads.md#configuration); they are
+repeated here only for the at-a-glance Celery setup. If a default changes, update
+`config/settings/base.py` and that page — this table follows.
 
 Reliability is set globally and needs no per-deployment change:
 `CELERY_TASK_ACKS_LATE=True` + `CELERY_TASK_REJECT_ON_WORKER_LOST=True` (uploads
