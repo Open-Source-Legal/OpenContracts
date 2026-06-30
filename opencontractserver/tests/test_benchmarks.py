@@ -471,14 +471,39 @@ def _make_fake_get_structured_response(answers_by_query: dict[str, str]):
     tests don't need real Annotation rows to pass.
     """
 
+    # ``doc_extract_query_task`` builds the agent prompt as ``column.query``
+    # (== ``task.query``) and then APPENDS extra guidance — per-column
+    # constraint fields and, for short documents, the full fenced document
+    # text. So the prompt the agent actually receives is no longer exactly
+    # ``task.query``; the canned ``task.query`` is a *prefix* of it. Resolve
+    # the canned answer by matching the query the prompt starts with (falling
+    # back to an exact lookup) so this mock stays correct as the real task
+    # augments the prompt.
+    def _lookup(prompt: str) -> str:
+        if prompt in answers_by_query:
+            return answers_by_query[prompt]
+        # Match the LONGEST canned query the prompt starts with, not the first
+        # one in dict-insertion order. When two queries share a prefix (e.g.
+        # "payment terms" and "payment terms for early termination"), a
+        # first-match scan would silently route the shorter query's answer to
+        # the longer one; longest-prefix makes the mock insertion-order-
+        # independent and keeps overlapping fixtures correct.
+        best_query = ""
+        for query in answers_by_query:
+            if prompt.startswith(query) and len(query) > len(best_query):
+                best_query = query
+        if best_query:
+            return answers_by_query[best_query]
+        return ""
+
     # Accept arbitrary kwargs so these fakes don't break when new parameters
     # (e.g. ``embedder=``) are added to the real extract-API signatures — the
     # test only cares about mapping ``prompt`` to a canned answer.
     async def _fake_result_only(*, prompt, **kwargs):
-        return answers_by_query.get(prompt, "")
+        return _lookup(prompt)
 
     async def _fake_result_and_sources(*, prompt, **kwargs):
-        return answers_by_query.get(prompt, ""), []
+        return _lookup(prompt), []
 
     return _fake_result_only, _fake_result_and_sources
 
