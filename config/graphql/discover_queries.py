@@ -47,6 +47,7 @@ from opencontractserver.constants.search import (
     DISCOVER_DEFAULT_LIMIT,
     DISCOVER_OVERSAMPLE,
     DISCOVER_QUERY_VECTOR_CACHE_SIZE,
+    DISCOVER_TEXT_SEARCH_MAX_LENGTH,
     FTS_CONFIG,
     RRF_K,
 )
@@ -115,6 +116,18 @@ def _default_embedder_path() -> Optional[str]:
     return get_default_embedder_path()
 
 
+def _normalise_text_search(text_search: Optional[str]) -> Optional[str]:
+    """Strip and validate a Discover search string before any search arm runs."""
+    text = (text_search or "").strip()
+    if not text or len(text) > DISCOVER_TEXT_SEARCH_MAX_LENGTH:
+        return None
+    return text
+
+
+class _UncacheableQueryVector(Exception):
+    """Raised inside the LRU wrapper so failed embeddings are not cached."""
+
+
 def _query_vector(query_text: str, embedder_path: Optional[str]) -> Optional[list]:
     """Embed ``query_text`` with the default embedder, or ``None`` on failure.
 
@@ -144,12 +157,15 @@ def _cached_query_vector(query_text: str, embedder_path: str) -> Optional[list]:
 
     Caveats (acceptable for a best-effort arm): there is no TTL, so a vector
     lives until LRU-evicted — fine, because the same inputs always produce the
-    same vector. A transient embedder failure (``None``) is also cached for the
-    LRU window; the consequence is text-only results for that exact query until
-    eviction, never a wrong result, and the text arm always returns on its own.
+    same vector. Failed embeddings are deliberately not cached: callers catch
+    ``_UncacheableQueryVector`` and fall back to text-only results so transient
+    failures do not pin attacker-controlled query strings in worker memory.
     Tests reset the cache in ``setUp`` (``_cached_query_vector.cache_clear()``).
     """
-    return _query_vector(query_text, embedder_path)
+    vector = _query_vector(query_text, embedder_path)
+    if not vector:
+        raise _UncacheableQueryVector
+    return vector
 
 
 def _text_ids(
@@ -200,8 +216,9 @@ def _semantic_ids(
         # No embedder configured → semantic arm is a no-op. Guard here (rather
         # than relying on the cache) so we never seed the LRU with a null key.
         return []
-    vector = _cached_query_vector(query_text, embedder_path)
-    if not vector:
+    try:
+        vector = _cached_query_vector(query_text, embedder_path)
+    except _UncacheableQueryVector:
         return []
     try:
         results = visible_qs.search_by_embedding(  # type: ignore[attr-defined]
@@ -287,7 +304,7 @@ class DiscoverSearchQueryMixin:
     def resolve_discover_annotations(
         self, info, text_search, limit=DISCOVER_DEFAULT_LIMIT
     ) -> Any:
-        text = (text_search or "").strip()
+        text = _normalise_text_search(text_search)
         if not text:
             return []
         limit = _clamp_limit(limit)
@@ -323,7 +340,7 @@ class DiscoverSearchQueryMixin:
     def resolve_discover_documents(
         self, info, text_search, limit=DISCOVER_DEFAULT_LIMIT
     ) -> Any:
-        text = (text_search or "").strip()
+        text = _normalise_text_search(text_search)
         if not text:
             return []
         limit = _clamp_limit(limit)
@@ -347,7 +364,7 @@ class DiscoverSearchQueryMixin:
     def resolve_discover_notes(
         self, info, text_search, limit=DISCOVER_DEFAULT_LIMIT
     ) -> Any:
-        text = (text_search or "").strip()
+        text = _normalise_text_search(text_search)
         if not text:
             return []
         limit = _clamp_limit(limit)
@@ -379,7 +396,7 @@ class DiscoverSearchQueryMixin:
     def resolve_discover_corpuses(
         self, info, text_search, limit=DISCOVER_DEFAULT_LIMIT
     ) -> Any:
-        text = (text_search or "").strip()
+        text = _normalise_text_search(text_search)
         if not text:
             return []
         limit = _clamp_limit(limit)
@@ -462,7 +479,7 @@ class DiscoverSearchQueryMixin:
     def resolve_discover_discussions(
         self, info, text_search, limit=DISCOVER_DEFAULT_LIMIT
     ) -> Any:
-        text = (text_search or "").strip()
+        text = _normalise_text_search(text_search)
         if not text:
             return []
         limit = _clamp_limit(limit)

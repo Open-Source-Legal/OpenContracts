@@ -297,6 +297,18 @@ class DiscoverSearchTextArmTest(TestCase):
         # CHAT-type conversation is excluded even though its title matches.
         self.assertNotIn("indemnification chat", titles)
 
+    def test_overlong_query_returns_empty_before_searching(self):
+        from opencontractserver.constants.search import DISCOVER_TEXT_SEARCH_MAX_LENGTH
+
+        with patch("config.graphql.discover_queries._query_vector") as query_vector:
+            result = self.graphene_client.execute(
+                "query D($t: String!){ discoverAnnotations(textSearch:$t){ id } }",
+                variables={"t": "x" * (DISCOVER_TEXT_SEARCH_MAX_LENGTH + 1)},
+            )
+        self.assertIsNone(result.get("errors"), result.get("errors"))
+        self.assertEqual(result["data"]["discoverAnnotations"], [])
+        query_vector.assert_not_called()
+
     def test_empty_query_returns_empty(self):
         for field in (
             "discoverAnnotations",
@@ -402,6 +414,20 @@ class DiscoverHelperTest(TestCase):
             _clamp_limit(SEMANTIC_SEARCH_MAX_RESULTS + 1000),
             SEMANTIC_SEARCH_MAX_RESULTS,
         )
+
+    def test_failed_query_vectors_are_not_cached(self):
+        from config.graphql.discover_queries import (
+            _cached_query_vector,
+            _UncacheableQueryVector,
+        )
+
+        _cached_query_vector.cache_clear()
+        self.addCleanup(_cached_query_vector.cache_clear)
+        with patch("config.graphql.discover_queries._query_vector", return_value=None):
+            with self.assertRaises(_UncacheableQueryVector):
+                _cached_query_vector("uncacheable failure", "embedder")
+
+        self.assertEqual(_cached_query_vector.cache_info().currsize, 0)
 
     def test_rrf_tie_break_is_deterministic_and_type_agnostic(self):
         from config.graphql.discover_queries import _rrf
