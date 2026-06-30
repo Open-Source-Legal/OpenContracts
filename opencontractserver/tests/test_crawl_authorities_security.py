@@ -27,10 +27,30 @@ class CrawlAuthoritiesSecurityTests(TransactionTestCase):
         self.assertEqual(bounds["max_depth"], C.CRAWL_MAX_MAX_DEPTH)
         self.assertEqual(bounds["min_demand"], 0)
         self.assertEqual(bounds["max_authorities"], C.CRAWL_MAX_MAX_AUTHORITIES)
+        # per_jurisdiction_cap floors at 1 (0 would park every row); an extreme
+        # high value still clamps down to the cap.
         self.assertEqual(
             bounds["per_jurisdiction_cap"], C.CRAWL_MAX_PER_JURISDICTION_CAP
         )
-        self.assertEqual(bounds["token_budget"], 0)
+        # token_budget=-1 must NOT become 0 (the "unbounded" sentinel) — a capped
+        # path maps non-positive requests to the bounded default.
+        self.assertEqual(bounds["token_budget"], C.CRAWL_DEFAULT_TOKEN_BUDGET)
+
+    def test_negative_per_jurisdiction_cap_floors_to_one_not_zero(self):
+        # A negative cap must not clamp to 0 (which parks every dequeued row at
+        # deferred_cap and silently halts the whole crawl).
+        bounds = CrawlAuthoritiesService._sanitize_bounds(
+            max_depth=1,
+            min_demand=1,
+            max_authorities=1,
+            per_jurisdiction_cap=-1,
+            token_budget=1000,
+        )
+        self.assertEqual(
+            bounds["per_jurisdiction_cap"], C.CRAWL_MIN_PER_JURISDICTION_CAP
+        )
+        # A legitimate small positive budget is preserved (not forced to default).
+        self.assertEqual(bounds["token_budget"], 1000)
 
     def test_corpus_crawl_does_not_claim_unseeded_global_frontier(self):
         user = _make_user("scoped-crawl-user")
@@ -85,18 +105,30 @@ class CrawlAuthoritiesSecurityTests(TransactionTestCase):
         unrelated.refresh_from_db()
         self.assertEqual(unrelated.discovery_state, C.DISCOVERY_STATE_QUEUED)
 
-    def test_tool_wrapper_clamps_extreme_model_supplied_bounds(self):
-        user = _make_user("wrapper-clamp-user")
-        captured = {}
+    def test_tool_wrapper_extreme_bounds_are_sanitized_by_the_service(self):
+        """The wrapper forwards bounds straight to ``crawl()`` — the single,
+        load-bearing sanitizing layer (it also protects the Celery-task path).
 
-        def fake_crawl(**kwargs):
-            captured.update(kwargs)
-            return {"ok": True}
+        Extreme model-supplied bounds passed to the wrapper therefore still come
+        out clamped in the actual run; the run's summary echoes the sanitized
+        bounds, not the raw inputs. (Verifying end-to-end rather than mocking
+        ``crawl`` is what guards against the prior bug where the wrapper clamped
+        but a direct ``crawl`` caller did not.)
+        """
+        user = _make_user("wrapper-clamp-user")
 
         from unittest.mock import patch
 
-        with patch.object(CrawlAuthoritiesService, "crawl", side_effect=fake_crawl):
-            crawl_authorities(
+        _module = "opencontractserver.enrichment.services.crawl_authorities_service"
+        with patch(
+            f"{_module}.AuthorityFrontierService.seed_from_wanted_authorities",
+            return_value={
+                "frontier_created": 0,
+                "frontier_updated": 0,
+                "queued_keys": [],
+            },
+        ):
+            summary = crawl_authorities(
                 creator_id=user.id,
                 corpus_id=1,
                 max_depth=999,
@@ -106,13 +138,13 @@ class CrawlAuthoritiesSecurityTests(TransactionTestCase):
                 token_budget=-1,
             )
 
-        self.assertEqual(captured["max_depth"], C.CRAWL_MAX_MAX_DEPTH)
-        self.assertEqual(captured["min_demand"], 0)
-        self.assertEqual(captured["max_authorities"], C.CRAWL_MAX_MAX_AUTHORITIES)
+        self.assertEqual(summary["max_depth"], C.CRAWL_MAX_MAX_DEPTH)
+        self.assertEqual(summary["min_demand"], 0)
+        self.assertEqual(summary["max_authorities"], C.CRAWL_MAX_MAX_AUTHORITIES)
         self.assertEqual(
-            captured["per_jurisdiction_cap"], C.CRAWL_MAX_PER_JURISDICTION_CAP
+            summary["per_jurisdiction_cap"], C.CRAWL_MAX_PER_JURISDICTION_CAP
         )
-        self.assertEqual(captured["token_budget"], 0)
+        self.assertEqual(summary["token_budget"], C.CRAWL_DEFAULT_TOKEN_BUDGET)
 
     def test_clamp_int_falls_back_to_lower_for_non_integer_value(self):
         """_clamp_int returns the lower-bound when value is not int-convertible."""
@@ -124,6 +156,18 @@ class CrawlAuthoritiesSecurityTests(TransactionTestCase):
         self.assertEqual(
             CrawlAuthoritiesService._clamp_int("not-a-number", lower=5, upper=20),  # type: ignore[arg-type]
             5,
+        )
+
+    def test_sanitize_token_budget_non_integer_falls_back_to_default(self):
+        """A non-integer token_budget maps to the bounded default, never 0."""
+        # Deliberately passing non-int values to exercise the except branch.
+        self.assertEqual(
+            CrawlAuthoritiesService._sanitize_token_budget("nope"),  # type: ignore[arg-type]
+            C.CRAWL_DEFAULT_TOKEN_BUDGET,
+        )
+        self.assertEqual(
+            CrawlAuthoritiesService._sanitize_token_budget(None),  # type: ignore[arg-type]
+            C.CRAWL_DEFAULT_TOKEN_BUDGET,
         )
 
     def test_crawl_keys_updated_when_scoped_crawl_ingests_and_seeds_children(self):

@@ -264,22 +264,17 @@ def crawl_authorities(
         CrawlAuthoritiesService,
     )
 
-    bounds = CrawlAuthoritiesService._sanitize_bounds(
+    # crawl() sanitizes its own bounds (the load-bearing call that also protects
+    # the Celery-task and any other direct caller), so the wrapper passes the
+    # caller's values through unmodified rather than sanitizing a second time.
+    return CrawlAuthoritiesService.crawl(
+        creator_id=creator_id,
+        corpus_id=corpus_id,
         max_depth=max_depth,
         min_demand=min_demand,
         max_authorities=max_authorities,
         per_jurisdiction_cap=per_jurisdiction_cap,
         token_budget=token_budget,
-    )
-
-    return CrawlAuthoritiesService.crawl(
-        creator_id=creator_id,
-        corpus_id=corpus_id,
-        max_depth=bounds["max_depth"],
-        min_demand=bounds["min_demand"],
-        max_authorities=bounds["max_authorities"],
-        per_jurisdiction_cap=bounds["per_jurisdiction_cap"],
-        token_budget=bounds["token_budget"],
     )
 
 

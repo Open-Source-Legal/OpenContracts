@@ -99,6 +99,11 @@ CRAWL_MAX_MIN_DEMAND = 1_000
 CRAWL_MAX_MAX_AUTHORITIES = 50
 CRAWL_MAX_PER_JURISDICTION_CAP = 15
 CRAWL_MAX_TOKEN_BUDGET = 2_000_000
+# Lower floors for caps where 0/negative is not a meaningful "unbounded"
+# sentinel but a degenerate value. ``per_jurisdiction_cap`` of 0 parks every
+# dequeued row at ``deferred_cap`` (blocks the whole run); a floor of 1 keeps at
+# least one authority per jurisdiction processable.
+CRAWL_MIN_PER_JURISDICTION_CAP = 1
 # Punctuation stripped from the tail of a captured defined term
 # (e.g. (the "Notes," ...) -> "Notes").
 TRAILING_PUNCT = ",.;:"

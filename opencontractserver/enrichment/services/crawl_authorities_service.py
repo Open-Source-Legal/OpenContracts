@@ -78,6 +78,25 @@ class CrawlAuthoritiesService(BaseService):
             number = lower
         return max(lower, min(number, upper))
 
+    @staticmethod
+    def _sanitize_token_budget(value: int) -> int:
+        """Token budget for a server-capped run — always bounded.
+
+        The BFS loop treats ``token_budget <= 0`` as "unbounded" (the budget
+        check is skipped). A user/LLM-controlled, security-capped path must never
+        run unbounded, so a non-positive (or non-integer) request maps to the
+        bounded default rather than to ``0`` — clamping ``lower=0`` would let
+        ``token_budget=-1`` slip through to the unbounded sentinel. Positive
+        requests are clamped into ``[1, CRAWL_MAX_TOKEN_BUDGET]``.
+        """
+        try:
+            number = int(value)
+        except (TypeError, ValueError):
+            return C.CRAWL_DEFAULT_TOKEN_BUDGET
+        if number <= 0:
+            return C.CRAWL_DEFAULT_TOKEN_BUDGET
+        return min(number, C.CRAWL_MAX_TOKEN_BUDGET)
+
     @classmethod
     def _sanitize_bounds(
         cls,
@@ -99,14 +118,15 @@ class CrawlAuthoritiesService(BaseService):
             "max_authorities": cls._clamp_int(
                 max_authorities, lower=0, upper=C.CRAWL_MAX_MAX_AUTHORITIES
             ),
+            # per_jurisdiction_cap=0 parks every dequeued row (blocks the run),
+            # so clamp to a floor of 1 rather than 0 — a negative/zero request
+            # must not silently halt the whole crawl.
             "per_jurisdiction_cap": cls._clamp_int(
                 per_jurisdiction_cap,
-                lower=0,
+                lower=C.CRAWL_MIN_PER_JURISDICTION_CAP,
                 upper=C.CRAWL_MAX_PER_JURISDICTION_CAP,
             ),
-            "token_budget": cls._clamp_int(
-                token_budget, lower=0, upper=C.CRAWL_MAX_TOKEN_BUDGET
-            ),
+            "token_budget": cls._sanitize_token_budget(token_budget),
         }
 
     @classmethod
@@ -141,7 +161,9 @@ class CrawlAuthoritiesService(BaseService):
                 Cap-blocked rows are parked at ``deferred_cap`` so they are not
                 re-dequeued in the same run (termination guarantee).
             token_budget: Cumulative estimated tokens (text length / 4) before
-                stopping.  0 or negative = unbounded.
+                stopping.  Sanitized for this capped path: a non-positive request
+                maps to ``CRAWL_DEFAULT_TOKEN_BUDGET`` (never unbounded), positive
+                values are clamped to ``CRAWL_MAX_TOKEN_BUDGET``.
             make_public: Publish discovered authority corpora (default True).
             log: Callable used for progress messages (default ``logger.info``).
 
@@ -233,11 +255,17 @@ class CrawlAuthoritiesService(BaseService):
                 # above leave their unreached-but-eligible rows to
                 # frontier_residual instead). The single key is the UNION of the
                 # two exclusions; it does not split each row by cause.
-                blocked_by_bound["min_demand_or_depth"] = (
-                    AuthorityFrontier.objects.filter(
-                        discovery_state=C.DISCOVERY_STATE_QUEUED
-                    ).count()
+                #
+                # Scope the count to THIS run's canonical keys when the crawl is
+                # restricted (crawl_keys is not None). A global QUEUED count would
+                # fold in rows from other concurrent corpus runs, inflating this
+                # run's diagnostic with frontier noise it didn't touch.
+                residual_qs = AuthorityFrontier.objects.filter(
+                    discovery_state=C.DISCOVERY_STATE_QUEUED
                 )
+                if crawl_keys is not None:
+                    residual_qs = residual_qs.filter(canonical_key__in=crawl_keys)
+                blocked_by_bound["min_demand_or_depth"] = residual_qs.count()
                 stop_reason = "frontier_drained"
                 break
 
