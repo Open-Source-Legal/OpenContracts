@@ -1,5 +1,6 @@
 """Tests for PydanticAI agent implementations following modern patterns."""
 
+import os
 import random
 from dataclasses import dataclass
 from typing import Optional
@@ -11,14 +12,17 @@ from django.test import TransactionTestCase, override_settings
 from django.utils import timezone
 from pydantic import BaseModel
 from pydantic_ai.agent import Agent
+from pydantic_ai.exceptions import UsageLimitExceeded
 from pydantic_ai.models.test import TestModel
 from pydantic_ai.tools import RunContext
+from pydantic_ai.usage import UsageLimits
 
 from opencontractserver.annotations.models import Annotation, AnnotationLabel
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document, DocumentPath
+from opencontractserver.llms.agents import pydantic_ai_agents as pa_mod
 from opencontractserver.llms.agents.agent_factory import UnifiedAgentFactory
-from opencontractserver.llms.agents.core_agents import UnifiedChatResponse
+from opencontractserver.llms.agents.core_agents import AgentConfig, UnifiedChatResponse
 from opencontractserver.llms.agents.pydantic_ai_agents import PydanticAIDocumentAgent
 from opencontractserver.llms.tools.pydantic_ai_tools import (
     PydanticAIToolFactory,
@@ -667,6 +671,68 @@ class TestPydanticAIAgents(TransactionTestCase):
         resp = await agent.chat("What is this document about?")
         self.assertIsInstance(resp, UnifiedChatResponse)
         self.assertIn("PydanticAI Placeholder", resp.content)
+
+    async def test_structured_response_usage_limit_logs_actual_limit(self) -> None:
+        """Tripping the request budget logs the ACTUAL limit, not the default.
+
+        Covers the ``except UsageLimitExceeded`` branch in
+        ``_structured_response_raw``: the budget hit is swallowed to ``None``
+        and the warning interpolates the request limit actually in force.
+        Passing ``usage_limits=UsageLimits(request_limit=7)`` proves the log
+        reflects the caller's override (7), decoupled from the hardcoded
+        ``EXTRACT_AGENT_REQUEST_LIMIT`` default (=20) — issue #1381 follow-up.
+        """
+        config = AgentConfig(
+            user_id=self.user.id,
+            model_name="openai:gpt-4o-mini",
+            store_user_messages=False,
+            store_llm_messages=False,
+        )
+        # Build the agent with a REAL main pydantic-ai agent (no patch yet) so
+        # the structured-response setup (tool seeding, prompt build) runs for
+        # real; only the structured agent's run() is stubbed below. A dummy
+        # OPENAI_API_KEY lets the OpenAI-backed agent CONSTRUCT — pydantic-ai
+        # validates the key only on an actual request, which never happens here
+        # (the main agent's run() is never called and the structured agent is
+        # stubbed), so no network call is made.
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "test-key-unused"}):
+            agent = await PydanticAIDocumentAgent.create(
+                document=self.doc1, corpus=self.corpus, config=config
+            )
+        # Keep history loading cheap + deterministic (mirrors the factory test).
+        agent.conversation_manager.get_conversation_messages = AsyncMock(
+            return_value=[]
+        )
+
+        # Stub ONLY the structured agent so its run() trips the request budget.
+        stub_structured_agent = MagicMock()
+        stub_structured_agent.run = AsyncMock(
+            side_effect=UsageLimitExceeded(
+                "The next request would exceed the request_limit of 7"
+            )
+        )
+
+        with patch.object(
+            pa_mod, "make_pydantic_ai_agent", return_value=stub_structured_agent
+        ):
+            with self.assertLogs(pa_mod.__name__, level="WARNING") as captured:
+                result = await agent.structured_response(
+                    "Find the governing-law clause.",
+                    str,
+                    usage_limits=UsageLimits(request_limit=7),
+                )
+
+        # The budget hit is swallowed to None ...
+        self.assertIsNone(result)
+        # ... and logged with the ACTUAL limit in force (7), not the default 20.
+        self.assertTrue(
+            any("request budget (request_limit=7)" in line for line in captured.output),
+            f"Expected actual request_limit in warning; got: {captured.output}",
+        )
+        self.assertFalse(
+            any("request_limit=20" in line for line in captured.output),
+            "Warning must not fall back to the hardcoded default limit.",
+        )
 
     @override_settings(
         OPENAI_API_KEY="test-key",
