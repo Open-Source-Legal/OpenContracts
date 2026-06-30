@@ -75,12 +75,29 @@ _CAML_ARTICLE_TOOLS = [
     "get_document_notes",
 ]
 
+# Per-task prompt for the "Document Description Updater" template. Extracted to a
+# named constant so the agents/0017 data migration can re-sync already-seeded
+# databases (the seeder skips templates that already exist by name, so editing
+# the literal below never reaches them on its own).
+DOCUMENT_DESCRIPTION_INSTRUCTIONS = (
+    "Write ONE concise sentence (about 12-25 words) capturing what this "
+    "document is actually about: the specific subject matter -- the goods, "
+    "services, rights, obligations, or events it concerns -- and the key "
+    "parties involved. Lead with the substance, not the document type or title "
+    '(e.g. "Renewal of an agreement with Acme Foods to supply potatoes to city '
+    'facilities", not "A renewal agreement titled ..."). Do not begin with '
+    '"This document is" or "This is", and do not simply restate the title. '
+    "Mention the document or instrument type only as brief context, not the "
+    "focus. Use update_document_description to save your result; rewrite any "
+    "existing description to meet this bar."
+)
+
 TEMPLATES = [
     {
         "name": "Document Description Updater",
         "description": (
-            "Reads a newly added document and writes a concise description "
-            "summarising its type, purpose, and key parties."
+            "Reads a newly added document and writes a one-sentence summary "
+            "leading with its subject matter and key parties."
         ),
         "trigger": _TRIGGER_ADD_DOCUMENT,
         "sort_order": 10,
@@ -94,13 +111,7 @@ TEMPLATES = [
             "get_document_description",
             "update_document_description",
         ],
-        "instructions": (
-            "Read the document text and write a concise 2-3 sentence description "
-            "summarising what this document is about, its type (contract, memo, "
-            "report, etc.), and the key parties or subjects involved. Use "
-            "update_document_description to save your result. If a description "
-            "already exists, improve it based on the actual document content."
-        ),
+        "instructions": DOCUMENT_DESCRIPTION_INSTRUCTIONS,
         "badge_config": {"icon": "file-text", "color": "#059669", "label": "Desc"},
     },
     {
