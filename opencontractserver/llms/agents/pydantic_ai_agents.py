@@ -15,6 +15,7 @@ from pydantic_ai.agent import (
     ModelRequestNode,
     UserPromptNode,
 )
+from pydantic_ai.exceptions import UsageLimitExceeded
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
@@ -30,6 +31,7 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 from pydantic_ai.toolsets import FunctionToolset
+from pydantic_ai.usage import UsageLimits
 from pydantic_graph import End
 
 from opencontractserver.constants.context_guardrails import (
@@ -38,7 +40,10 @@ from opencontractserver.constants.context_guardrails import (
     LARGE_IMPLICIT_CHUNK_WARN_RATIO,
     MIN_IMPLICIT_DOCUMENT_CHUNK_CHARS,
 )
-from opencontractserver.constants.llm import STRUCTURED_OUTPUT_RETRIES
+from opencontractserver.constants.llm import (
+    EXTRACT_AGENT_REQUEST_LIMIT,
+    STRUCTURED_OUTPUT_RETRIES,
+)
 from opencontractserver.conversations.models import Conversation
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
@@ -1695,6 +1700,11 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
             f"Generating structured response for target_type='{getattr(target_type, '__name__', str(target_type))}'"
         )
 
+        # Pre-bound so the ``except UsageLimitExceeded`` handler can log it even
+        # in the (defensive) case the error surfaces before the budget is
+        # resolved below; reassigned to the effective budget just before the run.
+        effective_request_limit = EXTRACT_AGENT_REQUEST_LIMIT
+
         try:
             # Build model settings with overrides.
             # ``_prepare_pydantic_ai_model_settings`` returns ``None`` when
@@ -1801,14 +1811,53 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
             if history_result.messages:
                 run_kwargs["message_history"] = history_result.messages
 
-            # Run the agent with the user's prompt and full dependencies
-            run_result = await structured_agent.run(
-                prompt,
-                **run_kwargs,
+            # Default request budget for structured runs: caps model requests so
+            # a weak model cannot run away making dozens-to-hundreds of redundant
+            # tool calls on a hard or absent value (the ``tool_loop_no_output``
+            # pathology); a capable model commits well within it. A caller may
+            # override it — ``usage_limits`` is whitelisted in ``_run_accepted``
+            # — but only with a real ``UsageLimits``: an explicit
+            # ``usage_limits=None`` means "use the default", not "no budget", so
+            # we apply the default whenever the resolved value is ``None``
+            # (``setdefault`` would leave a caller's ``None`` in place and
+            # silently disable the cap). Setting it on the dict (rather than
+            # passing a second keyword) also avoids a duplicate-keyword
+            # ``TypeError`` the broad ``except`` below would mask as a silent
+            # ``None``.
+            if run_kwargs.get("usage_limits") is None:
+                run_kwargs["usage_limits"] = UsageLimits(
+                    request_limit=EXTRACT_AGENT_REQUEST_LIMIT
+                )
+            # The request budget actually in force for this run: a caller's
+            # override if they passed one, else the EXTRACT_AGENT_REQUEST_LIMIT
+            # default just applied. Surfaced in the UsageLimitExceeded log below
+            # so operators see the real ceiling, not the hardcoded default.
+            effective_request_limit = getattr(
+                run_kwargs.get("usage_limits"),
+                "request_limit",
+                EXTRACT_AGENT_REQUEST_LIMIT,
             )
+            run_result = await structured_agent.run(prompt, **run_kwargs)
 
             # Extract the structured result
             return run_result.output
+
+        except UsageLimitExceeded as e:
+            # The request budget tripped before the agent committed a
+            # ``final_result``. Catch it BEFORE the broad handler so it is logged
+            # as a distinct, named condition (mirroring the streaming ``chat()``
+            # path, which already special-cases ``UsageLimitExceeded``) rather
+            # than a generic "failed to generate" warning. The caller's
+            # ``_classify_none_result`` independently recognises this from the
+            # captured message history and records
+            # ``failure_mode=usage_limit_exceeded`` on the datacell, so an
+            # operator can tell a too-tight budget from a genuine runaway loop.
+            logger.warning(
+                "Structured run hit the request budget (request_limit=%s): %s",
+                effective_request_limit,
+                e,
+            )
+            return None
 
         except Exception as e:
             logger.warning(
