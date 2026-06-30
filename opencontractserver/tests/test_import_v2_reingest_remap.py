@@ -17,8 +17,10 @@ See ``docs/development/2026-06-06-v2-import-reingest-remap.md``.
 
 from __future__ import annotations
 
+import io
 import json
 import uuid
+import zipfile
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -47,6 +49,10 @@ from opencontractserver.tasks.doc_tasks import (
     finalize_corpus_import_relationships,
 )
 from opencontractserver.tasks.export_tasks_v2 import package_corpus_export_v2
+from opencontractserver.tasks.import_tasks_v2 import (
+    _read_reingest_source_bytes,
+    _source_is_reingestable,
+)
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.annotation_anchoring import anchor_annotations
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
@@ -123,28 +129,17 @@ class TestSourceReingestability(TestCase):
     """The placeholder guard that routes source-less docs to the baked path."""
 
     def test_placeholder_and_empty_are_not_reingestable(self):
-        from opencontractserver.tasks.import_tasks_v2 import _source_is_reingestable
-
         # The V2 exporter writes a single NUL byte for docs with no real
         # source file (text/markdown); those must NOT be re-parsed.
         self.assertFalse(_source_is_reingestable(b"\x00"))
         self.assertFalse(_source_is_reingestable(b""))
 
     def test_real_bytes_are_reingestable(self):
-        from opencontractserver.tasks.import_tasks_v2 import _source_is_reingestable
-
         self.assertTrue(_source_is_reingestable(b"%PDF-1.4 ..."))
         self.assertTrue(_source_is_reingestable(b"plain text body"))
 
     @override_settings(MAX_CORPUS_REINGEST_SOURCE_BYTES=4)
     def test_read_reingest_source_bytes_rejects_oversized_zip_member(self):
-        import io
-        import zipfile
-
-        from opencontractserver.tasks.import_tasks_v2 import (
-            _read_reingest_source_bytes,
-        )
-
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
             zf.writestr("documents/large.pdf", b"%PDF-1.4 large")
@@ -155,13 +150,6 @@ class TestSourceReingestability(TestCase):
 
     @override_settings(MAX_CORPUS_REINGEST_SOURCE_BYTES=32)
     def test_read_reingest_source_bytes_allows_member_under_limit(self):
-        import io
-        import zipfile
-
-        from opencontractserver.tasks.import_tasks_v2 import (
-            _read_reingest_source_bytes,
-        )
-
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
             zf.writestr("documents/small.pdf", b"%PDF-1.4 small")
@@ -175,20 +163,16 @@ class TestSourceReingestability(TestCase):
 
     @override_settings(MAX_CORPUS_REINGEST_SOURCE_BYTES=4)
     def test_read_reingest_source_bytes_rejects_metadata_lie_on_read(self):
-        """Second guard fires when ZIP metadata under-reports file_size but the
-        actual read returns more than MAX_CORPUS_REINGEST_SOURCE_BYTES bytes.
+        """A crafted ZIP whose central-directory file_size under-reports the
+        real member is rejected (returns None → baked fallback).
 
-        A crafted ZIP can set a small file_size in the central directory while
-        storing larger data, bypassing the first (metadata) guard.  The second
-        guard catches this by checking len(source_bytes) after the bounded read.
+        Setting a small file_size in the central directory bypasses the first
+        (metadata) guard, but the stored bytes no longer match that size, so the
+        bounded read trips CRC validation and raises. ``_read_reingest_source_bytes``
+        treats any member it cannot read safely as non-reingestable and returns
+        None, so a crafted member falls back to the baked import for that doc
+        rather than aborting the whole corpus import.
         """
-        import io
-        import zipfile
-
-        from opencontractserver.tasks.import_tasks_v2 import (
-            _read_reingest_source_bytes,
-        )
-
         # 10-byte stored entry: compress_size == 10.
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_STORED) as zf:
@@ -200,13 +184,38 @@ class TestSourceReingestability(TestCase):
             # modifying it in-place is seen by the subsequent getinfo() call
             # inside _read_reingest_source_bytes.
             real_info = real_zf.getinfo("documents/liar.pdf")
-            # Lie: shrink reported file_size to 3 so the first guard (3 > 4)
-            # is skipped.  compress_size stays at 10, so fh.read(5) still
-            # yields 5 bytes and the second guard (5 > 4) fires → None.
+            # Lie: shrink reported file_size to 3 so the first guard (3 > 4) is
+            # skipped. The actual stored data is 10 bytes, so the bounded read
+            # fails its CRC check and raises BadZipFile → caught → None.
             real_info.file_size = 3
             result = _read_reingest_source_bytes(real_zf, "documents/liar.pdf")
 
         self.assertIsNone(result)
+
+    @override_settings(MAX_CORPUS_REINGEST_SOURCE_BYTES=4)
+    def test_read_reingest_source_bytes_rejects_overlong_read(self):
+        """Defense-in-depth: a member that slips past the metadata guard but
+        whose bounded read still yields more than the limit is rejected by the
+        post-read length check (returns None → baked fallback).
+
+        Real crafted ZIPs trip CRC validation instead, but this guards against
+        any reader path that returns extra bytes without raising.
+        """
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock
+
+        # 11 readable bytes behind a member that reports file_size=2 (<= 4, so
+        # the metadata guard is skipped). The bounded read pulls 5 bytes (4 + 1),
+        # and 5 > 4 trips the length guard.
+        fh = io.BytesIO(b"%PDF-1.4 xx")
+        member_cm = MagicMock()
+        member_cm.__enter__.return_value = fh
+        member_cm.__exit__.return_value = False
+        fake_zip = MagicMock()
+        fake_zip.getinfo.return_value = SimpleNamespace(file_size=2)
+        fake_zip.open.return_value = member_cm
+
+        self.assertIsNone(_read_reingest_source_bytes(fake_zip, "documents/x.pdf"))
 
 
 class TestCorpusImportFanIn(TestCase):

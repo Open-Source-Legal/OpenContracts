@@ -12,6 +12,7 @@ import json
 import logging
 import uuid
 import zipfile
+import zlib
 from typing import IO, TYPE_CHECKING, Any, cast
 
 from django.conf import settings
@@ -95,7 +96,11 @@ def _read_reingest_source_bytes(
     uncompressed member via ``ZipExtFile.read()``.  Return ``None`` to make the
     caller use the baked-import fallback instead.
     """
-    max_source_bytes = getattr(settings, "MAX_CORPUS_REINGEST_SOURCE_BYTES", 0)
+    # Read the limit directly (base.py always defines it, 256 MiB default) so a
+    # misconfiguration fails loudly rather than silently disabling the guard: a
+    # ``getattr(..., 0)`` fallback would make the bounded read below ``read(-1)``
+    # — unbounded — which is exactly the memory exhaustion this guards against.
+    max_source_bytes = settings.MAX_CORPUS_REINGEST_SOURCE_BYTES
     zip_info = import_zip.getinfo(doc_filename)
     if max_source_bytes and zip_info.file_size > max_source_bytes:
         logger.warning(
@@ -107,8 +112,23 @@ def _read_reingest_source_bytes(
         )
         return None
 
-    with import_zip.open(zip_info) as fh:
-        source_bytes = fh.read(max_source_bytes + 1 if max_source_bytes else -1)
+    try:
+        with import_zip.open(zip_info) as fh:
+            source_bytes = fh.read(max_source_bytes + 1 if max_source_bytes else -1)
+    except (zipfile.BadZipFile, OSError, EOFError, zlib.error) as exc:
+        # A crafted member whose central-directory ``file_size`` under-reports
+        # the real data (so the metadata guard above is skipped) does not yield
+        # a clean over-limit buffer — the bounded read trips CRC validation /
+        # decompression and raises. Treat any member we cannot read safely as
+        # non-reingestable and fall back to the baked import for just that doc,
+        # instead of letting the exception abort the whole corpus import.
+        logger.warning(
+            "Skipping reingest for %s: source member could not be read safely "
+            "(%s); using baked import fallback.",
+            doc_filename,
+            exc,
+        )
+        return None
     if max_source_bytes and len(source_bytes) > max_source_bytes:
         logger.warning(
             "Skipping reingest for %s: ZIP member expanded beyond "
@@ -360,11 +380,22 @@ def _import_document_with_annotations(
                 label_lookup,
             )
         reingest_fallback = True
+        # Distinguish a size-guarded / unreadable source (source_bytes is None)
+        # from a genuine NUL placeholder (bytes present but not reingestable),
+        # so a ZIP-bomb / crafted-member probe stays visible in normal logs
+        # instead of being indistinguishable from a placeholder doc. Kept as one
+        # log statement so the line stays exercised by the existing placeholder
+        # fallback test regardless of which reason applies.
+        fallback_reason = (
+            "source was skipped (exceeds size limit or unreadable)"
+            if source_bytes is None
+            else "has no preserved source file (placeholder)"
+        )
         logger.info(
-            "Reingest: document %s has no preserved source file (placeholder); "
-            "importing its baked layer instead and recording its id_map for "
-            "the relationship fan-in.",
+            "Reingest: document %s %s; importing its baked layer instead and "
+            "recording its id_map for the relationship fan-in.",
             doc_filename,
+            fallback_reason,
         )
 
     try:
