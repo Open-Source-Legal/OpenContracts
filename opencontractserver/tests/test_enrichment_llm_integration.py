@@ -315,12 +315,13 @@ class TestEnrichmentLLMIntegration(TransactionTestCase):
         # document-level READ on it.
         shared_corpus.add_document(document=private_doc, user=self.user)
 
-        # Sanity: the corpus genuinely contains a document under corpus-as-gate,
-        # so a documents_scanned == 0 result reflects the visibility filter rather
-        # than an empty corpus — while the visible-to-user variant hides it from
-        # other_user.
+        # Sanity: under corpus-as-gate the document IS reachable to other_user
+        # (corpus READ alone unlocks it via the wide loader), so a
+        # documents_scanned == 0 result proves the MIN(corpus, document) filter
+        # excluded it — not that the corpus is empty. The visible-to-user
+        # variant then hides it because other_user lacks document-level READ.
         assert CorpusDocumentService.get_corpus_documents(
-            self.user, shared_corpus, include_caml=False
+            self.other_user, shared_corpus, include_caml=False
         ).exists()
         assert not CorpusDocumentService.get_corpus_documents_visible_to_user(
             self.other_user, shared_corpus, include_caml=False
@@ -358,10 +359,23 @@ class TestEnrichmentLLMIntegration(TransactionTestCase):
             mod.abuild_agent_model = original
 
         assert out["documents_scanned"] == 0
-        assert out["documents_total"] == 0
+        assert out["documents_visible_to_caller"] == 0
+        # Corpus-as-gate still sees the private doc, so the exclusion is surfaced
+        # rather than silent.
+        assert out["documents_total_in_corpus"] == 1
+        assert out["documents_excluded_by_visibility"] == 1
         assert out["total_candidates"] == 0
         assert out["review_candidates"] == []
         assert call_count == 0, "LLM was called for a document hidden from the user"
+
+        # Positive control: the corpus OWNER still sees the document. Without
+        # this, an over-restrictive visibility filter (one that returned nothing
+        # for everyone) would pass all the negative assertions above.
+        owner_out = EnrichmentService().discover(
+            corpus_id=shared_corpus.id, creator_id=self.user.id
+        )
+        assert owner_out["documents_scanned"] >= 1
+        assert owner_out["documents_excluded_by_visibility"] == 0
 
     def test_scan_uses_document_visibility_for_shared_corpus(self):
         """scan() returns verbatim ``raw_text`` excerpts in samples /
@@ -374,8 +388,16 @@ class TestEnrichmentLLMIntegration(TransactionTestCase):
         )
 
         assert out["documents_scanned"] == 0
+        assert out["documents_excluded_by_visibility"] == 1
         assert out["total_candidates"] == 0
         assert out["samples"] == []
+
+        # Positive control: the corpus OWNER still scans the document.
+        owner_out = EnrichmentService().scan(
+            corpus_id=shared_corpus.id, creator_id=self.user.id
+        )
+        assert owner_out["documents_scanned"] >= 1
+        assert owner_out["documents_excluded_by_visibility"] == 0
 
     def test_apply_uses_document_visibility_for_shared_corpus(self):
         """apply() persists Annotation / CorpusReference rows derived from
@@ -390,10 +412,20 @@ class TestEnrichmentLLMIntegration(TransactionTestCase):
         )
 
         assert out["documents_scanned"] == 0
+        assert out["documents_excluded_by_visibility"] == 1
         assert out["annotations_created"] == 0
         assert out["references_created"] == 0
         # No annotations were persisted onto the document hidden from the caller.
         assert not Annotation.objects.filter(document=private_doc).exists()
+
+        # Positive control: the corpus OWNER still enriches the document
+        # (documents_scanned counts the visible set, so this holds regardless of
+        # how many references the text yields).
+        owner_out = EnrichmentService().apply(
+            corpus_id=shared_corpus.id, creator_id=self.user.id
+        )
+        assert owner_out["documents_scanned"] >= 1
+        assert owner_out["documents_excluded_by_visibility"] == 0
 
     def test_apply_skips_review_bucket(self):
         """apply() never writes a CorpusReference for a low-confidence (review-

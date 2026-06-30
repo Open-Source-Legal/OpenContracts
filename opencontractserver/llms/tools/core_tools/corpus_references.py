@@ -95,8 +95,10 @@ def discover_authorities(
     locating. Writes nothing.
 
     Cost scales with corpus size (every document's full text is scanned). On a
-    large corpus pass ``max_documents`` to cap the scan; the result then reports
-    ``documents_total`` and ``documents_truncated`` so the cap is explicit.
+    large corpus pass ``max_documents`` to cap the scan; the result reports
+    ``documents_total_in_corpus``, ``documents_visible_to_caller`` and
+    ``documents_truncated`` so both the cap and any per-document visibility
+    filtering (``documents_excluded_by_visibility``) are explicit.
 
     Set ``use_llm=True`` to run an additional LLM detection pass for
     prose/obscure citations (slower, costs tokens). Defaults to ``False``.

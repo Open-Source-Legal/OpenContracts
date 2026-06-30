@@ -49,7 +49,9 @@ class DiscoveryTests(TestCase):
         assert "us-de" in out["by_jurisdiction"]
         # Unbounded by default: the whole corpus is scanned, nothing truncated.
         assert out["documents_truncated"] is False
-        assert out["documents_total"] == 1
+        assert out["documents_total_in_corpus"] == 1
+        assert out["documents_visible_to_caller"] == 1
+        assert out["documents_excluded_by_visibility"] == 0
 
     def test_max_documents_caps_the_scan_and_flags_truncation(self):
         # Add a second document so the corpus exceeds the cap; max_documents=1
@@ -64,6 +66,7 @@ class DiscoveryTests(TestCase):
         out = EnrichmentService().discover(
             corpus_id=self.corpus.id, creator_id=self.user.id, max_documents=1
         )
-        assert out["documents_total"] == 2
+        assert out["documents_total_in_corpus"] == 2
+        assert out["documents_visible_to_caller"] == 2
         assert out["documents_scanned"] == 1
         assert out["documents_truncated"] is True
