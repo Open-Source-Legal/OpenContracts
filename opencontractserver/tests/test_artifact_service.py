@@ -218,12 +218,15 @@ class ArtifactServiceReadAndEditTests(TestCase):
         self.assertNotEqual(art.title, "Hijack")
 
     def test_update_captions_allowed_for_superuser(self):
-        # ``_can_edit`` grants superusers an admin override on artifacts they do
-        # not own (corpus-as-gate READ is satisfied because superusers see all).
+        # ``_can_edit`` grants superusers an admin override on artifacts they did
+        # not create. Uses the public corpus because the corpus-as-gate READ runs
+        # first and ``Corpus.visible_to_user`` does not blanket-expose private
+        # corpora to superusers — so the override only applies to artifacts on
+        # corpora the admin can already read.
         admin = User.objects.create_user(
             username="artifact-admin", password="x", is_superuser=True
         )
-        art = ArtifactService.create(self.owner, self.private_corpus.id, _TEMPLATE)
+        art = ArtifactService.create(self.owner, self.public_corpus.id, _TEMPLATE)
         assert art is not None
         updated = ArtifactService.update_captions(admin, art.slug, title="Admin Edit")
         self.assertIsNotNone(updated)
