@@ -1,8 +1,13 @@
 """Security regressions for the crawl_authorities agent surface."""
 
-from django.test import TransactionTestCase
+from unittest.mock import MagicMock, patch
 
+from django.contrib.auth import get_user_model
+from django.test import TestCase, TransactionTestCase
+
+from opencontractserver.analyzer.models import Analysis
 from opencontractserver.annotations.models import AuthorityFrontier
+from opencontractserver.corpuses.models import Corpus
 from opencontractserver.enrichment import constants as C
 from opencontractserver.enrichment.services.authority_frontier_service import (
     AuthorityFrontierService,
@@ -11,10 +16,25 @@ from opencontractserver.enrichment.services.crawl_authorities_service import (
     CrawlAuthoritiesService,
 )
 from opencontractserver.llms.tools.core_tools.corpus_references import crawl_authorities
-from opencontractserver.tests.test_crawl_authorities import _make_user
+
+User = get_user_model()
+
+# The module whose collaborators the DB tests patch (seed / bootstrap / apply).
+_SERVICE_MODULE = "opencontractserver.enrichment.services.crawl_authorities_service"
 
 
-class CrawlAuthoritiesSecurityTests(TransactionTestCase):
+def _make_user(username):
+    """Local user factory — keeps this module self-contained.
+
+    Inlined rather than imported from a sibling test module so a rename there
+    cannot silently break these security regressions.
+    """
+    return User.objects.create_user(username=username, password="x")
+
+
+class CrawlBoundsSanitizationTests(TestCase):
+    """Pure-logic bound clamping — no ORM, so plain ``TestCase`` (no DB flush)."""
+
     def test_crawl_bounds_are_clamped_before_service_execution(self):
         bounds = CrawlAuthoritiesService._sanitize_bounds(
             max_depth=999,
@@ -52,6 +72,31 @@ class CrawlAuthoritiesSecurityTests(TransactionTestCase):
         # A legitimate small positive budget is preserved (not forced to default).
         self.assertEqual(bounds["token_budget"], 1000)
 
+    def test_positive_token_budget_above_max_clamps_to_max(self):
+        """A positive over-cap token_budget clamps down to CRAWL_MAX_TOKEN_BUDGET."""
+        bounds = CrawlAuthoritiesService._sanitize_bounds(
+            max_depth=1,
+            min_demand=1,
+            max_authorities=1,
+            per_jurisdiction_cap=1,
+            token_budget=C.CRAWL_MAX_TOKEN_BUDGET + 1,
+        )
+        self.assertEqual(bounds["token_budget"], C.CRAWL_MAX_TOKEN_BUDGET)
+
+    def test_sanitize_token_budget_non_integer_falls_back_to_default(self):
+        """A non-integer token_budget maps to the bounded default, never 0."""
+        # Deliberately passing non-int values to exercise the except branch.
+        self.assertEqual(
+            CrawlAuthoritiesService._sanitize_token_budget("nope"),  # type: ignore[arg-type]
+            C.CRAWL_DEFAULT_TOKEN_BUDGET,
+        )
+        self.assertEqual(
+            CrawlAuthoritiesService._sanitize_token_budget(None),  # type: ignore[arg-type]
+            C.CRAWL_DEFAULT_TOKEN_BUDGET,
+        )
+
+
+class CrawlAuthoritiesSecurityTests(TransactionTestCase):
     def test_corpus_crawl_does_not_claim_unseeded_global_frontier(self):
         user = _make_user("scoped-crawl-user")
         seeded = AuthorityFrontier.objects.create(
@@ -67,25 +112,15 @@ class CrawlAuthoritiesSecurityTests(TransactionTestCase):
             mention_count=100,
         )
 
-        original_seed = (
-            "opencontractserver.enrichment.services.crawl_authorities_service"
-            ".AuthorityFrontierService.seed_from_wanted_authorities"
-        )
-        original_bootstrap = (
-            "opencontractserver.enrichment.services.crawl_authorities_service"
-            ".AuthorityDiscoveryService.discover_and_bootstrap"
-        )
-        from unittest.mock import patch
-
         with patch(
-            original_seed,
+            f"{_SERVICE_MODULE}.AuthorityFrontierService.seed_from_wanted_authorities",
             return_value={
                 "frontier_created": 0,
                 "frontier_updated": 1,
                 "queued_keys": [seeded.canonical_key],
             },
         ), patch(
-            original_bootstrap,
+            f"{_SERVICE_MODULE}.AuthorityDiscoveryService.discover_and_bootstrap",
             return_value={"status": C.DISCOVERY_STATE_FAILED},
         ) as bootstrap:
             CrawlAuthoritiesService.crawl(
@@ -117,11 +152,8 @@ class CrawlAuthoritiesSecurityTests(TransactionTestCase):
         """
         user = _make_user("wrapper-clamp-user")
 
-        from unittest.mock import patch
-
-        _module = "opencontractserver.enrichment.services.crawl_authorities_service"
         with patch(
-            f"{_module}.AuthorityFrontierService.seed_from_wanted_authorities",
+            f"{_SERVICE_MODULE}.AuthorityFrontierService.seed_from_wanted_authorities",
             return_value={
                 "frontier_created": 0,
                 "frontier_updated": 0,
@@ -146,37 +178,86 @@ class CrawlAuthoritiesSecurityTests(TransactionTestCase):
         )
         self.assertEqual(summary["token_budget"], C.CRAWL_DEFAULT_TOKEN_BUDGET)
 
-    def test_clamp_int_falls_back_to_lower_for_non_integer_value(self):
-        """_clamp_int returns the lower-bound when value is not int-convertible."""
-        # Deliberately passing non-int values to exercise the except branch.
-        self.assertEqual(
-            CrawlAuthoritiesService._clamp_int(None, lower=3, upper=10),  # type: ignore[arg-type]
-            3,
-        )
-        self.assertEqual(
-            CrawlAuthoritiesService._clamp_int("not-a-number", lower=5, upper=20),  # type: ignore[arg-type]
-            5,
+    def test_celery_task_path_clamps_extreme_bounds(self):
+        """The Celery analyzer task is clamped by the SAME service guard.
+
+        Calling the task directly (``.apply()``) bypasses the input-schema gate,
+        so this proves the protection lives in ``CrawlAuthoritiesService.crawl``
+        — not only in the schema or the LLM-tool wrapper. A task caller that
+        smuggles past the schema still gets clamped bounds in the run summary.
+        """
+        from opencontractserver.tasks.corpus_analysis_tasks import (
+            crawl_authorities as crawl_authorities_task,
         )
 
-    def test_sanitize_token_budget_non_integer_falls_back_to_default(self):
-        """A non-integer token_budget maps to the bounded default, never 0."""
-        # Deliberately passing non-int values to exercise the except branch.
-        self.assertEqual(
-            CrawlAuthoritiesService._sanitize_token_budget("nope"),  # type: ignore[arg-type]
-            C.CRAWL_DEFAULT_TOKEN_BUDGET,
+        user = _make_user("celery-task-clamp-user")
+        corpus = Corpus.objects.create(title="Crawl Corpus", creator=user)
+        analyzer = CrawlAuthoritiesService.get_or_create_analyzer(user.id)
+        analysis = Analysis.objects.create(
+            analyzer=analyzer, analyzed_corpus=corpus, creator=user
         )
+
+        with patch(
+            f"{_SERVICE_MODULE}.AuthorityFrontierService.seed_from_wanted_authorities",
+            return_value={
+                "frontier_created": 0,
+                "frontier_updated": 0,
+                "queued_keys": [],
+            },
+        ):
+            summary = (
+                crawl_authorities_task.si(  # type: ignore[attr-defined]
+                    corpus_id=corpus.id,
+                    analysis_id=analysis.id,
+                    max_depth=999,
+                    min_demand=-5,
+                    max_authorities=1_000_000,
+                    per_jurisdiction_cap=123456,
+                    token_budget=-1,
+                )
+                .apply()
+                .get()
+            )
+
+        self.assertEqual(summary["max_depth"], C.CRAWL_MAX_MAX_DEPTH)
+        self.assertEqual(summary["min_demand"], 0)
+        self.assertEqual(summary["max_authorities"], C.CRAWL_MAX_MAX_AUTHORITIES)
         self.assertEqual(
-            CrawlAuthoritiesService._sanitize_token_budget(None),  # type: ignore[arg-type]
-            C.CRAWL_DEFAULT_TOKEN_BUDGET,
+            summary["per_jurisdiction_cap"], C.CRAWL_MAX_PER_JURISDICTION_CAP
         )
+        self.assertEqual(summary["token_budget"], C.CRAWL_DEFAULT_TOKEN_BUDGET)
+
+    def test_crawl_honors_token_budget_cap_in_bfs_loop(self):
+        """A positive over-cap token_budget is clamped before the BFS loop runs.
+
+        The summary echoes the value the loop actually used, so asserting it
+        equals ``CRAWL_MAX_TOKEN_BUDGET`` (not the raw over-cap request) proves
+        the cap reached the loop, not merely ``_sanitize_bounds`` in isolation.
+        """
+        user = _make_user("token-cap-bfs-user")
+
+        with patch(
+            f"{_SERVICE_MODULE}.AuthorityFrontierService.seed_from_wanted_authorities",
+            return_value={
+                "frontier_created": 0,
+                "frontier_updated": 0,
+                "queued_keys": [],
+            },
+        ):
+            summary = CrawlAuthoritiesService.crawl(
+                creator_id=user.id,
+                corpus_id=1,
+                token_budget=C.CRAWL_MAX_TOKEN_BUDGET + 1,
+            )
+
+        self.assertEqual(summary["token_budget"], C.CRAWL_MAX_TOKEN_BUDGET)
 
     def test_crawl_keys_updated_when_scoped_crawl_ingests_and_seeds_children(self):
         """crawl_keys grows after a scoped-corpus crawl ingests a row and re-seeds.
 
-        Requires: seed returns queued_keys (non-None crawl_keys), the row is
-        ingested, and row.depth < max_depth so the child-seed path executes.
-        The crawl_keys.update(seeded.get("queued_keys") or []) line is only
-        reached when all three conditions hold simultaneously.
+        Requires: the row is ingested and ``row.depth < max_depth`` so the
+        child-seed path runs; ``crawl_keys.update(seeded["queued_keys"])`` is
+        only reached when both conditions hold.
         """
         user = _make_user("crawl-keys-grow-user")
         seeded = AuthorityFrontier.objects.create(
@@ -188,10 +269,6 @@ class CrawlAuthoritiesSecurityTests(TransactionTestCase):
             mention_count=5,
             depth=0,
         )
-
-        from unittest.mock import MagicMock, patch
-
-        _module = "opencontractserver.enrichment.services.crawl_authorities_service"
 
         def _ingest_row(
             *, creator_id, frontier_row, make_public=True, relink_async=True
@@ -205,20 +282,20 @@ class CrawlAuthoritiesSecurityTests(TransactionTestCase):
         mock_refs.values_list.return_value.distinct.return_value = []
 
         with patch(
-            f"{_module}.AuthorityFrontierService.seed_from_wanted_authorities",
+            f"{_SERVICE_MODULE}.AuthorityFrontierService.seed_from_wanted_authorities",
             return_value={
                 "frontier_created": 1,
                 "frontier_updated": 0,
                 "queued_keys": [seeded.canonical_key],
             },
         ), patch(
-            f"{_module}.AuthorityDiscoveryService.discover_and_bootstrap",
+            f"{_SERVICE_MODULE}.AuthorityDiscoveryService.discover_and_bootstrap",
             side_effect=_ingest_row,
         ), patch(
-            f"{_module}.EnrichmentService.apply",
+            f"{_SERVICE_MODULE}.EnrichmentService.apply",
             return_value={"references_created": 0},
         ), patch(
-            f"{_module}.CorpusReferenceService.for_corpus",
+            f"{_SERVICE_MODULE}.CorpusReferenceService.for_corpus",
             return_value=mock_refs,
         ):
             summary = CrawlAuthoritiesService.crawl(

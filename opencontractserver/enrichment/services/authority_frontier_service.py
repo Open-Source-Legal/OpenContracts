@@ -107,7 +107,9 @@ class AuthorityFrontierService(BaseService):
         return {
             "frontier_created": created,
             "frontier_updated": updated,
-            "queued_keys": sorted(queued_keys),
+            # The sole consumer (CrawlAuthoritiesService.crawl) only needs
+            # containment, not ordering, so return the keys unsorted.
+            "queued_keys": list(queued_keys),
         }
 
     @classmethod
@@ -251,7 +253,8 @@ class AuthorityFrontierService(BaseService):
         return {
             "child_created": created,
             "child_skipped": skipped,
-            "queued_keys": sorted(queued_keys),
+            # Consumer (crawl) only needs containment; skip the sort.
+            "queued_keys": list(queued_keys),
         }
 
     @classmethod

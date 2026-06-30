@@ -26,6 +26,7 @@ from opencontractserver.enrichment.services.corpus_reference_service import (
 from opencontractserver.enrichment.services.enrichment_service import EnrichmentService
 from opencontractserver.shared.services.base import BaseService
 from opencontractserver.users.models import User
+from opencontractserver.utils.numbers import clamp_int
 
 logger = logging.getLogger(__name__)
 
@@ -70,15 +71,6 @@ class CrawlAuthoritiesService(BaseService):
         return analyzer
 
     @staticmethod
-    def _clamp_int(value: int, *, lower: int, upper: int) -> int:
-        """Clamp a caller-supplied crawl bound into the server-side safe range."""
-        try:
-            number = int(value)
-        except (TypeError, ValueError):
-            number = lower
-        return max(lower, min(number, upper))
-
-    @staticmethod
     def _sanitize_token_budget(value: int) -> int:
         """Token budget for a server-capped run — always bounded.
 
@@ -109,19 +101,15 @@ class CrawlAuthoritiesService(BaseService):
     ) -> dict[str, int]:
         """Apply hard server caps to model/user-controlled crawl parameters."""
         return {
-            "max_depth": cls._clamp_int(
-                max_depth, lower=0, upper=C.CRAWL_MAX_MAX_DEPTH
-            ),
-            "min_demand": cls._clamp_int(
-                min_demand, lower=0, upper=C.CRAWL_MAX_MIN_DEMAND
-            ),
-            "max_authorities": cls._clamp_int(
+            "max_depth": clamp_int(max_depth, lower=0, upper=C.CRAWL_MAX_MAX_DEPTH),
+            "min_demand": clamp_int(min_demand, lower=0, upper=C.CRAWL_MAX_MIN_DEMAND),
+            "max_authorities": clamp_int(
                 max_authorities, lower=0, upper=C.CRAWL_MAX_MAX_AUTHORITIES
             ),
             # per_jurisdiction_cap=0 parks every dequeued row (blocks the run),
             # so clamp to a floor of 1 rather than 0 — a negative/zero request
             # must not silently halt the whole crawl.
-            "per_jurisdiction_cap": cls._clamp_int(
+            "per_jurisdiction_cap": clamp_int(
                 per_jurisdiction_cap,
                 lower=C.CRAWL_MIN_PER_JURISDICTION_CAP,
                 upper=C.CRAWL_MAX_PER_JURISDICTION_CAP,
@@ -198,7 +186,14 @@ class CrawlAuthoritiesService(BaseService):
             seed["frontier_created"],
             seed["frontier_updated"],
         )
-        crawl_keys = set(seed["queued_keys"]) if "queued_keys" in seed else None
+        # seed_from_wanted_authorities ALWAYS returns "queued_keys"; key off it
+        # directly (no ``else None`` fallback) so the crawl is unconditionally
+        # scoped to the keys this run seeded. A None here would make
+        # dequeue_queued drop its ``canonical_key__in`` filter and claim rows
+        # from the global frontier — the exact isolation regression this scoping
+        # exists to prevent — so fail loud on a malformed seed rather than
+        # silently widen the crawl.
+        crawl_keys = set(seed["queued_keys"])
 
         ingested = 0
         tokens_spent = 0
@@ -256,16 +251,16 @@ class CrawlAuthoritiesService(BaseService):
                 # frontier_residual instead). The single key is the UNION of the
                 # two exclusions; it does not split each row by cause.
                 #
-                # Scope the count to THIS run's canonical keys when the crawl is
-                # restricted (crawl_keys is not None). A global QUEUED count would
-                # fold in rows from other concurrent corpus runs, inflating this
-                # run's diagnostic with frontier noise it didn't touch.
-                residual_qs = AuthorityFrontier.objects.filter(
-                    discovery_state=C.DISCOVERY_STATE_QUEUED
+                # Scope the count to THIS run's canonical keys. A global QUEUED
+                # count would fold in rows from other concurrent corpus runs,
+                # inflating this run's diagnostic with frontier noise it didn't
+                # touch.
+                blocked_by_bound["min_demand_or_depth"] = (
+                    AuthorityFrontier.objects.filter(
+                        discovery_state=C.DISCOVERY_STATE_QUEUED,
+                        canonical_key__in=crawl_keys,
+                    ).count()
                 )
-                if crawl_keys is not None:
-                    residual_qs = residual_qs.filter(canonical_key__in=crawl_keys)
-                blocked_by_bound["min_demand_or_depth"] = residual_qs.count()
                 stop_reason = "frontier_drained"
                 break
 
@@ -348,8 +343,10 @@ class CrawlAuthoritiesService(BaseService):
                 )
                 seeded = AuthorityFrontierService.seed_child_keys(row, outbound)
                 child_seeded += seeded["child_created"]
-                if crawl_keys is not None:
-                    crawl_keys.update(seeded.get("queued_keys") or [])
+                # Extend the run's scope with the depth+1 keys just seeded so
+                # they become dequeue-eligible on subsequent iterations.
+                # seed_child_keys always returns "queued_keys" (fail loud if not).
+                crawl_keys.update(seeded["queued_keys"])
                 log(
                     "  re-extract %s: %s outbound, %s new frontier rows "
                     "(refs_created=%s)",
