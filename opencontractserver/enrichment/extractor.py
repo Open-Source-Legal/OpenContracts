@@ -78,17 +78,10 @@ _SECTION_RE = re.compile(
     r"(?:see|under)\b[^\"“]{0,40}?[\"“]" r"(?P<head>[A-Z][^\"”]{2,60})[\"”]",
     re.IGNORECASE,
 )
-# Defined-term DEFINITION sites — high precision only:
+# Defined-term DEFINITION sites — high precision only, both forms combined into
+# one alternation so they are scanned in a single document-order pass:
 #   1. parenthetical:  (the "Company")  ("Notes")  (collectively, the "Shares")
 #   2. copular:        "Change of Control" means | shall mean | refers to
-_TERM_PAREN_RE = re.compile(
-    r"\((?:the\s+|collectively,?\s+the\s+|each\s+an?\s+|together(?:,)?\s+the\s+)?"
-    r"[\"“](?P<term>[A-Z][^\"”]{1,60}?)[\"”]",
-)
-_TERM_MEANS_RE = re.compile(
-    r"[\"“](?P<term>[A-Z][^\"”]{1,60}?)[\"”]\s+"
-    r"(?:means\b|shall\s+mean\b|refers\s+to\b|has\s+the\s+meaning\b)",
-)
 _TERM_RE = re.compile(
     r"\((?:the\s+|collectively,?\s+the\s+|each\s+an?\s+|together(?:,)?\s+the\s+)?"
     r"[\"“](?P<paren_term>[A-Z][^\"”]{1,60}?)[\"”]"
@@ -226,19 +219,28 @@ class ReferenceExtractor:
     def _terms(self, text: str) -> Iterator[Candidate]:
         """Defined-term DEFINITION sites, deduped by slug, capped per document.
 
-        Opt-in (not in the default reference-type set) and capped at
-        ``MAX_DEFINED_TERMS`` to keep precision/volume in check. The cap is a
-        TOTAL per document across both grammar forms: matches are merged in
-        document order before capping, so a document heavy in parenthetical
-        definitions cannot starve the "means" form — the first N definition
-        sites win regardless of form. Each definition becomes a
-        cross-corpus-trackable stub keyed ``term:<slug>`` — the same
-        philosophy as law citations.
+        Opt-in (not in the default reference-type set). The first
+        ``MAX_DEFINED_TERMS`` *unique* definition sites win — the cap is on
+        emitted (distinct) terms, not raw regex hits, so a wall of repeated
+        early definitions (e.g. 50x ``(the "Company")``) cannot exhaust the
+        quota before a later distinct term is reached. Both grammar forms are
+        merged in document order, so a document heavy in parenthetical
+        definitions cannot starve the "means" form. A separate, larger
+        ``MAX_DEFINED_TERM_SCAN`` ceiling bounds total hits inspected so a
+        pathologically duplicate-heavy document still terminates. Each
+        definition becomes a cross-corpus-trackable stub keyed ``term:<slug>``
+        — the same philosophy as law citations.
         """
         seen: set[str] = set()
         emitted = 0
         for examined, m in enumerate(_TERM_RE.finditer(text), start=1):
-            if examined > C.MAX_DEFINED_TERMS or emitted >= C.MAX_DEFINED_TERMS:
+            # Unique-term quota: the first N DISTINCT definition sites win.
+            if emitted >= C.MAX_DEFINED_TERMS:
+                return
+            # Raw-scan DoS ceiling: a duplicate-heavy document must still
+            # terminate even before N unique terms accrue (duplicates do not
+            # consume the quota above, so this budget is intentionally larger).
+            if examined > C.MAX_DEFINED_TERM_SCAN:
                 return
             term_group = (
                 "paren_term" if m.group("paren_term") is not None else "means_term"

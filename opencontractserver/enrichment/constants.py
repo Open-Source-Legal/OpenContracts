@@ -80,7 +80,12 @@ GRAPH_CORPUS_AUTHORITY = "authority"
 
 # Defaults / thresholds.
 DEFAULT_SAMPLE_N = 10
-MAX_DEFINED_TERMS = 50  # cap to control precision/volume in v1
+MAX_DEFINED_TERMS = 50  # cap on UNIQUE defined terms emitted per document (v1)
+# Separate, larger raw-scan ceiling: bounds total regex hits inspected so a
+# document that is mostly DUPLICATE definition sites cannot iterate unboundedly
+# hunting for the Nth unique term. Duplicates do NOT consume the unique-term
+# quota above, so this budget is deliberately larger than MAX_DEFINED_TERMS.
+MAX_DEFINED_TERM_SCAN = 10 * MAX_DEFINED_TERMS
 # Per-authority cap on the keys surfaced by the wanted-authorities queue.
 WANTED_AUTHORITIES_TOP_KEYS = 10
 

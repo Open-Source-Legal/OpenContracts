@@ -348,21 +348,30 @@ class GenericCitationExtractor:
             else None
         )
 
-    def extract(self, text: str) -> list[Candidate]:
+    def extract(
+        self,
+        text: str,
+        reference_types: set[str] | tuple[str, ...] | list[str] | None = None,
+    ) -> list[Candidate]:
+        # Every grammar pass emits REF_LAW candidates, so when the caller does
+        # not want laws there is no point running any of them — the output would
+        # be filtered out downstream anyway.
+        wanted = set(reference_types) if reference_types is not None else None
         out: list[Candidate] = []
-        out.extend(_usc(text))
-        out.extend(_cfr(text))
-        out.extend(_fedreg(text))
-        out.extend(_publ(text))
-        out.extend(_stat(text))
-        out.extend(_bare_acts(text))
-        out.extend(self._states(text))
-        # Municipal: table pass first (high-precision, full jurisdiction), then
-        # the open-vocab shape pass — which skips any span the table already
-        # claimed so a known code never double-emits with its generic shadow.
-        muni = list(self._municipal(text))
-        out.extend(muni)
-        out.extend(self._municipal_generic(text, [(c.start, c.end) for c in muni]))
+        if wanted is None or C.REF_LAW in wanted:
+            out.extend(_usc(text))
+            out.extend(_cfr(text))
+            out.extend(_fedreg(text))
+            out.extend(_publ(text))
+            out.extend(_stat(text))
+            out.extend(_bare_acts(text))
+            out.extend(self._states(text))
+            # Municipal: table pass first (high-precision, full jurisdiction),
+            # then the open-vocab shape pass — which skips any span the table
+            # already claimed so a known code never double-emits its shadow.
+            muni = list(self._municipal(text))
+            out.extend(muni)
+            out.extend(self._municipal_generic(text, [(c.start, c.end) for c in muni]))
         return out
 
     def _states(self, text: str) -> Iterator[Candidate]:
