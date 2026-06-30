@@ -276,9 +276,9 @@ class TestEnrichmentLLMIntegration(TransactionTestCase):
             llm_overlap_keys == []
         ), f"LLM candidate for grammar-detected span leaked into by_key: {llm_overlap_keys}"
 
-    def test_discover_uses_document_visibility_for_shared_corpus(self):
-        """A user who can READ a corpus but not a private document inside it must
-        not have that document scanned or leaked through review_candidates.
+    def _shared_corpus_with_hidden_private_doc(self):
+        """Create a SHARED (non-public) corpus other_user can READ, holding a
+        private document other_user CANNOT read; return ``(corpus, document)``.
 
         The corpus is *shared* (corpus-level READ granted) rather than public:
         adding a document to a public corpus auto-propagates public status onto
@@ -288,9 +288,6 @@ class TestEnrichmentLLMIntegration(TransactionTestCase):
         corpus keeps the copy ``is_public=False`` so document-level visibility —
         the document side of ``MIN(corpus, document)`` — is what excludes it.
         """
-        from pydantic_ai.models.test import TestModel
-
-        import opencontractserver.enrichment.llm_citation_extractor as mod
         from opencontractserver.corpuses.services.corpus_documents import (
             CorpusDocumentService,
         )
@@ -319,7 +316,7 @@ class TestEnrichmentLLMIntegration(TransactionTestCase):
         shared_corpus.add_document(document=private_doc, user=self.user)
 
         # Sanity: the corpus genuinely contains a document under corpus-as-gate,
-        # so documents_scanned == 0 below reflects the visibility filter rather
+        # so a documents_scanned == 0 result reflects the visibility filter rather
         # than an empty corpus — while the visible-to-user variant hides it from
         # other_user.
         assert CorpusDocumentService.get_corpus_documents(
@@ -328,6 +325,17 @@ class TestEnrichmentLLMIntegration(TransactionTestCase):
         assert not CorpusDocumentService.get_corpus_documents_visible_to_user(
             self.other_user, shared_corpus, include_caml=False
         ).exists()
+        return shared_corpus, private_doc
+
+    def test_discover_uses_document_visibility_for_shared_corpus(self):
+        """A user who can READ a corpus but not a private document inside it must
+        not have that document scanned or leaked through review_candidates.
+        """
+        from pydantic_ai.models.test import TestModel
+
+        import opencontractserver.enrichment.llm_citation_extractor as mod
+
+        shared_corpus, _private_doc = self._shared_corpus_with_hidden_private_doc()
 
         canned = _make_llm_citation(0.4)
         test_model = TestModel(custom_output_args={"citations": [canned]})
@@ -354,6 +362,38 @@ class TestEnrichmentLLMIntegration(TransactionTestCase):
         assert out["total_candidates"] == 0
         assert out["review_candidates"] == []
         assert call_count == 0, "LLM was called for a document hidden from the user"
+
+    def test_scan_uses_document_visibility_for_shared_corpus(self):
+        """scan() returns verbatim ``raw_text`` excerpts in samples /
+        unresolved_samples, so a user with corpus READ but not document READ must
+        scan nothing — the same exposure discover() guards against."""
+        shared_corpus, _private_doc = self._shared_corpus_with_hidden_private_doc()
+
+        out = EnrichmentService().scan(
+            corpus_id=shared_corpus.id, creator_id=self.other_user.id
+        )
+
+        assert out["documents_scanned"] == 0
+        assert out["total_candidates"] == 0
+        assert out["samples"] == []
+
+    def test_apply_uses_document_visibility_for_shared_corpus(self):
+        """apply() persists Annotation / CorpusReference rows derived from
+        document text, so a user with corpus READ but not document READ must
+        cause no writes (the durable form of the discover()/scan() exposure)."""
+        from opencontractserver.annotations.models import Annotation
+
+        shared_corpus, private_doc = self._shared_corpus_with_hidden_private_doc()
+
+        out = EnrichmentService().apply(
+            corpus_id=shared_corpus.id, creator_id=self.other_user.id
+        )
+
+        assert out["documents_scanned"] == 0
+        assert out["annotations_created"] == 0
+        assert out["references_created"] == 0
+        # No annotations were persisted onto the document hidden from the caller.
+        assert not Annotation.objects.filter(document=private_doc).exists()
 
     def test_apply_skips_review_bucket(self):
         """apply() never writes a CorpusReference for a low-confidence (review-

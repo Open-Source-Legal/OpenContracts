@@ -377,7 +377,13 @@ class EnrichmentService:
         sample_n: int = C.DEFAULT_SAMPLE_N,
         extra_tiers: list[str] | None = None,
     ) -> dict:
-        user, corpus, documents = self._load(corpus_id, creator_id)
+        # Enforce MIN(corpus, document): scan reads full document text and
+        # returns verbatim excerpts in samples/unresolved_samples, so a user with
+        # corpus READ but not document READ must not see private-document content
+        # (issue #1682 — parity with discover()).
+        user, corpus, documents = self._load(
+            corpus_id, creator_id, require_document_visibility=True
+        )
         resolutions = self._resolutions(
             corpus, documents, types, user, extra_tiers=extra_tiers
         )
@@ -644,7 +650,15 @@ class EnrichmentService:
         ``[C.DETECTION_TIER_GRAMMAR, C.DETECTION_TIER_LLM]``) so what gets
         persisted is always spelled out at the call site.
         """
-        user, corpus, documents = self._load(corpus_id, creator_id)
+        # Enforce MIN(corpus, document): apply persists Annotation /
+        # CorpusReference / DocumentRelationship rows derived from document text,
+        # so it must not read — or persist content from — documents the caller
+        # cannot see (issue #1682 — parity with discover()/scan()). This is the
+        # higher-stakes path: the exposure would otherwise be durable in
+        # ``Annotation.raw_text``.
+        user, corpus, documents = self._load(
+            corpus_id, creator_id, require_document_visibility=True
+        )
         if extra_tiers is None:
             extra_tiers = [C.DETECTION_TIER_GRAMMAR]
         if analysis is None:
