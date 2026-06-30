@@ -330,11 +330,12 @@ so the worker needs **no Postgres and no Redis**.
 
 ## Troubleshooting
 
+The canonical troubleshooting table — embedder `401`, `DJANGO_ALLOWED_HOSTS`
+`400`, the silent "no Celery worker" stall, OCR RAM exhaustion, and stalled
+`PROCESSING` uploads — lives in
+[Remote Ingest Worker → Troubleshooting](../../docs/upload_methods/remote_ingest_worker.md#troubleshooting).
+Only the symptom unique to this script driver is listed here:
+
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `run` reports success (HTTP 202) but `verify` reports docs **still-processing forever** — the ledger sits at `UPLOADED` (never reaches `COMPLETED`), **no documents appear**, and the target backlog never drains | No Celery worker consuming the `worker_uploads` queue on the **target** — uploads stage as `PENDING` forever. | Run the target's Celery worker (`-Q celery,worker_uploads`) + Beat. See the prerequisite note at the top of [Setup](#setup). |
-| Docs `FAILED` with `401 ... /embeddings` | `VECTOR_EMBEDDER_API_KEY` differs between the worker and the embedder service (the embedder checks `X-API-Key`, default `abc123`). | Export one `VECTOR_EMBEDDER_API_KEY` before `up` so the bundle wires it to both; recreate the embedder if you change it. |
-| Opaque **HTTP 400** from the target (empty body), docs marked failed | `OC_TARGET_URL`'s host isn't in the target's `DJANGO_ALLOWED_HOSTS` (Django `Host`-header rejection). | Add the host to `DJANGO_ALLOWED_HOSTS` on the target. |
 | `nothing to do` on `run` after merging the accel override | You ran `plan` without both `-f` files, or never ran `plan`. | Run `plan` with the **same** `-f remote_worker.yml -f remote_worker.accel.yml` you use for `run`. |
-| Host runs out of RAM/swap during a run | Too many concurrent CPU OCR parses (3-6 GB each). | Lower `--max-workers`; add parser replicas only up to available RAM; or use GPU acceleration. |
-| A few uploads stuck `PROCESSING` after a crash/restart | Claimed but unfinished uploads. | `recover_stalled_uploads` (Beat) re-queues them after `WORKER_UPLOAD_STALE_MINUTES` (default 15); ensure Beat runs. |

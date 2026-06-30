@@ -136,6 +136,11 @@ services:
       PORT: 8000
       TRANSFORMERS_OFFLINE: 1
       HF_DATASETS_OFFLINE: 1
+      # This image reads VECTOR_EMBEDDER_API_KEY (same as vector-embedder), but
+      # source it from the DIFFERENT host var MULTIMODAL_EMBEDDER_API_KEY -- the
+      # one Django uses to call the multimodal service. Do not "fix" this to read
+      # VECTOR_EMBEDDER_API_KEY like vector-embedder above or multimodal auth
+      # will silently desync from the Django side.
       VECTOR_EMBEDDER_API_KEY: ${MULTIMODAL_EMBEDDER_API_KEY:-abc123}
 
   # API_KEYS value below is a LOCAL DEVELOPMENT ONLY placeholder; override via
