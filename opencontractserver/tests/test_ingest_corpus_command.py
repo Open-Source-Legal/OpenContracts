@@ -173,3 +173,34 @@ class IngestCorpusCommandTests(TestCase):
                     self.owner.username,
                     stdout=out,
                 )
+
+    def test_wait_for_processing_settles_on_failed_and_missing_docs(self):
+        """The poll loop must settle (not stall to timeout) when a doc fails or
+        is deleted: a failed doc never clears its backend lock, and a deleted doc
+        leaves the queryset — neither would ever count toward the old
+        ``free == len(doc_ids)`` condition, so the command would burn the full
+        timeout before continuing.
+        """
+        from opencontractserver.corpuses.management.commands.ingest_corpus import (
+            Command,
+        )
+
+        # A locked, failed document: settled via failed-status, not via free
+        # (its lock is still held).
+        failed_doc = self._ready_document(self.owner)
+        failed_doc.backend_lock = True
+        failed_doc.processing_status = "failed"
+        failed_doc.save()
+
+        out = StringIO()
+        cmd = Command(stdout=out)
+        # The second id is never created -> "missing" (deleted) from the queryset.
+        missing_id = failed_doc.pk + 10_000
+        cmd._wait_for_processing([failed_doc.pk, missing_id], timeout=5)
+
+        output = out.getvalue()
+        # Returned via the settled-but-imperfect path, NOT the timeout backstop.
+        self.assertIn("done with", output)
+        self.assertIn("1 failed", output)
+        self.assertIn("1 missing", output)
+        self.assertNotIn("timeout after", output)

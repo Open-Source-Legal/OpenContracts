@@ -220,15 +220,35 @@ class Command(BaseCommand):
         self.stdout.write(f"Waiting for {len(doc_ids)} document(s) to finish…")
         deadline = time.monotonic() + timeout
         while True:
-            docs = Document.objects.filter(pk__in=doc_ids)
+            docs = list(Document.objects.filter(pk__in=doc_ids))
+            present_ids = {d.pk for d in docs}
+            # Deleted-during-processing docs are gone from the queryset; they will
+            # never become "ready", so count them as settled or the loop stalls
+            # until timeout.
+            missing = [pk for pk in doc_ids if pk not in present_ids]
             free = sum(1 for d in docs if not d.backend_lock)
             failed = [d.pk for d in docs if d.processing_status == "failed"]
+            # A document is settled once it is lock-free, failed, or deleted — a
+            # failed/deleted doc never clears its lock the normal way, so waiting
+            # for ``free == len(doc_ids)`` would burn the full timeout.
+            settled = sum(
+                1 for d in docs if not d.backend_lock or d.processing_status == "failed"
+            ) + len(missing)
             self.stdout.write(
                 f"  {free}/{len(doc_ids)} ready"
                 + (f", failed={failed}" if failed else "")
+                + (f", missing={missing}" if missing else "")
             )
-            if free == len(doc_ids):
-                self.stdout.write(self.style.SUCCESS("  all documents processed."))
+            if settled >= len(doc_ids):
+                if failed or missing:
+                    self.stdout.write(
+                        self.style.WARNING(
+                            f"  done with {len(failed)} failed, {len(missing)} "
+                            "missing — continuing."
+                        )
+                    )
+                else:
+                    self.stdout.write(self.style.SUCCESS("  all documents processed."))
                 return
             if time.monotonic() >= deadline:
                 self.stdout.write(

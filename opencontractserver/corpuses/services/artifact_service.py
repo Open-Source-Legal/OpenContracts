@@ -226,7 +226,11 @@ class ArtifactService(BaseService):
             is_public=is_public,
             creator=user,
         )
-        return artifact
+        # Refetch with corpus/creator prefetched: the CreateArtifact mutation
+        # immediately serializes the result via ``_artifact_to_type``, which
+        # reads ``a.corpus.slug``; returning the bare ``create()`` object would
+        # force an extra SELECT on every create (N+1).
+        return Artifact.objects.select_related("corpus", "creator").get(pk=artifact.pk)
 
     @classmethod
     def update_captions(
@@ -243,6 +247,12 @@ class ArtifactService(BaseService):
         """Edit an artifact's captions — creator only."""
         artifact = Artifact.objects.filter(slug=slug).first()
         if artifact is None:
+            return None
+        # Corpus-as-gate (mirrors get_by_slug): a known/guessed slug must not let
+        # a user mutate an artifact in a corpus they cannot read (IDOR). Checked
+        # before the creator/UPDATE gate so a private-corpus artifact is
+        # indistinguishable from a nonexistent one.
+        if not cls._corpus_readable(user, artifact.corpus_id, request=request):
             return None
         if not cls.user_has(
             artifact, user, PermissionTypes.UPDATE, request=request
@@ -279,6 +289,11 @@ class ArtifactService(BaseService):
 
         artifact = Artifact.objects.filter(slug=slug).first()
         if artifact is None:
+            return None
+        # Corpus-as-gate (mirrors get_by_slug / update_captions): the slug alone
+        # must not let a user overwrite the poster image of an artifact in a
+        # corpus they cannot read (IDOR).
+        if not cls._corpus_readable(user, artifact.corpus_id, request=request):
             return None
         if not cls.user_has(
             artifact, user, PermissionTypes.UPDATE, request=request
