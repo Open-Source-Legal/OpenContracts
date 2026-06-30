@@ -13,11 +13,13 @@ from django.test import SimpleTestCase
 
 from opencontractserver.constants.extraction import DEFAULT_EXTRACT_MODEL
 from opencontractserver.constants.llm import (
+    EXTRACT_AGENT_REQUEST_LIMIT,
     EXTRACT_DEFAULT_TEMPERATURE,
     NONE_RESULT_AGENT_COMMITTED,
     NONE_RESULT_NO_FINAL,
     NONE_RESULT_TOOL_LOOP,
     NONE_RESULT_UNKNOWN,
+    NONE_RESULT_USAGE_LIMIT,
     TOOL_LOOP_THRESHOLD,
 )
 from opencontractserver.tasks.data_extract_tasks import (
@@ -143,6 +145,66 @@ class ClassifyNoneResultTests(SimpleTestCase):
         ]
         self.assertEqual(_classify_none_result(messages), NONE_RESULT_AGENT_COMMITTED)
 
+    def test_request_budget_exhaustion_classifies_as_usage_limit(self) -> None:
+        """``EXTRACT_AGENT_REQUEST_LIMIT`` responses, no final ⇒ usage_limit.
+
+        This is the structural fingerprint of ``UsageLimitExceeded`` (the
+        budget tripped, the broad ``except`` in ``_structured_response_raw``
+        swallowed it to ``None``). It must win over tool-loop detection: a run
+        that hits the request budget is usually *also* a repeated tool call,
+        but "budget exceeded" is the more precise, more actionable diagnosis.
+        """
+        repeated = _tool_call("similarity_search", {"query": "absent clause"})
+        messages = [
+            _make_response(repeated) for _ in range(EXTRACT_AGENT_REQUEST_LIMIT)
+        ]
+        self.assertEqual(_classify_none_result(messages), NONE_RESULT_USAGE_LIMIT)
+
+    def test_one_below_budget_is_not_usage_limit(self) -> None:
+        """``EXTRACT_AGENT_REQUEST_LIMIT - 1`` distinct calls ⇒ no_final.
+
+        Pins the budget boundary: distinct (non-looping) tool calls one short
+        of the limit fall through to ``no_final_response`` — neither the
+        usage-limit nor the tool-loop branch fires.
+        """
+        messages = [
+            _make_response(_tool_call("similarity_search", {"query": f"q{i}"}))
+            for i in range(EXTRACT_AGENT_REQUEST_LIMIT - 1)
+        ]
+        self.assertEqual(_classify_none_result(messages), NONE_RESULT_NO_FINAL)
+
+    def test_budget_hit_with_final_result_is_committed(self) -> None:
+        """A ``final_result`` anywhere wins even past the request budget."""
+        repeated = _tool_call("similarity_search", {"query": "loop"})
+        messages = [
+            _make_response(repeated) for _ in range(EXTRACT_AGENT_REQUEST_LIMIT)
+        ] + [_make_response(_tool_call("final_result", {"value": None}))]
+        self.assertEqual(_classify_none_result(messages), NONE_RESULT_AGENT_COMMITTED)
+
+    def test_usage_limit_tracks_the_request_limit_argument(self) -> None:
+        """The usage-limit fingerprint uses the passed ``request_limit``.
+
+        Decoupled from the hardcoded ``EXTRACT_AGENT_REQUEST_LIMIT`` (#2070): the
+        SAME history is ``usage_limit_exceeded`` under a tight budget but a plain
+        ``no_final_response`` under a generous one, so a caller-overridden budget
+        is classified correctly for any limit.
+        """
+        # 5 distinct (non-looping) tool calls, no final_result.
+        messages = [
+            _make_response(_tool_call("similarity_search", {"query": f"q{i}"}))
+            for i in range(5)
+        ]
+        # Budget of 5 → the 5 responses reach it ⇒ usage_limit_exceeded.
+        self.assertEqual(
+            _classify_none_result(messages, request_limit=5),
+            NONE_RESULT_USAGE_LIMIT,
+        )
+        # Budget of 50 → 5 responses are well under it ⇒ no_final_response.
+        self.assertEqual(
+            _classify_none_result(messages, request_limit=50),
+            NONE_RESULT_NO_FINAL,
+        )
+
     def test_text_and_single_tool_calls_are_no_final(self) -> None:
         """Mix of narration + tool calls (under threshold) ⇒ no_final_response.
 
@@ -247,22 +309,40 @@ class FailureMessageTests(SimpleTestCase):
                 NONE_RESULT_AGENT_COMMITTED,
                 NONE_RESULT_NO_FINAL,
                 NONE_RESULT_TOOL_LOOP,
+                NONE_RESULT_USAGE_LIMIT,
                 NONE_RESULT_UNKNOWN,
             )
         }
-        self.assertEqual(len(set(messages.values())), 4)
+        self.assertEqual(len(set(messages.values())), 5)
         self.assertIn("not found", messages[NONE_RESULT_AGENT_COMMITTED].lower())
         self.assertIn("integration failure", messages[NONE_RESULT_NO_FINAL])
         self.assertIn("looped", messages[NONE_RESULT_TOOL_LOOP])
+        self.assertIn("request budget", messages[NONE_RESULT_USAGE_LIMIT])
 
     def test_integration_failure_messages_reference_log(self) -> None:
         """Operators need a pointer to the raw conversation in the cell stacktrace."""
-        for classification in (NONE_RESULT_NO_FINAL, NONE_RESULT_TOOL_LOOP):
+        for classification in (
+            NONE_RESULT_NO_FINAL,
+            NONE_RESULT_TOOL_LOOP,
+            NONE_RESULT_USAGE_LIMIT,
+        ):
             with self.subTest(classification=classification):
                 self.assertIn(
                     "llm_call_log",
                     _failure_message_for_classification(classification),
                 )
+
+    def test_usage_limit_message_interpolates_actual_limit(self) -> None:
+        """The usage-limit message prints the budget actually in force (#2070).
+
+        A caller may override ``request_limit`` via ``UsageLimits``; the message
+        must reflect that value rather than the hardcoded default.
+        """
+        msg = _failure_message_for_classification(
+            NONE_RESULT_USAGE_LIMIT, request_limit=7
+        )
+        self.assertIn("request_limit=7", msg)
+        self.assertNotIn("request_limit=20", msg)
 
 
 class IsAnthropicModelTests(SimpleTestCase):
