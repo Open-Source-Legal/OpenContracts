@@ -558,6 +558,18 @@ async def doc_extract_query_task(
                         exc,
                         exc_info=True,
                     )
+                else:
+                    if not full_text:
+                        # The file loaded but produced no text (empty/corrupted
+                        # extraction, OCR yielded nothing). Log it distinctly so
+                        # an operator can tell this from the "too large to
+                        # inject" skip above — both end up at retrieval, but only
+                        # this one signals a broken extraction artifact.
+                        logger.warning(
+                            "txt_extract_file for cell %s is empty; skipping "
+                            "full-text injection and falling back to retrieval.",
+                            cell_id,
+                        )
         if full_text and len(full_text) <= EXTRACT_FULL_TEXT_CHAR_LIMIT:
             # The full document is in context, so the system prompt's mandatory
             # multi-search NEGATIVE-CASE rule no longer applies — tell the agent

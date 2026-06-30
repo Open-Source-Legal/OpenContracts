@@ -482,9 +482,18 @@ def _make_fake_get_structured_response(answers_by_query: dict[str, str]):
     def _lookup(prompt: str) -> str:
         if prompt in answers_by_query:
             return answers_by_query[prompt]
-        for query, answer in answers_by_query.items():
-            if prompt.startswith(query):
-                return answer
+        # Match the LONGEST canned query the prompt starts with, not the first
+        # one in dict-insertion order. When two queries share a prefix (e.g.
+        # "payment terms" and "payment terms for early termination"), a
+        # first-match scan would silently route the shorter query's answer to
+        # the longer one; longest-prefix makes the mock insertion-order-
+        # independent and keeps overlapping fixtures correct.
+        best_query = ""
+        for query in answers_by_query:
+            if prompt.startswith(query) and len(query) > len(best_query):
+                best_query = query
+        if best_query:
+            return answers_by_query[best_query]
         return ""
 
     # Accept arbitrary kwargs so these fakes don't break when new parameters

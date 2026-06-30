@@ -17,10 +17,10 @@ from pydantic_ai.models.test import TestModel
 from pydantic_ai.tools import RunContext
 from pydantic_ai.usage import UsageLimits
 
-import opencontractserver.llms.agents.pydantic_ai_agents as pa_mod
 from opencontractserver.annotations.models import Annotation, AnnotationLabel
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document, DocumentPath
+from opencontractserver.llms.agents import pydantic_ai_agents as pa_mod
 from opencontractserver.llms.agents.agent_factory import UnifiedAgentFactory
 from opencontractserver.llms.agents.core_agents import AgentConfig, UnifiedChatResponse
 from opencontractserver.llms.agents.pydantic_ai_agents import PydanticAIDocumentAgent

@@ -233,3 +233,32 @@ class ExtractPromptWiringTestCase(TransactionTestCase):
         self.assertNotIn("The full text of the document is provided below", prompt)
         # The task still ran and built the rest of the prompt normally.
         self.assertIn("What is the governing law?", prompt)
+
+    def test_empty_extract_file_logs_and_skips_injection(self):
+        # An in-range file that reads back as empty text (corrupted/empty
+        # extraction, OCR produced nothing) must be logged distinctly from the
+        # "too large to inject" skip, not silently fall through to retrieval.
+        col = Column.objects.create(
+            name="c_empty",
+            fieldset=self.fieldset,
+            query="What is the governing law?",
+            output_type="str",
+            creator=self.user,
+        )
+
+        from unittest.mock import patch
+
+        import opencontractserver.tasks.data_extract_tasks as det
+
+        with patch.object(det, "read_field_file_text", return_value=""):
+            with self.assertLogs(det.logger, level="WARNING") as logs:
+                prompt = self._capture_prompt(col)
+
+        self.assertTrue(
+            any("is empty; skipping full-text injection" in m for m in logs.output),
+            f"expected empty-extract warning, got: {logs.output}",
+        )
+        # No full-text block is injected for the empty document.
+        self.assertNotIn("The full text of the document is provided below", prompt)
+        # The task still ran and built the rest of the prompt normally.
+        self.assertIn("What is the governing law?", prompt)

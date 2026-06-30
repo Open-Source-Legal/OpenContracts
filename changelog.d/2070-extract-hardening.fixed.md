@@ -21,3 +21,8 @@
   resolved `UsageLimits.request_limit` rather than the hardcoded default. Tests:
   `opencontractserver/tests/test_data_extract_failure_classification.py`,
   `opencontractserver/tests/test_pydantic_ai_agents.py`.
+- **Extraction: distinguish an empty extraction artifact from an oversized one.**
+  `doc_extract_query_task` now logs a distinct `WARNING` when a `txt_extract_file` loads but
+  produces empty text (corrupted/empty extraction or OCR that yielded nothing), instead of
+  silently falling through to retrieval the same way the "too large to inject" skip does. Test:
+  `opencontractserver/tests/test_extract_prompt_wiring.py::test_empty_extract_file_logs_and_skips_injection`.
