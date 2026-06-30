@@ -167,8 +167,21 @@ DEFAULT_MIN_PAGES_FOR_CHUNKING = 75
 DEFAULT_CHUNK_OVERLAP = 2
 
 # Maximum number of chunks to process concurrently via thread pool.
-# Controls parallelism of HTTP requests to the parsing microservice.
+# Controls parallelism of HTTP requests to the parsing microservice when a
+# document is parsed in-process (single Celery task, ThreadPoolExecutor).
 DEFAULT_MAX_CONCURRENT_CHUNKS = 3
+
+# Maximum number of chunk tasks ingest_doc will fan out across the Celery broker
+# as a chord (one task per chunk) before falling back to in-process parsing.
+#
+# This is an ORCHESTRATION ceiling — distinct from DEFAULT_MAX_CONCURRENT_CHUNKS,
+# which only sizes the in-process thread pool. Without a cap, a very large
+# document could enqueue hundreds of chord header tasks at once and saturate the
+# worker pool (an availability risk). When chunk_count exceeds this limit,
+# ingest_doc parses the document in a single task instead of fanning out. Tune
+# it to the broker/worker capacity, NOT to thread parallelism: raising
+# max_concurrent_chunks must never silently change which documents fan out.
+DEFAULT_MAX_CHORD_TASKS = 10
 
 # Per-chunk retry limit (within the parser, before raising to Celery).
 DEFAULT_CHUNK_RETRY_LIMIT = 1

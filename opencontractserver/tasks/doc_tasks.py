@@ -644,8 +644,12 @@ def ingest_doc(self, user_id: int, doc_id: int) -> dict[str, Any]:
         # no one-element case — so a truthiness check expresses the contract.
         chunk_inputs = parser_instance.prepare_chunk_inputs(doc_id)
         chunk_count = len(chunk_inputs)
-        max_concurrent_chunks = parser_instance.max_concurrent_chunks
-        if chunk_inputs and chunk_count <= max_concurrent_chunks:
+        # Gate the chord on max_chord_tasks (a Celery-orchestration ceiling on
+        # broker fan-out), NOT on max_concurrent_chunks (the in-process thread
+        # pool width). They are orthogonal: changing thread parallelism must not
+        # silently change which documents fan out vs. parse in-process.
+        max_chord_tasks = parser_instance.max_chord_tasks
+        if chunk_inputs and chunk_count <= max_chord_tasks:
             from opencontractserver.tasks.chunk_tasks import (
                 parse_document_chunk,
                 reassemble_and_save_chunks,
@@ -679,10 +683,21 @@ def ingest_doc(self, user_id: int, doc_id: int) -> dict[str, Any]:
             # link_error errback still rescues failures.
             return self.replace(chord(header, callback))
         if chunk_inputs:
+            # prepare_chunk_inputs already wrote chunk_count PDFs to scratch
+            # storage. The in-process path below re-reads the original PDF and
+            # re-chunks in memory — it never touches those scratch files, and
+            # cleanup only runs inside the chord callback (reassemble_and_finalize),
+            # which we are skipping. Clean them up here or they leak on every
+            # large-document ingest (and multiply across Celery retries).
+            from opencontractserver.pipeline.chunk_artifacts import (
+                cleanup_chunk_artifacts,
+            )
+
+            cleanup_chunk_artifacts(doc_id)
             logger.info(
                 f"[ingest_doc] Document {doc_id}: parsing {chunk_count} "
-                "chunks in-process because it exceeds max_concurrent_chunks="
-                f"{max_concurrent_chunks}"
+                "chunks in-process because it exceeds max_chord_tasks="
+                f"{max_chord_tasks}"
             )
 
     # Call the parser's process_document method (synchronous / non-chunked path)

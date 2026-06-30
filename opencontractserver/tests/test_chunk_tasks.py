@@ -2,10 +2,12 @@
 
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
+from django.core.files.storage import default_storage
 from django.test import TestCase, override_settings
 
 from opencontractserver.documents.models import Document
 from opencontractserver.pipeline.chunk_artifacts import (
+    chunk_input_key,
     chunk_output_key,
     read_chunk_result,
     write_chunk_pdf,
@@ -195,14 +197,16 @@ class TestChunkTasks(TestCase):
                 inline_parse.assert_not_called()
 
     def test_ingest_doc_large_pdf_falls_back_when_chunk_count_exceeds_limit(self):
-        """Do not enqueue more chord header tasks than max_concurrent_chunks."""
+        """Above max_chord_tasks, ingest_doc parses in-process AND cleans up the
+        chunk scratch PDFs that prepare_chunk_inputs wrote (no storage leak)."""
         from unittest.mock import patch
 
+        from opencontractserver.pipeline import chunk_artifacts
         from opencontractserver.tasks import doc_tasks
 
         doc, user = self._doc(8)  # max_pages_per_chunk=2, min=2 → 4 chunks
         parser = _FakeChunkedParser()
-        parser.max_concurrent_chunks = 3
+        parser.max_chord_tasks = 3  # 4 chunks > 3 → fall back to in-process
         with override_settings(CELERY_TASK_ALWAYS_EAGER=False):
             with patch.object(
                 doc_tasks,
@@ -216,10 +220,23 @@ class TestChunkTasks(TestCase):
                 doc_tasks.ingest_doc, "replace"
             ) as replace_mock, patch.object(
                 _FakeChunkedParser, "process_document", return_value=None
-            ) as inline_parse:
+            ) as inline_parse, patch.object(
+                chunk_artifacts,
+                "cleanup_chunk_artifacts",
+                wraps=chunk_artifacts.cleanup_chunk_artifacts,
+            ) as cleanup_spy:
                 result = doc_tasks.ingest_doc.apply(
                     kwargs=dict(user_id=user.id, doc_id=doc.id)
                 ).get()
                 self.assertEqual(result["status"], "success")
                 replace_mock.assert_not_called()
                 inline_parse.assert_called_once()
+                # The fallback must remove the scratch PDFs prepare_chunk_inputs
+                # wrote, otherwise they leak (cleanup only otherwise runs inside
+                # the chord callback we skipped).
+                cleanup_spy.assert_called_once_with(doc.id)
+                for chunk_index in range(4):
+                    self.assertFalse(
+                        default_storage.exists(chunk_input_key(doc.id, chunk_index)),
+                        f"chunk scratch input {chunk_index} leaked after fallback",
+                    )
