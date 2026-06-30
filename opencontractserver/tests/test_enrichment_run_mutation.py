@@ -444,7 +444,50 @@ class RunCorpusEnrichmentMutationTests(TestCase):
         assert data["analyses"] == []
 
     def test_rejects_unbounded_crawl_options(self):
-        """Hostile crawl bounds are rejected before any analysis is dispatched."""
+        """Each over-limit crawl bound is rejected by name before any dispatch.
+
+        Tested one field at a time (not all four at once) so the assertion does
+        not depend on ``CRAWL_BOUND_LIMITS`` iteration order:
+        ``_validate_crawl_bounds`` returns on the FIRST bad field, so a
+        reordering of the dict must not silently change which field the test
+        happens to catch.
+        """
+        from opencontractserver.analyzer.models import Analysis
+
+        # camelCase GraphQL option -> (over-limit value, snake_case message field)
+        cases = {
+            "maxDepth": (C.CRAWL_MAX_ALLOWED_DEPTH + 1, "max_depth"),
+            "maxAuthorities": (C.CRAWL_DEFAULT_MAX_AUTHORITIES + 1, "max_authorities"),
+            "perJurisdictionCap": (
+                C.CRAWL_DEFAULT_PER_JURISDICTION_CAP + 1,
+                "per_jurisdiction_cap",
+            ),
+            "tokenBudget": (0, "token_budget"),  # below the minimum of 1
+        }
+        for gql_field, (bad_value, msg_field) in cases.items():
+            with self.subTest(field=gql_field):
+                result = self._execute(
+                    {
+                        "corpusId": to_global_id("CorpusType", self.corpus.id),
+                        "runEnrichment": False,
+                        "runCrawl": True,
+                        "options": {gql_field: bad_value},
+                    }
+                )
+                assert result.get("errors") is None, result
+                data = result["data"]["runCorpusEnrichment"]
+                assert data["ok"] is False
+                assert data["partial"] is False
+                assert msg_field in data["message"]
+        # No invalid request dispatched an analysis.
+        assert not Analysis.objects.filter(analyzed_corpus=self.corpus).exists()
+
+    def test_high_min_demand_is_accepted(self):
+        """A ``min_demand`` ABOVE the default is MORE selective (it skips more
+        frontier rows), so it is cheaper and must be accepted — the upper bound
+        was removed because capping at the default wrongly rejected conservative
+        values. Mirrors the crawl analyzer input schema, which sets only a floor
+        on min_demand."""
         from opencontractserver.analyzer.models import Analysis
 
         result = self._execute(
@@ -452,24 +495,28 @@ class RunCorpusEnrichmentMutationTests(TestCase):
                 "corpusId": to_global_id("CorpusType", self.corpus.id),
                 "runEnrichment": False,
                 "runCrawl": True,
-                "options": {
-                    "maxDepth": 999999,
-                    "maxAuthorities": 1000000000,
-                    "perJurisdictionCap": 1000000000,
-                    "tokenBudget": 0,
-                },
+                "options": {"minDemand": C.CRAWL_DEFAULT_MIN_DEMAND + 100},
             }
         )
         assert result.get("errors") is None, result
         data = result["data"]["runCorpusEnrichment"]
-        assert data["ok"] is False
-        assert data["partial"] is False
-        assert "max_depth" in data["message"]
-        assert not Analysis.objects.filter(analyzed_corpus=self.corpus).exists()
+        assert data["ok"] is True, data
+        assert Analysis.objects.filter(
+            analyzed_corpus=self.corpus,
+            analyzer__task_name=C.CRAWL_ANALYZER_TASK,
+        ).exists()
 
     def test_rejects_llm_tier_for_non_admin(self):
         """Low-privileged UPDATE users cannot opt corpus text into LLM export."""
         from opencontractserver.analyzer.models import Analysis
+        from opencontractserver.enrichment.services.authority_permissions import (
+            is_authority_admin,
+        )
+
+        # Precondition: the corpus owner is a plain UPDATE user, NOT an authority
+        # admin — otherwise the LLM-tier gate would pass and this test would fail
+        # for the wrong reason (and silently stop covering the rejection path).
+        assert not is_authority_admin(self.owner)
 
         result = self._execute(
             {

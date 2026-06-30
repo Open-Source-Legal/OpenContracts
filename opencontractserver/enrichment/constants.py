@@ -92,6 +92,12 @@ CRAWL_DEFAULT_PER_JURISDICTION_CAP = 15  # max ingests per (jurisdiction) per ru
 CRAWL_DEFAULT_TOKEN_BUDGET = (
     2_000_000  # cumulative est. tokens (text len / 4) before stop
 )
+# Hard ceiling on a caller-supplied ``max_depth``. Each extra BFS hop fans the
+# crawl out combinatorially, so the public dispatch surface (the
+# RunCorpusEnrichment mutation and the crawl analyzer input schema) rejects
+# anything above this. Distinct from CRAWL_DEFAULT_MAX_DEPTH, which is only the
+# value used when the caller omits the field.
+CRAWL_MAX_ALLOWED_DEPTH = 5
 # Punctuation stripped from the tail of a captured defined term
 # (e.g. (the "Notes," ...) -> "Notes").
 TRAILING_PUNCT = ",.;:"

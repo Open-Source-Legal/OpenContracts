@@ -86,13 +86,16 @@ def corpus_reference_enrichment(
             "max_depth": {
                 "type": "integer",
                 "minimum": 0,
-                "maximum": 5,
+                "maximum": C.CRAWL_MAX_ALLOWED_DEPTH,
                 "default": C.CRAWL_DEFAULT_MAX_DEPTH,
             },
             "min_demand": {
                 "type": "integer",
+                # No upper bound: a HIGHER min_demand is MORE selective (skips
+                # more frontier rows), so it is cheaper, never a resource risk.
+                # Only a floor is enforced (matches the RunCorpusEnrichment
+                # mutation's crawl-bound validation).
                 "minimum": 0,
-                "maximum": C.CRAWL_DEFAULT_MIN_DEMAND,
                 "default": C.CRAWL_DEFAULT_MIN_DEMAND,
             },
             "max_authorities": {
