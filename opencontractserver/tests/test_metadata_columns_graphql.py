@@ -574,6 +574,44 @@ class DeleteMetadataColumnTestCase(TestCase):
         self.assertTrue(payload["ok"], payload["message"])
         self.assertFalse(Column.objects.filter(pk=self.column.pk).exists())
 
+    def test_corpus_delete_without_column_delete_can_delete(self):
+        """Corpus DELETE alone authorizes the delete — column-level DELETE is
+        NOT required. Discriminates the corpus-scoped gate from the old
+        column-level one: a revert to ``require_permission(column, DELETE)``
+        would fail this test.
+
+        The mutation READ-gates the column lookup through the service layer
+        (``BaseService.get_or_none``), so the user must be able to *read* the
+        column for the lookup to resolve. We therefore grant only column READ
+        (never column DELETE) plus corpus DELETE — proving the destructive
+        authorization comes from the corpus, not the column.
+        """
+        corpus_admin = User.objects.create_user(
+            username="del-corpus-only", password="x"
+        )
+        set_permissions_for_obj_to_user(
+            corpus_admin, self.corpus, [PermissionTypes.DELETE]
+        )
+
+        column = Column.objects.create(
+            fieldset=self.fieldset,
+            name="Corpus Only Col",
+            output_type="str",
+            is_manual_entry=True,
+            creator=self.user,
+        )
+        # READ so the lookup resolves; deliberately NOT DELETE.
+        set_permissions_for_obj_to_user(corpus_admin, column, [PermissionTypes.READ])
+
+        client = Client(schema, context_value=TestContext(corpus_admin))
+        result = client.execute(
+            self.MUTATION,
+            variables={"columnId": to_global_id("ColumnType", column.pk)},
+        )
+        payload = result["data"]["deleteMetadataColumn"]
+        self.assertTrue(payload["ok"], payload["message"])
+        self.assertFalse(Column.objects.filter(pk=column.pk).exists())
+
     def test_column_creator_without_corpus_delete_cannot_delete(self):
         vulnerable_column = Column.objects.create(
             fieldset=self.fieldset,

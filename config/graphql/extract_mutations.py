@@ -374,10 +374,12 @@ class DeleteMetadataColumn(graphene.Mutation):
 
         try:
             user = info.context.user
-            column = (
-                Column.objects.select_related("fieldset__corpus")
-                .filter(pk=from_global_id(column_id)[1])
-                .first()
+            # READ-gate the column lookup through the service layer so an
+            # invisible column returns the unified not-found message before
+            # any fieldset/corpus traversal (IDOR-safe). Mirrors how
+            # CreateMetadataColumn/UpdateMetadataColumn fetch the column.
+            column = BaseService.get_or_none(
+                Column, from_global_id(column_id)[1], user, request=info.context
             )
             if column is None:
                 return DeleteMetadataColumn(ok=False, message=not_found_msg)
