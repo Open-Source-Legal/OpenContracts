@@ -534,6 +534,7 @@ class AnnotationQueryMixin:
             # content-hash-shared StructuralAnnotationSet. See
             # AnnotationService.structural_document_prefetch.
             AnnotationService.structural_document_prefetch(
+                user=info.context.user,
                 corpus_id=corpus_django_pk,
                 document_id=doc_django_pk,
             ),

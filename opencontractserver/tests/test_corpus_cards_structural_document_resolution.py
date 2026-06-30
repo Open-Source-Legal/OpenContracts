@@ -273,7 +273,7 @@ class CorpusCardsStructuralDocumentResolutionTests(TestCase):
         annotations = self._make_structural_annotations(self.corpus_a, "A")
         # corpus_id points at A, but document_id pins doc_b — document_id wins.
         prefetch = AnnotationService.structural_document_prefetch(
-            corpus_id=self.corpus_a.id, document_id=self.doc_b.id
+            user=self.user, corpus_id=self.corpus_a.id, document_id=self.doc_b.id
         )
         fetched = (
             Annotation.objects.filter(id=annotations[0].id)
@@ -309,3 +309,12 @@ class CorpusCardsStructuralDocumentResolutionTests(TestCase):
             to_global_id("DocumentType", self.private_doc.id),
             "resolve_document returned a private document from the shared set",
         )
+        # Positive assertion: the resolved document must be one of the copies
+        # the requesting user may READ — excluding the private doc alone would
+        # still pass if resolution silently returned the wrong (but visible)
+        # member, so pin it to the allowed set.
+        allowed_doc_ids = {
+            to_global_id("DocumentType", doc.id)
+            for doc in (self.source_doc, self.doc_a, self.doc_b)
+        }
+        self.assertIn(resolved_doc["id"], allowed_doc_ids)

@@ -656,73 +656,69 @@ class AnnotationType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         ``None`` for structural annotations (``document_id=NULL``) before this
         method ever ran.
         """
-        if self.document_id:
-            from opencontractserver.documents.models import Document
+        # Deferred import avoids a module-level cycle: ``documents.models``
+        # pulls in ``document_types`` which imports ``annotation_types``.
+        from opencontractserver.documents.models import Document
 
+        user = info.context.user
+
+        if self.document_id:
+            # Non-structural annotation: the document is its own parent. The
+            # annotation list / semantic-search resolvers always
+            # ``select_related("document")``, so the FK is already in memory —
+            # return it directly instead of issuing a per-row ``SELECT``.
+            # Annotation READ visibility is inherited from the document, so any
+            # annotation that reached this resolver already implies document
+            # READ. Only when the FK was not select_related (defensive) do we
+            # fall back to a single permission-scoped fetch.
+            document_field = self._meta.get_field("document")
+            if document_field.is_cached(self):
+                return self.document
             return (
                 BaseService.filter_visible_qs(
-                    Document.objects.filter(pk=self.document_id),
-                    info.context.user,
-                    request=info.context,
+                    Document.objects.filter(pk=self.document_id), user
                 )
                 .select_related("creator")
                 .first()
             )
-        # Structural annotations have document=NULL; resolve via structural_set
-        if self.structural_set_id:
-            from opencontractserver.documents.models import Document
 
-            structural_set = self.structural_set
-            if structural_set is not None:
-                # Use prefetched documents if available (evaluates prefetch cache),
-                # but do not trust the prefetch alone as a permission gate: the
-                # unscoped annotations query may prefetch every document sharing
-                # this structural set. Intersect candidates with visible_to_user
-                # before returning a DocumentType while preserving prefetch order.
+        # Structural annotations carry document_id=NULL; resolve via structural_set.
+        if not self.structural_set_id:
+            return None
+
+        structural_set = self.structural_set
+        if structural_set is not None:
+            # When ``AnnotationService.structural_document_prefetch`` was applied
+            # (the hot list / search paths), the prefetch cache is already scoped
+            # to the queried context AND to documents the user may READ —
+            # evaluated once for the whole page, ordered by slug. The prefetch is
+            # the permission gate (``user`` is required there), so trust it and
+            # return the first member. If the already-scoped prefetch is empty,
+            # fall through to the corpus-scoped DB fallback below rather than
+            # short-circuiting to None.
+            prefetched_cache = getattr(structural_set, "_prefetched_objects_cache", {})
+            if "documents" in prefetched_cache:
                 prefetched = list(structural_set.documents.all())
                 if prefetched:
-                    prefetched_ids = [document.id for document in prefetched]
-                    visible_ids = set(
-                        BaseService.filter_visible_qs(
-                            Document.objects.filter(pk__in=prefetched_ids),
-                            info.context.user,
-                            request=info.context,
-                        ).values_list("pk", flat=True)
-                    )
-                    return next(
-                        (
-                            document
-                            for document in prefetched
-                            if document.id in visible_ids
-                        ),
-                        None,
-                    )
-            # Fallback when the caller did not apply
-            # ``AnnotationService.structural_document_prefetch`` (deferred import
-            # avoids a module-level cycle with documents.models). Scope to this
-            # annotation's own corpus and order deterministically so we never
-            # reintroduce the original arbitrary ``.documents.first()`` bug;
-            # query-context scoping (which corpus is being viewed) only happens
-            # via the prefetch above, so this is a best-effort degraded path.
-            documents = Document.objects.filter(
-                structural_annotation_set_id=self.structural_set_id
+                    return prefetched[0]
+
+        # Fallback when the caller did not apply
+        # ``AnnotationService.structural_document_prefetch`` (or its user-scoped
+        # prefetch resolved to nothing). Scope to this annotation's own corpus,
+        # gate by visibility, and order deterministically so we never return an
+        # arbitrary or private member of the content-hash-shared set; query-
+        # context scoping (which corpus is being viewed) only happens via the
+        # prefetch above, so this is a best-effort degraded path.
+        documents = Document.objects.filter(
+            structural_annotation_set_id=self.structural_set_id
+        )
+        if self.corpus_id:
+            documents = documents.filter(
+                path_records__corpus_id=self.corpus_id,
+                path_records__is_current=True,
+                path_records__is_deleted=False,
             )
-            if self.corpus_id:
-                documents = documents.filter(
-                    path_records__corpus_id=self.corpus_id,
-                    path_records__is_current=True,
-                    path_records__is_deleted=False,
-                )
-            return (
-                BaseService.filter_visible_qs(
-                    documents,
-                    info.context.user,
-                    request=info.context,
-                )
-                .order_by("slug")
-                .first()
-            )
-        return None
+        return BaseService.filter_visible_qs(documents, user).order_by("slug").first()
 
     def resolve_annotation_type(self, info) -> Any:
         """Return annotation_type as a plain string to tolerate invalid DB values."""

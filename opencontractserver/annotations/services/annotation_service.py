@@ -780,6 +780,8 @@ class AnnotationService(BaseService):
     @classmethod
     def structural_document_prefetch(
         cls,
+        *,
+        user: Any,
         corpus_id: Optional[int] = None,
         document_id: Optional[int] = None,
     ) -> Prefetch:
@@ -808,7 +810,18 @@ class AnnotationService(BaseService):
         while the corpus annotation cards (document_id=None) fall back to
         the corpus-local copy.
 
+        The prefetch is ALSO scoped to documents ``user`` may READ
+        (``Document.objects.visible_to_user``). A ``StructuralAnnotationSet``
+        is content-hash deduplicated and therefore shared across documents
+        AND owners, so an unscoped prefetch can surface a private copy owned
+        by another user. Filtering here means ``resolve_document`` never has
+        to re-gate per row — the visibility check runs once when the prefetch
+        is evaluated for the whole page. ``user`` is required (keyword-only)
+        so a caller cannot accidentally build an un-gated prefetch.
+
         Args:
+            user: The requesting user; the prefetched documents are
+                intersected with ``Document.objects.visible_to_user(user)``.
             corpus_id: When set (and no ``document_id``), restrict the
                 prefetched documents to those with a current, non-deleted
                 path in this corpus.
@@ -823,7 +836,7 @@ class AnnotationService(BaseService):
         """
         from opencontractserver.documents.models import Document
 
-        documents = Document.objects.select_related("creator")
+        documents = Document.objects.visible_to_user(user).select_related("creator")
         if document_id is not None:
             documents = documents.filter(id=document_id)
         elif corpus_id is not None:
