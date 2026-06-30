@@ -30,16 +30,68 @@ class CorpusReferenceService(BaseService):
             Document.objects.visible_to_user(user),
         )
 
+    @staticmethod
+    def _source_visible_q(visible_corpora, visible_documents):
+        """``Q`` gating the reference row's parent corpus and its SOURCE
+        annotation under MIN(document_permission, corpus_permission).
+
+        Corpus READ gates the row itself. The source annotation's document AND
+        corpus must both be visible, with NULLs passed through: a structural
+        annotation has ``document=None`` and ``Annotation.corpus`` is nullable,
+        and NULL is never a member of an ``__in`` list — without the isnull
+        guards every structural-annotation-sourced reference (including the
+        corpus owner's own) would be silently dropped.
+        """
+        return Q(corpus__in=visible_corpora) & (
+            Q(source_annotation__isnull=True)
+            | (
+                (
+                    Q(source_annotation__document__isnull=True)
+                    | Q(source_annotation__document__in=visible_documents)
+                )
+                & (
+                    Q(source_annotation__corpus__isnull=True)
+                    | Q(source_annotation__corpus__in=visible_corpora)
+                )
+            )
+        )
+
+    @staticmethod
+    def _target_visible_q(visible_corpora, visible_documents):
+        """``Q`` gating a reference's resolved TARGET (document / corpus /
+        annotation) under MIN(document_permission, corpus_permission).
+
+        A target whose document is public but whose corpus is private must not
+        leak its annotation FK, so the target annotation's document AND corpus
+        are both gated (NULLs passed through, as on the source side).
+        """
+        return (
+            (Q(target_document__isnull=True) | Q(target_document__in=visible_documents))
+            & (Q(target_corpus__isnull=True) | Q(target_corpus__in=visible_corpora))
+            & (
+                Q(target_annotation__isnull=True)
+                | (
+                    (
+                        Q(target_annotation__document__isnull=True)
+                        | Q(target_annotation__document__in=visible_documents)
+                    )
+                    & (
+                        Q(target_annotation__corpus__isnull=True)
+                        | Q(target_annotation__corpus__in=visible_corpora)
+                    )
+                )
+            )
+        )
+
     @classmethod
     def visible_to_user_by_source(cls, user):
-        """References whose parent corpus AND source document are visible.
+        """References whose parent corpus AND source annotation are visible.
 
-        Enforces corpus READ and source-annotation-document visibility, but
-        does NOT filter on the resolved *target* (document / corpus /
-        annotation). A citation made by a hidden document is suppressed (no
-        source leak), but a citation TO a hidden target is RETAINED so the
-        caller can degrade that target to a ghost rather than dropping the
-        reference outright.
+        Enforces corpus READ and source-annotation visibility, but does NOT
+        filter on the resolved *target* (document / corpus / annotation). A
+        citation made by a hidden source is suppressed (no source leak), but a
+        citation TO a hidden target is RETAINED so the caller can degrade that
+        target to a ghost rather than dropping the reference outright.
 
         Use this for aggregate surfaces that perform their own per-target
         ghosting (the governance graph re-checks both endpoints and degrades
@@ -49,19 +101,8 @@ class CorpusReferenceService(BaseService):
         references whose target is invisible.
         """
         visible_corpora, visible_documents = cls._build_visibility_querysets(user)
-
         return CorpusReference.objects.filter(
-            # Corpus READ gates the reference row itself.
-            Q(corpus__in=visible_corpora)
-            # Source-annotation document visibility. ``Annotation.document`` is
-            # NULL for structural annotations in shared sets, and NULL is never a
-            # member of an ``__in`` list — without this guard every
-            # structural-annotation-sourced reference (including the corpus
-            # owner's own) would be silently dropped.
-            & (
-                Q(source_annotation__document__isnull=True)
-                | Q(source_annotation__document__in=visible_documents)
-            )
+            cls._source_visible_q(visible_corpora, visible_documents)
         )
 
     @classmethod
@@ -74,34 +115,17 @@ class CorpusReferenceService(BaseService):
         corpus document surfaces so a readable corpus cannot disclose private
         source annotations or private resolved targets.
 
-        Builds on :meth:`visible_to_user_by_source` (corpus + source) and adds
-        the target-visibility filter, so a reference is hidden when its
-        resolved target document / corpus / annotation is not visible. Callers
-        that ghost invisible targets themselves should use
-        :meth:`visible_to_user_by_source` instead so those references are not
-        dropped before they can be degraded.
+        Composes the source filter (corpus + source) of
+        :meth:`visible_to_user_by_source` with the target-visibility filter, so
+        a reference is hidden when its resolved target document / corpus /
+        annotation is not visible. Callers that ghost invisible targets
+        themselves should use :meth:`visible_to_user_by_source` instead so those
+        references are not dropped before they can be degraded.
         """
         visible_corpora, visible_documents = cls._build_visibility_querysets(user)
-
-        return cls.visible_to_user_by_source(user).filter(
-            (Q(target_document__isnull=True) | Q(target_document__in=visible_documents))
-            & (Q(target_corpus__isnull=True) | Q(target_corpus__in=visible_corpora))
-            # Target-annotation document visibility, with the same NULL-document
-            # guard as the source side (structural target annotations).
-            & (
-                Q(target_annotation__isnull=True)
-                | Q(target_annotation__document__isnull=True)
-                | Q(target_annotation__document__in=visible_documents)
-            )
-            # MIN(document, corpus): also gate on the target annotation's CORPUS,
-            # so an annotation whose document is public but whose corpus is
-            # private does not expose the annotation FK. ``Annotation.corpus`` is
-            # nullable, so a NULL corpus passes.
-            & (
-                Q(target_annotation__isnull=True)
-                | Q(target_annotation__corpus__isnull=True)
-                | Q(target_annotation__corpus__in=visible_corpora)
-            )
+        return CorpusReference.objects.filter(
+            cls._source_visible_q(visible_corpora, visible_documents)
+            & cls._target_visible_q(visible_corpora, visible_documents)
         )
 
     @classmethod
@@ -112,8 +136,10 @@ class CorpusReferenceService(BaseService):
     def for_corpus_by_source(cls, user, corpus_id: int):
         """Corpus-scoped variant of :meth:`visible_to_user_by_source`.
 
-        For callers (the governance graph) that ghost invisible targets
-        themselves and so must not have target-hidden references pre-filtered.
+        For callers that ghost invisible targets themselves (the governance
+        graph) or read only the canonical key without exposing target FKs (the
+        authority crawl frontier seed), so target-hidden references must not be
+        pre-filtered out.
         """
         return cls.visible_to_user_by_source(user).filter(corpus_id=corpus_id)
 

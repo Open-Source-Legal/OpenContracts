@@ -307,6 +307,36 @@ class CorpusReferenceVisibilityTests(TestCase):
             .exists()
         )
 
+    def test_visible_to_user_requires_visible_source_annotation_corpus(self):
+        # IDOR symmetric to the target side: a SOURCE annotation whose DOCUMENT
+        # is public but whose CORPUS is private must not leak its FK. There is no
+        # DB constraint that source_annotation.corpus == reference.corpus, so
+        # MIN(document, corpus) has to gate the source annotation's corpus too.
+        # The guard lives in the shared source filter, so BOTH the strict surface
+        # and the source-only ghosting surface must hide it.
+        hidden_source_annotation = Annotation.objects.create(
+            raw_text="source",
+            page=1,
+            json={"start": 0, "end": 6},
+            annotation_label=self.label,
+            document=self.visible_doc,  # public document (passes the doc check)
+            corpus=self.private_target_corpus,  # ...but a private corpus
+            creator=self.owner,
+            annotation_type=SPAN_LABEL,
+        )
+        ref = self._reference(hidden_source_annotation)
+
+        assert (
+            not CorpusReferenceService.visible_to_user(self.viewer)
+            .filter(pk=ref.pk)
+            .exists()
+        )
+        assert (
+            not CorpusReferenceService.visible_to_user_by_source(self.viewer)
+            .filter(pk=ref.pk)
+            .exists()
+        )
+
     def test_visible_to_user_honors_guardian_read_grants(self):
         # The most common real sharing path is is_public=False + an explicit
         # guardian READ grant, not is_public=True. Exercise both the positive
