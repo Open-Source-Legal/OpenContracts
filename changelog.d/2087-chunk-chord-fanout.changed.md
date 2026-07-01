@@ -8,4 +8,7 @@
   surfaced on `BaseChunkedParser` and as a `DoclingParser` pipeline setting /
   `DOCLING_MAX_CHORD_TASKS` env var) — deliberately separate from `max_concurrent_chunks`,
   which only sizes the in-process thread pool, so tuning thread parallelism never silently
-  changes which documents fan out vs. parse in-process.
+  changes which documents fan out vs. parse in-process. A non-positive `max_chord_tasks`
+  (e.g. `DOCLING_MAX_CHORD_TASKS=0`) now logs a warning identifying the misconfiguration
+  each time it forces a chunked document onto the in-process path, instead of silently
+  disabling chord fan-out with no indication.
