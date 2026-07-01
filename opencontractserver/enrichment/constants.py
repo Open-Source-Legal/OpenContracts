@@ -85,7 +85,8 @@ MAX_DEFINED_TERMS = 50  # cap on UNIQUE defined terms emitted per document (v1)
 # document that is mostly DUPLICATE definition sites cannot iterate unboundedly
 # hunting for the Nth unique term. Duplicates do NOT consume the unique-term
 # quota above, so this budget is deliberately larger than MAX_DEFINED_TERMS.
-MAX_DEFINED_TERM_SCAN = 10 * MAX_DEFINED_TERMS
+DEFINED_TERM_SCAN_MULTIPLIER = 10  # named so the "why 10?" is a one-line edit
+MAX_DEFINED_TERM_SCAN = DEFINED_TERM_SCAN_MULTIPLIER * MAX_DEFINED_TERMS
 # Per-authority cap on the keys surfaced by the wanted-authorities queue.
 WANTED_AUTHORITIES_TOP_KEYS = 10
 

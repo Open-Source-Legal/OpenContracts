@@ -16,7 +16,7 @@ from opencontractserver.enrichment.abbreviations import (
     MUNICIPAL_CODE_ABBREVIATIONS,
     STATE_CODE_ABBREVIATIONS,
 )
-from opencontractserver.enrichment.extractor import Candidate
+from opencontractserver.enrichment.extractor import Candidate, normalize_reference_types
 
 # Confidence by grammar family — structured numeric cites are high precision;
 # bare-Act detection (Task 11) is intentionally lower.
@@ -356,7 +356,7 @@ class GenericCitationExtractor:
         # Every grammar pass emits REF_LAW candidates, so when the caller does
         # not want laws there is no point running any of them — the output would
         # be filtered out downstream anyway.
-        wanted = set(reference_types) if reference_types is not None else None
+        wanted = normalize_reference_types(reference_types)
         out: list[Candidate] = []
         if wanted is None or C.REF_LAW in wanted:
             out.extend(_usc(text))

@@ -96,6 +96,19 @@ def _slugify_term(term: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", term.strip().lower()).strip("-")
 
 
+def normalize_reference_types(
+    reference_types: set[str] | tuple[str, ...] | list[str] | None,
+) -> set[str] | None:
+    """Normalize a caller-supplied reference-type filter to a set, or ``None``.
+
+    ``None`` is the "no filter, extract everything" sentinel. Shared by
+    :meth:`ReferenceExtractor.extract` and
+    :meth:`opencontractserver.enrichment.grammars.GenericCitationExtractor.extract`
+    so the sentinel/type contract has a single edit point.
+    """
+    return set(reference_types) if reference_types is not None else None
+
+
 class ReferenceExtractor:
     """Stateless-per-text extractor: ``extract(text) -> list[Candidate]``.
 
@@ -121,7 +134,7 @@ class ReferenceExtractor:
         default_authority: str | None = None,
         reference_types: set[str] | tuple[str, ...] | list[str] | None = None,
     ) -> list[Candidate]:
-        wanted = set(reference_types) if reference_types is not None else None
+        wanted = normalize_reference_types(reference_types)
         out: list[Candidate] = []
         if wanted is None or C.REF_LAW in wanted:
             out.extend(self._laws(text))
