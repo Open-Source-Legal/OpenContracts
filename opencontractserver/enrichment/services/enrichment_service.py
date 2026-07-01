@@ -85,11 +85,16 @@ class EnrichmentService:
         and is stamped COMPLETED). The agent tools pass the conversation user's
         ``creator_id`` — not necessarily the corpus owner — so this is a real,
         not hypothetical, exclusion path (issue #1682 follow-up).
+
+        ``total_in_corpus`` and ``len(documents)`` come from two unsynchronized
+        queries, so a document removed from the corpus between them can make the
+        raw difference negative; clamp to 0 so ``excluded`` never reports a
+        nonsensical negative exclusion count.
         """
         total_in_corpus = CorpusDocumentService.get_corpus_documents(
             user, corpus, include_caml=False
         ).count()
-        excluded = total_in_corpus - len(documents)
+        excluded = max(0, total_in_corpus - len(documents))
         if excluded > 0:
             logger.warning(
                 "Enrichment %s on corpus %s: %s of %s document(s) excluded — "
@@ -302,7 +307,11 @@ class EnrichmentService:
         doc_sem = asyncio.Semaphore(C.doc_max_concurrency())
 
         agg = WriteResult()
-        documents_total = len(documents)
+        # ``documents`` here is already the MIN-filtered (visible) set passed
+        # in by the caller (see ``apply()``'s ``documents_visible_to_caller``);
+        # name it the same way so the progress log below can't be misread as
+        # the corpus-as-gate total.
+        documents_visible_to_caller = len(documents)
         counters = {"total": 0, "done": 0, "attempted": 0}
         # Per-document failures captured here instead of propagating out of the
         # gather (see below) so one document's error can't discard the rest.
@@ -357,7 +366,7 @@ class EnrichmentService:
                     logger.info(
                         "Enrichment apply: doc %s/%s (corpus %s) — refs so far=%s",
                         counters["done"],
-                        documents_total,
+                        documents_visible_to_caller,
                         corpus.id,
                         agg.references_created,
                     )
@@ -416,7 +425,7 @@ class EnrichmentService:
         extra_tiers: list[str] | None = None,
     ) -> dict:
         user, corpus, documents = self._load(corpus_id, creator_id)
-        _total_in_corpus, documents_excluded = self._document_visibility_audit(
+        documents_total_in_corpus, documents_excluded = self._document_visibility_audit(
             user, corpus, documents, surface="scan"
         )
         resolutions = self._resolutions(
@@ -449,6 +458,7 @@ class EnrichmentService:
         return {
             "corpus_id": corpus_id,
             "documents_scanned": len(documents),
+            "documents_total_in_corpus": documents_total_in_corpus,
             "documents_excluded_by_visibility": documents_excluded,
             "total_candidates": len(resolutions),
             "counts_by_type": dict(by_type),
@@ -703,7 +713,7 @@ class EnrichmentService:
         # web (no Annotation/CorpusReference rows), yet the run still completes
         # COMPLETED. Surface the exclusion (count + WARNING) so the gap is
         # auditable rather than invisible.
-        _total_in_corpus, documents_excluded = self._document_visibility_audit(
+        documents_total_in_corpus, documents_excluded = self._document_visibility_audit(
             user, corpus, documents, surface="apply"
         )
         if extra_tiers is None:
@@ -738,7 +748,12 @@ class EnrichmentService:
 
         writer = EnrichmentWriter(corpus, creator_id, analysis=analysis)
 
-        documents_total = len(documents)
+        # Named to match discover()'s convention: this is the MIN-filtered
+        # (visible) count, NOT the corpus-as-gate total — see
+        # ``documents_total_in_corpus`` above. A progress log or return value
+        # keyed off the corpus total here would misrepresent an
+        # excluded-documents run as covering the whole corpus.
+        documents_visible_to_caller = len(documents)
         agg = WriteResult()
         total_candidates = 0
         try:
@@ -779,7 +794,7 @@ class EnrichmentService:
                     logger.info(
                         "Enrichment apply: doc %s/%s (corpus %s) — refs so far=%s",
                         index,
-                        documents_total,
+                        documents_visible_to_caller,
                         corpus_id,
                         agg.references_created,
                     )
@@ -819,7 +834,8 @@ class EnrichmentService:
         return {
             "corpus_id": corpus_id,
             "analysis_id": analysis.id,
-            "documents_scanned": documents_total,
+            "documents_scanned": documents_visible_to_caller,
+            "documents_total_in_corpus": documents_total_in_corpus,
             "documents_excluded_by_visibility": documents_excluded,
             "total_candidates": total_candidates,
             "annotations_created": agg.annotations_created,
