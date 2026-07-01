@@ -661,3 +661,180 @@ class DeleteMetadataColumnTestCase(TestCase):
         payload = result["data"]["deleteMetadataColumn"]
         self.assertFalse(payload["ok"])
         self.assertTrue(Column.objects.filter(pk=extract_col.pk).exists())
+
+    def test_fieldset_without_corpus_cannot_delete(self):
+        """``Fieldset.corpus`` is nullable. A column whose fieldset has no
+        linked corpus has no corpus to authorize a destructive write
+        against, so the lookup must fall through to the unified not-found
+        message rather than deleting (or crashing on a ``None`` corpus)."""
+        orphan_fieldset = Fieldset.objects.create(
+            name="orphan", description="orphan", corpus=None, creator=self.user
+        )
+        orphan_column = Column.objects.create(
+            fieldset=orphan_fieldset,
+            name="Orphan Col",
+            output_type="str",
+            is_manual_entry=True,
+            creator=self.user,
+        )
+        set_permissions_for_obj_to_user(
+            self.user, orphan_column, [PermissionTypes.CRUD]
+        )
+
+        result = self.client_owner.execute(
+            self.MUTATION,
+            variables={"columnId": to_global_id("ColumnType", orphan_column.pk)},
+        )
+        payload = result["data"]["deleteMetadataColumn"]
+        self.assertFalse(payload["ok"])
+        self.assertIn("not found", payload["message"].lower())
+        self.assertTrue(Column.objects.filter(pk=orphan_column.pk).exists())
+
+
+class UpdateMetadataColumnTestCase(TestCase):
+    """``updateMetadataColumn`` must authorize against the parent corpus
+    (not the child ``Column``) — the mirror image of
+    ``DeleteMetadataColumnTestCase``. A user granted ``change_column``
+    directly on a corpus-metadata column, without holding corpus UPDATE,
+    must not be able to rename it or otherwise alter its schema."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="upd-owner", password="x")
+        self.stranger = User.objects.create_user(username="upd-stranger", password="x")
+        self.column_creator = User.objects.create_user(
+            username="upd-column-creator", password="x"
+        )
+        self.client_owner = Client(schema, context_value=TestContext(self.user))
+        self.client_stranger = Client(schema, context_value=TestContext(self.stranger))
+        self.client_column_creator = Client(
+            schema, context_value=TestContext(self.column_creator)
+        )
+        self.corpus = Corpus.objects.create(title="Upd Corpus", creator=self.user)
+        set_permissions_for_obj_to_user(self.user, self.corpus, [PermissionTypes.CRUD])
+        self.fieldset = Fieldset.objects.create(
+            name="md", description="md", corpus=self.corpus, creator=self.user
+        )
+        self.column = Column.objects.create(
+            fieldset=self.fieldset,
+            name="Reviewed By",
+            output_type="str",
+            is_manual_entry=True,
+            creator=self.user,
+        )
+        set_permissions_for_obj_to_user(self.user, self.column, [PermissionTypes.CRUD])
+
+    MUTATION = """
+        mutation UpdateMetadataColumn($columnId: ID!, $name: String) {
+            updateMetadataColumn(columnId: $columnId, name: $name) { ok message }
+        }
+    """
+
+    def test_corpus_update_without_column_update_can_update(self):
+        """Corpus UPDATE alone authorizes the write — column-level UPDATE is
+        NOT required. Discriminates the corpus-scoped gate from the old
+        column-level one: a revert to ``require_permission(column, UPDATE)``
+        would fail this test.
+        """
+        corpus_editor = User.objects.create_user(
+            username="upd-corpus-only", password="x"
+        )
+        set_permissions_for_obj_to_user(
+            corpus_editor, self.corpus, [PermissionTypes.UPDATE]
+        )
+
+        column = Column.objects.create(
+            fieldset=self.fieldset,
+            name="Corpus Only Col",
+            output_type="str",
+            is_manual_entry=True,
+            creator=self.user,
+        )
+        # READ so the lookup resolves; deliberately NOT UPDATE.
+        set_permissions_for_obj_to_user(corpus_editor, column, [PermissionTypes.READ])
+
+        client = Client(schema, context_value=TestContext(corpus_editor))
+        result = client.execute(
+            self.MUTATION,
+            variables={
+                "columnId": to_global_id("ColumnType", column.pk),
+                "name": "Renamed By Corpus Editor",
+            },
+        )
+        payload = result["data"]["updateMetadataColumn"]
+        self.assertTrue(payload["ok"], payload["message"])
+        column.refresh_from_db()
+        self.assertEqual(column.name, "Renamed By Corpus Editor")
+
+    def test_column_creator_without_corpus_update_cannot_update(self):
+        """The privilege-escalation bypass this test pins: a user with only
+        direct Column-level UPDATE (no corpus UPDATE) must not be able to
+        alter a corpus-scoped metadata column."""
+        vulnerable_column = Column.objects.create(
+            fieldset=self.fieldset,
+            name="Creator Owned",
+            output_type="str",
+            is_manual_entry=True,
+            creator=self.column_creator,
+        )
+        set_permissions_for_obj_to_user(
+            self.column_creator, vulnerable_column, [PermissionTypes.CRUD]
+        )
+
+        result = self.client_column_creator.execute(
+            self.MUTATION,
+            variables={
+                "columnId": to_global_id("ColumnType", vulnerable_column.pk),
+                "name": "Hacked Name",
+            },
+        )
+
+        payload = result["data"]["updateMetadataColumn"]
+        self.assertFalse(payload["ok"])
+        self.assertIn("not found", payload["message"].lower())
+        vulnerable_column.refresh_from_db()
+        self.assertEqual(vulnerable_column.name, "Creator Owned")
+
+    def test_stranger_gets_unified_not_found(self):
+        result = self.client_stranger.execute(
+            self.MUTATION,
+            variables={
+                "columnId": to_global_id("ColumnType", self.column.pk),
+                "name": "Hacked Name",
+            },
+        )
+        payload = result["data"]["updateMetadataColumn"]
+        self.assertFalse(payload["ok"])
+        self.assertIn("not found", payload["message"].lower())
+        self.column.refresh_from_db()
+        self.assertEqual(self.column.name, "Reviewed By")
+
+    def test_fieldset_without_corpus_cannot_update(self):
+        """``Fieldset.corpus`` is nullable. A column whose fieldset has no
+        linked corpus has no corpus to authorize a write against, so the
+        lookup must fall through to the unified not-found message."""
+        orphan_fieldset = Fieldset.objects.create(
+            name="orphan", description="orphan", corpus=None, creator=self.user
+        )
+        orphan_column = Column.objects.create(
+            fieldset=orphan_fieldset,
+            name="Orphan Col",
+            output_type="str",
+            is_manual_entry=True,
+            creator=self.user,
+        )
+        set_permissions_for_obj_to_user(
+            self.user, orphan_column, [PermissionTypes.CRUD]
+        )
+
+        result = self.client_owner.execute(
+            self.MUTATION,
+            variables={
+                "columnId": to_global_id("ColumnType", orphan_column.pk),
+                "name": "Nope",
+            },
+        )
+        payload = result["data"]["updateMetadataColumn"]
+        self.assertFalse(payload["ok"])
+        self.assertIn("not found", payload["message"].lower())
+        orphan_column.refresh_from_db()
+        self.assertEqual(orphan_column.name, "Orphan Col")

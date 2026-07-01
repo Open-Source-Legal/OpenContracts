@@ -39,6 +39,40 @@ from opencontractserver.utils.permissioning import (
 logger = logging.getLogger(__name__)
 
 
+def _get_metadata_column_with_corpus(
+    column_id: str, user, request
+) -> tuple[Optional[Column], Optional[Corpus]]:
+    """READ-gated lookup of a metadata ``Column`` plus its parent ``Corpus``.
+
+    Metadata columns are corpus-scoped objects (reached via
+    ``Fieldset.corpus``), so mutations that write to them must authorize
+    against the parent corpus, not the child ``Column`` — see
+    ``UpdateMetadataColumn``/``DeleteMetadataColumn``, both of which use this
+    helper so the corpus-scoped gate can't drift back to a column-scoped one
+    in only one of them.
+
+    ``select_related("fieldset__corpus")`` fetches the column, its fieldset,
+    and the corpus in a single query instead of two extra lazy round-trips.
+
+    Returns ``(None, None)`` when the column is not visible to ``user`` or
+    its fieldset has no linked corpus (a fieldset's ``corpus`` FK is
+    nullable). Both cases collapse to the caller's unified "not found or no
+    permission" response — an orphaned fieldset has no corpus to authorize
+    a write against, so it is treated the same as "not found" rather than
+    surfacing a distinct error that would aid enumeration.
+    """
+    pk = from_global_id(column_id)[1]
+    column = (
+        BaseService.filter_visible(Column, user, request=request)
+        .select_related("fieldset__corpus")
+        .filter(pk=pk)
+        .first()
+    )
+    if column is None or column.fieldset.corpus is None:
+        return None, None
+    return column, column.fieldset.corpus
+
+
 class ApproveDatacell(graphene.Mutation):
     # NOTE(deferred): Datacell-level permissions would add significant overhead.
     # Current approach relies on parent corpus/extract permissions.
@@ -309,11 +343,19 @@ class UpdateMetadataColumn(graphene.Mutation):
 
         try:
             user = info.context.user
-            column = BaseService.get_or_none(
-                Column, from_global_id(column_id)[1], user, request=info.context
+            # READ-gate the column lookup through the service layer, then
+            # authorize the write against the parent corpus (not the child
+            # Column) so a creator/direct Column grant can't outlive corpus
+            # permissions. Mirrors DeleteMetadataColumn — metadata schemas
+            # are corpus-scoped objects.
+            column, corpus = _get_metadata_column_with_corpus(
+                column_id, user, info.context
             )
-            if column is None or BaseService.require_permission(
-                column, user, PermissionTypes.UPDATE, request=info.context
+            if column is None or corpus is None:
+                return UpdateMetadataColumn(ok=False, message=not_found_msg)
+
+            if BaseService.require_permission(
+                corpus, user, PermissionTypes.UPDATE, request=info.context
             ):
                 return UpdateMetadataColumn(ok=False, message=not_found_msg)
 
@@ -378,14 +420,10 @@ class DeleteMetadataColumn(graphene.Mutation):
             # invisible column returns the unified not-found message before
             # any fieldset/corpus traversal (IDOR-safe). Mirrors how
             # CreateMetadataColumn/UpdateMetadataColumn fetch the column.
-            column = BaseService.get_or_none(
-                Column, from_global_id(column_id)[1], user, request=info.context
+            column, corpus = _get_metadata_column_with_corpus(
+                column_id, user, info.context
             )
-            if column is None:
-                return DeleteMetadataColumn(ok=False, message=not_found_msg)
-
-            corpus = getattr(column.fieldset, "corpus", None)
-            if corpus is None:
+            if column is None or corpus is None:
                 return DeleteMetadataColumn(ok=False, message=not_found_msg)
 
             # Metadata schemas are corpus-scoped objects. Authorize destructive
