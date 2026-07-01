@@ -41,6 +41,7 @@ from typing import ClassVar
 from urllib.parse import urljoin
 
 from opencontractserver.constants.safe_http import AUTHORITY_PROVIDER_USER_AGENT
+from opencontractserver.enrichment.constants import AUTHORITY_LICENSE_PUBLIC_DOMAIN
 from opencontractserver.pipeline.base.base_authority_discovery_provider import (
     BaseAuthorityDiscoveryProvider,
     DiscoveryCandidate,
@@ -66,6 +67,13 @@ class ListingIndexRule:
     ``"bo-gaceta:2024-1234"``. A match missing a group the template references
     is skipped (not raised) so one malformed row in a listing page does not
     abort the whole page.
+
+    ``prefix`` is a RESERVED template field name: it always resolves to this
+    rule's own ``prefix`` attribute (the deliberately-configured value), even
+    if ``link_pattern`` also happens to define a named group literally called
+    ``prefix`` (e.g. a jurisdiction/prefix column in the source markup) — the
+    regex-captured value is discarded in favor of the rule's, rather than
+    raising ``TypeError: got multiple values for keyword argument 'prefix'``.
     """
 
     link_pattern: str
@@ -112,7 +120,7 @@ class ListingIndexDiscoveryProvider(BaseAuthorityDiscoveryProvider):
         "Fetches nothing beyond the index page itself — document ingestion "
         "happens later via a citation-keyed BaseAuthoritySourceProvider."
     )
-    license: ClassVar[str] = "public-domain"  # noqa: A003
+    license: ClassVar[str] = AUTHORITY_LICENSE_PUBLIC_DOMAIN  # noqa: A003
 
     def _fetch_index_impl(self, index_url: str, **all_kwargs) -> str:
         text, _ = safe_fetch_text(
@@ -139,8 +147,17 @@ class ListingIndexDiscoveryProvider(BaseAuthorityDiscoveryProvider):
             if not url:
                 continue
             try:
+                # rule.prefix always wins over a same-named "prefix" capture
+                # group: build the format kwargs with groups FIRST so the
+                # explicit "prefix" entry below overwrites (not collides
+                # with) any regex-captured "prefix" key, instead of
+                # `.format(prefix=..., **groups)` raising
+                # "TypeError: got multiple values for keyword argument
+                # 'prefix'" when link_pattern happens to define its own
+                # named group called "prefix" (see ListingIndexRule's
+                # docstring).
                 canonical_key = rule.canonical_key_template.format(
-                    prefix=rule.prefix, **groups
+                    **{**groups, "prefix": rule.prefix}
                 )
             except (KeyError, IndexError) as exc:
                 logger.debug(

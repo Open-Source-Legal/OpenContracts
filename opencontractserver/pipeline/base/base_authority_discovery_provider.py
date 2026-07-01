@@ -38,6 +38,7 @@ from typing import ClassVar
 import httpx
 
 from opencontractserver.enrichment.constants import (
+    AUTHORITY_LICENSE_PUBLIC_DOMAIN,
     DISCOVERY_DEFAULT_MAX_CANDIDATES,
     DISCOVERY_MAX_MAX_CANDIDATES,
 )
@@ -108,7 +109,7 @@ class BaseAuthorityDiscoveryProvider(PipelineComponentBase, ABC):
     # The authority body's licence — gates discovery to public-domain sources
     # only, mirroring BaseAuthoritySourceProvider.license. discover_candidates()
     # refuses to run (raises PermissionError) unless this is "public-domain".
-    license: ClassVar[str] = "public-domain"  # noqa: A003
+    license: ClassVar[str] = AUTHORITY_LICENSE_PUBLIC_DOMAIN  # noqa: A003
     # Lower priority value = preferred. Unused by today's single reference
     # provider; kept for registry symmetry with BaseAuthoritySourceProvider and
     # for future provider-selection logic (e.g. an operator surface choosing
@@ -148,7 +149,7 @@ class BaseAuthorityDiscoveryProvider(PipelineComponentBase, ABC):
                 discovery provider must never crawl a non-public-domain source
                 (mirrors ``AuthorityGateService``'s license check).
         """
-        if self.license != "public-domain":
+        if self.license != AUTHORITY_LICENSE_PUBLIC_DOMAIN:
             raise PermissionError(
                 f"{type(self).__name__}: license {self.license!r} is not "
                 "public-domain; discovery is refused."

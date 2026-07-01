@@ -100,6 +100,14 @@ DISCOVERY_DEFAULT_MAX_CANDIDATES = 200
 # it asks for more, so a mistaken/hostile override cannot make one run unbounded.
 DISCOVERY_MAX_MAX_CANDIDATES = 2_000
 
+# The authority body's licence value gating ingestion/discovery to public-domain
+# sources only. Single source of truth for the (currently) hardcoded default on
+# BaseAuthorityDiscoveryProvider.license / ListingIndexDiscoveryProvider.license
+# (CLAUDE.md item 4: no magic strings). BaseAuthoritySourceProvider.license
+# still carries its own pre-existing literal — out of scope for this constant's
+# introduction, but a candidate for a future consolidation.
+AUTHORITY_LICENSE_PUBLIC_DOMAIN = "public-domain"
+
 # --- Phase 5: bounded recursive authority crawl --------------------------------
 CRAWL_DEFAULT_MAX_DEPTH = 2  # authority-to-authority hops past depth-0 seeds
 CRAWL_DEFAULT_MIN_DEMAND = 2  # skip frontier rows with mention_count below this

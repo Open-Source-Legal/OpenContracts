@@ -137,6 +137,29 @@ class TestParseIndexImpl(SimpleTestCase):
         )
         self.assertEqual(candidates, [])
 
+    def test_link_pattern_group_named_prefix_does_not_raise_typeerror(self):
+        """A link_pattern that defines its OWN named group literally called
+        'prefix' (e.g. a jurisdiction/prefix column in the source markup) must
+        not crash with `TypeError: got multiple values for keyword argument
+        'prefix'` -- rule.prefix (the deliberately-configured value) wins over
+        the regex-captured one, per ListingIndexRule's docstring."""
+        rule = ListingIndexRule(
+            link_pattern=(
+                r'<a href="(?P<url>/doc/(?P<prefix>[a-z]+)-(?P<id>\d+))">'
+                r"(?P<title>[^<]+)</a>"
+            ),
+            canonical_key_template="{prefix}:{id}",
+            prefix="configured-prefix",
+        )
+        html = '<a href="/doc/bo-42">Some Doc</a>'
+        candidates = self.provider._parse_index_impl(
+            html, index_url=_INDEX_URL, rule=rule
+        )
+        self.assertEqual(len(candidates), 1)
+        # rule.prefix ("configured-prefix") wins; the regex-captured "bo" is
+        # discarded, not concatenated or otherwise blended in.
+        self.assertEqual(candidates[0].canonical_key, "configured-prefix:42")
+
 
 _SAFE_FETCH_PATH = (
     "opencontractserver.pipeline.authority_discovery_providers."
@@ -184,6 +207,25 @@ class TestDiscoverCandidatesEndToEnd(SimpleTestCase):
             )
         self.assertEqual(len(result.candidates), 2)
         self.assertTrue(result.capped)
+
+    def test_end_to_end_survives_link_pattern_prefix_group_collision(self):
+        """discover_candidates() -- the public entrypoint the management
+        command calls -- must not raise when link_pattern defines its own
+        'prefix' group, regardless of the pure-parse-level test above."""
+        rule = ListingIndexRule(
+            link_pattern=(
+                r'<a href="(?P<url>/doc/(?P<prefix>[a-z]+)-(?P<id>\d+))">'
+                r"(?P<title>[^<]+)</a>"
+            ),
+            canonical_key_template="{prefix}:{id}",
+            prefix="configured-prefix",
+        )
+        html = '<a href="/doc/bo-42">Some Doc</a>'
+        with patch(_SAFE_FETCH_PATH, return_value=(html, "www.example.gov")):
+            provider = ListingIndexDiscoveryProvider()
+            result = provider.discover_candidates([_INDEX_URL], rule=rule)
+        self.assertEqual(len(result.candidates), 1)
+        self.assertEqual(result.candidates[0].canonical_key, "configured-prefix:42")
 
 
 class TestSSRFRejection(SimpleTestCase):
