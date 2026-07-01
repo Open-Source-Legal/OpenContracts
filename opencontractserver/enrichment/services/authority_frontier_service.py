@@ -187,6 +187,12 @@ class AuthorityFrontierService(BaseService):
         lock. Rows excluded by ``max_depth`` / ``min_demand`` are never claimed,
         so the crawl's ``frontier_drained`` residual census still sees them as
         ``queued``.
+
+        ``canonical_keys`` scopes the claim to a single crawl run's frontier —
+        this is the primary corpus-isolation gate: ``None`` disables scoping
+        (claims from the global frontier), while an empty collection
+        short-circuits to ``[]`` immediately rather than falling through to an
+        unscoped (and therefore cross-corpus) claim.
         """
         qs = AuthorityFrontier.objects.filter(discovery_state=C.DISCOVERY_STATE_QUEUED)
         if canonical_keys is not None:

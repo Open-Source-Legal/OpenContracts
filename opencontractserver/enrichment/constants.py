@@ -98,6 +98,10 @@ CRAWL_MAX_MAX_DEPTH = 5
 CRAWL_MAX_MIN_DEMAND = 1_000
 CRAWL_MAX_MAX_AUTHORITIES = 50
 CRAWL_MAX_PER_JURISDICTION_CAP = 15
+# Equal to CRAWL_DEFAULT_TOKEN_BUDGET today (both 2_000_000): the cap must
+# always be >= the default (the default is what a non-positive request maps
+# to; see _sanitize_token_budget), but the two are independent knobs — the
+# default can be lowered without lowering the hard cap, or raised up to it.
 CRAWL_MAX_TOKEN_BUDGET = 2_000_000
 # Lower floors for caps where 0/negative is not a meaningful "unbounded"
 # sentinel but a degenerate value. ``per_jurisdiction_cap`` of 0 parks every

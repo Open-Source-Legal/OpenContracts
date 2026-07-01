@@ -231,8 +231,11 @@ class CrawlAuthoritiesService(BaseService):
             if ingested >= max_authorities:
                 stop_reason = "max_authorities"
                 break
-            # token_budget <= 0 means "unbounded" (the check is skipped entirely).
-            if token_budget > 0 and tokens_spent >= token_budget:
+            # _sanitize_bounds (via _sanitize_token_budget) already mapped any
+            # non-positive request to CRAWL_DEFAULT_TOKEN_BUDGET above, so
+            # token_budget is always >= 1 here — there is no "unbounded"
+            # sentinel on this capped path. Plain >= comparison is sufficient.
+            if tokens_spent >= token_budget:
                 stop_reason = "token_budget"
                 break
 

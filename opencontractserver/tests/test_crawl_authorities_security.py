@@ -149,17 +149,31 @@ class CrawlAuthoritiesSecurityTests(TransactionTestCase):
         bounds, not the raw inputs. (Verifying end-to-end rather than mocking
         ``crawl`` is what guards against the prior bug where the wrapper clamped
         but a direct ``crawl`` caller did not.)
+
+        A real QUEUED row is seeded so the BFS loop body actually runs (a real
+        ``dequeue_queued`` claim against the DB) rather than short-circuiting on
+        an empty ``canonical_keys`` set — the sanitized bounds must hold up
+        through a real iteration, not just in ``_sanitize_bounds`` isolation.
         """
         user = _make_user("wrapper-clamp-user")
+        seeded = AuthorityFrontier.objects.create(
+            canonical_key="usc-15:70-wrapper-clamp",
+            authority="usc-15",
+            discovery_state=C.DISCOVERY_STATE_QUEUED,
+            mention_count=5,
+        )
 
         with patch(
             f"{_SERVICE_MODULE}.AuthorityFrontierService.seed_from_wanted_authorities",
             return_value={
                 "frontier_created": 0,
-                "frontier_updated": 0,
-                "queued_keys": [],
+                "frontier_updated": 1,
+                "queued_keys": [seeded.canonical_key],
             },
-        ):
+        ), patch(
+            f"{_SERVICE_MODULE}.AuthorityDiscoveryService.discover_and_bootstrap",
+            return_value={"status": C.DISCOVERY_STATE_FAILED},
+        ) as bootstrap:
             summary = crawl_authorities(
                 creator_id=user.id,
                 corpus_id=1,
@@ -169,6 +183,14 @@ class CrawlAuthoritiesSecurityTests(TransactionTestCase):
                 per_jurisdiction_cap=123456,
                 token_budget=-1,
             )
+
+        # The BFS loop actually dequeued and processed the seeded row — proof
+        # the sanitized bounds were exercised by a real iteration, not skipped.
+        self.assertEqual(bootstrap.call_count, 1)
+        self.assertEqual(
+            bootstrap.call_args.kwargs["frontier_row"].canonical_key,
+            seeded.canonical_key,
+        )
 
         self.assertEqual(summary["max_depth"], C.CRAWL_MAX_MAX_DEPTH)
         self.assertEqual(summary["min_demand"], 0)
@@ -185,6 +207,10 @@ class CrawlAuthoritiesSecurityTests(TransactionTestCase):
         so this proves the protection lives in ``CrawlAuthoritiesService.crawl``
         — not only in the schema or the LLM-tool wrapper. A task caller that
         smuggles past the schema still gets clamped bounds in the run summary.
+
+        A real QUEUED row is seeded so the BFS loop body actually runs (a real
+        ``dequeue_queued`` claim against the DB) rather than short-circuiting on
+        an empty ``canonical_keys`` set.
         """
         from opencontractserver.tasks.corpus_analysis_tasks import (
             crawl_authorities as crawl_authorities_task,
@@ -196,15 +222,24 @@ class CrawlAuthoritiesSecurityTests(TransactionTestCase):
         analysis = Analysis.objects.create(
             analyzer=analyzer, analyzed_corpus=corpus, creator=user
         )
+        seeded = AuthorityFrontier.objects.create(
+            canonical_key="usc-15:71-celery-clamp",
+            authority="usc-15",
+            discovery_state=C.DISCOVERY_STATE_QUEUED,
+            mention_count=5,
+        )
 
         with patch(
             f"{_SERVICE_MODULE}.AuthorityFrontierService.seed_from_wanted_authorities",
             return_value={
                 "frontier_created": 0,
-                "frontier_updated": 0,
-                "queued_keys": [],
+                "frontier_updated": 1,
+                "queued_keys": [seeded.canonical_key],
             },
-        ):
+        ), patch(
+            f"{_SERVICE_MODULE}.AuthorityDiscoveryService.discover_and_bootstrap",
+            return_value={"status": C.DISCOVERY_STATE_FAILED},
+        ) as bootstrap:
             summary = (
                 crawl_authorities_task.si(  # type: ignore[attr-defined]
                     corpus_id=corpus.id,
@@ -219,6 +254,13 @@ class CrawlAuthoritiesSecurityTests(TransactionTestCase):
                 .get()
             )
 
+        # The BFS loop actually dequeued and processed the seeded row.
+        self.assertEqual(bootstrap.call_count, 1)
+        self.assertEqual(
+            bootstrap.call_args.kwargs["frontier_row"].canonical_key,
+            seeded.canonical_key,
+        )
+
         self.assertEqual(summary["max_depth"], C.CRAWL_MAX_MAX_DEPTH)
         self.assertEqual(summary["min_demand"], 0)
         self.assertEqual(summary["max_authorities"], C.CRAWL_MAX_MAX_AUTHORITIES)
@@ -228,43 +270,21 @@ class CrawlAuthoritiesSecurityTests(TransactionTestCase):
         self.assertEqual(summary["token_budget"], C.CRAWL_DEFAULT_TOKEN_BUDGET)
 
     def test_crawl_honors_token_budget_cap_in_bfs_loop(self):
-        """A positive over-cap token_budget is clamped before the BFS loop runs.
+        """A positive over-cap token_budget is clamped, AND the clamped value
+        actually stops the BFS loop mid-run once spend crosses it.
 
-        The summary echoes the value the loop actually used, so asserting it
-        equals ``CRAWL_MAX_TOKEN_BUDGET`` (not the raw over-cap request) proves
-        the cap reached the loop, not merely ``_sanitize_bounds`` in isolation.
+        A real QUEUED row is seeded and ingested by the loop's first
+        iteration (real ``dequeue_queued`` claim, not the empty-``queued_keys``
+        short-circuit); ``_estimate_tokens`` is patched to report a spend that
+        exceeds a tiny ``token_budget``, so the loop's SECOND iteration must
+        observe the cap and stop with ``stop_reason == "token_budget"`` — proof
+        the check is enforced against live ``tokens_spent`` inside the loop,
+        not just echoed back from ``_sanitize_bounds``.
         """
         user = _make_user("token-cap-bfs-user")
-
-        with patch(
-            f"{_SERVICE_MODULE}.AuthorityFrontierService.seed_from_wanted_authorities",
-            return_value={
-                "frontier_created": 0,
-                "frontier_updated": 0,
-                "queued_keys": [],
-            },
-        ):
-            summary = CrawlAuthoritiesService.crawl(
-                creator_id=user.id,
-                corpus_id=1,
-                token_budget=C.CRAWL_MAX_TOKEN_BUDGET + 1,
-            )
-
-        self.assertEqual(summary["token_budget"], C.CRAWL_MAX_TOKEN_BUDGET)
-
-    def test_crawl_keys_updated_when_scoped_crawl_ingests_and_seeds_children(self):
-        """crawl_keys grows after a scoped-corpus crawl ingests a row and re-seeds.
-
-        Requires: the row is ingested and ``row.depth < max_depth`` so the
-        child-seed path runs; ``crawl_keys.update(seeded["queued_keys"])`` is
-        only reached when both conditions hold.
-        """
-        user = _make_user("crawl-keys-grow-user")
         seeded = AuthorityFrontier.objects.create(
-            canonical_key="usc-15:50-seed",
+            canonical_key="usc-15:72-token-budget",
             authority="usc-15",
-            jurisdiction="us-federal",
-            authority_type=C.AUTHORITY_TYPE_STATUTE,
             discovery_state=C.DISCOVERY_STATE_QUEUED,
             mention_count=5,
             depth=0,
@@ -276,10 +296,81 @@ class CrawlAuthoritiesSecurityTests(TransactionTestCase):
             AuthorityFrontierService.mark(frontier_row, C.DISCOVERY_STATE_INGESTED)
             return {"status": C.DISCOVERY_STATE_INGESTED, "corpus_id": 99}
 
+        with patch(
+            f"{_SERVICE_MODULE}.AuthorityFrontierService.seed_from_wanted_authorities",
+            return_value={
+                "frontier_created": 0,
+                "frontier_updated": 1,
+                "queued_keys": [seeded.canonical_key],
+            },
+        ), patch(
+            f"{_SERVICE_MODULE}.AuthorityDiscoveryService.discover_and_bootstrap",
+            side_effect=_ingest_row,
+        ), patch(
+            f"{_SERVICE_MODULE}.CrawlAuthoritiesService._estimate_tokens",
+            return_value=500,
+        ):
+            summary = CrawlAuthoritiesService.crawl(
+                creator_id=user.id,
+                corpus_id=1,
+                max_depth=0,  # no child-seed branch; isolate the budget check
+                max_authorities=5,
+                token_budget=1,  # positive, so NOT the non-positive/default path
+            )
+
+        # The clamp is a no-op for an in-range positive request...
+        self.assertEqual(summary["token_budget"], 1)
+        # ...but the loop still ran one real iteration (real dequeue + ingest)
+        # before the cap fired on the next iteration's check.
+        self.assertEqual(summary["authorities_ingested"], 1)
+        self.assertEqual(summary["tokens_spent_estimate"], 500)
+        self.assertEqual(summary["stop_reason"], "token_budget")
+        seeded.refresh_from_db()
+        self.assertEqual(seeded.discovery_state, C.DISCOVERY_STATE_INGESTED)
+
+    def test_crawl_keys_updated_when_scoped_crawl_ingests_and_seeds_children(self):
+        """crawl_keys grows after a scoped-corpus crawl ingests a row and re-seeds,
+        and the newly-seeded child key is actually dequeue-eligible in the SAME
+        run — i.e. the growth is not a no-op.
+
+        ``mock_refs`` returns a real (non-empty) outbound canonical key, so
+        ``seed_child_keys`` creates a real depth+1 ``AuthorityFrontier`` row and
+        ``crawl_keys.update(seeded["queued_keys"])`` has something to add.
+        ``max_authorities=2`` lets the loop run a SECOND iteration: if
+        ``crawl_keys`` had NOT grown, the second ``dequeue_queued`` call would
+        be scoped to only the (now-ingested) parent key and return nothing,
+        the run would stop at ``authorities_ingested == 1``, and the child row
+        would remain ``queued`` forever. Asserting ``== 2`` and that the child
+        row is ``INGESTED`` proves the growth path is load-bearing.
+        """
+        user = _make_user("crawl-keys-grow-user")
+        seeded = AuthorityFrontier.objects.create(
+            canonical_key="usc-15:50-seed",
+            authority="usc-15",
+            jurisdiction="us-federal",
+            authority_type=C.AUTHORITY_TYPE_STATUTE,
+            discovery_state=C.DISCOVERY_STATE_QUEUED,
+            mention_count=5,
+            depth=0,
+        )
+        child_key = "usc-15:51-child"
+
+        ingested_keys: list[str] = []
+
+        def _ingest_row(
+            *, creator_id, frontier_row, make_public=True, relink_async=True
+        ):
+            AuthorityFrontierService.mark(frontier_row, C.DISCOVERY_STATE_INGESTED)
+            ingested_keys.append(frontier_row.canonical_key)
+            return {"status": C.DISCOVERY_STATE_INGESTED, "corpus_id": 99}
+
         mock_refs = MagicMock()
         mock_refs.filter.return_value = mock_refs
         mock_refs.exclude.return_value = mock_refs
-        mock_refs.values_list.return_value.distinct.return_value = []
+        # Non-empty outbound citation so seed_child_keys actually creates a
+        # depth+1 row and crawl_keys.update(...) has a real key to add — this
+        # is the growth path Finding 2 requires the test to exercise.
+        mock_refs.values_list.return_value.distinct.return_value = [child_key]
 
         with patch(
             f"{_SERVICE_MODULE}.AuthorityFrontierService.seed_from_wanted_authorities",
@@ -302,12 +393,25 @@ class CrawlAuthoritiesSecurityTests(TransactionTestCase):
                 creator_id=user.id,
                 corpus_id=1,
                 max_depth=1,  # depth=0 < 1 → child-seed branch runs
-                max_authorities=1,
+                # seed_child_keys always seeds new rows at mention_count=1, so
+                # min_demand must not exceed that or the child is dequeue-dead
+                # on arrival regardless of crawl_keys scoping.
+                min_demand=0,
+                max_authorities=2,  # room for a second BFS iteration
                 token_budget=0,
             )
 
-        self.assertEqual(summary["authorities_ingested"], 1)
+        self.assertEqual(summary["children_seeded"], 1)
+        # Both the depth-0 parent AND the depth-1 child were ingested — the
+        # second dequeue only found the child because crawl_keys grew to
+        # include it.
+        self.assertEqual(summary["authorities_ingested"], 2)
         self.assertEqual(summary["corpus_id"], 1)
+        self.assertEqual(ingested_keys, [seeded.canonical_key, child_key])
+
+        child_row = AuthorityFrontier.objects.get(canonical_key=child_key)
+        self.assertEqual(child_row.discovery_state, C.DISCOVERY_STATE_INGESTED)
+        self.assertEqual(child_row.depth, 1)
 
 
 class AuthorityFrontierScopingTests(TransactionTestCase):

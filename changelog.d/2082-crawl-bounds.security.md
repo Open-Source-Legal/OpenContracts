@@ -17,3 +17,12 @@
   is gone.
   Tests: `opencontractserver/tests/test_crawl_authorities_security.py` (incl. a Celery-task-path
   clamp regression), `opencontractserver/tests/test_numbers_utils.py`.
+  Review follow-up: the Celery task's `input_schema` (`opencontractserver/tasks/corpus_analysis_tasks.py`)
+  now declares `maximum` for `max_authorities`, `per_jurisdiction_cap`, and `token_budget` (mirroring
+  the existing `max_depth` maximum), so schema consumers can see the same hard caps the service
+  clamp enforces. The stale `token_budget <= 0 means "unbounded"` loop comment is corrected — after
+  `_sanitize_bounds` the value is always `>= 1` on this capped path. Security tests that previously
+  exercised only `_sanitize_bounds` in isolation (empty `queued_keys`, bypassing the BFS loop) now
+  seed a real `QUEUED` row so the loop body actually runs; `test_crawl_keys_updated_when_scoped_crawl_ingests_and_seeds_children`
+  now seeds a non-empty outbound citation so `crawl_keys` growth is exercised end-to-end (a second
+  BFS iteration reaches the newly-seeded child key), rather than being a no-op assertion.

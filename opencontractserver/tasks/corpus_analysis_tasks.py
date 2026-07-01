@@ -99,17 +99,22 @@ def corpus_reference_enrichment(
             "max_authorities": {
                 "type": "integer",
                 "minimum": 1,
+                # Mirror the service-side hard cap so the schema gate and the
+                # CrawlAuthoritiesService clamp never diverge (no magic numbers).
+                "maximum": C.CRAWL_MAX_MAX_AUTHORITIES,
                 "default": C.CRAWL_DEFAULT_MAX_AUTHORITIES,
             },
             "per_jurisdiction_cap": {
                 "type": "integer",
                 # Floor matches the service clamp (0 would park every row).
                 "minimum": C.CRAWL_MIN_PER_JURISDICTION_CAP,
+                "maximum": C.CRAWL_MAX_PER_JURISDICTION_CAP,
                 "default": C.CRAWL_DEFAULT_PER_JURISDICTION_CAP,
             },
             "token_budget": {
                 "type": "integer",
                 "minimum": 0,
+                "maximum": C.CRAWL_MAX_TOKEN_BUDGET,
                 "default": C.CRAWL_DEFAULT_TOKEN_BUDGET,
             },
             "make_public": {"type": "boolean", "default": True},
