@@ -874,3 +874,154 @@ class TestResolveAllowlistBaselineFallback:
         with self._no_provider():
             custom = frozenset({"example.gov"})
             assert _resolve_allowlist(custom) is custom
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DNS pinning (issue #2048) — connect must target the VALIDATED address, never
+# a second, independently-resolved one.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestDNSPinning:
+    """Proves ``safe_fetch_bytes`` pins the real TCP connection to the address
+    ``_assert_public_ip`` already validated, instead of letting httpx/httpcore
+    resolve the hostname again independently at connect time.
+
+    Unlike every other test in this file (which mocks ``httpx.Client.stream``
+    and therefore never reaches the transport layer at all), this test lets the
+    REAL ``httpx``/``httpcore`` request path run all the way down to
+    ``HTTPConnection._connect`` — the lowest point before an actual socket
+    would be opened — and intercepts only there, so the assertions are about
+    genuine transport-level behaviour, not about what argument was handed to a
+    mocked-away ``stream()`` call.
+    """
+
+    VALIDATED_IP = "1.1.1.1"  # a real public address (Cloudflare DNS)
+    REBIND_IP = "127.0.0.1"  # what a second, independent resolution could return
+
+    def _rebinding_getaddrinfo(self, host, port, *args, **kwargs):
+        self._getaddrinfo_calls += 1
+        ip = self.VALIDATED_IP if self._getaddrinfo_calls == 1 else self.REBIND_IP
+        return [(socket.AF_INET, 1, 6, "", (ip, 0))]
+
+    def test_connect_targets_the_validated_ip_not_a_fresh_resolution(self):
+        """Simulate a DNS rebind: the FIRST ``getaddrinfo`` call (made during
+        ``_assert_public_ip`` validation) returns a public-looking address; ANY
+        further call would return a private "rebound" address instead. If
+        ``safe_fetch_bytes`` handed httpx the bare hostname (the pre-fix
+        behaviour) rather than the pinned IP, httpx/httpcore would resolve the
+        host again at connect time and this second call would return the
+        rebind address — exactly the TOCTOU window issue #2048 closes.
+        """
+        self._getaddrinfo_calls = 0
+        captured: dict = {}
+
+        def _spy_connect(self_conn, request):
+            # ``self_conn._origin.host`` is exactly what httpcore's connection
+            # pool uses to open the TCP socket (see HTTPConnection._connect —
+            # ``self._network_backend.connect_tcp(host=self._origin.host, ...)``).
+            captured["origin_host"] = self_conn._origin.host.decode("ascii")
+            captured["sni_hostname"] = request.extensions.get("sni_hostname")
+            # Abort BEFORE any real socket/network I/O; the test only cares
+            # about what target httpcore was about to connect to.
+            raise RuntimeError("stop-before-real-network-io")
+
+        with patch("socket.getaddrinfo", side_effect=self._rebinding_getaddrinfo):
+            with patch(
+                "httpcore._sync.connection.HTTPConnection._connect", _spy_connect
+            ):
+                with pytest.raises(RuntimeError, match="stop-before-real-network-io"):
+                    safe_fetch_bytes(ALLOWED_URL)
+
+        assert captured["origin_host"] == self.VALIDATED_IP, (
+            "the TCP connect must target the address _assert_public_ip already "
+            f"validated, not a fresh resolution; got {captured['origin_host']!r}"
+        )
+        assert captured["origin_host"] != self.REBIND_IP
+        assert captured["origin_host"] != ALLOWED_HOST, (
+            "the connection target must be the pinned IP literal, not the "
+            "hostname (which would let httpx/httpcore re-resolve it)"
+        )
+        assert captured["sni_hostname"] == ALLOWED_HOST, (
+            "TLS SNI / certificate-verification name must stay the ORIGINAL "
+            "hostname so certificate validation and server-side vhost routing "
+            "keep working even though the TCP layer connects to the pinned IP"
+        )
+        assert self._getaddrinfo_calls == 1, (
+            "getaddrinfo must be called exactly once per hop — safe_fetch_bytes "
+            "must hand httpx the pinned IP directly rather than letting it "
+            "re-resolve the hostname a second time at connect time"
+        )
+
+    def test_public_native_ipv6_address_is_pinned_correctly(self):
+        """The pinning path must also work for a native IPv6 validated address
+        (not just IPv4), including passing it through as a valid httpx URL host.
+        """
+        ipv6_ip = "2606:4700:4700::1111"  # Cloudflare public DNS, public IPv6
+        captured: dict = {}
+
+        def _ipv6_getaddrinfo(host, port, *args, **kwargs):
+            return [(socket.AF_INET6, 1, 6, "", (ipv6_ip, 0, 0, 0))]
+
+        def _spy_connect(self_conn, request):
+            captured["origin_host"] = self_conn._origin.host.decode("ascii")
+            raise RuntimeError("stop-before-real-network-io")
+
+        with patch("socket.getaddrinfo", side_effect=_ipv6_getaddrinfo):
+            with patch(
+                "httpcore._sync.connection.HTTPConnection._connect", _spy_connect
+            ):
+                with pytest.raises(RuntimeError, match="stop-before-real-network-io"):
+                    safe_fetch_bytes(ALLOWED_URL)
+
+        assert captured["origin_host"] == ipv6_ip
+
+
+class TestDNSPinningPerHopIndependence:
+    """Each redirect hop must be pinned to ITS OWN freshly-validated address —
+    a new host reached via redirect must never reuse a previous hop's pin.
+
+    This drives the redirect chain with the same ``httpx.Client.stream`` mock
+    pattern used everywhere else in this file (cheap, no transport-level
+    plumbing needed here) and instead records the arguments every
+    ``_DNSPinnedTransport`` was constructed with, one per hop.
+    """
+
+    def test_redirect_hop_gets_a_fresh_pin_for_the_new_host(self):
+        redirect_target_host = "www.ecfr.gov"
+
+        def _host_specific_getaddrinfo(host, port, *args, **kwargs):
+            ip = "1.1.1.1" if host == ALLOWED_HOST else "8.8.8.8"
+            return [(socket.AF_INET, 1, 6, "", (ip, 0))]
+
+        pins: list[tuple[str, str]] = []
+        # Capture the REAL class before patching the module attribute below —
+        # the factory must delegate to the original transport, not to itself
+        # (patching ``_DNSPinnedTransport`` in place means the bare name would
+        # otherwise resolve back to this very factory and recurse forever).
+        real_transport_cls = _safe_http_module._DNSPinnedTransport
+
+        def _recording_transport_factory(*, pinned_ip: str, sni_hostname: str):
+            pins.append((pinned_ip, sni_hostname))
+            return real_transport_cls(pinned_ip=pinned_ip, sni_hostname=sni_hostname)
+
+        def _stream_dispatch(self_client, method, url, **kwargs):
+            if urlparse(str(url)).hostname == ALLOWED_HOST:
+                return _mock_stream(
+                    302, b"", {"location": f"https://{redirect_target_host}/x"}
+                )
+            return _mock_stream(200, b"ok")
+
+        with patch("socket.getaddrinfo", side_effect=_host_specific_getaddrinfo):
+            with patch.object(
+                _safe_http_module, "_DNSPinnedTransport", _recording_transport_factory
+            ):
+                with patch("httpx.Client.stream", _stream_dispatch):
+                    body, host = safe_fetch_bytes(ALLOWED_URL)
+
+        assert body == b"ok"
+        assert host == redirect_target_host
+        assert pins == [
+            ("1.1.1.1", ALLOWED_HOST),
+            ("8.8.8.8", redirect_target_host),
+        ], "each hop must be pinned to its OWN validated host/IP pair"

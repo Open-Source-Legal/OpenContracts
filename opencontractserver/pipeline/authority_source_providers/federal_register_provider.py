@@ -171,9 +171,11 @@ class FederalRegisterAuthoritySourceProvider(BaseAuthoritySourceProvider):
         # 302 Location header WITHOUT following it (the redirect target IS the
         # data we want — the document slug). Because redirects are not followed
         # and ``validate_url`` vets the template-constructed URL up front, there
-        # is no SSRF-via-redirect surface on this hop. (The same DNS TOCTOU
-        # window documented in safe_http applies, mitigated by the fixed
-        # federalregister.gov allowlist; shared DNS pinning is the tracked fix.)
+        # is no SSRF-via-redirect surface on this hop. This step still goes
+        # through raw ``requests`` rather than ``safe_fetch_bytes``, so it does
+        # NOT get that helper's DNS-pinned connection (issue #2048); the
+        # residual DNS-rebind TOCTOU window is mitigated by the fixed
+        # federalregister.gov allowlist and the single, non-redirected request.
         #
         # Step 2 previously also used requests.get, which silently follows
         # redirects — a real SSRF gap, since the document_number embedded in the
