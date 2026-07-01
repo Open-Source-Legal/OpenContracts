@@ -95,8 +95,20 @@ PENDING  -->  PROCESSING  -->  COMPLETED
 - **COMPLETED** -- document created and added to the corpus
 - **FAILED** -- check the `error_message` field for details
 
+!!! warning "A Celery worker must drain the queue"
+    The batch processor (`process_pending_uploads`) runs on the **`worker_uploads`
+    Celery queue**, and thumbnail generation runs on the default `celery` queue.
+    The target deployment **must** run a Celery worker consuming both
+    (the stock images start it with `-Q celery,worker_uploads`) plus Celery Beat.
+    With no worker draining `worker_uploads`, uploads are accepted (HTTP 202) but
+    stay `PENDING` indefinitely and **no documents are created** -- a silent
+    failure for self-hosted/custom deployments. See
+    [Celery Configuration for Worker Uploads](worker_celery_setup.md) for the
+    full operations reference (queues, Beat, scaling, verification).
+
 Uploads stuck in PROCESSING for longer than `WORKER_UPLOAD_STALE_MINUTES`
-(default: 15 minutes) are automatically reset to PENDING by a recovery task.
+(default: 15 minutes) are automatically reset to PENDING by a recovery task
+(`recover_stalled_uploads`, scheduled by Celery Beat).
 
 ## Security Model
 
@@ -120,8 +132,8 @@ check is best-effort; for strict enforcement, use a reverse proxy.
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `MAX_WORKER_UPLOAD_SIZE_BYTES` | 256 MB | Max file size per upload |
-| `MAX_WORKER_METADATA_SIZE_BYTES` | 500 MB | Max metadata JSON size |
+| `MAX_WORKER_UPLOAD_SIZE_BYTES` | 256 MiB | Max file size per upload |
+| `MAX_WORKER_METADATA_SIZE_BYTES` | 500 MiB | Max metadata JSON size |
 | `WORKER_UPLOAD_BATCH_SIZE` | 50 | Uploads claimed per batch processor run |
 | `WORKER_UPLOAD_STALE_MINUTES` | 15 | Minutes before stalled uploads reset to PENDING |
 

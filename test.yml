@@ -14,6 +14,7 @@ services:
       PORT: 8000
       TRANSFORMERS_OFFLINE: 1
       HF_DATASETS_OFFLINE: 1
+      VECTOR_EMBEDDER_API_KEY: ${VECTOR_EMBEDDER_API_KEY:-abc123}
 
   multimodal-embedder:
     image: ghcr.io/jsv4/vectorembeddermicroservice-multimodal:latest
@@ -22,7 +23,11 @@ services:
       PORT: 8000
       TRANSFORMERS_OFFLINE: 1
       HF_DATASETS_OFFLINE: 1
-      API_KEY: abc123
+      # Image reads VECTOR_EMBEDDER_API_KEY (compose/accelerated/embedder/main.py),
+      # but source it from the Django-side MULTIMODAL_EMBEDDER_API_KEY host var --
+      # NOT the same VECTOR_EMBEDDER_API_KEY that vector-embedder uses -- so
+      # multimodal auth stays in sync. Do not "fix" this to match vector-embedder.
+      VECTOR_EMBEDDER_API_KEY: ${MULTIMODAL_EMBEDDER_API_KEY:-abc123}
 
   docling-parser:
     image: jscrudato/docsling-local

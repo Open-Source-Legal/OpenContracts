@@ -112,9 +112,14 @@ services:
     image: ghcr.io/open-source-legal/docxodus-service:1.1.0-docxodus5.4.2
     container_name: docxodus-parser
 
-  # API_KEY values below are LOCAL DEVELOPMENT ONLY placeholders.  Override
-  # via environment / .env before exposing these services on any network
-  # other than the local docker bridge.
+  # The embedder images read VECTOR_EMBEDDER_API_KEY (compose/accelerated/
+  # embedder/main.py), NOT API_KEY — the old ``API_KEY`` key was silently ignored
+  # (the image fell back to its built-in "abc123" default, which happened to
+  # match the abc123 in .envs/.local/.django, so overrides never took effect).
+  # Source each service's key from the SAME host var Django uses to call it
+  # (VECTOR_/MULTIMODAL_EMBEDDER_API_KEY in .envs/.local/.django) so an override
+  # stays in sync on both sides. The abc123 fallback is a LOCAL DEVELOPMENT ONLY
+  # placeholder — override before exposing these services off the docker bridge.
   vector-embedder:
     image: ghcr.io/jsv4/vectorembeddermicroservice:latest
     container_name: vector-embedder
@@ -122,7 +127,7 @@ services:
       PORT: 8000
       TRANSFORMERS_OFFLINE: 1
       HF_DATASETS_OFFLINE: 1
-      API_KEY: abc123  # local-only placeholder; override before deploying
+      VECTOR_EMBEDDER_API_KEY: ${VECTOR_EMBEDDER_API_KEY:-abc123}
 
   multimodal-embedder:
     image: ghcr.io/jsv4/vectorembeddermicroservice-multimodal:latest
@@ -131,7 +136,12 @@ services:
       PORT: 8000
       TRANSFORMERS_OFFLINE: 1
       HF_DATASETS_OFFLINE: 1
-      API_KEY: abc123  # local-only placeholder; override before deploying
+      # This image reads VECTOR_EMBEDDER_API_KEY (same as vector-embedder), but
+      # source it from the DIFFERENT host var MULTIMODAL_EMBEDDER_API_KEY -- the
+      # one Django uses to call the multimodal service. Do not "fix" this to read
+      # VECTOR_EMBEDDER_API_KEY like vector-embedder above or multimodal auth
+      # will silently desync from the Django side.
+      VECTOR_EMBEDDER_API_KEY: ${MULTIMODAL_EMBEDDER_API_KEY:-abc123}
 
   # API_KEYS value below is a LOCAL DEVELOPMENT ONLY placeholder; override via
   # environment / .env before exposing the service outside the local docker

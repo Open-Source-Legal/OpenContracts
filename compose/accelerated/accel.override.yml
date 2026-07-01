@@ -38,10 +38,28 @@ services:
       dockerfile: docling/Dockerfile
       args:
         ACCEL: ${OC_DOCLING_ACCEL:-xpu}
+    # --- Device passthrough: defaults to Intel/AMD via /dev/dri. -------------
+    # NVIDIA and AMD/ROCm hosts MUST swap this block (see the two commented
+    # alternatives below) and set OC_DOCLING_ACCEL accordingly.
     devices:
-      - /dev/dri:/dev/dri
+      - /dev/dri:/dev/dri              # Intel (xpu) / AMD render node
     group_add:
       - "${RENDER_GID:-993}"     # = $(stat -c '%g' /dev/dri/renderD128); host-specific
+    # NVIDIA — set OC_DOCLING_ACCEL=cuda, drop the devices/group_add above, use:
+    #   deploy:
+    #     resources:
+    #       reservations:
+    #         devices:
+    #           - driver: nvidia
+    #             count: all
+    #             capabilities: [gpu]
+    # AMD ROCm — build with ACCEL=rocm and use BOTH device nodes + groups:
+    #   devices:
+    #     - /dev/kfd:/dev/kfd
+    #     - /dev/dri:/dev/dri
+    #   group_add:
+    #     - "video"
+    #     - "render"
     environment:
       DOCLING_ACCEL: auto         # entrypoint auto-selects xpu/cuda/cpu at start
 

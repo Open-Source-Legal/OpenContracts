@@ -5,8 +5,11 @@ Benchmark a running docling-parser's /parse/ endpoint on a sample PDF.
 Use it to measure the REAL accelerator speedup on YOUR hardware — the iGPU
 result in the README does not generalize to discrete GPUs, so measure.
 
-    # start the accelerated parser (e.g. ROCm on an AMD box):
-    #   docker build --build-arg ACCEL=rocm -t oc-docling:rocm compose/accelerated/docling
+    # start the accelerated parser (e.g. ROCm on an AMD box). NOTE the build
+    # context is compose/accelerated (the Dockerfile COPYs the shared detector +
+    # entrypoint from there), selected with -f:
+    #   docker build --build-arg ACCEL=rocm -f compose/accelerated/docling/Dockerfile \
+    #     -t oc-docling:rocm compose/accelerated
     #   docker run -d --name dl-gpu -p 8014:8000 \
     #     --device /dev/kfd --device /dev/dri --group-add video \
     #     oc-docling:rocm
