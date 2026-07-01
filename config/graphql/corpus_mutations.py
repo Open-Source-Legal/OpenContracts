@@ -1755,8 +1755,9 @@ class CreateArtifact(graphene.Mutation):
     """Create a shareable poster (Artifact) of a corpus from a template.
 
     READ-gated on the corpus (you can make a poster of any collection you can
-    see); the artifact is public by default so its ``/a/<slug>`` link is
-    shareable, but its data still only renders to viewers who can read the
+    see): its ``/a/<slug>`` link is shareable to anyone who can read the
+    source corpus (corpus-as-gate ONLY — there is no per-artifact visibility
+    override), and its data still only renders to viewers who can read the
     corpus. ``template`` is validated against the service's registry.
     """
 

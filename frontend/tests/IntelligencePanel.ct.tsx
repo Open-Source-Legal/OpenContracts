@@ -32,7 +32,7 @@ const CORPUS_ID = "Q29ycHVzVHlwZTox";
 
 interface DocSeed {
   id: string;
-  title: string;
+  title: string | null;
   description?: string;
   pageCount?: number;
 }
@@ -400,6 +400,44 @@ test.describe("IntelligencePanel", () => {
     await entry.focus();
     await entry.press("Enter");
     await expect(page.locator(PANEL)).toBeVisible();
+
+    await component.unmount();
+  });
+
+  test("sorts and renders documents with a null title without crashing", async ({
+    mount,
+    page,
+  }) => {
+    // Document.title is nullable on the backend (CharField(null=True)), so the
+    // GraphQL field can come back null — e.g. mid-ingest, or a parser that
+    // never set one. The client-side sort comparator must not call
+    // .localeCompare() directly on a null title, or it throws and takes down
+    // the whole panel for the corpus.
+    const docs: DocSeed[] = [
+      { id: "Doc1", title: "Zeta Agreement", pageCount: 5 },
+      { id: "Doc2", title: null, pageCount: 2 },
+      { id: "Doc3", title: "Alpha Agreement", pageCount: 1 },
+    ];
+
+    const component = await mount(
+      <MemoryRouter>
+        <MockedProvider
+          mocks={[docsMock(docs, 3), governanceMock(0), setupStatusSilentMock]}
+          addTypename={false}
+        >
+          <IntelligencePanel corpusId={CORPUS_ID} />
+        </MockedProvider>
+      </MemoryRouter>
+    );
+
+    // The panel must render (not crash) and show all three entries, with the
+    // null-title document falling back to the same placeholder used for
+    // empty-string titles.
+    await expect(page.locator(PANEL)).toBeVisible({ timeout: 10000 });
+    await expect(page.locator(ENTRY)).toHaveCount(3);
+    await expect(page.locator(PANEL)).toContainText("Untitled document");
+    await expect(page.locator(PANEL)).toContainText("Zeta Agreement");
+    await expect(page.locator(PANEL)).toContainText("Alpha Agreement");
 
     await component.unmount();
   });

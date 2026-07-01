@@ -347,7 +347,9 @@ export const IntelligencePanel: React.FC<IntelligencePanelProps> = ({
       (data?.documents?.edges ?? [])
         .map((e) => e.node)
         .sort(
-          (a, b) => a.title.localeCompare(b.title) || a.id.localeCompare(b.id)
+          (a, b) =>
+            (a.title || "").localeCompare(b.title || "") ||
+            a.id.localeCompare(b.id)
         ),
     [data]
   );

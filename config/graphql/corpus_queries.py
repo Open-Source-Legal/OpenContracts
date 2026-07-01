@@ -99,7 +99,6 @@ def _artifact_to_type(a: Any) -> "ArtifactType":
         corpus_id=to_global_id("CorpusType", a.corpus_id),
         corpus_slug=a.corpus.slug if a.corpus_id else None,
         creator_slug=getattr(a.creator, "slug", None) if a.creator_id else None,
-        is_public=a.is_public,
         image_url=(a.image.url if a.image else None),
         created=a.created,
     )

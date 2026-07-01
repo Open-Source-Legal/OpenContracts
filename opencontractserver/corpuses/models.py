@@ -2617,9 +2617,9 @@ class Artifact(BaseOCModel):
 
     Templates carry no per-corpus logic — the corpus + the caption/config fields
     are the only per-artifact state, so the same template generalises to any
-    collection whose data supports it. Visibility is corpus-as-gate (the source
-    corpus must be READ-visible) OR ``is_public``; managed by ``ArtifactService``,
-    so no per-object guardian tables are needed.
+    collection whose data supports it. Visibility is corpus-as-gate ONLY (the
+    source corpus must be READ-visible); managed by ``ArtifactService``, so no
+    per-object guardian tables are needed.
     """
 
     corpus = django.db.models.ForeignKey(
@@ -2651,6 +2651,16 @@ class Artifact(BaseOCModel):
     # requires an authenticated user (``ArtifactService.create`` rejects
     # anonymous callers). A non-null creator is the DB-level backstop against
     # anonymous writes.
+    #
+    # NOTE: the inherited ``BaseOCModel.is_public`` column is NOT used for
+    # Artifact access control (issue #2095) — every read path
+    # (``ArtifactService._corpus_readable``) checks the *corpus's* visibility
+    # directly and never branches on this field. It cannot be dropped from
+    # this model without decoupling ``Artifact`` from ``BaseOCModel`` (every
+    # BaseOCModel subclass gets its own copy of the field via abstract-base
+    # inheritance, so it is not Artifact-specific plumbing), so it stays
+    # present but inert; application code (service / GraphQL / frontend) does
+    # not read or set it.
 
     class Meta:
         indexes = [
