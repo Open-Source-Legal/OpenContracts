@@ -229,12 +229,8 @@ def _construct_model(
             )
 
     if provider_key in ("openai", "ollama"):
+        from pydantic_ai.models.openai import OpenAIChatModel as _Model
         from pydantic_ai.providers.openai import OpenAIProvider
-
-        try:
-            from pydantic_ai.models.openai import OpenAIChatModel as _Model
-        except ImportError:  # pragma: no cover - older pydantic-ai alias
-            from pydantic_ai.models.openai import OpenAIModel as _Model
 
         # Ollama (and other OpenAI-compatible local servers) require *some*
         # api_key for the underlying OpenAI client even when the server

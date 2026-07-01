@@ -50,7 +50,7 @@ def _agent_capabilities(agent) -> list:
     instead of three near-identical tests. The wrapping ``AttributeError``
     fails the test with a precise pointer to this contract.
 
-    Upstream source pointers (pydantic-ai ~1.102.x, the version pinned in
+    Upstream source pointers (pydantic-ai ~2.1.x, the version pinned in
     ``requirements/base.txt``):
 
     - ``pydantic_ai/agent/__init__.py`` — ``_root_capability =
