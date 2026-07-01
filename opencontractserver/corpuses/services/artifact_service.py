@@ -173,7 +173,6 @@ class ArtifactService(BaseService):
         subtitle: str = "",
         byline: str = "",
         config: dict | None = None,
-        is_public: bool = True,
         request: Any = None,
     ) -> Artifact | None:
         """Create an artifact for a corpus the caller can read.
@@ -181,8 +180,9 @@ class ArtifactService(BaseService):
         Requires an **authenticated** creator — anonymous users may *view* a
         public corpus's posters but may not mint new ones (no anonymous DB
         writes). Gated at READ on top of that (you can make a poster of any
-        collection you can see); the artifact is public by default so its
-        ``/a/<slug>`` link is shareable, but its data still only renders to
+        collection you can see): its ``/a/<slug>`` link is shareable to anyone
+        who can read the source corpus (corpus-as-gate ONLY — there is no
+        per-artifact visibility override), and its data still only renders to
         viewers who can read the corpus.
         """
         if not getattr(user, "is_authenticated", False):
@@ -199,7 +199,6 @@ class ArtifactService(BaseService):
             subtitle=subtitle or "",
             byline=byline or "",
             config=config or {},
-            is_public=is_public,
             creator=user,
         )
         # Refetch with corpus/creator prefetched: the CreateArtifact mutation

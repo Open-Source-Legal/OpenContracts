@@ -47,7 +47,6 @@ const beeswarmArtifact = {
   config: { noun: "contracts" },
   corpusId: CORPUS_ID,
   corpusSlug: "acme",
-  isPublic: true,
   imageUrl: null,
 };
 

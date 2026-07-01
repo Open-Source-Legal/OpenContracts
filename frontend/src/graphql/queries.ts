@@ -392,7 +392,6 @@ export interface ArtifactNode {
   config?: Record<string, unknown> | null;
   corpusId: string;
   corpusSlug?: string | null;
-  isPublic?: boolean | null;
   imageUrl?: string | null;
 }
 
@@ -415,7 +414,6 @@ export const GET_ARTIFACT_BY_SLUG = gql`
       config
       corpusId
       corpusSlug
-      isPublic
       imageUrl
     }
   }

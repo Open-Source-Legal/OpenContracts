@@ -1091,7 +1091,6 @@ class ArtifactType(graphene.ObjectType):
     corpus_id = graphene.ID(required=True)
     corpus_slug = graphene.String()
     creator_slug = graphene.String()
-    is_public = graphene.Boolean()
     image_url = graphene.String()
     created = graphene.DateTime()
 
