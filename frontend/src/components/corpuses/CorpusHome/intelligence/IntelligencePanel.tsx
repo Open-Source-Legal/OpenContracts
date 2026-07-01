@@ -1,29 +1,44 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import { useQuery } from "@apollo/client";
 import styled, { keyframes } from "styled-components";
-import { FileText, Share2, BookOpenCheck, Tags } from "lucide-react";
+import { ArrowUpRight, ChevronDown } from "lucide-react";
 
-import { StatisticWithAnimation } from "../../CorpusDashboard";
-import { OS_LEGAL_COLORS } from "../../../../assets/configurations/osLegalStyles";
-import { safeCssColor } from "../../../../utils/colorUtils";
-import { humanizeLabel } from "../../../../utils/formatters";
 import {
-  GET_CORPUS_STATS,
-  GetCorpusStatsInputType,
-  GetCorpusStatsOutputType,
-  GET_CORPUS_INTELLIGENCE_AGGREGATES,
-  GetCorpusIntelligenceAggregatesInputType,
-  GetCorpusIntelligenceAggregatesOutputType,
+  OS_LEGAL_COLORS,
+  OS_LEGAL_TYPOGRAPHY,
+} from "../../../../assets/configurations/osLegalStyles";
+import { CORPUS_DOCUMENTS_TOC_LIMIT } from "../../../../assets/configurations/constants";
+import {
+  GET_CORPUS_COLLECTION_DOCS,
+  GetCorpusCollectionDocsInput,
+  GetCorpusCollectionDocsOutput,
+  GET_GOVERNANCE_GRAPH,
+  GetGovernanceGraphInputType,
+  GetGovernanceGraphOutputType,
 } from "../../../../graphql/queries";
+import { useNavigateToDocumentById } from "../../../../hooks/useNavigateToDocumentById";
 import { IntelligenceSetupBanner } from "./IntelligenceSetupBanner";
 
 /**
- * IntelligencePanel — the insight-framed "at a glance" panel of the Corpus
- * Intelligence home. It reuses the existing ``corpus_stats`` query and the
- * shared ``StatisticWithAnimation`` card, and adds a label-distribution
- * mini-chart + summary-coverage bar from the new
- * ``corpus_intelligence_aggregates`` resolver. The framing is deliberately
- * "what's in here and how dense it is", not raw counts.
+ * IntelligencePanel — the "At a glance" of the corpus-home article, rebuilt as
+ * an **editorial collection overview**.
+ *
+ * The earlier version led with raw counts ("1,097 annotations") and a
+ * "dominant labels" list that surfaced the parser's own structural scaffolding
+ * (text / picture / page-header / section-header). For a typical collection
+ * that reads as noise dressed up as insight. This version answers the only
+ * question that matters at a glance — *what is in this collection?* — with two
+ * honest, universal moves:
+ *
+ *   1. A restrained metric band: documents, pages, and (when present) the
+ *      number of law references the collection makes. No annotation-token count.
+ *   2. A magazine-style **documents index**: every document as a numbered entry
+ *      with its one-line description and page weight, click-through to the doc.
+ *      This is simultaneously the insight (the collection, made legible) and the
+ *      way to dive deeper (open any document).
+ *
+ * Both are derived from data every corpus has after ingest, so the panel never
+ * degrades into an empty/parser-noise state regardless of subject matter.
  */
 
 interface IntelligencePanelProps {
@@ -31,303 +46,446 @@ interface IntelligencePanelProps {
   testId?: string;
 }
 
-const PanelContainer = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  width: 100%;
-`;
+// Keep the home a concise teaser: preview the first few documents and reveal
+// the rest on demand. A 10-document index is fine to unfurl; a 200-document
+// one should not dump the whole library onto the landing.
+const INDEX_PREVIEW_CAP = 6;
 
-const StatsRow = styled.div`
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 0.75rem;
+// ---------------------------------------------------------------------------
+// Motion
+// ---------------------------------------------------------------------------
 
-  @media (min-width: 768px) {
-    gap: 1rem;
-  }
-`;
-
-const SubCard = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  padding: 1rem 1.25rem;
-  background: ${OS_LEGAL_COLORS.surfaceLight};
-  border: 1px solid ${OS_LEGAL_COLORS.border};
-  border-radius: 14px;
-`;
-
-const SubCardTitle = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.8125rem;
-  font-weight: 600;
-  color: ${OS_LEGAL_COLORS.textPrimary};
-
-  svg {
-    width: 15px;
-    height: 15px;
-    color: ${OS_LEGAL_COLORS.primaryBlue};
-  }
-`;
-
-const CoverageBarTrack = styled.div`
-  width: 100%;
-  height: 8px;
-  background: ${OS_LEGAL_COLORS.surfaceHover};
-  border-radius: 999px;
-  overflow: hidden;
-`;
-
-const CoverageBarFill = styled.div<{ $pct: number }>`
-  height: 100%;
-  width: ${(p) => p.$pct}%;
-  background: ${OS_LEGAL_COLORS.primaryBlue};
-  border-radius: 999px;
-  transition: width 0.6s ease;
-`;
-
-const CoverageCaption = styled.div`
-  font-size: 0.75rem;
-  color: ${OS_LEGAL_COLORS.textMuted};
-  font-variant-numeric: tabular-nums;
-`;
-
-const LabelList = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-`;
-
-const LabelRow = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.75rem;
-  color: ${OS_LEGAL_COLORS.textSecondary};
-`;
-
-const LabelSwatch = styled.span<{ $color: string }>`
-  width: 10px;
-  height: 10px;
-  border-radius: 3px;
-  background: ${(p) => p.$color};
-  flex-shrink: 0;
-`;
-
-const LabelName = styled.span`
-  flex: 1;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-`;
-
-const LabelBarTrack = styled.div`
-  flex: 1.5;
-  height: 6px;
-  background: ${OS_LEGAL_COLORS.surfaceHover};
-  border-radius: 999px;
-  overflow: hidden;
-`;
-
-const LabelBarFill = styled.div<{ $pct: number }>`
-  height: 100%;
-  width: ${(p) => p.$pct}%;
-  /* A single restrained fill keeps the panel calm; per-label hue lives in the
-     swatch. Earlier the bars used each label's raw colour, so a saturated tag
-     (e.g. a bright orange) became the loudest element on the page and pulled
-     focus from the document graph it sits beside. */
-  background: ${OS_LEGAL_COLORS.primaryBlue};
-  opacity: 0.55;
-  border-radius: 999px;
-`;
-
-const LabelCount = styled.span`
-  font-variant-numeric: tabular-nums;
-  color: ${OS_LEGAL_COLORS.textMuted};
-  min-width: 2ch;
-  text-align: right;
-`;
-
-const InsightGrid = styled.div`
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 1rem;
-
-  @media (min-width: 768px) {
-    grid-template-columns: 1fr 1fr;
-  }
-`;
-
-const EmptyHint = styled.div`
-  font-size: 0.75rem;
-  color: ${OS_LEGAL_COLORS.textMuted};
+const fadeUp = keyframes`
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
 `;
 
 const shimmer = keyframes`
   0% { opacity: 0.45; }
-  50% { opacity: 0.8; }
+  50% { opacity: 0.85; }
   100% { opacity: 0.45; }
 `;
 
-const StatSkeleton = styled.div`
-  height: 84px;
-  border-radius: 14px;
+// ---------------------------------------------------------------------------
+// Layout
+// ---------------------------------------------------------------------------
+
+const Panel = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  width: 100%;
+`;
+
+const MetricBand = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2.5rem;
+  padding-bottom: 0.25rem;
+
+  @media (max-width: 600px) {
+    gap: 1.75rem;
+  }
+`;
+
+const Metric = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  animation: ${fadeUp} 0.5s ease both;
+`;
+
+const MetricValue = styled.span`
+  font-family: ${OS_LEGAL_TYPOGRAPHY.fontFamilySerif};
+  font-size: clamp(2rem, 5vw, 2.6rem);
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.01em;
+  color: ${OS_LEGAL_COLORS.textPrimary};
+  font-variant-numeric: tabular-nums;
+`;
+
+const MetricLabel = styled.span`
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: ${OS_LEGAL_COLORS.textMuted};
+`;
+
+const Section = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+`;
+
+const SectionEyebrow = styled.div`
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid ${OS_LEGAL_COLORS.border};
+
+  span:first-child {
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    color: ${OS_LEGAL_COLORS.textMuted};
+  }
+  span:last-child {
+    font-size: 0.72rem;
+    color: ${OS_LEGAL_COLORS.textMuted};
+    font-variant-numeric: tabular-nums;
+  }
+`;
+
+const Index = styled.ul`
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+`;
+
+const Entry = styled.li<{ $i: number }>`
+  display: grid;
+  grid-template-columns: 2.25rem 1fr auto;
+  align-items: start;
+  gap: 0 1rem;
+  padding: 0.95rem 0.75rem 0.95rem 0.25rem;
+  border-bottom: 1px solid ${OS_LEGAL_COLORS.border};
+  cursor: pointer;
+  border-radius: 8px;
+  transition: background 0.16s ease, box-shadow 0.16s ease;
+  animation: ${fadeUp} 0.5s ease both;
+  animation-delay: ${(p) => 0.04 * p.$i + 0.05}s;
+
+  &:hover {
+    background: ${OS_LEGAL_COLORS.surfaceHover};
+    box-shadow: inset 3px 0 0 ${OS_LEGAL_COLORS.primaryBlue};
+  }
+  &:hover .ix {
+    color: ${OS_LEGAL_COLORS.primaryBlue};
+  }
+  &:hover .open-cue {
+    opacity: 1;
+    transform: translate(0, 0);
+  }
+  &:focus-visible {
+    outline: none;
+    background: ${OS_LEGAL_COLORS.surfaceHover};
+    box-shadow: inset 3px 0 0 ${OS_LEGAL_COLORS.primaryBlue};
+  }
+  &:last-child {
+    border-bottom: none;
+  }
+`;
+
+const EntryNum = styled.span`
+  font-family: ${OS_LEGAL_TYPOGRAPHY.fontFamilySerif};
+  font-size: 1.05rem;
+  font-weight: 500;
+  line-height: 1.45;
+  color: ${OS_LEGAL_COLORS.textMuted};
+  font-variant-numeric: tabular-nums;
+  padding-top: 0.05rem;
+  transition: color 0.16s ease;
+`;
+
+const EntryBody = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+`;
+
+const EntryTitle = styled.span`
+  font-family: ${OS_LEGAL_TYPOGRAPHY.fontFamilySerif};
+  font-size: 1.02rem;
+  font-weight: 600;
+  line-height: 1.3;
+  color: ${OS_LEGAL_COLORS.textPrimary};
+`;
+
+const EntryDesc = styled.p`
+  margin: 0;
+  font-size: 0.84rem;
+  line-height: 1.5;
+  color: ${OS_LEGAL_COLORS.textSecondary};
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+`;
+
+const EntryMeta = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.1rem;
+`;
+
+const WeightTrack = styled.span`
+  width: 56px;
+  height: 4px;
+  border-radius: 999px;
+  background: ${OS_LEGAL_COLORS.surfaceHover};
+  overflow: hidden;
+`;
+
+const WeightFill = styled.span<{ $pct: number }>`
+  display: block;
+  height: 100%;
+  width: ${(p) => Math.max(8, p.$pct)}%;
+  border-radius: 999px;
+  background: ${OS_LEGAL_COLORS.primaryBlue};
+  opacity: 0.5;
+`;
+
+const MetaText = styled.span`
+  font-size: 0.72rem;
+  color: ${OS_LEGAL_COLORS.textMuted};
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+`;
+
+const OpenCue = styled.span`
+  display: inline-flex;
+  align-items: center;
+  color: ${OS_LEGAL_COLORS.primaryBlue};
+  opacity: 0;
+  transform: translate(-3px, 2px);
+  transition: opacity 0.16s ease, transform 0.16s ease;
+  padding-top: 0.15rem;
+
+  svg {
+    width: 16px;
+    height: 16px;
+  }
+`;
+
+const SkeletonRow = styled.div`
+  height: 64px;
+  border-radius: 10px;
   background: ${OS_LEGAL_COLORS.surfaceHover};
   animation: ${shimmer} 1.2s ease-in-out infinite;
 `;
+
+const EmptyHint = styled.div`
+  font-size: 0.8rem;
+  color: ${OS_LEGAL_COLORS.textMuted};
+  padding: 0.5rem 0;
+`;
+
+const ShowMore = styled.button`
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.85rem;
+  padding: 0.35rem 0;
+  background: none;
+  border: none;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: ${OS_LEGAL_COLORS.primaryBlue};
+  cursor: pointer;
+
+  svg {
+    width: 15px;
+    height: 15px;
+    transition: transform 0.2s ease;
+  }
+  &:hover {
+    text-decoration: underline;
+  }
+  &[data-open="true"] svg {
+    transform: rotate(180deg);
+  }
+`;
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
 
 export const IntelligencePanel: React.FC<IntelligencePanelProps> = ({
   corpusId,
   testId = "corpus-intelligence-panel",
 }) => {
-  const variables = useMemo(() => ({ corpusId }), [corpusId]);
-
-  const {
-    data: statsData,
-    loading: statsLoading,
-    error: statsError,
-  } = useQuery<GetCorpusStatsOutputType, GetCorpusStatsInputType>(
-    GET_CORPUS_STATS,
-    { variables }
+  const navigateToDocument = useNavigateToDocumentById();
+  const [showAll, setShowAll] = useState(false);
+  const variables = useMemo(
+    () => ({ corpusId, limit: CORPUS_DOCUMENTS_TOC_LIMIT }),
+    [corpusId]
   );
 
-  const {
-    data: aggData,
-    loading: aggLoading,
-    error: aggError,
-  } = useQuery<
-    GetCorpusIntelligenceAggregatesOutputType,
-    GetCorpusIntelligenceAggregatesInputType
-  >(GET_CORPUS_INTELLIGENCE_AGGREGATES, { variables });
+  const { data, loading, error } = useQuery<
+    GetCorpusCollectionDocsOutput,
+    GetCorpusCollectionDocsInput
+  >(GET_CORPUS_COLLECTION_DOCS, { variables });
 
-  const stats = statsData?.corpusStats;
-  const agg = aggData?.corpusIntelligenceAggregates;
+  // References metric — shares the governance-graph query (same corpusId, no
+  // limit) the graph embed below already issues, so Apollo serves it from cache.
+  const { data: govData } = useQuery<
+    GetGovernanceGraphOutputType,
+    GetGovernanceGraphInputType
+  >(GET_GOVERNANCE_GRAPH, {
+    variables: useMemo(() => ({ corpusId }), [corpusId]),
+  });
 
-  // First-load gating: without this every metric reads ``0`` while in flight,
-  // which is indistinguishable from a genuinely empty corpus. Once data has
-  // arrived a background refetch keeps the prior values rather than flashing
-  // skeletons.
-  const statsInitialLoading = statsLoading && !stats;
-  const aggInitialLoading = aggLoading && !agg;
+  // The backend issues no ORDER BY on this connection (see
+  // GET_CORPUS_COLLECTION_DOCS), so Postgres is free to return rows in
+  // arbitrary heap order — sort client-side so the "01 / 02 / ..." editorial
+  // index below stays stable across reloads, matching the alphabetical sort
+  // DocumentTableOfContents.tsx already uses for the same list.
+  const docs = useMemo(
+    () =>
+      (data?.documents?.edges ?? [])
+        .map((e) => e.node)
+        .sort(
+          (a, b) => a.title.localeCompare(b.title) || a.id.localeCompare(b.id)
+        ),
+    [data]
+  );
 
-  // A fetch failure with no cached data must not silently read as an empty
-  // collection (all-zero stats / "no labels"). Surface a distinct hint.
-  const statsErrored = !!statsError && !stats;
-  const aggErrored = !!aggError && !agg;
+  const totalDocs = data?.documents?.totalCount ?? docs.length;
+  const totalPages = useMemo(
+    () => docs.reduce((sum, d) => sum + (d.pageCount ?? 0), 0),
+    [docs]
+  );
+  const maxPages = useMemo(
+    () => docs.reduce((m, d) => Math.max(m, d.pageCount ?? 0), 1),
+    [docs]
+  );
+  const referenceCount = govData?.governanceGraph?.mentionCount ?? 0;
 
-  const totalDocs = stats?.totalDocs ?? 0;
-  const totalRelationships = stats?.totalRelationships ?? 0;
-  const totalAnnotations = stats?.totalAnnotations ?? 0;
-  const totalExtracts = stats?.totalExtracts ?? 0;
+  const shownDocs = showAll ? docs : docs.slice(0, INDEX_PREVIEW_CAP);
 
-  const docsWithSummary = agg?.documentsWithSummary ?? 0;
-  const summaryDenominator = agg?.totalDocuments ?? totalDocs;
-  const coveragePct =
-    summaryDenominator > 0
-      ? Math.round((docsWithSummary / summaryDenominator) * 100)
-      : 0;
+  const initialLoading = loading && docs.length === 0;
+  const errored = !!error && docs.length === 0;
 
-  const labels = agg?.labelDistribution ?? [];
-  const maxLabelCount = labels.reduce((m, l) => Math.max(m, l.count), 1);
-
-  // Only surface metrics that are actually present. A prominent "0 Extracts"
-  // card (or an empty connections count) reads as "this collection is empty"
-  // and undercuts the at-a-glance intent — show what's here, not what isn't.
-  const statCards = [
-    { value: totalDocs, label: "Documents", icon: FileText },
-    { value: totalRelationships, label: "Connections", icon: Share2 },
-    { value: totalAnnotations, label: "Annotations", icon: Tags },
-    { value: totalExtracts, label: "Extracts", icon: BookOpenCheck },
-  ].filter((stat) => stat.value > 0);
+  const metrics: { value: number; label: string }[] = [
+    { value: totalDocs, label: totalDocs === 1 ? "Document" : "Documents" },
+    { value: totalPages, label: totalPages === 1 ? "Page" : "Pages" },
+  ];
+  if (referenceCount > 0) {
+    metrics.push({
+      value: referenceCount,
+      label: referenceCount === 1 ? "Law reference" : "Law references",
+    });
+  }
 
   return (
-    <PanelContainer data-testid={testId}>
-      {/* One-click bundle setup — silent once the corpus is fully set up.
-          Mounted here so both the overview and the insight-panel CAML embed
-          surface it. */}
+    <Panel data-testid={testId}>
+      {/* One-click bundle setup — silent for anon / fully-set-up corpora. */}
       <IntelligenceSetupBanner corpusId={corpusId} />
-      <StatsRow>
-        {statsInitialLoading ? (
-          <>
+
+      <MetricBand data-testid={`${testId}-metrics`}>
+        {metrics.map((m, i) => (
+          <Metric key={m.label} style={{ animationDelay: `${0.05 * i}s` }}>
+            <MetricValue>{m.value.toLocaleString()}</MetricValue>
+            <MetricLabel>{m.label}</MetricLabel>
+          </Metric>
+        ))}
+      </MetricBand>
+
+      <Section>
+        <SectionEyebrow>
+          <span>The collection</span>
+          {!initialLoading && !errored && (
+            <span>
+              {totalDocs} {totalDocs === 1 ? "document" : "documents"}
+            </span>
+          )}
+        </SectionEyebrow>
+
+        {initialLoading ? (
+          <div
+            style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}
+          >
             {[0, 1, 2, 3].map((i) => (
-              <StatSkeleton
-                key={i}
-                data-testid={`${testId}-stat-skeleton-${i}`}
-              />
+              <SkeletonRow key={i} data-testid={`${testId}-skeleton-${i}`} />
             ))}
-          </>
-        ) : statsErrored ? (
-          <EmptyHint data-testid={`${testId}-stats-error`}>
-            Couldn't load collection stats. Please try again.
+          </div>
+        ) : errored ? (
+          <EmptyHint data-testid={`${testId}-error`}>
+            Couldn't load the collection. Please try again.
           </EmptyHint>
+        ) : docs.length === 0 ? (
+          <EmptyHint>No documents in this collection yet.</EmptyHint>
         ) : (
-          statCards.map((stat) => (
-            <StatisticWithAnimation
-              key={stat.label}
-              value={stat.value}
-              label={stat.label}
-              icon={stat.icon}
-            />
-          ))
-        )}
-      </StatsRow>
-
-      <InsightGrid>
-        <SubCard data-testid={`${testId}-coverage`}>
-          <SubCardTitle>
-            <BookOpenCheck />
-            Summary coverage
-          </SubCardTitle>
-          <CoverageBarTrack>
-            <CoverageBarFill $pct={coveragePct} />
-          </CoverageBarTrack>
-          <CoverageCaption>
-            {docsWithSummary} of {summaryDenominator}{" "}
-            {summaryDenominator === 1 ? "document" : "documents"} summarized (
-            {coveragePct}%)
-          </CoverageCaption>
-        </SubCard>
-
-        <SubCard data-testid={`${testId}-labels`}>
-          <SubCardTitle>
-            <Tags />
-            Dominant labels
-          </SubCardTitle>
-          {aggInitialLoading ? (
-            <EmptyHint>Loading labels…</EmptyHint>
-          ) : aggErrored ? (
-            <EmptyHint data-testid={`${testId}-labels-error`}>
-              Couldn't load labels. Please try again.
-            </EmptyHint>
-          ) : labels.length === 0 ? (
-            <EmptyHint>No labeled annotations yet.</EmptyHint>
-          ) : (
-            <LabelList>
-              {labels.map((entry) => {
-                const color = safeCssColor(
-                  entry.color,
-                  OS_LEGAL_COLORS.primaryBlue
-                );
-                const pct = Math.round((entry.count / maxLabelCount) * 100);
-                const display = humanizeLabel(entry.label);
+          <>
+            <Index data-testid={`${testId}-index`}>
+              {shownDocs.map((doc, i) => {
+                const pages = doc.pageCount ?? 0;
+                const pct = Math.round((pages / maxPages) * 100);
+                const hasDesc =
+                  !!doc.description && doc.description.trim().length > 0;
                 return (
-                  <LabelRow key={entry.label}>
-                    <LabelSwatch $color={color} />
-                    <LabelName title={display}>{display}</LabelName>
-                    <LabelBarTrack>
-                      <LabelBarFill $pct={pct} />
-                    </LabelBarTrack>
-                    <LabelCount>{entry.count}</LabelCount>
-                  </LabelRow>
+                  <Entry
+                    key={doc.id}
+                    $i={i}
+                    onClick={() => void navigateToDocument(doc.id)}
+                    data-testid={`${testId}-entry`}
+                    role="link"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        void navigateToDocument(doc.id);
+                      }
+                    }}
+                  >
+                    <EntryNum className="ix">
+                      {String(i + 1).padStart(2, "0")}
+                    </EntryNum>
+                    <EntryBody>
+                      <EntryTitle>
+                        {doc.title || "Untitled document"}
+                      </EntryTitle>
+                      {hasDesc && <EntryDesc>{doc.description}</EntryDesc>}
+                      <EntryMeta>
+                        {pages > 0 && (
+                          <>
+                            <WeightTrack aria-hidden="true">
+                              <WeightFill $pct={pct} />
+                            </WeightTrack>
+                            <MetaText>
+                              {pages} {pages === 1 ? "page" : "pages"}
+                            </MetaText>
+                          </>
+                        )}
+                      </EntryMeta>
+                    </EntryBody>
+                    <OpenCue className="open-cue" aria-hidden="true">
+                      <ArrowUpRight />
+                    </OpenCue>
+                  </Entry>
                 );
               })}
-            </LabelList>
-          )}
-        </SubCard>
-      </InsightGrid>
-    </PanelContainer>
+            </Index>
+            {docs.length > INDEX_PREVIEW_CAP && (
+              <ShowMore
+                data-open={showAll}
+                onClick={() => setShowAll((v) => !v)}
+                data-testid={`${testId}-show-more`}
+              >
+                {/* Label the loaded count, not the server total — the query
+                    fetches at most 100, so "Show all" must not promise more
+                    than expanding actually reveals. */}
+                {showAll
+                  ? "Show fewer"
+                  : `Show all ${docs.length.toLocaleString()} documents`}
+                <ChevronDown />
+              </ShowMore>
+            )}
+          </>
+        )}
+      </Section>
+    </Panel>
   );
 };

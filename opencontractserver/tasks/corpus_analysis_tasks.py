@@ -93,6 +93,10 @@ def corpus_reference_enrichment(
             },
             "min_demand": {
                 "type": "integer",
+                # No upper bound: a HIGHER min_demand is MORE selective (skips
+                # more frontier rows), so it is cheaper, never a resource risk.
+                # Only a floor is enforced (matches the RunCorpusEnrichment
+                # mutation's crawl-bound validation).
                 "minimum": 0,
                 "default": C.CRAWL_DEFAULT_MIN_DEMAND,
             },
@@ -113,6 +117,10 @@ def corpus_reference_enrichment(
             },
             "token_budget": {
                 "type": "integer",
+                # 0 is a legal sentinel here, not an error: the service treats
+                # a non-positive token_budget as "use the safe default" (see
+                # CrawlAuthoritiesService._sanitize_token_budget), so the
+                # schema floor must allow it through rather than rejecting it.
                 "minimum": 0,
                 "maximum": C.CRAWL_MAX_TOKEN_BUDGET,
                 "default": C.CRAWL_DEFAULT_TOKEN_BUDGET,

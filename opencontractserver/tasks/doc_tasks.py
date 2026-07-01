@@ -643,7 +643,13 @@ def ingest_doc(self, user_id: int, doc_id: int) -> dict[str, Any]:
         # threshold (single request) and >= 2 descriptors otherwise — there is
         # no one-element case — so a truthiness check expresses the contract.
         chunk_inputs = parser_instance.prepare_chunk_inputs(doc_id)
-        if chunk_inputs:
+        chunk_count = len(chunk_inputs)
+        # Gate the chord on max_chord_tasks (a Celery-orchestration ceiling on
+        # broker fan-out), NOT on max_concurrent_chunks (the in-process thread
+        # pool width). They are orthogonal: changing thread parallelism must not
+        # silently change which documents fan out vs. parse in-process.
+        max_chord_tasks = parser_instance.max_chord_tasks
+        if chunk_inputs and chunk_count <= max_chord_tasks:
             from opencontractserver.tasks.chunk_tasks import (
                 parse_document_chunk,
                 reassemble_and_save_chunks,
@@ -670,12 +676,61 @@ def ingest_doc(self, user_id: int, doc_id: int) -> dict[str, Any]:
             )
             logger.info(
                 f"[ingest_doc] Document {doc_id}: dispatching "
-                f"{len(chunk_inputs)} chunks via chord"
+                f"{chunk_count} chunks via chord"
             )
             # Replaces this task with the chord; Celery appends the remaining
             # ingest chain (remap, unlock) after the callback, and the chain's
             # link_error errback still rescues failures.
             return self.replace(chord(header, callback))
+        if chunk_inputs:
+            # prepare_chunk_inputs already wrote chunk_count PDFs to scratch
+            # storage. The in-process path below re-reads the original PDF and
+            # re-chunks in memory — it never touches those scratch files, and
+            # cleanup only runs inside the chord callback (reassemble_and_finalize),
+            # which we are skipping. Clean them up here or they leak on every
+            # large-document ingest (and multiply across Celery retries).
+            #
+            # NOTE: this deliberately re-reads and re-splits the PDF a second
+            # time below (process_document -> parse_pdf_bytes). Deciding the
+            # chunk count without first writing the scratch PDFs would require
+            # splitting prepare_chunk_inputs into a cheap "plan" step and a
+            # separate "write" step; skipped for now since this fallback path
+            # is only exercised by documents above max_chord_tasks. Do not
+            # "optimize" this away without adding that split.
+            from opencontractserver.pipeline.chunk_artifacts import (
+                cleanup_chunk_artifacts,
+            )
+
+            try:
+                cleanup_chunk_artifacts(doc_id)
+            except Exception:
+                # Cloud storage backends (S3, GCS) can raise SDK-specific
+                # exceptions here (e.g. botocore.exceptions.ClientError) that
+                # are not OSError subclasses and so escape
+                # cleanup_chunk_artifacts's own guard. Letting that propagate
+                # would surface as an "unexpected error" below, triggering a
+                # Celery retry that re-writes the same scratch files and fails
+                # the same way again — stranding the document in a retry loop
+                # that never actually parses. Leaked scratch files are far
+                # less harmful than that, so treat cleanup failure as
+                # non-fatal and continue to the in-process parse.
+                logger.warning(
+                    f"[ingest_doc] Document {doc_id}: cleanup of scratch chunk "
+                    "artifacts failed (non-fatal; continuing to in-process parse)",
+                    exc_info=True,
+                )
+            if max_chord_tasks <= 0:
+                logger.warning(
+                    f"[ingest_doc] Document {doc_id}: max_chord_tasks="
+                    f"{max_chord_tasks} is non-positive; chord fan-out is "
+                    "disabled for all chunked documents, parsing in-process"
+                )
+            else:
+                logger.info(
+                    f"[ingest_doc] Document {doc_id}: parsing {chunk_count} "
+                    "chunks in-process because it exceeds max_chord_tasks="
+                    f"{max_chord_tasks}"
+                )
 
     # Call the parser's process_document method (synchronous / non-chunked path)
     try:

@@ -335,7 +335,9 @@ class CrawlAuthoritiesService(BaseService):
                         )
 
                 outbound = list(
-                    CorpusReferenceService.for_corpus(user, authority_corpus_id)
+                    CorpusReferenceService.for_corpus_by_source(
+                        user, authority_corpus_id
+                    )
                     .filter(
                         reference_type=C.REF_LAW,
                         resolution_status=C.STATUS_EXTERNAL,

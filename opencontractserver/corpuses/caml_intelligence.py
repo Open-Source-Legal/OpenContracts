@@ -30,6 +30,7 @@ import re
 # marker here updates detection automatically.
 CAML_INTELLIGENCE_MARKERS: tuple[str, ...] = (
     "[component:insight-panel]",
+    "[component:collection-datastory]",
     "[component:governance-graph]",
     "[component:document-graph]",
     "[component:ask-across-docs]",
@@ -41,25 +42,21 @@ CAML_INTELLIGENCE_MARKERS: tuple[str, ...] = (
 # Defined as a module constant so the default-README builder, the
 # ensure-block helper, and the backfill command all emit byte-identical text.
 CAML_INTELLIGENCE_BLOCK = """\
-## At a glance
-
 ::: oc-component
 [component:insight-panel]
 :::
 
-## How this collection is wired to the law
+::: oc-component
+[component:collection-datastory]
+:::
 
 ::: oc-component
 [component:governance-graph]
 :::
 
-## How these documents interconnect
-
 ::: oc-component
 [component:document-graph]
 :::
-
-## Ask across the collection
 
 ::: oc-component
 [component:ask-across-docs]

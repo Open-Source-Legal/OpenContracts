@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 from opencontractserver.shared.services.base import BaseService
 from opencontractserver.shared.services.conventions import ServiceResult
-from opencontractserver.types.enums import PermissionTypes
+from opencontractserver.types.enums import JobStatus, PermissionTypes
 
 if TYPE_CHECKING:
     from opencontractserver.analyzer.models import Analysis
@@ -33,6 +33,54 @@ class AnalysisLifecycleService(BaseService):
     permission checks share the Tier-2 cache when called from a GraphQL
     resolver / mutation.
     """
+
+    # Statuses that count as "this analysis still has pending/in-flight work",
+    # used by ``active_analysis_exists`` as the duplicate-job guard.
+    _ACTIVE_ANALYSIS_STATUSES = (
+        JobStatus.CREATED.value,
+        JobStatus.QUEUED.value,
+        JobStatus.RUNNING.value,
+    )
+
+    @classmethod
+    def active_analysis_exists(
+        cls,
+        corpus_pk: Any,
+        analyzer_task_name: str,
+    ) -> bool:
+        """Return True when ``corpus_pk`` already has a queued/running analysis
+        for the given analyzer ``task_name``.
+
+        The duplicate-job guard for the enrichment / crawl runner. Callers that
+        must make this an atomic check-and-create (no TOCTOU) should hold the
+        corpus dispatch lock — see :meth:`lock_corpus_for_dispatch`.
+        """
+        from opencontractserver.analyzer.models import Analysis
+
+        return Analysis.objects.filter(
+            analyzed_corpus_id=corpus_pk,
+            analyzer__task_name=analyzer_task_name,
+            status__in=cls._ACTIVE_ANALYSIS_STATUSES,
+        ).exists()
+
+    @classmethod
+    def lock_corpus_for_dispatch(cls, corpus_pk: Any) -> None:
+        """Take a row-level lock on the corpus to serialize analysis dispatch.
+
+        MUST be called inside a ``transaction.atomic()`` block; the
+        ``select_for_update`` lock is held until that transaction commits. With
+        the lock held, a caller can run :meth:`active_analysis_exists` and then
+        create the analysis as one atomic check-and-create, so two concurrent
+        dispatch requests for the same corpus cannot both pass the
+        duplicate-job guard and double-dispatch (TOCTOU).
+
+        A missing corpus row is a no-op (nothing to lock); the caller's
+        downstream visibility check rejects the unknown pk.
+        """
+        from opencontractserver.corpuses.models import Corpus
+
+        # Evaluating the queryset (``.first()``) is what acquires the lock.
+        Corpus.objects.select_for_update().filter(pk=corpus_pk).first()
 
     # The unified IDOR-safe message used by ``delete_analysis``. Surfacing the
     # same string whether the analysis doesn't exist, the caller can't see

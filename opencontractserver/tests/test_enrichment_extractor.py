@@ -1,5 +1,7 @@
 """Unit tests for the deterministic ReferenceExtractor (no DB)."""
 
+from unittest.mock import patch
+
 from django.test import SimpleTestCase
 
 from opencontractserver.enrichment import constants as C
@@ -172,6 +174,38 @@ class ReferenceExtractorTests(SimpleTestCase):
         terms = [c for c in cands if c.reference_type == C.REF_DEFINED_TERM]
         assert len(terms) == C.MAX_DEFINED_TERMS
         assert not any(c.canonical_key == "term:change-of-control" for c in terms)
+
+    def test_defined_term_cap_counts_unique_terms_not_raw_hits(self):
+        # Regression test for the exact bug this PR fixed: the cap used to be
+        # applied to raw regex hits (including duplicates immediately dropped
+        # by the `seen` dedup), so a wall of repeated early definitions could
+        # exhaust the budget before a later, DISTINCT definition was ever
+        # examined. Here MAX_DEFINED_TERMS+10 duplicate copies of "Company"
+        # precede a single distinct "Change of Control" definition: under the
+        # old "cap on examined" behaviour, the scan would return once
+        # `examined` passed MAX_DEFINED_TERMS (all duplicates), and "Change of
+        # Control" would never be reached even though only ONE unique term
+        # ("Company") had actually been emitted.
+        duplicate_count = C.MAX_DEFINED_TERMS + 10
+        text = (
+            " ".join('(the "Company")' for _ in range(duplicate_count))
+            + ' "Change of Control" means any transfer of control.'
+        )
+        cands = self.extractor.extract(text)
+        terms = [c for c in cands if c.reference_type == C.REF_DEFINED_TERM]
+        keys = {c.canonical_key for c in terms}
+        # Duplicates dedup to a single "Company" term, leaving ample room
+        # under the cap for the later distinct term to still be found.
+        assert keys == {"term:company", "term:change-of-control"}, keys
+
+    def test_reference_type_filter_skips_unwanted_defined_terms(self):
+        text = 'Fervo Energy, Inc. (the "Company") cites Exhibit 1.1.'
+        with patch.object(ReferenceExtractor, "_terms", side_effect=AssertionError):
+            cands = self.extractor.extract(
+                text, reference_types=C.DEFAULT_REFERENCE_TYPES
+            )
+        assert not [c for c in cands if c.reference_type == C.REF_DEFINED_TERM]
+        assert any(c.reference_type == C.REF_DOCUMENT for c in cands)
 
     def test_defined_terms_not_in_default_reference_types(self):
         # Opt-in: DEFINED_TERM is detected by the extractor but excluded from the

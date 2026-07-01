@@ -386,7 +386,7 @@ class CrawlAuthoritiesSecurityTests(TransactionTestCase):
             f"{_SERVICE_MODULE}.EnrichmentService.apply",
             return_value={"references_created": 0},
         ), patch(
-            f"{_SERVICE_MODULE}.CorpusReferenceService.for_corpus",
+            f"{_SERVICE_MODULE}.CorpusReferenceService.for_corpus_by_source",
             return_value=mock_refs,
         ):
             summary = CrawlAuthoritiesService.crawl(

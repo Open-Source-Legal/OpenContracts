@@ -175,6 +175,44 @@ class RunCorpusEnrichmentMutationTests(TestCase):
         data = result["data"]["runCorpusEnrichment"]
         assert data["ok"] is False
 
+    def test_no_active_job_oracle_for_unauthorized_user(self):
+        """A caller with no permission on the corpus must get the SAME generic
+        message whether or not the corpus has an active enrichment job.
+
+        Regression test for the duplicate-job guard firing before the corpus
+        permission check: without the visibility gate, ``active_analysis_exists``
+        would leak "an enrichment analysis is already queued or running" to a
+        user who cannot even see the corpus, letting them probe arbitrary
+        corpus IDs for running-job state.
+        """
+        from opencontractserver.analyzer.models import Analysis
+        from opencontractserver.enrichment.services import EnrichmentService
+        from opencontractserver.types.enums import JobStatus
+
+        analyzer = EnrichmentService.get_or_create_analyzer(self.owner.id)
+        Analysis.objects.create(
+            analyzer=analyzer,
+            analyzed_corpus=self.corpus,
+            creator=self.owner,
+            status=JobStatus.RUNNING.value,
+        )
+
+        stranger = User.objects.create_user(username="stranger-oracle", password="p")
+        result = self._execute(
+            {
+                "corpusId": to_global_id("CorpusType", self.corpus.id),
+                "runEnrichment": True,
+                "runCrawl": False,
+            },
+            user=stranger,
+        )
+        assert result.get("errors") is None, result
+        data = result["data"]["runCorpusEnrichment"]
+        assert data["ok"] is False
+        # Same IDOR-safe generic message as the no-permission / no-active-job
+        # case — never the job-specific "already queued or running" text.
+        assert data["message"] == "Resource not found or you do not have permission."
+
     # ------------------------------------------------------------------
     # Error: neither flag set
     # ------------------------------------------------------------------
@@ -382,6 +420,7 @@ class RunCorpusEnrichmentMutationTests(TestCase):
         enrichment."""
         from opencontractserver.analyzer.models import Analysis
         from opencontractserver.enrichment.services import EnrichmentService
+        from opencontractserver.types.enums import JobStatus
 
         # A real enrichment Analysis to stand in as the dispatched running job.
         analyzer = EnrichmentService.get_or_create_analyzer(self.owner.id)
@@ -389,6 +428,7 @@ class RunCorpusEnrichmentMutationTests(TestCase):
             analyzer=analyzer,
             analyzed_corpus=self.corpus,
             creator=self.owner,
+            status=JobStatus.COMPLETED.value,
         )
 
         # First call (enrichment) succeeds, second call (crawl) fails.
@@ -441,3 +481,165 @@ class RunCorpusEnrichmentMutationTests(TestCase):
         # `partial` is a concrete False (never null) on every ok=False path.
         assert data["partial"] is False
         assert data["analyses"] == []
+
+    def test_rejects_unbounded_crawl_options(self):
+        """Each over-limit crawl bound is rejected by name before any dispatch.
+
+        Tested one field at a time (not all four at once) so the assertion does
+        not depend on ``CRAWL_BOUND_LIMITS`` iteration order:
+        ``_validate_crawl_bounds`` returns on the FIRST bad field, so a
+        reordering of the dict must not silently change which field the test
+        happens to catch.
+        """
+        from opencontractserver.analyzer.models import Analysis
+
+        # camelCase GraphQL option -> (over-limit value, snake_case message field)
+        cases = {
+            "maxDepth": (C.CRAWL_MAX_ALLOWED_DEPTH + 1, "max_depth"),
+            "maxAuthorities": (C.CRAWL_DEFAULT_MAX_AUTHORITIES + 1, "max_authorities"),
+            "perJurisdictionCap": (
+                C.CRAWL_DEFAULT_PER_JURISDICTION_CAP + 1,
+                "per_jurisdiction_cap",
+            ),
+            "tokenBudget": (0, "token_budget"),  # below the minimum of 1
+        }
+        for gql_field, (bad_value, msg_field) in cases.items():
+            with self.subTest(field=gql_field):
+                result = self._execute(
+                    {
+                        "corpusId": to_global_id("CorpusType", self.corpus.id),
+                        "runEnrichment": False,
+                        "runCrawl": True,
+                        "options": {gql_field: bad_value},
+                    }
+                )
+                assert result.get("errors") is None, result
+                data = result["data"]["runCorpusEnrichment"]
+                assert data["ok"] is False
+                assert data["partial"] is False
+                assert msg_field in data["message"]
+        # No invalid request dispatched an analysis.
+        assert not Analysis.objects.filter(analyzed_corpus=self.corpus).exists()
+
+    def test_high_min_demand_is_accepted(self):
+        """A ``min_demand`` ABOVE the default is MORE selective (it skips more
+        frontier rows), so it is cheaper and must be accepted — the upper bound
+        was removed because capping at the default wrongly rejected conservative
+        values. Mirrors the crawl analyzer input schema, which sets only a floor
+        on min_demand."""
+        from opencontractserver.analyzer.models import Analysis
+
+        result = self._execute(
+            {
+                "corpusId": to_global_id("CorpusType", self.corpus.id),
+                "runEnrichment": False,
+                "runCrawl": True,
+                "options": {"minDemand": C.CRAWL_DEFAULT_MIN_DEMAND + 100},
+            }
+        )
+        assert result.get("errors") is None, result
+        data = result["data"]["runCorpusEnrichment"]
+        assert data["ok"] is True, data
+        assert Analysis.objects.filter(
+            analyzed_corpus=self.corpus,
+            analyzer__task_name=C.CRAWL_ANALYZER_TASK,
+        ).exists()
+
+    def test_rejects_llm_tier_for_non_admin(self):
+        """Low-privileged UPDATE users cannot opt corpus text into LLM export."""
+        from opencontractserver.analyzer.models import Analysis
+        from opencontractserver.enrichment.services.authority_permissions import (
+            is_authority_admin,
+        )
+
+        # Precondition: the corpus owner is a plain UPDATE user, NOT an authority
+        # admin — otherwise the LLM-tier gate would pass and this test would fail
+        # for the wrong reason (and silently stop covering the rejection path).
+        assert not is_authority_admin(self.owner)
+
+        result = self._execute(
+            {
+                "corpusId": to_global_id("CorpusType", self.corpus.id),
+                "runEnrichment": True,
+                "runCrawl": False,
+                "options": {"useLlmTier": True},
+            }
+        )
+        assert result.get("errors") is None, result
+        data = result["data"]["runCorpusEnrichment"]
+        assert data["ok"] is False
+        assert "LLM tier" in data["message"]
+        assert not Analysis.objects.filter(analyzed_corpus=self.corpus).exists()
+
+    def test_rejects_duplicate_running_enrichment_job(self):
+        """The mutation enforces one active enrichment job per corpus."""
+        from opencontractserver.analyzer.models import Analysis
+        from opencontractserver.enrichment.services import EnrichmentService
+        from opencontractserver.types.enums import JobStatus
+
+        analyzer = EnrichmentService.get_or_create_analyzer(self.owner.id)
+        Analysis.objects.create(
+            analyzer=analyzer,
+            analyzed_corpus=self.corpus,
+            creator=self.owner,
+            status=JobStatus.RUNNING.value,
+        )
+
+        result = self._execute(
+            {
+                "corpusId": to_global_id("CorpusType", self.corpus.id),
+                "runEnrichment": True,
+                "runCrawl": False,
+            }
+        )
+        assert result.get("errors") is None, result
+        data = result["data"]["runCorpusEnrichment"]
+        assert data["ok"] is False
+        assert "already queued or running" in data["message"]
+        assert (
+            Analysis.objects.filter(
+                analyzed_corpus=self.corpus,
+                analyzer__task_name=C.ENRICHMENT_ANALYZER_TASK,
+            ).count()
+            == 1
+        )
+
+    def test_rejects_duplicate_running_crawl_job(self):
+        """The mutation enforces one active crawl job per corpus.
+
+        Symmetric counterpart to ``test_rejects_duplicate_running_enrichment_job``
+        — covers the crawl branch of the duplicate-job guard, which previously
+        had no direct test coverage.
+        """
+        from opencontractserver.analyzer.models import Analysis
+        from opencontractserver.enrichment.services.crawl_authorities_service import (
+            CrawlAuthoritiesService,
+        )
+        from opencontractserver.types.enums import JobStatus
+
+        analyzer = CrawlAuthoritiesService.get_or_create_analyzer(self.owner.id)
+        Analysis.objects.create(
+            analyzer=analyzer,
+            analyzed_corpus=self.corpus,
+            creator=self.owner,
+            status=JobStatus.RUNNING.value,
+        )
+
+        result = self._execute(
+            {
+                "corpusId": to_global_id("CorpusType", self.corpus.id),
+                "runEnrichment": False,
+                "runCrawl": True,
+            }
+        )
+        assert result.get("errors") is None, result
+        data = result["data"]["runCorpusEnrichment"]
+        assert data["ok"] is False
+        assert "already queued or running" in data["message"]
+        assert (
+            Analysis.objects.filter(
+                analyzed_corpus=self.corpus,
+                analyzer__task_name=C.CRAWL_ANALYZER_TASK,
+            ).count()
+            == 1
+        )

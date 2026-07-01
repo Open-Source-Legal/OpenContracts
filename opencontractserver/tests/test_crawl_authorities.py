@@ -139,7 +139,7 @@ class IdempotencyTests(TransactionTestCase):
             return_value={"references_created": 0},
         ), patch(
             "opencontractserver.enrichment.services.crawl_authorities_service"
-            ".CorpusReferenceService.for_corpus",
+            ".CorpusReferenceService.for_corpus_by_source",
             return_value=_empty_qs,  # no outbound cites
         ):
             CrawlAuthoritiesService.crawl(
@@ -205,7 +205,7 @@ class IdempotencyTests(TransactionTestCase):
             return_value={"references_created": 0},
         ), patch(
             "opencontractserver.enrichment.services.crawl_authorities_service"
-            ".CorpusReferenceService.for_corpus",
+            ".CorpusReferenceService.for_corpus_by_source",
             return_value=_empty_qs2,
         ):
             CrawlAuthoritiesService.crawl(
@@ -352,7 +352,7 @@ class ApplyAnalysisReuseTests(TransactionTestCase):
             side_effect=_mock_apply,
         ), patch(
             "opencontractserver.enrichment.services.crawl_authorities_service"
-            ".CorpusReferenceService.for_corpus",
+            ".CorpusReferenceService.for_corpus_by_source",
             return_value=_make_empty_corpus_ref_mock(),
         ), patch(
             "opencontractserver.enrichment.services.crawl_authorities_service"
@@ -450,7 +450,7 @@ class BoundsTerminationTests(TransactionTestCase):
             return_value={"references_created": 0},
         ), patch(
             "opencontractserver.enrichment.services.crawl_authorities_service"
-            ".CorpusReferenceService.for_corpus",
+            ".CorpusReferenceService.for_corpus_by_source",
             return_value=_make_empty_corpus_ref_mock(),
         ), patch(
             # seed_from_wanted_authorities is called first; patch to no-op
@@ -529,7 +529,7 @@ class BoundsTerminationTests(TransactionTestCase):
             return_value={"references_created": 1},
         ), patch(
             "opencontractserver.enrichment.services.crawl_authorities_service"
-            ".CorpusReferenceService.for_corpus",
+            ".CorpusReferenceService.for_corpus_by_source",
             return_value=mock_refs,
         ), patch(
             "opencontractserver.enrichment.services.crawl_authorities_service"
@@ -570,7 +570,7 @@ class BoundsTerminationTests(TransactionTestCase):
             return_value={"references_created": 0},
         ), patch(
             "opencontractserver.enrichment.services.crawl_authorities_service"
-            ".CorpusReferenceService.for_corpus",
+            ".CorpusReferenceService.for_corpus_by_source",
             return_value=_make_empty_corpus_ref_mock(),
         ), patch(
             "opencontractserver.enrichment.services.crawl_authorities_service"
@@ -612,7 +612,7 @@ class BoundsTerminationTests(TransactionTestCase):
             return_value={"references_created": 0},
         ), patch(
             "opencontractserver.enrichment.services.crawl_authorities_service"
-            ".CorpusReferenceService.for_corpus",
+            ".CorpusReferenceService.for_corpus_by_source",
             return_value=_make_empty_corpus_ref_mock(),
         ), patch(
             "opencontractserver.enrichment.services.crawl_authorities_service"
@@ -661,7 +661,7 @@ class BoundsTerminationTests(TransactionTestCase):
             return_value={"references_created": 0},
         ), patch(
             "opencontractserver.enrichment.services.crawl_authorities_service"
-            ".CorpusReferenceService.for_corpus",
+            ".CorpusReferenceService.for_corpus_by_source",
             return_value=_make_empty_corpus_ref_mock(),
         ), patch(
             "opencontractserver.enrichment.services.crawl_authorities_service"
@@ -772,7 +772,7 @@ class BoundsTerminationTests(TransactionTestCase):
             return_value={"references_created": 1},
         ), patch(
             "opencontractserver.enrichment.services.crawl_authorities_service"
-            ".CorpusReferenceService.for_corpus",
+            ".CorpusReferenceService.for_corpus_by_source",
             return_value=mock_refs,
         ), patch(
             "opencontractserver.enrichment.services.crawl_authorities_service"
@@ -842,7 +842,7 @@ class BoundsTerminationTests(TransactionTestCase):
             return_value={"references_created": 0},
         ), patch(
             "opencontractserver.enrichment.services.crawl_authorities_service"
-            ".CorpusReferenceService.for_corpus",
+            ".CorpusReferenceService.for_corpus_by_source",
             return_value=_make_empty_corpus_ref_mock(),
         ), patch(
             "opencontractserver.enrichment.services.crawl_authorities_service"
@@ -909,7 +909,7 @@ class BoundsTerminationTests(TransactionTestCase):
             return_value={"references_created": 1},
         ), patch(
             "opencontractserver.enrichment.services.crawl_authorities_service"
-            ".CorpusReferenceService.for_corpus",
+            ".CorpusReferenceService.for_corpus_by_source",
             return_value=mock_refs,
         ), patch(
             "opencontractserver.enrichment.services.crawl_authorities_service"

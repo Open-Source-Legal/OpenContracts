@@ -78,15 +78,15 @@ _SECTION_RE = re.compile(
     r"(?:see|under)\b[^\"“]{0,40}?[\"“]" r"(?P<head>[A-Z][^\"”]{2,60})[\"”]",
     re.IGNORECASE,
 )
-# Defined-term DEFINITION sites — high precision only:
+# Defined-term DEFINITION sites — high precision only, both forms combined into
+# one alternation so they are scanned in a single document-order pass:
 #   1. parenthetical:  (the "Company")  ("Notes")  (collectively, the "Shares")
 #   2. copular:        "Change of Control" means | shall mean | refers to
-_TERM_PAREN_RE = re.compile(
+_TERM_RE = re.compile(
     r"\((?:the\s+|collectively,?\s+the\s+|each\s+an?\s+|together(?:,)?\s+the\s+)?"
-    r"[\"“](?P<term>[A-Z][^\"”]{1,60}?)[\"”]",
-)
-_TERM_MEANS_RE = re.compile(
-    r"[\"“](?P<term>[A-Z][^\"”]{1,60}?)[\"”]\s+"
+    r"[\"“](?P<paren_term>[A-Z][^\"”]{1,60}?)[\"”]"
+    r"|"
+    r"[\"“](?P<means_term>[A-Z][^\"”]{1,60}?)[\"”]\s+"
     r"(?:means\b|shall\s+mean\b|refers\s+to\b|has\s+the\s+meaning\b)",
 )
 
@@ -94,6 +94,19 @@ _TERM_MEANS_RE = re.compile(
 def _slugify_term(term: str) -> str:
     """Normalize a defined term to a stable cross-corpus key fragment."""
     return re.sub(r"[^a-z0-9]+", "-", term.strip().lower()).strip("-")
+
+
+def normalize_reference_types(
+    reference_types: set[str] | tuple[str, ...] | list[str] | None,
+) -> set[str] | None:
+    """Normalize a caller-supplied reference-type filter to a set, or ``None``.
+
+    ``None`` is the "no filter, extract everything" sentinel. Shared by
+    :meth:`ReferenceExtractor.extract` and
+    :meth:`opencontractserver.enrichment.grammars.GenericCitationExtractor.extract`
+    so the sentinel/type contract has a single edit point.
+    """
+    return set(reference_types) if reference_types is not None else None
 
 
 class ReferenceExtractor:
@@ -116,17 +129,25 @@ class ReferenceExtractor:
         self._prefix_law_re = _compile_prefix_law_re(self._alias_to_prefix)
 
     def extract(
-        self, text: str, default_authority: str | None = None
+        self,
+        text: str,
+        default_authority: str | None = None,
+        reference_types: set[str] | tuple[str, ...] | list[str] | None = None,
     ) -> list[Candidate]:
+        wanted = normalize_reference_types(reference_types)
         out: list[Candidate] = []
-        out.extend(self._laws(text))
-        out.extend(self._prefix_laws(text))
-        out.extend(self._rules(text))
-        if default_authority:
-            out.extend(self._relative_laws(text, default_authority))
-        out.extend(self._exhibits(text))
-        out.extend(self._sections(text))
-        out.extend(self._terms(text))
+        if wanted is None or C.REF_LAW in wanted:
+            out.extend(self._laws(text))
+            out.extend(self._prefix_laws(text))
+            out.extend(self._rules(text))
+            if default_authority:
+                out.extend(self._relative_laws(text, default_authority))
+        if wanted is None or C.REF_DOCUMENT in wanted:
+            out.extend(self._exhibits(text))
+        if wanted is None or C.REF_SECTION in wanted:
+            out.extend(self._sections(text))
+        if wanted is None or C.REF_DEFINED_TERM in wanted:
+            out.extend(self._terms(text))
         return out
 
     def _law_candidate(self, m: re.Match) -> Candidate:
@@ -211,32 +232,36 @@ class ReferenceExtractor:
     def _terms(self, text: str) -> Iterator[Candidate]:
         """Defined-term DEFINITION sites, deduped by slug, capped per document.
 
-        Opt-in (not in the default reference-type set) and capped at
-        ``MAX_DEFINED_TERMS`` to keep precision/volume in check. The cap is a
-        TOTAL per document across both grammar forms: matches are merged in
-        document order before capping, so a document heavy in parenthetical
-        definitions cannot starve the "means" form — the first N definition
-        sites win regardless of form. Each definition becomes a
-        cross-corpus-trackable stub keyed ``term:<slug>`` — the same
-        philosophy as law citations.
+        Opt-in (not in the default reference-type set). The first
+        ``MAX_DEFINED_TERMS`` *unique* definition sites win — the cap is on
+        emitted (distinct) terms, not raw regex hits, so a wall of repeated
+        early definitions (e.g. 50x ``(the "Company")``) cannot exhaust the
+        quota before a later distinct term is reached. Both grammar forms are
+        merged in document order, so a document heavy in parenthetical
+        definitions cannot starve the "means" form. A separate, larger
+        ``MAX_DEFINED_TERM_SCAN`` ceiling bounds total hits inspected so a
+        pathologically duplicate-heavy document still terminates. Each
+        definition becomes a cross-corpus-trackable stub keyed ``term:<slug>``
+        — the same philosophy as law citations.
         """
-        matches = [
-            (m, kind)
-            for regex, kind in (
-                (_TERM_PAREN_RE, "parenthetical"),
-                (_TERM_MEANS_RE, "means"),
-            )
-            for m in regex.finditer(text)
-        ]
-        matches.sort(key=lambda pair: pair[0].start())
         seen: set[str] = set()
         emitted = 0
-        for m, kind in matches:
+        for examined, m in enumerate(_TERM_RE.finditer(text), start=1):
+            # Unique-term quota: the first N DISTINCT definition sites win.
             if emitted >= C.MAX_DEFINED_TERMS:
                 return
+            # Raw-scan DoS ceiling: a duplicate-heavy document must still
+            # terminate even before N unique terms accrue (duplicates do not
+            # consume the quota above, so this budget is intentionally larger).
+            if examined > C.MAX_DEFINED_TERM_SCAN:
+                return
+            term_group = (
+                "paren_term" if m.group("paren_term") is not None else "means_term"
+            )
+            kind = "parenthetical" if term_group == "paren_term" else "means"
             # Trim trailing punctuation captured inside the quotes
             # (e.g. (the "Notes," ...) -> "Notes").
-            term = m.group("term").strip().rstrip(C.TRAILING_PUNCT)
+            term = m.group(term_group).strip().rstrip(C.TRAILING_PUNCT)
             slug = _slugify_term(term)
             if not slug or slug in seen:
                 continue
@@ -244,8 +269,8 @@ class ReferenceExtractor:
             emitted += 1
             yield Candidate(
                 reference_type=C.REF_DEFINED_TERM,
-                start=m.start("term") - 1,
-                end=m.end("term") + 1,
+                start=m.start(term_group) - 1,
+                end=m.end(term_group) + 1,
                 raw_text=term,
                 canonical_key=f"term:{slug}",
                 normalized_data={"term": term, "slug": slug, "kind": kind},

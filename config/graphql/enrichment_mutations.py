@@ -12,13 +12,17 @@ import logging
 from typing import Any
 
 import graphene
+from django.db import transaction
 from graphql_jwt.decorators import login_required
 from graphql_relay import from_global_id
 
 from config.graphql.graphene_types import AnalysisType
+from config.graphql.ratelimits import RateLimits, graphql_ratelimit
 from opencontractserver.analyzer.services.analysis_lifecycle_service import (
     AnalysisLifecycleService,
 )
+from opencontractserver.corpuses.models import Corpus
+from opencontractserver.corpuses.services import CorpusService
 from opencontractserver.enrichment import constants as C
 from opencontractserver.enrichment.services import EnrichmentService
 from opencontractserver.enrichment.services.authority_permissions import (
@@ -30,6 +34,41 @@ from opencontractserver.enrichment.services.crawl_authorities_service import (
 )
 
 logger = logging.getLogger(__name__)
+
+# field -> (minimum, maximum) for caller-supplied crawl bounds. ``maximum=None``
+# means "no upper bound": for ``min_demand`` a HIGHER value is MORE selective
+# (it skips more frontier rows), so it is cheaper, never a resource risk — only
+# a floor is enforced (mirrors the crawl analyzer input schema, which sets only
+# ``minimum: 0`` on min_demand). The remaining bounds gate the EXPENSIVE
+# direction, so they are capped at the safe default.
+CRAWL_BOUND_LIMITS: dict[str, tuple[int, int | None]] = {
+    "max_depth": (0, C.CRAWL_MAX_ALLOWED_DEPTH),
+    "min_demand": (0, None),
+    "max_authorities": (1, C.CRAWL_DEFAULT_MAX_AUTHORITIES),
+    "per_jurisdiction_cap": (1, C.CRAWL_DEFAULT_PER_JURISDICTION_CAP),
+    # A zero token budget disables the crawl loop's budget stop check; require
+    # a positive budget when callers override the safe default.
+    "token_budget": (1, C.CRAWL_DEFAULT_TOKEN_BUDGET),
+}
+
+
+def _validate_crawl_bounds(options: Any | None) -> tuple[dict[str, int], str | None]:
+    """Validate crawl options before queueing a worker-consuming job."""
+
+    bounds: dict[str, int] = {}
+    for field, (minimum, maximum) in CRAWL_BOUND_LIMITS.items():
+        val = getattr(options, field, None) if options is not None else None
+        if val is None:
+            continue
+        if val < minimum or (maximum is not None and val > maximum):
+            msg = (
+                f"{field} must be at least {minimum}."
+                if maximum is None
+                else f"{field} must be between {minimum} and {maximum}."
+            )
+            return {}, msg
+        bounds[field] = val
+    return bounds, None
 
 
 class RunEnrichmentOptionsInput(graphene.InputObjectType):
@@ -100,6 +139,7 @@ class RunCorpusEnrichmentMutation(graphene.Mutation):
     )
 
     @login_required
+    @graphql_ratelimit(rate=RateLimits.AI_ANALYSIS)
     def mutate(
         root,
         info,
@@ -131,6 +171,26 @@ class RunCorpusEnrichmentMutation(graphene.Mutation):
                 analyses=[],
             )
 
+        # ---- Corpus visibility gate: must run before ANY branch that could
+        # leak corpus-specific state (e.g. "a job is already running") to a
+        # caller who cannot even see the corpus. Without this, a user with no
+        # access to ``corpus_pk`` could use the duplicate-job guard below as an
+        # oracle: the error message differs depending on whether an active
+        # analysis exists on a corpus they have never been granted READ on.
+        # ``start_document_analysis`` re-checks visibility (and UPDATE) later;
+        # that is intentional defence-in-depth, not redundant guarding — this
+        # gate only proves the caller may observe the corpus's state at all.
+        if (
+            CorpusService.get_or_none(Corpus, corpus_pk, user, request=info.context)
+            is None
+        ):
+            return RunCorpusEnrichmentMutation(
+                ok=False,
+                partial=False,
+                message="Resource not found or you do not have permission.",
+                analyses=[],
+            )
+
         if not run_enrichment and not run_crawl:
             return RunCorpusEnrichmentMutation(
                 ok=False,
@@ -139,12 +199,33 @@ class RunCorpusEnrichmentMutation(graphene.Mutation):
                 analyses=[],
             )
 
-        created = []
+        # ---- Lock-free validation: fail fast before opening a transaction ----
+        if run_enrichment:
+            use_llm = bool(getattr(options, "use_llm_tier", False) or False)
+            if use_llm and not is_authority_admin(user):
+                return RunCorpusEnrichmentMutation(
+                    ok=False,
+                    partial=False,
+                    message="Only authority administrators can enable the LLM tier.",
+                    analyses=[],
+                )
+        else:
+            use_llm = False
+
+        if run_crawl:
+            bounds, bounds_error = _validate_crawl_bounds(options)
+            if bounds_error:
+                return RunCorpusEnrichmentMutation(
+                    ok=False,
+                    partial=False,
+                    message=bounds_error,
+                    analyses=[],
+                )
+        else:
+            bounds = {}
 
         if run_enrichment:
-            input_data: dict[str, Any] = {
-                "use_llm": bool(getattr(options, "use_llm_tier", False) or False),
-            }
+            enrichment_input: dict[str, Any] = {"use_llm": use_llm}
             ref_types = getattr(options, "reference_types", None)
             # An omitted field (None) or an explicitly empty list are both
             # treated as "no type restriction" — ``types`` stays unset and the
@@ -171,87 +252,104 @@ class RunCorpusEnrichmentMutation(graphene.Mutation):
                         ),
                         analyses=[],
                     )
-                input_data["types"] = list(ref_types)
+                enrichment_input["types"] = list(ref_types)
 
-            analyzer = EnrichmentService.get_or_create_analyzer(user.id)
-            logger.info(
-                "RunCorpusEnrichmentMutation: dispatching enrichment analyzer "
-                "analyzer_pk=%s corpus_pk=%s user=%s",
-                analyzer.pk,
-                corpus_pk,
-                user.id,
-            )
-            res = AnalysisLifecycleService.start_document_analysis(
-                user,
-                analyzer_pk=analyzer.pk,
-                corpus_pk=corpus_pk,
-                analysis_input_data=input_data,
-                request=info.context,
-                require_corpus_update=True,
-            )
-            if not res.ok:
-                return RunCorpusEnrichmentMutation(
-                    ok=False,
-                    partial=False,
-                    message=res.error,
-                    analyses=[],
-                )
-            created.append(res.value)
+        # ---- Atomic check-and-create under a per-corpus dispatch lock --------
+        # The duplicate-job guard and the analysis creation run as one atomic
+        # unit while holding a row lock on the corpus, so two concurrent requests
+        # for the same corpus cannot both read "no active job" and both dispatch
+        # (TOCTOU). The on_commit-queued Celery tasks fire only after this commits.
+        created = []
+        with transaction.atomic():
+            AnalysisLifecycleService.lock_corpus_for_dispatch(corpus_pk)
 
-        if run_crawl:
-            analyzer = CrawlAuthoritiesService.get_or_create_analyzer(user.id)
-            bounds = {}
-            for field in (
-                "max_depth",
-                "min_demand",
-                "max_authorities",
-                "per_jurisdiction_cap",
-                "token_budget",
+            if run_enrichment and AnalysisLifecycleService.active_analysis_exists(
+                corpus_pk, C.ENRICHMENT_ANALYZER_TASK
             ):
-                val = getattr(options, field, None) if options is not None else None
-                if val is not None:
-                    bounds[field] = val
-
-            logger.info(
-                "RunCorpusEnrichmentMutation: dispatching crawl analyzer "
-                "analyzer_pk=%s corpus_pk=%s user=%s bounds=%s",
-                analyzer.pk,
-                corpus_pk,
-                user.id,
-                bounds,
-            )
-            res = AnalysisLifecycleService.start_document_analysis(
-                user,
-                analyzer_pk=analyzer.pk,
-                corpus_pk=corpus_pk,
-                analysis_input_data=bounds or None,
-                request=info.context,
-                require_corpus_update=True,
-            )
-            if not res.ok:
-                if created:
-                    # Partial success: the enrichment analysis was already
-                    # dispatched and is now running. Return ok=True with the
-                    # already-created row(s) and a non-fatal message so the
-                    # caller surfaces the running job instead of treating the
-                    # whole request as failed (and re-dispatching enrichment,
-                    # double-running it).
-                    return RunCorpusEnrichmentMutation(
-                        ok=True,
-                        partial=True,
-                        message=(
-                            "Enrichment started, but the authority crawl could "
-                            f"not be dispatched: {res.error}"
-                        ),
-                        analyses=created,
-                    )
                 return RunCorpusEnrichmentMutation(
                     ok=False,
                     partial=False,
-                    message=res.error,
+                    message="An enrichment analysis is already queued or running.",
                     analyses=[],
                 )
-            created.append(res.value)
+            if run_crawl and AnalysisLifecycleService.active_analysis_exists(
+                corpus_pk, C.CRAWL_ANALYZER_TASK
+            ):
+                return RunCorpusEnrichmentMutation(
+                    ok=False,
+                    partial=False,
+                    message="An authority crawl is already queued or running.",
+                    analyses=[],
+                )
+
+            if run_enrichment:
+                analyzer = EnrichmentService.get_or_create_analyzer(user.id)
+                logger.info(
+                    "RunCorpusEnrichmentMutation: dispatching enrichment analyzer "
+                    "analyzer_pk=%s corpus_pk=%s user=%s",
+                    analyzer.pk,
+                    corpus_pk,
+                    user.id,
+                )
+                res = AnalysisLifecycleService.start_document_analysis(
+                    user,
+                    analyzer_pk=analyzer.pk,
+                    corpus_pk=corpus_pk,
+                    analysis_input_data=enrichment_input,
+                    request=info.context,
+                    require_corpus_update=True,
+                )
+                if not res.ok:
+                    return RunCorpusEnrichmentMutation(
+                        ok=False,
+                        partial=False,
+                        message=res.error,
+                        analyses=[],
+                    )
+                created.append(res.value)
+
+            if run_crawl:
+                analyzer = CrawlAuthoritiesService.get_or_create_analyzer(user.id)
+                logger.info(
+                    "RunCorpusEnrichmentMutation: dispatching crawl analyzer "
+                    "analyzer_pk=%s corpus_pk=%s user=%s bounds=%s",
+                    analyzer.pk,
+                    corpus_pk,
+                    user.id,
+                    bounds,
+                )
+                res = AnalysisLifecycleService.start_document_analysis(
+                    user,
+                    analyzer_pk=analyzer.pk,
+                    corpus_pk=corpus_pk,
+                    analysis_input_data=bounds or None,
+                    request=info.context,
+                    require_corpus_update=True,
+                )
+                if not res.ok:
+                    if created:
+                        # Partial success: the enrichment analysis was already
+                        # dispatched and is now running. Return ok=True with the
+                        # already-created row(s) and a non-fatal message so the
+                        # caller surfaces the running job instead of treating the
+                        # whole request as failed (and re-dispatching enrichment,
+                        # double-running it).
+                        return RunCorpusEnrichmentMutation(
+                            ok=True,
+                            partial=True,
+                            message=(
+                                "Enrichment started, but the authority crawl could "
+                                f"not be dispatched: {res.error}"
+                            ),
+                            analyses=created,
+                        )
+                    return RunCorpusEnrichmentMutation(
+                        ok=False,
+                        partial=False,
+                        message=res.error,
+                        analyses=[],
+                    )
+                created.append(res.value)
 
         return RunCorpusEnrichmentMutation(
             ok=True,

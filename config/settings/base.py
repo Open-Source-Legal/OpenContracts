@@ -1226,6 +1226,16 @@ CORS_ALLOWED_ORIGINS = [
     "https://localhost:5173",
     "http://127.0.0.1:5173",
     "https://127.0.0.1:5173",
+    # A second `yarn start` (e.g. the main checkout while a worktree holds :5173)
+    # lands on the next free Vite port; allow it so anon GraphQL works there too.
+    "http://localhost:5174",
+    "https://localhost:5174",
+    "http://127.0.0.1:5174",
+    "https://127.0.0.1:5174",
+    "http://localhost:5175",
+    "https://localhost:5175",
+    "http://127.0.0.1:5175",
+    "https://127.0.0.1:5175",
 ]
 
 # Allow only HTTP methods here

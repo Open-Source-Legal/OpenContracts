@@ -47,15 +47,67 @@ class EnrichmentService:
     # -- shared internals -------------------------------------------------- #
 
     def _load(self, corpus_id: int, creator_id: int):
+        """Resolve the caller, the (visible) corpus, and the MIN-filtered
+        document set every enrichment surface operates on.
+
+        Document loading ALWAYS uses the MIN(corpus, document) variant
+        (``get_corpus_documents_visible_to_user``): a caller with corpus READ
+        but not per-document READ must never have a private document scanned
+        (scan/discover return verbatim excerpts) or persisted (apply writes
+        ``Annotation`` / ``CorpusReference`` / ``DocumentRelationship`` rows) —
+        issue #1682. The corpus-as-gate baseline used to surface how many
+        documents that filter excluded lives in
+        :meth:`_document_visibility_audit`.
+        """
         user = User.objects.get(pk=creator_id)
         # Visibility-scoped fetch: invisible and nonexistent corpora raise the
         # same ``Corpus.DoesNotExist`` (no existence oracle for callers that
         # pass arbitrary PKs).
         corpus = Corpus.objects.visible_to_user(user).get(pk=corpus_id)
         documents = list(
-            CorpusDocumentService.get_corpus_documents(user, corpus, include_caml=False)
+            CorpusDocumentService.get_corpus_documents_visible_to_user(
+                user, corpus, include_caml=False
+            )
         )
         return user, corpus, documents
+
+    def _document_visibility_audit(
+        self, user, corpus, documents, *, surface: str
+    ) -> tuple[int, int]:
+        """Compare the MIN-filtered document set against the corpus-as-gate
+        total so callers (and operators) can detect documents excluded by
+        per-document visibility.
+
+        Returns ``(total_in_corpus, excluded)``. Emits a WARNING whenever any
+        document was excluded: ``apply`` would otherwise produce a permanent,
+        SILENT gap in ``Annotation`` / ``CorpusReference`` coverage for a caller
+        who holds corpus READ but not per-document READ (the run still completes
+        and is stamped COMPLETED). The agent tools pass the conversation user's
+        ``creator_id`` — not necessarily the corpus owner — so this is a real,
+        not hypothetical, exclusion path (issue #1682 follow-up).
+
+        ``total_in_corpus`` and ``len(documents)`` come from two unsynchronized
+        queries, so a document removed from the corpus between them can make the
+        raw difference negative; clamp to 0 so ``excluded`` never reports a
+        nonsensical negative exclusion count.
+        """
+        total_in_corpus = CorpusDocumentService.get_corpus_documents(
+            user, corpus, include_caml=False
+        ).count()
+        excluded = max(0, total_in_corpus - len(documents))
+        if excluded > 0:
+            logger.warning(
+                "Enrichment %s on corpus %s: %s of %s document(s) excluded — "
+                "caller %s lacks document-level READ on them "
+                "(MIN(corpus, document)); result covers only the visible "
+                "subset.",
+                surface,
+                corpus.id,
+                excluded,
+                total_in_corpus,
+                user.id,
+            )
+        return total_in_corpus, excluded
 
     def _sections_by_doc(self, documents) -> dict[int, list[SectionAnno]]:
         """OC_SECTION annotations grouped by document — one query per corpus."""
@@ -151,9 +203,17 @@ class EnrichmentService:
         sections = sections_by_doc.get(doc.id, [])
         meta = doc.custom_meta if isinstance(doc.custom_meta, dict) else {}
         primary = list(
-            extractor.extract(doc_text, default_authority=meta.get("authority"))
+            extractor.extract(
+                doc_text,
+                default_authority=meta.get("authority"),
+                reference_types=wanted,
+            )
         )
-        cands = reconcile(primary, generic.extract(doc_text)) if generic else primary
+        cands = (
+            reconcile(primary, generic.extract(doc_text, reference_types=wanted))
+            if generic
+            else primary
+        )
         if llm_cands:
             cands = reconcile(cands, llm_cands)
         return [
@@ -255,7 +315,11 @@ class EnrichmentService:
         doc_sem = asyncio.Semaphore(C.doc_max_concurrency())
 
         agg = WriteResult()
-        documents_total = len(documents)
+        # ``documents`` here is already the MIN-filtered (visible) set passed
+        # in by the caller (see ``apply()``'s ``documents_visible_to_caller``);
+        # name it the same way so the progress log below can't be misread as
+        # the corpus-as-gate total.
+        documents_visible_to_caller = len(documents)
         counters = {"total": 0, "done": 0, "attempted": 0}
         # Per-document failures captured here instead of propagating out of the
         # gather (see below) so one document's error can't discard the rest.
@@ -310,7 +374,7 @@ class EnrichmentService:
                     logger.info(
                         "Enrichment apply: doc %s/%s (corpus %s) — refs so far=%s",
                         counters["done"],
-                        documents_total,
+                        documents_visible_to_caller,
                         corpus.id,
                         agg.references_created,
                     )
@@ -369,6 +433,9 @@ class EnrichmentService:
         extra_tiers: list[str] | None = None,
     ) -> dict:
         user, corpus, documents = self._load(corpus_id, creator_id)
+        documents_total_in_corpus, documents_excluded = self._document_visibility_audit(
+            user, corpus, documents, surface="scan"
+        )
         resolutions = self._resolutions(
             corpus, documents, types, user, extra_tiers=extra_tiers
         )
@@ -399,6 +466,8 @@ class EnrichmentService:
         return {
             "corpus_id": corpus_id,
             "documents_scanned": len(documents),
+            "documents_total_in_corpus": documents_total_in_corpus,
+            "documents_excluded_by_visibility": documents_excluded,
             "total_candidates": len(resolutions),
             "counts_by_type": dict(by_type),
             "counts_by_status": dict(by_status),
@@ -421,16 +490,27 @@ class EnrichmentService:
         AuthorityNamespace row (genuinely new bodies of law).
 
         Runs registry + grammar extraction over the *full text* of every corpus
-        document, so cost scales with corpus size. ``max_documents`` caps the
-        document set when set (the result reports ``documents_truncated`` so the
-        cap is never silent); ``None`` (default) scans the whole corpus.
+        document the caller can see, so cost scales with corpus size.
+        ``max_documents`` caps the document set when set (the result reports
+        ``documents_truncated`` so the cap is never silent); ``None`` (default)
+        scans the whole *visible* corpus.
+
+        Two independent counts are reported so neither effect is silent:
+        ``documents_total_in_corpus`` (corpus-as-gate total) vs
+        ``documents_visible_to_caller`` (after the MIN(corpus, document) filter,
+        before the ``max_documents`` cap) — their difference is
+        ``documents_excluded_by_visibility``; ``documents_truncated`` then
+        reflects only the ``max_documents`` cap applied to the visible set.
         """
         from opencontractserver.annotations.models import AuthorityNamespace
 
         user, corpus, documents = self._load(corpus_id, creator_id)
-        documents_total = len(documents)
+        documents_total_in_corpus, documents_excluded = self._document_visibility_audit(
+            user, corpus, documents, surface="discover"
+        )
+        documents_visible_to_caller = len(documents)
         documents_truncated = (
-            max_documents is not None and documents_total > max_documents
+            max_documents is not None and documents_visible_to_caller > max_documents
         )
         if documents_truncated:
             documents = documents[:max_documents]
@@ -536,7 +616,9 @@ class EnrichmentService:
         return {
             "corpus_id": corpus_id,
             "documents_scanned": len(documents),
-            "documents_total": documents_total,
+            "documents_visible_to_caller": documents_visible_to_caller,
+            "documents_total_in_corpus": documents_total_in_corpus,
+            "documents_excluded_by_visibility": documents_excluded,
             "documents_truncated": documents_truncated,
             "total_candidates": len(resolutions),
             "by_key": by_key,
@@ -634,6 +716,14 @@ class EnrichmentService:
         persisted is always spelled out at the call site.
         """
         user, corpus, documents = self._load(corpus_id, creator_id)
+        # apply is the higher-stakes path: a document excluded by the
+        # MIN(corpus, document) filter is silently absent from the persisted
+        # web (no Annotation/CorpusReference rows), yet the run still completes
+        # COMPLETED. Surface the exclusion (count + WARNING) so the gap is
+        # auditable rather than invisible.
+        documents_total_in_corpus, documents_excluded = self._document_visibility_audit(
+            user, corpus, documents, surface="apply"
+        )
         if extra_tiers is None:
             extra_tiers = [C.DETECTION_TIER_GRAMMAR]
         if analysis is None:
@@ -666,7 +756,12 @@ class EnrichmentService:
 
         writer = EnrichmentWriter(corpus, creator_id, analysis=analysis)
 
-        documents_total = len(documents)
+        # Named to match discover()'s convention: this is the MIN-filtered
+        # (visible) count, NOT the corpus-as-gate total — see
+        # ``documents_total_in_corpus`` above. A progress log or return value
+        # keyed off the corpus total here would misrepresent an
+        # excluded-documents run as covering the whole corpus.
+        documents_visible_to_caller = len(documents)
         agg = WriteResult()
         total_candidates = 0
         try:
@@ -707,7 +802,7 @@ class EnrichmentService:
                     logger.info(
                         "Enrichment apply: doc %s/%s (corpus %s) — refs so far=%s",
                         index,
-                        documents_total,
+                        documents_visible_to_caller,
                         corpus_id,
                         agg.references_created,
                     )
@@ -747,7 +842,9 @@ class EnrichmentService:
         return {
             "corpus_id": corpus_id,
             "analysis_id": analysis.id,
-            "documents_scanned": documents_total,
+            "documents_scanned": documents_visible_to_caller,
+            "documents_total_in_corpus": documents_total_in_corpus,
+            "documents_excluded_by_visibility": documents_excluded,
             "total_candidates": total_candidates,
             "annotations_created": agg.annotations_created,
             "annotations_upgraded": agg.annotations_upgraded,

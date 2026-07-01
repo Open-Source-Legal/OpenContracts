@@ -52,6 +52,27 @@ const ArticleViewContainer = styled.div`
   background: ${OS_LEGAL_COLORS.surface};
   overflow-x: hidden;
   box-sizing: border-box;
+
+  /* An oc-component whose component self-hides (e.g. the document graph on a
+     collection with no relationships, or the governance graph on one that cites
+     no in-system law) renders an empty section. The CAML renderer still wraps it
+     in a padded scrollytelling band, leaving a dead gap. Collapse those so a
+     public corpus home never carries an empty, padded section — the article
+     adapts to whatever intelligence the collection actually has. */
+  section:empty {
+    display: none;
+  }
+
+  /* Tighten the per-block scrollytelling rhythm. The CAML renderer pads every
+     block with ~3rem top and bottom (a 6rem gap between blocks) which reads as
+     a sparse, narrative scroll. The corpus home is the default article for
+     every collection and is data-dense, so a composed ~2rem rhythm frames the
+     overview, governance graph and Q&A as one surface rather than distant
+     scenes. Author-written narrative articles render here too and still breathe. */
+  section {
+    padding-top: 2rem;
+    padding-bottom: 2rem;
+  }
 `;
 
 const ArticleToolbar = styled.div`

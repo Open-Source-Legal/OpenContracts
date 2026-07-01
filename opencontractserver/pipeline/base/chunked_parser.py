@@ -24,6 +24,7 @@ from pypdf import PdfReader
 from opencontractserver.constants import (
     DEFAULT_CHUNK_OVERLAP,
     DEFAULT_CHUNK_RETRY_LIMIT,
+    DEFAULT_MAX_CHORD_TASKS,
     DEFAULT_MAX_CONCURRENT_CHUNKS,
     DEFAULT_MAX_PAGES_PER_CHUNK,
     DEFAULT_MIN_PAGES_FOR_CHUNKING,
@@ -102,6 +103,11 @@ class BaseChunkedParser(BaseParser):
     max_pages_per_chunk: int = DEFAULT_MAX_PAGES_PER_CHUNK
     min_pages_for_chunking: int = DEFAULT_MIN_PAGES_FOR_CHUNKING
     max_concurrent_chunks: int = DEFAULT_MAX_CONCURRENT_CHUNKS
+    # Ceiling on chord fan-out: ingest_doc dispatches one Celery task per chunk
+    # only while chunk_count <= max_chord_tasks; above it, the document is parsed
+    # in a single in-process task. Orthogonal to max_concurrent_chunks (which
+    # only sizes the in-process thread pool) — see DEFAULT_MAX_CHORD_TASKS.
+    max_chord_tasks: int = DEFAULT_MAX_CHORD_TASKS
     # Pages each chunk's parse range extends past its core boundary on every
     # interior side, so boundary-spanning structure survives in at least one
     # chunk. Reassembly dedupes the overlap and re-links cross-boundary refs.

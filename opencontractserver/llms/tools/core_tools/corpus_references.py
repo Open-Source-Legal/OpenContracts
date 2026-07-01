@@ -25,6 +25,11 @@ def scan_corpus_references(
     Law"), document/exhibit references, and internal section references, then
     reports counts by type and sample resolved/unresolved candidates so the user
     can review before applying enrichment.
+
+    Only scans documents the caller can READ (``MIN(corpus, document)``); the
+    result reports ``documents_total_in_corpus`` alongside
+    ``documents_excluded_by_visibility`` so a caller with corpus READ but not
+    per-document READ can see how much of the corpus a partial scan covered.
     """
     from opencontractserver.enrichment.services import EnrichmentService
 
@@ -45,6 +50,11 @@ def apply_corpus_reference_enrichment(
     relationships, resolves document/exhibit references to in-app links, and
     records law citations as cross-corpus-trackable stubs. Idempotent:
     re-running enriches only newly-found references.
+
+    Only persists rows for documents the caller can READ (``MIN(corpus,
+    document)``); the result reports ``documents_total_in_corpus`` alongside
+    ``documents_excluded_by_visibility`` so a caller with corpus READ but not
+    per-document READ can see how much of the corpus this run actually wrote.
     """
     from opencontractserver.enrichment.services import EnrichmentService
 
@@ -95,8 +105,10 @@ def discover_authorities(
     locating. Writes nothing.
 
     Cost scales with corpus size (every document's full text is scanned). On a
-    large corpus pass ``max_documents`` to cap the scan; the result then reports
-    ``documents_total`` and ``documents_truncated`` so the cap is explicit.
+    large corpus pass ``max_documents`` to cap the scan; the result reports
+    ``documents_total_in_corpus``, ``documents_visible_to_caller`` and
+    ``documents_truncated`` so both the cap and any per-document visibility
+    filtering (``documents_excluded_by_visibility``) are explicit.
 
     Set ``use_llm=True`` to run an additional LLM detection pass for
     prose/obscure citations (slower, costs tokens). Defaults to ``False``.

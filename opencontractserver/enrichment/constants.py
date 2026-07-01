@@ -80,7 +80,13 @@ GRAPH_CORPUS_AUTHORITY = "authority"
 
 # Defaults / thresholds.
 DEFAULT_SAMPLE_N = 10
-MAX_DEFINED_TERMS = 50  # cap to control precision/volume in v1
+MAX_DEFINED_TERMS = 50  # cap on UNIQUE defined terms emitted per document (v1)
+# Separate, larger raw-scan ceiling: bounds total regex hits inspected so a
+# document that is mostly DUPLICATE definition sites cannot iterate unboundedly
+# hunting for the Nth unique term. Duplicates do NOT consume the unique-term
+# quota above, so this budget is deliberately larger than MAX_DEFINED_TERMS.
+DEFINED_TERM_SCAN_MULTIPLIER = 10  # named so the "why 10?" is a one-line edit
+MAX_DEFINED_TERM_SCAN = DEFINED_TERM_SCAN_MULTIPLIER * MAX_DEFINED_TERMS
 # Per-authority cap on the keys surfaced by the wanted-authorities queue.
 WANTED_AUTHORITIES_TOP_KEYS = 10
 
@@ -108,6 +114,16 @@ CRAWL_MAX_TOKEN_BUDGET = 2_000_000
 # dequeued row at ``deferred_cap`` (blocks the whole run); a floor of 1 keeps at
 # least one authority per jurisdiction processable.
 CRAWL_MIN_PER_JURISDICTION_CAP = 1
+# Hard ceiling on a caller-supplied ``max_depth`` at the GraphQL dispatch
+# surface (the RunCorpusEnrichment mutation's ``_validate_crawl_bounds``,
+# config/graphql/enrichment_mutations.py): a request above this is REJECTED
+# outright before a worker job is even queued. This is a different enforcement
+# point than CRAWL_MAX_MAX_DEPTH above, which SILENTLY CLAMPS the
+# service/tool/analyzer-schema layer (reached by paths that bypass the
+# mutation, e.g. direct analyzer dispatch or the LLM tool). Both gate the same
+# BFS-depth knob and currently agree at 5, but are deliberately independent so
+# either surface's limit can move without the other.
+CRAWL_MAX_ALLOWED_DEPTH = 5
 # Punctuation stripped from the tail of a captured defined term
 # (e.g. (the "Notes," ...) -> "Notes").
 TRAILING_PUNCT = ",.;:"

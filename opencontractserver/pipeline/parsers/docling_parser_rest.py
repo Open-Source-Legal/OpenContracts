@@ -8,6 +8,7 @@ from requests.exceptions import ConnectionError, RequestException, Timeout
 
 from opencontractserver.constants import (
     DEFAULT_CHUNK_OVERLAP,
+    DEFAULT_MAX_CHORD_TASKS,
     DEFAULT_MAX_CONCURRENT_CHUNKS,
     DEFAULT_MAX_PAGES_PER_CHUNK,
     DEFAULT_MIN_PAGES_FOR_CHUNKING,
@@ -205,6 +206,19 @@ class DoclingParser(BaseChunkedParser):
                 )
             },
         )
+        max_chord_tasks: int = field(
+            default=DEFAULT_MAX_CHORD_TASKS,
+            metadata={
+                "pipeline_setting": PipelineSetting(
+                    setting_type=SettingType.OPTIONAL,
+                    description=(
+                        "Maximum chunk tasks fanned out across the Celery broker "
+                        "as a chord before falling back to in-process parsing"
+                    ),
+                    env_var="DOCLING_MAX_CHORD_TASKS",
+                )
+            },
+        )
         chunk_overlap: int = field(
             default=DEFAULT_CHUNK_OVERLAP,
             metadata={
@@ -241,6 +255,7 @@ class DoclingParser(BaseChunkedParser):
         self.max_pages_per_chunk = s.max_pages_per_chunk
         self.min_pages_for_chunking = s.min_pages_for_chunking
         self.max_concurrent_chunks = s.max_concurrent_chunks
+        self.max_chord_tasks = s.max_chord_tasks
         self.chunk_overlap = s.chunk_overlap
 
         logger.info(
@@ -249,7 +264,8 @@ class DoclingParser(BaseChunkedParser):
             f"chunking: {self.min_pages_for_chunking}+ pages -> "
             f"{self.max_pages_per_chunk} pages/chunk "
             f"(overlap {self.chunk_overlap}), "
-            f"max_concurrent: {self.max_concurrent_chunks}"
+            f"max_concurrent: {self.max_concurrent_chunks}, "
+            f"max_chord_tasks: {self.max_chord_tasks}"
         )
 
     @staticmethod
