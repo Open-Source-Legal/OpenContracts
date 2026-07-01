@@ -140,10 +140,15 @@ def _read_guarded_source_bytes(
         )
         return None
     if max_source_bytes is not None and len(source_bytes) > max_source_bytes:
-        # Post-read guard. For a ``ZIP_STORED`` (uncompressed) member there is no
-        # mid-stream CRC, so a lying-metadata STORED member is caught HERE, not by
-        # the exception handler above: the bounded read returns ``max + 1`` raw
-        # bytes cleanly and this length check rejects it.
+        # Post-read guard: defence-in-depth for any reader path that returns
+        # extra bytes without raising. A lying-metadata STORED member (reported
+        # file_size under-reports the real data) is actually caught by the
+        # EXCEPTION HANDLER above, not here: ZipExtFile caps decompressed output
+        # at the reported file_size, so the bounded read hits end-of-member
+        # early and the stored CRC-32 (computed over the full content) fails
+        # to match the truncated bytes returned, raising BadZipFile. This
+        # length check is the safety net for mock-based scenarios and future
+        # reader changes where bytes could slip past CRC validation.
         logger.warning(
             "Skipping source read for %s: ZIP member expanded beyond "
             "MAX_CORPUS_REINGEST_SOURCE_BYTES=%s while reading.",
@@ -381,11 +386,16 @@ def _import_document_with_annotations(
     # relationship fan-in can resolve this doc's annotation ids.
     reingest_fallback = False
     # Bytes the reingest peek already read, reused by the baked block so it never
-    # re-opens the same member a second time. ``None`` means "not yet read" (the
-    # direct baked path) OR "the guard rejected an over-size / unreadable member".
+    # re-opens the same member a second time. ``None`` here is ambiguous on its
+    # own (it means both "not yet read" AND "read but rejected by the guard"),
+    # so ``source_read_attempted`` tracks whether the peek ran at all — the
+    # baked block below must not mistake a rejection for "not yet read" and
+    # re-read (and re-reject) the same member a second time.
     baked_source_bytes: bytes | None = None
+    source_read_attempted = False
     if reingest_and_remap:
         source_bytes = _read_guarded_source_bytes(import_zip, doc_filename)
+        source_read_attempted = True
         if source_bytes is not None and _source_is_reingestable(source_bytes):
             return _reingest_document_with_deferred_remap(
                 doc_filename,
@@ -417,12 +427,13 @@ def _import_document_with_annotations(
         )
 
     try:
-        if baked_source_bytes is None:
-            # Either a direct baked import (reingest_and_remap=False) that has not
-            # read the member yet, or a reingest fallback whose source was
-            # size-rejected / unreadable. Read through the SAME size guard so the
-            # baked path can never stream an unbounded member into storage — the
-            # reingest guard must not be bypassable by falling through to baked.
+        if not source_read_attempted:
+            # Direct baked import (reingest_and_remap=False): the member has not
+            # been read yet (a reingest fallback already attempted the read above,
+            # whether it yielded bytes or a rejection, so it never reaches here).
+            # Read through the SAME size guard so the baked path can never stream
+            # an unbounded member into storage — the reingest guard must not be
+            # bypassable by falling through to baked.
             baked_source_bytes = _read_guarded_source_bytes(import_zip, doc_filename)
         if baked_source_bytes is None:
             logger.warning(

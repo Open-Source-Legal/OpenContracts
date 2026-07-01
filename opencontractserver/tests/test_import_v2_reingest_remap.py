@@ -315,6 +315,56 @@ class TestSourceReingestability(TestCase):
                 # The over-size member was never streamed into storage.
                 self.assertEqual(Document.objects.count(), doc_count_before)
 
+    @override_settings(MAX_CORPUS_REINGEST_SOURCE_BYTES=4)
+    def test_oversized_member_read_guard_not_called_twice_on_reingest_reject(self):
+        """Regression: an oversize member rejected by the reingest peek must
+        not be re-read (and re-rejected) a second time by the baked fallback
+        block.
+
+        Before the fix, ``baked_source_bytes`` used ``None`` as both "not yet
+        read" (direct baked path) and "read but rejected by the guard"
+        (reingest fallback), so the baked block could not tell the two states
+        apart and re-opened + re-rejected the SAME ZIP member — doubling the
+        warning logs the guard emits for a single oversize event.
+        """
+        from unittest import mock
+
+        user = User.objects.create_user(username="single_read_user", password="pw")
+        labelset = LabelSet.objects.create(title="LS", creator=user)
+        corpus = Corpus.objects.create(title="C", creator=user, label_set=labelset)
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("documents/huge.pdf", b"%PDF-1.4 oversized body")
+        buf.seek(0)
+
+        with zipfile.ZipFile(buf) as zf:
+            with mock.patch(
+                "opencontractserver.tasks.import_tasks_v2._read_guarded_source_bytes",
+                wraps=_read_guarded_source_bytes,
+            ) as mocked_read:
+                corpus_doc, annot_id_map = _import_document_with_annotations(
+                    doc_filename="documents/huge.pdf",
+                    doc_data={
+                        "title": "Huge",
+                        "content": "x",
+                        "pawls_file_content": [],
+                    },
+                    import_zip=zf,
+                    user_obj=user,
+                    corpus_obj=corpus,
+                    label_lookup={},
+                    doc_label_lookup={},
+                    reingest_and_remap=True,
+                )
+
+            # The peek read the member exactly once: the baked fallback block
+            # must reuse that rejection rather than re-opening the member.
+            mocked_read.assert_called_once_with(zf, "documents/huge.pdf")
+
+        self.assertIsNone(corpus_doc)
+        self.assertEqual(annot_id_map, {})
+
 
 class TestCorpusImportFanIn(TestCase):
     """Coordination-layer unit tests for the relationship fan-in."""
