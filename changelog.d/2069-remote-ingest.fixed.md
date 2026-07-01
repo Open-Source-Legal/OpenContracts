@@ -13,3 +13,11 @@
   `VECTOR_EMBEDDER_API_KEY` sourced from the matching Django-side var
   (`VECTOR_`/`MULTIMODAL_EMBEDDER_API_KEY` in `.envs/.local/.django`) so an
   overridden key stays in sync on both sides instead of silently mismatching.
+- **Tests: `test.yml`'s `vector-embedder` service was missing the same env var.**
+  The `multimodal-embedder` block in `test.yml` was updated to pass
+  `VECTOR_EMBEDDER_API_KEY`, but the `vector-embedder` block (`test.yml` lines
+  7-16) was left without it — the test suite only worked because the embedder
+  image's hardcoded `abc123` default happened to match the test env's
+  `VECTOR_EMBEDDER_API_KEY`. Added the same `${VECTOR_EMBEDDER_API_KEY:-abc123}`
+  wiring so the test container isn't silently disconnected from the Django-side
+  key if that default is ever changed to a real key.

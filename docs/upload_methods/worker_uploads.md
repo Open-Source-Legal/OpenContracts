@@ -132,8 +132,8 @@ check is best-effort; for strict enforcement, use a reverse proxy.
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `MAX_WORKER_UPLOAD_SIZE_BYTES` | 256 MB | Max file size per upload |
-| `MAX_WORKER_METADATA_SIZE_BYTES` | 500 MB | Max metadata JSON size |
+| `MAX_WORKER_UPLOAD_SIZE_BYTES` | 256 MiB | Max file size per upload |
+| `MAX_WORKER_METADATA_SIZE_BYTES` | 500 MiB | Max metadata JSON size |
 | `WORKER_UPLOAD_BATCH_SIZE` | 50 | Uploads claimed per batch processor run |
 | `WORKER_UPLOAD_STALE_MINUTES` | 15 | Minutes before stalled uploads reset to PENDING |
 
