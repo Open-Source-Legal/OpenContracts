@@ -656,36 +656,73 @@ class AnnotationType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         ``None`` for structural annotations (``document_id=NULL``) before this
         method ever ran.
         """
-        if self.document_id:
-            return self.document
-        # Structural annotations have document=NULL; resolve via structural_set
-        if self.structural_set_id:
-            structural_set = self.structural_set
-            if structural_set is not None:
-                # Use prefetched documents if available (evaluates prefetch cache)
-                prefetched = list(structural_set.documents.all())
-                if prefetched:
-                    return prefetched[0]
-            # Fallback when the caller did not apply
-            # ``AnnotationService.structural_document_prefetch`` (deferred import
-            # avoids a module-level cycle with documents.models). Scope to this
-            # annotation's own corpus and order deterministically so we never
-            # reintroduce the original arbitrary ``.documents.first()`` bug;
-            # query-context scoping (which corpus is being viewed) only happens
-            # via the prefetch above, so this is a best-effort degraded path.
-            from opencontractserver.documents.models import Document
+        # Deferred import avoids a module-level cycle: ``annotations.services``
+        # (via ``documents.models``) pulls in ``document_types`` which imports
+        # ``annotation_types``.
+        from opencontractserver.annotations.services import AnnotationService
 
-            documents = Document.objects.filter(
-                structural_annotation_set_id=self.structural_set_id
+        user = info.context.user
+
+        if self.document_id:
+            # Non-structural annotation: the document is its own parent. The
+            # annotation list / semantic-search resolvers always
+            # ``select_related("document")``, so the FK is already in memory —
+            # return it directly instead of issuing a per-row ``SELECT``.
+            # ``Field.is_cached`` (``django.db.models.fields.mixins.
+            # FieldCacheMixin``) checks ``instance._state.fields_cache``, i.e.
+            # whether the related ``Document`` object itself was loaded via
+            # ``select_related`` — NOT whether the raw ``document_id`` column
+            # is present on the row (that column is always loaded). So this
+            # correctly distinguishes "FK object in memory" from "FK object
+            # not fetched yet", and the fallback below IS reached whenever a
+            # caller queries ``Annotation`` without ``select_related("document")``.
+            # Annotation READ visibility is inherited from the document, so any
+            # annotation that reached this resolver already implies document
+            # READ; the fallback still re-derives that via a permission-scoped
+            # fetch instead of trusting an un-checked FK traversal.
+            document_field = self._meta.get_field("document")
+            if document_field.is_cached(self):
+                return self.document
+            return AnnotationService.resolve_owned_document(
+                document_id=self.document_id, user=user
             )
-            if self.corpus_id:
-                documents = documents.filter(
-                    path_records__corpus_id=self.corpus_id,
-                    path_records__is_current=True,
-                    path_records__is_deleted=False,
-                )
-            return documents.order_by("slug").first()
-        return None
+
+        # Structural annotations carry document_id=NULL; resolve via structural_set.
+        if not self.structural_set_id:
+            return None
+
+        structural_set = self.structural_set
+        if structural_set is not None:
+            # When ``AnnotationService.structural_document_prefetch`` was applied
+            # (the hot list / search paths), the prefetch cache is already scoped
+            # to the queried context AND to documents the user may READ —
+            # evaluated once for the whole page, ordered by slug. The prefetch is
+            # the permission gate (``user`` is required there), so trust it —
+            # including an empty result, which is already a definitive "no
+            # visible member of this set in this context" rather than a
+            # missing-prefetch signal. ``_prefetched_objects_cache`` is a
+            # private Django attribute (same trade-off already accepted in
+            # ``config/graphql/extract_types.py::resolve_document_count``);
+            # regression coverage lives in
+            # ``test_corpus_cards_structural_document_resolution.py`` —
+            # a broken cache-detection here silently degrades every row to
+            # the per-row fallback query below, which that test's captured
+            # query-count assertion catches.
+            prefetched_cache = getattr(structural_set, "_prefetched_objects_cache", {})
+            if "documents" in prefetched_cache:
+                prefetched = list(structural_set.documents.all())
+                return prefetched[0] if prefetched else None
+
+        # Fallback when the caller did not apply
+        # ``AnnotationService.structural_document_prefetch`` at all (no
+        # ``_prefetched_objects_cache`` entry for ``documents``). Best-effort,
+        # corpus-scoped, permission-gated degraded path — see
+        # ``AnnotationService.resolve_structural_document_fallback``.
+        return AnnotationService.resolve_structural_document_fallback(
+            structural_set_id=self.structural_set_id,
+            corpus_id=self.corpus_id,
+            user=user,
+        )
 
     def resolve_annotation_type(self, info) -> Any:
         """Return annotation_type as a plain string to tolerate invalid DB values."""

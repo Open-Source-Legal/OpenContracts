@@ -417,10 +417,17 @@ class SemanticSearchResultType(graphene.ObjectType):
     )
 
     def resolve_document(self, info) -> Any:
-        """Resolve the document from the annotation."""
-        if self.annotation and self.annotation.document:
-            return self.annotation.document
-        return None
+        """Resolve the document from the annotation.
+
+        Delegates to ``AnnotationType.resolve_document`` so this convenience
+        field shares the annotation resolver's visibility gate (it must not
+        leak a private document via a raw FK) AND resolves structural
+        annotations (``document_id=NULL``) through their shared structural
+        set, exactly like the nested ``annotation { document }`` field.
+        """
+        if self.annotation is None:
+            return None
+        return AnnotationType.resolve_document(self.annotation, info)
 
     def resolve_corpus(self, info) -> Any:
         """Resolve the corpus from the annotation."""

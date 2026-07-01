@@ -780,6 +780,8 @@ class AnnotationService(BaseService):
     @classmethod
     def structural_document_prefetch(
         cls,
+        *,
+        user: Any,
         corpus_id: Optional[int] = None,
         document_id: Optional[int] = None,
     ) -> Prefetch:
@@ -808,7 +810,18 @@ class AnnotationService(BaseService):
         while the corpus annotation cards (document_id=None) fall back to
         the corpus-local copy.
 
+        The prefetch is ALSO scoped to documents ``user`` may READ
+        (``Document.objects.visible_to_user``). A ``StructuralAnnotationSet``
+        is content-hash deduplicated and therefore shared across documents
+        AND owners, so an unscoped prefetch can surface a private copy owned
+        by another user. Filtering here means ``resolve_document`` never has
+        to re-gate per row — the visibility check runs once when the prefetch
+        is evaluated for the whole page. ``user`` is required (keyword-only)
+        so a caller cannot accidentally build an un-gated prefetch.
+
         Args:
+            user: The requesting user; the prefetched documents are
+                intersected with ``Document.objects.visible_to_user(user)``.
             corpus_id: When set (and no ``document_id``), restrict the
                 prefetched documents to those with a current, non-deleted
                 path in this corpus.
@@ -823,7 +836,7 @@ class AnnotationService(BaseService):
         """
         from opencontractserver.documents.models import Document
 
-        documents = Document.objects.select_related("creator")
+        documents = Document.objects.visible_to_user(user).select_related("creator")
         if document_id is not None:
             documents = documents.filter(id=document_id)
         elif corpus_id is not None:
@@ -836,3 +849,78 @@ class AnnotationService(BaseService):
             "structural_set__documents",
             queryset=documents.order_by("slug").distinct(),
         )
+
+    @classmethod
+    def resolve_owned_document(cls, *, document_id: int, user: Any) -> Any:
+        """Permission-gated fallback fetch of a non-structural annotation's document.
+
+        ``AnnotationType.resolve_document`` returns ``self.document`` directly
+        when the FK was ``select_related`` (the normal, hot path — see the
+        caller). This method backs the defensive fallback for callers that
+        fetched the ``Annotation`` without ``select_related("document")``:
+        annotation READ visibility is inherited from the document, so any
+        annotation that reached the resolver already implies document READ,
+        but the permission-scoped fetch here re-derives that instead of
+        trusting an un-checked FK traversal.
+
+        Args:
+            document_id: ``Annotation.document_id`` of the owning document.
+            user: The requesting user; the result is intersected with
+                ``Document.objects.visible_to_user``.
+
+        Returns:
+            The ``Document``, or ``None`` if it is not visible to ``user``.
+        """
+        from opencontractserver.documents.models import Document
+
+        return (
+            cls.filter_visible_qs(Document.objects.filter(pk=document_id), user)
+            .select_related("creator")
+            .first()
+        )
+
+    @classmethod
+    def resolve_structural_document_fallback(
+        cls,
+        *,
+        structural_set_id: int,
+        corpus_id: Optional[int],
+        user: Any,
+    ) -> Any:
+        """Best-effort structural-document resolution when no context-scoped
+        prefetch (``structural_document_prefetch``) was applied — or its
+        user-scoped prefetch resolved to nothing.
+
+        Scopes to the annotation's own corpus, gates by visibility, and
+        orders deterministically so this never returns an arbitrary or
+        private member of the content-hash-shared ``StructuralAnnotationSet``.
+        Query-context scoping (which corpus/document is being viewed) only
+        happens via the prefetch in ``structural_document_prefetch``; without
+        a corpus to scope against here, any visible member of the shared set
+        is an equally "valid" but potentially unrelated-corpus (or the
+        standalone import source) pick, so this returns ``None`` rather than
+        guessing.
+
+        Args:
+            structural_set_id: ``Annotation.structural_set_id`` of the shared set.
+            corpus_id: ``Annotation.corpus_id``. Required — without it there is
+                no corpus to scope the shared set's documents against.
+            user: The requesting user; the result is intersected with
+                ``Document.objects.visible_to_user``.
+
+        Returns:
+            The corpus-scoped, visible ``Document``, or ``None`` when there is
+            no corpus context or no visible member of the set has a path in it.
+        """
+        from opencontractserver.documents.models import Document
+
+        if not corpus_id:
+            return None
+
+        documents = Document.objects.filter(
+            structural_annotation_set_id=structural_set_id,
+            path_records__corpus_id=corpus_id,
+            path_records__is_current=True,
+            path_records__is_deleted=False,
+        )
+        return cls.filter_visible_qs(documents, user).order_by("slug").first()

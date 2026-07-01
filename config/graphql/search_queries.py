@@ -755,6 +755,7 @@ class SearchQueryMixin:
                 )
                 .prefetch_related(
                     AnnotationService.structural_document_prefetch(
+                        user=user,
                         corpus_id=corpus_pk,
                         document_id=document_pk,
                     )
