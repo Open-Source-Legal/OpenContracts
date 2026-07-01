@@ -9,21 +9,29 @@ or ``safe_fetch_text``.  They enforce:
   reserved/unspecified/CGNAT addresses (closes multi-A-record / DNS-rebinding
   windows).
 - Manual redirect loop that re-validates EVERY hop independently.
+- DNS pinning: the connection for each hop is made to the SAME address that
+  was just validated, never a second, independently-resolved address.
 - Streamed size cap (both Content-Length header and actual bytes).
 - Connect + read timeouts.
 
 ``SSRFValidationError`` (subclasses ``ValueError``) is raised for every safety
 violation so callers can distinguish "blocked for safety" from "network error".
 
-DNS-rebind TOCTOU note
-----------------------
-This helper validates DNS at check time but httpx re-resolves at connect time,
-so a DNS-rebind time-of-check/time-of-use window technically exists.  In
-practice it is not exploitable here because the allowlist is a fixed set of
-public-domain ``.gov`` hosts whose DNS the attacker cannot control, and
-``_assert_public_ip`` rejects if ANY resolved address is non-public.
-Full DNS-pinning (resolve once, connect to the pinned IP with the hostname as
-SNI) is the defence-in-depth follow-up tracked in issue #2048.
+DNS pinning (issue #2048)
+-------------------------
+``_assert_public_ip`` resolves a host and rejects it if any address is
+non-public, but returns the validated addresses too. ``safe_fetch_bytes`` pins
+its connection to the FIRST validated address via ``_DNSPinnedTransport``
+(a custom ``httpx.HTTPTransport``) instead of handing the hostname to
+httpx/httpcore and letting them resolve it again independently at connect
+time — closing the DNS-rebind time-of-check/time-of-use window a resolve-then-
+reresolve design would otherwise leave open. Each redirect hop gets its own
+pin, resolved fresh, since a redirect can land on a different host entirely.
+The original hostname is still sent as the TLS SNI/certificate-verification
+name and the ``Host`` header, so certificate validation and server-side vhost
+routing are unaffected. ``validate_url`` itself does not pin anything — it is
+a standalone check for callers that issue their own request afterward (e.g.
+via ``requests``) rather than through ``safe_fetch_bytes``.
 """
 
 from __future__ import annotations
@@ -140,8 +148,12 @@ def host_on_allowlist(host: str, *, allowlist: frozenset[str] | None = None) -> 
     return any(host.endswith("." + a) for a in allowlist)
 
 
-def _assert_public_ip(host: str) -> None:
-    """Resolve *host* and raise if ANY resolved address is non-public.
+def _assert_public_ip(
+    host: str,
+) -> list[ipaddress.IPv4Address | ipaddress.IPv6Address]:
+    """Resolve *host*, raise if ANY resolved address is non-public, and return the
+    validated addresses (AS RESOLVED — see note below) for the caller to pin the
+    outbound connection to.
 
     Rejecting when *any* address is unsafe (not just the first) closes the
     multi-A-record / partial-rebind window. RFC 6598 CGNAT space, which the
@@ -151,7 +163,10 @@ def _assert_public_ip(host: str) -> None:
     embedded IPv4 first: the OS connects to that IPv4, but its is_private /
     _CGNAT_NETWORK membership do not reflect the mapping on every CPython
     version (the CGNAT-mapped form slips through on 3.11), so the mapped form of
-    a private/CGNAT address must not bypass the checks.
+    a private/CGNAT address must not bypass the checks. The unwrap is used ONLY
+    for the safety check; the returned list carries each address in the form it
+    was actually resolved to (mapped IPv6 included), since that is the literal
+    ``safe_fetch_bytes`` pins the TCP connection to — see its DNS-pinning note.
     """
     try:
         infos = socket.getaddrinfo(host, None)
@@ -161,11 +176,12 @@ def _assert_public_ip(host: str) -> None:
         # getaddrinfo can return an EMPTY list without raising on some resolver
         # configs (e.g. a name with no A/AAAA records, or OS-level filtering). An
         # empty loop below would fall through and silently declare the host safe
-        # (fail-OPEN), after which httpx still resolves independently at connect
-        # time — so reject explicitly and fail CLOSED.
+        # (fail-OPEN), after which the pinned connect would have no address to
+        # target — so reject explicitly and fail CLOSED.
         raise SSRFValidationError(f"no addresses resolved for {host!r}")
+    validated: list[ipaddress.IPv4Address | ipaddress.IPv6Address] = []
     for info in infos:
-        ip = ipaddress.ip_address(info[4][0])
+        resolved_ip = ipaddress.ip_address(info[4][0])
         # Unwrap IPv4-mapped IPv6 so the checks below run against the real IPv4
         # destination (see docstring). Native IPv6 is left as-is.
         #
@@ -177,27 +193,42 @@ def _assert_public_ip(host: str) -> None:
         # (::/96) — are already rejected because CPython flags those whole
         # prefixes is_private / is_reserved (verified on 3.11 and 3.12; pinned by
         # test_ipv6_embedded_ipv4_tunnels_rejected), so no per-form extraction is
-        # needed. The separate DNS-rebind TOCTOU is tracked in #2048.
-        if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
-            ip = ip.ipv4_mapped
+        # needed.
+        check_ip = resolved_ip
         if (
-            ip.is_private
-            or ip.is_loopback
-            or ip.is_link_local
-            or ip.is_multicast
-            or ip.is_reserved
-            or ip.is_unspecified
-            or (isinstance(ip, ipaddress.IPv4Address) and ip in _CGNAT_NETWORK)
+            isinstance(check_ip, ipaddress.IPv6Address)
+            and check_ip.ipv4_mapped is not None
         ):
-            raise SSRFValidationError(f"{host!r} resolves to non-public address {ip}")
+            check_ip = check_ip.ipv4_mapped
+        if (
+            check_ip.is_private
+            or check_ip.is_loopback
+            or check_ip.is_link_local
+            or check_ip.is_multicast
+            or check_ip.is_reserved
+            or check_ip.is_unspecified
+            or (
+                isinstance(check_ip, ipaddress.IPv4Address)
+                and check_ip in _CGNAT_NETWORK
+            )
+        ):
+            raise SSRFValidationError(
+                f"{host!r} resolves to non-public address {check_ip}"
+            )
+        validated.append(resolved_ip)
+    return validated
 
 
-def validate_url(url: str, *, allowlist: frozenset[str] | None = None) -> str:
-    """Validate scheme + host allowlist + public-IP.
+def _validate_scheme_allowlist_and_ip(
+    url: str, *, allowlist: frozenset[str] | None
+) -> tuple[str, list[ipaddress.IPv4Address | ipaddress.IPv6Address]]:
+    """Shared implementation behind ``validate_url`` and the DNS-pinning path in
+    ``safe_fetch_bytes``.
 
-    Returns the (lowercased) hostname on success.
-    Raises ``SSRFValidationError`` on any violation. ``allowlist=None`` resolves to
-    the registered effective allowlist (see :func:`host_on_allowlist`).
+    Returns ``(host, validated_ips)``: the validated IPs are the exact addresses
+    ``_assert_public_ip`` already resolved and checked, so a caller that also
+    needs the resolved IP (to pin the outbound connection) never triggers a
+    second, independent DNS round-trip.
     """
     allowlist = _resolve_allowlist(allowlist)
     parsed = urlparse(url)
@@ -208,8 +239,64 @@ def validate_url(url: str, *, allowlist: frozenset[str] | None = None) -> str:
         raise SSRFValidationError(f"no host in URL {url!r}")
     if not host_on_allowlist(host, allowlist=allowlist):
         raise SSRFValidationError(f"host {host!r} not on public-domain allowlist")
-    _assert_public_ip(host)
+    ips = _assert_public_ip(host)
+    return host, ips
+
+
+def validate_url(url: str, *, allowlist: frozenset[str] | None = None) -> str:
+    """Validate scheme + host allowlist + public-IP.
+
+    Returns the (lowercased) hostname on success.
+    Raises ``SSRFValidationError`` on any violation. ``allowlist=None`` resolves to
+    the registered effective allowlist (see :func:`host_on_allowlist`).
+
+    This does not pin a connection to the resolved IP — it is a standalone
+    validation used by callers that make their own request afterward (e.g. via
+    ``requests``); callers that also need to CONNECT should use
+    ``safe_fetch_bytes``, which pins each hop to the address validated here.
+    """
+    host, _ips = _validate_scheme_allowlist_and_ip(url, allowlist=allowlist)
     return host
+
+
+class _DNSPinnedTransport(httpx.HTTPTransport):
+    """``httpx.HTTPTransport`` that connects to a pre-resolved, pre-validated IP
+    instead of letting httpx/httpcore resolve DNS independently at connect time.
+
+    This closes the DNS-rebind time-of-check/time-of-use window: without it, a
+    resolver could return a public address when ``_assert_public_ip`` validates
+    the host and a private one moments later when httpx independently resolves
+    it to connect.
+
+    ``handle_request`` rewrites the outbound request's URL host to
+    ``pinned_ip`` before delegating to the base transport. httpcore's
+    connection pool routes strictly off ``request.url.host``, so the TCP
+    connect targets the pinned address; because that address is already a
+    numeric literal, the OS resolver returns it immediately without a second
+    network round-trip. Two things are deliberately left pointing at the
+    ORIGINAL hostname so the swap is invisible past the TCP layer:
+
+    - The ``Host`` header, which httpx already finalized from the original URL
+      before the transport ever sees the request (so server-side vhost/CDN
+      routing still works).
+    - The ``sni_hostname`` extension, which httpcore's connection layer uses as
+      the TLS ``server_hostname`` — both the SNI ClientHello field and the name
+      matched against the server's certificate — so certificate validation
+      still checks the real hostname rather than the bare IP.
+    """
+
+    def __init__(self, *, pinned_ip: str, sni_hostname: str) -> None:
+        super().__init__()
+        self._pinned_ip = pinned_ip
+        self._sni_hostname = sni_hostname
+
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        request.url = request.url.copy_with(host=self._pinned_ip)
+        request.extensions = {
+            **request.extensions,
+            "sni_hostname": self._sni_hostname,
+        }
+        return super().handle_request(request)
 
 
 def safe_fetch_bytes(
@@ -224,6 +311,9 @@ def safe_fetch_bytes(
 
     - Validates the initial URL (scheme / allowlist / public-IP).
     - Follows up to ``MAX_REDIRECTS`` redirects MANUALLY, re-validating each hop.
+    - DNS-pins each hop: the connection is made to the address just validated
+      for that hop, never re-resolved independently at connect time (see the
+      module docstring's "DNS pinning" section and ``_DNSPinnedTransport``).
     - Streams the body and aborts past *max_bytes* (Content-Length AND actual bytes).
     - Enforces connect + read timeouts via the module-level ``_DEFAULT_TIMEOUT``.
 
@@ -251,9 +341,20 @@ def safe_fetch_bytes(
     if headers:
         request_headers.update(headers)
     current = url
-    with httpx.Client(follow_redirects=False, timeout=_DEFAULT_TIMEOUT) as client:
-        for _ in range(MAX_REDIRECTS + 1):
-            final_host = validate_url(current, allowlist=allowlist)
+    for _ in range(MAX_REDIRECTS + 1):
+        # Validate THIS hop and pin the connection to the address just
+        # resolved+validated above (see ``_DNSPinnedTransport``). A fresh
+        # transport/client is built on every iteration — not reused across
+        # hops — because a redirect can land on a different host, and
+        # therefore a different validated IP, than the previous hop; pinning
+        # must never carry a stale IP forward onto a new host.
+        final_host, ips = _validate_scheme_allowlist_and_ip(
+            current, allowlist=allowlist
+        )
+        transport = _DNSPinnedTransport(pinned_ip=str(ips[0]), sni_hostname=final_host)
+        with httpx.Client(
+            transport=transport, follow_redirects=False, timeout=_DEFAULT_TIMEOUT
+        ) as client:
             with client.stream(
                 "GET", current, params=params, headers=request_headers
             ) as r:
@@ -334,7 +435,7 @@ def safe_fetch_bytes(
                         )
                     chunks.append(chunk)
                 return b"".join(chunks), final_host
-        raise SSRFValidationError(f"exceeded {MAX_REDIRECTS} redirects")
+    raise SSRFValidationError(f"exceeded {MAX_REDIRECTS} redirects")
 
 
 def safe_fetch_text(
