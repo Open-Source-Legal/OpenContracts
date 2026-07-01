@@ -2,10 +2,12 @@
 
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
+from django.core.files.storage import default_storage
 from django.test import TestCase, override_settings
 
 from opencontractserver.documents.models import Document
 from opencontractserver.pipeline.chunk_artifacts import (
+    chunk_input_key,
     chunk_output_key,
     read_chunk_result,
     write_chunk_pdf,
@@ -167,6 +169,11 @@ class TestChunkTasks(TestCase):
         from opencontractserver.tasks import doc_tasks
 
         doc, user = self._doc(6)  # max_pages_per_chunk=2, min=2 → 3 chunks
+        parser = _FakeChunkedParser()
+        # Pin explicitly: this test's chord path depends on 3 chunks fitting
+        # under max_chord_tasks, which was an *implicit* dependency on
+        # DEFAULT_MAX_CHORD_TASKS (10) before this assignment made it visible.
+        parser.max_chord_tasks = 10
         # ingest_doc gates the chord path on current_app.conf.task_always_eager.
         # override_settings IS the correct lever here: Celery loads its conf via
         # config_from_object("django.conf:settings", namespace="CELERY") and reads
@@ -179,7 +186,7 @@ class TestChunkTasks(TestCase):
                 "_resolve_parser_for_ingest",
                 return_value=(
                     "opencontractserver.tests.test_chunked_parser._FakeChunkedParser",
-                    _FakeChunkedParser(),
+                    parser,
                     {},
                 ),
             ), patch(
@@ -193,3 +200,126 @@ class TestChunkTasks(TestCase):
                     ).get()
                 replace_mock.assert_called_once()
                 inline_parse.assert_not_called()
+
+    def test_ingest_doc_large_pdf_falls_back_when_chunk_count_exceeds_limit(self):
+        """Above max_chord_tasks, ingest_doc parses in-process AND cleans up the
+        chunk scratch PDFs that prepare_chunk_inputs wrote (no storage leak)."""
+        from unittest.mock import patch
+
+        from opencontractserver.pipeline import chunk_artifacts
+        from opencontractserver.tasks import doc_tasks
+
+        doc, user = self._doc(8)  # max_pages_per_chunk=2, min=2 → 4 chunks
+        parser = _FakeChunkedParser()
+        parser.max_chord_tasks = 3  # 4 chunks > 3 → fall back to in-process
+        with override_settings(CELERY_TASK_ALWAYS_EAGER=False):
+            with patch.object(
+                doc_tasks,
+                "_resolve_parser_for_ingest",
+                return_value=(
+                    "opencontractserver.tests.test_chunked_parser._FakeChunkedParser",
+                    parser,
+                    {},
+                ),
+            ), patch.object(
+                doc_tasks.ingest_doc, "replace"
+            ) as replace_mock, patch.object(
+                _FakeChunkedParser, "process_document", return_value=None
+            ) as inline_parse, patch.object(
+                chunk_artifacts,
+                "cleanup_chunk_artifacts",
+                wraps=chunk_artifacts.cleanup_chunk_artifacts,
+            ) as cleanup_spy:
+                result = doc_tasks.ingest_doc.apply(
+                    kwargs=dict(user_id=user.id, doc_id=doc.id)
+                ).get()
+                self.assertEqual(result["status"], "success")
+                replace_mock.assert_not_called()
+                inline_parse.assert_called_once_with(user.id, doc.id, corpus_id=None)
+                # The fallback must remove the scratch PDFs prepare_chunk_inputs
+                # wrote, otherwise they leak (cleanup only otherwise runs inside
+                # the chord callback we skipped).
+                cleanup_spy.assert_called_once_with(doc.id)
+                for chunk_index in range(4):
+                    self.assertFalse(
+                        default_storage.exists(chunk_input_key(doc.id, chunk_index)),
+                        f"chunk scratch input {chunk_index} leaked after fallback",
+                    )
+
+    def test_ingest_doc_takes_chord_path_at_exact_max_chord_tasks_boundary(self):
+        """chunk_count == max_chord_tasks must still take the chord path.
+
+        The gate is `chunk_count <= max_chord_tasks`; a regression to `<`
+        would silently push exact-boundary documents onto the slower
+        in-process fallback without any test catching it.
+        """
+        from unittest.mock import patch
+
+        from opencontractserver.tasks import doc_tasks
+
+        doc, user = self._doc(6)  # max_pages_per_chunk=2, min=2 → 3 chunks
+        parser = _FakeChunkedParser()
+        parser.max_chord_tasks = 3  # exact boundary: 3 chunks == limit of 3
+        with override_settings(CELERY_TASK_ALWAYS_EAGER=False):
+            with patch.object(
+                doc_tasks,
+                "_resolve_parser_for_ingest",
+                return_value=(
+                    "opencontractserver.tests.test_chunked_parser._FakeChunkedParser",
+                    parser,
+                    {},
+                ),
+            ), patch(
+                "opencontractserver.pipeline.base.parser.BaseParser.process_document"
+            ) as inline_parse, patch.object(
+                doc_tasks.ingest_doc, "replace", side_effect=RuntimeError("replaced")
+            ) as replace_mock:
+                with self.assertRaises(RuntimeError):
+                    doc_tasks.ingest_doc.apply(
+                        kwargs=dict(user_id=user.id, doc_id=doc.id)
+                    ).get()
+                replace_mock.assert_called_once()
+                inline_parse.assert_not_called()
+
+    def test_ingest_doc_fallback_survives_cleanup_exception(self):
+        """A non-OSError exception from cleanup_chunk_artifacts (e.g. a cloud
+        storage SDK error) must not abort the in-process fallback parse.
+
+        Letting it propagate would surface as an unexpected error, triggering
+        a Celery retry that re-writes the same scratch files and hits the
+        same cleanup failure again — stranding the document in a retry loop
+        that never actually parses.
+        """
+        from unittest.mock import patch
+
+        from opencontractserver.pipeline import chunk_artifacts
+        from opencontractserver.tasks import doc_tasks
+
+        doc, user = self._doc(8)  # max_pages_per_chunk=2, min=2 → 4 chunks
+        parser = _FakeChunkedParser()
+        parser.max_chord_tasks = 3  # 4 chunks > 3 → fall back to in-process
+        with override_settings(CELERY_TASK_ALWAYS_EAGER=False):
+            with patch.object(
+                doc_tasks,
+                "_resolve_parser_for_ingest",
+                return_value=(
+                    "opencontractserver.tests.test_chunked_parser._FakeChunkedParser",
+                    parser,
+                    {},
+                ),
+            ), patch.object(
+                doc_tasks.ingest_doc, "replace"
+            ) as replace_mock, patch.object(
+                _FakeChunkedParser, "process_document", return_value=None
+            ) as inline_parse, patch.object(
+                chunk_artifacts,
+                "cleanup_chunk_artifacts",
+                side_effect=RuntimeError("simulated botocore ClientError"),
+            ) as cleanup_mock:
+                result = doc_tasks.ingest_doc.apply(
+                    kwargs=dict(user_id=user.id, doc_id=doc.id)
+                ).get()
+                self.assertEqual(result["status"], "success")
+                replace_mock.assert_not_called()
+                cleanup_mock.assert_called_once_with(doc.id)
+                inline_parse.assert_called_once_with(user.id, doc.id, corpus_id=None)
