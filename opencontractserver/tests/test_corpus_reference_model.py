@@ -385,3 +385,57 @@ class CorpusReferenceVisibilityTests(TestCase):
         assert (
             CorpusReferenceService.visible_to_user(grantee).filter(pk=ref.pk).exists()
         )
+
+        # A second reference on the same granted corpus/source, but pointing
+        # at a private TARGET document the grantee has no guardian grant for.
+        # The prior assertion never exercises the non-NULL private-target
+        # branch (its reference has target_document=None) — this one does:
+        # corpus + source-document READ alone must not be enough to leak a
+        # target the grantee cannot read.
+        mention2 = Annotation.objects.create(
+            raw_text="mention2",
+            page=1,
+            json={"start": 20, "end": 27},
+            annotation_label=label,
+            document_id=shared_doc.id,
+            corpus=shared_corpus,
+            creator=self.owner,
+            annotation_type=SPAN_LABEL,
+        )
+        ref_with_private_target = CorpusReference.objects.create(
+            corpus=shared_corpus,
+            reference_type=C.REF_LAW,
+            source_annotation=mention2,
+            canonical_key=f"dgcl:{mention2.id}",
+            resolution_status=C.STATUS_EXTERNAL,
+            target_document=self.private_target_doc,
+            creator=self.owner,
+        )
+        assert (
+            not CorpusReferenceService.visible_to_user(grantee)
+            .filter(pk=ref_with_private_target.pk)
+            .exists()
+        )
+
+    def test_for_corpus_hides_private_target_but_for_corpus_by_source_retains_it(self):
+        # Pins the ``for_corpus`` (strict) vs ``for_corpus_by_source``
+        # (ghosting) contract at the corpus-scoped entry points the GraphQL
+        # resolver (``for_corpus``) and governance graph
+        # (``for_corpus_by_source``) actually call. Every other test in this
+        # class exercises ``visible_to_user``/``visible_to_user_by_source``
+        # directly, so an accidental swap of the two ``for_corpus*`` bodies
+        # would pass unnoticed without this test.
+        ref = self._reference(
+            self._mention(self.visible_doc), target_document=self.private_target_doc
+        )
+
+        assert (
+            not CorpusReferenceService.for_corpus(self.viewer, self.corpus.id)
+            .filter(pk=ref.pk)
+            .exists()
+        )
+        assert (
+            CorpusReferenceService.for_corpus_by_source(self.viewer, self.corpus.id)
+            .filter(pk=ref.pk)
+            .exists()
+        )

@@ -24,10 +24,16 @@ class CorpusReferenceService(BaseService):
         """The ``(visible_corpora, visible_documents)`` pair both visibility
         filters need — built in one place so the source-side and target-side
         filters cannot drift apart.
+
+        Materialised to plain pk lists (rather than left as lazy QuerySets):
+        each list is reused across up to four ``__in=`` positions in the
+        combined filter, and Django renders one SQL subquery per ``__in=``
+        use site of a QuerySet. Fetching the pks once here trades a single
+        list round-trip for avoiding that repeated-subquery fan-out.
         """
         return (
-            Corpus.objects.visible_to_user(user),
-            Document.objects.visible_to_user(user),
+            list(Corpus.objects.visible_to_user(user).values_list("pk", flat=True)),
+            list(Document.objects.visible_to_user(user).values_list("pk", flat=True)),
         )
 
     @staticmethod
@@ -35,24 +41,23 @@ class CorpusReferenceService(BaseService):
         """``Q`` gating the reference row's parent corpus and its SOURCE
         annotation under MIN(document_permission, corpus_permission).
 
-        Corpus READ gates the row itself. The source annotation's document AND
-        corpus must both be visible, with NULLs passed through: a structural
-        annotation has ``document=None`` and ``Annotation.corpus`` is nullable,
-        and NULL is never a member of an ``__in`` list — without the isnull
-        guards every structural-annotation-sourced reference (including the
-        corpus owner's own) would be silently dropped.
+        Corpus READ gates the row itself. ``source_annotation`` is a
+        non-nullable FK, so every row has one; what needs the NULL-passthrough
+        guard is the source annotation's own ``document`` and ``corpus``
+        fields. A structural annotation has ``document=None``, and
+        ``Annotation.corpus`` is nullable — NULL is never a member of an
+        ``__in`` list, so without these isnull guards every
+        structural-annotation-sourced reference (including the corpus owner's
+        own) would be silently dropped.
         """
         return Q(corpus__in=visible_corpora) & (
-            Q(source_annotation__isnull=True)
-            | (
-                (
-                    Q(source_annotation__document__isnull=True)
-                    | Q(source_annotation__document__in=visible_documents)
-                )
-                & (
-                    Q(source_annotation__corpus__isnull=True)
-                    | Q(source_annotation__corpus__in=visible_corpora)
-                )
+            (
+                Q(source_annotation__document__isnull=True)
+                | Q(source_annotation__document__in=visible_documents)
+            )
+            & (
+                Q(source_annotation__corpus__isnull=True)
+                | Q(source_annotation__corpus__in=visible_corpora)
             )
         )
 
@@ -177,8 +182,12 @@ class CorpusReferenceService(BaseService):
         """
         from opencontractserver.enrichment.authorities import candidate_keys
 
+        # This aggregate never exposes a target FK (only canonical_key /
+        # corpus_id), so it belongs on the source-only variant per the
+        # documented split above — not the strict ``visible_to_user``, which
+        # also gates on the (here-irrelevant) resolved target.
         qs = (
-            cls.visible_to_user(user)
+            cls.visible_to_user_by_source(user)
             .filter(
                 reference_type=C.REF_LAW,
                 resolution_status=C.STATUS_EXTERNAL,
