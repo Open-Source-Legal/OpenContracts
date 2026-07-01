@@ -17,6 +17,7 @@ import logging
 import os
 import stat
 import zipfile
+import zlib
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -701,3 +702,47 @@ def validate_zip_for_import(
     )
 
     return manifest
+
+
+def read_zip_member_bounded(
+    zip_file: zipfile.ZipFile,
+    member: str | zipfile.ZipInfo,
+    max_bytes: int,
+) -> bytes | None:
+    """Read a zip member into memory, bounded to ``max_bytes``.
+
+    A zip's central directory declares each member's uncompressed
+    ``file_size``, but that value is attacker-controlled metadata on a
+    hand-crafted archive — it does not bound how many bytes
+    ``ZipExtFile.read()`` actually produces. Checking only the declared
+    size (as ``validate_zip_for_import`` does, for a cheap up-front
+    skip) lets a member whose metadata under-reports its true
+    decompressed size force an unbounded allocation once opened. This
+    helper closes that gap: it checks the declared size first (fast
+    rejection for the common case), then performs the real read with
+    ``read(max_bytes + 1)`` so the amount of memory allocated is capped
+    regardless of what the metadata claims.
+
+    Returns the member's bytes, or ``None`` when the member exceeds
+    ``max_bytes`` (by declared size or actual content) or cannot be
+    read safely (missing member, corrupt stream, decompression error)
+    — callers should treat ``None`` as "skip this member".
+    """
+    try:
+        zip_info = (
+            member if isinstance(member, zipfile.ZipInfo) else zip_file.getinfo(member)
+        )
+        if zip_info.file_size > max_bytes:
+            return None
+        with zip_file.open(zip_info) as fh:
+            data = fh.read(max_bytes + 1)
+    except (KeyError, zipfile.BadZipFile, OSError, EOFError, zlib.error) as exc:
+        logger.warning(
+            "read_zip_member_bounded: member %r could not be read safely (%s).",
+            member,
+            exc,
+        )
+        return None
+    if len(data) > max_bytes:
+        return None
+    return data

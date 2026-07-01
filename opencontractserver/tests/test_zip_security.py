@@ -23,6 +23,7 @@ from opencontractserver.utils.zip_security import (
     is_hidden_or_system_file,
     is_relationship_file,
     is_zip_entry_symlink,
+    read_zip_member_bounded,
     sanitize_zip_path,
     validate_zip_for_import,
 )
@@ -575,3 +576,54 @@ class TestRelationshipFileInValidation(TestCase):
         self.assertNotIn("relationships.csv", valid_paths)
         self.assertNotIn("RELATIONSHIPS.csv", valid_paths)
         self.assertEqual(len(manifest.valid_files), 1)
+
+
+class TestReadZipMemberBounded(TestCase):
+    """Tests for the shared bounded-read helper.
+
+    ``validate_zip_for_import`` only checks each member's declared (and
+    attacker-controllable) central-directory ``file_size`` before deciding
+    to read it. ``read_zip_member_bounded`` is the second layer that caps
+    the actual bytes read regardless of what that metadata claims — these
+    tests pin both the common-case declared-size rejection and the
+    "lying metadata" bypass it exists to close.
+    """
+
+    def _zip_with_member(
+        self, name: str, content: bytes, compression=zipfile.ZIP_DEFLATED
+    ):
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", compression=compression) as zf:
+            zf.writestr(name, content)
+        buf.seek(0)
+        return zipfile.ZipFile(buf)
+
+    def test_allows_member_under_limit(self):
+        with self._zip_with_member("small.txt", b"hello") as zf:
+            self.assertEqual(read_zip_member_bounded(zf, "small.txt", 10), b"hello")
+
+    def test_rejects_member_over_declared_size(self):
+        with self._zip_with_member("large.txt", b"x" * 200) as zf:
+            self.assertIsNone(read_zip_member_bounded(zf, "large.txt", 100))
+
+    def test_rejects_metadata_lie_on_read(self):
+        """A crafted member whose declared ``file_size`` under-reports its
+        true content bypasses the cheap pre-check, but the bounded read
+        itself is capped — the member is still rejected, not streamed
+        unbounded into memory.
+        """
+        with self._zip_with_member(
+            "liar.txt", b"x" * 10, compression=zipfile.ZIP_STORED
+        ) as real_zf:
+            info = real_zf.getinfo("liar.txt")
+            info.file_size = 3  # Lie: declare 3 bytes when 10 are stored.
+            self.assertIsNone(read_zip_member_bounded(real_zf, "liar.txt", 4))
+
+    def test_missing_member_returns_none(self):
+        with self._zip_with_member("present.txt", b"x") as zf:
+            self.assertIsNone(read_zip_member_bounded(zf, "missing.txt", 10))
+
+    def test_accepts_zipinfo_argument(self):
+        with self._zip_with_member("small.txt", b"hello") as zf:
+            info = zf.getinfo("small.txt")
+            self.assertEqual(read_zip_member_bounded(zf, info, 10), b"hello")

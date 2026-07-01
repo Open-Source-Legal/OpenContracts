@@ -32,7 +32,10 @@ from opencontractserver.constants.document_processing import (
     DEFAULT_DOCUMENT_PATH_PREFIX,
     MAX_FILENAME_LENGTH,
 )
-from opencontractserver.constants.zip_import import get_zip_max_sidecar_size_bytes
+from opencontractserver.constants.zip_import import (
+    get_zip_max_sidecar_size_bytes,
+    get_zip_max_single_file_size_bytes,
+)
 from opencontractserver.corpuses.models import Corpus, TemporaryFileHandle
 from opencontractserver.documents.models import (
     Document,
@@ -53,6 +56,7 @@ from opencontractserver.utils.importing import (
 )
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 from opencontractserver.utils.validate_export import validate_dumb_anchor_sidecar
+from opencontractserver.utils.zip_security import read_zip_member_bounded
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -293,134 +297,144 @@ def process_documents_zip(
                             )
                             break
 
-                    # Extract the file from the zip
-                    with import_zip.open(filename) as file_handle:
-                        file_bytes = file_handle.read()
+                    # Extract the file from the zip, bounded to avoid a
+                    # crafted ZIP member forcing an unbounded decompression
+                    # into memory — the declared size is checked first, but
+                    # the read itself is also capped so metadata that lies
+                    # about the true decompressed size can't bypass the
+                    # limit (see read_zip_member_bounded docstring).
+                    file_bytes = read_zip_member_bounded(
+                        import_zip, filename, get_zip_max_single_file_size_bytes()
+                    )
+                    if file_bytes is None:
+                        logger.warning(
+                            f"process_documents_zip() - Skipping file {filename}: "
+                            f"exceeds ZIP_MAX_SINGLE_FILE_SIZE_BYTES or could not "
+                            f"be read safely."
+                        )
+                        results["skipped_files"] += 1
+                        continue
 
-                        # Check file type
-                        kind = filetype.guess(file_bytes)
-                        if kind is None:
-                            # Try to detect plaintext using the improved utility
-                            if is_plaintext_content(file_bytes):
-                                kind = "text/plain"
-                            else:  # Truly unknown/binary
-                                logger.info(
-                                    f"process_documents_zip() - Skipping file with unknown type: {filename}"
-                                )
-                                results["skipped_files"] += 1
-                                continue
-                        else:
-                            kind = kind.mime
-
-                        # Skip files with unsupported types
-                        if kind not in get_allowed_mime_types():
+                    # Check file type
+                    kind = filetype.guess(file_bytes)
+                    if kind is None:
+                        # Try to detect plaintext using the improved utility
+                        if is_plaintext_content(file_bytes):
+                            kind = "text/plain"
+                        else:  # Truly unknown/binary
+                            logger.info(
+                                f"process_documents_zip() - Skipping file with unknown type: {filename}"
+                            )
                             results["skipped_files"] += 1
                             continue
+                    else:
+                        kind = kind.mime
 
-                        # Prepare document attributes
-                        # Use only the filename part, discarding the path within the zip
-                        base_filename = pathlib.Path(filename).name
-                        doc_title = base_filename
-                        if title_prefix:
-                            doc_title = f"{title_prefix} - {base_filename}"
+                    # Skip files with unsupported types
+                    if kind not in get_allowed_mime_types():
+                        results["skipped_files"] += 1
+                        continue
 
-                        doc_description = (
-                            description
-                            or f"Uploaded as part of batch upload (job: {job_id})"
+                    # Prepare document attributes
+                    # Use only the filename part, discarding the path within the zip
+                    base_filename = pathlib.Path(filename).name
+                    doc_title = base_filename
+                    if title_prefix:
+                        doc_title = f"{title_prefix} - {base_filename}"
+
+                    doc_description = (
+                        description
+                        or f"Uploaded as part of batch upload (job: {job_id})"
+                    )
+
+                    # Generate path for corpus document
+                    safe_filename = "".join(
+                        c if c.isalnum() or c in "-_." else "_"
+                        for c in base_filename[:MAX_FILENAME_LENGTH]
+                    )
+                    doc_path = f"{DEFAULT_DOCUMENT_PATH_PREFIX}/{safe_filename}"
+
+                    # Create the document based on file type
+                    document = None
+
+                    if kind in [
+                        "application/pdf",
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    ]:
+                        # Use corpus_obj if provided, otherwise use personal corpus
+                        target_corpus = corpus_obj
+                        if target_corpus is None:
+                            # Get or create user's personal corpus
+                            target_corpus = Corpus.get_or_create_personal_corpus(
+                                user_obj
+                            )
+                            logger.info(
+                                f"process_documents_zip() - Using personal corpus "
+                                f"{target_corpus.id} for user {user_obj.id}"
+                            )
+
+                        # Use import_content to create document directly in corpus
+                        # This avoids creating orphan standalone documents
+                        # backend_lock=True ensures document shows as processing
+                        document, status, path_record = target_corpus.import_content(
+                            content=file_bytes,
+                            path=doc_path,
+                            user=user_obj,
+                            title=doc_title,
+                            description=doc_description,
+                            custom_meta=custom_meta,
+                            is_public=make_public,
+                            file_type=kind,
+                            backend_lock=True,
+                        )
+                        logger.info(
+                            f"process_documents_zip() - Created document {document.id} "
+                            f"in corpus {target_corpus.id} (status: {status})"
+                        )
+                    elif kind in ["text/plain", "application/txt"]:
+                        # Use corpus_obj if provided, otherwise use personal corpus
+                        target_corpus = corpus_obj
+                        if target_corpus is None:
+                            target_corpus = Corpus.get_or_create_personal_corpus(
+                                user_obj
+                            )
+                            logger.info(
+                                f"process_documents_zip() - Using personal corpus "
+                                f"{target_corpus.id} for text upload by user {user_obj.id}"
+                            )
+
+                        # Use import_content() which routes based on file_type
+                        document, status, path_record = target_corpus.import_content(
+                            content=file_bytes,
+                            user=user_obj,
+                            path=doc_path,
+                            filename=filename,
+                            file_type=kind,
+                            title=doc_title,
+                            description=doc_description,
+                            custom_meta=custom_meta,
+                            backend_lock=True,
+                            is_public=make_public,
+                        )
+                        logger.info(
+                            f"process_documents_zip() - Created text document {document.id} "
+                            f"in corpus {target_corpus.id} (status: {status})"
                         )
 
-                        # Generate path for corpus document
-                        safe_filename = "".join(
-                            c if c.isalnum() or c in "-_." else "_"
-                            for c in base_filename[:MAX_FILENAME_LENGTH]
+                    if document:
+                        # Set permissions for the document
+                        set_permissions_for_obj_to_user(
+                            user_obj, document, [PermissionTypes.CRUD]
                         )
-                        doc_path = f"{DEFAULT_DOCUMENT_PATH_PREFIX}/{safe_filename}"
 
-                        # Create the document based on file type
-                        document = None
-
-                        if kind in [
-                            "application/pdf",
-                            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        ]:
-                            # Use corpus_obj if provided, otherwise use personal corpus
-                            target_corpus = corpus_obj
-                            if target_corpus is None:
-                                # Get or create user's personal corpus
-                                target_corpus = Corpus.get_or_create_personal_corpus(
-                                    user_obj
-                                )
-                                logger.info(
-                                    f"process_documents_zip() - Using personal corpus "
-                                    f"{target_corpus.id} for user {user_obj.id}"
-                                )
-
-                            # Use import_content to create document directly in corpus
-                            # This avoids creating orphan standalone documents
-                            # backend_lock=True ensures document shows as processing
-                            document, status, path_record = (
-                                target_corpus.import_content(
-                                    content=file_bytes,
-                                    path=doc_path,
-                                    user=user_obj,
-                                    title=doc_title,
-                                    description=doc_description,
-                                    custom_meta=custom_meta,
-                                    is_public=make_public,
-                                    file_type=kind,
-                                    backend_lock=True,
-                                )
-                            )
-                            logger.info(
-                                f"process_documents_zip() - Created document {document.id} "
-                                f"in corpus {target_corpus.id} (status: {status})"
-                            )
-                        elif kind in ["text/plain", "application/txt"]:
-                            # Use corpus_obj if provided, otherwise use personal corpus
-                            target_corpus = corpus_obj
-                            if target_corpus is None:
-                                target_corpus = Corpus.get_or_create_personal_corpus(
-                                    user_obj
-                                )
-                                logger.info(
-                                    f"process_documents_zip() - Using personal corpus "
-                                    f"{target_corpus.id} for text upload by user {user_obj.id}"
-                                )
-
-                            # Use import_content() which routes based on file_type
-                            document, status, path_record = (
-                                target_corpus.import_content(
-                                    content=file_bytes,
-                                    user=user_obj,
-                                    path=doc_path,
-                                    filename=filename,
-                                    file_type=kind,
-                                    title=doc_title,
-                                    description=doc_description,
-                                    custom_meta=custom_meta,
-                                    backend_lock=True,
-                                    is_public=make_public,
-                                )
-                            )
-                            logger.info(
-                                f"process_documents_zip() - Created text document {document.id} "
-                                f"in corpus {target_corpus.id} (status: {status})"
-                            )
-
-                        if document:
-                            # Set permissions for the document
-                            set_permissions_for_obj_to_user(
-                                user_obj, document, [PermissionTypes.CRUD]
-                            )
-
-                            # Update results
-                            results["processed_files"] += 1
-                            results["document_ids"].append(str(document.id))
-                            logger.info(
-                                f"process_documents_zip() - Created document: {document.id} for file: {filename}"
-                            )
+                        # Update results
+                        results["processed_files"] += 1
+                        results["document_ids"].append(str(document.id))
+                        logger.info(
+                            f"process_documents_zip() - Created document: {document.id} for file: {filename}"
+                        )
 
                 except Exception as e:
                     logger.error(
@@ -638,9 +652,12 @@ def _read_sidecar(
     # opencontractserver/constants/zip_import.py).
     max_sidecar_size_bytes = get_zip_max_sidecar_size_bytes()
 
-    # Pre-read size check using the central directory's declared size.
-    # This avoids allocating memory for oversized sidecars.  A malicious zip
-    # could forge this value, so we keep a post-read assertion as well.
+    # Pre-read size check using the central directory's declared size. This
+    # avoids allocating memory for the common case of an oversized sidecar.
+    # A malicious zip can forge this value, so the actual read below is ALSO
+    # bounded to max_sidecar_size_bytes + 1 — declared-size lies can't force
+    # an unbounded decompression, because the read itself is capped
+    # regardless of what the metadata claims (see read_zip_member_bounded).
     info = import_zip.getinfo(sidecar_path)
     if info.file_size > max_sidecar_size_bytes:
         raise ValueError(
@@ -649,7 +666,7 @@ def _read_sidecar(
         )
 
     with import_zip.open(sidecar_path) as sidecar_handle:
-        raw = sidecar_handle.read()
+        raw = sidecar_handle.read(max_sidecar_size_bytes + 1)
         if len(raw) > max_sidecar_size_bytes:
             raise ValueError(
                 f"Sidecar {sidecar_path} is {len(raw)} bytes, "
@@ -942,8 +959,22 @@ def import_zip_with_folder_structure(
                 results["labels_file_found"] = True
             if manifest.labels_file and manifest.annotation_sidecars:
                 try:
-                    with import_zip.open(manifest.labels_file) as labels_handle:
-                        labels_data = json.loads(labels_handle.read().decode("UTF-8"))
+                    # Bounded read: a crafted labels.json member whose
+                    # declared size lies about its true decompressed size
+                    # could otherwise force an unbounded allocation (see
+                    # read_zip_member_bounded docstring).
+                    labels_bytes = read_zip_member_bounded(
+                        import_zip,
+                        manifest.labels_file,
+                        get_zip_max_single_file_size_bytes(),
+                    )
+                    if labels_bytes is None:
+                        raise ValueError(
+                            f"Labels file {manifest.labels_file} exceeds "
+                            f"ZIP_MAX_SINGLE_FILE_SIZE_BYTES or could not be "
+                            f"read safely"
+                        )
+                    labels_data = json.loads(labels_bytes.decode("UTF-8"))
 
                     # Validate labels.json schema before processing
                     validation_errors = validate_labels_data(labels_data)
@@ -1005,9 +1036,20 @@ def import_zip_with_folder_structure(
                             )
                             break
 
-                    # Extract file from zip
-                    with import_zip.open(entry.original_path) as file_handle:
-                        file_bytes = file_handle.read()
+                    # Extract file from zip, bounded to avoid a crafted
+                    # member forcing an unbounded decompression into memory.
+                    # ``entry`` already passed validate_zip_for_import's
+                    # declared-size pre-check, but that trusts
+                    # attacker-controlled zip metadata, so the actual read is
+                    # also capped (see read_zip_member_bounded docstring).
+                    file_bytes = read_zip_member_bounded(
+                        import_zip,
+                        entry.original_path,
+                        get_zip_max_single_file_size_bytes(),
+                    )
+                    if file_bytes is None:
+                        results["files_skipped_size"] += 1
+                        continue
 
                     # Validate MIME type
                     kind = filetype.guess(file_bytes)

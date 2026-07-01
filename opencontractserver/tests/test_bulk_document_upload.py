@@ -491,6 +491,46 @@ class BulkDocumentUploadTests(TestCase):
         self.assertEqual(results["processed_files"], 0)
 
     @override_settings(
+        CELERY_TASK_ALWAYS_EAGER=True,
+        CELERY_TASK_STORE_EAGER_RESULT=True,
+        ZIP_MAX_SINGLE_FILE_SIZE_BYTES=50,
+    )
+    def test_oversized_member_skipped_not_read_unbounded(self):
+        """Regression: process_documents_zip previously had no size guard at
+        all on the per-member read (``ZipExtFile.read()`` was unbounded), so
+        a crafted archive could force an arbitrarily large in-memory
+        allocation regardless of ZIP_MAX_SINGLE_FILE_SIZE_BYTES. It must now
+        skip an over-limit member instead of reading and processing it.
+        """
+        oversized_content = b"x" * 200  # Exceeds the 50-byte limit above.
+
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w") as zip_file:
+            zip_file.writestr("oversized.txt", oversized_content)
+        zip_buffer.seek(0)
+        base64_zip = base64.b64encode(zip_buffer.read()).decode("utf-8")
+
+        from opencontractserver.corpuses.models import TemporaryFileHandle
+
+        temp_file = TemporaryFileHandle.objects.create()
+        temp_file.file.save(
+            "test_oversized.zip", io.BytesIO(base64.b64decode(base64_zip))
+        )
+
+        job_id = str(uuid.uuid4())
+        results = process_documents_zip(
+            temporary_file_handle_id=temp_file.id,
+            user_id=self.user.id,
+            job_id=job_id,
+        )
+
+        self.assertTrue(results["completed"])
+        self.assertEqual(results["total_files"], 1)
+        self.assertEqual(results["skipped_files"], 1)
+        self.assertEqual(results["processed_files"], 0)
+        self.assertEqual(Document.objects.filter(title="oversized.txt").count(), 0)
+
+    @override_settings(
         CELERY_TASK_ALWAYS_EAGER=True, CELERY_TASK_STORE_EAGER_RESULT=True
     )
     def test_file_processing_error(self):
