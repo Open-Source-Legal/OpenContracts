@@ -8,12 +8,18 @@
   `AnnotationService.structural_document_prefetch`
   (`opencontractserver/annotations/services/annotation_service.py`), which now requires a
   `user` (keyword-only) and intersects candidates with `Document.objects.visible_to_user(user)`;
-  the degraded DB fallback applies `BaseService.filter_visible_qs`. The non-structural
-  (`document_id`) path returns the already `select_related`-cached FK (no per-row query)
-  and the structural path trusts the once-per-page user-scoped prefetch, so the fix adds no
-  N+1. An empty (fully-filtered) prefetch now falls through to the corpus-scoped fallback
-  instead of short-circuiting to `null`. `SemanticSearchResultType.resolve_document`
+  the degraded DB fallback (now `AnnotationService.resolve_structural_document_fallback`)
+  applies `BaseService.filter_visible_qs` and returns `None` outright when the annotation
+  carries no `corpus_id` to scope against, rather than risking a cross-corpus pick. The
+  non-structural (`document_id`) path returns the already `select_related`-cached FK (no
+  per-row query, via `AnnotationService.resolve_owned_document` when not cached) and the
+  structural path trusts the once-per-page user-scoped prefetch — including an *empty*
+  prefetch result, which is a definitive "nothing visible in this context" and is now
+  returned directly instead of falling through to a redundant, identically-scoped DB query.
+  `SemanticSearchResultType.resolve_document`
   (`config/graphql/social_types.py`) delegated its raw-FK access to the same gated resolver,
   closing the convenience field's bypass. Regression tests:
-  `opencontractserver/tests/test_corpus_cards_structural_document_resolution.py`. Consolidates
-  the fix from the closed duplicate PR #2088.
+  `opencontractserver/tests/test_corpus_cards_structural_document_resolution.py`, including a
+  corpus-scoped-prefetch variant with a captured-query-count assertion guarding against a
+  silent N+1 regression in the `_prefetched_objects_cache` detection. Consolidates the fix
+  from the closed duplicate PR #2088.

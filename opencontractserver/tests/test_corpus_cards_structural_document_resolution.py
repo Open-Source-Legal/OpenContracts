@@ -31,7 +31,9 @@ corpus's copy.
 import hashlib
 
 from django.contrib.auth import get_user_model
+from django.db import connection
 from django.test import RequestFactory, TestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from graphene.test import Client
 from graphql_relay import from_global_id, to_global_id
@@ -43,7 +45,7 @@ from opencontractserver.annotations.models import (
     StructuralAnnotationSet,
 )
 from opencontractserver.corpuses.models import Corpus
-from opencontractserver.documents.models import Document
+from opencontractserver.documents.models import Document, DocumentPath
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
@@ -68,6 +70,7 @@ class CorpusCardsStructuralDocumentResolutionTests(TestCase):
         # A single content hash → a single StructuralAnnotationSet shared by
         # the source document and every corpus copy of it.
         content_hash = hashlib.sha256(b"shared structural content").hexdigest()
+        self.content_hash = content_hash
         self.structural_set = StructuralAnnotationSet.objects.create(
             content_hash=content_hash,
             creator=self.user,
@@ -318,3 +321,111 @@ class CorpusCardsStructuralDocumentResolutionTests(TestCase):
             for doc in (self.source_doc, self.doc_a, self.doc_b)
         }
         self.assertIn(resolved_doc["id"], allowed_doc_ids)
+
+    def test_corpus_scoped_prefetch_skips_private_shared_documents(self):
+        """The corpus-scoped *prefetch* path — not just the DB fallback —
+        must not leak a private document that shares the structural set and
+        has a path inside the queried corpus.
+
+        ``test_unscoped_structural_resolution_skips_private_shared_documents``
+        above only exercises the DB fallback (no ``corpusId``/``documentId``
+        supplied, so ``AnnotationService.structural_document_prefetch`` scopes
+        to nothing but visibility). This test drives the primary production
+        path instead: ``annotations(corpusId=...)`` always applies that
+        prefetch with ``corpus_id`` set, which is what the corpus annotation
+        cards use.
+
+        It also captures the query count for two page sizes of structural
+        annotations that all share the ONE structural set, and asserts the
+        *delta* stays flat rather than pinning an absolute count (which would
+        be brittle against unrelated query-count changes elsewhere in the
+        request). A correctly working prefetch issues a single batched query
+        for ``structural_set__documents`` regardless of row count; if the
+        ``_prefetched_objects_cache`` detection in
+        ``AnnotationType.resolve_document`` ever silently breaks (e.g. a
+        future Django upgrade renames/restructures that private attribute),
+        every row degrades to its own per-row fallback query instead, and the
+        delta assertion below catches that.
+        """
+        # A private, corpus-A-local copy sharing the structural set — built
+        # directly (like ``self.private_doc`` in setUp) rather than via
+        # ``Corpus.add_document``, which force-sets ``is_public=True`` for
+        # any document added to a public corpus (``corpus_a.is_public``) and
+        # would defeat this test. Not granted READ to ``self.user``. The
+        # "aaa-" slug prefix sorts before ``self.doc_a``'s, so an unfiltered
+        # corpus-scoped ``.order_by("slug")`` would pick this one first if
+        # the visibility filter silently failed.
+        private_doc_in_a = Document.objects.create(
+            title="Private shared S-1 (corpus A copy)",
+            slug="aaa-private-in-corpus-a",
+            creator=self.other_user,
+            pdf_file_hash=self.content_hash,
+            structural_annotation_set=self.structural_set,
+            is_public=False,
+            page_count=3,
+            processing_started=timezone.now(),
+        )
+        DocumentPath.objects.create(
+            document=private_doc_in_a,
+            corpus=self.corpus_a,
+            path="/documents/private-in-a",
+            version_number=1,
+            parent=None,
+            is_current=True,
+            is_deleted=False,
+            creator=self.other_user,
+        )
+
+        annotations = self._make_structural_annotations(self.corpus_a, "A")
+
+        with CaptureQueriesContext(connection) as ctx_small:
+            nodes = self._nodes_by_annotation_id(self.corpus_a)
+
+        self.assertEqual(
+            set(nodes),
+            {to_global_id("AnnotationType", a.id) for a in annotations},
+        )
+
+        expected_doc_gid = to_global_id("DocumentType", self.doc_a.id)
+        private_doc_gid = to_global_id("DocumentType", private_doc_in_a.id)
+        for node in nodes.values():
+            self.assertNotEqual(
+                node["document"]["id"],
+                private_doc_gid,
+                "corpus-scoped prefetch resolved a private shared document",
+            )
+            self.assertEqual(
+                node["document"]["id"],
+                expected_doc_gid,
+                "corpus-scoped prefetch must resolve to the corpus-A copy",
+            )
+
+        # Triple the structural annotations sharing the same structural_set
+        # and re-run the identical query. A correctly batched prefetch issues
+        # the same handful of queries regardless of row count; a per-row
+        # fallback regression would add roughly one query per extra
+        # annotation. Assert the delta stays small rather than pinning an
+        # absolute, environment-sensitive query count.
+        annotations += self._make_structural_annotations(self.corpus_a, "B")
+        annotations += self._make_structural_annotations(self.corpus_a, "C")
+
+        with CaptureQueriesContext(connection) as ctx_large:
+            nodes = self._nodes_by_annotation_id(self.corpus_a)
+
+        self.assertEqual(
+            set(nodes),
+            {to_global_id("AnnotationType", a.id) for a in annotations},
+        )
+        for node in nodes.values():
+            self.assertEqual(node["document"]["id"], expected_doc_gid)
+
+        added_annotations = len(annotations) - 3
+        query_delta = len(ctx_large.captured_queries) - len(ctx_small.captured_queries)
+        self.assertLess(
+            query_delta,
+            added_annotations,
+            "query count scaled with annotation count (delta "
+            f"{query_delta} for {added_annotations} extra annotations) — "
+            "the structural document prefetch cache was not used "
+            "(N+1 regression)",
+        )
