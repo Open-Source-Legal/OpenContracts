@@ -71,13 +71,16 @@ class ScrapedSource(models.Model):
         on_delete=models.PROTECT,
         related_name="scraped_sources",
     )
-    schedule_crontab = models.CharField(max_length=64, blank=True)   # "" => manual only
+    schedule_crontab = models.CharField(max_length=64, blank=True)   # "" => manual only; validated by clean(), see below
     enabled = models.BooleanField(default=True)
-    extra_config = models.JSONField(default=dict, blank=True)        # scraper-specific knobs
+    extra_config = models.JSONField(default=dict, blank=True)        # scraper-specific knobs; also holds `backfill_days` override, see Phase A #5
     creator = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
     created_at = models.DateTimeField(auto_now_add=True)
     last_run_at = models.DateTimeField(null=True, blank=True)
-    last_run_status = models.CharField(max_length=16, default="pending")  # pending|ok|error
+    last_run_status = models.CharField(
+        max_length=16, choices=ScrapeRunStatus.choices, default=ScrapeRunStatus.PENDING
+    )
+    archived_at = models.DateTimeField(null=True, blank=True)   # soft-delete; see "Deleting a source" below
 
     class Meta:
         permissions = [("trigger_scrape", "Can manually trigger a scrape")]
@@ -85,7 +88,7 @@ class ScrapedSource(models.Model):
 
 class ScrapedDocument(models.Model):
     """Per-source ingestion record for SHA-256 dedup and provenance."""
-    source = models.ForeignKey(ScrapedSource, on_delete=models.CASCADE, related_name="documents")
+    source = models.ForeignKey(ScrapedSource, on_delete=models.PROTECT, related_name="documents")
     pdf_sha256 = models.CharField(max_length=64, db_index=True)
     document = models.ForeignKey(
         "documents.Document",
@@ -96,7 +99,9 @@ class ScrapedDocument(models.Model):
     external_id = models.CharField(max_length=200, blank=True)
     external_url = models.URLField(blank=True)
     published_at = models.DateField(null=True, blank=True)
-    status = models.CharField(max_length=16, default="pending")   # pending|imported|failed
+    status = models.CharField(
+        max_length=16, choices=ScrapedDocumentStatus.choices, default=ScrapedDocumentStatus.PENDING
+    )
     error_message = models.TextField(blank=True)
     metadata = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -107,7 +112,15 @@ class ScrapedDocument(models.Model):
         indexes = [models.Index(fields=["source", "status"])]
 ```
 
-**Permissioning.** `ScrapedSource` uses django-guardian object-level perms. `visible_to_user(user)` filters by guardian AND by visibility of `target_corpus` — you can only see a source if you can see the corpus it writes into. The `triggerScrape` mutation requires the new `trigger_scrape` perm.
+`ScrapeRunStatus` and `ScrapedDocumentStatus` are `TextChoices` classes (`PENDING`/`OK`/`ERROR` and `PENDING`/`IMPORTED`/`FAILED` respectively) defined module-level in `scraping/models.py`, alongside `ScrapedSource`/`ScrapedDocument` — this replaces the free-form `"pending|ok|error"` strings from the earlier draft of this proposal and matches the project's no-magic-strings convention (`CLAUDE.md` §Critical Concepts #4). Module-level `TextChoices` in `models.py` is the established pattern elsewhere in the codebase (e.g. `documents/models.py::DocumentProcessingStatus`, `conversations/models.py::MessageStateChoices`) rather than a separate `constants.py` — OpenContracts' `constants/` package (`opencontractserver/constants/`) is reserved for plain module-level values (timeouts, limits) shared *across* apps, not per-model enum choices. Backing every status field with an explicit `TextChoices` also gets Django's automatic `*_display()` helpers and admin dropdown validation for free.
+
+**`schedule_crontab` validation.** A raw `CharField` only fails at Beat-sync time if the cron string is malformed, which is too late to give the admin useful feedback. `ScrapedSource.clean()` parses `schedule_crontab` with `croniter` (already a transitive dependency via `django-celery-beat`) and raises `ValidationError` on save if it's non-empty and unparseable. The `post_save` Beat-sync signal (see Celery + Beat, below) additionally wraps its own parse in `try/except ValueError`, logs the error, and sets `enabled=False` on the offending `ScrapedSource` rather than crashing the worker — `clean()` covers the admin/GraphQL path, the signal is the defense-in-depth backstop for any row written outside those paths (fixtures, data migrations, `bulk_create`).
+
+**Deleting a source.** `ScrapedDocument.source` is `on_delete=PROTECT`, not `CASCADE` — attempting to hard-delete a `ScrapedSource` that has ingestion history raises `ProtectedError` instead of silently wiping provenance for `Document` rows that survived (via `SET_NULL`) the source's removal. The UI/admin path for retiring a source is `archived_at` (soft-delete: stop scheduling, hide from default list views, keep the row and its `ScrapedDocument` history queryable). A source can only be hard-deleted once it has zero `ScrapedDocument` rows (e.g. never ran) or via an explicit cascading admin action that makes the data loss unambiguous.
+
+**Permissioning.** `ScrapedSource` uses django-guardian object-level perms. `visible_to_user(user)` filters to rows where **either** (a) the user has guardian perms on the source **and** can see `target_corpus`, **or** (b) the user is `creator` — this second path keeps an admin's own scrapers visible to them even if their access to `target_corpus` is later revoked (e.g. removed from a corpus but still responsible for the source that feeds it). The `triggerScrape` mutation requires the new `trigger_scrape` perm.
+
+**Dedup scope is intentionally per-source, not global.** `unique_together = [("source", "pdf_sha256")]` means the same PDF can be imported once per `ScrapedSource`, so if the same gazette PDF is mirrored on both TSJ and Gaceta it produces two `Document` rows — one per source — rather than being collapsed into one. This is deliberate: each `ScrapedDocument` row carries source-specific provenance (`external_id`, `external_url`, `published_at`, `metadata`) that would be lossy to merge, and for a legal corpus knowing "this text was independently published by both TSJ and Gaceta" can itself be evidentiary. Global cross-source dedup (a `pdf_sha256` unique index on `ScrapedDocument` with no `source` component, or a separate content-hash layer that links duplicate `Document` rows together) is out of scope for Phase A; if a future deployment needs it, it should be a distinct, explicitly-designed follow-up rather than a change to the per-source uniqueness constraint.
 
 #### Scraper registry
 
@@ -138,8 +151,12 @@ In-tree only for v1 (no entry-point plugin discovery). Auto-discovery walks `scr
 - **`ingestion.py::ingest_pdf(source_id, pdf_bytes, *, external_id, published_at, metadata)`**:
   - SHA-256 hash inside a `transaction.atomic()` block, `select_for_update` on any pre-existing `(source, sha256)` row to close the race window.
   - Idempotent: if already imported, return existing record without re-importing.
-  - Else: create `ScrapedDocument(status="pending")`, call `Corpus.import_content(target_corpus, file_bytes, …)`, attach the resulting `Document` FK, mark `status="imported"`. On failure, mark `status="failed"` with `error_message`.
-- **`runner.py::run_scrape(source_id, *, since_days=None, max_entries=None)`**: instantiate scraper from registry, iterate entries, fetch each PDF (httpx), call `ingest_pdf`. Returns `ScrapeReport(scraped, ingested, deduped, failed)`. Updates `source.last_run_at` and `source.last_run_status`.
+  - Else: create `ScrapedDocument(status=ScrapedDocumentStatus.PENDING)`, call `Corpus.import_content(target_corpus, file_bytes, …)`, attach the resulting `Document` FK, mark `status=ScrapedDocumentStatus.IMPORTED`. On failure, mark `status=ScrapedDocumentStatus.FAILED` with `error_message`.
+- **`runner.py::run_scrape(source_id, *, since_days=None, max_entries=None)`**:
+  - Resolves the effective backfill window as `since_days or source.extra_config.get("backfill_days") or settings.SCRAPING_DEFAULT_BACKFILL_DAYS`, converts to a `since` datetime, and passes it to `aiter_entries`. This bounds first-run volume — without it, `since=None` on a scraper backed by a decades-deep archive (e.g. Gaceta) would enqueue its entire history on the very first scrape. `SCRAPING_DEFAULT_BACKFILL_DAYS` (default `30`, see Settings additions below) is the instance-wide fallback; an admin who genuinely wants a deeper historical backfill sets `extra_config.backfill_days` on the `ScrapedSource` or runs `manage.py ingest_scraped` for a one-off bulk import.
+  - Instantiates the scraper from the registry, iterates entries, fetches each PDF (httpx), calls `ingest_pdf`. Returns `ScrapeReport(scraped, ingested, deduped, failed)`.
+  - **Failure-rate threshold.** Partial failure never aborts the batch mid-run — a bad entry is recorded and iteration continues, per the resilience goal in Tests below. Once the batch completes, if `failed / scraped >= settings.SCRAPING_MAX_FAILURE_RATE` (default `0.5`, see Settings additions below) the run is marked `source.last_run_status = ScrapeRunStatus.ERROR` even though it technically completed; below the threshold it's `ScrapeRunStatus.OK` regardless of a nonzero `failed` count. This keeps a 95/100-failed run from silently reporting `"ok"` while still tolerating the occasional bad entry in an otherwise healthy run. `extra_config.max_failure_rate` overrides the instance-wide default per source, for scrapers with naturally noisier upstreams.
+  - Updates `source.last_run_at` and `source.last_run_status` per the above.
 - All ORM access wrapped via `sync_to_async` per CLAUDE.md pitfall #13.
 
 #### Celery + Beat
@@ -149,7 +166,7 @@ Tasks in `scraping/tasks.py`:
 - `scrape_source(source_id, since_days=None, max_entries=None)` — wraps `run_scrape`.
 - `scrape_all_enabled_sources()` — fan-out to every enabled source with a non-empty schedule.
 
-**Beat schedule built dynamically at worker startup.** A `celery.signals.beat_init` handler (and `post_save`/`post_delete` signal on `ScrapedSource`) syncs schedules into `django-celery-beat`'s `PeriodicTask` table. **No hardcoded daily Beat entries in `config/settings/base.py`** — admins manage sources via Django admin without redeploy.
+**Beat schedule reload is live, not restart-gated.** A `post_save`/`post_delete` signal on `ScrapedSource` writes directly into `django-celery-beat`'s `PeriodicTask`/`CrontabSchedule` tables (a `celery.signals.beat_init` handler does the same full sync once at Beat startup, to catch rows written while Beat was down). Because Beat runs with `DatabaseScheduler`, it polls `PeriodicTask` on its own interval (`CELERYBEAT_MAX_LOOP_INTERVAL`, project default) and picks up the change within one poll cycle — **no Beat or worker restart is required** when an admin creates, edits, or disables a `ScrapedSource`. (An earlier draft of this doc said schedules take effect "at next worker restart"; that was inaccurate and is corrected here so admins don't bounce the worker unnecessarily.) **No hardcoded daily Beat entries in `config/settings/base.py`** — admins manage sources via Django admin without redeploy.
 
 #### Management commands
 
@@ -172,8 +189,10 @@ Tasks in `scraping/tasks.py`:
 #### Tests
 
 - `test_registry.py` — discovery covers all in-tree scrapers; unknown `scraper_key` raises.
-- `test_ingestion.py` — atomic dedupe race (use `pytest.mark.serial` + threads), failure path leaves `status="failed"`, idempotent re-run.
-- `test_runner.py` — `run_scrape` happy path with `httpx.MockTransport`, partial failure does not abort batch.
+- `test_ingestion.py` — atomic dedupe race (use `pytest.mark.serial` + threads), failure path leaves `status=ScrapedDocumentStatus.FAILED`, idempotent re-run.
+- `test_runner.py` — `run_scrape` happy path with `httpx.MockTransport`; partial failure does not abort batch; failure-rate below `SCRAPING_MAX_FAILURE_RATE` still yields `last_run_status=OK`; failure-rate at/above the threshold yields `last_run_status=ERROR`; `since=None` on first run resolves to `SCRAPING_DEFAULT_BACKFILL_DAYS`, not unbounded history; `extra_config.backfill_days` and `extra_config.max_failure_rate` override the instance defaults.
+- `test_models.py` — `ScrapedSource.clean()` rejects an unparseable `schedule_crontab` and accepts a valid one; `ScrapedDocument.source` is `PROTECT` (deleting a source with ingestion history raises `ProtectedError`); `visible_to_user` returns a source to its `creator` even after the user's `target_corpus` access is revoked.
+- `test_beat_sync.py` — `post_save`/`post_delete` signal writes/removes the corresponding `PeriodicTask`; a malformed `schedule_crontab` written outside `clean()` (e.g. via `bulk_create`) is caught, logged, and flips `enabled=False` instead of raising into the caller.
 - `test_tasks.py` — `scrape_source.delay()` invokes runner with right args.
 - `test_commands.py` — `scrape` + `ingest_scraped` flag wiring.
 - `test_graphql.py` — **GraphQL coverage including permission boundary**: anonymous rejected; user without source visibility gets empty list; user with `trigger_scrape` can trigger; user without can't.
@@ -184,16 +203,18 @@ Tasks in `scraping/tasks.py`:
 - `INSTALLED_APPS += ["opencontractserver.scraping"]`
 - `SCRAPING_DEFAULT_USER_AGENT` (default `"OpenContractsScraperBot/1.0 (+https://github.com/Open-Source-Legal/OpenContracts)"`)
 - `SCRAPING_DEFAULT_REQUEST_DELAY_SECONDS` (default `1.0`)
+- `SCRAPING_DEFAULT_BACKFILL_DAYS` (default `30`) — see Services, `run_scrape`, above.
+- `SCRAPING_MAX_FAILURE_RATE` (default `0.5`) — see Services, `run_scrape`, above.
 - **No Beat schedule entries** — DB-driven.
 
 ### What happens to PR #1305
 
-When Phase A lands:
+Phase A itself does not touch `bolivian_laws/` — it only adds the new `scraping/` app. The migration below happens in a **separate follow-up PR, opened only after Phase A has merged** (see Order of work, step 9):
 
 - PR #1305's `opencontractserver/bolivian_laws/scrapers/{base,gaceta,tsj,tcp}.py` move into `scraping/scrapers/bolivia/{gaceta,tsj,tcp}.py`, refactored to subclass the new `BaseScraper`. The defensive HTML parsing, `httpx.MockTransport` testability, and metadata extraction stay intact.
 - PR #1305's `_guess_area_*` heuristics survive as `metadata` hints in `ScrapedEntry` rather than corpus selectors.
 - PR #1305's `ingest_bolivian_laws` and `scrape_bolivian_laws` management commands are replaced by the generic `manage.py scrape` and `manage.py ingest_scraped`.
-- PR #1305's `bolivian_laws/` app, `BOLIVIAN_LAWS_*` settings, hardcoded Beat schedule, and `askBolivianLaw` GraphQL mutation are deleted in the same diff.
+- PR #1305's `bolivian_laws/` app, `BOLIVIAN_LAWS_*` settings, hardcoded Beat schedule, and `askBolivianLaw` GraphQL mutation are deleted **in that same follow-up PR**, not bundled into Phase A.
 - **The eleven specialist personas survive** as `corpus_agent_instructions` text on eleven `Corpus` rows — either created via Django admin or via an optional fixture YAML at `scraping/fixtures/bolivia.yaml`.
 
 The intent is to credit [@jseborga](https://github.com/jseborga) as co-author on the Phase A implementation PR, since the scrapers and dedup approach are direct ports of their work.
@@ -202,7 +223,7 @@ The intent is to credit [@jseborga](https://github.com/jseborga) as co-author on
 
 1. Admin loads the optional fixture (or hand-creates rows): 11 `Corpus` rows with persona text on `corpus_agent_instructions`.
 2. Admin creates 3 `ScrapedSource` rows (Gaceta, TSJ, TCP), each pointing at the appropriate corpus, with `schedule_crontab="0 3 * * *"`.
-3. Beat picks up the schedules at next worker restart; PDFs flow in nightly with SHA dedup. (Or the admin clicks "Run now" in admin to backfill.)
+3. Beat picks up the schedules within one `DatabaseScheduler` poll cycle — no restart needed; PDFs flow in nightly with SHA dedup. (Or the admin clicks "Run now" in admin to backfill.)
 4. End-user opens any of the 11 corpora in the SPA → `<CorpusChat>` opens against `ws/agent-chat/?corpus_id=X` → asks a question → gets streaming answers with citations. The specialist persona is the corpus's `corpus_agent_instructions`.
 
 No new UI. No new mutation. No new transport.
@@ -251,24 +272,25 @@ A new `CoreTool`:
 ```python
 async def asearch_across_corpora(
     query: str,
-    corpus_ids: list[int],
+    corpus_group_id: int,
     *,
     user_id: int | None = None,
     top_k: int = 8,
 ) -> list[SourceNode]:
-    """Run similarity search across multiple corpora.
+    """Run similarity search across every corpus in a CorpusGroup.
+    Resolves the group's current `corpora` M2M at call time and filters to those
+    visible to the calling user before searching — never a config-time snapshot.
     Returns chunks tagged with metadata.corpus_id and metadata.corpus_title.
-    Filters corpus_ids to those visible to the calling user before searching.
     """
 ```
 
-Registered in `UnifiedToolFactory`. An `AgentConfiguration` row that uses this tool stores its `corpus_ids` in tool config (frozen at config time) — that's how the orchestrator's "knows about these N corpora" works.
+The tool takes `corpus_group_id`, **not** a frozen `corpus_ids` list. An earlier draft of this proposal had the tool receive `corpus_ids` directly, with an `AgentConfiguration` storing that list in its tool config; the config-time snapshot meant adding a corpus to the `CorpusGroup` later required someone to remember to also update every `AgentConfiguration` that referenced it, and the group and its agent(s) would silently drift out of sync otherwise. Resolving the group's `corpora` at query time makes `CorpusGroup` the single source of truth: any `AgentConfiguration` that references the group automatically sees membership changes on its very next query, with the same per-user visibility filtering `CorpusGroup.visible_to_user` already applies at read time. Registered in `UnifiedToolFactory`; an `AgentConfiguration` row that uses this tool stores only `corpus_group_id` in its tool config, never a corpus list.
 
 ### WebSocket consumer
 
 `UnifiedAgentConsumer.connect()` already accepts `?agent_id=<X>` and loads that `AgentConfiguration`. **No new transport** — Phase B agents bind to a global agent that has the multi-corpus tool.
 
-Open question: how Conversations bind to groups. Options: (a) bind to first corpus in group, (b) add a `Conversation.chat_with_corpus_group` FK (one migration), (c) leave group conversations ephemeral. Likely (b). Resolved at implementation time, not now.
+**Conversation binding: committing to option (b).** Conversations get a new `Conversation.chat_with_corpus_group` FK (one migration, mirroring the existing `chat_with_corpus` FK) rather than (a) binding to the group's first corpus — which breaks retrieval the moment corpus order in the M2M changes — or (c) leaving group conversations ephemeral, which loses history for a product area (legal Q&A) where conversation continuity matters. `UnifiedAgentConsumer` gains the equivalent branch it already has for `chat_with_corpus`: `?agent_id=X&corpus_group_id=Y` persists to a `chat_with_corpus_group`-bound `Conversation`. This is now Phase B's committed scope, not an open question deferred to implementation.
 
 ### GraphQL surface
 
@@ -283,8 +305,8 @@ The 11 Bolivian-area corpora plus a `CorpusGroup "Bolivian Laws"` plus a single 
 ### Tests
 
 - `test_corpus_group_visibility.py` — group filters corpora to visible.
-- `test_multi_corpus_retrieval.py` — tool searches union of corpora, tags `metadata.corpus_id`, filters out corpora user can't read.
-- `test_group_chat_e2e.py` — end-to-end: open agent via WebSocket with group-bound `agent_id`, chat returns multi-corpus citations.
+- `test_multi_corpus_retrieval.py` — tool resolves `corpus_group_id` to the group's *current* `corpora` at call time (not a config-time snapshot — covers the case where a corpus is added to the group after the `AgentConfiguration` was created and immediately becomes searchable), tags `metadata.corpus_id`, filters out corpora user can't read.
+- `test_group_chat_e2e.py` — end-to-end: open agent via WebSocket with group-bound `agent_id`, chat persists to a `chat_with_corpus_group`-bound `Conversation`, returns multi-corpus citations.
 
 ---
 
@@ -313,9 +335,10 @@ What goes away:
 
 ## Open questions / decisions deferred
 
-- **Phase B Conversation binding** — `chat_with_corpus_group` FK vs ephemeral group convos. Resolved at implementation time.
 - **Out-of-tree scrapers** — explicitly deferred; in-tree only for v1 per maintainer preference. If a community deployment wants their own scraper plugged in without forking, we can revisit with entry-point discovery later.
 - **Fixture loader for Bolivia** — optional. Could ship as `manage.py loaddata bolivia.yaml`, or leave admin to create rows manually. Doesn't affect the rest of the design.
+
+(Phase B Conversation binding is no longer an open question — see Phase B, WebSocket consumer, above: committed to the `chat_with_corpus_group` FK.)
 
 ---
 
@@ -327,10 +350,10 @@ What goes away:
 4. Phase A Celery tasks + Beat sync signal → task tests.
 5. Phase A management commands.
 6. Phase A GraphQL queries + mutations → permission boundary tests.
-7. Phase A: delete PR #1305's `bolivian_laws/` app and `bolivian_laws_mutations.py`.
-8. Phase A: CHANGELOG, full pytest run.
-9. Pause for review / merge.
-10. Phase B as a separate PR.
+7. Phase A: CHANGELOG, full pytest run.
+8. Pause for review / merge.
+9. **Only after Phase A has merged**, open a *separate* small follow-up PR that deletes PR #1305's `bolivian_laws/` app and `bolivian_laws_mutations.py` and creates the eleven Bolivian `Corpus` rows + three `ScrapedSource` rows. Deleting `bolivian_laws/` in the same diff as Phase A is a coordination landmine if PR #1305 is still open when Phase A lands — the two PRs would be racing to touch the same files, and closing #1305 out from under an active contributor mid-review is disrespectful of their time. Sequencing this as its own PR also gives @jseborga a natural point to review the migration and be credited as co-author, per the Migration story above.
+10. Phase B as a separate PR, once Phase A (and the #1305 migration PR from step 9) have landed.
 
 ---
 
