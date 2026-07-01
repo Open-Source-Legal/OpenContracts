@@ -29,6 +29,7 @@ corpus's copy.
 """
 
 import hashlib
+from types import SimpleNamespace
 
 from django.contrib.auth import get_user_model
 from django.db import connection
@@ -38,12 +39,14 @@ from django.utils import timezone
 from graphene.test import Client
 from graphql_relay import from_global_id, to_global_id
 
+from config.graphql.annotation_types import AnnotationType
 from config.graphql.schema import schema
 from opencontractserver.annotations.models import (
     Annotation,
     AnnotationLabel,
     StructuralAnnotationSet,
 )
+from opencontractserver.annotations.services import AnnotationService
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document, DocumentPath
 from opencontractserver.types.enums import PermissionTypes
@@ -429,3 +432,120 @@ class CorpusCardsStructuralDocumentResolutionTests(TestCase):
             "the structural document prefetch cache was not used "
             "(N+1 regression)",
         )
+
+    def _info(self, user):
+        return SimpleNamespace(context=SimpleNamespace(user=user))
+
+    def test_resolve_document_uncached_fk_uses_permission_gated_fallback(self):
+        """When a non-structural ``Annotation`` is fetched WITHOUT
+        ``select_related("document")`` (every production query path always
+        applies it — see ``resolve_annotations`` / ``resolve_semantic_search``),
+        ``AnnotationType.resolve_document`` must re-derive visibility through
+        ``AnnotationService.resolve_owned_document`` rather than trusting an
+        un-checked FK traversal.
+        """
+        owned_doc = Document.objects.create(
+            title="Directly owned doc",
+            creator=self.user,
+            page_count=1,
+            processing_started=timezone.now(),
+        )
+        set_permissions_for_obj_to_user(self.user, owned_doc, [PermissionTypes.READ])
+        annotation = Annotation.objects.create(
+            document=owned_doc,
+            annotation_label=self.label,
+            creator=self.user,
+            raw_text="Clause text",
+            page=1,
+        )
+
+        fk_uncached = Annotation.objects.get(pk=annotation.id)
+        self.assertFalse(
+            fk_uncached._meta.get_field("document").is_cached(fk_uncached),
+            "test setup must fetch the annotation without select_related",
+        )
+        resolved = AnnotationType.resolve_document(fk_uncached, self._info(self.user))
+        self.assertIsNotNone(resolved)
+        self.assertEqual(resolved.id, owned_doc.id)
+
+        fk_uncached_again = Annotation.objects.get(pk=annotation.id)
+        resolved_for_stranger = AnnotationType.resolve_document(
+            fk_uncached_again, self._info(self.other_user)
+        )
+        self.assertIsNone(
+            resolved_for_stranger,
+            "resolve_owned_document must not leak a document the requester "
+            "cannot READ",
+        )
+
+    def test_resolve_owned_document_directly(self):
+        """Unit-level coverage of ``AnnotationService.resolve_owned_document``:
+        visible documents are returned, invisible ones resolve to ``None``.
+        """
+        resolved = AnnotationService.resolve_owned_document(
+            document_id=self.source_doc.id, user=self.user
+        )
+        self.assertEqual(resolved.id, self.source_doc.id)
+
+        resolved_for_stranger = AnnotationService.resolve_owned_document(
+            document_id=self.source_doc.id, user=self.other_user
+        )
+        self.assertIsNone(resolved_for_stranger)
+
+    def test_resolve_document_structural_fallback_without_corpus_returns_none(self):
+        """The structural DB fallback requires a ``corpus_id`` to scope
+        against; a standalone structural annotation (no corpus) resolves to
+        ``None`` rather than guessing at an arbitrary shared-set member.
+        """
+        annotation = Annotation.objects.create(
+            corpus=None,
+            document=None,
+            structural_set=self.structural_set,
+            annotation_label=self.label,
+            creator=self.user,
+            raw_text="Standalone structural annotation",
+            structural=True,
+            page=1,
+        )
+        # Fetched without the corpus/document-scoped prefetch, so
+        # resolve_document falls through to resolve_structural_document_fallback.
+        fresh = Annotation.objects.get(pk=annotation.id)
+        resolved = AnnotationType.resolve_document(fresh, self._info(self.user))
+        self.assertIsNone(resolved)
+
+    def test_resolve_document_structural_fallback_resolves_corpus_scoped_document(
+        self,
+    ):
+        """With a ``corpus_id`` and no applied prefetch, the DB fallback still
+        resolves to the corpus-local, visible copy of the shared structural
+        set — mirroring the prefetch-backed resolution exercised elsewhere in
+        this file, but through ``AnnotationService.resolve_structural_document_fallback``
+        directly.
+        """
+        annotation = self._make_structural_annotations(self.corpus_a, "A")[0]
+        fresh = Annotation.objects.get(pk=annotation.id)
+        resolved = AnnotationType.resolve_document(fresh, self._info(self.user))
+        self.assertIsNotNone(resolved)
+        self.assertEqual(resolved.id, self.doc_a.id)
+
+    def test_resolve_structural_document_fallback_directly(self):
+        """Unit-level coverage of
+        ``AnnotationService.resolve_structural_document_fallback``: no
+        ``corpus_id`` short-circuits to ``None``; a valid ``corpus_id``
+        resolves the visible, corpus-scoped member of the shared set.
+        """
+        self.assertIsNone(
+            AnnotationService.resolve_structural_document_fallback(
+                structural_set_id=self.structural_set.id,
+                corpus_id=None,
+                user=self.user,
+            )
+        )
+
+        resolved = AnnotationService.resolve_structural_document_fallback(
+            structural_set_id=self.structural_set.id,
+            corpus_id=self.corpus_a.id,
+            user=self.user,
+        )
+        self.assertIsNotNone(resolved)
+        self.assertEqual(resolved.id, self.doc_a.id)
