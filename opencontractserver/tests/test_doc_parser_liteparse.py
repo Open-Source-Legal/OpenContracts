@@ -944,7 +944,10 @@ class TestLiteParseParser(TestCase):
         }
 
         parser = patch_parser_settings(LiteParseParser())
-        out = parser.parse_document(user_id=self.user.id, doc_id=self.doc.id)
+        with self.assertLogs(
+            "opencontractserver.pipeline.parsers.liteparse_parser", level="WARNING"
+        ) as log_ctx:
+            out = parser.parse_document(user_id=self.user.id, doc_id=self.doc.id)
 
         tok = out["pawls_file_content"][0]["tokens"][2]
         self.assertTrue(tok["is_image"])
@@ -958,6 +961,14 @@ class TestLiteParseParser(TestCase):
             a for a in out["labelled_text"] if a["annotationLabel"] == "Image"
         ]
         self.assertEqual(len(image_annos), 1)
+
+        # The out-of-range page (99) is silently dropped by design (see
+        # comment at the guard), but that's still data loss and must be
+        # logged rather than swallowed entirely.
+        dropped_warnings = [
+            msg for msg in log_ctx.output if "Dropping" in msg and "page 99" in msg
+        ]
+        self.assertEqual(len(dropped_warnings), 1)
 
     @patch(
         "opencontractserver.pipeline.parsers.liteparse_parser.extract_images_from_pdf"

@@ -13,13 +13,11 @@ import logging
 import os
 import tempfile
 from dataclasses import dataclass, field
-from typing import Any, Literal, Optional, Union, cast
+from typing import Any, Literal, Optional, cast
 
-import numpy as np
 from django.core.files.storage import default_storage
 from shapely.strtree import STRtree
 
-from opencontractserver.annotations.models import TOKEN_LABEL
 from opencontractserver.constants.document_processing import (
     DEFAULT_PDF_PAGE_HEIGHT,
     DEFAULT_PDF_PAGE_WIDTH,
@@ -36,10 +34,8 @@ from opencontractserver.types.dicts import (
     BoundingBoxPythonType,
     OpenContractDocExport,
     OpenContractsAnnotationPythonType,
-    OpenContractsSinglePageAnnotationType,
     PawlsPagePythonType,
     PawlsTokenPythonType,
-    TokenIdPythonType,
 )
 from opencontractserver.utils.pdf_token_extraction import (
     crop_image_from_pdf,
@@ -460,7 +456,13 @@ class LlamaParseParser(BaseParser):
         pawls_pages: list[PawlsPagePythonType] = []
         spatial_indices: dict[int, STRtree] = {}
         tokens_by_page: dict[int, list[PawlsTokenPythonType]] = {}
-        token_indices_by_page: dict[int, np.ndarray] = {}
+        # `Any` here (not `np.ndarray`): numpy is only a transitive dependency
+        # (via shapely et al.), not a declared hard requirement, and this
+        # annotation is the only thing in the module that would reference it.
+        # Importing numpy just for a type hint would make the whole module
+        # fail to import — and the pipeline registry fail to discover this
+        # parser — in any environment where numpy happens to be absent.
+        token_indices_by_page: dict[int, Any] = {}
         extracted_page_dims: dict[int, tuple[float, float]] = {}
 
         if pdf_bytes:
@@ -1182,110 +1184,6 @@ class LlamaParseParser(BaseParser):
         # Return empty tokens list - we don't have real token data from LlamaParse
         return tokens, bounds
 
-    @staticmethod
-    def _build_image_token(
-        source: PawlsTokenPythonType,
-    ) -> PawlsTokenPythonType:
-        """
-        Build a unified-token dict for an extracted/cropped image.
-
-        Optional metadata fields (``image_path``, ``content_hash``,
-        ``original_width``, ``original_height``, ``image_type``) are added
-        only when present so we don't violate the
-        ``NotRequired``-but-non-``None`` contract of
-        :class:`PawlsTokenPythonType`.
-        """
-        token: PawlsTokenPythonType = {
-            "x": source["x"],
-            "y": source["y"],
-            "width": source["width"],
-            "height": source["height"],
-            "text": "",
-            "is_image": True,
-            "format": source.get("format", "jpeg"),
-        }
-        if source.get("image_path") is not None:
-            token["image_path"] = source["image_path"]
-        if source.get("content_hash") is not None:
-            token["content_hash"] = source["content_hash"]
-        if source.get("original_width") is not None:
-            token["original_width"] = source["original_width"]
-        if source.get("original_height") is not None:
-            token["original_height"] = source["original_height"]
-        if source.get("image_type") is not None:
-            token["image_type"] = source["image_type"]
-        return token
-
-    def _create_annotation(
-        self,
-        annotation_id: str,
-        label: str,
-        raw_text: str,
-        page_idx: int,
-        bounds: BoundingBoxPythonType,
-        token_refs: Optional[list[TokenIdPythonType]] = None,
-        has_text_tokens: bool = False,
-        has_image_tokens: bool = False,
-    ) -> OpenContractsAnnotationPythonType:
-        """
-        Create an OpenContracts annotation.
-
-        In the unified token model, both text and image tokens are stored in
-        the tokens[] array. Image tokens have is_image=True. The token_refs
-        parameter contains references to both text and image tokens.
-
-        Args:
-            annotation_id: Unique ID for the annotation.
-            label: The annotation label.
-            raw_text: The text content.
-            page_idx: Page index (0-based).
-            bounds: Bounding box.
-            token_refs: Optional list of token references ({pageIndex, tokenIndex})
-                       that fall within the annotation's bounding box. This can
-                       include both text tokens and image tokens (is_image=True).
-                       If None or empty, the annotation will have an empty
-                       tokensJsons array.
-            has_text_tokens: True if any of the token_refs are text tokens.
-            has_image_tokens: True if any of the token_refs are image tokens.
-
-        Returns:
-            OpenContractsAnnotationPythonType annotation.
-        """
-        # Use provided token references, or empty list if none provided
-        tokens_jsons = token_refs if token_refs else []
-
-        # Create page annotation with unified token references
-        page_annotation: OpenContractsSinglePageAnnotationType = {
-            "bounds": bounds,
-            "tokensJsons": tokens_jsons,
-            "rawText": raw_text,
-        }
-
-        # Determine content modalities based on token types
-        content_modalities: list[str] = []
-        if has_text_tokens:
-            content_modalities.append("TEXT")
-        if has_image_tokens:
-            content_modalities.append("IMAGE")
-
-        annotation_json: dict[
-            Union[int, str], OpenContractsSinglePageAnnotationType
-        ] = {
-            str(page_idx): page_annotation,
-        }
-        annotation: OpenContractsAnnotationPythonType = {
-            "id": annotation_id,
-            "annotationLabel": label,
-            "rawText": raw_text,
-            "page": page_idx,
-            "annotation_json": annotation_json,
-            "parent_id": None,
-            "annotation_type": TOKEN_LABEL,
-            "structural": True,
-        }
-
-        # Add content_modalities if there are any
-        if content_modalities:
-            annotation["content_modalities"] = content_modalities
-
-        return annotation
+    # _build_image_token() and _create_annotation() are inherited from
+    # BaseParser (opencontractserver/pipeline/base/parser.py) — shared with
+    # LiteParseParser, which builds the same unified PAWLs token model.

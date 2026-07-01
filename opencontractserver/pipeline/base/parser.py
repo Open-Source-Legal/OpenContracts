@@ -1,17 +1,24 @@
 import json
 import logging
 from abc import ABC, abstractmethod
-from typing import Any, ClassVar, Optional, cast
+from typing import Any, ClassVar, Optional, Union, cast
 
 from django.conf import settings
 from django.core.files.base import ContentFile
 from plasmapdf.models.PdfDataLayer import build_translation_layer
 
-from opencontractserver.annotations.models import RELATIONSHIP_LABEL
+from opencontractserver.annotations.models import RELATIONSHIP_LABEL, TOKEN_LABEL
 from opencontractserver.documents.models import Document
 from opencontractserver.pipeline.base.exceptions import DocumentParsingError
 from opencontractserver.pipeline.base.file_types import FileTypeEnum
-from opencontractserver.types.dicts import OpenContractDocExport
+from opencontractserver.types.dicts import (
+    BoundingBoxPythonType,
+    OpenContractDocExport,
+    OpenContractsAnnotationPythonType,
+    OpenContractsSinglePageAnnotationType,
+    PawlsTokenPythonType,
+    TokenIdPythonType,
+)
 from opencontractserver.utils.compact_pawls import compact_pawls_pages
 from opencontractserver.utils.importing import (
     import_annotations,
@@ -315,6 +322,120 @@ class BaseParser(PipelineComponentBase, ABC):
             parser_name=self.title or self.__class__.__name__,
             parser_version="1.0",
         )
+
+    @staticmethod
+    def _build_image_token(
+        source: PawlsTokenPythonType,
+    ) -> PawlsTokenPythonType:
+        """
+        Build a unified-token dict for an extracted/cropped image.
+
+        Shared by parsers that assemble the unified PAWLs token model
+        themselves (LlamaParse, LiteParse). Optional metadata fields
+        (``image_path``, ``content_hash``, ``original_width``,
+        ``original_height``, ``image_type``) are added only when present so
+        we don't violate the ``NotRequired``-but-non-``None`` contract of
+        :class:`PawlsTokenPythonType`.
+        """
+        token: PawlsTokenPythonType = {
+            "x": source["x"],
+            "y": source["y"],
+            "width": source["width"],
+            "height": source["height"],
+            "text": "",
+            "is_image": True,
+            "format": source.get("format", "jpeg"),
+        }
+        if source.get("image_path") is not None:
+            token["image_path"] = source["image_path"]
+        if source.get("content_hash") is not None:
+            token["content_hash"] = source["content_hash"]
+        if source.get("original_width") is not None:
+            token["original_width"] = source["original_width"]
+        if source.get("original_height") is not None:
+            token["original_height"] = source["original_height"]
+        if source.get("image_type") is not None:
+            token["image_type"] = source["image_type"]
+        return token
+
+    def _create_annotation(
+        self,
+        annotation_id: str,
+        label: str,
+        raw_text: str,
+        page_idx: int,
+        bounds: BoundingBoxPythonType,
+        token_refs: Optional[list[TokenIdPythonType]] = None,
+        has_text_tokens: bool = False,
+        has_image_tokens: bool = False,
+        parent_id: Optional[str] = None,
+    ) -> OpenContractsAnnotationPythonType:
+        """
+        Create a structural OpenContracts annotation.
+
+        Shared by parsers that build the unified PAWLs token model directly
+        (LlamaParse, LiteParse) rather than delegating to a microservice. In
+        that model both text and image tokens live in the same ``tokens[]``
+        array (image tokens have ``is_image=True``); ``token_refs`` may
+        reference either.
+
+        ``parent_id`` references another annotation's ``id`` in the same
+        export; ``import_annotations`` resolves it to the new DB pk in a
+        second pass and ``build_subtree_groups_for_document`` materialises
+        the subtree relationships from the resulting tree. Parsers without a
+        derived hierarchy simply omit it (default ``None``).
+
+        Args:
+            annotation_id: Unique ID for the annotation.
+            label: The annotation label.
+            raw_text: The text content.
+            page_idx: Page index (0-based).
+            bounds: Bounding box.
+            token_refs: Optional list of token references ({pageIndex, tokenIndex})
+                       that fall within the annotation's bounding box. This can
+                       include both text tokens and image tokens (is_image=True).
+                       If None or empty, the annotation will have an empty
+                       tokensJsons array.
+            has_text_tokens: True if any of the token_refs are text tokens.
+            has_image_tokens: True if any of the token_refs are image tokens.
+            parent_id: Optional id of this annotation's parent in the same
+                export (self-FK, resolved by ``import_annotations``).
+
+        Returns:
+            OpenContractsAnnotationPythonType annotation.
+        """
+        page_annotation: OpenContractsSinglePageAnnotationType = {
+            "bounds": bounds,
+            "tokensJsons": token_refs if token_refs else [],
+            "rawText": raw_text,
+        }
+
+        content_modalities: list[str] = []
+        if has_text_tokens:
+            content_modalities.append("TEXT")
+        if has_image_tokens:
+            content_modalities.append("IMAGE")
+
+        annotation_json: dict[
+            Union[int, str], OpenContractsSinglePageAnnotationType
+        ] = {
+            str(page_idx): page_annotation,
+        }
+        annotation: OpenContractsAnnotationPythonType = {
+            "id": annotation_id,
+            "annotationLabel": label,
+            "rawText": raw_text,
+            "page": page_idx,
+            "annotation_json": annotation_json,
+            "parent_id": parent_id,
+            "annotation_type": TOKEN_LABEL,
+            "structural": True,
+        }
+
+        if content_modalities:
+            annotation["content_modalities"] = content_modalities
+
+        return annotation
 
     def _run_enrichment_stage(
         self, user_id: int, doc_id: int, parsed_data: OpenContractDocExport

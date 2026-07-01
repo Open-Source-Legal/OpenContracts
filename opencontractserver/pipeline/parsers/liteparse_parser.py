@@ -35,13 +35,11 @@ command ``migrate_pipeline_settings`` to seed initial values from environment.
 import logging
 from collections import Counter
 from dataclasses import dataclass, field
-from typing import Any, Literal, Optional, Union
+from typing import Any, Literal, Optional
 
-import numpy as np
 from django.core.files.storage import default_storage
 from shapely.strtree import STRtree
 
-from opencontractserver.annotations.models import TOKEN_LABEL
 from opencontractserver.constants.document_processing import (
     DEFAULT_PDF_PAGE_HEIGHT,
     DEFAULT_PDF_PAGE_WIDTH,
@@ -58,11 +56,10 @@ from opencontractserver.types.dicts import (
     BoundingBoxPythonType,
     OpenContractDocExport,
     OpenContractsAnnotationPythonType,
-    OpenContractsSinglePageAnnotationType,
     PawlsPagePythonType,
     PawlsTokenPythonType,
-    TokenIdPythonType,
 )
+from opencontractserver.utils.object_access import attr_or_key as _attr
 from opencontractserver.utils.pdf_token_extraction import (
     extract_images_from_pdf,
     extract_pawls_tokens_from_pdf,
@@ -78,12 +75,6 @@ LABEL_SECTION_HEADER = "Section Header"
 LABEL_TEXT_BLOCK = "Text Block"
 LABEL_IMAGE = "Image"
 
-# Fallback page dimensions when LiteParse reports an invalid/zero page size.
-# Sourced from the shared constants module (US Letter at 72 DPI) so the literal
-# lives in exactly one place (CLAUDE.md "no magic numbers").
-DEFAULT_WIDTH = DEFAULT_PDF_PAGE_WIDTH
-DEFAULT_HEIGHT = DEFAULT_PDF_PAGE_HEIGHT
-
 # Font sizes below this (PDF points) are treated as non-content — vector
 # watermarks, hairline artifacts — and excluded from heading-size detection.
 # Without this floor a sub-point watermark that happens to carry a lot of
@@ -91,18 +82,12 @@ DEFAULT_HEIGHT = DEFAULT_PDF_PAGE_HEIGHT
 # and turning every legible line into a heading.
 MIN_CONTENT_FONT_SIZE = 1.0
 
-
-def _attr(obj: Any, name: str, default: Any = None) -> Any:
-    """Read ``name`` from a LiteParse dataclass *or* a plain dict.
-
-    LiteParse returns dataclass instances (``ParseResult`` / ``ParsedPage`` /
-    ``TextItem``), but accepting dicts too keeps the converter robust against
-    version drift in the binding and makes unit testing with lightweight stand-in
-    objects trivial.
-    """
-    if isinstance(obj, dict):
-        return obj.get(name, default)
-    return getattr(obj, name, default)
+# ``_attr`` reads a field off a LiteParse dataclass *or* a plain dict (LiteParse
+# returns dataclass instances — ``ParseResult`` / ``ParsedPage`` / ``TextItem``
+# — but accepting dicts too keeps this converter robust against version drift
+# in the binding and makes unit testing with lightweight stand-in objects
+# trivial). Implementation lives in opencontractserver.utils.object_access so
+# other parsers dealing with similar SDK shapes can reuse it.
 
 
 class LiteParseParser(BaseParser):
@@ -501,17 +486,17 @@ class LiteParseParser(BaseParser):
                 page_idx = pos
             page_index_by_pos.append(page_idx)
 
-            width = _attr(page, "width") or DEFAULT_WIDTH
-            height = _attr(page, "height") or DEFAULT_HEIGHT
+            width = _attr(page, "width") or DEFAULT_PDF_PAGE_WIDTH
+            height = _attr(page, "height") or DEFAULT_PDF_PAGE_HEIGHT
             try:
                 width = float(width)
                 height = float(height)
             except (TypeError, ValueError):
-                width, height = DEFAULT_WIDTH, DEFAULT_HEIGHT
+                width, height = DEFAULT_PDF_PAGE_WIDTH, DEFAULT_PDF_PAGE_HEIGHT
             if width <= 0:
-                width = DEFAULT_WIDTH
+                width = DEFAULT_PDF_PAGE_WIDTH
             if height <= 0:
-                height = DEFAULT_HEIGHT
+                height = DEFAULT_PDF_PAGE_HEIGHT
             page_dimensions[page_idx] = (width, height)
 
         full_text = _attr(result, "text", "") or ""
@@ -522,7 +507,13 @@ class LiteParseParser(BaseParser):
         pawls_pages: list[PawlsPagePythonType] = []
         spatial_indices: dict[int, STRtree] = {}
         tokens_by_page: dict[int, list[PawlsTokenPythonType]] = {}
-        token_indices_by_page: dict[int, np.ndarray] = {}
+        # `Any` here (not `np.ndarray`): numpy is only a transitive dependency
+        # (via shapely et al.), not a declared hard requirement, and this
+        # annotation is the only thing in the module that would reference it.
+        # Importing numpy just for a type hint would make the whole module
+        # fail to import — and the pipeline registry fail to discover this
+        # parser — in any environment where numpy happens to be absent.
+        token_indices_by_page: dict[int, Any] = {}
         try:
             logger.info("Extracting word tokens from PDF for annotation mapping...")
             (
@@ -555,7 +546,7 @@ class LiteParseParser(BaseParser):
             max_idx = max(page_dimensions) if page_dimensions else -1
             for page_idx in range(max_idx + 1):
                 width, height = page_dimensions.get(
-                    page_idx, (DEFAULT_WIDTH, DEFAULT_HEIGHT)
+                    page_idx, (DEFAULT_PDF_PAGE_WIDTH, DEFAULT_PDF_PAGE_HEIGHT)
                 )
                 pawls_pages.append(
                     {
@@ -603,7 +594,7 @@ class LiteParseParser(BaseParser):
         for pos, page in enumerate(pages):
             page_idx = page_index_by_pos[pos]
             page_width, page_height = page_dimensions.get(
-                page_idx, (DEFAULT_WIDTH, DEFAULT_HEIGHT)
+                page_idx, (DEFAULT_PDF_PAGE_WIDTH, DEFAULT_PDF_PAGE_HEIGHT)
             )
 
             # Text-line annotations, in LiteParse reading order.
@@ -753,12 +744,22 @@ class LiteParseParser(BaseParser):
             )
 
             for page_idx, page_images in raw_images_by_page.items():
+                if not page_images:
+                    continue
                 # page_idx is an absolute 0-based PDF page; pawls_pages is indexed
                 # the same way (success path = one entry per page; fallback fills
                 # gaps). A page beyond the list is skipped: normally a page past
                 # the target_pages range, or — rarely — a page pdfplumber omitted
                 # after a per-page error, in which case its images are dropped.
-                if page_idx >= len(pawls_pages) or not page_images:
+                # This is silent data loss, so it's logged even though it's a
+                # recognized/handled edge case.
+                if page_idx >= len(pawls_pages):
+                    logger.warning(
+                        f"Dropping {len(page_images)} image(s) on page {page_idx}: "
+                        f"no PAWLs page at that index (only {len(pawls_pages)} "
+                        "page(s) present, likely due to target_pages restricting "
+                        "text parsing to a narrower range than the full PDF)."
+                    )
                     continue
                 token_offset = len(pawls_pages[page_idx].get("tokens", []))
                 # Track ONLY the images actually appended (in append order). The
@@ -776,28 +777,11 @@ class LiteParseParser(BaseParser):
                     # exception-free so the only failure boundary is extraction.
                     if not all(k in img_data for k in ("x", "y", "width", "height")):
                         continue
-                    # Required fields first; optional metadata is added only when
+                    # Shared with LlamaParseParser (BaseParser._build_image_token):
+                    # required fields first, optional metadata added only when
                     # present so we don't violate the NotRequired-but-non-None
-                    # contract of PawlsTokenPythonType (mirrors the other parsers).
-                    unified_token: PawlsTokenPythonType = {
-                        "x": img_data["x"],
-                        "y": img_data["y"],
-                        "width": img_data["width"],
-                        "height": img_data["height"],
-                        "text": "",
-                        "is_image": True,
-                        "format": img_data.get("format", "jpeg"),
-                    }
-                    if img_data.get("image_path") is not None:
-                        unified_token["image_path"] = img_data["image_path"]
-                    if img_data.get("content_hash") is not None:
-                        unified_token["content_hash"] = img_data["content_hash"]
-                    if img_data.get("original_width") is not None:
-                        unified_token["original_width"] = img_data["original_width"]
-                    if img_data.get("original_height") is not None:
-                        unified_token["original_height"] = img_data["original_height"]
-                    if img_data.get("image_type") is not None:
-                        unified_token["image_type"] = img_data["image_type"]
+                    # contract of PawlsTokenPythonType.
+                    unified_token = self._build_image_token(img_data)
                     pawls_pages[page_idx]["tokens"].append(unified_token)
                     appended.append(img_data)
                 if appended:
@@ -957,52 +941,6 @@ class LiteParseParser(BaseParser):
 
         return {"left": left, "top": top, "right": right, "bottom": bottom}
 
-    def _create_annotation(
-        self,
-        annotation_id: str,
-        label: str,
-        raw_text: str,
-        page_idx: int,
-        bounds: BoundingBoxPythonType,
-        token_refs: Optional[list[TokenIdPythonType]] = None,
-        has_text_tokens: bool = False,
-        has_image_tokens: bool = False,
-        parent_id: Optional[str] = None,
-    ) -> OpenContractsAnnotationPythonType:
-        """Create a structural OpenContracts annotation.
-
-        ``parent_id`` references another annotation's ``id`` in the same export;
-        ``import_annotations`` resolves it to the new DB pk in a second pass and
-        ``build_subtree_groups_for_document`` materialises the subtree
-        relationships from the resulting tree.
-        """
-        page_annotation: OpenContractsSinglePageAnnotationType = {
-            "bounds": bounds,
-            "tokensJsons": token_refs if token_refs else [],
-            "rawText": raw_text,
-        }
-
-        content_modalities: list[str] = []
-        if has_text_tokens:
-            content_modalities.append("TEXT")
-        if has_image_tokens:
-            content_modalities.append("IMAGE")
-
-        annotation_json: dict[
-            Union[int, str], OpenContractsSinglePageAnnotationType
-        ] = {str(page_idx): page_annotation}
-
-        annotation: OpenContractsAnnotationPythonType = {
-            "id": annotation_id,
-            "annotationLabel": label,
-            "rawText": raw_text,
-            "page": page_idx,
-            "annotation_json": annotation_json,
-            "parent_id": parent_id,
-            "annotation_type": TOKEN_LABEL,
-            "structural": True,
-        }
-        if content_modalities:
-            annotation["content_modalities"] = content_modalities
-
-        return annotation
+    # _create_annotation() is inherited from BaseParser
+    # (opencontractserver/pipeline/base/parser.py) — shared with
+    # LlamaParseParser, which builds the same unified PAWLs token model.
