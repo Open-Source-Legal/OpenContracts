@@ -284,6 +284,187 @@ export const GET_DOCUMENTS_FOR_LIST = gql`
   }
 `;
 
+// Collection Overview — the editorial documents index on the corpus-home
+// "At a glance". Selects only what that index renders: the LLM one-line
+// ``description`` (set by the Document Description Updater action), ``pageCount``
+// for the honest size signal, and ``slug`` for click-through. Deliberately
+// omits the heavy per-row resolvers (versionCount / user_can / signed URLs) the
+// kitchen-sink GET_DOCUMENTS pays for. ``documents(inCorpusWithId)`` already
+// excludes the corpus's Readme.CAML article, so the count matches the real
+// document set (not the corpus_stats figure that includes the article).
+export interface CollectionOverviewDocNode {
+  id: string;
+  slug: string;
+  title: string;
+  description?: string | null;
+  pageCount?: number | null;
+  fileType?: string | null;
+}
+
+export interface GetCorpusCollectionDocsInput {
+  corpusId: string;
+  limit?: number;
+}
+
+export interface GetCorpusCollectionDocsOutput {
+  documents: {
+    totalCount?: number;
+    edges: { node: CollectionOverviewDocNode }[];
+  };
+}
+
+export const GET_CORPUS_COLLECTION_DOCS = gql`
+  query GetCorpusCollectionDocs($corpusId: String!, $limit: Int) {
+    documents(inCorpusWithId: $corpusId, first: $limit) {
+      totalCount
+      edges {
+        node {
+          id
+          slug
+          title
+          description
+          pageCount
+          fileType
+        }
+      }
+    }
+  }
+`;
+
+// Collection Data Story — the per-document structured profile (type / counterparty
+// / effective date / value) extracted by the default "Collection Profile" fieldset
+// action. The resolver is gated by corpus READ and reads the cells corpus-as-gate
+// (like the governance graph), so a public corpus's data story is anonymous-visible
+// without exposing the raw extract. Returns one profile per document with at least
+// one completed cell; the frontend aggregates these into composition / timeline /
+// value views and self-hides when there are none (e.g. extract hasn't run yet).
+export interface CorpusDataStoryProfile {
+  documentId: string;
+  title: string;
+  slug?: string | null;
+  type?: string | null;
+  party?: string | null;
+  effectiveDate?: string | null;
+  value?: number | null;
+}
+
+export interface CorpusDataStory {
+  totalDocuments: number;
+  profiles: CorpusDataStoryProfile[];
+}
+
+export interface GetCorpusDataStoryInput {
+  corpusId: string;
+}
+
+export interface GetCorpusDataStoryOutput {
+  corpusDataStory: CorpusDataStory | null;
+}
+
+export const GET_CORPUS_DATA_STORY = gql`
+  query GetCorpusDataStory($corpusId: ID!) {
+    corpusDataStory(corpusId: $corpusId) {
+      totalDocuments
+      profiles {
+        documentId
+        title
+        slug
+        type
+        party
+        effectiveDate
+        value
+      }
+    }
+  }
+`;
+
+// A shareable corpus poster (Artifact) resolved by its /a/<slug>. Corpus-as-gate
+// on the backend, so a public corpus's artifact is anonymous-viewable. The
+// returned ``corpusId`` is a global id the poster template feeds straight into
+// its own data query (e.g. GET_CORPUS_DATA_STORY).
+export interface ArtifactNode {
+  id: string;
+  slug: string;
+  template: string;
+  title?: string | null;
+  subtitle?: string | null;
+  byline?: string | null;
+  config?: Record<string, unknown> | null;
+  corpusId: string;
+  corpusSlug?: string | null;
+  isPublic?: boolean | null;
+  imageUrl?: string | null;
+}
+
+export interface GetArtifactBySlugInput {
+  slug: string;
+}
+export interface GetArtifactBySlugOutput {
+  artifactBySlug: ArtifactNode | null;
+}
+
+export const GET_ARTIFACT_BY_SLUG = gql`
+  query GetArtifactBySlug($slug: String!) {
+    artifactBySlug(slug: $slug) {
+      id
+      slug
+      template
+      title
+      subtitle
+      byline
+      config
+      corpusId
+      corpusSlug
+      isPublic
+      imageUrl
+    }
+  }
+`;
+
+// All artifacts of a corpus (the gallery) + which templates its data can fill.
+export interface CorpusArtifactsInput {
+  corpusId: string;
+}
+export interface CorpusArtifactsOutput {
+  corpusArtifacts: ArtifactNode[];
+}
+export const GET_CORPUS_ARTIFACTS = gql`
+  query GetCorpusArtifacts($corpusId: ID!) {
+    corpusArtifacts(corpusId: $corpusId) {
+      id
+      slug
+      template
+      title
+      subtitle
+      byline
+      imageUrl
+      created
+    }
+  }
+`;
+
+export interface ArtifactTemplateNode {
+  id: string;
+  label: string;
+  description?: string | null;
+  eligible: boolean;
+  reason?: string | null;
+}
+export interface CorpusArtifactTemplatesOutput {
+  corpusArtifactTemplates: ArtifactTemplateNode[];
+}
+export const GET_CORPUS_ARTIFACT_TEMPLATES = gql`
+  query GetCorpusArtifactTemplates($corpusId: ID!) {
+    corpusArtifactTemplates(corpusId: $corpusId) {
+      id
+      label
+      description
+      eligible
+      reason
+    }
+  }
+`;
+
 // Lazy fetch of a single document's signed PDF URL, resolved on download-click
 // rather than for every card in the list. Signing a GCS URL is a network round
 // trip, so fetching ``pdfFile`` for an N-document page (when only one might be

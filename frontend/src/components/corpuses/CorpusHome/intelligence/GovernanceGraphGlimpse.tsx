@@ -81,6 +81,14 @@ interface GovernanceGraphGlimpseProps {
    * anything about mutations.
    */
   emptyAction?: React.ReactNode;
+  /**
+   * When true, render nothing while the graph has no nodes. Used by the
+   * CAML-article embed: a public corpus that cites no law should show no
+   * reference-web card at all (the bootstrap CTA is owner-only and the empty
+   * state is dead weight for an anonymous reader). The fallback overview keeps
+   * this false so owners still get the bootstrap prompt.
+   */
+  hideWhenEmpty?: boolean;
   testId?: string;
 }
 
@@ -166,6 +174,7 @@ export const GovernanceGraphGlimpse: React.FC<GovernanceGraphGlimpseProps> = ({
   onSelectDocument,
   onExplore,
   emptyAction,
+  hideWhenEmpty = false,
   testId = "governance-graph-glimpse",
 }) => {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
@@ -236,6 +245,11 @@ export const GovernanceGraphGlimpse: React.FC<GovernanceGraphGlimpseProps> = ({
   }, [simNodes, primaries, dense, shelfMaxDegree]);
 
   if (nodes.length === 0) {
+    // Embed mode: a collection that cites no in-system law shows no card at
+    // all (the bootstrap CTA is owner-only; the empty state is dead weight for
+    // an anonymous reader). Covers loading/error too — the section just doesn't
+    // appear until there is a reference web to show.
+    if (hideWhenEmpty) return null;
     if (loading) {
       return (
         <GraphCard data-testid={testId}>

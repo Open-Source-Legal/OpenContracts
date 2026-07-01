@@ -1,9 +1,9 @@
 /**
  * Component tests for CorpusIntelligenceOverview — the composed "God's-eye
  * view" block injected into the corpus landing. It fuses the IntelligencePanel
- * (stats + aggregates queries), the DocumentGraphGlimpse (graph query), and the
- * one-click cross-document question chips, so it mounts under a MockedProvider
- * supplying all three queries.
+ * (collection-docs + setup-status queries), the DocumentGraphGlimpse (graph
+ * query), and the one-click cross-document question chips, so it mounts under a
+ * MockedProvider supplying all of them.
  *
  * NOTE: each JSX-component import is kept in its own statement (MockedProvider,
  * CorpusIntelligenceOverview) per the Playwright CT split-import rule.
@@ -17,8 +17,8 @@ import { docScreenshot } from "./utils/docScreenshot";
 // Import the real query documents the component runs, so the mocks below stay
 // in lock-step with any future field additions (no hand-copied gql to drift).
 import {
-  GET_CORPUS_STATS,
-  GET_CORPUS_INTELLIGENCE_AGGREGATES,
+  GET_CORPUS_COLLECTION_DOCS,
+  GET_CORPUS_INTELLIGENCE_SETUP_STATUS,
   GET_CORPUS_DOCUMENT_GRAPH,
   GET_GOVERNANCE_GRAPH,
   GET_WANTED_AUTHORITIES,
@@ -26,37 +26,70 @@ import {
 
 const CORPUS_ID = "Q29ycHVzVHlwZTox";
 
-const statsMock = {
-  request: { query: GET_CORPUS_STATS, variables: { corpusId: CORPUS_ID } },
+// The composed IntelligencePanel issues the collection-docs query (its documents
+// index) and — via the mounted setup banner — the setup-status query. It shares
+// the governance-graph query with GovernanceGraphLive (mocked below).
+const collectionDocsMock = {
+  request: {
+    query: GET_CORPUS_COLLECTION_DOCS,
+    variables: { corpusId: CORPUS_ID, limit: 100 },
+  },
   result: {
     data: {
-      corpusStats: {
-        totalDocs: 3,
-        totalComments: 0,
-        totalAnalyses: 0,
-        totalExtracts: 1,
-        totalAnnotations: 12,
-        totalThreads: 0,
-        totalChats: 0,
-        totalRelationships: 2,
+      documents: {
+        totalCount: 3,
+        edges: [
+          {
+            node: {
+              id: "Doc:1",
+              slug: "alpha",
+              title: "Alpha",
+              description: "First collection document.",
+              pageCount: 6,
+              fileType: "application/pdf",
+            },
+          },
+          {
+            node: {
+              id: "Doc:2",
+              slug: "beta",
+              title: "Beta",
+              description: "",
+              pageCount: 3,
+              fileType: "application/pdf",
+            },
+          },
+          {
+            node: {
+              id: "Doc:3",
+              slug: "gamma",
+              title: "Gamma",
+              description: "",
+              pageCount: 2,
+              fileType: "application/pdf",
+            },
+          },
+        ],
       },
     },
   },
 };
 
-const aggMock = {
+// A fully-set-up corpus keeps the mounted setup banner silent.
+const setupStatusSilentMock = {
   request: {
-    query: GET_CORPUS_INTELLIGENCE_AGGREGATES,
+    query: GET_CORPUS_INTELLIGENCE_SETUP_STATUS,
     variables: { corpusId: CORPUS_ID },
   },
   result: {
     data: {
-      corpusIntelligenceAggregates: {
-        labelDistribution: [
-          { label: "Risk Factor", color: "#ef4444", count: 8 },
-        ],
-        documentsWithSummary: 2,
-        totalDocuments: 3,
+      corpusIntelligenceSetupStatus: {
+        referenceAvailable: true,
+        referenceActionInstalled: true,
+        installedTemplateNames: [],
+        missingTemplateNames: [],
+        isFullySetUp: true,
+        canSetup: false,
       },
     },
   },
@@ -158,9 +191,10 @@ test.describe("CorpusIntelligenceOverview", () => {
       <MemoryRouter>
         <MockedProvider
           mocks={[
-            statsMock,
-            aggMock,
+            collectionDocsMock,
+            setupStatusSilentMock,
             graphMock,
+            governanceMock,
             governanceMock,
             governanceMock,
             wantedMock,
@@ -219,9 +253,10 @@ test.describe("CorpusIntelligenceOverview", () => {
       <MemoryRouter>
         <MockedProvider
           mocks={[
-            statsMock,
-            aggMock,
+            collectionDocsMock,
+            setupStatusSilentMock,
             graphMock,
+            governanceMock,
             governanceMock,
             governanceMock,
             wantedMock,

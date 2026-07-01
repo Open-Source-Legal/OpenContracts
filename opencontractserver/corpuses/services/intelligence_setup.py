@@ -195,6 +195,7 @@ class CorpusIntelligenceSetupService(BaseService):
 
         cls._setup_reference_enrichment(user, corpus, summary, request=request)
         batch_total = cls._setup_templates(user, corpus, summary, request=request)
+        cls._setup_structured_profile(user, corpus, request=request)
         # Every batch run already computes the active-document total; only
         # fall back to a standalone corpus-as-gate count through the service
         # (the setup user holds CRUD, hence READ) when no batch ran — same
@@ -427,3 +428,111 @@ class CorpusIntelligenceSetupService(BaseService):
                 outcome.error = batch.error or "Batch run failed."
 
         return batch_total
+
+    @classmethod
+    def _setup_structured_profile(
+        cls,
+        user: Any,
+        corpus: Any,
+        *,
+        request: Any = None,
+    ) -> None:
+        """Install the default Collection Profile fieldset + add_document action,
+        then backfill existing documents exactly once.
+
+        The action keeps the per-document profile (type / counterparty / effective
+        date / value) growing as documents arrive: each upload appends only the
+        new document's cells to one accumulating Extract — ``process_corpus_action``
+        ``get_or_create``s by ``(corpus, fieldset, corpus_action)`` and never
+        spawns a fresh extract or recomputes existing rows. The backfill below
+        runs only while that extract has no cells yet, so a freshly-set-up corpus
+        profiles its initial batch once and re-running setup is a no-op.
+
+        Failures here must never abort the rest of the bundle — the data story is
+        an enhancement, not a precondition — so the whole method is best-effort.
+        """
+        from django.db import transaction
+        from django.utils import timezone
+
+        from opencontractserver.corpuses.models import (
+            CorpusAction,
+            CorpusActionTrigger,
+        )
+        from opencontractserver.corpuses.services.corpus_documents import (
+            CorpusDocumentService,
+        )
+        from opencontractserver.corpuses.services.data_story import (
+            PROFILE_ACTION_NAME,
+            get_or_create_default_profile_fieldset,
+        )
+        from opencontractserver.extracts.models import Datacell, Extract
+        from opencontractserver.tasks.extract_orchestrator_tasks import run_extract
+        from opencontractserver.utils.permissioning import (
+            set_permissions_for_obj_to_user,
+        )
+
+        try:
+            fieldset, _ = get_or_create_default_profile_fieldset(user)
+
+            action, action_created = CorpusAction.objects.get_or_create(
+                corpus=corpus,
+                fieldset=fieldset,
+                trigger=CorpusActionTrigger.ADD_DOCUMENT.value,
+                defaults={"name": PROFILE_ACTION_NAME, "creator": user},
+            )
+            if action_created:
+                set_permissions_for_obj_to_user(
+                    user, action, [PermissionTypes.CRUD], request=request
+                )
+
+            # The single accumulating extract — keyed on
+            # ``(corpus, fieldset, corpus_action)``, the same canonical key
+            # ``process_corpus_action`` uses, so the add_document action appends
+            # new documents' cells into THIS extract rather than a new one.
+            # ``name`` and ``creator`` are in ``defaults`` (NOT lookup fields):
+            # the name embeds the mutable ``corpus.title`` and the creator differs
+            # between the setup admin and later document-adders, so keying on
+            # either would fork a second accumulating extract.
+            extract, extract_created = Extract.objects.get_or_create(
+                corpus=corpus,
+                fieldset=fieldset,
+                corpus_action=action,
+                defaults={
+                    "name": f"Action {action.name} for {corpus.title}",
+                    "creator": user,
+                },
+            )
+            if extract_created:
+                set_permissions_for_obj_to_user(
+                    user,
+                    extract,
+                    [PermissionTypes.CRUD],
+                    request=request,
+                    is_new=True,
+                )
+
+            # One-time backfill of the documents already in the corpus. New docs
+            # added later flow through the add_document action, not here, so we
+            # never recompute existing rows.
+            if Datacell.objects.filter(extract=extract).exists():
+                return
+            docs = list(
+                CorpusDocumentService.get_corpus_documents(
+                    user, corpus, request=request
+                )
+            )
+            if not docs:
+                return
+            extract.documents.add(*docs)
+            extract.started = timezone.now()
+            extract.finished = None
+            extract.save()
+
+            extract_id = extract.id
+            user_id = user.id
+            transaction.on_commit(lambda: run_extract.delay(extract_id, user_id))
+        except Exception:
+            logger.exception(
+                "Intelligence setup: structured profile setup failed for corpus %s",
+                getattr(corpus, "id", None),
+            )

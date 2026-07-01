@@ -27,12 +27,17 @@ const EMPTY_EDGES: CorpusDocumentGraphEdge[] = [];
 interface DocumentGraphLiveProps {
   corpusId: string;
   onExplore?: () => void;
+  /** Render nothing (rather than the empty card) when there are no edges —
+   * used by the CAML-article embed so a relationship-free corpus home stays
+   * clean. See DocumentGraphGlimpse.hideWhenEmpty. */
+  hideWhenEmpty?: boolean;
   testId?: string;
 }
 
 export const DocumentGraphLive: React.FC<DocumentGraphLiveProps> = ({
   corpusId,
   onExplore,
+  hideWhenEmpty = false,
   testId,
 }) => {
   const variables = useMemo(() => ({ corpusId }), [corpusId]);
@@ -53,6 +58,7 @@ export const DocumentGraphLive: React.FC<DocumentGraphLiveProps> = ({
       truncated={graph?.truncated ?? false}
       loading={loading && !graph}
       error={!!error && !graph}
+      hideWhenEmpty={hideWhenEmpty}
       onExplore={onExplore}
       testId={testId}
     />

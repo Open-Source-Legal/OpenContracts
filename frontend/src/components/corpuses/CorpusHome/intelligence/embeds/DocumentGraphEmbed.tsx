@@ -19,5 +19,13 @@ export const DocumentGraphEmbed: React.FC<
   const { corpusId: ctxCorpusId, onExploreGraph } = useCamlEmbedContext();
   const corpusId = corpusIdProp || ctxCorpusId;
   if (!corpusId) return null;
-  return <DocumentGraphLive corpusId={corpusId} onExplore={onExploreGraph} />;
+  // On the article home, a relationship-free collection should show nothing
+  // here rather than a "no relationships yet" dead card.
+  return (
+    <DocumentGraphLive
+      corpusId={corpusId}
+      onExplore={onExploreGraph}
+      hideWhenEmpty
+    />
+  );
 };

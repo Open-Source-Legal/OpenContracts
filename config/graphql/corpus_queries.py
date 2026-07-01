@@ -13,6 +13,10 @@ from graphql_relay import from_global_id, to_global_id
 
 from config.graphql.base import OpenContractsNode
 from config.graphql.corpus_types import (
+    ArtifactTemplateType,
+    ArtifactType,
+    CorpusDataStoryProfileType,
+    CorpusDataStoryType,
     CorpusDocumentGraphEdgeType,
     CorpusDocumentGraphNodeType,
     CorpusDocumentGraphType,
@@ -80,6 +84,25 @@ def _corpus_count_subqueries() -> tuple[Any, Any]:
         .values("count")
     )
     return document_count_sq, annotation_count_sq
+
+
+def _artifact_to_type(a: Any) -> "ArtifactType":
+    """Build the GraphQL ``ArtifactType`` from an ``Artifact`` model row."""
+    return ArtifactType(
+        id=to_global_id("ArtifactType", a.id),
+        slug=a.slug,
+        template=a.template,
+        title=a.title or None,
+        subtitle=a.subtitle or None,
+        byline=a.byline or None,
+        config=a.config or {},
+        corpus_id=to_global_id("CorpusType", a.corpus_id),
+        corpus_slug=a.corpus.slug if a.corpus_id else None,
+        creator_slug=getattr(a.creator, "slug", None) if a.creator_id else None,
+        is_public=a.is_public,
+        image_url=(a.image.url if a.image else None),
+        created=a.created,
+    )
 
 
 class CorpusQueryMixin:
@@ -707,6 +730,119 @@ class CorpusQueryMixin:
             documents_with_summary=documents_with_summary,
             total_documents=total_documents,
         )
+
+    # CORPUS DATA STORY RESOLVER ###########################################
+    corpus_data_story = graphene.Field(
+        CorpusDataStoryType,
+        corpus_id=graphene.ID(required=True),
+        description=(
+            "Per-document structured profiles (type / counterparty / effective "
+            "date / value) for the corpus-home data story. Null until the default "
+            "Collection Profile extract has run; corpus-as-gate (public corpus → "
+            "anonymous-visible)."
+        ),
+    )
+
+    @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_MEDIUM"))
+    def resolve_corpus_data_story(self, info, corpus_id) -> Any:
+        from opencontractserver.corpuses.services.data_story import (
+            CorpusDataStoryService,
+        )
+
+        corpus_pk = from_global_id(corpus_id)[1]
+        if not str(corpus_pk).isdigit():
+            return None
+        story = CorpusDataStoryService.build(
+            info.context.user, int(corpus_pk), request=info.context
+        )
+        if story is None:
+            return None
+        return CorpusDataStoryType(
+            total_documents=story.total_documents,
+            profiles=[
+                CorpusDataStoryProfileType(
+                    document_id=to_global_id("DocumentType", p.document_id),
+                    title=p.title,
+                    slug=p.slug,
+                    type=p.type,
+                    party=p.party,
+                    effective_date=p.effective_date,
+                    value=p.value,
+                )
+                for p in story.profiles
+            ],
+        )
+
+    # CORPUS ARTIFACTS RESOLVERS ###########################################
+    artifact_by_slug = graphene.Field(
+        ArtifactType,
+        slug=graphene.String(required=True),
+        description=(
+            "A shareable corpus poster by its /a/<slug>. Corpus-as-gate: visible "
+            "iff the source corpus is READ-visible (public corpus → anonymous)."
+        ),
+    )
+
+    @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
+    def resolve_artifact_by_slug(self, info, slug) -> Any:
+        from opencontractserver.corpuses.services.artifact_service import (
+            ArtifactService,
+        )
+
+        artifact = ArtifactService.get_by_slug(
+            info.context.user, slug, request=info.context
+        )
+        return _artifact_to_type(artifact) if artifact is not None else None
+
+    corpus_artifacts = graphene.List(
+        graphene.NonNull(ArtifactType),
+        corpus_id=graphene.ID(required=True),
+        description="All shareable artifacts of a corpus (corpus-as-gate).",
+    )
+
+    @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
+    def resolve_corpus_artifacts(self, info, corpus_id) -> Any:
+        from opencontractserver.corpuses.services.artifact_service import (
+            ArtifactService,
+        )
+
+        pk = from_global_id(corpus_id)[1]
+        if not str(pk).isdigit():
+            return []
+        return [
+            _artifact_to_type(a)
+            for a in ArtifactService.list_for_corpus(
+                info.context.user, int(pk), request=info.context
+            )
+        ]
+
+    corpus_artifact_templates = graphene.List(
+        graphene.NonNull(ArtifactTemplateType),
+        corpus_id=graphene.ID(required=True),
+        description="Templates this corpus's data can fill (data-gated picker).",
+    )
+
+    @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
+    def resolve_corpus_artifact_templates(self, info, corpus_id) -> Any:
+        from opencontractserver.corpuses.services.artifact_service import (
+            ArtifactService,
+        )
+
+        pk = from_global_id(corpus_id)[1]
+        if not str(pk).isdigit():
+            return []
+        return [
+            ArtifactTemplateType(
+                id=t.id,
+                label=t.label,
+                description=t.description,
+                eligible=t.eligible,
+                reason=t.reason,
+            )
+            for t in ArtifactService.templates_for_corpus(
+                info.context.user, int(pk), request=info.context
+            )
+        ]
 
     # CORPUS METADATA COLUMNS RESOLVERS #####################################
     corpus_metadata_columns = graphene.List(
