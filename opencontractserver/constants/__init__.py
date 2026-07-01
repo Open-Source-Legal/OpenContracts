@@ -11,6 +11,7 @@ from opencontractserver.constants.benchmarks import *  # noqa: F401, F403
 from opencontractserver.constants.community_stats import *  # noqa: F401, F403
 from opencontractserver.constants.context_guardrails import *  # noqa: F401, F403
 from opencontractserver.constants.corpus_actions import *  # noqa: F401, F403
+from opencontractserver.constants.corpus_lifecycle import *  # noqa: F401, F403
 from opencontractserver.constants.discovery import *  # noqa: F401, F403
 from opencontractserver.constants.document_processing import *  # noqa: F401, F403
 from opencontractserver.constants.extracts import *  # noqa: F401, F403
