@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from django.db import transaction
 from django.db.models import Count, Q
@@ -24,6 +25,11 @@ from opencontractserver.enrichment.services.corpus_reference_service import (
     CorpusReferenceService,
 )
 from opencontractserver.shared.services.base import BaseService
+
+if TYPE_CHECKING:
+    from opencontractserver.pipeline.base.base_authority_discovery_provider import (
+        DiscoveryCandidate,
+    )
 
 
 @dataclass
@@ -260,6 +266,71 @@ class AuthorityFrontierService(BaseService):
             "child_created": created,
             "child_skipped": skipped,
             # Consumer (crawl) only needs containment; skip the sort.
+            "queued_keys": list(queued_keys),
+        }
+
+    @classmethod
+    def seed_from_discovery(
+        cls,
+        candidates: list[DiscoveryCandidate],
+        *,
+        discovery_provider: str,
+    ) -> dict:
+        """Upsert AuthorityFrontier rows from a discovery provider's candidates.
+
+        Phase 2 (issue #2054): a ``BaseAuthorityDiscoveryProvider`` lists
+        documents nobody has cited yet (candidate = canonical_key + url +
+        minimal metadata); this is the ONE place that turns those candidates
+        into durable frontier rows, mirroring ``seed_child_keys``'s idempotency
+        contract exactly: a ``canonical_key`` that already has a row (at ANY
+        depth/discovery_state) is SKIPPED entirely — re-running the same
+        discovery crawl never creates duplicates and never resets an in-flight
+        row (e.g. one already ``in_progress`` or ``ingested``).
+
+        Freshly created rows are seeded at ``depth=0`` (a discovery-sourced
+        candidate is a fresh root, not a hop from an existing frontier row),
+        ``mention_count=1`` (parity with ``seed_child_keys``'s floor demand for a
+        freshly-seen key), and carry the candidate's url/title as the FIRST
+        ``candidate_sources`` audit-trail entry — set once, at creation, never
+        rewritten by a later discovery pass over the same key.
+
+        Does NOT stamp ``AuthorityFrontier.provider``: that field names a
+        registered ``BaseAuthoritySourceProvider`` (the citation-keyed FETCH
+        rail), which a discovery provider is not — the row is left
+        ``provider=None`` so the existing ``discover_and_bootstrap``
+        orchestration picks a source provider via its normal ``_provider_for``
+        routing, exactly like ``seed_child_keys`` / ``seed_from_wanted_authorities``.
+        """
+        created = skipped = 0
+        queued_keys: set[str] = set()
+        for candidate in candidates:
+            key = candidate.canonical_key
+            queued_keys.add(key)
+            authority = key.split(":", 1)[0]
+            juris, atype = C.classify_prefix(authority)
+            _, was_created = AuthorityFrontier.objects.get_or_create(
+                canonical_key=key,
+                defaults={
+                    "authority": authority,
+                    "jurisdiction": juris,
+                    "authority_type": atype,
+                    "mention_count": 1,
+                    "candidate_sources": [
+                        {
+                            "discovery_provider": discovery_provider,
+                            "url": candidate.url,
+                            "title": candidate.title,
+                        }
+                    ],
+                },
+            )
+            created += int(was_created)
+            skipped += int(not was_created)
+        return {
+            "discovery_created": created,
+            "discovery_skipped": skipped,
+            # Consumer (discover_authority_candidates command) only needs
+            # containment; skip the sort (mirrors seed_child_keys).
             "queued_keys": list(queued_keys),
         }
 

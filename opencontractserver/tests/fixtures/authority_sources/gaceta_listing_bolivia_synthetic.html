@@ -1,0 +1,33 @@
+<!--
+SYNTHETIC test fixture — NOT scraped from any live website.
+
+Shaped to resemble a plausible listing page for Bolivia's Gaceta Oficial (the
+motivating case for issue #2054's discovery-provider abstraction, per
+docs/architecture/proposals/0002-authority-packs.md §7), but the markup below
+is hand-written for testing ListingIndexDiscoveryProvider against MOCKED HTML.
+Nobody has verified this against the real site's current structure — do not
+treat it as documentation of the real site.
+-->
+<html>
+  <body>
+    <table class="listado">
+      <tr>
+        <td><a href="/gaceta/documento/2024-1234">Ley N. 1234 — Ley de Ejemplo</a></td>
+        <td>12/01/2024</td>
+      </tr>
+      <tr>
+        <td><a href="/gaceta/documento/2024-1235">Decreto Supremo N. 1235</a></td>
+        <td>15/01/2024</td>
+      </tr>
+      <tr>
+        <!-- A row missing an href entirely must be skipped, not crash parsing. -->
+        <td><span>Aviso — sin enlace</span></td>
+        <td>16/01/2024</td>
+      </tr>
+      <tr>
+        <td><a href="https://www.gacetaoficialdebolivia.gob.bo/gaceta/documento/2024-1236">Ley N. 1236</a></td>
+        <td>18/01/2024</td>
+      </tr>
+    </table>
+  </body>
+</html>
