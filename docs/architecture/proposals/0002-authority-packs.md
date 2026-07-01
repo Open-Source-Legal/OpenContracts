@@ -50,6 +50,39 @@ rather than against a `scraping/` app that was never built.
 > The remaining gaps (scheduled scraping, multi-corpus orchestration,
 > config-declarable `authority_type`/shape grammars) are unchanged.
 
+> **Update — Phase 2 (listing-index discovery, gap 3) shipped, issue #2054.**
+> `BaseAuthorityDiscoveryProvider`
+> (`opencontractserver/pipeline/base/base_authority_discovery_provider.py`) answers
+> the question a citation-keyed `BaseAuthoritySourceProvider` cannot: "what
+> documents exist that nobody has cited yet". It crawls a publisher's index page(s)
+> and lists candidates (canonical_key + url + metadata) WITHOUT fetching or
+> ingesting them — mirroring the `locate`/`fetch` split as `_fetch_index_impl`
+> (I/O) / `_parse_index_impl` (pure). The one reference implementation,
+> `ListingIndexDiscoveryProvider`
+> (`opencontractserver/pipeline/authority_discovery_providers/listing_index_provider.py`),
+> is a config-driven regex+template engine — jurisdiction-agnostic; a publisher
+> supplies a `ListingIndexRule` (link regex + canonical-key template), not new
+> code. Candidates are seeded into `AuthorityFrontier` via the new
+> `AuthorityFrontierService.seed_from_discovery`, which mirrors `seed_child_keys`'
+> idempotency contract exactly (skip, never duplicate, never reset an in-flight
+> row). The pipeline registry discovers discovery providers the same way as
+> source providers (core package + `<pack>/discovery_providers/`). Bounded by
+> `enrichment.constants.DISCOVERY_DEFAULT_MAX_CANDIDATES` /
+> `DISCOVERY_MAX_MAX_CANDIDATES`, and every fetch is SSRF- and
+> license-gated, same as Phase 1. Operator surface is the
+> `discover_authority_candidates` management command — **no admin UI** (out of
+> scope for #2054; deferred to a future console surface alongside Phase 3/4).
+> The shipped `bolivia` pack is NOT wired to a live index (nobody has verified
+> Gaceta Oficial's real markup in this codebase); the engine is proven against a
+> synthetic, Gaceta-Oficial-*shaped* fixture in
+> `test_listing_index_discovery_provider.py`. An operator who has verified a real
+> publisher's markup supplies their own `ListingIndexRule`. Tests:
+> `test_authority_discovery_provider_base.py`,
+> `test_listing_index_discovery_provider.py`,
+> `test_authority_frontier_discovery_seed.py`,
+> `test_discover_authority_candidates_command.py`, plus the pack-discovery
+> additions in `test_authority_pack_providers.py`.
+
 ## 1. Context — three artifacts, one intent
 
 | Artifact | What it is | Status |
@@ -197,7 +230,7 @@ co-author.
 |---|---|---|---|---|
 | 1 | Host allowlist is a hardcoded frozenset — a pack cannot open a new fetch host as data | **Blocker** (trivial fix) | Only with a live provider | Phase 2 (one-line edit) / #2057 makes it declarative |
 | 2 | No scheduled/recurring scraping (`CELERY_BEAT_SCHEDULE` has no crawl entries) | Major | If continuous ingestion is in scope | Phase 3 (= #1444 Phase A) |
-| 3 | Provider rail is citation-keyed; no listing-page bulk-discovery shape | Major | If publisher-crawl is in scope | Phase 2 |
+| 3 | Provider rail is citation-keyed; no listing-page bulk-discovery shape | Major | If publisher-crawl is in scope | **Phase 2 — shipped, issue #2054** |
 | 4 | No multi-corpus orchestration (`CorpusGroup` / cross-corpus retrieval) | Major | No (per-area corpora work independently) | Phase 4 (= #1444 Phase B) |
 | 5 | Spanish / sala-aware classification has no core primitive | Minor | Spanish: no (data); sala-aware: with provider | Phase 1 handles Spanish via aliases/persona; sala-aware → Phase 2 provider code |
 | 6 | Provider discovery scans one hardcoded package — no out-of-tree isolation | Minor | No | Future (enables entry-point packs + DB-driven allowlist) |
@@ -214,10 +247,12 @@ two primitives #1444 already identified as genuinely missing.
   edit). The live-fetch provider folds into Phase 2 because the Bolivian sources
   are listing-page, not key-addressable. *Handles the Spanish half of gap 5 via
   data.*
-- **Phase 2 — listing-page discovery (optional).** A `DiscoveryProvider`
-  abstraction that crawls a publisher index for *unknown* new documents and
-  seeds frontier rows. Needed only if the pack must find documents nobody has
-  cited yet. *Closes gap 3.*
+- **Phase 2 — listing-page discovery (shipped, issue #2054).**
+  `BaseAuthorityDiscoveryProvider` crawls a publisher index for *unknown* new
+  documents and seeds frontier rows via `AuthorityFrontierService
+  .seed_from_discovery`, with one config-driven reference implementation
+  (`ListingIndexDiscoveryProvider`). See the implementation-status callout
+  above for the full shape. *Closes gap 3.*
 - **Phase 3 — scheduled scraping (= #1444 Phase A).** A declarative
   "crawl publisher X into corpus Y nightly" surface (`PeriodicTask` / Beat sync).
   A core feature, not pack data. *Closes gap 2.*
@@ -235,7 +270,9 @@ queryable Bolivia deployment on its own.
    out-of-tree isolation (entry-point discovery + DB-driven host allowlist, gap 6)
    so packs never touch core's tree?
 2. **Scope** — citation-driven only (Phase 1), or also bulk publisher discovery
-   (Phase 2)?
+   (Phase 2)? Resolved: Phase 2 shipped (issue #2054) as a generic engine; wiring
+   a *verified* live rule for any specific publisher (Bolivia included) is left
+   to an operator who has inspected that site's real markup.
 3. **Scheduling** — is continuous nightly ingestion in scope (Phase 3), or does
    operator-triggered ingestion suffice?
 4. **Unified query** — is the cross-area `askBolivianLaw` experience a requirement

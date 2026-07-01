@@ -24,6 +24,9 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Optional, TypedDict
 
+from opencontractserver.pipeline.base.base_authority_discovery_provider import (
+    BaseAuthorityDiscoveryProvider,
+)
 from opencontractserver.pipeline.base.base_authority_source_provider import (
     BaseAuthoritySourceProvider,
 )
@@ -94,6 +97,7 @@ class ComponentType(str, Enum):
     RERANKER = "reranker"
     LLM_PROVIDER = "llm_provider"
     AUTHORITY_SOURCE_PROVIDER = "authority_source_provider"
+    AUTHORITY_DISCOVERY_PROVIDER = "authority_discovery_provider"
 
 
 @dataclass(frozen=True)
@@ -207,6 +211,9 @@ class PipelineComponentRegistry:
         self._rerankers: tuple[PipelineComponentDefinition, ...] = ()
         self._llm_providers: tuple[PipelineComponentDefinition, ...] = ()
         self._authority_source_providers: tuple[PipelineComponentDefinition, ...] = ()
+        self._authority_discovery_providers: tuple[PipelineComponentDefinition, ...] = (
+            ()
+        )
 
         # Name -> Definition lookup for fast access
         self._by_name: dict[str, PipelineComponentDefinition] = {}
@@ -269,29 +276,41 @@ class PipelineComponentRegistry:
 
         return subclasses
 
-    def _discover_pack_provider_classes(self) -> list[type]:
-        """Discover ``BaseAuthoritySourceProvider`` subclasses shipped INSIDE
-        authority packs (``<pack>/providers/*.py``).
+    def _discover_pack_component_classes(
+        self, subdir_name: str, base_class: type, module_ns: str
+    ) -> list[type]:
+        """Discover ``base_class`` subclasses shipped INSIDE authority packs
+        (``<pack>/<subdir_name>/*.py``).
 
-        This is what makes a pack self-contained: its scraper lives in the pack
-        directory rather than in core's ``authority_source_providers/`` package, so
-        copying the pack to another install brings the provider with it. Each
-        module is imported by file path under a synthetic, collision-free module
-        name; an import failure is logged and skipped so a bad pack never crashes
-        registry build (matching ``_discover_subclasses``' isolation). Only classes
-        DEFINED in the pack module are registered — base/imported classes that
-        merely happen to be in scope are ignored via the ``__module__`` check.
+        Generalizes the "self-contained pack" discovery mechanism across every
+        component family that follows the pack-directory convention — today
+        ``BaseAuthoritySourceProvider`` under ``<pack>/providers/`` and
+        ``BaseAuthorityDiscoveryProvider`` under ``<pack>/discovery_providers/`` —
+        so a pack ships either (or both) kind of component the same way:
+        discovered by the registry, no registration call, no core edit. This is
+        what makes a pack self-contained: its scraper(s) live in the pack
+        directory rather than in a shared core package, so copying the pack to
+        another install brings them with it. ``module_ns`` disambiguates the
+        synthetic module namespace per component family so a pack shipping BOTH
+        kinds of component cannot collide on the same module name.
+
+        Each module is imported by file path under a synthetic, collision-free
+        module name; an import failure is logged and skipped so a bad pack never
+        crashes registry build (matching ``_discover_subclasses``' isolation).
+        Only classes DEFINED in the pack module are registered — base/imported
+        classes that merely happen to be in scope are ignored via the
+        ``__module__`` check.
         """
         seen: set[type] = set()
         found: list[type] = []
         for pack_dir in authority_pack_dirs():
-            providers_dir = pack_dir / "providers"
-            if not providers_dir.is_dir():
+            component_dir = pack_dir / subdir_name
+            if not component_dir.is_dir():
                 continue
-            for py in sorted(providers_dir.glob("*.py")):
+            for py in sorted(component_dir.glob("*.py")):
                 if py.name.startswith("_"):
                     continue
-                mod_name = f"_authority_pack_providers.{pack_dir.name}.{py.stem}"
+                mod_name = f"_authority_pack_{module_ns}.{pack_dir.name}.{py.stem}"
                 try:
                     spec = importlib.util.spec_from_file_location(mod_name, py)
                     if spec is None or spec.loader is None:
@@ -303,8 +322,8 @@ class PipelineComponentRegistry:
                     spec.loader.exec_module(module)
                     for _, obj in inspect.getmembers(module, inspect.isclass):
                         if (
-                            issubclass(obj, BaseAuthoritySourceProvider)
-                            and obj is not BaseAuthoritySourceProvider
+                            issubclass(obj, base_class)
+                            and obj is not base_class
                             and obj not in seen
                             and not inspect.isabstract(obj)
                             and obj.__module__ == mod_name
@@ -560,7 +579,9 @@ class PipelineComponentRegistry:
             BaseAuthoritySourceProvider,
         )
         seen_classes = set(authority_source_provider_classes)
-        for cls in self._discover_pack_provider_classes():
+        for cls in self._discover_pack_component_classes(
+            "providers", BaseAuthoritySourceProvider, "providers"
+        ):
             if cls not in seen_classes:
                 seen_classes.add(cls)
                 authority_source_provider_classes.append(cls)
@@ -592,6 +613,35 @@ class PipelineComponentRegistry:
                     prefix_owner[pfx] = defn.class_name
         self._authority_source_providers = tuple(authority_source_providers)
 
+        # Discover authority DISCOVERY providers: core package + in-pack providers
+        # (Phase 2, issue #2054). Same mechanism as authority source providers
+        # above, just a different base class + pack subdirectory
+        # (<pack>/discovery_providers/) — a discovery provider lists UNCITED
+        # candidates from a publisher's index page rather than resolving a known
+        # canonical_key, so it is not keyed by supported_prefixes and has no
+        # analogous prefix-collision warning.
+        authority_discovery_provider_classes = self._discover_subclasses(
+            "opencontractserver.pipeline.authority_discovery_providers",
+            BaseAuthorityDiscoveryProvider,
+        )
+        seen_discovery_classes = set(authority_discovery_provider_classes)
+        for cls in self._discover_pack_component_classes(
+            "discovery_providers", BaseAuthorityDiscoveryProvider, "discovery_providers"
+        ):
+            if cls not in seen_discovery_classes:
+                seen_discovery_classes.add(cls)
+                authority_discovery_provider_classes.append(cls)
+
+        authority_discovery_providers = []
+        for cls in authority_discovery_provider_classes:
+            defn = self._create_definition(
+                cls, ComponentType.AUTHORITY_DISCOVERY_PROVIDER
+            )
+            authority_discovery_providers.append(defn)
+            self._by_name[defn.name] = defn
+            self._by_class_name[defn.class_name] = defn
+        self._authority_discovery_providers = tuple(authority_discovery_providers)
+
         logger.info(
             f"Pipeline registry initialized: "
             f"{len(self._parsers)} parsers, "
@@ -601,7 +651,8 @@ class PipelineComponentRegistry:
             f"{len(self._enrichers)} enrichers, "
             f"{len(self._rerankers)} rerankers, "
             f"{len(self._llm_providers)} llm-providers, "
-            f"{len(self._authority_source_providers)} authority-source-providers"
+            f"{len(self._authority_source_providers)} authority-source-providers, "
+            f"{len(self._authority_discovery_providers)} authority-discovery-providers"
         )
 
     # -------------------------------------------------------------------------
@@ -647,6 +698,11 @@ class PipelineComponentRegistry:
     def authority_source_providers(self) -> tuple[PipelineComponentDefinition, ...]:
         """Get all registered authority source providers."""
         return self._authority_source_providers
+
+    @property
+    def authority_discovery_providers(self) -> tuple[PipelineComponentDefinition, ...]:
+        """Get all registered authority discovery providers."""
+        return self._authority_discovery_providers
 
     def get_llm_provider_by_key(
         self, provider_key: str
@@ -754,6 +810,13 @@ def get_all_authority_source_providers_cached() -> (
     return get_registry().authority_source_providers
 
 
+def get_all_authority_discovery_providers_cached() -> (
+    tuple[PipelineComponentDefinition, ...]
+):
+    """Get all registered authority discovery providers (cached)."""
+    return get_registry().authority_discovery_providers
+
+
 def get_llm_provider_by_key_cached(
     provider_key: str,
 ) -> Optional[PipelineComponentDefinition]:
@@ -819,6 +882,7 @@ def get_all_components_cached() -> dict[str, tuple[PipelineComponentDefinition, 
         "rerankers": registry.rerankers,
         "llm_providers": registry.llm_providers,
         "authority_source_providers": registry.authority_source_providers,
+        "authority_discovery_providers": registry.authority_discovery_providers,
     }
 
 

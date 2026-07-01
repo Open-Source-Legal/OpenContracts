@@ -22,7 +22,8 @@ original design rationale and the gap/phasing analysis see the proposal,
   authority_mappings.<name>.yaml     # taxonomy: prefixes / equivalences / rewrite_rules
   specs/<area>.json                  # curated section content (one doc per section)
   personas/<area>.txt                # agent persona → Corpus.corpus_agent_instructions
-  providers/<name>_provider.py       # OPTIONAL: the pack's scraper (discovered from here)
+  providers/<name>_provider.py       # OPTIONAL: citation-keyed scraper (discovered from here)
+  discovery_providers/<name>.py      # OPTIONAL: listing-index crawler (discovered from here)
 ```
 
 The reference pack lives at
@@ -40,6 +41,7 @@ changes** to accept a new pack:
 | Curated content (per legal area) | `specs/<area>.json` | `bootstrap_authority_corpus()` → keyed authority documents | optional |
 | Agent persona (per corpus) | `personas/<area>.txt` | `Corpus.corpus_agent_instructions` | optional |
 | Fetch provider ("scraper") | `providers/<name>_provider.py` | `BaseAuthoritySourceProvider`, discovered from the pack dir | optional |
+| Discovery provider (listing-index crawler) | `discovery_providers/<name>.py` | `BaseAuthorityDiscoveryProvider`, discovered the same way | optional |
 | Source hosts (for a scraper) | `pack.yaml` `source_hosts:` | the SSRF allowlist, merged at runtime | optional |
 | Provider credentials | the `PipelineSettings` encrypted-secrets vault (**not** a pack file) | `get_component_settings()`, keyed by provider class path | optional |
 
@@ -100,6 +102,31 @@ instead of in core's `pipeline/authority_source_providers/`:
 4. Put any credentials in the secrets vault (above), never in the pack.
 
 All sources must be **public-domain**; the gate blocks any other license.
+
+## Discovering UNKNOWN documents (listing-index crawl)
+
+A `BaseAuthoritySourceProvider` needs a *known* `canonical_key` — it cannot find
+documents nobody has cited yet. For a publisher whose site is a browsable
+listing/index (not key-addressable) — the motivating case is Bolivia's Gaceta
+Oficial, per [0002 — Authority Packs](../architecture/proposals/0002-authority-packs.md)
+§7 — use `BaseAuthorityDiscoveryProvider`
+(`opencontractserver/pipeline/base/base_authority_discovery_provider.py`)
+instead. It crawls index page(s) and lists candidates (canonical_key + url +
+metadata) *without* fetching or ingesting them; `AuthorityFrontierService
+.seed_from_discovery` then queues the candidates for the normal discovery
+runtime.
+
+The shipped reference implementation, `ListingIndexDiscoveryProvider`
+(`opencontractserver/pipeline/authority_discovery_providers/listing_index_provider.py`),
+is config-driven and jurisdiction-agnostic: supply a `ListingIndexRule` (a link
+regex + a canonical-key template) rather than writing new code. Ship one in
+`<pack>/discovery_providers/*.py` (discovered the same way as `providers/`) only
+if a publisher's markup needs bespoke parsing beyond that rule.
+
+The operator surface is the `discover_authority_candidates` management command
+(`--index-url` / `--link-pattern` / `--canonical-key-template` / `--prefix`, plus
+`--dry-run` to preview before seeding) — there is no admin UI for discovery
+(scope of issue #2054); see the command's docstring for a worked example.
 
 ## Add / remove / copy
 

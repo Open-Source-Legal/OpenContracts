@@ -4,7 +4,10 @@ A self-contained authority pack may ship its own scraper under
 ``<pack>/providers/*.py``; the pipeline registry discovers it from the pack
 directory (in-tree or via the ``AUTHORITY_PACK_PATHS`` setting) so the provider
 travels WITH its authority instead of living in core's
-``pipeline/authority_source_providers/`` package.
+``pipeline/authority_source_providers/`` package. A pack may ALSO ship a
+DISCOVERY provider (Phase 2, issue #2054) under ``<pack>/discovery_providers/*.py``
+via the same generalized mechanism -- see ``PackDiscoveryProviderDiscoveryTests``
+below.
 
 See ``docs/guides/authoring-authority-packs.md``.
 """
@@ -18,6 +21,7 @@ from django.test import SimpleTestCase, override_settings
 
 from opencontractserver.pipeline.registry import (
     authority_pack_dirs,
+    get_all_authority_discovery_providers_cached,
     get_all_authority_source_providers_cached,
     reset_registry,
 )
@@ -136,6 +140,116 @@ class PackProviderDiscoveryTests(SimpleTestCase):
                 ),
                 cm.output,
             )
+
+
+# A minimal, importable discovery provider shipped "inside a pack" (Phase 2,
+# issue #2054). Same file-path-import convention as _DEMO_PROVIDER_SRC above.
+_DEMO_DISCOVERY_PROVIDER_SRC = """
+from opencontractserver.pipeline.base.base_authority_discovery_provider import (
+    BaseAuthorityDiscoveryProvider,
+    DiscoveryCandidate,
+)
+
+
+class DemoPackDiscoveryProvider(BaseAuthorityDiscoveryProvider):
+    title = "Demo Pack Discovery Provider"
+
+    def _fetch_index_impl(self, index_url, **kw):
+        return "<html></html>"
+
+    def _parse_index_impl(self, html, *, index_url, **kw):
+        return [DiscoveryCandidate(canonical_key="demo-pack:1", url=index_url)]
+"""
+
+
+class PackDiscoveryProviderDiscoveryTests(SimpleTestCase):
+    """Registry-level discovery for BaseAuthorityDiscoveryProvider; no DB needed."""
+
+    def setUp(self):
+        self.addCleanup(reset_registry)
+
+    @staticmethod
+    def _write_pack(root: Path) -> Path:
+        pack = root / "demo-discovery-pack"
+        discovery_providers = pack / "discovery_providers"
+        discovery_providers.mkdir(parents=True)
+        (discovery_providers / "demo_discovery_provider.py").write_text(
+            _DEMO_DISCOVERY_PROVIDER_SRC, encoding="utf-8"
+        )
+        (discovery_providers / "_helper.py").write_text("X = 1\n", encoding="utf-8")
+        return pack
+
+    def test_in_pack_discovery_provider_is_discovered(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = self._write_pack(Path(tmp))
+            with override_settings(AUTHORITY_PACK_PATHS=[str(pack)]):
+                reset_registry()
+                provs = get_all_authority_discovery_providers_cached()
+                by_name = {p.name: p for p in provs}
+                self.assertIn("DemoPackDiscoveryProvider", by_name)
+                provider_cls = by_name["DemoPackDiscoveryProvider"].component_class
+                assert provider_cls is not None
+                candidates = provider_cls()._parse_index_impl(
+                    "<html></html>", index_url="https://x/1"
+                )
+                self.assertEqual(candidates[0].canonical_key, "demo-pack:1")
+
+    def test_provider_absent_without_pack_path(self):
+        with override_settings(AUTHORITY_PACK_PATHS=[]):
+            reset_registry()
+            names = {p.name for p in get_all_authority_discovery_providers_cached()}
+            self.assertNotIn("DemoPackDiscoveryProvider", names)
+            # The shipped core reference provider is still discovered.
+            self.assertIn("ListingIndexDiscoveryProvider", names)
+
+    def test_broken_pack_discovery_provider_is_logged_and_skipped(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = self._write_pack(Path(tmp))
+            (pack / "discovery_providers" / "broken.py").write_text(
+                "raise RuntimeError('boom in pack discovery provider')\n",
+                encoding="utf-8",
+            )
+            with override_settings(AUTHORITY_PACK_PATHS=[str(pack)]):
+                reset_registry()
+                with self.assertLogs(_REGISTRY_LOGGER, level="WARNING") as cm:
+                    names = {
+                        p.name for p in get_all_authority_discovery_providers_cached()
+                    }
+            self.assertIn("DemoPackDiscoveryProvider", names)
+            self.assertTrue(
+                any("Failed to import pack provider" in m for m in cm.output),
+                cm.output,
+            )
+
+    def test_source_provider_pack_and_discovery_provider_pack_do_not_collide(self):
+        """A pack shipping BOTH <pack>/providers/ and <pack>/discovery_providers/
+        must register both without either shadowing the other (module_ns
+        disambiguates the synthetic import namespace)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            pack = root / "dual-pack"
+            providers_dir = pack / "providers"
+            providers_dir.mkdir(parents=True)
+            (providers_dir / "source_provider.py").write_text(
+                _DEMO_PROVIDER_SRC, encoding="utf-8"
+            )
+            discovery_dir = pack / "discovery_providers"
+            discovery_dir.mkdir(parents=True)
+            (discovery_dir / "discovery_provider.py").write_text(
+                _DEMO_DISCOVERY_PROVIDER_SRC, encoding="utf-8"
+            )
+            with override_settings(AUTHORITY_PACK_PATHS=[str(pack)]):
+                reset_registry()
+                source_names = {
+                    p.name for p in get_all_authority_source_providers_cached()
+                }
+                discovery_names = {
+                    p.name for p in get_all_authority_discovery_providers_cached()
+                }
+        self.assertIn("DemoPackProvider", source_names)
+        self.assertIn("DemoPackDiscoveryProvider", discovery_names)
+        self.assertNotIn("DemoPackDiscoveryProvider", source_names)
+        self.assertNotIn("DemoPackProvider", discovery_names)
 
 
 class AuthorityPackDirsTests(SimpleTestCase):

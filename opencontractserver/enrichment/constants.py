@@ -90,6 +90,16 @@ MAX_DEFINED_TERM_SCAN = DEFINED_TERM_SCAN_MULTIPLIER * MAX_DEFINED_TERMS
 # Per-authority cap on the keys surfaced by the wanted-authorities queue.
 WANTED_AUTHORITIES_TOP_KEYS = 10
 
+# --- Phase 2 (issue #2054): listing-index discovery bounds ---------------------
+# Hard cap on candidates a single BaseAuthorityDiscoveryProvider.discover_candidates()
+# run may return/seed, mirroring the CRAWL_DEFAULT_*/CRAWL_MAX_* pair below: a
+# publisher's listing page with tens of thousands of rows must not flood the
+# frontier in one operator-triggered run.
+DISCOVERY_DEFAULT_MAX_CANDIDATES = 200
+# Absolute ceiling — a caller-supplied max_candidates is clamped to this even if
+# it asks for more, so a mistaken/hostile override cannot make one run unbounded.
+DISCOVERY_MAX_MAX_CANDIDATES = 2_000
+
 # --- Phase 5: bounded recursive authority crawl --------------------------------
 CRAWL_DEFAULT_MAX_DEPTH = 2  # authority-to-authority hops past depth-0 seeds
 CRAWL_DEFAULT_MIN_DEMAND = 2  # skip frontier rows with mention_count below this
