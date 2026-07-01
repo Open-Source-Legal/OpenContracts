@@ -9,7 +9,6 @@
 import React from "react";
 
 import { CollectionDataStory } from "../CollectionDataStory";
-import { SpendingBeeswarm } from "../SpendingBeeswarm";
 import { useCamlEmbedContext } from "../../../caml/CamlEmbedContext";
 
 export const CollectionDataStoryEmbed: React.FC<
@@ -18,12 +17,5 @@ export const CollectionDataStoryEmbed: React.FC<
   const { corpusId: ctxCorpusId } = useCamlEmbedContext();
   const corpusId = corpusIdProp || ctxCorpusId;
   if (!corpusId) return null;
-  return (
-    <>
-      {/* PHASE-0 de-risk scaffolding — preview the shareable beeswarm artifact
-          inline. Moves to its own poster route in Phase 1; remove this mount. */}
-      <SpendingBeeswarm corpusId={corpusId} />
-      <CollectionDataStory corpusId={corpusId} />
-    </>
-  );
+  return <CollectionDataStory corpusId={corpusId} />;
 };

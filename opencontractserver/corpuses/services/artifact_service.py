@@ -262,7 +262,12 @@ class ArtifactService(BaseService):
         The GraphQL layer routes here rather than touching ``Artifact.objects``
         directly (service-layer invariant), so any future image handling
         (validation, audit, storage abstraction) has a single home. Caller is
-        responsible for size-capping and decoding the upload before this point.
+        responsible for size-capping and decoding the base64 upload before this
+        point; this method owns validating the decoded bytes are actually a PNG.
+
+        Raises ``ValueError`` if ``image_bytes`` isn't PNG data (distinct from
+        the ``None`` return used for not-found/no-permission, which must stay
+        indistinguishable to avoid an existence oracle).
         """
         from django.core.files.base import ContentFile
 
@@ -276,8 +281,20 @@ class ArtifactService(BaseService):
             return None
         if not cls._can_edit(artifact, user):
             return None
+        # The bytes are persisted as ``<slug>.png`` at a public media URL, so
+        # reject anything that isn't actually a PNG (an SVG with embedded
+        # script, an executable, a polyglot) before it reaches storage. Checked
+        # after the permission gate so an unauthorized caller learns nothing
+        # about whether their upload would otherwise have been accepted.
+        if not image_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+            raise ValueError("Image must be a PNG.")
         artifact.image.save(f"{artifact.slug}.png", ContentFile(image_bytes), save=True)
-        return artifact
+        # Refetch with corpus/creator prefetched (as ``create``/``update_captions``
+        # do): the SetArtifactImage mutation's caller may serialize the result
+        # via ``_artifact_to_type``, which reads ``a.corpus.slug`` — returning
+        # the bare saved instance would force an extra SELECT (and raises
+        # ``SynchronousOnlyOperation`` in an async context).
+        return Artifact.objects.select_related("corpus", "creator").get(pk=artifact.pk)
 
     @staticmethod
     def _can_edit(artifact: Artifact, user: Any) -> bool:

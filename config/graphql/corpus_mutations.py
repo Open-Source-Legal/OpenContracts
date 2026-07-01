@@ -1784,7 +1784,10 @@ class CreateArtifact(graphene.Mutation):
         byline="",
         config=None,
     ) -> "CreateArtifact":
+        import json
+
         from config.graphql.corpus_queries import _artifact_to_type
+        from opencontractserver.constants.artifacts import MAX_ARTIFACT_CONFIG_BYTES
         from opencontractserver.corpuses.services.artifact_service import (
             ArtifactService,
         )
@@ -1794,6 +1797,10 @@ class CreateArtifact(graphene.Mutation):
             corpus_pk = int(from_global_id(corpus_id)[1])
         except Exception:
             return CreateArtifact(ok=False, message="Invalid corpus id.", artifact=None)
+        if config and len(json.dumps(config)) > MAX_ARTIFACT_CONFIG_BYTES:
+            return CreateArtifact(
+                ok=False, message="Config payload too large.", artifact=None
+            )
         artifact = ArtifactService.create(
             info.context.user,
             corpus_pk,
@@ -1830,11 +1837,18 @@ class UpdateArtifact(graphene.Mutation):
     def mutate(
         root, info, slug, title=None, subtitle=None, byline=None, config=None
     ) -> "UpdateArtifact":
+        import json
+
         from config.graphql.corpus_queries import _artifact_to_type
+        from opencontractserver.constants.artifacts import MAX_ARTIFACT_CONFIG_BYTES
         from opencontractserver.corpuses.services.artifact_service import (
             ArtifactService,
         )
 
+        if config and len(json.dumps(config)) > MAX_ARTIFACT_CONFIG_BYTES:
+            return UpdateArtifact(
+                ok=False, message="Config payload too large.", artifact=None
+            )
         artifact = ArtifactService.update_captions(
             info.context.user,
             slug,
@@ -1896,16 +1910,15 @@ class SetArtifactImage(graphene.Mutation):
             data = base64.b64decode(raw)
         except Exception:
             return SetArtifactImage(ok=False, message="Bad image data.", image_url=None)
-        # The bytes are persisted as ``<slug>.png`` at a public media URL, so
-        # reject anything that isn't actually a PNG (an SVG with embedded script,
-        # an executable, a polyglot) before it reaches storage.
-        if not data.startswith(b"\x89PNG\r\n\x1a\n"):
-            return SetArtifactImage(
-                ok=False, message="Image must be a PNG.", image_url=None
+        # PNG-format validation lives in ArtifactService.set_image (single home
+        # for image handling, per its docstring) so any future caller — not
+        # just this mutation — is protected.
+        try:
+            artifact = ArtifactService.set_image(
+                info.context.user, slug, data, request=info.context
             )
-        artifact = ArtifactService.set_image(
-            info.context.user, slug, data, request=info.context
-        )
+        except ValueError as exc:
+            return SetArtifactImage(ok=False, message=str(exc), image_url=None)
         if artifact is None:
             return SetArtifactImage(
                 ok=False, message="Artifact not found or not yours.", image_url=None

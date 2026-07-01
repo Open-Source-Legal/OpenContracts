@@ -119,10 +119,8 @@ const setupStatusSilentMock = {
   },
 };
 
-// The collection-datastory embed mounts BOTH the beeswarm and the data story,
-// each issuing GET_CORPUS_DATA_STORY for the ambient corpus id. Apollo dedupes
-// the concurrent identical request, but extra copies are harmless and keep the
-// mock supply robust to fetch-policy timing.
+// The collection-datastory embed mounts the data story, which issues
+// GET_CORPUS_DATA_STORY for the ambient corpus id.
 const dataStoryMock = () => ({
   request: { query: GET_CORPUS_DATA_STORY, variables: { corpusId: CORPUS_ID } },
   result: {
@@ -309,28 +307,28 @@ test.describe("CAML intelligence embeds", () => {
     await component.unmount();
   });
 
-  test("collection-datastory embed renders the beeswarm + data story from the ambient corpus id", async ({
+  test("collection-datastory embed renders the data story from the ambient corpus id", async ({
     mount,
     page,
   }) => {
     const component = await mount(
-      <MockedProvider
-        mocks={[dataStoryMock(), dataStoryMock(), dataStoryMock()]}
-        addTypename={false}
-      >
+      <MockedProvider mocks={[dataStoryMock()]} addTypename={false}>
         <CamlEmbedProvider value={{ corpusId: CORPUS_ID }}>
           <CollectionDataStoryEmbed />
         </CamlEmbedProvider>
       </MockedProvider>
     );
 
-    // The embed wires the ambient corpus id through to both child surfaces.
-    await expect(page.locator('[data-testid="spending-beeswarm"]')).toBeVisible(
-      { timeout: 10000 }
-    );
+    // The embed wires the ambient corpus id through to the data story. The
+    // beeswarm is intentionally NOT mounted here (Phase-0 scaffolding removed
+    // — it lives at its own /a/<slug> poster route instead) to avoid showing
+    // the same artifact twice on the CAML article.
     await expect(
       page.locator('[data-testid="collection-data-story"]')
     ).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('[data-testid="spending-beeswarm"]')).toHaveCount(
+      0
+    );
 
     await component.unmount();
   });
@@ -348,9 +346,6 @@ test.describe("CAML intelligence embeds", () => {
     );
 
     // No corpus id (neither prop nor context) -> the embed short-circuits to null.
-    await expect(page.locator('[data-testid="spending-beeswarm"]')).toHaveCount(
-      0
-    );
     await expect(
       page.locator('[data-testid="collection-data-story"]')
     ).toHaveCount(0);

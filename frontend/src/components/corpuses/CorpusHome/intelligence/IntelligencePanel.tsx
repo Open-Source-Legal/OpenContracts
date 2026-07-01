@@ -7,6 +7,7 @@ import {
   OS_LEGAL_COLORS,
   OS_LEGAL_TYPOGRAPHY,
 } from "../../../../assets/configurations/osLegalStyles";
+import { CORPUS_DOCUMENTS_TOC_LIMIT } from "../../../../assets/configurations/constants";
 import {
   GET_CORPUS_COLLECTION_DOCS,
   GetCorpusCollectionDocsInput,
@@ -317,7 +318,10 @@ export const IntelligencePanel: React.FC<IntelligencePanelProps> = ({
 }) => {
   const navigateToDocument = useNavigateToDocumentById();
   const [showAll, setShowAll] = useState(false);
-  const variables = useMemo(() => ({ corpusId, limit: 100 }), [corpusId]);
+  const variables = useMemo(
+    () => ({ corpusId, limit: CORPUS_DOCUMENTS_TOC_LIMIT }),
+    [corpusId]
+  );
 
   const { data, loading, error } = useQuery<
     GetCorpusCollectionDocsOutput,
@@ -333,8 +337,18 @@ export const IntelligencePanel: React.FC<IntelligencePanelProps> = ({
     variables: useMemo(() => ({ corpusId }), [corpusId]),
   });
 
+  // The backend issues no ORDER BY on this connection (see
+  // GET_CORPUS_COLLECTION_DOCS), so Postgres is free to return rows in
+  // arbitrary heap order — sort client-side so the "01 / 02 / ..." editorial
+  // index below stays stable across reloads, matching the alphabetical sort
+  // DocumentTableOfContents.tsx already uses for the same list.
   const docs = useMemo(
-    () => (data?.documents?.edges ?? []).map((e) => e.node),
+    () =>
+      (data?.documents?.edges ?? [])
+        .map((e) => e.node)
+        .sort(
+          (a, b) => a.title.localeCompare(b.title) || a.id.localeCompare(b.id)
+        ),
     [data]
   );
 

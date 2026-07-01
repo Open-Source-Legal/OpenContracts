@@ -250,6 +250,16 @@ class ArtifactServiceReadAndEditTests(TestCase):
         assert image_name is not None
         self.assertTrue(image_name.endswith(".png"))
 
+    def test_set_image_rejects_non_png_bytes(self):
+        # Format validation lives in the service (single home for image
+        # handling), not just the GraphQL mutation, so any future caller is
+        # protected too. Raised as ValueError — distinct from the None used
+        # for not-found/no-permission, which must stay an opaque oracle.
+        art = ArtifactService.create(self.owner, self.private_corpus.id, _TEMPLATE)
+        assert art is not None
+        with self.assertRaises(ValueError):
+            ArtifactService.set_image(self.owner, art.slug, b"not a png")
+
     def test_set_image_rejected_for_non_creator(self):
         art = ArtifactService.create(self.owner, self.private_corpus.id, _TEMPLATE)
         assert art is not None

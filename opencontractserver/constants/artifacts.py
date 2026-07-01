@@ -23,3 +23,10 @@ _MIN_REFERENCES = 2
 # in memory (a slow-loris / OOM guard on the otherwise unbounded image field).
 # ~10 MB of base64 ≈ 7.5 MB decoded PNG — ample for a poster render.
 MAX_ARTIFACT_IMAGE_BASE64_BYTES = 10 * 1024 * 1024
+
+# Reject oversized ``Artifact.config`` payloads (Create/UpdateArtifact) before
+# persisting — the field is a free-form GenericScalar JSON blob with no schema
+# to naturally bound it, and the WRITE_MEDIUM rate limit only caps request
+# *frequency*, not a single payload's size. 64 KB is ample for poster
+# configuration (colors, layout toggles, selected metrics).
+MAX_ARTIFACT_CONFIG_BYTES = 64 * 1024
