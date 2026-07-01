@@ -1,5 +1,8 @@
 """Tier-2a generic citation-shape grammars (deterministic, no DB)."""
 
+import contextlib
+from unittest.mock import patch
+
 from django.test import SimpleTestCase
 
 from opencontractserver.enrichment import constants as C
@@ -476,3 +479,73 @@ class MunicipalGoldenCorpusTests(SimpleTestCase):
             if c.authority_type == C.AUTHORITY_TYPE_MUNICIPAL
         }
         assert len(prefixes) >= 6, prefixes
+
+
+class ReferenceTypeFilterTests(SimpleTestCase):
+    """Coverage for the ``reference_types`` gate on ``extract()``.
+
+    Every grammar pass in this module exclusively emits ``REF_LAW``
+    candidates, so a caller that does not want ``REF_LAW`` should short-
+    circuit ALL nine passes rather than run them and filter downstream (the
+    optimization mirrors the one already applied to
+    ``ReferenceExtractor.extract``).
+    """
+
+    # All module-level grammar functions plus the instance-method passes that
+    # ``GenericCitationExtractor.extract`` calls when REF_LAW is wanted.
+    _MODULE_LEVEL_PASSES = (
+        "_usc",
+        "_cfr",
+        "_fedreg",
+        "_publ",
+        "_stat",
+        "_bare_acts",
+    )
+    _INSTANCE_PASSES = ("_states", "_municipal", "_municipal_generic")
+
+    def setUp(self):
+        self.ex = GenericCitationExtractor()
+        # A single blob that would trip every grammar pass if run.
+        self.text = (
+            "liability under 15 U.S.C. § 78j(b), hazardous waste per 40 "
+            "C.F.R. § 261.4, published at 88 Fed. Reg. 1,722, enacted by "
+            "Pub. L. No. 117-58, see 135 Stat. 429, subject to the Clean "
+            "Water Act, governed by Cal. Corp. Code § 300, and per San "
+            "Francisco Municipal Code § 1234 and Ordinance No. 2021-15."
+        )
+
+    def _patch_all_passes(self):
+        stack = contextlib.ExitStack()
+        for name in self._MODULE_LEVEL_PASSES:
+            stack.enter_context(
+                patch(
+                    f"opencontractserver.enrichment.grammars.{name}",
+                    side_effect=AssertionError(f"{name} should not run"),
+                )
+            )
+        for name in self._INSTANCE_PASSES:
+            stack.enter_context(
+                patch.object(
+                    GenericCitationExtractor,
+                    name,
+                    side_effect=AssertionError(f"{name} should not run"),
+                )
+            )
+        return stack
+
+    def test_reference_types_without_law_skips_every_grammar_pass(self):
+        with self._patch_all_passes():
+            cands = self.ex.extract(self.text, reference_types={C.REF_SECTION})
+        assert cands == []
+
+    def test_reference_types_with_law_still_runs_grammar_passes(self):
+        cands = self.ex.extract(self.text, reference_types={C.REF_LAW})
+        assert any(c.canonical_key == "usc-15:78j(b)" for c in cands)
+        assert all(c.reference_type == C.REF_LAW for c in cands)
+
+    def test_reference_types_none_is_unfiltered(self):
+        default = {c.canonical_key for c in self.ex.extract(self.text)}
+        explicit = {
+            c.canonical_key for c in self.ex.extract(self.text, reference_types=None)
+        }
+        assert default == explicit
