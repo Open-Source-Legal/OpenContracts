@@ -21,6 +21,8 @@ from config.graphql.ratelimits import RateLimits, graphql_ratelimit
 from opencontractserver.analyzer.services.analysis_lifecycle_service import (
     AnalysisLifecycleService,
 )
+from opencontractserver.corpuses.models import Corpus
+from opencontractserver.corpuses.services import CorpusService
 from opencontractserver.enrichment import constants as C
 from opencontractserver.enrichment.services import EnrichmentService
 from opencontractserver.enrichment.services.authority_permissions import (
@@ -162,6 +164,26 @@ class RunCorpusEnrichmentMutation(graphene.Mutation):
             # the explicit ``raise`` above covers a wrong type prefix. All map to
             # the same generic not-found/no-permission response so a caller cannot
             # distinguish "malformed id" from "exists but not visible" (IDOR).
+            return RunCorpusEnrichmentMutation(
+                ok=False,
+                partial=False,
+                message="Resource not found or you do not have permission.",
+                analyses=[],
+            )
+
+        # ---- Corpus visibility gate: must run before ANY branch that could
+        # leak corpus-specific state (e.g. "a job is already running") to a
+        # caller who cannot even see the corpus. Without this, a user with no
+        # access to ``corpus_pk`` could use the duplicate-job guard below as an
+        # oracle: the error message differs depending on whether an active
+        # analysis exists on a corpus they have never been granted READ on.
+        # ``start_document_analysis`` re-checks visibility (and UPDATE) later;
+        # that is intentional defence-in-depth, not redundant guarding — this
+        # gate only proves the caller may observe the corpus's state at all.
+        if (
+            CorpusService.get_or_none(Corpus, corpus_pk, user, request=info.context)
+            is None
+        ):
             return RunCorpusEnrichmentMutation(
                 ok=False,
                 partial=False,

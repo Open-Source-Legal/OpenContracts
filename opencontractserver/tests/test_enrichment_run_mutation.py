@@ -175,6 +175,44 @@ class RunCorpusEnrichmentMutationTests(TestCase):
         data = result["data"]["runCorpusEnrichment"]
         assert data["ok"] is False
 
+    def test_no_active_job_oracle_for_unauthorized_user(self):
+        """A caller with no permission on the corpus must get the SAME generic
+        message whether or not the corpus has an active enrichment job.
+
+        Regression test for the duplicate-job guard firing before the corpus
+        permission check: without the visibility gate, ``active_analysis_exists``
+        would leak "an enrichment analysis is already queued or running" to a
+        user who cannot even see the corpus, letting them probe arbitrary
+        corpus IDs for running-job state.
+        """
+        from opencontractserver.analyzer.models import Analysis
+        from opencontractserver.enrichment.services import EnrichmentService
+        from opencontractserver.types.enums import JobStatus
+
+        analyzer = EnrichmentService.get_or_create_analyzer(self.owner.id)
+        Analysis.objects.create(
+            analyzer=analyzer,
+            analyzed_corpus=self.corpus,
+            creator=self.owner,
+            status=JobStatus.RUNNING.value,
+        )
+
+        stranger = User.objects.create_user(username="stranger-oracle", password="p")
+        result = self._execute(
+            {
+                "corpusId": to_global_id("CorpusType", self.corpus.id),
+                "runEnrichment": True,
+                "runCrawl": False,
+            },
+            user=stranger,
+        )
+        assert result.get("errors") is None, result
+        data = result["data"]["runCorpusEnrichment"]
+        assert data["ok"] is False
+        # Same IDOR-safe generic message as the no-permission / no-active-job
+        # case — never the job-specific "already queued or running" text.
+        assert data["message"] == "Resource not found or you do not have permission."
+
     # ------------------------------------------------------------------
     # Error: neither flag set
     # ------------------------------------------------------------------
@@ -382,6 +420,7 @@ class RunCorpusEnrichmentMutationTests(TestCase):
         enrichment."""
         from opencontractserver.analyzer.models import Analysis
         from opencontractserver.enrichment.services import EnrichmentService
+        from opencontractserver.types.enums import JobStatus
 
         # A real enrichment Analysis to stand in as the dispatched running job.
         analyzer = EnrichmentService.get_or_create_analyzer(self.owner.id)
@@ -389,7 +428,7 @@ class RunCorpusEnrichmentMutationTests(TestCase):
             analyzer=analyzer,
             analyzed_corpus=self.corpus,
             creator=self.owner,
-            status="COMPLETED",
+            status=JobStatus.COMPLETED.value,
         )
 
         # First call (enrichment) succeeds, second call (crawl) fails.
@@ -561,6 +600,46 @@ class RunCorpusEnrichmentMutationTests(TestCase):
             Analysis.objects.filter(
                 analyzed_corpus=self.corpus,
                 analyzer__task_name=C.ENRICHMENT_ANALYZER_TASK,
+            ).count()
+            == 1
+        )
+
+    def test_rejects_duplicate_running_crawl_job(self):
+        """The mutation enforces one active crawl job per corpus.
+
+        Symmetric counterpart to ``test_rejects_duplicate_running_enrichment_job``
+        — covers the crawl branch of the duplicate-job guard, which previously
+        had no direct test coverage.
+        """
+        from opencontractserver.analyzer.models import Analysis
+        from opencontractserver.enrichment.services.crawl_authorities_service import (
+            CrawlAuthoritiesService,
+        )
+        from opencontractserver.types.enums import JobStatus
+
+        analyzer = CrawlAuthoritiesService.get_or_create_analyzer(self.owner.id)
+        Analysis.objects.create(
+            analyzer=analyzer,
+            analyzed_corpus=self.corpus,
+            creator=self.owner,
+            status=JobStatus.RUNNING.value,
+        )
+
+        result = self._execute(
+            {
+                "corpusId": to_global_id("CorpusType", self.corpus.id),
+                "runEnrichment": False,
+                "runCrawl": True,
+            }
+        )
+        assert result.get("errors") is None, result
+        data = result["data"]["runCorpusEnrichment"]
+        assert data["ok"] is False
+        assert "already queued or running" in data["message"]
+        assert (
+            Analysis.objects.filter(
+                analyzed_corpus=self.corpus,
+                analyzer__task_name=C.CRAWL_ANALYZER_TASK,
             ).count()
             == 1
         )
