@@ -276,6 +276,9 @@ def crawl_authorities(
         CrawlAuthoritiesService,
     )
 
+    # crawl() sanitizes its own bounds (the load-bearing call that also protects
+    # the Celery-task and any other direct caller), so the wrapper passes the
+    # caller's values through unmodified rather than sanitizing a second time.
     return CrawlAuthoritiesService.crawl(
         creator_id=creator_id,
         corpus_id=corpus_id,

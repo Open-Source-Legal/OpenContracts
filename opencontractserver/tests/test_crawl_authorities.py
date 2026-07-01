@@ -40,6 +40,28 @@ def _make_bootstrap_mock(status="ingested", corpus_id=999):
     return _mock
 
 
+def _seed_stub(*args, **kwargs):
+    """Stand in for ``seed_from_wanted_authorities`` in crawl tests.
+
+    The real method seeds depth-0 frontier rows and returns the canonical keys
+    it queued; the crawl scopes its ``dequeue_queued`` to exactly those keys
+    (corpus-scoped frontier isolation). These tests pre-seed the rows directly,
+    so mirror the production contract by returning the keys of whatever rows are
+    currently ``queued`` — otherwise the scoped crawl drains immediately. Counts
+    are not asserted on, so report ``frontier_updated`` as the queued count.
+    """
+    keys = list(
+        AuthorityFrontier.objects.filter(discovery_state="queued").values_list(
+            "canonical_key", flat=True
+        )
+    )
+    return {
+        "frontier_created": 0,
+        "frontier_updated": len(keys),
+        "queued_keys": keys,
+    }
+
+
 class CrawlAnalyzerConvergeTests(TransactionTestCase):
     def setUp(self):
         self.user = _make_user("crawl-analyzer-user")
@@ -106,7 +128,7 @@ class IdempotencyTests(TransactionTestCase):
         with patch(
             "opencontractserver.enrichment.services.crawl_authorities_service"
             ".AuthorityFrontierService.seed_from_wanted_authorities",
-            return_value={"frontier_created": 0, "frontier_updated": 1},
+            side_effect=_seed_stub,
         ), patch(
             "opencontractserver.enrichment.services.crawl_authorities_service"
             ".AuthorityDiscoveryService.discover_and_bootstrap",
@@ -172,7 +194,7 @@ class IdempotencyTests(TransactionTestCase):
         with patch(
             "opencontractserver.enrichment.services.crawl_authorities_service"
             ".AuthorityFrontierService.seed_from_wanted_authorities",
-            return_value={"frontier_created": 0, "frontier_updated": 1},
+            side_effect=_seed_stub,
         ), patch(
             "opencontractserver.enrichment.services.crawl_authorities_service"
             ".AuthorityDiscoveryService.discover_and_bootstrap",
@@ -335,7 +357,7 @@ class ApplyAnalysisReuseTests(TransactionTestCase):
         ), patch(
             "opencontractserver.enrichment.services.crawl_authorities_service"
             ".AuthorityFrontierService.seed_from_wanted_authorities",
-            return_value={"frontier_created": 0, "frontier_updated": 0},
+            side_effect=_seed_stub,
         ):
             summary = CrawlAuthoritiesService.crawl(
                 creator_id=user.id,
@@ -434,7 +456,7 @@ class BoundsTerminationTests(TransactionTestCase):
             # seed_from_wanted_authorities is called first; patch to no-op
             "opencontractserver.enrichment.services.crawl_authorities_service"
             ".AuthorityFrontierService.seed_from_wanted_authorities",
-            return_value={"frontier_created": 0, "frontier_updated": 0},
+            side_effect=_seed_stub,
         ):
             summary = CrawlAuthoritiesService.crawl(
                 creator_id=user.id,
@@ -456,7 +478,7 @@ class BoundsTerminationTests(TransactionTestCase):
         with patch(
             "opencontractserver.enrichment.services.crawl_authorities_service"
             ".AuthorityFrontierService.seed_from_wanted_authorities",
-            return_value={"frontier_created": 0, "frontier_updated": 0},
+            side_effect=_seed_stub,
         ):
             summary = CrawlAuthoritiesService.crawl(
                 creator_id=user.id,
@@ -512,7 +534,7 @@ class BoundsTerminationTests(TransactionTestCase):
         ), patch(
             "opencontractserver.enrichment.services.crawl_authorities_service"
             ".AuthorityFrontierService.seed_from_wanted_authorities",
-            return_value={"frontier_created": 0, "frontier_updated": 0},
+            side_effect=_seed_stub,
         ):
             CrawlAuthoritiesService.crawl(
                 creator_id=user.id,
@@ -553,7 +575,7 @@ class BoundsTerminationTests(TransactionTestCase):
         ), patch(
             "opencontractserver.enrichment.services.crawl_authorities_service"
             ".AuthorityFrontierService.seed_from_wanted_authorities",
-            return_value={"frontier_created": 0, "frontier_updated": 0},
+            side_effect=_seed_stub,
         ):
             summary = CrawlAuthoritiesService.crawl(
                 creator_id=user.id,
@@ -595,7 +617,7 @@ class BoundsTerminationTests(TransactionTestCase):
         ), patch(
             "opencontractserver.enrichment.services.crawl_authorities_service"
             ".AuthorityFrontierService.seed_from_wanted_authorities",
-            return_value={"frontier_created": 0, "frontier_updated": 0},
+            side_effect=_seed_stub,
         ), patch(
             # Each authority "costs" 1000 tokens; budget is 500 → stop after first.
             "opencontractserver.enrichment.services.crawl_authorities_service"
@@ -644,7 +666,7 @@ class BoundsTerminationTests(TransactionTestCase):
         ), patch(
             "opencontractserver.enrichment.services.crawl_authorities_service"
             ".AuthorityFrontierService.seed_from_wanted_authorities",
-            return_value={"frontier_created": 0, "frontier_updated": 0},
+            side_effect=_seed_stub,
         ), patch(
             "opencontractserver.enrichment.services.crawl_authorities_service"
             ".CrawlAuthoritiesService._estimate_tokens",
@@ -671,7 +693,7 @@ class BoundsTerminationTests(TransactionTestCase):
         with patch(
             "opencontractserver.enrichment.services.crawl_authorities_service"
             ".AuthorityFrontierService.seed_from_wanted_authorities",
-            return_value={"frontier_created": 0, "frontier_updated": 0},
+            side_effect=_seed_stub,
         ):
             summary = CrawlAuthoritiesService.crawl(
                 creator_id=user.id,
@@ -755,7 +777,7 @@ class BoundsTerminationTests(TransactionTestCase):
         ), patch(
             "opencontractserver.enrichment.services.crawl_authorities_service"
             ".AuthorityFrontierService.seed_from_wanted_authorities",
-            return_value={"frontier_created": 0, "frontier_updated": 0},
+            side_effect=_seed_stub,
         ):
             CrawlAuthoritiesService.crawl(
                 creator_id=user.id,
@@ -825,7 +847,7 @@ class BoundsTerminationTests(TransactionTestCase):
         ), patch(
             "opencontractserver.enrichment.services.crawl_authorities_service"
             ".AuthorityFrontierService.seed_from_wanted_authorities",
-            return_value={"frontier_created": 0, "frontier_updated": 0},
+            side_effect=_seed_stub,
         ):
             summary = CrawlAuthoritiesService.crawl(
                 creator_id=user.id,
@@ -892,7 +914,7 @@ class BoundsTerminationTests(TransactionTestCase):
         ), patch(
             "opencontractserver.enrichment.services.crawl_authorities_service"
             ".AuthorityFrontierService.seed_from_wanted_authorities",
-            return_value={"frontier_created": 0, "frontier_updated": 0},
+            side_effect=_seed_stub,
         ):
             CrawlAuthoritiesService.crawl(
                 creator_id=user.id,

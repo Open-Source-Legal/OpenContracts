@@ -98,11 +98,31 @@ CRAWL_DEFAULT_PER_JURISDICTION_CAP = 15  # max ingests per (jurisdiction) per ru
 CRAWL_DEFAULT_TOKEN_BUDGET = (
     2_000_000  # cumulative est. tokens (text len / 4) before stop
 )
-# Hard ceiling on a caller-supplied ``max_depth``. Each extra BFS hop fans the
-# crawl out combinatorially, so the public dispatch surface (the
-# RunCorpusEnrichment mutation and the crawl analyzer input schema) rejects
-# anything above this. Distinct from CRAWL_DEFAULT_MAX_DEPTH, which is only the
-# value used when the caller omits the field.
+# Security limits for user/LLM-triggered crawl runs. These caps keep exposed
+# tool parameters from turning one corpus action into an unbounded crawler.
+CRAWL_MAX_MAX_DEPTH = 5
+CRAWL_MAX_MIN_DEMAND = 1_000
+CRAWL_MAX_MAX_AUTHORITIES = 50
+CRAWL_MAX_PER_JURISDICTION_CAP = 15
+# Equal to CRAWL_DEFAULT_TOKEN_BUDGET today (both 2_000_000): the cap must
+# always be >= the default (the default is what a non-positive request maps
+# to; see _sanitize_token_budget), but the two are independent knobs — the
+# default can be lowered without lowering the hard cap, or raised up to it.
+CRAWL_MAX_TOKEN_BUDGET = 2_000_000
+# Lower floors for caps where 0/negative is not a meaningful "unbounded"
+# sentinel but a degenerate value. ``per_jurisdiction_cap`` of 0 parks every
+# dequeued row at ``deferred_cap`` (blocks the whole run); a floor of 1 keeps at
+# least one authority per jurisdiction processable.
+CRAWL_MIN_PER_JURISDICTION_CAP = 1
+# Hard ceiling on a caller-supplied ``max_depth`` at the GraphQL dispatch
+# surface (the RunCorpusEnrichment mutation's ``_validate_crawl_bounds``,
+# config/graphql/enrichment_mutations.py): a request above this is REJECTED
+# outright before a worker job is even queued. This is a different enforcement
+# point than CRAWL_MAX_MAX_DEPTH above, which SILENTLY CLAMPS the
+# service/tool/analyzer-schema layer (reached by paths that bypass the
+# mutation, e.g. direct analyzer dispatch or the LLM tool). Both gate the same
+# BFS-depth knob and currently agree at 5, but are deliberately independent so
+# either surface's limit can move without the other.
 CRAWL_MAX_ALLOWED_DEPTH = 5
 # Punctuation stripped from the tail of a captured defined term
 # (e.g. (the "Notes," ...) -> "Notes").
