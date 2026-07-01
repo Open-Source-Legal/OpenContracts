@@ -19,6 +19,9 @@ from typing import TYPE_CHECKING, Any
 from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 
+from opencontractserver.constants.corpus_lifecycle import (
+    BULK_SOFT_DELETE_CHUNK_SIZE,
+)
 from opencontractserver.corpuses.services.corpus_documents import (
     CorpusDocumentService,
 )
@@ -454,21 +457,32 @@ class DocumentLifecycleService(BaseService):
         4. revokes ``is_public`` on documents no longer in any public corpus
            (the batched equivalent of ``Corpus.remove_document``'s tail).
 
-        The query count is independent of the document count (a fixed handful of
-        statements instead of several per document), so it stays well clear of
-        the statement/connection timeout the per-document loop risked on
-        multi-thousand-document corpora (issue #1951). Restorability is
-        unchanged: the history nodes are identical to those
+        The query count no longer scales with the document count the way the
+        old per-document loop's did (several statements *per document*); it is
+        now ``O(document_count / BULK_SOFT_DELETE_CHUNK_SIZE)`` — a fixed
+        handful of statements per chunk of active paths, not per document. For
+        realistic corpus sizes this is a small, bounded number of statements,
+        well clear of the statement/connection timeout the per-document loop
+        risked on multi-thousand-document corpora (issue #1951). Restorability
+        is unchanged: the history nodes are identical to those
         ``Corpus.remove_document`` produces, so trashed documents stay in the
         trash listing and remain restorable.
 
-        Scaling caveat — O(1) in *queries*, not in *memory*: this primitive
-        still materializes both ``document_ids`` and the locked ``active_paths``
-        fully into Python lists, so there is **no built-in document-count
-        ceiling**. That is fine for realistic corpus sizes, but chunk/iterate
-        the doc set here before exposing an unbounded ``empty_corpus`` / folder
-        cascade-delete to arbitrarily large corpora (memory follow-up tracked
-        in #2045; #1951 was the now-closed query-count fix).
+        Memory: bounded, not O(N). The active paths in scope are locked and
+        loaded via keyset pagination (``pk``-ordered, page size
+        ``BULK_SOFT_DELETE_CHUNK_SIZE`` from
+        ``opencontractserver.constants.corpus_lifecycle``) rather than
+        materialized in a single ``list(...)``, so peak Python-side memory for
+        the locked-row working set is a fixed ceiling regardless of how many
+        documents a caller (``empty_corpus``, folder cascade-delete) puts in
+        scope (issue #2045; #1951 already closed the query-count blowup). The
+        ``pk``-ascending order is preserved *across* chunks (each chunk's
+        floor is the previous chunk's max ``pk``), so the deadlock-hygiene
+        lock-acquisition order described below still holds globally, not just
+        within one chunk. The ``is_public`` revocation tail (step 4) still
+        runs once, over the full accumulated set of trashed document ids —
+        it was already a single cheap query pair per invocation, independent
+        of chunking.
 
         NOTE: This is an internal primitive that performs **no permission
         check** — callers (``empty_corpus``, folder cascade-delete) must already
@@ -499,90 +513,110 @@ class DocumentLifecycleService(BaseService):
         # a cheap nested savepoint — matching ``Corpus.remove_document``'s own
         # self-contained design.
         with transaction.atomic():
-            # Lock + load the active head paths in one query. ``of=("self",)``
-            # locks only the DocumentPath rows (not the joined Document), and
-            # ``select_related("document")`` caches ``document`` so the replayed
-            # embedding signal (which reads ``instance.document``) doesn't issue
-            # a query per row. ``order_by("pk")`` gives a deterministic
-            # lock-acquisition order (deadlock hygiene against concurrent
-            # sessions) — it is load-bearing, not cosmetic.
+            # Lock + load the active head paths in fixed-size chunks via
+            # keyset ("seek") pagination on ``pk`` instead of materializing
+            # every active path in one ``list(...)``. ``of=("self",)`` locks
+            # only the DocumentPath rows (not the joined Document), and
+            # ``select_related("document")`` caches ``document`` so the
+            # replayed embedding signal (which reads ``instance.document``)
+            # doesn't issue a query per row.
+            #
+            # ``order_by("pk")`` within each chunk, combined with the
+            # strictly-increasing ``pk__gt=last_pk`` floor carried between
+            # chunks, gives a deterministic, globally ascending
+            # lock-acquisition order across the *whole* operation (deadlock
+            # hygiene against concurrent sessions) — it is load-bearing, not
+            # cosmetic.
             #
             # ``document_ids`` is a caller-supplied snapshot (e.g. empty_corpus's
-            # ``values_list``); this locked SELECT re-validates active state, so a
-            # document concurrently trashed/removed after the snapshot is simply
-            # absent here (skipped, never double-trashed) and one added after it
-            # is left alone — the same semantics as the prior per-document loop.
+            # ``values_list``); each chunk's locked SELECT re-validates active
+            # state, so a document concurrently trashed/removed after the
+            # snapshot is simply absent here (skipped, never double-trashed)
+            # and one added after it is left alone — the same semantics as the
+            # prior per-document loop.
             #
-            # PERF/MEMORY: this ``list()`` (plus the caller's ``document_ids``
-            # snapshot) is the unbounded allocation point behind the docstring
-            # "Scaling caveat" — chunk/iterate here to add a document-count
-            # ceiling for the empty_corpus / cascade-delete callers (#2045).
-            active_paths = list(
-                DocumentPath.objects.select_for_update(of=("self",))
-                .select_related("document")
-                .filter(
-                    corpus=corpus,
-                    document_id__in=document_ids,
-                    is_current=True,
-                    is_deleted=False,
+            # PERF/MEMORY: at most ``BULK_SOFT_DELETE_CHUNK_SIZE`` DocumentPath
+            # rows (plus joined Document) are ever materialized at once, so
+            # peak Python-side memory for this working set is a fixed ceiling
+            # regardless of ``len(document_ids)`` (issue #2045).
+            trashed_doc_ids: set[int] = set()
+            last_pk = 0
+            while True:
+                chunk = list(
+                    DocumentPath.objects.select_for_update(of=("self",))
+                    .select_related("document")
+                    .filter(
+                        corpus=corpus,
+                        document_id__in=document_ids,
+                        is_current=True,
+                        is_deleted=False,
+                        pk__gt=last_pk,
+                    )
+                    .order_by("pk")[:BULK_SOFT_DELETE_CHUNK_SIZE]
                 )
-                .order_by("pk")
-            )
-            if not active_paths:
+                if not chunk:
+                    break
+                last_pk = chunk[-1].pk
+                trashed_doc_ids.update(p.document_id for p in chunk)
+
+                # 1) Supersede every current head in this chunk with a single
+                #    UPDATE. This bulk ``.update()`` deliberately skips the
+                #    per-row ``post_save(created=False)`` that
+                #    ``remove_document``'s ``save(update_fields=["is_current"])``
+                #    would fire — safe because every DocumentPath post_save
+                #    receiver either early-returns on created=False or
+                #    recomputes from the new head created in step 2 (see the
+                #    superseded-rows INVARIANT on
+                #    ``_dispatch_document_path_created_signals``).
+                DocumentPath.objects.filter(pk__in=[p.pk for p in chunk]).update(
+                    is_current=False
+                )
+
+                # 2) Insert this chunk's soft-delete successor nodes in a
+                #    single bulk_create. Passing ``document=p.document`` /
+                #    ``corpus=corpus`` keeps those related objects cached on
+                #    the new rows for the signal replay below (no per-row
+                #    dereference query). The fields mirror exactly what
+                #    ``Corpus.remove_document`` writes for a soft delete.
+                deleted_rows = [
+                    DocumentPath(
+                        document=p.document,
+                        corpus=corpus,
+                        folder_id=p.folder_id,
+                        path=p.path,
+                        version_number=p.version_number,
+                        parent=p,
+                        is_deleted=True,
+                        is_current=True,
+                        creator=user,
+                    )
+                    for p in chunk
+                ]
+                created = DocumentPath.objects.bulk_create(deleted_rows)
+
+                # 3) bulk_create bypasses per-row post_save; replay it so the
+                #    embedding + CAML-cache side-effects fire (same helper the
+                #    bulk move/reconcile paths use), once per chunk. Both
+                #    receivers defer their actual work via
+                #    ``transaction.on_commit``, so dispatching here (before
+                #    commit / before the step-4 revocation) is rollback-safe:
+                #    if this atomic block rolls back, Django discards those
+                #    on_commit callbacks and no embedding job runs for
+                #    uncommitted rows.
+                CorpusPathService._dispatch_document_path_created_signals(created)
+
+            if not trashed_doc_ids:
                 return 0
 
-            # Distinct documents in scope — derived purely from the locked
-            # ``active_paths``, so compute it once up front (clearer data flow
-            # than recomputing after the writes).
-            trashed_doc_ids = {p.document_id for p in active_paths}
-
-            # 1) Supersede every current head in a single UPDATE. This bulk
-            #    ``.update()`` deliberately skips the per-row
-            #    ``post_save(created=False)`` that ``remove_document``'s
-            #    ``save(update_fields=["is_current"])`` would fire — safe because
-            #    every DocumentPath post_save receiver either early-returns on
-            #    created=False or recomputes from the new head created in step 2
-            #    (see the superseded-rows INVARIANT on
-            #    ``_dispatch_document_path_created_signals``).
-            DocumentPath.objects.filter(pk__in=[p.pk for p in active_paths]).update(
-                is_current=False
-            )
-
-            # 2) Insert the soft-delete successor nodes in a single bulk_create.
-            #    Passing ``document=p.document`` / ``corpus=corpus`` keeps those
-            #    related objects cached on the new rows for the signal replay
-            #    below (no per-row dereference query). The fields mirror exactly
-            #    what ``Corpus.remove_document`` writes for a soft delete.
-            deleted_rows = [
-                DocumentPath(
-                    document=p.document,
-                    corpus=corpus,
-                    folder_id=p.folder_id,
-                    path=p.path,
-                    version_number=p.version_number,
-                    parent=p,
-                    is_deleted=True,
-                    is_current=True,
-                    creator=user,
-                )
-                for p in active_paths
-            ]
-            created = DocumentPath.objects.bulk_create(deleted_rows)
-
-            # 3) bulk_create bypasses per-row post_save; replay it so the
-            #    embedding + CAML-cache side-effects fire (same helper the bulk
-            #    move/reconcile paths use). Both receivers defer their actual
-            #    work via ``transaction.on_commit``, so dispatching here (before
-            #    commit / before the step-4 revocation) is rollback-safe: if this
-            #    atomic block rolls back, Django discards those on_commit
-            #    callbacks and no embedding job runs for uncommitted rows.
-            CorpusPathService._dispatch_document_path_created_signals(created)
-
             # 4) Revoke is_public for documents no longer in any public corpus —
-            #    one query pair for the whole batch (mirrors the tail of
-            #    ``Corpus.remove_document``). Runs after the writes above so the
-            #    just-trashed heads are already ``is_current=False`` and are
-            #    correctly excluded from the "still public" probe.
+            #    one query pair for the WHOLE accumulated batch (mirrors the
+            #    tail of ``Corpus.remove_document``), run once here rather
+            #    than per-chunk: it is already a fixed, cheap pair of queries
+            #    regardless of how many documents were trashed, so chunking it
+            #    would only add query count without reducing memory. Runs
+            #    after all chunk writes above so every just-trashed head is
+            #    already ``is_current=False`` and is correctly excluded from
+            #    the "still public" probe.
             #
             #    The ``corpus.is_public`` gate is an intentional carry-over from
             #    ``Corpus.remove_document``: trashing a document out of a PRIVATE

@@ -1162,12 +1162,18 @@ class TestBulkSoftDeletePrimitive(_CorpusObjsServiceFolderTestBase):
             any(call_kwargs.get("created") is False for _, call_kwargs in send_calls)
         )
 
-    def test_query_count_independent_of_document_count(self):
-        """The whole point of issue #1951: O(1) queries in the doc count.
+    def test_query_count_constant_within_a_single_chunk(self):
+        """Issue #1951's O(1) guarantee, rescoped by issue #2045's chunking:
+        query count is constant for any document count that fits within a
+        single ``BULK_SOFT_DELETE_CHUNK_SIZE`` chunk, not for ANY document
+        count (see ``test_query_count_increment_crossing_chunk_boundary_is_
+        bounded_not_per_document`` below for what happens once a second chunk
+        is needed).
 
         The old per-document ``remove_document`` loop issued several queries
         each (O(N)); the batched primitive must issue the SAME number of
-        queries for 2 docs as for 6.
+        queries for 2 docs as for 6 — both comfortably under the default
+        chunk size, so this exercises the real, unpatched constant.
         """
         small = Corpus.objects.create(
             title="Small", creator=self.owner, is_public=False
@@ -1189,7 +1195,9 @@ class TestBulkSoftDeletePrimitive(_CorpusObjsServiceFolderTestBase):
 
         # Floor so the equality below isn't vacuously satisfied by 0 == 0 (a
         # regression that silently skips all work): real trashing always runs at
-        # least the SELECT-FOR-UPDATE + is_current UPDATE + bulk_create.
+        # least the SELECT-FOR-UPDATE + is_current UPDATE + bulk_create, plus
+        # the terminating SELECT that finds no further rows and ends the
+        # keyset loop.
         self.assertGreaterEqual(
             len(small_ctx),
             3,
@@ -1198,11 +1206,11 @@ class TestBulkSoftDeletePrimitive(_CorpusObjsServiceFolderTestBase):
         self.assertEqual(
             len(small_ctx),
             len(large_ctx),
-            "Query count must not vary with document count (the O(1) guarantee)",
+            "Query count must not vary with document count within one chunk",
         )
 
         # The ``is_public`` revocation branch is skipped for private corpora
-        # above, so prove it is ALSO O(1) in the document count: the
+        # above, so prove it is ALSO constant within a chunk: the
         # still-in-public probe + revoke UPDATE are a fixed query pair, not
         # per-document.
         small_pub = Corpus.objects.create(
@@ -1230,9 +1238,138 @@ class TestBulkSoftDeletePrimitive(_CorpusObjsServiceFolderTestBase):
         )
         # The public path adds the (constant) is_public revocation cost on top
         # of the private path. Assert only that it is strictly greater — the
-        # cross-size equality above is the real O(1) guarantee; a hardcoded delta
-        # would be a brittle false alarm if query/savepoint accounting shifts.
+        # cross-size equality above is the real per-chunk guarantee; a
+        # hardcoded delta would be a brittle false alarm if query/savepoint
+        # accounting shifts.
         self.assertGreater(len(small_pub_ctx), len(small_ctx))
+
+    @patch(
+        "opencontractserver.corpuses.services.lifecycle.BULK_SOFT_DELETE_CHUNK_SIZE", 3
+    )
+    def test_query_count_increment_crossing_chunk_boundary_is_bounded_not_per_document(
+        self,
+    ):
+        """Issue #2045's contract note: crossing ONE chunk boundary must add a
+        bounded, predictable increment — not one that scales with the number
+        of documents involved.
+
+        With the chunk size patched down to 3: trashing exactly one chunk's
+        worth of documents (3) never spills into a second chunk. Trashing 4
+        or 6 documents both spill into a second chunk (one full chunk of 3,
+        then a second chunk of 1 or 3) — if the extra chunk's cost were
+        per-document, 6 docs would cost more than 4. It doesn't: both cost
+        exactly the same, because the second chunk's query cost depends on
+        there being a second chunk at all, not on how many documents land in
+        it.
+        """
+        one_chunk = Corpus.objects.create(
+            title="One Chunk", creator=self.owner, is_public=False
+        )
+        two_chunks_min = Corpus.objects.create(
+            title="Two Chunks (min spill)", creator=self.owner, is_public=False
+        )
+        two_chunks_more = Corpus.objects.create(
+            title="Two Chunks (full second chunk)", creator=self.owner, is_public=False
+        )
+        one_chunk_ids = self._seed_docs(one_chunk, 3)  # exactly fills one chunk
+        two_chunks_min_ids = self._seed_docs(two_chunks_min, 4)  # spills by 1 doc
+        two_chunks_more_ids = self._seed_docs(
+            two_chunks_more, 6
+        )  # spills by a full second chunk (3 docs)
+
+        with CaptureQueriesContext(connection) as one_ctx:
+            DocumentLifecycleService.bulk_soft_delete_documents(
+                one_chunk, one_chunk_ids, self.owner
+            )
+        with CaptureQueriesContext(connection) as min_ctx:
+            DocumentLifecycleService.bulk_soft_delete_documents(
+                two_chunks_min, two_chunks_min_ids, self.owner
+            )
+        with CaptureQueriesContext(connection) as more_ctx:
+            DocumentLifecycleService.bulk_soft_delete_documents(
+                two_chunks_more, two_chunks_more_ids, self.owner
+            )
+
+        # Crossing the boundary at all costs something (it is not silently
+        # free / skipping work).
+        self.assertGreater(len(min_ctx), len(one_ctx))
+        # But the increment is bounded by "one more chunk exists", not by how
+        # many extra documents are in that second chunk: 4 docs (1 in the
+        # second chunk) and 6 docs (3 in the second chunk) cost identically.
+        self.assertEqual(
+            len(min_ctx),
+            len(more_ctx),
+            "Query count increment from a second chunk must not scale with "
+            "how many extra documents land in it",
+        )
+
+    @patch(
+        "opencontractserver.corpuses.services.lifecycle.BULK_SOFT_DELETE_CHUNK_SIZE", 3
+    )
+    def test_chunked_processing_is_correct_across_multiple_chunks(self):
+        """Issue #2045: chunking must not silently break correctness — only
+        prove the memory bound if the end state is still right.
+
+        Seeds 8 documents in a PUBLIC corpus with the chunk size patched down
+        to 3 (chunks of 3, 3, 2 — spanning 3 chunks) and confirms: every
+        document is trashed, each has a restorable soft-delete history node
+        that shows up in the trash listing, the create-signal fired once per
+        document (not skipped/duplicated across chunk boundaries), and
+        ``is_public`` is correctly revoked for all of them.
+        """
+        public_corpus = Corpus.objects.create(
+            title="Multi-Chunk Public", creator=self.owner, is_public=True
+        )
+        doc_ids = self._seed_docs(public_corpus, 8, is_public=True)
+
+        with patch(
+            "opencontractserver.corpuses.services.paths.post_save"
+        ) as mock_signal:
+            trashed = DocumentLifecycleService.bulk_soft_delete_documents(
+                public_corpus, doc_ids, self.owner
+            )
+
+        self.assertEqual(trashed, 8)
+
+        for doc_id in doc_ids:
+            # Old head superseded.
+            self.assertFalse(
+                DocumentPath.objects.filter(
+                    document_id=doc_id,
+                    corpus=public_corpus,
+                    is_current=True,
+                    is_deleted=False,
+                ).exists()
+            )
+            # New current node is a restorable soft-delete successor.
+            head = DocumentPath.objects.get(
+                document_id=doc_id, corpus=public_corpus, is_current=True
+            )
+            self.assertTrue(head.is_deleted)
+            self.assertIsNotNone(head.parent)
+            self.assertTrue(Document.objects.filter(id=doc_id).exists())
+
+        # All 8 show up in the trash listing (the corpus trash view), not
+        # just the ones from the first chunk.
+        trashed_in_listing = set(
+            DocumentLifecycleService.get_deleted_documents(
+                self.owner, public_corpus.id
+            ).values_list("document_id", flat=True)
+        )
+        self.assertEqual(trashed_in_listing, set(doc_ids))
+
+        # Signal replayed exactly once per document, across all 3 chunks.
+        send_calls = mock_signal.send.call_args_list
+        self.assertEqual(len(send_calls), 8)
+        for call in send_calls:
+            _, call_kwargs = call
+            self.assertTrue(call_kwargs["created"])
+
+        # is_public revoked for every document — none has an active path in
+        # any public corpus anymore.
+        self.assertEqual(
+            Document.objects.filter(id__in=doc_ids, is_public=True).count(), 0
+        )
 
     def test_revokes_is_public_when_no_longer_in_a_public_corpus(self):
         """Trashing a doc out of its only public corpus revokes is_public
