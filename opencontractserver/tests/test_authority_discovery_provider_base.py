@@ -153,6 +153,37 @@ class TestBaseAuthorityDiscoveryProviderABC(SimpleTestCase):
         result = provider.discover_candidates(["https://x/1"], max_candidates=10)
         self.assertFalse(result.capped)
 
+    def test_not_capped_when_exactly_at_limit_with_nothing_left_one_page(self):
+        """Boundary case: total distinct candidates == max_candidates, and
+        nothing more remains (single page, cap hit on its last candidate).
+        Nothing was actually truncated, so capped must be False even though
+        the cap was technically reached."""
+        provider = _DummyDiscoveryProvider(
+            {"https://x/1": "key-a https://x/a\nkey-b https://x/b"}
+        )
+        result = provider.discover_candidates(["https://x/1"], max_candidates=2)
+        self.assertEqual(
+            {c.canonical_key for c in result.candidates}, {"key-a", "key-b"}
+        )
+        self.assertFalse(result.capped)
+
+    def test_not_capped_when_exactly_at_limit_with_nothing_left_across_pages(self):
+        """Same boundary, but the cap lands on the last candidate of the LAST
+        of several index_urls -- still nothing left, so still not capped."""
+        provider = _DummyDiscoveryProvider(
+            {
+                "https://x/1": "key-a https://x/a",
+                "https://x/2": "key-b https://x/b",
+            }
+        )
+        result = provider.discover_candidates(
+            ["https://x/1", "https://x/2"], max_candidates=2
+        )
+        self.assertEqual(
+            {c.canonical_key for c in result.candidates}, {"key-a", "key-b"}
+        )
+        self.assertFalse(result.capped)
+
     def test_max_candidates_clamped_to_at_least_one(self):
         """A non-positive max_candidates must not disable bounding entirely."""
         provider = _DummyDiscoveryProvider(

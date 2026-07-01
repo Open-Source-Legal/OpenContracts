@@ -36,7 +36,7 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import ClassVar
 from urllib.parse import urljoin
 
@@ -71,6 +71,15 @@ class ListingIndexRule:
     link_pattern: str
     canonical_key_template: str
     prefix: str
+    # Compiled once in __post_init__ and reused by every _parse_index_impl call
+    # for this rule, instead of recompiling the identical pattern on each page.
+    # Not part of the public constructor (init=False) or __eq__/__repr__
+    # (compare=False/repr=False) -- it is a derived cache of link_pattern, not
+    # independent state. The dataclass is frozen, so __post_init__ below uses
+    # object.__setattr__ to set it.
+    _compiled_link_pattern: re.Pattern[str] = field(
+        init=False, repr=False, compare=False
+    )
 
     def __post_init__(self) -> None:
         try:
@@ -84,6 +93,7 @@ class ListingIndexRule:
                 "link_pattern must define a named group 'url' "
                 f"(got groups: {sorted(compiled.groupindex)})"
             )
+        object.__setattr__(self, "_compiled_link_pattern", compiled)
 
 
 class ListingIndexDiscoveryProvider(BaseAuthorityDiscoveryProvider):
@@ -119,7 +129,9 @@ class ListingIndexDiscoveryProvider(BaseAuthorityDiscoveryProvider):
                 "ListingIndexDiscoveryProvider requires a rule=ListingIndexRule(...) "
                 "kwarg (pass it to discover_candidates())."
             )
-        pattern = re.compile(rule.link_pattern)
+        # Compiled once in ListingIndexRule.__post_init__ -- reused here rather
+        # than recompiling the identical pattern on every page/call.
+        pattern = rule._compiled_link_pattern
         candidates: list[DiscoveryCandidate] = []
         for match in pattern.finditer(html):
             groups = match.groupdict()

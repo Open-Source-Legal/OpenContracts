@@ -82,8 +82,14 @@ class DiscoveryResult:
 
     candidates: list[DiscoveryCandidate]
     skipped_index_urls: dict[str, str]
-    # True if max_candidates stopped discovery before every index_url/match was
-    # exhausted — the bounded-crawl signal the tests assert on.
+    # True only when max_candidates ACTUALLY cut discovery short — i.e. at
+    # least one more distinct candidate is PROVABLY left unprocessed (either
+    # later in the same already-parsed index page, or in an index_url this run
+    # never got to fetch). If the cap is reached exactly as the very last
+    # distinct candidate from the very last already-fetched page is collected,
+    # capped is False: nothing was left out, so raising max_candidates would
+    # not surface more documents. Never determined by fetching an extra page
+    # just to check — only data already in memory from this run.
     capped: bool
 
 
@@ -132,6 +138,10 @@ class BaseAuthorityDiscoveryProvider(PipelineComponentBase, ABC):
         paginated listing whose pages overlap must not seed the same key twice)
         and the run stops as soon as ``max_candidates`` distinct candidates have
         been collected — the per-run bound the crawl proposal requires.
+        ``DiscoveryResult.capped`` reports whether that bound ACTUALLY cut
+        anything short (see its field docstring) — reaching the cap on the
+        very last available candidate is reported as NOT capped, since nothing
+        was left out.
 
         Raises:
             PermissionError: if ``self.license`` is not ``"public-domain"`` — a
@@ -154,14 +164,12 @@ class BaseAuthorityDiscoveryProvider(PipelineComponentBase, ABC):
             upper=DISCOVERY_MAX_MAX_CANDIDATES,
         )
 
+        url_list = list(index_urls)
         candidates: list[DiscoveryCandidate] = []
         skipped: dict[str, str] = {}
         seen_keys: set[str] = set()
-        capped = False
-        for index_url in index_urls:
-            if len(candidates) >= cap:
-                capped = True
-                break
+
+        for url_idx, index_url in enumerate(url_list):
             try:
                 html = self._fetch_index_impl(index_url, **merged)
             except SSRFValidationError as exc:
@@ -175,19 +183,34 @@ class BaseAuthorityDiscoveryProvider(PipelineComponentBase, ABC):
                 )
                 skipped[index_url] = f"error: {exc}"
                 continue
-            for candidate in self._parse_index_impl(
-                html, index_url=index_url, **merged
-            ):
+
+            # Materialize (not just iterate) so a look-ahead can prove whether
+            # anything distinct remains on THIS page once the cap is hit —
+            # never fetch another page just to answer that question.
+            page_candidates = list(
+                self._parse_index_impl(html, index_url=index_url, **merged)
+            )
+            for cand_idx, candidate in enumerate(page_candidates):
                 if candidate.canonical_key in seen_keys:
                     continue
                 seen_keys.add(candidate.canonical_key)
                 candidates.append(candidate)
                 if len(candidates) >= cap:
-                    capped = True
-                    break
+                    more_in_page = any(
+                        later.canonical_key not in seen_keys
+                        for later in page_candidates[cand_idx + 1 :]
+                    )
+                    more_urls_unfetched = url_idx + 1 < len(url_list)
+                    return DiscoveryResult(
+                        candidates=candidates,
+                        skipped_index_urls=skipped,
+                        capped=more_in_page or more_urls_unfetched,
+                    )
 
+        # Every index_url was processed (fetched, skipped, or exhausted) and
+        # the cap was never reached — nothing was truncated.
         return DiscoveryResult(
-            candidates=candidates, skipped_index_urls=skipped, capped=capped
+            candidates=candidates, skipped_index_urls=skipped, capped=False
         )
 
     # ---- subclass contract ------------------------------------------------- #
