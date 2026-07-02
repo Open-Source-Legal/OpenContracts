@@ -13,7 +13,6 @@ import json
 import logging
 import uuid
 import zipfile
-import zlib
 from typing import IO, TYPE_CHECKING, Any, cast
 
 from django.conf import settings
@@ -65,6 +64,7 @@ from opencontractserver.utils.packaging import (
     unpack_label_set_from_export,
 )
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
+from opencontractserver.utils.zip_security import read_zip_member_bounded
 
 if TYPE_CHECKING:
     from opencontractserver.corpuses.models import CorpusFolder
@@ -92,71 +92,26 @@ def _read_guarded_source_bytes(
 ) -> bytes | None:
     """Read a document source member into memory only when its size is safe.
 
-    This is the single choke point for reading a source member off the import
-    ZIP — used by BOTH the reingest peek and the baked-import fallback. User-facing
-    corpus-export imports default to reingest mode, so a crafted ZIP can otherwise
-    force Celery workers to allocate memory proportional to an uncompressed member
-    via ``ZipExtFile.read()``. Routing the baked path through the same guard means
-    an over-size member cannot bypass the limit by falling through to baked import.
+    Thin wrapper around the shared ``read_zip_member_bounded()`` choke point
+    (see ``opencontractserver.utils.zip_security``) — used by BOTH the
+    reingest peek and the baked-import fallback. User-facing corpus-export
+    imports default to reingest mode, so a crafted ZIP can otherwise force
+    Celery workers to allocate memory proportional to an uncompressed member.
+    Routing the baked path through the same guard means an over-size member
+    cannot bypass the limit by falling through to baked import.
 
-    ``settings.MAX_CORPUS_REINGEST_SOURCE_BYTES`` is the per-member cap. A negative
-    value is parsed in ``config/settings/base.py`` into ``None`` (guard disabled →
-    unbounded read); ``0`` is a literal zero-byte limit that rejects every
-    non-empty member (so zeroing the setting hardens rather than disables).
+    ``settings.MAX_CORPUS_REINGEST_SOURCE_BYTES`` is the per-member cap: a
+    negative value is parsed in ``config/settings/base.py`` into ``None``
+    (guard disabled → unbounded read); ``0`` is a literal zero-byte limit
+    that rejects every non-empty member (so zeroing the setting hardens
+    rather than disables).
 
     Returns the member bytes, or ``None`` when the member exceeds the cap or
     cannot be read safely — the caller then skips the document.
     """
-    # ``None`` is the disable sentinel (negative setting; see base.py); any int is
-    # a literal cap. Compared via ``is not None`` so mypy narrows ``int | None``.
-    max_source_bytes = settings.MAX_CORPUS_REINGEST_SOURCE_BYTES
-    try:
-        zip_info = import_zip.getinfo(doc_filename)
-        if max_source_bytes is not None and zip_info.file_size > max_source_bytes:
-            logger.warning(
-                "Skipping source read for %s: uncompressed ZIP member size %s "
-                "exceeds MAX_CORPUS_REINGEST_SOURCE_BYTES=%s.",
-                doc_filename,
-                zip_info.file_size,
-                max_source_bytes,
-            )
-            return None
-        with import_zip.open(zip_info) as fh:
-            source_bytes = fh.read(
-                max_source_bytes + 1 if max_source_bytes is not None else -1
-            )
-    except (KeyError, zipfile.BadZipFile, OSError, EOFError, zlib.error) as exc:
-        # ``KeyError``: a missing member (so a single absent file falls back
-        # gracefully rather than aborting the whole corpus import). The others:
-        # a crafted member whose central-directory ``file_size`` under-reports
-        # the real data (so the metadata guard above is skipped) does not yield
-        # a clean over-limit buffer — the bounded read trips CRC validation /
-        # decompression and raises. Treat any member we cannot read safely as
-        # unreadable and let the caller skip the document.
-        logger.warning(
-            "Skipping source read for %s: ZIP member could not be read safely (%s).",
-            doc_filename,
-            exc,
-        )
-        return None
-    if max_source_bytes is not None and len(source_bytes) > max_source_bytes:
-        # Post-read guard: defence-in-depth for any reader path that returns
-        # extra bytes without raising. A lying-metadata STORED member (reported
-        # file_size under-reports the real data) is actually caught by the
-        # EXCEPTION HANDLER above, not here: ZipExtFile caps decompressed output
-        # at the reported file_size, so the bounded read hits end-of-member
-        # early and the stored CRC-32 (computed over the full content) fails
-        # to match the truncated bytes returned, raising BadZipFile. This
-        # length check is the safety net for mock-based scenarios and future
-        # reader changes where bytes could slip past CRC validation.
-        logger.warning(
-            "Skipping source read for %s: ZIP member expanded beyond "
-            "MAX_CORPUS_REINGEST_SOURCE_BYTES=%s while reading.",
-            doc_filename,
-            max_source_bytes,
-        )
-        return None
-    return source_bytes
+    return read_zip_member_bounded(
+        import_zip, doc_filename, settings.MAX_CORPUS_REINGEST_SOURCE_BYTES
+    )
 
 
 def import_corpus_v2_from_bytes(
@@ -198,8 +153,23 @@ def import_corpus_v2_from_bytes(
                 )
                 return None
 
-            with import_zip.open("data.json") as corpus_data:
-                data_json = json.loads(corpus_data.read().decode("UTF-8"))
+            # Bounded read: data.json is the first member this importer opens,
+            # before any per-document guard runs. It is just as
+            # attacker-controlled as a document member — a small compressed
+            # ZIP can still declare a data.json entry with a high compression
+            # ratio (classic zip-bomb pattern) that decompresses to gigabytes
+            # (see read_zip_member_bounded docstring).
+            manifest_bytes = read_zip_member_bounded(
+                import_zip, "data.json", settings.MAX_CORPUS_MANIFEST_SIZE_BYTES
+            )
+            if manifest_bytes is None:
+                logger.error(
+                    "import_corpus_v2_from_bytes() - data.json exceeds "
+                    "MAX_CORPUS_MANIFEST_SIZE_BYTES=%s or could not be read safely",
+                    settings.MAX_CORPUS_MANIFEST_SIZE_BYTES,
+                )
+                return None
+            data_json = json.loads(manifest_bytes.decode("UTF-8"))
 
             version = data_json.get("version", "1.0")
             logger.info("Detected export format version: %s", version)

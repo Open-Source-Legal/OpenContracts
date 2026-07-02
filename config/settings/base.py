@@ -13,6 +13,7 @@ from opencontractserver.constants.agent_memory import (
 )
 from opencontractserver.constants.celery import CELERY_REDIS_VISIBILITY_TIMEOUT_SECONDS
 from opencontractserver.constants.document_processing import (
+    DEFAULT_MAX_CORPUS_MANIFEST_SIZE_BYTES,
     DEFAULT_MAX_CORPUS_REINGEST_SOURCE_BYTES,
     DOCLING_PARSER_REQUEST_TIMEOUT_SECONDS,
     MAX_FILE_UPLOAD_SIZE_BYTES,
@@ -955,6 +956,24 @@ _max_corpus_reingest_source_bytes = int(
 )
 MAX_CORPUS_REINGEST_SOURCE_BYTES: int | None = (
     None if _max_corpus_reingest_source_bytes < 0 else _max_corpus_reingest_source_bytes
+)
+
+# Maximum size (in bytes) of the top-level ``data.json`` manifest inside a V2
+# corpus-export ZIP. Read in full before any per-document guard runs (it is
+# the very first member the importer opens), so it needs its own bound — see
+# DEFAULT_MAX_CORPUS_MANIFEST_SIZE_BYTES for the threat model.
+#
+# Sentinel: same convention as MAX_CORPUS_REINGEST_SOURCE_BYTES — a NEGATIVE
+# value disables the guard entirely (unbounded read); 0 is a literal
+# zero-byte limit, not a disable.
+_max_corpus_manifest_size_bytes = int(
+    env(
+        "MAX_CORPUS_MANIFEST_SIZE_BYTES",
+        default=str(DEFAULT_MAX_CORPUS_MANIFEST_SIZE_BYTES),
+    )
+)
+MAX_CORPUS_MANIFEST_SIZE_BYTES: int | None = (
+    None if _max_corpus_manifest_size_bytes < 0 else _max_corpus_manifest_size_bytes
 )
 
 # Chunked (resumable) upload limits

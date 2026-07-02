@@ -627,3 +627,13 @@ class TestReadZipMemberBounded(TestCase):
         with self._zip_with_member("small.txt", b"hello") as zf:
             info = zf.getinfo("small.txt")
             self.assertEqual(read_zip_member_bounded(zf, info, 10), b"hello")
+
+    def test_none_max_bytes_disables_size_guard(self):
+        """``max_bytes=None`` is the disable sentinel for callers that expose
+        their own "unbounded" setting (e.g. a negative override parsed to
+        ``None`` — mirrors ``MAX_CORPUS_REINGEST_SOURCE_BYTES``): the member
+        is read in full regardless of size, unlike ``0`` which rejects every
+        non-empty member (see test_rejects_member_over_declared_size for the
+        literal-cap behavior)."""
+        with self._zip_with_member("any.txt", b"x" * 5000) as zf:
+            self.assertEqual(read_zip_member_bounded(zf, "any.txt", None), b"x" * 5000)

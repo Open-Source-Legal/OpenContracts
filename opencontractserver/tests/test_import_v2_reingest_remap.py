@@ -232,8 +232,11 @@ class TestSourceReingestability(TestCase):
             # skipped. The actual stored data is 10 bytes, so the bounded read
             # trips CRC validation and raises BadZipFile → caught → None.
             real_info.file_size = 3
+            # _read_guarded_source_bytes is a thin wrapper around the shared
+            # read_zip_member_bounded() choke point (see zip_security.py), so
+            # the warning is emitted from that module's logger, not this one.
             with self.assertLogs(
-                "opencontractserver.tasks.import_tasks_v2", level="WARNING"
+                "opencontractserver.utils.zip_security", level="WARNING"
             ) as captured:
                 result = _read_guarded_source_bytes(real_zf, "documents/liar.pdf")
 

@@ -640,8 +640,9 @@ def _read_sidecar(
 
     Raises:
         json.JSONDecodeError: If the sidecar is not valid JSON.
-        KeyError: If the sidecar path is not found in the zip.
-        ValueError: If the sidecar exceeds ZIP_MAX_SIDECAR_SIZE_BYTES.
+        ValueError: If the sidecar exceeds ZIP_MAX_SIDECAR_SIZE_BYTES, is
+            missing from the zip, or otherwise cannot be read safely (see
+            read_zip_member_bounded).
     """
     # sidecar_path is the *original* (unsanitized) zip entry name stored in
     # manifest.annotation_sidecars.  This is safe: ZipFile.open() performs a
@@ -652,27 +653,13 @@ def _read_sidecar(
     # opencontractserver/constants/zip_import.py).
     max_sidecar_size_bytes = get_zip_max_sidecar_size_bytes()
 
-    # Pre-read size check using the central directory's declared size. This
-    # avoids allocating memory for the common case of an oversized sidecar.
-    # A malicious zip can forge this value, so the actual read below is ALSO
-    # bounded to max_sidecar_size_bytes + 1 — declared-size lies can't force
-    # an unbounded decompression, because the read itself is capped
-    # regardless of what the metadata claims (see read_zip_member_bounded).
-    info = import_zip.getinfo(sidecar_path)
-    if info.file_size > max_sidecar_size_bytes:
+    raw = read_zip_member_bounded(import_zip, sidecar_path, max_sidecar_size_bytes)
+    if raw is None:
         raise ValueError(
-            f"Sidecar {sidecar_path} declares {info.file_size} bytes, "
-            f"exceeds limit of {max_sidecar_size_bytes} bytes"
+            f"Sidecar {sidecar_path} exceeds limit of {max_sidecar_size_bytes} "
+            f"bytes or could not be read safely"
         )
-
-    with import_zip.open(sidecar_path) as sidecar_handle:
-        raw = sidecar_handle.read(max_sidecar_size_bytes + 1)
-        if len(raw) > max_sidecar_size_bytes:
-            raise ValueError(
-                f"Sidecar {sidecar_path} is {len(raw)} bytes, "
-                f"exceeds limit of {max_sidecar_size_bytes} bytes"
-            )
-        return json.loads(raw.decode("UTF-8"))
+    return json.loads(raw.decode("UTF-8"))
 
 
 @celery_app.task()
