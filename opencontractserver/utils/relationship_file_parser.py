@@ -133,11 +133,38 @@ def parse_relationship_file(
     Returns:
         RelationshipFileParseResult with parsed relationships and any errors/warnings
     """
+    # Local import: zip_security imports RELATIONSHIP_FILE_NAMES from this
+    # module at module load time, so importing it back at module level here
+    # would create an import cycle. Deferring to call time breaks the cycle.
+    from opencontractserver.constants.zip_import import (
+        get_zip_max_single_file_size_bytes,
+    )
+    from opencontractserver.utils.zip_security import read_zip_member_bounded
+
+    # Bounded read: a crafted relationships.csv member whose declared size
+    # lies about its true decompressed size could otherwise force an
+    # unbounded allocation (see read_zip_member_bounded docstring). This
+    # file is never added to validate_zip_for_import's valid_files list, so
+    # it also never passes through that function's per-member declared-size
+    # check.
+    content_bytes = read_zip_member_bounded(
+        zip_file, filename, get_zip_max_single_file_size_bytes()
+    )
+    if content_bytes is None:
+        error_msg = (
+            f"Could not read relationships file '{filename}': exceeds "
+            f"ZIP_MAX_SINGLE_FILE_SIZE_BYTES or could not be read safely"
+        )
+        logger.error(error_msg)
+        return RelationshipFileParseResult(
+            is_valid=False,
+            errors=[error_msg],
+        )
+
     try:
-        with zip_file.open(filename) as f:
-            content = f.read().decode("utf-8")
+        content = content_bytes.decode("utf-8")
     except Exception as e:
-        logger.error(f"Failed to read relationships file '{filename}': {e}")
+        logger.error(f"Failed to decode relationships file '{filename}': {e}")
         return RelationshipFileParseResult(
             is_valid=False,
             errors=[f"Could not read relationships file: {str(e)}"],
