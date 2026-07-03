@@ -4,6 +4,11 @@ name: oc-extract tests
 # offline) dependency set, so it gets its own job instead of riding along
 # with the Django backend suite.
 
+# The job only checks out code and runs pytest — a read-only token is all
+# it needs (CodeQL: workflow-does-not-contain-permissions).
+permissions:
+  contents: read
+
 on:
   push:
     branches: [main]
