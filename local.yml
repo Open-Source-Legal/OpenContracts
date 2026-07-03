@@ -40,6 +40,9 @@ services:
       privacy_filter:
         condition: service_started
         required: false
+      gotenberg:
+        condition: service_started
+        required: false
     volumes:
       - .:/app:z
     env_file:
@@ -112,6 +115,18 @@ services:
     image: ghcr.io/open-source-legal/docxodus-service:1.1.0-docxodus5.4.2
     container_name: docxodus-parser
 
+  # Powers the optional pre-parse file-to-PDF converter
+  # (GotenbergFileConverter). Enable it by setting the converter in the admin
+  # System Settings UI (or DEFAULT_FILE_CONVERTER env var). No host port
+  # mapping: gotenberg listens on 3000 internally (would collide with the
+  # frontend dev server's 3000), and django/celeryworker reach it over the
+  # docker bridge at http://gotenberg:3000. No healthcheck: the stock image
+  # ships neither curl nor python (matching docling/docxodus, dependents use
+  # condition: service_started).
+  gotenberg:
+    image: gotenberg/gotenberg:8
+    container_name: gotenberg
+
   # The embedder images read VECTOR_EMBEDDER_API_KEY (compose/accelerated/
   # embedder/main.py), NOT API_KEY — the old ``API_KEY`` key was silently ignored
   # (the image fell back to its built-in "abc123" default, which happened to
@@ -182,6 +197,9 @@ services:
         condition: service_started
         required: false
       privacy_filter:
+        condition: service_started
+        required: false
+      gotenberg:
         condition: service_started
         required: false
     volumes:

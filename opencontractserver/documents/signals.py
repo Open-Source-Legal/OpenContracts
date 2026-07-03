@@ -14,6 +14,7 @@ from django.utils import timezone
 
 from config.telemetry import record_event
 from opencontractserver.tasks.doc_tasks import (
+    convert_document_to_pdf,
     extract_thumbnail,
     ingest_doc,
     mark_doc_failed_on_chain_error,
@@ -96,6 +97,17 @@ def process_doc_on_create_atomic(
             return
 
         ingest_tasks = []
+
+        # Optional pre-parse conversion to PDF (no-op unless a file converter
+        # is configured in PipelineSettings AND this document's extension is
+        # in its enabled set). Runs FIRST so the thumbnail and parser both
+        # see the converted PDF.
+        ingest_tasks.append(
+            convert_document_to_pdf.si(
+                user_id=instance.creator.id,
+                doc_id=instance.id,
+            )
+        )
 
         # Add the thumbnail extraction task
         ingest_tasks.append(extract_thumbnail.si(doc_id=instance.id))

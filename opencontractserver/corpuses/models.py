@@ -894,6 +894,10 @@ class Corpus(InstanceUserCanMixin, TreeNode):
                 txt_extract_file=document.txt_extract_file,
                 icon=document.icon,
                 md_summary_file=document.md_summary_file,
+                # Pre-conversion provenance travels with the copy (and keeps
+                # the original blob referenced for delete-time GC)
+                original_file=document.original_file,
+                original_file_type=document.original_file_type,
                 page_count=document.page_count,
                 custom_meta=document.custom_meta,  # Inherit custom metadata
                 is_public=self.is_public

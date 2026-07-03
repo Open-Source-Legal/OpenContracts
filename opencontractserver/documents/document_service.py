@@ -102,33 +102,47 @@ class DocumentService:
     def validate_file_type(
         cls,
         file_bytes: bytes,
+        filename: str = "",
     ) -> tuple[str | None, str]:
         """
         Validate and detect file MIME type.
 
+        When a pre-parse file converter is configured and ``filename`` carries
+        an extension in its enabled set, the upload is accepted for the
+        convert-to-PDF ingest path even though the format has no native
+        parser (see ``resolve_convertible_upload``).
+
         Args:
             file_bytes: Raw file bytes to analyze
+            filename: Original filename (drives converter-extension matching;
+                optional for backwards compatibility)
 
         Returns:
             (mime_type, error_message) - mime_type is None if validation fails
         """
         import filetype
 
+        from opencontractserver.pipeline.utils import resolve_convertible_upload
         from opencontractserver.utils.files import is_plaintext_content
 
         kind = filetype.guess(file_bytes)
-        if kind is None:
-            if is_plaintext_content(file_bytes):
-                mime_type = "text/plain"
-            else:
-                return None, "Unable to determine file type"
-        else:
-            mime_type = kind.mime
+        sniffed_mime = kind.mime if kind is not None else None
+        if sniffed_mime is None and is_plaintext_content(file_bytes):
+            sniffed_mime = "text/plain"
 
-        if mime_type not in get_allowed_mime_types():
-            return None, f"Unallowed filetype: {mime_type}"
+        # Convertible uploads take precedence over the native allow-list —
+        # e.g. RTF sniffs as plain text but must take the conversion path.
+        convertible_type = resolve_convertible_upload(filename, sniffed_mime)
+        if convertible_type is not None:
+            return convertible_type, ""
 
-        return mime_type, ""
+        if sniffed_mime is None:
+            return None, "Unable to determine file type"
+
+        if sniffed_mime not in get_allowed_mime_types():
+            return None, f"Unallowed filetype: {sniffed_mime}"
+
+        return sniffed_mime, ""
 
     @classmethod
     def create_document(
@@ -177,32 +191,19 @@ class DocumentService:
             return None, quota_error
 
         # Validate file type
-        mime_type, type_error = cls.validate_file_type(file_bytes)
+        mime_type, type_error = cls.validate_file_type(file_bytes, filename)
         if not mime_type:
             return None, type_error
 
         try:
             with transaction.atomic():
-                # Create document based on file type
-                if mime_type in [
-                    "application/pdf",
-                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                ]:
-                    pdf_file = ContentFile(file_bytes, name=filename)
-                    document = Document.objects.create(
-                        creator=user,
-                        title=title,
-                        description=description,
-                        custom_meta=custom_meta or {},
-                        pdf_file=pdf_file,
-                        backend_lock=True,
-                        is_public=is_public,
-                        file_type=mime_type,
-                        slug=slug,
-                    )
-                elif mime_type in ["text/plain", "application/txt"]:
+                # Create document based on file type (validate_file_type has
+                # already gated acceptance). Text formats go to
+                # txt_extract_file; every other accepted format — native
+                # PDFs/Office files and anything taking the pre-parse
+                # convert-to-PDF path — is stored in pdf_file (the generic
+                # binary storage field).
+                if mime_type in ["text/plain", "application/txt"]:
                     txt_file = ContentFile(file_bytes, name=filename)
                     document = Document.objects.create(
                         creator=user,
@@ -216,7 +217,18 @@ class DocumentService:
                         slug=slug,
                     )
                 else:
-                    return None, f"Unsupported file type: {mime_type}"
+                    pdf_file = ContentFile(file_bytes, name=filename)
+                    document = Document.objects.create(
+                        creator=user,
+                        title=title,
+                        description=description,
+                        custom_meta=custom_meta or {},
+                        pdf_file=pdf_file,
+                        backend_lock=True,
+                        is_public=is_public,
+                        file_type=mime_type,
+                        slug=slug,
+                    )
 
                 # Set permissions for creator
                 set_permissions_for_obj_to_user(

@@ -147,6 +147,10 @@ export const SystemSettings: React.FC = () => {
   const [showDefaultEmbedderModal, setShowDefaultEmbedderModal] =
     useState(false);
   const [defaultEmbedderValue, setDefaultEmbedderValue] = useState("");
+  const [showDefaultFileConverterModal, setShowDefaultFileConverterModal] =
+    useState(false);
+  const [defaultFileConverterValue, setDefaultFileConverterValue] =
+    useState("");
   const [showDefaultLlmModal, setShowDefaultLlmModal] = useState(false);
   const [defaultLlmValue, setDefaultLlmValue] = useState("");
   const [showDeleteSecretsConfirm, setShowDeleteSecretsConfirm] =
@@ -292,8 +296,12 @@ export const SystemSettings: React.FC = () => {
       (comp): comp is PipelineComponentType & { className: string } =>
         Boolean(comp?.className)
     );
+    const fileConverters = (components?.fileConverters || []).filter(
+      (comp): comp is PipelineComponentType & { className: string } =>
+        Boolean(comp?.className)
+    );
 
-    return { parsers, embedders, thumbnailers, llmProviders };
+    return { parsers, embedders, thumbnailers, llmProviders, fileConverters };
   }, [components]);
 
   const componentByClassName = useMemo(() => {
@@ -306,6 +314,7 @@ export const SystemSettings: React.FC = () => {
       ...componentsByStage.embedders,
       ...componentsByStage.thumbnailers,
       ...componentsByStage.llmProviders,
+      ...componentsByStage.fileConverters,
     ]) {
       map.set(comp.className, comp);
     }
@@ -372,14 +381,16 @@ export const SystemSettings: React.FC = () => {
       if (currentEnabled.length === 0 && !enabled) {
         // Transitioning from "all enabled" to explicit list: build full list
         // from loaded components, then remove the one being disabled.
-        // LLM providers MUST be included here — omitting them would drop every
-        // provider from the freshly-built explicit list, silently disabling
-        // them as a side effect of toggling an unrelated component.
+        // Non-filetype stages (LLM providers, file converters) MUST be
+        // included here — omitting one would drop that whole stage from the
+        // freshly-built explicit list, silently disabling it as a side
+        // effect of toggling an unrelated component.
         const allPaths = [
           ...componentsByStage.parsers,
           ...componentsByStage.embedders,
           ...componentsByStage.thumbnailers,
           ...componentsByStage.llmProviders,
+          ...componentsByStage.fileConverters,
         ].map((c) => c.className);
 
         if (allPaths.length === 0) {
@@ -592,6 +603,23 @@ export const SystemSettings: React.FC = () => {
     setShowDefaultEmbedderModal(false);
   }, [defaultEmbedderValue, updateSettings]);
 
+  // Handle default file converter. An empty string DISABLES the pre-parse
+  // convert-to-PDF step (the backend treats "" as "conversion off"), so we
+  // always send the string value — never null (null means "leave unchanged").
+  const handleEditDefaultFileConverter = useCallback(() => {
+    setDefaultFileConverterValue(settings?.defaultFileConverter || "");
+    setShowDefaultFileConverterModal(true);
+  }, [settings]);
+
+  const handleSaveDefaultFileConverter = useCallback(() => {
+    updateSettings({
+      variables: {
+        defaultFileConverter: defaultFileConverterValue.trim(),
+      },
+    });
+    setShowDefaultFileConverterModal(false);
+  }, [defaultFileConverterValue, updateSettings]);
+
   // Handle default LLM. The value is a pydantic-ai model spec
   // ("{provider}:{model}"), not a component class path. An empty string
   // clears the override so resolution falls back to the Django settings
@@ -665,10 +693,12 @@ export const SystemSettings: React.FC = () => {
       preferredThumbnailers:
         (settings?.preferredThumbnailers as Record<string, string>) || {},
       defaultEmbedder: settings?.defaultEmbedder || "",
+      defaultFileConverter: settings?.defaultFileConverter || "",
       defaultLlm: settings?.defaultLlm || "",
       updating,
       onAssign: handleAssign,
       onEditDefaultEmbedder: handleEditDefaultEmbedder,
+      onEditDefaultFileConverter: handleEditDefaultFileConverter,
       onEditDefaultLlm: handleEditDefaultLlm,
     }),
     [
@@ -680,10 +710,12 @@ export const SystemSettings: React.FC = () => {
       settings?.preferredEmbedders,
       settings?.preferredThumbnailers,
       settings?.defaultEmbedder,
+      settings?.defaultFileConverter,
       settings?.defaultLlm,
       updating,
       handleAssign,
       handleEditDefaultEmbedder,
+      handleEditDefaultFileConverter,
       handleEditDefaultLlm,
     ]
   );
@@ -1055,6 +1087,123 @@ export const SystemSettings: React.FC = () => {
           <Button
             variant="primary"
             onClick={handleSaveDefaultEmbedder}
+            loading={updating}
+          >
+            <Save style={{ width: 16, height: 16, marginRight: 8 }} />
+            Save
+          </Button>
+        </ModalFooter>
+      </Modal>
+
+      {/* File Converter Modal */}
+      <Modal
+        open={showDefaultFileConverterModal}
+        onClose={() => setShowDefaultFileConverterModal(false)}
+        size="md"
+      >
+        <ModalHeader
+          title="Edit File Converter"
+          onClose={() => setShowDefaultFileConverterModal(false)}
+        />
+        <ModalBody>
+          <FormField>
+            <FormLabel>File Converter Class Path</FormLabel>
+            <Input
+              id="default-file-converter"
+              value={defaultFileConverterValue}
+              onChange={(e) => setDefaultFileConverterValue(e.target.value)}
+              placeholder="e.g., opencontractserver.pipeline.file_converters.gotenberg_converter.GotenbergFileConverter"
+              fullWidth
+            />
+            <FormHelperText>
+              Uploads whose extension is in the converter's enabled set are
+              converted to PDF before parsing. Leave empty to disable pre-parse
+              conversion. Configure which extensions convert via the converter's
+              settings in the Component Library.
+            </FormHelperText>
+          </FormField>
+          {componentsByStage.fileConverters.length > 0 && (
+            <div style={{ marginTop: "1rem" }}>
+              <FormLabel>Available Converters:</FormLabel>
+              <div
+                style={{
+                  padding: "0.75rem",
+                  fontSize: "0.875rem",
+                  cursor: "pointer",
+                  borderRadius: "8px",
+                  marginBottom: "0.5rem",
+                  background:
+                    defaultFileConverterValue === ""
+                      ? "#e0e7ff"
+                      : OS_LEGAL_COLORS.surfaceHover,
+                  border: `1px solid ${
+                    defaultFileConverterValue === ""
+                      ? "#6366f1"
+                      : OS_LEGAL_COLORS.border
+                  }`,
+                }}
+                onClick={() => setDefaultFileConverterValue("")}
+              >
+                <strong>None (conversion disabled)</strong>
+              </div>
+              {componentsByStage.fileConverters.map((c) => (
+                <div
+                  key={c.className}
+                  style={{
+                    padding: "0.75rem",
+                    fontSize: "0.875rem",
+                    cursor: "pointer",
+                    borderRadius: "8px",
+                    marginBottom: "0.5rem",
+                    background:
+                      defaultFileConverterValue === c.className
+                        ? "#e0e7ff"
+                        : OS_LEGAL_COLORS.surfaceHover,
+                    border: `1px solid ${
+                      defaultFileConverterValue === c.className
+                        ? "#6366f1"
+                        : OS_LEGAL_COLORS.border
+                    }`,
+                  }}
+                  onClick={() => setDefaultFileConverterValue(c.className)}
+                >
+                  <strong>{c.title || c.name}</strong>
+                  {(c.supportedExtensions || []).filter(Boolean).length > 0 && (
+                    <span
+                      style={{
+                        color: OS_LEGAL_COLORS.textSecondary,
+                        marginLeft: "0.5rem",
+                      }}
+                    >
+                      ({(c.supportedExtensions || []).filter(Boolean).length}{" "}
+                      formats)
+                    </span>
+                  )}
+                  <div
+                    style={{
+                      fontSize: "0.75rem",
+                      color: OS_LEGAL_COLORS.textSecondary,
+                      fontFamily: "monospace",
+                      marginTop: "0.25rem",
+                    }}
+                  >
+                    {c.className}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </ModalBody>
+        <ModalFooter>
+          <Button
+            variant="secondary"
+            onClick={() => setShowDefaultFileConverterModal(false)}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            onClick={handleSaveDefaultFileConverter}
             loading={updating}
           >
             <Save style={{ width: 16, height: 16, marginRight: 8 }} />

@@ -106,6 +106,24 @@ class Document(TreeNode, BaseOCModel, HasEmbeddingMixin):
         null=True,
     )
 
+    # Pre-conversion source file. When the optional convert-to-PDF ingest step
+    # runs (see opencontractserver/pipeline/base/file_converter.py), the
+    # original upload's blob reference moves here (no byte copy), its MIME
+    # type is recorded in original_file_type, and pdf_file is replaced with
+    # the converted PDF. Empty for documents that never needed conversion.
+    original_file = django.db.models.FileField(
+        max_length=1024,
+        blank=True,
+        null=True,
+        upload_to=functools.partial(calc_oc_file_path, sub_folder="original_files"),
+    )
+    original_file_type = django.db.models.CharField(
+        blank=True,
+        default="",
+        max_length=255,
+        help_text="MIME type of the original upload before PDF conversion",
+    )
+
     # Hash field for PDF file integrity and caching
     pdf_file_hash = django.db.models.CharField(
         max_length=64,  # SHA-256 produces 64 hex characters
@@ -1201,6 +1219,22 @@ class PipelineSettings(django.db.models.Model):
         ),
     )
 
+    # Optional pre-parse file converter. When set (a BaseFileConverter class
+    # path), uploads whose file extension is in the converter's enabled set
+    # are converted to PDF at the head of the ingest chain, then parsed by the
+    # normal PDF pipeline. Empty string disables conversion entirely — only
+    # natively parsed formats are accepted at upload.
+    default_file_converter = django.db.models.CharField(
+        max_length=512,
+        blank=True,
+        default="",
+        help_text=(
+            "File converter class path used to convert non-native upload "
+            "formats to PDF before parsing. Empty string disables the "
+            "conversion step."
+        ),
+    )
+
     # Install-wide default LLM model spec for pydantic-ai agents. Uses the
     # pydantic-ai provider-prefixed form "{provider_key}:{model_name}"
     # (e.g. "anthropic:claude-opus-4-6"). Empty string means "fall back to
@@ -1377,6 +1411,10 @@ class PipelineSettings(django.db.models.Model):
                     "default_reranker": getattr(
                         django_settings, "DEFAULT_RERANKER", ""
                     ),
+                    "default_file_converter": getattr(
+                        django_settings, "DEFAULT_FILE_CONVERTER", ""
+                    )
+                    or "",
                     # ``DEFAULT_LLM`` may be explicitly set to ``None`` (e.g. in
                     # tests exercising the legacy fallback). Coerce to "" so the
                     # NOT NULL ``default_llm`` column is never given a null value;
@@ -1577,6 +1615,18 @@ class PipelineSettings(django.db.models.Model):
             Default reranker class path, or empty string if unset.
         """
         return self.default_reranker or ""
+
+    def get_default_file_converter(self) -> str:
+        """
+        Get the configured pre-parse file converter class path.
+
+        Database is the single source of truth at runtime. An empty string
+        means the convert-to-PDF ingest step is disabled.
+
+        Returns:
+            File converter class path, or empty string if unset.
+        """
+        return self.default_file_converter or ""
 
     def get_default_llm(self) -> str:
         """

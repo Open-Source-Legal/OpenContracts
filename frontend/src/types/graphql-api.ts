@@ -1880,7 +1880,9 @@ export type PipelineComponentType = {
   moduleName?: string;
   /** List of supported file types. */
   supportedFileTypes?: FileTypeEnum[];
-  /** Type of the component (parser, embedder, thumbnailer, or llm_provider). */
+  /** File converters: source-file extensions convertible to PDF. Empty for other component types. */
+  supportedExtensions?: Maybe<Array<Maybe<Scalars["String"]>>>;
+  /** Type of the component (parser, embedder, thumbnailer, llm_provider, or file_converter). */
   componentType?: string;
   /** JSONSchema schema for inputs supported from user (experimental - not fully implemented). */
   inputSchema?: Record<any, any>;
@@ -1951,6 +1953,8 @@ export type PipelineComponentsType = {
   thumbnailers?: Maybe<Array<Maybe<PipelineComponentType>>>;
   /** List of available LLM providers (pydantic-ai model families). */
   llmProviders?: Maybe<Array<Maybe<PipelineComponentType>>>;
+  /** List of available pre-parse file converters (convert non-native formats to PDF). */
+  fileConverters?: Maybe<Array<Maybe<PipelineComponentType>>>;
 };
 
 /** Enum for file types. */
@@ -2007,6 +2011,8 @@ export type PipelineSettingsType = {
   componentSettings?: Maybe<Scalars["GenericScalar"]>;
   /** Default embedder class path. */
   defaultEmbedder?: Maybe<Scalars["String"]>;
+  /** Pre-parse file converter class path. Empty string disables the convert-to-PDF ingest step. */
+  defaultFileConverter?: Maybe<Scalars["String"]>;
   /** Install-wide default LLM model spec for agents (e.g. 'anthropic:claude-opus-4-6'). Empty falls back to the Django settings default. */
   defaultLlm?: Maybe<Scalars["String"]>;
   /** List of components with encrypted secrets configured (actual secrets never exposed). */

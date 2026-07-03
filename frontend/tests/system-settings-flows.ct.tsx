@@ -26,6 +26,7 @@ const mockSettingsBase = {
   parserKwargs: {},
   componentSettings: {},
   defaultEmbedder: null,
+  defaultFileConverter: null,
   defaultLlm: null,
   componentsWithSecrets: [],
   enabledComponents: [
@@ -126,6 +127,19 @@ const mockComponents = {
       providerKey: "anthropic",
       supportedModels: ["claude-opus-4-6", "claude-haiku-4-5"],
       requiresApiKey: true,
+      enabled: true,
+      settingsSchema: [],
+    },
+  ],
+  fileConverters: [
+    {
+      name: "gotenberg",
+      title: "Gotenberg PDF Converter",
+      description: "Converts office/legacy formats to PDF via Gotenberg",
+      className:
+        "opencontractserver.pipeline.file_converters.gotenberg_converter.GotenbergFileConverter",
+      supportedExtensions: ["doc", "rtf", "odt", "ppt"],
+      requiresApiKey: false,
       enabled: true,
       settingsSchema: [],
     },
@@ -775,16 +789,18 @@ test.describe("SystemSettings — enable/disable transitions", () => {
     // mirrors how SystemSettings builds the list: parsers, embedders,
     // thumbnailers, then llmProviders.
     //
-    // The Anthropic LLM provider MUST appear here: LLM providers are part of
-    // the Component Library, so rebuilding the enabled list from "all enabled"
-    // has to include them — otherwise toggling an unrelated component would
-    // silently disable every provider. This asserts that regression guard.
+    // The Anthropic LLM provider AND the Gotenberg file converter MUST appear
+    // here: both are non-filetype stages in the Component Library, so
+    // rebuilding the enabled list from "all enabled" has to include them —
+    // otherwise toggling an unrelated component would silently disable every
+    // provider / converter. This asserts that regression guard.
     const allPaths = [
       "opencontractserver.pipeline.parsers.docling.DoclingParser",
       "opencontractserver.pipeline.parsers.llamaparse.LlamaParser",
       "opencontractserver.pipeline.embedders.openai.OpenAIEmbedder",
       "opencontractserver.pipeline.thumbnailers.pdf.PDFThumbnailer",
       "opencontractserver.pipeline.llm_providers.anthropic_provider.AnthropicProvider",
+      "opencontractserver.pipeline.file_converters.gotenberg_converter.GotenbergFileConverter",
     ];
     const expectedEnabled = allPaths.filter(
       (p) => p !== "opencontractserver.pipeline.parsers.docling.DoclingParser"

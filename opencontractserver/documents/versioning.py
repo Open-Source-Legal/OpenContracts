@@ -107,9 +107,15 @@ def _create_content_file(
     if path:
         # Extract filename from path, e.g., "/documents/my_file.pdf" -> "my_file"
         base_name = path.split("/")[-1]
-        # Remove existing extension if present
         if "." in base_name:
-            base_name = base_name.rsplit(".", 1)[0]
+            # The path carries the upload's own extension — keep it. It is
+            # more faithful than the MIME-derived one and the pre-parse
+            # file-converter step keys conversion eligibility off the stored
+            # file's extension (a ``.pages`` upload must not be stored as
+            # ``.bin`` just because its MIME type has no known extension).
+            base_name, path_ext = base_name.rsplit(".", 1)
+            if path_ext:
+                extension = f".{path_ext}"
     else:
         # Use hash prefix as filename
         base_name = f"doc_{content_hash[:12]}"

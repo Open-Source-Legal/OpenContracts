@@ -39,6 +39,7 @@ from opencontractserver.documents.models import (
     PendingDocumentAnnotations,
 )
 from opencontractserver.pipeline.registry import get_allowed_mime_types
+from opencontractserver.pipeline.utils import resolve_convertible_upload
 from opencontractserver.types.dicts import (
     OpenContractsAnnotatedDocumentImportType,
 )
@@ -303,17 +304,26 @@ def process_documents_zip(
                             # Try to detect plaintext using the improved utility
                             if is_plaintext_content(file_bytes):
                                 kind = "text/plain"
-                            else:  # Truly unknown/binary
-                                logger.info(
-                                    f"process_documents_zip() - Skipping file with unknown type: {filename}"
-                                )
-                                results["skipped_files"] += 1
-                                continue
+                            else:
+                                kind = None
                         else:
                             kind = kind.mime
 
-                        # Skip files with unsupported types
-                        if kind not in get_allowed_mime_types():
+                        # Convertible files (extension enabled on the
+                        # configured file converter) take precedence over the
+                        # native allow-list — they land in pdf_file and are
+                        # converted to PDF at the head of the ingest chain.
+                        convertible_type = resolve_convertible_upload(filename, kind)
+                        if convertible_type is not None:
+                            kind = convertible_type
+                        elif kind is None:
+                            logger.info(
+                                f"process_documents_zip() - Skipping file with unknown type: {filename}"
+                            )
+                            results["skipped_files"] += 1
+                            continue
+                        elif kind not in get_allowed_mime_types():
+                            # Skip files with unsupported types
                             results["skipped_files"] += 1
                             continue
 
@@ -336,15 +346,13 @@ def process_documents_zip(
                         )
                         doc_path = f"{DEFAULT_DOCUMENT_PATH_PREFIX}/{safe_filename}"
 
-                        # Create the document based on file type
+                        # Create the document based on file type. Non-text
+                        # formats — native PDFs/Office files and convertible
+                        # uploads — take the binary branch (import_content
+                        # stores them in pdf_file).
                         document = None
 
-                        if kind in [
-                            "application/pdf",
-                            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        ]:
+                        if kind not in ["text/plain", "application/txt"]:
                             # Use corpus_obj if provided, otherwise use personal corpus
                             target_corpus = corpus_obj
                             if target_corpus is None:
@@ -1012,15 +1020,22 @@ def import_zip_with_folder_structure(
                     # Validate MIME type
                     kind = filetype.guess(file_bytes)
                     if kind is None:
-                        if is_plaintext_content(file_bytes):
-                            mime_type = "text/plain"
-                        else:
-                            results["files_skipped_type"] += 1
-                            continue
+                        mime_type = (
+                            "text/plain" if is_plaintext_content(file_bytes) else None
+                        )
                     else:
                         mime_type = kind.mime
 
-                    if mime_type not in get_allowed_mime_types():
+                    # Convertible files (extension enabled on the configured
+                    # file converter) take precedence over the native
+                    # allow-list — they land in pdf_file and are converted to
+                    # PDF at the head of the ingest chain.
+                    convertible_type = resolve_convertible_upload(
+                        entry.original_path, mime_type
+                    )
+                    if convertible_type is not None:
+                        mime_type = convertible_type
+                    elif mime_type is None or mime_type not in get_allowed_mime_types():
                         results["files_skipped_type"] += 1
                         continue
 

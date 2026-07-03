@@ -32,6 +32,7 @@ from opencontractserver.pipeline.base.base_authority_source_provider import (
 )
 from opencontractserver.pipeline.base.embedder import BaseEmbedder
 from opencontractserver.pipeline.base.enricher import BaseEnricher
+from opencontractserver.pipeline.base.file_converter import BaseFileConverter
 from opencontractserver.pipeline.base.file_types import (
     FILE_TYPE_LABELS,
     FILE_TYPE_TO_MIME,
@@ -96,6 +97,7 @@ class ComponentType(str, Enum):
     ENRICHER = "enricher"
     RERANKER = "reranker"
     LLM_PROVIDER = "llm_provider"
+    FILE_CONVERTER = "file_converter"
     AUTHORITY_SOURCE_PROVIDER = "authority_source_provider"
     AUTHORITY_DISCOVERY_PROVIDER = "authority_discovery_provider"
 
@@ -118,6 +120,10 @@ class PipelineComponentDefinition:
     author: str
     dependencies: tuple[str, ...]
     supported_file_types: tuple[str, ...]  # FileTypeEnum values as strings
+    # File converters are keyed by source-file EXTENSION (not FileTypeEnum /
+    # MIME type) because they exist precisely for formats the pipeline has no
+    # native support for. Empty for every other component type.
+    supported_extensions: tuple[str, ...] = ()
     input_schema: dict = field(default_factory=dict)
     settings_schema: tuple[dict, ...] = field(default_factory=tuple)  # Settings schema
     vector_size: Optional[int] = None  # Only for embedders
@@ -177,6 +183,9 @@ class PipelineComponentDefinition:
             result["provider_key"] = self.provider_key
             result["supported_models"] = list(self.supported_models)
             result["requires_api_key"] = self.requires_api_key
+        # Include extension coverage for file converters
+        if self.component_type == ComponentType.FILE_CONVERTER:
+            result["supported_extensions"] = list(self.supported_extensions)
         return result
 
 
@@ -210,6 +219,7 @@ class PipelineComponentRegistry:
         self._enrichers: tuple[PipelineComponentDefinition, ...] = ()
         self._rerankers: tuple[PipelineComponentDefinition, ...] = ()
         self._llm_providers: tuple[PipelineComponentDefinition, ...] = ()
+        self._file_converters: tuple[PipelineComponentDefinition, ...] = ()
         self._authority_source_providers: tuple[PipelineComponentDefinition, ...] = ()
         self._authority_discovery_providers: tuple[PipelineComponentDefinition, ...] = (
             ()
@@ -382,6 +392,12 @@ class PipelineComponentRegistry:
                 if isinstance(ft, FileTypeEnum):
                     supported_file_types.append(ft.value)
 
+        # Get supported extensions (file converters only — plain strings, not
+        # FileTypeEnum members, since converters target non-native formats)
+        supported_extensions = tuple(
+            str(ext) for ext in getattr(component_class, "supported_extensions", ())
+        )
+
         # Get supported modalities (for embedders)
         # Convert from set of ContentModality enums to tuple of strings
         raw_modalities = getattr(
@@ -434,6 +450,7 @@ class PipelineComponentRegistry:
             author=getattr(component_class, "author", ""),
             dependencies=tuple(getattr(component_class, "dependencies", [])),
             supported_file_types=tuple(supported_file_types),
+            supported_extensions=supported_extensions,
             input_schema=dict(getattr(component_class, "input_schema", {})),
             settings_schema=settings_schema,
             vector_size=vector_size,
@@ -571,6 +588,18 @@ class PipelineComponentRegistry:
                 )
         self._llm_providers = tuple(llm_providers)
 
+        # Discover file converters
+        file_converter_classes = self._discover_subclasses(
+            "opencontractserver.pipeline.file_converters", BaseFileConverter
+        )
+        file_converters = []
+        for cls in file_converter_classes:
+            defn = self._create_definition(cls, ComponentType.FILE_CONVERTER)
+            file_converters.append(defn)
+            self._by_name[defn.name] = defn
+            self._by_class_name[defn.class_name] = defn
+        self._file_converters = tuple(file_converters)
+
         # Discover authority source providers: core package + in-pack providers.
         # In-pack discovery lets a self-contained pack ship its own scraper under
         # <pack>/providers/, so the provider travels with the authority.
@@ -651,6 +680,7 @@ class PipelineComponentRegistry:
             f"{len(self._enrichers)} enrichers, "
             f"{len(self._rerankers)} rerankers, "
             f"{len(self._llm_providers)} llm-providers, "
+            f"{len(self._file_converters)} file-converters, "
             f"{len(self._authority_source_providers)} authority-source-providers, "
             f"{len(self._authority_discovery_providers)} authority-discovery-providers"
         )
@@ -693,6 +723,11 @@ class PipelineComponentRegistry:
     def llm_providers(self) -> tuple[PipelineComponentDefinition, ...]:
         """Get all registered LLM providers."""
         return self._llm_providers
+
+    @property
+    def file_converters(self) -> tuple[PipelineComponentDefinition, ...]:
+        """Get all registered file converters."""
+        return self._file_converters
 
     @property
     def authority_source_providers(self) -> tuple[PipelineComponentDefinition, ...]:
@@ -803,6 +838,11 @@ def get_all_llm_providers_cached() -> tuple[PipelineComponentDefinition, ...]:
     return get_registry().llm_providers
 
 
+def get_all_file_converters_cached() -> tuple[PipelineComponentDefinition, ...]:
+    """Get all registered file converters (cached)."""
+    return get_registry().file_converters
+
+
 def get_all_authority_source_providers_cached() -> (
     tuple[PipelineComponentDefinition, ...]
 ):
@@ -881,6 +921,7 @@ def get_all_components_cached() -> dict[str, tuple[PipelineComponentDefinition, 
         "enrichers": registry.enrichers,
         "rerankers": registry.rerankers,
         "llm_providers": registry.llm_providers,
+        "file_converters": registry.file_converters,
         "authority_source_providers": registry.authority_source_providers,
         "authority_discovery_providers": registry.authority_discovery_providers,
     }

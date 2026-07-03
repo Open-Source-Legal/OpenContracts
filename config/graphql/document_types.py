@@ -1246,7 +1246,10 @@ class DocumentType(AnnotatePermissionsForReadMixin, DjangoObjectType):
     class Meta:
         model = Document
         interfaces = [relay.Node]
-        exclude = ("embedding",)
+        # original_file is internal pre-conversion provenance: unlike pdf_file
+        # (which has a signed-URL resolver) it has no download surface, so
+        # auto-exposing it would leak a raw storage key.
+        exclude = ("embedding", "original_file")
         connection_class = CountableConnection
 
     @classmethod

@@ -65,6 +65,13 @@ class PipelineComponentType(graphene.ObjectType):
     supported_file_types = graphene.List(
         FileTypeEnum, description="List of supported file types."
     )
+    supported_extensions = graphene.List(
+        graphene.String,
+        description="File converters: source-file extensions the converter "
+        "can turn into PDF (plain strings, since converters target formats "
+        "with no FileTypeEnum member). Empty for other component types.",
+        required=False,
+    )
     component_type = graphene.String(
         description="Type of the component (parser, embedder, or thumbnailer)."
     )
@@ -130,6 +137,11 @@ class PipelineComponentsType(graphene.ObjectType):
         description="List of available LLM providers (pydantic-ai model "
         "families) that can be set as Corpus.preferred_llm or "
         "AgentConfiguration.preferred_llm.",
+    )
+    file_converters = graphene.List(
+        PipelineComponentType,
+        description="List of available pre-parse file converters (convert "
+        "non-native upload formats to PDF before parsing).",
     )
 
 
@@ -226,6 +238,14 @@ class PipelineSettingsType(graphene.ObjectType):
         description="Default post-retrieval reranker class path. Empty string "
         "means reranking is disabled and first-stage retrieval "
         "results are returned as-is.",
+        required=False,
+    )
+
+    # Pre-parse file converter. Empty string means conversion disabled.
+    default_file_converter = graphene.String(
+        description="File converter class path used to convert non-native "
+        "upload formats to PDF before parsing. Empty string "
+        "disables the conversion step.",
         required=False,
     )
 

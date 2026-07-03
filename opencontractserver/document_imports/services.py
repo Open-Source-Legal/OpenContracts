@@ -51,6 +51,7 @@ from opencontractserver.document_imports.models import (
 )
 from opencontractserver.documents.models import Document
 from opencontractserver.pipeline.registry import get_allowed_mime_types
+from opencontractserver.pipeline.utils import resolve_convertible_upload
 from opencontractserver.shared.services.conventions import ServiceResult
 from opencontractserver.tasks import (
     import_corpus,
@@ -404,9 +405,16 @@ def import_document_for_user(
     else:  # pragma: no cover - unreachable given the exactly-one-of guard above
         raise AssertionError("exactly one of file_bytes or file_obj must be set")
     kind = detect_mime_type(sniff_bytes, filename)
-    if kind is None:
+    # Convertible uploads (extension enabled on the configured file converter)
+    # take precedence over the native allow-list: formats like RTF sniff as
+    # text/plain but must land in pdf_file with a non-text file_type so the
+    # pre-parse conversion step can turn them into PDFs.
+    convertible_type = resolve_convertible_upload(filename, kind)
+    if convertible_type is not None:
+        kind = convertible_type
+    elif kind is None:
         return ImportResult(document=None, error="Unable to determine file type")
-    if kind not in get_allowed_mime_types():
+    elif kind not in get_allowed_mime_types():
         return ImportResult(document=None, error=f"Unallowed filetype: {kind}")
 
     # Corpus + folder resolution. A worker token is self-authorizing (corpus

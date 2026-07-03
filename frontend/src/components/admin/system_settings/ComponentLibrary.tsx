@@ -42,6 +42,7 @@ interface ComponentLibraryProps {
     embedders: (PipelineComponentType & { className: string })[];
     thumbnailers: (PipelineComponentType & { className: string })[];
     llmProviders: (PipelineComponentType & { className: string })[];
+    fileConverters: (PipelineComponentType & { className: string })[];
   };
   updating: boolean;
   componentsLoading: boolean;
@@ -64,6 +65,7 @@ const FILTER_OPTIONS: { value: FilterCategory; label: string }[] = [
   { value: "embedders", label: "Embedders" },
   { value: "thumbnailers", label: "Thumbnailers" },
   { value: "llmProviders", label: "LLM Providers" },
+  { value: "fileConverters", label: "File Converters" },
 ];
 
 // ============================================================================
@@ -97,6 +99,7 @@ export const ComponentLibrary = memo<ComponentLibraryProps>(
         "embedders",
         "thumbnailers",
         "llmProviders",
+        "fileConverters",
       ];
       for (const stage of stages) {
         for (const comp of components[stage]) {
@@ -201,22 +204,29 @@ export const ComponentLibrary = memo<ComponentLibraryProps>(
                 configSettings.length > 0 || secretSettings.length > 0;
 
               // LLM providers are not file-type-scoped: surface their suggested
-              // models as chips instead of file-type badges. Other stages map
+              // models as chips instead of file-type badges. File converters
+              // are extension-scoped and support ~100 formats — a single count
+              // badge beats an unreadable wall of chips. Other stages map
               // their supported file types to short labels.
+              const isFileConverter = stage === "fileConverters";
               const modelBadges = isLlmProvider
                 ? (component.supportedModels || []).filter((m): m is string =>
                     Boolean(m)
                   )
                 : [];
-              const fileTypeBadges = isLlmProvider
-                ? []
-                : (component.supportedFileTypes || []).map((ft) => {
-                    const label =
-                      MIME_TO_SHORT_LABEL[ft] ||
-                      ft.split("/").pop()?.toUpperCase() ||
-                      ft;
-                    return label;
-                  });
+              const extensionCount = isFileConverter
+                ? (component.supportedExtensions || []).filter(Boolean).length
+                : 0;
+              const fileTypeBadges =
+                isLlmProvider || isFileConverter
+                  ? []
+                  : (component.supportedFileTypes || []).map((ft) => {
+                      const label =
+                        MIME_TO_SHORT_LABEL[ft] ||
+                        ft.split("/").pop()?.toUpperCase() ||
+                        ft;
+                      return label;
+                    });
 
               return (
                 <ComponentListItem
@@ -275,6 +285,15 @@ export const ComponentLibrary = memo<ComponentLibraryProps>(
                       {modelBadges.map((model) => (
                         <FileTypeBadge key={model}>{model}</FileTypeBadge>
                       ))}
+                      {extensionCount > 0 && (
+                        <FileTypeBadge
+                          title={(component.supportedExtensions || [])
+                            .filter(Boolean)
+                            .join(", ")}
+                        >
+                          {extensionCount} formats
+                        </FileTypeBadge>
+                      )}
                       {fileTypeBadges.map((label) => (
                         <FileTypeBadge key={label}>{label}</FileTypeBadge>
                       ))}

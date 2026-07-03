@@ -1,5 +1,5 @@
 import React from "react";
-import { FileText, Cpu, Image, Bot } from "lucide-react";
+import { FileText, Cpu, Image, Bot, FileOutput } from "lucide-react";
 import { StageType, LibraryStageType, PipelineMappingKey } from "./types";
 import { OS_LEGAL_COLORS } from "../../../assets/configurations/osLegalStyles";
 
@@ -73,5 +73,12 @@ export const LIBRARY_STAGE_CONFIG: Record<
     icon: Bot,
     title: "LLM Provider",
     subtitle: "Power agents & chat",
+  },
+  fileConverters: {
+    // Amber, distinct from the other stages (same literal-hex convention).
+    color: "#F59E0B",
+    icon: FileOutput,
+    title: "File Converter",
+    subtitle: "Convert uploads to PDF before parsing",
   },
 };
