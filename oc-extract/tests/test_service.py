@@ -139,6 +139,35 @@ def test_upload_size_cap(client: TestClient, monkeypatch):
     assert resp.status_code == 413
 
 
+def test_multi_file_upload_is_all_or_nothing(client: TestClient, monkeypatch):
+    """A rejected file must not leave earlier files of the same request
+    persisted — sizes and parses are validated before anything is stored."""
+    from oc_extract import constants
+
+    monkeypatch.setattr(constants, "MAX_UPLOAD_BYTES", 10)
+    resp = client.post(
+        "/documents/upload",
+        files=[
+            ("files", ("ok.txt", b"tiny", "text/plain")),
+            ("files", ("big.txt", b"x" * 11, "text/plain")),
+        ],
+    )
+    assert resp.status_code == 413
+    assert client.get("/documents").json()["documents"] == []
+
+    # Same guarantee for an unsupported type behind a valid file.
+    monkeypatch.setattr(constants, "MAX_UPLOAD_BYTES", 10_000)
+    resp = client.post(
+        "/documents/upload",
+        files=[
+            ("files", ("ok.txt", b"tiny", "text/plain")),
+            ("files", ("img.png", b"\x89PNG", "image/png")),
+        ],
+    )
+    assert resp.status_code == 415
+    assert client.get("/documents").json()["documents"] == []
+
+
 def test_unsupported_upload_type(client: TestClient):
     resp = client.post(
         "/documents/upload",

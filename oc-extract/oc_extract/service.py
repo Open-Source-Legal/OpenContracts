@@ -97,32 +97,49 @@ def create_app(
         # blocking work — PDF parsing and SQLite writes — goes through the
         # threadpool. Running it inline would stall the event loop (and every
         # other in-flight request) for the duration of a large upload.
-        ids = []
+        #
+        # The request is all-or-nothing: every file is size-checked and
+        # parsed BEFORE anything is persisted, so a 413/415 on one file never
+        # leaves earlier files of the same request half-ingested. Sizes are
+        # validated from ``UploadFile.size`` (Starlette's spool metadata)
+        # before ``read()`` pulls the body into memory; the post-read length
+        # check only backstops parsers that report no size.
+        def _reject_oversize(upload: UploadFile) -> None:
+            raise HTTPException(
+                status_code=413,
+                detail=(
+                    f"file {upload.filename!r} exceeds the "
+                    f"{constants.MAX_UPLOAD_BYTES}-byte upload limit"
+                ),
+            )
+
+        for upload in files:
+            if upload.size is not None and upload.size > constants.MAX_UPLOAD_BYTES:
+                _reject_oversize(upload)
+
+        loaded_docs = []
         for upload in files:
             data = await upload.read()
             if len(data) > constants.MAX_UPLOAD_BYTES:
-                raise HTTPException(
-                    status_code=413,
-                    detail=(
-                        f"file {upload.filename!r} exceeds the "
-                        f"{constants.MAX_UPLOAD_BYTES}-byte upload limit"
-                    ),
-                )
+                _reject_oversize(upload)
             try:
                 loaded = await run_in_threadpool(
                     load_bytes, data, upload.filename or "upload", upload.content_type
                 )
             except (ValueError, RuntimeError) as exc:
                 raise HTTPException(status_code=415, detail=str(exc)) from exc
-            ids.append(
-                await run_in_threadpool(
-                    store().add_document,
-                    loaded.title,
-                    loaded.text,
-                    page_offsets=loaded.page_offsets,
-                    meta=loaded.meta,
-                )
+            loaded_docs.append(loaded)
+
+        ids = [
+            await run_in_threadpool(
+                store().add_document,
+                loaded.title,
+                loaded.text,
+                page_offsets=loaded.page_offsets,
+                meta=loaded.meta,
             )
+            for loaded in loaded_docs
+        ]
         return {"document_ids": ids}
 
     @app.get("/documents")

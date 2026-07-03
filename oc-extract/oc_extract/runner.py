@@ -5,6 +5,12 @@ Standalone analogue of
 asyncio replaces the Celery chord: one cell per (document x field), processed
 concurrently under a semaphore, with the extract marked finished when every
 cell has settled.
+
+All ``Store`` calls go through ``asyncio.to_thread``: ``run_extract`` runs as
+a task on the service's event loop, and the store's SQLite calls are
+blocking (and lock-guarded) — the same discipline ``service.py`` applies to
+its own handlers, so background cell writes can never stall in-flight HTTP
+requests (``store.get_document`` in particular reads the full document text).
 """
 
 from __future__ import annotations
@@ -30,7 +36,7 @@ async def run_extract(
 
     Returns the finished extract record (with cell counts).
     """
-    extract = store.get_extract(extract_id)
+    extract = await asyncio.to_thread(store.get_extract, extract_id)
 
     semaphore = asyncio.Semaphore(max(1, concurrency))
 
@@ -41,19 +47,23 @@ async def run_extract(
         # cells can't be orphaned mid-write by an early gather raise.
         async with semaphore:
             try:
-                store.mark_cell_started(cell_id)
-                document = store.get_document(doc_id)
+                await asyncio.to_thread(store.mark_cell_started, cell_id)
+                document = await asyncio.to_thread(store.get_document, doc_id)
                 outcome = await engine.extract_cell(
                     document, Store.field_spec(field_row)
                 )
             except Exception as exc:  # noqa: BLE001 - cell isolation barrier
                 logger.exception("cell %s crashed", cell_id)
-                store.mark_cell_failed(
-                    cell_id, failure_mode=NONE_RESULT_ERROR, stacktrace=str(exc)
+                await asyncio.to_thread(
+                    store.mark_cell_failed,
+                    cell_id,
+                    failure_mode=NONE_RESULT_ERROR,
+                    stacktrace=str(exc),
                 )
                 return
             if outcome.status == "completed":
-                store.mark_cell_completed(
+                await asyncio.to_thread(
+                    store.mark_cell_completed,
                     cell_id,
                     outcome.value,
                     outcome.sources,
@@ -61,7 +71,8 @@ async def run_extract(
                     llm_log=outcome.llm_log,
                 )
             else:
-                store.mark_cell_failed(
+                await asyncio.to_thread(
+                    store.mark_cell_failed,
                     cell_id,
                     failure_mode=outcome.failure_mode or NONE_RESULT_ERROR,
                     stacktrace=outcome.error or "unknown failure",
@@ -72,26 +83,30 @@ async def run_extract(
     # setup failure (engine construction, cell creation) that escaped the
     # try would otherwise leave a permanent zombie extract: started set,
     # finished/error forever NULL, and no running task.
-    store.mark_extract_started(extract_id)
+    await asyncio.to_thread(store.mark_extract_started, extract_id)
     try:
-        fieldset = store.get_fieldset(extract["fieldset_id"])
+        fieldset = await asyncio.to_thread(store.get_fieldset, extract["fieldset_id"])
         if engine is None:
             engine = ExtractionEngine(model=extract.get("model"))
 
         cells: list[tuple[int, int, dict]] = []  # (cell_id, doc_id, field_row)
         for doc_id in extract["document_ids"]:
             for field_row in fieldset["fields"]:
-                cell_id = store.create_cell(
-                    extract_id, field_row["id"], doc_id, field_row["output_type"]
+                cell_id = await asyncio.to_thread(
+                    store.create_cell,
+                    extract_id,
+                    field_row["id"],
+                    doc_id,
+                    field_row["output_type"],
                 )
                 cells.append((cell_id, doc_id, field_row))
 
         await asyncio.gather(*(process(*cell) for cell in cells))
-        store.mark_extract_finished(extract_id)
+        await asyncio.to_thread(store.mark_extract_finished, extract_id)
     except Exception as exc:  # noqa: BLE001 - record run-level failure
         logger.exception("extract %s crashed", extract_id)
-        store.mark_extract_finished(extract_id, error=str(exc))
-    return store.get_extract(extract_id)
+        await asyncio.to_thread(store.mark_extract_finished, extract_id, error=str(exc))
+    return await asyncio.to_thread(store.get_extract, extract_id)
 
 
 def run_extract_sync(store: Store, extract_id: int, **kwargs) -> dict:
