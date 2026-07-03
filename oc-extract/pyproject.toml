@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "oc-extract"
+version = "0.1.0"
+description = "Standalone structured data extraction microservice: run prompt+schema fieldsets over local documents, get typed answers with citations, stored in SQLite."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+dependencies = [
+    "pydantic>=2.7",
+    "pydantic-ai-slim[openai]>=2,<3",
+    "fastapi>=0.111",
+    "uvicorn>=0.30",
+    "python-multipart>=0.0.9",
+]
+
+[project.optional-dependencies]
+pdf = ["pypdf>=4"]
+anthropic = ["pydantic-ai-slim[anthropic]>=2,<3"]
+test = ["pytest", "pytest-asyncio", "httpx"]
+
+[project.scripts]
+oc-extract = "oc_extract.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["oc_extract*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

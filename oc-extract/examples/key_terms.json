@@ -1,0 +1,40 @@
+{
+  "name": "Key contract terms",
+  "description": "Core commercial terms for a services agreement",
+  "fields": [
+    {
+      "name": "parties",
+      "query": "Who are the contracting parties? Return each party's full legal name.",
+      "output_type": "str",
+      "extract_is_list": true
+    },
+    {
+      "name": "effective_date",
+      "query": "What is the effective date of this agreement?",
+      "instructions": "Answer in YYYY-MM-DD format if possible.",
+      "output_type": "str"
+    },
+    {
+      "name": "term_years",
+      "query": "What is the initial term of the agreement, in years?",
+      "output_type": "int"
+    },
+    {
+      "name": "monthly_fee",
+      "query": "What is the recurring monthly fee in USD, as a number?",
+      "output_type": "float"
+    },
+    {
+      "name": "governing_law",
+      "query": "Which jurisdiction's law governs this agreement?",
+      "must_contain_text": "governed",
+      "output_type": "str"
+    },
+    {
+      "name": "key_obligations",
+      "query": "Extract each party's key obligations.",
+      "output_type": "party: str\nobligation: str",
+      "extract_is_list": true
+    }
+  ]
+}
