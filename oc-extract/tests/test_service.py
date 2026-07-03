@@ -128,6 +128,17 @@ def test_upload_endpoint(client: TestClient):
     assert doc["text"] == "Hello extraction world"
 
 
+def test_upload_size_cap(client: TestClient, monkeypatch):
+    from oc_extract import constants
+
+    monkeypatch.setattr(constants, "MAX_UPLOAD_BYTES", 10)
+    resp = client.post(
+        "/documents/upload",
+        files=[("files", ("big.txt", b"x" * 11, "text/plain"))],
+    )
+    assert resp.status_code == 413
+
+
 def test_unsupported_upload_type(client: TestClient):
     resp = client.post(
         "/documents/upload",

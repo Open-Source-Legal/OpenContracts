@@ -113,3 +113,8 @@ DEFAULT_DB_PATH = "oc_extract.db"
 #: Default host/port for ``oc-extract serve``.
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8500
+
+#: Max size of a single uploaded file. The service is single-tenant and
+#: binds to localhost by default, but a cap keeps an oversized upload from
+#: ballooning memory if it is ever exposed more widely.
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024

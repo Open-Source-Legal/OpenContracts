@@ -61,6 +61,11 @@ def load_bytes(
     title = Path(filename).stem or filename
     if suffix == ".pdf" or (content_type or "").lower() == "application/pdf":
         return load_pdf_bytes(data, title)
+    # Deliberately permissive: an extensionless file with no content-type is
+    # treated as plain text (decoded with errors="replace") rather than
+    # rejected, so piped/temp files without names still ingest. Binary data
+    # sent this way indexes as replacement-character noise — callers who
+    # need strictness should provide a suffix or content type.
     if (
         suffix in TEXT_SUFFIXES
         or (content_type or "").startswith("text/")

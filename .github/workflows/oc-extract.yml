@@ -1,0 +1,41 @@
+name: oc-extract tests
+
+# The standalone extraction library under oc-extract/ has its own (small,
+# offline) dependency set, so it gets its own job instead of riding along
+# with the Django backend suite.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "oc-extract/**"
+      - ".github/workflows/oc-extract.yml"
+  pull_request:
+    paths:
+      - "oc-extract/**"
+      - ".github/workflows/oc-extract.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: oc-extract/pyproject.toml
+
+      - name: Install oc-extract with test extras
+        run: pip install -e './oc-extract[test,pdf]'
+
+      - name: Run tests
+        working-directory: oc-extract
+        run: pytest tests -q

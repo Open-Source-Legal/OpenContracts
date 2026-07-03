@@ -13,9 +13,10 @@ from contextlib import asynccontextmanager
 from typing import Any, Callable
 
 from fastapi import FastAPI, HTTPException, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
-from . import __version__
+from . import __version__, constants
 from .constants import DEFAULT_CONCURRENCY, DEFAULT_DB_PATH
 from .documents import load_bytes
 from .engine import ExtractionEngine
@@ -92,17 +93,30 @@ def create_app(
 
     @app.post("/documents/upload", status_code=201)
     async def upload_documents(files: list[UploadFile]) -> dict:
+        # NOTE: this handler must be ``async def`` (UploadFile.read), so all
+        # blocking work — PDF parsing and SQLite writes — goes through the
+        # threadpool. Running it inline would stall the event loop (and every
+        # other in-flight request) for the duration of a large upload.
         ids = []
         for upload in files:
             data = await upload.read()
+            if len(data) > constants.MAX_UPLOAD_BYTES:
+                raise HTTPException(
+                    status_code=413,
+                    detail=(
+                        f"file {upload.filename!r} exceeds the "
+                        f"{constants.MAX_UPLOAD_BYTES}-byte upload limit"
+                    ),
+                )
             try:
-                loaded = load_bytes(
-                    data, upload.filename or "upload", upload.content_type
+                loaded = await run_in_threadpool(
+                    load_bytes, data, upload.filename or "upload", upload.content_type
                 )
             except (ValueError, RuntimeError) as exc:
                 raise HTTPException(status_code=415, detail=str(exc)) from exc
             ids.append(
-                store().add_document(
+                await run_in_threadpool(
+                    store().add_document,
                     loaded.title,
                     loaded.text,
                     page_offsets=loaded.page_offsets,
@@ -136,8 +150,8 @@ def create_app(
 
     # -- extracts -------------------------------------------------------------
 
-    def _schedule_run(extract_id: int, concurrency: int) -> None:
-        extract = store().get_extract(extract_id)
+    async def _schedule_run(extract_id: int, concurrency: int) -> None:
+        extract = await run_in_threadpool(store().get_extract, extract_id)
         engine = engine_factory(extract)
 
         async def runner() -> None:
@@ -156,8 +170,11 @@ def create_app(
 
     @app.post("/extracts", status_code=202)
     async def create_extract(payload: ExtractIn) -> dict:
+        # async def is required only to create_task on the running loop, so
+        # every blocking Store call goes through the threadpool.
         try:
-            extract_id = store().create_extract(
+            extract_id = await run_in_threadpool(
+                store().create_extract,
                 payload.name,
                 payload.fieldset_id,
                 payload.document_ids,
@@ -166,18 +183,21 @@ def create_app(
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         if payload.run:
-            _schedule_run(extract_id, payload.concurrency)
-        return store().get_extract(extract_id)
+            await _schedule_run(extract_id, payload.concurrency)
+        return await run_in_threadpool(store().get_extract, extract_id)
 
     @app.post("/extracts/{extract_id}/run", status_code=202)
     async def start_extract(
         extract_id: int, concurrency: int = DEFAULT_CONCURRENCY
     ) -> dict:
-        _get_or_404(store().get_extract, extract_id)
+        try:
+            await run_in_threadpool(store().get_extract, extract_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
         if extract_id in app.state.run_tasks:
             raise HTTPException(status_code=409, detail="extract is already running")
-        _schedule_run(extract_id, concurrency)
-        return store().get_extract(extract_id)
+        await _schedule_run(extract_id, concurrency)
+        return await run_in_threadpool(store().get_extract, extract_id)
 
     @app.get("/extracts")
     def list_extracts() -> dict:
