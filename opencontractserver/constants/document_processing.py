@@ -37,6 +37,25 @@ TEXT_MIMETYPES = {"text/plain", MARKDOWN_MIME_TYPE, "application/txt"}
 # Used by Django's DATA_UPLOAD_MAX_MEMORY_SIZE setting.
 MAX_FILE_UPLOAD_SIZE_BYTES = 5_242_880_000
 
+# Default cap (256 MB) on the uncompressed size of a single document source
+# member the V2 corpus-export importer will read into memory — on BOTH the
+# reingest peek and the baked-import fallback. Backs the
+# ``MAX_CORPUS_REINGEST_SOURCE_BYTES`` setting; an operator may override it via
+# the env var of the same name (a negative value disables the guard entirely).
+DEFAULT_MAX_CORPUS_REINGEST_SOURCE_BYTES = 256 * 1024 * 1024
+
+# Default cap (512 MB) on the size of the top-level ``data.json`` manifest
+# inside a V2 corpus-export ZIP. It holds every document's annotations,
+# labels, and metadata (but not raw source bytes — those are bounded
+# separately by ``MAX_CORPUS_REINGEST_SOURCE_BYTES``), so it can legitimately
+# be sizable for a corpus with thousands of documents. It is also read into
+# memory before any per-document guard runs, so a crafted entry with a high
+# compression ratio (classic zip-bomb pattern) needs its own bound. Backs the
+# ``MAX_CORPUS_MANIFEST_SIZE_BYTES`` setting; same sentinel convention as
+# ``MAX_CORPUS_REINGEST_SOURCE_BYTES`` (a negative override disables the
+# guard entirely).
+DEFAULT_MAX_CORPUS_MANIFEST_SIZE_BYTES = 512 * 1024 * 1024
+
 # Default path prefix for documents uploaded without explicit path
 # Used when generating document paths in corpus operations
 DEFAULT_DOCUMENT_PATH_PREFIX = "/documents"

@@ -1480,6 +1480,50 @@ gamma.pdf,DERIVES_FROM,alpha.pdf,
         )
         self.assertNotEqual(rel.source_document_id, rel.target_document_id)
 
+    @override_settings(ZIP_MAX_SINGLE_FILE_SIZE_BYTES=500)
+    def test_oversized_relationship_file_rejected_not_read_unbounded(self):
+        """Regression: relationships.csv previously had no size guard at its
+        point of use, so a crafted zip could force an unbounded
+        ``ZipExtFile.read()`` on this member. It must now respect
+        ZIP_MAX_SINGLE_FILE_SIZE_BYTES like every other member read in this
+        importer.
+
+        Uses minimal doc content (rather than the real PDF fixture) so the
+        500-byte override only trips on relationships.csv. This file is
+        special-cased out of validate_zip_for_import's per-member
+        declared-size check entirely (see ``is_relationship_file`` in
+        zip_security.py) -- exactly the gap this test pins closed.
+        """
+        from opencontractserver.tasks.import_tasks import (
+            import_zip_with_folder_structure,
+        )
+
+        oversized_csv = (
+            b"source_path,relationship_label,target_path,notes\n"
+            + b"\n".join(f"/doc0.pdf,Label{i},/doc0.pdf,".encode() for i in range(50))
+        )
+        files = {
+            "doc0.pdf": b"%PDF-1.4 minimal",
+            "relationships.csv": oversized_csv,
+        }
+        zip_buffer = self._create_test_zip(files)
+        handle = self._create_temp_file_handle(zip_buffer)
+
+        result = import_zip_with_folder_structure.apply(
+            kwargs={
+                "temporary_file_handle_id": handle.id,
+                "user_id": self.user.id,
+                "job_id": "test-relationships-oversized",
+                "corpus_id": self.corpus.id,
+            }
+        ).get()
+
+        self.assertTrue(result["relationships_file_found"])
+        self.assertEqual(result["relationships_created"], 0)
+        error_text = " ".join(result["relationship_errors"])
+        self.assertIn("Could not read relationships file", error_text)
+        self.assertIn("exceeds ZIP_MAX_SINGLE_FILE_SIZE_BYTES", error_text)
+
 
 class TestMetadataFileImport(TestCase):
     """Tests for importing ZIP files with meta.csv."""
@@ -1910,6 +1954,48 @@ file.pdf,Custom Title
         self.assertTrue(result["success"])
         self.assertTrue(result["metadata_file_found"])
         self.assertEqual(result["metadata_applied"], 1)
+
+    @override_settings(ZIP_MAX_SINGLE_FILE_SIZE_BYTES=500)
+    def test_oversized_metadata_file_rejected_not_read_unbounded(self):
+        """Regression: meta.csv previously had no size guard at its point of
+        use, so a crafted zip could force an unbounded ``ZipExtFile.read()``
+        on this member. It must now respect ZIP_MAX_SINGLE_FILE_SIZE_BYTES
+        like every other member read in this importer.
+
+        Uses minimal doc content (rather than the real PDF fixture) so the
+        500-byte override only trips on meta.csv. This file is
+        special-cased out of validate_zip_for_import's per-member
+        declared-size check entirely (see ``is_metadata_file`` in
+        zip_security.py) -- exactly the gap this test pins closed.
+        """
+        from opencontractserver.tasks.import_tasks import (
+            import_zip_with_folder_structure,
+        )
+
+        oversized_csv = b"source_path,title\n" + b"\n".join(
+            f"/doc{i}.pdf,Title {i}".encode() for i in range(50)
+        )
+        files = {
+            "doc0.pdf": b"%PDF-1.4 minimal",
+            "meta.csv": oversized_csv,
+        }
+        zip_buffer = self._create_test_zip(files)
+        handle = self._create_temp_file_handle(zip_buffer)
+
+        result = import_zip_with_folder_structure.apply(
+            kwargs={
+                "temporary_file_handle_id": handle.id,
+                "user_id": self.user.id,
+                "job_id": "test-metadata-oversized",
+                "corpus_id": self.corpus.id,
+            }
+        ).get()
+
+        self.assertTrue(result["metadata_file_found"])
+        self.assertEqual(result["metadata_applied"], 0)
+        error_text = " ".join(result["errors"])
+        self.assertIn("Metadata file error", error_text)
+        self.assertIn("exceeds ZIP_MAX_SINGLE_FILE_SIZE_BYTES", error_text)
 
 
 class TestBackendLockBehavior(TestCase):
