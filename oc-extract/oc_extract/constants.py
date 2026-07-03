@@ -48,8 +48,20 @@ SEARCH_TOP_K = 8
 #: Target chunk size (chars) for the retrieval index.
 CHUNK_MAX_CHARS = 1_500
 
+#: Default window for a ``read_document_text`` tool call when the model
+#: doesn't ask for a size.
+READ_WINDOW_DEFAULT_CHARS = 4_000
+
 #: Max characters a single ``read_document_text`` tool call may return.
 READ_WINDOW_MAX_CHARS = 8_000
+
+#: BM25 term-frequency saturation / length-normalization parameters
+#: (standard Robertson defaults).
+BM25_K1 = 1.5
+BM25_B = 0.75
+
+#: Documents kept in the engine's per-document chunk/BM25-index LRU cache.
+INDEX_CACHE_MAX_DOCS = 8
 
 # --- Grounding (citation alignment) --------------------------------------------
 
@@ -67,6 +79,10 @@ MAX_QUERY_LENGTH_FOR_FUZZY = 2_000
 
 #: Minimum similarity ratio for a fuzzy alignment to count.
 FUZZY_THRESHOLD = 0.75
+
+#: Matching blocks within this many query-lengths of the anchor block
+#: contribute to a fuzzy alignment.
+FUZZY_BLOCK_WINDOW_FACTOR = 2
 
 #: Max characters of source text stored per citation snippet.
 SOURCE_SNIPPET_MAX_CHARS = 400
@@ -93,3 +109,7 @@ DEFAULT_CONCURRENCY = 4
 
 #: Default SQLite database path.
 DEFAULT_DB_PATH = "oc_extract.db"
+
+#: Default host/port for ``oc-extract serve``.
+DEFAULT_HOST = "127.0.0.1"
+DEFAULT_PORT = 8500

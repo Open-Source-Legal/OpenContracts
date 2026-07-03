@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .constants import (
+    FUZZY_BLOCK_WINDOW_FACTOR,
     FUZZY_THRESHOLD,
     MAX_DOC_LENGTH_FOR_FUZZY,
     MAX_GROUNDABLE_STRINGS,
@@ -56,6 +57,21 @@ def collect_groundable_strings(value: Any) -> list[str]:
     return found
 
 
+def _fold_preserving_length(text: str) -> str:
+    """Case-normalize *text* without changing its length.
+
+    Offsets computed against the folded copy are applied to the ORIGINAL
+    string, so the fold must be length-preserving. ``casefold()``/``lower()``
+    can expand some characters ("ß" → "ss", "İ" → "i̇"); fall back toward the
+    original whenever the length changes so citation offsets stay exact (at
+    the cost of a little case-matching recall on such texts).
+    """
+    for folded in (text.casefold(), text.lower()):
+        if len(folded) == len(text):
+            return folded
+    return text
+
+
 def _normalized_pattern(query: str) -> re.Pattern | None:
     """Whitespace-tolerant regex for *query* (words joined by ``\\s+``)."""
     words = query.split()
@@ -81,15 +97,18 @@ def _fuzzy_align(doc_text: str, query: str) -> GroundedSpan | None:
     # autojunk must be OFF: on long documents it silently junks frequent
     # characters and destroys the block matching (the size caps above are
     # the cost guard instead).
+    # The doc side must be folded length-preservingly: block ``b`` offsets
+    # are sliced out of the ORIGINAL doc_text below. The query side is only
+    # used for matching/ratio, so a plain casefold is fine.
     matcher = difflib.SequenceMatcher(
-        None, query.casefold(), doc_text.casefold(), autojunk=False
+        None, query.casefold(), _fold_preserving_length(doc_text), autojunk=False
     )
     blocks = [b for b in matcher.get_matching_blocks() if b.size > 0]
     if not blocks:
         return None
     anchor = max(blocks, key=lambda b: b.size)
-    window = len(query)
-    local = [b for b in blocks if abs(b.b - anchor.b) <= 2 * window]
+    window = FUZZY_BLOCK_WINDOW_FACTOR * len(query)
+    local = [b for b in blocks if abs(b.b - anchor.b) <= window]
     matched = sum(b.size for b in local)
     ratio = matched / len(query)
     if ratio < FUZZY_THRESHOLD:
@@ -113,10 +132,15 @@ def align_string(
     if idx != -1:
         return GroundedSpan(idx, idx + len(query), query, "exact", 1.0)
 
-    idx = doc_text.casefold().find(query.casefold())
-    if idx != -1:
-        span_text = doc_text[idx : idx + len(query)]
-        return GroundedSpan(idx, idx + len(query), span_text, "case_insensitive", 1.0)
+    # Case-insensitive match via IGNORECASE regex on the ORIGINAL text, so
+    # offsets are always valid for it — never index the original with an
+    # offset computed against a casefolded copy (casefolding can change
+    # string length, e.g. "ß" → "ss", shifting every later offset).
+    match = re.search(re.escape(query), doc_text, re.IGNORECASE)
+    if match:
+        return GroundedSpan(
+            match.start(), match.end(), match.group(0), "case_insensitive", 1.0
+        )
 
     pattern = _normalized_pattern(query)
     if pattern is not None:

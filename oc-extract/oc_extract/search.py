@@ -12,11 +12,9 @@ import re
 from collections import Counter
 
 from .chunking import Chunk
+from .constants import BM25_B, BM25_K1, SEARCH_TOP_K
 
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
-
-BM25_K1 = 1.5
-BM25_B = 0.75
 
 
 def tokenize(text: str) -> list[str]:
@@ -45,7 +43,7 @@ class BM25Index:
     def search(
         self,
         query: str,
-        k: int = 8,
+        k: int = SEARCH_TOP_K,
         must_contain: str | None = None,
     ) -> list[tuple[Chunk, float]]:
         """Top-*k* chunks for *query*, optionally hard-filtered to chunks

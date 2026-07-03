@@ -370,24 +370,22 @@ class Store:
         self, extract_id: int, field_id: int, document_id: int, data_definition: str
     ) -> int:
         with self._lock:
-            cur = self._conn.execute(
+            # RETURNING (SQLite >= 3.35) yields the correct row id on BOTH the
+            # insert and the conflict/UPDATE path. Do NOT infer it from
+            # ``cursor.lastrowid``: when the upsert resolves via DO UPDATE,
+            # lastrowid keeps the connection's last *real* insert, so a re-run
+            # over multiple cells would attribute every cell to one stale id.
+            row = self._conn.execute(
                 "INSERT INTO cells (extract_id, field_id, document_id, data_definition)"
                 " VALUES (?, ?, ?, ?)"
                 " ON CONFLICT (extract_id, field_id, document_id) DO UPDATE SET"
                 " data = NULL, sources = '[]', failure_mode = NULL, started = NULL,"
-                " completed = NULL, failed = NULL, stacktrace = NULL, llm_log = NULL",
+                " completed = NULL, failed = NULL, stacktrace = NULL, llm_log = NULL"
+                " RETURNING id",
                 (extract_id, field_id, document_id, data_definition),
-            )
-            if cur.lastrowid:
-                row_id = cur.lastrowid
-            else:  # conflict path: fetch the existing row id
-                row_id = self._conn.execute(
-                    "SELECT id FROM cells WHERE extract_id = ? AND field_id = ?"
-                    " AND document_id = ?",
-                    (extract_id, field_id, document_id),
-                ).fetchone()["id"]
+            ).fetchone()
             self._conn.commit()
-            return int(row_id)
+            return int(row["id"])
 
     def mark_cell_started(self, cell_id: int) -> None:
         with self._lock:

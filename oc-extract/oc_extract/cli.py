@@ -7,7 +7,7 @@ import json
 import sys
 from pathlib import Path
 
-from .constants import DEFAULT_DB_PATH
+from .constants import DEFAULT_DB_PATH, DEFAULT_HOST, DEFAULT_PORT
 from .documents import load_path
 from .runner import run_extract_sync
 from .schema import FieldSet
@@ -79,8 +79,8 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_serve = sub.add_parser("serve", help="run the HTTP microservice")
-    p_serve.add_argument("--host", default="127.0.0.1")
-    p_serve.add_argument("--port", type=int, default=8500)
+    p_serve.add_argument("--host", default=DEFAULT_HOST)
+    p_serve.add_argument("--port", type=int, default=DEFAULT_PORT)
     p_serve.set_defaults(func=_cmd_serve)
 
     p_docs = sub.add_parser("add-docs", help="ingest local documents (pdf/txt/md)")

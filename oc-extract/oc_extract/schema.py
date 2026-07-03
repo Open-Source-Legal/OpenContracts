@@ -77,14 +77,19 @@ def parse_output_type(value: str) -> type:
             line = line.strip()
             if not line:
                 continue
-            # Skip class headers / decorators pasted in from real code.
-            if line.startswith("class") or "(" in line or ")" in line:
+            # Skip class headers / decorators pasted in from real code —
+            # ONLY those. A blanket parenthesis check would silently drop
+            # legitimate field lines like ``amount: float = Field(default=3)``
+            # or ``amount: float  # approx (USD)``.
+            if line.startswith(("class ", "class(", "@", "#")):
                 continue
-            if line.startswith("#"):
-                continue
-            # Drop inline defaults — dynamic fields are always required.
+            # Drop inline comments, then inline defaults — dynamic fields are
+            # always required, so ``= Field(...)`` / ``= 3`` are discarded.
+            line = line.split("#", 1)[0].strip()
             if "=" in line:
                 line = line.split("=", 1)[0].strip()
+            if not line:
+                continue
             if ":" not in line:
                 raise ValueError(f"invalid model field line: {line!r}")
             field_name, type_name = (part.strip() for part in line.split(":", 1))

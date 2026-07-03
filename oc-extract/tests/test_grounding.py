@@ -39,6 +39,16 @@ def test_fuzzy_alignment():
     assert span.score >= 0.75
 
 
+def test_case_insensitive_offsets_survive_length_changing_casefold():
+    """'ß'.casefold() == 'ss' shifts every casefolded offset after it; the
+    span must still index the ORIGINAL text correctly."""
+    doc = "Präambel: die Straße München gilt. Vertragspartner ist ACME GmbH."
+    span = align_string(doc, "acme gmbh")
+    assert span is not None
+    assert span.method == "case_insensitive"
+    assert doc[span.start : span.end] == "ACME GmbH"
+
+
 def test_no_alignment_for_absent_text():
     assert align_string(SAMPLE_CONTRACT, "flux capacitor warranty") is None
 

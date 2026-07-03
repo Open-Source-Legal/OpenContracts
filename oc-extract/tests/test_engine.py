@@ -133,6 +133,36 @@ async def test_list_extraction():
     assert len(grounded) == 2
 
 
+def test_anthropic_temperature_pin_applies_to_model_instances():
+    """The temperature-0 pin (OC issue #1381) must engage for Model
+    instances too, not only for 'anthropic:*' id strings."""
+
+    class FakeAnthropicModel:
+        model_name = "claude-sonnet-5"
+        system = "anthropic"
+
+    engine = ExtractionEngine.__new__(ExtractionEngine)
+    engine.temperature = None
+    engine.model = FakeAnthropicModel()
+    assert engine._model_settings() == {"temperature": 0}
+
+    engine.model = "anthropic:claude-sonnet-5"
+    assert engine._model_settings() == {"temperature": 0}
+
+    engine.model = "openai:gpt-4o-mini"
+    assert engine._model_settings() != {"temperature": 0}
+
+
+async def test_chunk_index_cached_across_fields_of_same_document():
+    engine = ExtractionEngine(model=_scripted_model([], "ACME Corporation"))
+    chunks1, index1 = engine._chunks_and_index(SAMPLE_CONTRACT, None)
+    chunks2, index2 = engine._chunks_and_index(SAMPLE_CONTRACT, None)
+    assert chunks1 is chunks2 and index1 is index2
+    # Different content gets its own entry.
+    chunks3, _ = engine._chunks_and_index(SAMPLE_CONTRACT + " extra", None)
+    assert chunks3 is not chunks1
+
+
 def test_prompt_full_text_injection_and_few_shot():
     field = FieldSpec(
         name="date",

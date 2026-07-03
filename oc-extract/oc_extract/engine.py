@@ -21,6 +21,7 @@ retrieval standing in for pgvector/FTS annotation search:
 from __future__ import annotations
 
 import traceback
+from collections import OrderedDict
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from typing import Any
@@ -42,11 +43,13 @@ from .constants import (
     DEFAULT_TEMPERATURE,
     FEW_SHOT_SEPARATOR,
     FULL_TEXT_CHAR_LIMIT,
+    INDEX_CACHE_MAX_DOCS,
     NONE_RESULT_AGENT_COMMITTED,
     NONE_RESULT_ERROR,
     NONE_RESULT_NO_FINAL,
     NONE_RESULT_USAGE_LIMIT,
     OUTPUT_RETRIES,
+    READ_WINDOW_DEFAULT_CHARS,
     READ_WINDOW_MAX_CHARS,
     REQUEST_LIMIT,
     SEARCH_TOP_K,
@@ -214,7 +217,11 @@ def _snippet(text: str) -> str:
 
 
 class ExtractionEngine:
-    """Runs single-cell extractions. Stateless across calls; safe to share."""
+    """Runs single-cell extractions.
+
+    Safe to share across the cells of a run (single event loop): the only
+    mutable state is a small per-document chunk/index LRU cache.
+    """
 
     def __init__(
         self,
@@ -238,16 +245,48 @@ class ExtractionEngine:
         self.search_top_k = search_top_k
         self.full_text_char_limit = full_text_char_limit
         self.enable_fuzzy_grounding = enable_fuzzy_grounding
+        # Per-document chunk/index cache: run_extract calls extract_cell once
+        # per (document, field), so without this the same document would be
+        # re-chunked and re-indexed once per field. Keyed by content, ordered
+        # for LRU eviction.
+        self._index_cache: OrderedDict[int, tuple[list[Chunk], BM25Index]] = (
+            OrderedDict()
+        )
 
     def _model_settings(self) -> dict:
         if self.temperature is not None:
             return {"temperature": self.temperature}
-        model_name = self.model if isinstance(self.model, str) else ""
         # Anthropic models keep narrating instead of committing to the
         # structured output unless pinned to temperature 0 (OC issue #1381).
-        if "anthropic" in model_name.lower() or "claude" in model_name.lower():
+        # A pydantic-ai ``Model`` instance carries its identity on
+        # ``model_name``/``system`` — check those too so a directly
+        # constructed AnthropicModel gets the same pin as a model id string.
+        if isinstance(self.model, str):
+            fingerprint = self.model
+        else:
+            fingerprint = (
+                f"{getattr(self.model, 'system', '') or ''}:"
+                f"{getattr(self.model, 'model_name', '') or ''}"
+            )
+        fingerprint = fingerprint.lower()
+        if "anthropic" in fingerprint or "claude" in fingerprint:
             return {"temperature": 0}
         return {"temperature": DEFAULT_TEMPERATURE}
+
+    def _chunks_and_index(
+        self, text: str, page_offsets: list[int] | None
+    ) -> tuple[list[Chunk], BM25Index]:
+        key = hash((text, tuple(page_offsets or ())))
+        cached = self._index_cache.get(key)
+        if cached is not None:
+            self._index_cache.move_to_end(key)
+            return cached
+        chunks = chunk_text(text, page_offsets=page_offsets)
+        index = BM25Index(chunks)
+        self._index_cache[key] = (chunks, index)
+        while len(self._index_cache) > INDEX_CACHE_MAX_DOCS:
+            self._index_cache.popitem(last=False)
+        return chunks, index
 
     async def extract_cell(
         self,
@@ -261,8 +300,7 @@ class ExtractionEngine:
         """
         text: str = document["text"]
         page_offsets: list[int] | None = document.get("page_offsets")
-        chunks = chunk_text(text, page_offsets=page_offsets)
-        index = BM25Index(chunks)
+        chunks, index = self._chunks_and_index(text, page_offsets)
         chunk_by_id = {c.id: c for c in chunks}
         deps = EngineDeps()
         must_contain = field.must_contain_text
@@ -303,7 +341,9 @@ class ExtractionEngine:
             ]
 
         @agent.tool_plain
-        async def read_document_text(start: int = 0, max_chars: int = 4000) -> str:
+        async def read_document_text(
+            start: int = 0, max_chars: int = READ_WINDOW_DEFAULT_CHARS
+        ) -> str:
             """Read raw document text from char offset ``start`` (capped
             window). Use for whole-document tasks or when search misses."""
             start = max(0, start)

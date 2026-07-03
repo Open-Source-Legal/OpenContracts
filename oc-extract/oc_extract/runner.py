@@ -31,26 +31,17 @@ async def run_extract(
     Returns the finished extract record (with cell counts).
     """
     extract = store.get_extract(extract_id)
-    fieldset = store.get_fieldset(extract["fieldset_id"])
-    if engine is None:
-        engine = ExtractionEngine(model=extract.get("model"))
-
-    store.mark_extract_started(extract_id)
-
-    cells: list[tuple[int, int, dict]] = []  # (cell_id, doc_id, field_row)
-    for doc_id in extract["document_ids"]:
-        for field_row in fieldset["fields"]:
-            cell_id = store.create_cell(
-                extract_id, field_row["id"], doc_id, field_row["output_type"]
-            )
-            cells.append((cell_id, doc_id, field_row))
 
     semaphore = asyncio.Semaphore(max(1, concurrency))
 
     async def process(cell_id: int, doc_id: int, field_row: dict) -> None:
+        # The whole cell lifecycle sits inside one try so a failure in ANY
+        # step (including mark_cell_started) is contained to this cell and
+        # recorded on it — asyncio.gather never sees an exception, so sibling
+        # cells can't be orphaned mid-write by an early gather raise.
         async with semaphore:
-            store.mark_cell_started(cell_id)
             try:
+                store.mark_cell_started(cell_id)
                 document = store.get_document(doc_id)
                 outcome = await engine.extract_cell(
                     document, Store.field_spec(field_row)
@@ -77,7 +68,24 @@ async def run_extract(
                     llm_log=outcome.llm_log,
                 )
 
+    # Everything after this point must end in mark_extract_finished — a
+    # setup failure (engine construction, cell creation) that escaped the
+    # try would otherwise leave a permanent zombie extract: started set,
+    # finished/error forever NULL, and no running task.
+    store.mark_extract_started(extract_id)
     try:
+        fieldset = store.get_fieldset(extract["fieldset_id"])
+        if engine is None:
+            engine = ExtractionEngine(model=extract.get("model"))
+
+        cells: list[tuple[int, int, dict]] = []  # (cell_id, doc_id, field_row)
+        for doc_id in extract["document_ids"]:
+            for field_row in fieldset["fields"]:
+                cell_id = store.create_cell(
+                    extract_id, field_row["id"], doc_id, field_row["output_type"]
+                )
+                cells.append((cell_id, doc_id, field_row))
+
         await asyncio.gather(*(process(*cell) for cell in cells))
         store.mark_extract_finished(extract_id)
     except Exception as exc:  # noqa: BLE001 - record run-level failure

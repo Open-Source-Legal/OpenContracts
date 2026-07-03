@@ -36,6 +36,18 @@ def test_model_definition_with_list_and_noise():
     assert instance.names == ["a", "b"]
 
 
+def test_model_definition_keeps_fields_with_parens_and_comments():
+    """Field lines with parenthesised defaults or inline comments must be
+    kept (reduced to ``name: type``), not silently dropped."""
+    model = parse_output_type(
+        "amount: float = Field(default=3)\n"
+        "currency: str  # ISO code (e.g. USD)\n"
+        "@validator('amount')\n"
+    )
+    fields = set(model.model_fields)
+    assert fields == {"amount", "currency"}
+
+
 def test_invalid_output_type():
     with pytest.raises(ValueError):
         parse_output_type("banana")

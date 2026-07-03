@@ -34,9 +34,12 @@ The design is a faithful distillation of the production pipeline
 Deliberate simplifications: no auth/permissions, no annotation labels
 (`limit_to_label` has no standalone analogue), lexical BM25 instead of
 embeddings, SQLite instead of Postgres, asyncio instead of Celery. One
-improvement over the production path: `must_contain_text` is a **hard**
-retrieval filter here (OpenContracts applies it as advisory prompt guidance
-in the doc-agent path).
+improvement over the production path: on the retrieval path,
+`must_contain_text` is a **hard** filter on the `search_document` tool
+(OpenContracts applies it as advisory prompt guidance in the doc-agent
+path). Note the caveat: for documents at or under the full-text-injection
+limit (24k chars) the whole document is placed in the prompt, so there —
+exactly as in production — the constraint is advisory guidance only.
 
 ## Install
 
@@ -132,7 +135,7 @@ oc-extract --db contracts.db show 1 --cells
 | `name` | Field/column name (key in the results table) |
 | `query` | Natural-language question to answer from the document |
 | `match_text` | Alternate prompt seed; `\|\|\|`-separated values become few-shot examples |
-| `must_contain_text` | Hard retrieval filter + advisory guidance: only sections containing this text |
+| `must_contain_text` | Only sections containing this text: hard filter on `search_document` retrieval; advisory guidance when the full document text is injected (docs ≤ 24k chars) |
 | `instructions` | Extra guidance folded into the prompt (fenced, treated as data) |
 | `output_type` | `str`, `int`, `float`, `bool`, or newline-separated `field: type` lines (compiled to a Pydantic model; `list[str]`-style element types allowed) |
 | `extract_is_list` | Wrap the output type in a list |

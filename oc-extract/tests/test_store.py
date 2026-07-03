@@ -85,6 +85,27 @@ def test_extract_and_cell_lifecycle(seeded: dict):
     assert values["monthly_fee"]["failure_mode"] == "usage_limit_exceeded"
 
 
+def test_create_cell_returns_correct_ids_on_multi_cell_rerun(seeded: dict):
+    """Re-running an extract with several cells must return each cell's own
+    id from the conflict/UPDATE path — regression test for the lastrowid
+    misattribution bug (upsert UPDATE doesn't change lastrowid, so inferring
+    insert-vs-update from it attributed every re-run cell to one stale id).
+    """
+    store: Store = seeded["store"]
+    fs = store.get_fieldset(seeded["fieldset_id"])
+    extract_id = store.create_extract("run", seeded["fieldset_id"], [seeded["doc_id"]])
+    first = [
+        store.create_cell(extract_id, f["id"], seeded["doc_id"], f["output_type"])
+        for f in fs["fields"]
+    ]
+    assert len(set(first)) == len(first)
+    second = [
+        store.create_cell(extract_id, f["id"], seeded["doc_id"], f["output_type"])
+        for f in fs["fields"]
+    ]
+    assert second == first
+
+
 def test_create_cell_is_idempotent_reset(seeded: dict):
     store: Store = seeded["store"]
     fs = store.get_fieldset(seeded["fieldset_id"])
