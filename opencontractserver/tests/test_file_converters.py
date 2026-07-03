@@ -163,8 +163,8 @@ class BaseFileConverterTestCase(TestCase):
         # configured value is read via get_enabled_extensions' raw settings
         # access only when a Settings dataclass exists — assert the supported
         # intersection contract via GotenbergFileConverter below instead.
-        self.assertTrue(
-            converter.get_enabled_extensions() <= {"doc", "rtf", "odt", "html"}
+        self.assertLessEqual(
+            converter.get_enabled_extensions(), {"doc", "rtf", "odt", "html"}
         )
 
     def test_convert_to_pdf_merges_settings_and_direct_kwargs(self):

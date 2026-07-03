@@ -133,6 +133,13 @@ MAX_REEMBED_TASKS_PER_RUN = 500
 # Maximum length for filename/title truncation when generating document paths
 MAX_FILENAME_LENGTH = 100
 
+# Maximum length of the extension segment preserved by sanitize_corpus_filename
+# when truncating an over-long filename. Bounds a pathological "extension"
+# (e.g. a filename that is one long dotted token) so it can't consume the whole
+# MAX_FILENAME_LENGTH budget and starve the stem. Comfortably covers real
+# extensions (.pptx, .markdown, .xhtml) plus the leading dot.
+MAX_FILENAME_EXTENSION_LENGTH = 16
+
 # Personal corpus defaults
 PERSONAL_CORPUS_TITLE = "My Documents"
 PERSONAL_CORPUS_DESCRIPTION = "Your personal document collection"

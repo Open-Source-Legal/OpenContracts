@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Any
 from django.conf import settings
 from django.db import transaction
 
+from opencontractserver.constants.document_processing import OCTET_STREAM_MIME_TYPE
 from opencontractserver.pipeline.registry import get_allowed_mime_types
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
@@ -197,12 +198,14 @@ class DocumentService:
 
         try:
             with transaction.atomic():
-                # Create document based on file type (validate_file_type has
-                # already gated acceptance). Text formats go to
-                # txt_extract_file; every other accepted format — native
-                # PDFs/Office files and anything taking the pre-parse
-                # convert-to-PDF path — is stored in pdf_file (the generic
-                # binary storage field).
+                # Create document based on file type. Text formats go to
+                # txt_extract_file; native binary formats (PDF/Office, in the
+                # allow-list) and convert-to-PDF uploads (recorded as
+                # application/octet-stream by resolve_convertible_upload) go to
+                # pdf_file. Any other MIME is rejected fail-closed — the
+                # backstop that stops an un-vetted type (e.g. one slipped
+                # through a patched validate_file_type) from silently landing
+                # in storage.
                 if mime_type in ["text/plain", "application/txt"]:
                     txt_file = ContentFile(file_bytes, name=filename)
                     document = Document.objects.create(
@@ -216,7 +219,10 @@ class DocumentService:
                         file_type=mime_type,
                         slug=slug,
                     )
-                else:
+                elif (
+                    mime_type in get_allowed_mime_types()
+                    or mime_type == OCTET_STREAM_MIME_TYPE
+                ):
                     pdf_file = ContentFile(file_bytes, name=filename)
                     document = Document.objects.create(
                         creator=user,
@@ -229,6 +235,8 @@ class DocumentService:
                         file_type=mime_type,
                         slug=slug,
                     )
+                else:
+                    return None, f"Unsupported file type: {mime_type}"
 
                 # Set permissions for creator
                 set_permissions_for_obj_to_user(
