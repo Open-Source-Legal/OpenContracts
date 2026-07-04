@@ -105,6 +105,20 @@ NAV_TARGET_TEXT_MAX_CHARS = 8_000  # bounded authority/target text per read hop
 NAV_NEIGHBORHOOD_DEFAULT_NODE_CAP = 40  # governance-graph slice size default
 NAV_NEIGHBORHOOD_MAX_NODE_CAP = 150  # governance-graph slice hard ceiling
 NAV_NEIGHBORHOOD_MAX_DEPTH = 3  # max hops from a focus document
+# When a focus document is given, get_reference_neighborhood builds the FULL
+# corpus graph (GovernanceGraphService.build only *truncates its output* by
+# global degree — building the whole thing costs the same DB work — so a
+# low-degree focus is not dropped before the neighbourhood BFS runs). This
+# bounds that intermediate build; the returned neighbourhood is then capped to
+# the caller's node_cap. A corpus whose reference graph exceeds this is beyond
+# first-pass scope (the focus would only be lost if it were also below the
+# top-N by global degree).
+NAV_NEIGHBORHOOD_FULL_BUILD_CAP = 5_000
+# find_documents_citing computes ranking + mention counts in the DB (bounded to
+# `limit`); only the small citing-clause previews read individual rows. This
+# bounds that preview read so a widely-cited authority can't trigger a large
+# in-memory scan.
+NAV_CITING_SAMPLE_SCAN = 500
 
 # --- Phase 2 (issue #2054): listing-index discovery bounds ---------------------
 # Hard cap on candidates a single BaseAuthorityDiscoveryProvider.discover_candidates()

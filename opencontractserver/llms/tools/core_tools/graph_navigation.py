@@ -207,6 +207,7 @@ def read_reference_target(
     ``discover_authorities`` to bring it in.
     """
     from opencontractserver.enrichment.authorities import find_authority_target
+    from opencontractserver.shared.services.base import BaseService
 
     if not canonical_key and target_document_id is None:
         return {
@@ -221,9 +222,10 @@ def read_reference_target(
 
     doc: Document | None = None
     if target_document_id is not None:
-        doc = (
-            Document.objects.visible_to_user(user).filter(pk=target_document_id).first()
-        )
+        # IDOR-safe single-object READ lookup via the shared service layer
+        # (CLAUDE.md rule #7) — same MIN(document, corpus) visibility, no inline
+        # Tier-0 call.
+        doc = BaseService.get_or_none(Document, target_document_id, user)
     if doc is None and canonical_key:
         doc = find_authority_target(canonical_key, user)
 
@@ -294,36 +296,41 @@ def find_documents_citing(
     user = get_user_or_none(user_id)
     limit = clamp_limit(limit, C.NAV_DEFAULT_MAX_CITING, C.NAV_MAX_CITING)
 
+    from django.db.models import Count
+
     base = CorpusReferenceService.visible_to_user(user)
     # canonical_key wins when both are supplied (the more specific anchor).
-    qs = (
+    anchored = (
         base.filter(canonical_key=canonical_key)
         if canonical_key
         else base.filter(target_document_id=document_id)
-    )
-    qs = qs.select_related("source_annotation", "source_annotation__document").order_by(
-        "id"
-    )
+    ).filter(source_annotation__document__isnull=False)
 
-    by_doc: dict[int, dict] = {}
-    for ref in qs:
+    # Rank citing documents by mention volume IN THE DB, bounded to `limit` — a
+    # widely-cited authority must not pull its whole reference set into memory.
+    ranked = list(
+        anchored.values("source_annotation__document_id")
+        .annotate(mention_count=Count("id"))
+        .order_by("-mention_count", "source_annotation__document_id")[:limit]
+    )
+    doc_ids = [r["source_annotation__document_id"] for r in ranked]
+    titles = dict(Document.objects.filter(pk__in=doc_ids).values_list("pk", "title"))
+
+    # Bounded second pass: a few citing-clause previews for just the ranked
+    # documents (NAV_CITING_SAMPLE_SCAN caps the rows read for snippets).
+    samples: dict[int, list] = {}
+    corpus_by_doc: dict[int, int] = {}
+    for ref in (
+        anchored.filter(source_annotation__document_id__in=doc_ids)
+        .select_related("source_annotation")
+        .order_by("source_annotation__document_id", "id")[: C.NAV_CITING_SAMPLE_SCAN]
+    ):
         src = ref.source_annotation
-        src_doc = src.document if src else None
-        if src_doc is None:
-            continue  # structural-annotation source: no citing document to list
-        entry = by_doc.setdefault(
-            src_doc.pk,
-            {
-                "document_id": src_doc.pk,
-                "document_title": src_doc.title,
-                "corpus_id": ref.corpus_id,
-                "mention_count": 0,
-                "sample_citations": [],
-            },
-        )
-        entry["mention_count"] += 1
-        if len(entry["sample_citations"]) < C.NAV_MAX_SAMPLE_CITATIONS:
-            entry["sample_citations"].append(
+        did = src.document_id
+        corpus_by_doc.setdefault(did, ref.corpus_id)
+        bucket = samples.setdefault(did, [])
+        if len(bucket) < C.NAV_MAX_SAMPLE_CITATIONS:
+            bucket.append(
                 {
                     "annotation_id": src.pk,
                     "canonical_key": ref.canonical_key,
@@ -331,9 +338,16 @@ def find_documents_citing(
                 }
             )
 
-    citing = sorted(
-        by_doc.values(), key=lambda d: (-d["mention_count"], d["document_id"])
-    )[:limit]
+    citing = [
+        {
+            "document_id": r["source_annotation__document_id"],
+            "document_title": titles.get(r["source_annotation__document_id"]),
+            "corpus_id": corpus_by_doc.get(r["source_annotation__document_id"]),
+            "mention_count": r["mention_count"],
+            "sample_citations": samples.get(r["source_annotation__document_id"], []),
+        }
+        for r in ranked
+    ]
     return {
         "anchor": {"canonical_key": canonical_key, "document_id": document_id},
         "citing_document_count": len(citing),
@@ -344,9 +358,50 @@ def find_documents_citing(
 # --------------------------------------------------------------------------- #
 # Tool 4 — orient: the local governance map (see the module graph)              #
 # --------------------------------------------------------------------------- #
+def _cap_nodes_by_degree(graph: dict, node_cap: int) -> dict:
+    """Cap a graph's node/edge lists to the top ``node_cap`` nodes by degree.
+
+    Applied to the *restricted* neighbourhood so ``node_cap`` bounds what is
+    RETURNED, not which documents were eligible to be found (see the focus
+    branch of :func:`get_reference_neighborhood`).
+    """
+    docs = graph["doc_nodes"]
+    ghosts = graph["ghost_nodes"]
+    if len(docs) + len(ghosts) <= node_cap:
+        return graph
+
+    ranked = sorted(
+        [(("doc", n["doc_pk"]), n["degree"]) for n in docs]
+        + [(("key", n["key"]), n["degree"]) for n in ghosts],
+        key=lambda t: -t[1],
+    )[:node_cap]
+    kept = {ep for ep, _w in ranked}
+    kept_docs = {v for k, v in kept if k == "doc"}
+    kept_keys = {v for k, v in kept if k == "key"}
+
+    def _ep(endpoint):
+        return tuple(endpoint) if isinstance(endpoint, list) else endpoint
+
+    return {
+        **graph,
+        "doc_nodes": [n for n in docs if n["doc_pk"] in kept_docs],
+        "ghost_nodes": [n for n in ghosts if n["key"] in kept_keys],
+        "edges": [
+            e
+            for e in graph["edges"]
+            if _ep(e["source"]) in kept and _ep(e["target"]) in kept
+        ],
+        "truncated": True,
+    }
+
+
 def _restrict_to_neighborhood(graph: dict, focus_pk: int, depth: int) -> dict:
     """Keep only nodes/edges within ``depth`` undirected hops of the focus doc."""
-    depth = max(0, min(int(depth or 1), C.NAV_NEIGHBORHOOD_MAX_DEPTH))
+    # ``1 if depth is None else …`` (not ``depth or 1``) so an explicit
+    # ``depth=0`` — "just the focus node, no hops" — is honoured rather than
+    # silently bumped to 1.
+    depth = 1 if depth is None else int(depth)
+    depth = max(0, min(depth, C.NAV_NEIGHBORHOOD_MAX_DEPTH))
     edges = graph.get("edges", [])
 
     def _ep(endpoint):
@@ -413,7 +468,17 @@ def get_reference_neighborhood(
         C.NAV_NEIGHBORHOOD_MAX_NODE_CAP,
     )
 
-    graph = GovernanceGraphService.build(user, corpus_id, node_cap)
+    # In focus mode, build the FULL corpus graph first: build() truncates its
+    # output to the top-node_cap nodes by GLOBAL degree, which would drop a
+    # low-degree focus document before the neighbourhood BFS ever runs — the
+    # exact use case focus_document_id exists for. Building the whole graph is
+    # no costlier (build scans all references regardless of cap; the cap only
+    # slices the output). We then restrict to the neighbourhood and cap the
+    # RESULT to node_cap so the bound applies to what is returned.
+    build_cap = (
+        C.NAV_NEIGHBORHOOD_FULL_BUILD_CAP if focus_document_id is not None else node_cap
+    )
+    graph = GovernanceGraphService.build(user, corpus_id, build_cap)
     if graph is None:
         return {
             "corpus_id": corpus_id,
@@ -423,6 +488,7 @@ def get_reference_neighborhood(
 
     if focus_document_id is not None:
         graph = _restrict_to_neighborhood(graph, focus_document_id, depth)
+        graph = _cap_nodes_by_degree(graph, node_cap)
 
     graph["corpus_id"] = corpus_id
     graph["focus_document_id"] = focus_document_id

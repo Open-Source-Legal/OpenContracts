@@ -217,6 +217,25 @@ class GraphNavigationToolTests(TestCase):
         # 1 hop from the filing reaches the resolved statute + the exhibit.
         self.assertIn(self.statute_id, doc_ids)
 
+    def test_neighborhood_focus_low_degree_survives_truncation(self):
+        """A low-degree focus must be found even when node_cap < corpus nodes.
+
+        Regression: GovernanceGraphService.build() truncates its output to the
+        top node_cap nodes by GLOBAL degree. With node_cap=2, a whole-corpus
+        build would drop the exhibit (lowest degree) before any focus/BFS
+        restriction — so focusing on it must build the full graph first.
+        """
+        res = get_reference_neighborhood(
+            corpus_id=self.corpus.id,
+            user_id=self.user.id,
+            focus_document_id=self.exhibit_id,
+            depth=1,
+            node_cap=2,
+        )
+        self.assertTrue(res["focus_in_graph"])
+        doc_ids = {n["doc_pk"] for n in res["doc_nodes"]}
+        self.assertIn(self.exhibit_id, doc_ids)
+
     # ---- permissions (load-bearing) ----------------------------------- #
     def test_stranger_sees_no_references(self):
         stranger = User.objects.create_user(username="stranger", password="p")
