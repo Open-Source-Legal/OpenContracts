@@ -31,6 +31,7 @@ class ToolCategory(str, Enum):
     SEARCH = "search"
     DOCUMENT = "document"
     CORPUS = "corpus"
+    GRAPH = "graph"
     NOTES = "notes"
     ANNOTATIONS = "annotations"
     COORDINATION = "coordination"
@@ -120,6 +121,104 @@ AVAILABLE_TOOLS: tuple[ToolDefinition, ...] = (
                 "List of exact strings to find (all occurrences will be found)",
                 True,
             ),
+        ),
+    ),
+    # -------------------------------------------------------------------------
+    # GRAPH TRAVERSAL TOOLS (walk the materialised reference graph, one hop)
+    # -------------------------------------------------------------------------
+    ToolDefinition(
+        name="get_document_references",
+        description=(
+            "List the references a document makes and receives — like reading a "
+            "source file's imports and its callers. 'outbound' are the laws, "
+            "contracts and sections this document cites; 'inbound' are documents "
+            "that cite it. Each item carries the citing clause text, the resolved "
+            "target (when known), and a resolution_status. Use this after "
+            "similarity_search to follow what a clause depends on."
+        ),
+        category=ToolCategory.GRAPH,
+        requires_corpus=True,
+        parameters=(
+            (
+                "direction",
+                "'outbound', 'inbound', or 'both' (default 'both')",
+                False,
+            ),
+            ("limit", "Max references per direction (default 25)", False),
+        ),
+    ),
+    ToolDefinition(
+        name="read_reference_target",
+        description=(
+            "Resolve a citation to its target document and read its text — the "
+            "'open the file' hop. Pass a canonical_key (e.g. 'dgcl:145', a law "
+            "citation from get_document_references) or a target_document_id "
+            "(another contract/exhibit). Returns a bounded text window "
+            "(char_offset / max_chars for paging). If the authority has not been "
+            "ingested yet, 'resolved' is false."
+        ),
+        category=ToolCategory.GRAPH,
+        requires_corpus=True,
+        parameters=(
+            (
+                "canonical_key",
+                "Canonical key of the cited law/section (e.g. 'dgcl:145')",
+                False,
+            ),
+            (
+                "target_document_id",
+                "Id of the target document to open instead of a law key",
+                False,
+            ),
+            ("char_offset", "Start offset into the target text (default 0)", False),
+            ("max_chars", "Max characters to return (default 8000)", False),
+        ),
+    ),
+    ToolDefinition(
+        name="find_documents_citing",
+        description=(
+            "Find the documents that cite a given authority or document — 'find "
+            "the callers'. Anchor on a canonical_key (every contract relying on "
+            "that statute) or a document_id (every document referencing it). "
+            "Results are grouped by citing document, ranked by mention volume, "
+            "with sample citing clauses. Only documents you can read appear."
+        ),
+        category=ToolCategory.GRAPH,
+        requires_corpus=True,
+        parameters=(
+            (
+                "canonical_key",
+                "Canonical key of the authority to find citers of (e.g. 'dgcl:145')",
+                False,
+            ),
+            (
+                "document_id",
+                "Id of the document to find citers of (defaults to current doc)",
+                False,
+            ),
+            ("limit", "Max citing documents to return (default 25)", False),
+        ),
+    ),
+    ToolDefinition(
+        name="get_reference_neighborhood",
+        description=(
+            "Return the corpus governance graph, or one document's neighbourhood "
+            "— orientation before traversal. Nodes are documents (filings, "
+            "exhibits, statute sections) plus ghost nodes for cited-but-not-yet-"
+            "ingested authorities; edges are LAW / LAW_EXTERNAL / DOCUMENT links "
+            "weighted by mention count. Omit focus_document_id for the whole "
+            "corpus, or pass one to get its neighbourhood out to 'depth' hops."
+        ),
+        category=ToolCategory.GRAPH,
+        requires_corpus=True,
+        parameters=(
+            (
+                "focus_document_id",
+                "Center the neighbourhood on this document (omit for whole corpus)",
+                False,
+            ),
+            ("depth", "Hops from the focus document (default 1, max 3)", False),
+            ("node_cap", "Max nodes in the returned graph (default 40)", False),
         ),
     ),
     # -------------------------------------------------------------------------
@@ -1453,15 +1552,18 @@ class ToolFunctionRegistry:
             adelete_document,
             adiscover_authorities,
             aduplicate_annotations_with_label,
+            afind_documents_citing,
             aget_corpus_description,
             aget_corpus_memory,
             aget_document_description,
+            aget_document_references,
             aget_document_summary,
             aget_document_summary_diff,
             aget_document_summary_versions,
             aget_md_summary_token_length,
             aget_notes_for_document_corpus,
             aget_page_image,
+            aget_reference_neighborhood,
             alist_analyzers,
             alist_fieldsets,
             alist_recent_analyses,
@@ -1472,6 +1574,7 @@ class ToolFunctionRegistry:
             amove_document,
             apropose_caml_citation_match,
             aread_corpus_caml_article,
+            aread_reference_target,
             aregenerate_corpus_icon,
             arename_document,
             ascan_and_annotate_pii,
@@ -1556,6 +1659,11 @@ class ToolFunctionRegistry:
             "discover_authorities": (adiscover_authorities, ()),
             "bootstrap_authority_corpus": (abootstrap_authority_corpus, ()),
             "crawl_authorities": (acrawl_authorities, ()),
+            # Graph traversal (walk the materialised reference graph, one hop)
+            "get_document_references": (aget_document_references, ()),
+            "read_reference_target": (aread_reference_target, ()),
+            "find_documents_citing": (afind_documents_citing, ()),
+            "get_reference_neighborhood": (aget_reference_neighborhood, ()),
             "create_document_index": (acreate_document_index, ()),
             # Corpus tools
             "get_corpus_description": (aget_corpus_description, ()),

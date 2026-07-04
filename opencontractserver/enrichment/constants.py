@@ -90,6 +90,22 @@ MAX_DEFINED_TERM_SCAN = DEFINED_TERM_SCAN_MULTIPLIER * MAX_DEFINED_TERMS
 # Per-authority cap on the keys surfaced by the wanted-authorities queue.
 WANTED_AUTHORITIES_TOP_KEYS = 10
 
+# --- Agentic graph-navigation tool bounds -------------------------------------
+# The read-only navigation tools (llms/tools/core_tools/graph_navigation.py) let
+# an agent *walk* the already-materialised reference graph one hop at a time.
+# These caps keep any single tool call's payload bounded — an LLM must not pull
+# an unbounded reference list or a whole statute corpus into one turn.
+NAV_DEFAULT_MAX_REFERENCES = 25  # references returned per direction by default
+NAV_MAX_REFERENCES = 100  # hard ceiling on references per direction
+NAV_DEFAULT_MAX_CITING = 25  # citing documents returned by default
+NAV_MAX_CITING = 100  # hard ceiling on citing documents
+NAV_MAX_SAMPLE_CITATIONS = 3  # sample citing clauses kept per citing document
+NAV_SNIPPET_MAX_CHARS = 300  # citing-clause snippet length
+NAV_TARGET_TEXT_MAX_CHARS = 8_000  # bounded authority/target text per read hop
+NAV_NEIGHBORHOOD_DEFAULT_NODE_CAP = 40  # governance-graph slice size default
+NAV_NEIGHBORHOOD_MAX_NODE_CAP = 150  # governance-graph slice hard ceiling
+NAV_NEIGHBORHOOD_MAX_DEPTH = 3  # max hops from a focus document
+
 # --- Phase 2 (issue #2054): listing-index discovery bounds ---------------------
 # Hard cap on candidates a single BaseAuthorityDiscoveryProvider.discover_candidates()
 # run may return/seed, mirroring the CRAWL_DEFAULT_*/CRAWL_MAX_* pair below: a

@@ -2581,6 +2581,14 @@ class PydanticAIDocumentAgent(PydanticAICoreAgent):
                 [
                     "search_document_notes",
                     "get_document_notes",
+                    # Graph traversal — walk the resolved reference web one hop at
+                    # a time (contracts-as-codebase). document_id is injected, so
+                    # get_document_references / find_documents_citing default to
+                    # THIS document ("what does it cite / who cites it").
+                    "get_document_references",
+                    "read_reference_target",
+                    "find_documents_citing",
+                    "get_reference_neighborhood",
                 ],
                 document_id=context.document.id,
                 corpus_id=_corpus_id,
@@ -3210,7 +3218,17 @@ class PydanticAICorpusAgent(PydanticAICoreAgent):
         # Auto-build passthrough tools from registry
         # -----------------------------
         corpus_auto_tools = _build_tools_from_registry(
-            ["get_corpus_description"],
+            [
+                "get_corpus_description",
+                # Graph traversal — walk the resolved reference web one hop at a
+                # time. No document_id in corpus context, so the LLM names which
+                # document's references / citers it wants; visibility is enforced
+                # by CorpusReferenceService inside each tool.
+                "get_document_references",
+                "read_reference_target",
+                "find_documents_citing",
+                "get_reference_neighborhood",
+            ],
             corpus_id=context.corpus.id,
             user_id=config.user_id,
         )
