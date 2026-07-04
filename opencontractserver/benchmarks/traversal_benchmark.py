@@ -27,7 +27,7 @@ import json
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 # The graph-navigation tools whose marginal value this harness measures.
 TRAVERSAL_TOOL_NAMES: tuple[str, ...] = (
@@ -67,14 +67,14 @@ class RunResult:
 
     config: str
     label: str
-    tokens: Optional[int] = None
+    tokens: int | None = None
     tool_call_count: int = 0
     tool_names: list[str] = field(default_factory=list)
     latency_s: float = 0.0
     source_count: int = 0
     grounded_keys: list[str] = field(default_factory=list)
     expected_key_count: int = 0
-    grounding_hit_rate: Optional[float] = None
+    grounding_hit_rate: float | None = None
     answer_chars: int = 0
     error: str = ""
 
@@ -100,7 +100,7 @@ def load_questions(path: str | Path) -> list[TraversalQuestion]:
     ]
 
 
-def _usage_tokens(usage: Any) -> Optional[int]:
+def _usage_tokens(usage: Any) -> int | None:
     """Best-effort total-token count from the pydantic-ai usage dict."""
     if not isinstance(usage, dict):
         return None
@@ -135,7 +135,7 @@ async def run_one(
     config: str,
     *,
     user_id: int,
-    model: Optional[str],
+    model: str | None,
 ) -> RunResult:
     """Run a single question under one tool configuration and capture metrics."""
     from opencontractserver.corpuses.models import Corpus
@@ -200,7 +200,7 @@ async def run_benchmark_traversal(
     questions: list[TraversalQuestion],
     *,
     user_id: int,
-    model: Optional[str],
+    model: str | None,
 ) -> list[RunResult]:
     """Run every question under both configs (serially — real LLM calls)."""
     results: list[RunResult] = []
@@ -212,7 +212,7 @@ async def run_benchmark_traversal(
     return results
 
 
-def _mean(values: list[float]) -> Optional[float]:
+def _mean(values: list[float]) -> float | None:
     vals = [v for v in values if v is not None]
     return round(sum(vals) / len(vals), 3) if vals else None
 

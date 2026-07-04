@@ -149,6 +149,16 @@ class GraphNavigationToolTests(TestCase):
         )
         self.assertFalse(res["resolved"])
 
+    def test_read_reference_target_invisible_document_not_read(self):
+        """A stranger cannot open a private document via target_document_id."""
+        stranger = User.objects.create_user(username="peeker", password="p")
+        res = read_reference_target(
+            corpus_id=self.corpus.id,
+            user_id=stranger.id,
+            target_document_id=self.statute_id,
+        )
+        self.assertFalse(res["resolved"])
+
     def test_read_reference_target_paging(self):
         res = read_reference_target(
             corpus_id=self.corpus.id,
@@ -171,6 +181,16 @@ class GraphNavigationToolTests(TestCase):
         docs = {d["document_id"]: d for d in res["citing_documents"]}
         self.assertIn(self.primary_id, docs)
         self.assertEqual(docs[self.primary_id]["mention_count"], 2)
+
+    def test_find_documents_citing_by_document_id(self):
+        # Anchor on the statute document itself: the filing cites it.
+        res = find_documents_citing(
+            corpus_id=self.corpus.id,
+            user_id=self.user.id,
+            document_id=self.statute_id,
+        )
+        docs = {d["document_id"] for d in res["citing_documents"]}
+        self.assertIn(self.primary_id, docs)
 
     def test_find_documents_citing_requires_anchor(self):
         res = find_documents_citing(corpus_id=self.corpus.id, user_id=self.user.id)

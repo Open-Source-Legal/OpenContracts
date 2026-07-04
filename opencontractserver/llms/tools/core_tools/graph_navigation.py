@@ -126,6 +126,14 @@ def get_document_references(
     ``resolution_status="EXTERNAL"`` and a ``canonical_key`` (e.g. ``dgcl:145``)
     with no ``target_document_id`` — read it with ``read_reference_target`` or
     surface it via ``list_wanted_authorities``.
+
+    NOTE: results are **visibility-scoped, not corpus-scoped** — every reference
+    whose source (and resolved target) the caller may read is returned, even
+    when it crosses into another corpus (a citation legitimately points at an
+    authority corpus). ``corpus_id`` is agent context, not a filter; do not
+    "fix" this into a ``corpus_id`` filter or cross-corpus authority lookups
+    would silently narrow. ``CorpusReferenceService.visible_to_user`` is the
+    guard.
     """
     from opencontractserver.enrichment.services import CorpusReferenceService
 
@@ -270,6 +278,10 @@ def find_documents_citing(
     Only documents you can read appear. In a document agent, ``document_id``
     defaults to the current document ("who cites me?"); a ``canonical_key``
     overrides it.
+
+    NOTE: like ``get_document_references``, this is **visibility-scoped, not
+    corpus-scoped** — a document in another readable corpus that cites the same
+    authority is returned. ``corpus_id`` is agent context, not a filter.
     """
     from opencontractserver.enrichment.services import CorpusReferenceService
 
