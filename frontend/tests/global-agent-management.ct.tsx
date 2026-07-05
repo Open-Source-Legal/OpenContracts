@@ -16,6 +16,10 @@ import {
   UPDATE_GLOBAL_AGENT_CONFIGURATION,
   DELETE_GLOBAL_AGENT_CONFIGURATION,
 } from "../src/components/admin/global_agent_management.graphql";
+import {
+  GET_LLM_PROVIDERS,
+  GET_SYSTEM_DEFAULT_LLM,
+} from "../src/graphql/queries";
 
 const baseAgent = {
   id: "QWdlbnRDb25maWd1cmF0aW9uVHlwZTox",
@@ -30,6 +34,7 @@ const baseAgent = {
   scope: "GLOBAL",
   isActive: true,
   isPublic: true,
+  preferredLlm: null as string | null,
   creator: { id: "VXNlclR5cGU6MQ==", username: "admin" },
   created: "2024-01-15T10:30:00Z",
   modified: "2024-01-15T10:30:00Z",
@@ -333,6 +338,7 @@ test.describe("GlobalAgentManagement — create flow", () => {
           avatarUrl: "https://example.com/avatar.png",
           scope: "GLOBAL",
           isPublic: false,
+          preferredLlm: null,
         },
       },
       result: {
@@ -446,6 +452,7 @@ test.describe("GlobalAgentManagement — create flow", () => {
           avatarUrl: null,
           scope: "GLOBAL",
           isPublic: true,
+          preferredLlm: null,
         },
       },
       result: {
@@ -558,6 +565,8 @@ test.describe("GlobalAgentManagement — edit flow", () => {
           avatarUrl: null,
           isActive: true,
           isPublic: true,
+          preferredLlm: undefined,
+          clearPreferredLlm: false,
         },
       },
       result: {
@@ -770,6 +779,234 @@ test.describe("GlobalAgentManagement — delete flow", () => {
     await page.getByRole("button", { name: /yes/i }).first().click();
 
     await expect(page.locator("text=Agent is in use")).toBeVisible({
+      timeout: 5000,
+    });
+
+    await component.unmount();
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Preferred LLM (per-agent model override) — issue #2119                     */
+/* -------------------------------------------------------------------------- */
+
+test.describe("GlobalAgentManagement — preferred LLM", () => {
+  test("create modal shows the picker with the inherited system default hint", async ({
+    mount,
+    page,
+  }) => {
+    const systemDefaultMock = {
+      request: { query: GET_SYSTEM_DEFAULT_LLM },
+      result: {
+        data: { pipelineSettings: { defaultLlm: "anthropic:claude-opus-4-6" } },
+      },
+    };
+
+    const component = await mount(
+      <GlobalAgentManagementWrapper
+        mocks={[emptyAgentsMock, systemDefaultMock]}
+      />
+    );
+
+    await expect(page.locator("text=No Global Agents")).toBeVisible({
+      timeout: 5000,
+    });
+
+    await page.locator('button:has-text("Create Agent")').first().click();
+    await expect(page.locator("text=Create Global Agent")).toBeVisible();
+
+    await expect(page.locator("text=Preferred LLM")).toBeVisible();
+    const llmInput = page.locator(
+      'input[placeholder="e.g., anthropic:claude-opus-4-6"]'
+    );
+    await expect(llmInput).toBeVisible();
+    await expect(llmInput).toHaveValue("");
+
+    // Left blank, the picker surfaces what it will actually inherit.
+    await expect(page.locator("text=Inherited system default")).toBeVisible();
+    await expect(
+      page.locator("code:has-text('anthropic:claude-opus-4-6')")
+    ).toBeVisible();
+
+    await component.unmount();
+  });
+
+  test("submits a create mutation with the entered preferredLlm", async ({
+    mount,
+    page,
+  }) => {
+    const createMock = {
+      request: {
+        query: CREATE_GLOBAL_AGENT_CONFIGURATION,
+        variables: {
+          name: "Model-Pinned Agent",
+          description: "Always uses a specific model",
+          systemInstructions: "Follow the rules.",
+          availableTools: null,
+          permissionRequiredTools: null,
+          badgeConfig: JSON.stringify({
+            icon: "robot",
+            color: "#6366f1",
+            label: "AI",
+          }),
+          avatarUrl: null,
+          scope: "GLOBAL",
+          isPublic: true,
+          preferredLlm: "anthropic:claude-haiku-4-5",
+        },
+      },
+      result: {
+        data: {
+          createAgentConfiguration: {
+            ok: true,
+            message: "Agent created",
+            agent: {
+              id: "QWdlbnRDb25maWd1cmF0aW9uVHlwZTpwaW5uZWQ=",
+              name: "Model-Pinned Agent",
+              slug: "model-pinned-agent",
+              description: "Always uses a specific model",
+            },
+          },
+        },
+      },
+    };
+
+    const afterCreateMock = {
+      request: { query: GET_GLOBAL_AGENTS },
+      result: {
+        data: {
+          agentConfigurations: {
+            edges: [{ node: { ...baseAgent, name: "Model-Pinned Agent" } }],
+          },
+        },
+      },
+    };
+
+    const component = await mount(
+      <GlobalAgentManagementWithToastsWrapper
+        mocks={[emptyAgentsMock, createMock, afterCreateMock]}
+      />
+    );
+
+    await expect(page.locator("text=No Global Agents")).toBeVisible({
+      timeout: 5000,
+    });
+
+    await page.locator('button:has-text("Create Agent")').first().click();
+
+    await page
+      .locator("input[placeholder='Agent name']")
+      .fill("Model-Pinned Agent");
+    await page
+      .locator("textarea[placeholder^='Brief description']")
+      .fill("Always uses a specific model");
+    await page
+      .locator("textarea[placeholder='System prompt for the agent...']")
+      .fill("Follow the rules.");
+    await page
+      .locator('input[placeholder="e.g., anthropic:claude-opus-4-6"]')
+      .fill("anthropic:claude-haiku-4-5");
+
+    await page
+      .locator('.oc-modal-footer button:has-text("Create Agent")')
+      .click();
+
+    await expect(page.locator("text=Agent created successfully")).toBeVisible({
+      timeout: 5000,
+    });
+
+    await component.unmount();
+  });
+
+  test("pre-fills an existing preferredLlm override and clears it via clearPreferredLlm on update", async ({
+    mount,
+    page,
+  }) => {
+    const agentWithLlm = {
+      ...baseAgent,
+      id: "QWdlbnRDb25maWd1cmF0aW9uVHlwZTpsbG0=",
+      preferredLlm: "openai:gpt-4o",
+    };
+    const agentWithLlmMock = {
+      request: { query: GET_GLOBAL_AGENTS },
+      result: {
+        data: { agentConfigurations: { edges: [{ node: agentWithLlm }] } },
+      },
+    };
+
+    const updateMock = {
+      request: {
+        query: UPDATE_GLOBAL_AGENT_CONFIGURATION,
+        variables: {
+          agentId: agentWithLlm.id,
+          name: agentWithLlm.name,
+          description: agentWithLlm.description,
+          systemInstructions: agentWithLlm.systemInstructions,
+          availableTools: ["similarity_search", "load_document_text"],
+          permissionRequiredTools: [],
+          badgeConfig: JSON.stringify(agentWithLlm.badgeConfig),
+          avatarUrl: null,
+          isActive: true,
+          isPublic: true,
+          // Clearing a previously-set override must send clearPreferredLlm:
+          // true with preferredLlm omitted — never an empty-string
+          // preferredLlm, which AgentConfigurationService.update_agent's
+          // model validation rejects.
+          preferredLlm: undefined,
+          clearPreferredLlm: true,
+        },
+      },
+      result: {
+        data: {
+          updateAgentConfiguration: {
+            ok: true,
+            message: "Updated",
+            agent: {
+              id: agentWithLlm.id,
+              name: agentWithLlm.name,
+              slug: agentWithLlm.slug,
+              description: agentWithLlm.description,
+            },
+          },
+        },
+      },
+    };
+
+    const afterUpdateMock = {
+      request: { query: GET_GLOBAL_AGENTS },
+      result: {
+        data: {
+          agentConfigurations: {
+            edges: [{ node: { ...agentWithLlm, preferredLlm: null } }],
+          },
+        },
+      },
+    };
+
+    const component = await mount(
+      <GlobalAgentManagementWithToastsWrapper
+        mocks={[agentWithLlmMock, updateMock, afterUpdateMock]}
+      />
+    );
+
+    await expect(page.locator("text=Research Assistant")).toBeVisible({
+      timeout: 5000,
+    });
+
+    await page.locator('button[aria-label="Edit agent"]').first().click();
+
+    const llmInput = page.locator(
+      'input[placeholder="e.g., anthropic:claude-opus-4-6"]'
+    );
+    await expect(llmInput).toHaveValue("openai:gpt-4o");
+
+    await llmInput.fill("");
+
+    await page
+      .locator('.oc-modal-footer button:has-text("Save Changes")')
+      .click();
+
+    await expect(page.locator("text=Agent updated successfully")).toBeVisible({
       timeout: 5000,
     });
 

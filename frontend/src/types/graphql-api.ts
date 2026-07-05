@@ -1609,6 +1609,12 @@ export type AgentConfigurationType = Node & {
   isActive: Scalars["Boolean"];
   creator: UserType;
   isPublic?: Scalars["Boolean"];
+  /**
+   * Optional per-agent pydantic-ai model spec override
+   * (e.g. "anthropic:claude-haiku-4-5"). Empty/null falls back to the
+   * corpus default, then the install-wide system default.
+   */
+  preferredLlm?: Maybe<Scalars["String"]>;
   created: Scalars["DateTime"];
   modified: Scalars["DateTime"];
   myPermissions?: PermissionTypes[];
