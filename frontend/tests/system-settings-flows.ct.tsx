@@ -26,6 +26,7 @@ const mockSettingsBase = {
   parserKwargs: {},
   componentSettings: {},
   defaultEmbedder: null,
+  defaultFileConverter: null,
   defaultLlm: null,
   componentsWithSecrets: [],
   enabledComponents: [
@@ -126,6 +127,19 @@ const mockComponents = {
       providerKey: "anthropic",
       supportedModels: ["claude-opus-4-6", "claude-haiku-4-5"],
       requiresApiKey: true,
+      enabled: true,
+      settingsSchema: [],
+    },
+  ],
+  fileConverters: [
+    {
+      name: "gotenberg",
+      title: "Gotenberg PDF Converter",
+      description: "Converts office/legacy formats to PDF via Gotenberg",
+      className:
+        "opencontractserver.pipeline.file_converters.gotenberg_converter.GotenbergFileConverter",
+      supportedExtensions: ["doc", "rtf", "odt", "ppt"],
+      requiresApiKey: false,
       enabled: true,
       settingsSchema: [],
     },
@@ -303,6 +317,182 @@ test.describe("SystemSettings — filetype default assignment", () => {
 
     await parserSelect.selectOption("");
 
+    await expect(
+      page.locator("text=Settings updated successfully")
+    ).toBeVisible({ timeout: 5000 });
+
+    await component.unmount();
+  });
+});
+
+test.describe("SystemSettings — file converter on/off", () => {
+  // The install-wide pre-parse file converter is toggled entirely from this
+  // GUI: picking a converter enables conversion, picking "None" (empty class
+  // path) disables it. Both save through UPDATE_PIPELINE_SETTINGS with a single
+  // `defaultFileConverter` variable — so a MockedProvider whose mock only
+  // matches the expected variable value asserts the GUI sends the right thing.
+  const GOTENBERG =
+    "opencontractserver.pipeline.file_converters.gotenberg_converter.GotenbergFileConverter";
+
+  test("enabling picks Gotenberg and fires UPDATE with the class path", async ({
+    mount,
+    page,
+  }) => {
+    const saveMock = {
+      request: {
+        query: UPDATE_PIPELINE_SETTINGS,
+        variables: { defaultFileConverter: GOTENBERG },
+      },
+      result: {
+        data: {
+          updatePipelineSettings: {
+            ok: true,
+            message: "Updated",
+            pipelineSettings: {
+              ...mockSettingsBase,
+              defaultFileConverter: GOTENBERG,
+            },
+          },
+        },
+      },
+    };
+    const refetch = {
+      request: { query: GET_PIPELINE_SETTINGS },
+      result: {
+        data: {
+          pipelineSettings: {
+            ...mockSettingsBase,
+            defaultFileConverter: GOTENBERG,
+          },
+        },
+      },
+    };
+
+    const component = await mount(
+      <SystemSettingsWrapper
+        mocks={[
+          standardSettingsMock,
+          standardComponentsMock,
+          mimeTypesMock,
+          saveMock,
+          refetch,
+          standardComponentsMock,
+        ]}
+      />
+    );
+    await waitForLoad(page);
+
+    // The row starts disabled (no converter configured in mockSettingsBase).
+    await expect(
+      page.locator("text=Disabled (no pre-parse conversion)")
+    ).toBeVisible();
+
+    await page.locator('[data-testid="edit-default-file-converter"]').click();
+    await expect(page.locator("text=Edit File Converter")).toBeVisible();
+
+    // Pick the Gotenberg converter card; the class-path input mirrors it.
+    await page
+      .locator(".oc-modal-body")
+      .locator("text=Gotenberg PDF Converter")
+      .first()
+      .click();
+    await expect(page.locator("#default-file-converter")).toHaveValue(
+      GOTENBERG
+    );
+
+    await page
+      .locator('.oc-modal-footer button:has-text("Save")')
+      .first()
+      .click();
+
+    // Success toast only appears if the mutation matched (variable == GOTENBERG).
+    await expect(
+      page.locator("text=Settings updated successfully")
+    ).toBeVisible({ timeout: 5000 });
+
+    await component.unmount();
+  });
+
+  test("disabling picks 'None' and fires UPDATE with an empty string", async ({
+    mount,
+    page,
+  }) => {
+    // Start from the enabled state so the row shows the configured converter.
+    const enabledSettingsMock = {
+      request: { query: GET_PIPELINE_SETTINGS },
+      result: {
+        data: {
+          pipelineSettings: {
+            ...mockSettingsBase,
+            defaultFileConverter: GOTENBERG,
+          },
+        },
+      },
+    };
+    const saveMock = {
+      request: {
+        query: UPDATE_PIPELINE_SETTINGS,
+        variables: { defaultFileConverter: "" },
+      },
+      result: {
+        data: {
+          updatePipelineSettings: {
+            ok: true,
+            message: "Updated",
+            pipelineSettings: {
+              ...mockSettingsBase,
+              defaultFileConverter: null,
+            },
+          },
+        },
+      },
+    };
+    const refetch = {
+      request: { query: GET_PIPELINE_SETTINGS },
+      result: {
+        data: {
+          pipelineSettings: {
+            ...mockSettingsBase,
+            defaultFileConverter: null,
+          },
+        },
+      },
+    };
+
+    const component = await mount(
+      <SystemSettingsWrapper
+        mocks={[
+          enabledSettingsMock,
+          standardComponentsMock,
+          mimeTypesMock,
+          saveMock,
+          refetch,
+          standardComponentsMock,
+        ]}
+      />
+    );
+    await waitForLoad(page);
+
+    // The row starts enabled (shows the configured class path).
+    await expect(page.locator(`text=${GOTENBERG}`).first()).toBeVisible();
+
+    await page.locator('[data-testid="edit-default-file-converter"]').click();
+    await expect(page.locator("text=Edit File Converter")).toBeVisible();
+
+    // Pick "None (conversion disabled)"; the class-path input clears.
+    await page
+      .locator(".oc-modal-body")
+      .locator("text=None (conversion disabled)")
+      .first()
+      .click();
+    await expect(page.locator("#default-file-converter")).toHaveValue("");
+
+    await page
+      .locator('.oc-modal-footer button:has-text("Save")')
+      .first()
+      .click();
+
+    // Success toast only appears if the mutation matched (variable == "").
     await expect(
       page.locator("text=Settings updated successfully")
     ).toBeVisible({ timeout: 5000 });
@@ -775,16 +965,18 @@ test.describe("SystemSettings — enable/disable transitions", () => {
     // mirrors how SystemSettings builds the list: parsers, embedders,
     // thumbnailers, then llmProviders.
     //
-    // The Anthropic LLM provider MUST appear here: LLM providers are part of
-    // the Component Library, so rebuilding the enabled list from "all enabled"
-    // has to include them — otherwise toggling an unrelated component would
-    // silently disable every provider. This asserts that regression guard.
+    // The Anthropic LLM provider AND the Gotenberg file converter MUST appear
+    // here: both are non-filetype stages in the Component Library, so
+    // rebuilding the enabled list from "all enabled" has to include them —
+    // otherwise toggling an unrelated component would silently disable every
+    // provider / converter. This asserts that regression guard.
     const allPaths = [
       "opencontractserver.pipeline.parsers.docling.DoclingParser",
       "opencontractserver.pipeline.parsers.llamaparse.LlamaParser",
       "opencontractserver.pipeline.embedders.openai.OpenAIEmbedder",
       "opencontractserver.pipeline.thumbnailers.pdf.PDFThumbnailer",
       "opencontractserver.pipeline.llm_providers.anthropic_provider.AnthropicProvider",
+      "opencontractserver.pipeline.file_converters.gotenberg_converter.GotenbergFileConverter",
     ];
     const expectedEnabled = allPaths.filter(
       (p) => p !== "opencontractserver.pipeline.parsers.docling.DoclingParser"

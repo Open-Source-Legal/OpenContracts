@@ -72,14 +72,17 @@ class PipelineQueryMixin:
             else:
                 # Get compatible components from cached registry
                 components_data = get_components_by_mimetype_cached(mime_type_str)
-            # MIME-filtered queries do not return LLM providers (they are
-            # not file-type-scoped), so we leave them out of the response
+            # MIME-filtered queries do not return LLM providers or file
+            # converters (neither is file-type-scoped — converters are keyed
+            # by source-file EXTENSION), so we leave them out of the response
             # to keep the contract explicit.
             llm_providers_data: Sequence[PipelineComponentDefinition] = ()
+            file_converters_data: Sequence[PipelineComponentDefinition] = ()
         else:
             # Get all components from cached registry
             components_data = get_all_components_cached()
             llm_providers_data = components_data.get("llm_providers", ())
+            file_converters_data = components_data.get("file_converters", ())
 
         user = info.context.user
 
@@ -104,6 +107,9 @@ class PipelineQueryMixin:
 
             if settings_instance.default_reranker:
                 configured_components.add(settings_instance.default_reranker)
+
+            if settings_instance.default_file_converter:
+                configured_components.add(settings_instance.default_file_converter)
 
             if settings_instance.parser_kwargs:
                 configured_components.update(settings_instance.parser_kwargs.keys())
@@ -131,6 +137,7 @@ class PipelineQueryMixin:
                 ),
                 "rerankers": filter_configured(components_data.get("rerankers", [])),
             }
+            file_converters_data = filter_configured(list(file_converters_data))
 
         # Convert PipelineComponentDefinition objects to GraphQL types
         enabled_set = set(settings_instance.enabled_components or [])
@@ -170,6 +177,7 @@ class PipelineQueryMixin:
                 author=defn.author,
                 dependencies=list(defn.dependencies),
                 supported_file_types=list(defn.supported_file_types),
+                supported_extensions=list(defn.supported_extensions),
                 component_type=component_type,
                 input_schema=defn.input_schema,
                 settings_schema=settings_schema,
@@ -211,6 +219,9 @@ class PipelineQueryMixin:
                 to_graphql_type(d, "llm_provider")
                 for d in llm_providers_data
             ],
+            file_converters=[
+                to_graphql_type(d, "file_converter") for d in file_converters_data
+            ],
         )
 
     # SUPPORTED MIME TYPES #####################################
@@ -249,6 +260,26 @@ class PipelineQueryMixin:
             for entry in entries
         ]
 
+    # CONVERTIBLE EXTENSIONS ###################################
+    convertible_extensions = graphene.List(
+        graphene.String,
+        description="File extensions the configured pre-parse file converter "
+        "will convert to PDF. Empty when no converter is configured. "
+        "Upload UIs merge these into the accepted-format set alongside "
+        "supported_mime_types.",
+    )
+
+    def resolve_convertible_extensions(self, info: graphene.ResolveInfo) -> list[str]:
+        """
+        Resolver for the convertible_extensions query.
+
+        Like supported_mime_types, available to anonymous users so uploaders
+        and landing pages can advertise accepted file formats without login.
+        """
+        from opencontractserver.pipeline.utils import get_convertible_extensions
+
+        return sorted(get_convertible_extensions())
+
     # PIPELINE SETTINGS ########################################
     pipeline_settings = graphene.Field(
         "config.graphql.graphene_types.PipelineSettingsType",
@@ -284,6 +315,7 @@ class PipelineQueryMixin:
             component_settings=settings_instance.component_settings or {},
             default_embedder=settings_instance.default_embedder or "",
             default_reranker=settings_instance.default_reranker or "",
+            default_file_converter=settings_instance.default_file_converter or "",
             default_llm=settings_instance.default_llm or "",
             components_with_secrets=components_with_secrets,
             tools_with_secrets=settings_instance.get_tools_with_secrets(),

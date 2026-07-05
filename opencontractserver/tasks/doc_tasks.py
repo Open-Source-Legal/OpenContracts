@@ -50,7 +50,10 @@ from opencontractserver.notifications.models import (
 from opencontractserver.notifications.signals import (
     broadcast_notification_via_websocket,
 )
-from opencontractserver.pipeline.base.exceptions import DocumentParsingError
+from opencontractserver.pipeline.base.exceptions import (
+    DocumentParsingError,
+    FileConversionError,
+)
 from opencontractserver.pipeline.base.parser import BaseParser
 from opencontractserver.pipeline.base.thumbnailer import BaseThumbnailGenerator
 from opencontractserver.pipeline.utils import (
@@ -495,6 +498,122 @@ def _create_document_processed_notifications(
                 f"[set_doc_lock_state] Failed to create document processing "
                 f"notification for {recipient}: {e}"
             )
+
+
+@shared_task(bind=True, max_retries=3)
+def convert_document_to_pdf(self, user_id: int, doc_id: int) -> dict[str, Any]:
+    """
+    Optional pre-parse conversion step: convert a document to PDF using the
+    converter configured in ``PipelineSettings.default_file_converter``.
+
+    Runs at the HEAD of the ingest chain (before ``extract_thumbnail`` and
+    ``ingest_doc``) so both the thumbnail and the parser operate on the
+    converted PDF. A cheap no-op when:
+
+    - no converter is configured (the default),
+    - the converter can't be loaded/instantiated (logged, ingestion proceeds
+      with the original file so natively-parsed formats are unaffected),
+    - the document is already a PDF, has no binary file, or its extension is
+      not in the converter's enabled set.
+
+    Retry semantics mirror ``ingest_doc``'s schedule (60s base, doubling,
+    capped at 300s, max 3 retries) but use manual ``self.retry`` rather than
+    ``autoretry_for``: a permanent failure must RAISE to halt the chain (see
+    below), and re-raising a ``FileConversionError`` under ``autoretry_for``
+    would send the permanent error back through the retry loop.
+
+    Failure semantics differ from ``ingest_doc`` deliberately: on conversion
+    failure the source file cannot be parsed by ANY configured parser, so the
+    document is marked FAILED and the error is re-raised to HALT the chain —
+    otherwise ``ingest_doc`` would fail again with a misleading "No parser
+    defined" error that clobbers the real cause. The chain's ``link_error``
+    errback is idempotent for already-FAILED docs.
+
+    Args:
+        self: Celery task instance (passed automatically when bind=True).
+        user_id (int): The ID of the user the document belongs to.
+        doc_id (int): The ID of the document to (maybe) convert.
+
+    Returns:
+        dict: Status information with keys:
+            - status: "converted" or "skipped"
+            - doc_id: The document ID
+
+    Raises:
+        FileConversionError: After marking the document FAILED, to halt the
+            ingest chain.
+    """
+    from opencontractserver.pipeline.utils import get_default_file_converter_instance
+
+    try:
+        document: Document = Document.objects.get(pk=doc_id)
+    except Document.DoesNotExist:
+        logger.error(f"[convert_document_to_pdf] Document {doc_id} does not exist.")
+        return {"status": "skipped", "doc_id": doc_id, "error": "Document not found"}
+
+    # Defense-in-depth: same worker-side READ gate as ingest_doc (see the
+    # extended rationale there). The enqueueing paths already authorize, but a
+    # task that rewrites Document file fields must not trust upstream callers
+    # blindly.
+    User = get_user_model()
+    try:
+        user_obj = User.objects.get(pk=user_id)
+    except User.DoesNotExist:
+        logger.error(
+            f"[SECURITY] [convert_document_to_pdf] user_id={user_id} does not "
+            f"exist; refusing to convert doc_id={doc_id}."
+        )
+        return {
+            "status": "skipped",
+            "doc_id": doc_id,
+            "error": "Invalid user for conversion",
+        }
+    if not document.user_can(user_obj, PermissionTypes.READ):
+        logger.error(
+            f"[SECURITY] [convert_document_to_pdf] user_id={user_id} lacks READ "
+            f"permission on doc_id={doc_id}; refusing to convert."
+        )
+        return {
+            "status": "skipped",
+            "doc_id": doc_id,
+            "error": "User lacks permission for this document",
+        }
+
+    converter = get_default_file_converter_instance()
+    if converter is None:
+        return {"status": "skipped", "doc_id": doc_id}
+
+    try:
+        converted = converter.convert_document(user_id, doc_id)
+    except FileConversionError as e:
+        logger.error(
+            f"[convert_document_to_pdf] Conversion failed for document {doc_id}: "
+            f"{e} (is_transient={e.is_transient}, "
+            f"retries={self.request.retries}/{self.max_retries})"
+        )
+        if e.is_transient and self.request.retries < self.max_retries:
+            # Same backoff shape as ingest_doc's autoretry: 60s doubling,
+            # capped at 300s.
+            countdown = min(60 * (2**self.request.retries), 300)
+            raise self.retry(exc=e, countdown=countdown)
+
+        _mark_document_failed(document, str(e), traceback.format_exc())
+        # Halt the chain: without a PDF there is nothing to thumbnail or
+        # parse. The chain's link_error errback no-ops on FAILED docs.
+        raise
+    except Exception as e:
+        error_msg = f"Unexpected error converting document {doc_id} to PDF: {e}"
+        logger.exception(f"[convert_document_to_pdf] {error_msg}")
+        _mark_document_failed(document, error_msg, traceback.format_exc())
+        raise
+
+    if converted:
+        logger.info(
+            f"[convert_document_to_pdf] Document {doc_id} converted to PDF "
+            f"with {converter.__class__.__name__}"
+        )
+        return {"status": "converted", "doc_id": doc_id}
+    return {"status": "skipped", "doc_id": doc_id}
 
 
 @shared_task(
@@ -1226,6 +1345,10 @@ def retry_document_processing(user_id: int, doc_id: int) -> dict[str, Any]:
     # set_doc_lock_state finalizes status), so a failed retry can't strand the
     # doc back in PROCESSING.
     chain(
+        # Same optional pre-parse conversion step as the post_save chain in
+        # documents/signals.py — a retry after a conversion failure (or after
+        # the converter was configured/fixed) must re-attempt conversion.
+        convert_document_to_pdf.si(user_id=user_id, doc_id=doc_id),
         extract_thumbnail.si(doc_id=doc_id),
         ingest_doc.si(user_id=user_id, doc_id=doc_id),
         set_doc_lock_state.si(locked=False, doc_id=doc_id),

@@ -57,6 +57,12 @@ services:
         # tool raises a descriptive RuntimeError instead of breaking
         # the whole stack.
         required: false
+      gotenberg:
+        condition: service_started
+        # Opt-in service: only used when a file converter is configured in
+        # PipelineSettings (default_file_converter). Deployments without it
+        # must still be able to start django / celeryworker.
+        required: false
     env_file:
       - ./.envs/.production/.django
       - ./.envs/.production/.postgres
@@ -130,6 +136,15 @@ services:
     # must use the same Docxodus version for character offset alignment.
     image: ghcr.io/open-source-legal/docxodus-service:1.1.0-docxodus5.4.2
     container_name: docxodus-parser
+
+  # Powers the optional pre-parse file-to-PDF converter
+  # (GotenbergFileConverter). Bridge-only (no host port); django/celeryworker
+  # reach it at http://gotenberg:3000. No healthcheck: the stock image ships
+  # neither curl nor python (dependents use condition: service_started).
+  gotenberg:
+    image: gotenberg/gotenberg:8
+    container_name: gotenberg
+    restart: unless-stopped
 
   privacy_filter:
     image: ghcr.io/open-source-legal/privacy-filter:latest

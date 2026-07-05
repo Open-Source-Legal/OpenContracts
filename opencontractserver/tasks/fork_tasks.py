@@ -326,6 +326,7 @@ def fork_corpus(
                         "txt_extract_file",
                         "icon",
                         "md_summary_file",
+                        "original_file",
                     ):
                         src_blob = getattr(candidate, field_name)
                         dst_blob = getattr(doc, field_name)

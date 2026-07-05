@@ -34,6 +34,7 @@ export const GET_PIPELINE_SETTINGS = gql`
       parserKwargs
       componentSettings
       defaultEmbedder
+      defaultFileConverter
       defaultLlm
       componentsWithSecrets
       enabledComponents
@@ -128,6 +129,25 @@ export const GET_PIPELINE_COMPONENTS = gql`
         }
         enabled
       }
+      fileConverters {
+        name
+        title
+        description
+        className
+        supportedExtensions
+        settingsSchema {
+          name
+          settingType
+          pythonType
+          required
+          description
+          default
+          envVar
+          hasValue
+          currentValue
+        }
+        enabled
+      }
     }
   }
 `;
@@ -140,6 +160,7 @@ export const UPDATE_PIPELINE_SETTINGS = gql`
     $parserKwargs: GenericScalar
     $componentSettings: GenericScalar
     $defaultEmbedder: String
+    $defaultFileConverter: String
     $defaultLlm: String
     $enabledComponents: [String]
   ) {
@@ -150,6 +171,7 @@ export const UPDATE_PIPELINE_SETTINGS = gql`
       parserKwargs: $parserKwargs
       componentSettings: $componentSettings
       defaultEmbedder: $defaultEmbedder
+      defaultFileConverter: $defaultFileConverter
       defaultLlm: $defaultLlm
       enabledComponents: $enabledComponents
     ) {
@@ -162,6 +184,7 @@ export const UPDATE_PIPELINE_SETTINGS = gql`
         parserKwargs
         componentSettings
         defaultEmbedder
+        defaultFileConverter
         componentsWithSecrets
         enabledComponents
         modified
@@ -186,6 +209,7 @@ export const RESET_PIPELINE_SETTINGS = gql`
         parserKwargs
         componentSettings
         defaultEmbedder
+        defaultFileConverter
         componentsWithSecrets
         enabledComponents
         modified
@@ -239,5 +263,20 @@ export const GET_SUPPORTED_MIME_TYPES = gql`
         thumbnailer
       }
     }
+  }
+`;
+
+export interface ConvertibleExtensionsQueryResult {
+  convertibleExtensions: (string | null)[] | null;
+}
+
+/**
+ * Extensions the configured pre-parse file converter turns into PDF.
+ * Empty when no converter is configured. Upload UIs merge these into the
+ * accepted-format set alongside supportedMimeTypes.
+ */
+export const GET_CONVERTIBLE_EXTENSIONS = gql`
+  query GetConvertibleExtensions {
+    convertibleExtensions
   }
 `;

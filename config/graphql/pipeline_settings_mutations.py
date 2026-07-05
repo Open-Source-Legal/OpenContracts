@@ -252,6 +252,14 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
                 "disables reranking (first-stage vector / hybrid search only)."
             ),
         )
+        default_file_converter = graphene.String(
+            required=False,
+            description=(
+                "File converter class path used to convert non-native upload "
+                "formats to PDF before parsing. Empty string disables the "
+                "conversion step."
+            ),
+        )
         default_llm = graphene.String(
             required=False,
             description=(
@@ -287,6 +295,7 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
         component_settings=None,
         default_embedder=None,
         default_reranker=None,
+        default_file_converter=None,
         default_llm=None,
         enabled_components=None,
     ) -> "UpdatePipelineSettingsMutation":
@@ -519,6 +528,41 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
 
                 invalidate_reranker_cache()
 
+            # Validate default_file_converter (empty string = conversion
+            # disabled). Beyond registry presence, require the component to
+            # actually BE a file converter — assigning e.g. a parser here
+            # would silently break the ingest conversion step.
+            if default_file_converter is not None:
+                if default_file_converter:
+                    error = validate_component_path(default_file_converter)
+                    if error:
+                        return UpdatePipelineSettingsMutation(
+                            ok=False, message=error, pipeline_settings=None
+                        )
+                    converter_def = registry.get_by_class_name(default_file_converter)
+                    if not converter_def:
+                        return UpdatePipelineSettingsMutation(
+                            ok=False,
+                            message=(
+                                f"File converter '{default_file_converter}' "
+                                "not found in registry."
+                            ),
+                            pipeline_settings=None,
+                        )
+                    from opencontractserver.pipeline.registry import ComponentType
+
+                    if converter_def.component_type != ComponentType.FILE_CONVERTER:
+                        return UpdatePipelineSettingsMutation(
+                            ok=False,
+                            message=(
+                                f"Component '{default_file_converter}' is a "
+                                f"{converter_def.component_type.value}, not a "
+                                "file converter."
+                            ),
+                            pipeline_settings=None,
+                        )
+                settings_instance.default_file_converter = default_file_converter
+
             # Validate default_llm (empty string = fall back to Django settings).
             # Unlike the other defaults this is a pydantic-ai model spec
             # ("{provider}:{model}"), not a component class path, so it is
@@ -614,6 +658,11 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
                         if default_embedder is not None
                         else settings_instance.default_embedder or ""
                     )
+                    assigned_converter = (
+                        default_file_converter
+                        if default_file_converter is not None
+                        else settings_instance.default_file_converter or ""
+                    )
 
                     all_assigned = {
                         path
@@ -626,6 +675,8 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
                     }
                     if assigned_default:
                         all_assigned.add(assigned_default)
+                    if assigned_converter:
+                        all_assigned.add(assigned_converter)
 
                     disabled_but_assigned = all_assigned - enabled_set
                     if disabled_but_assigned:
@@ -654,6 +705,7 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
                     ("component_settings", component_settings),
                     ("default_embedder", default_embedder),
                     ("default_reranker", default_reranker),
+                    ("default_file_converter", default_file_converter),
                     ("default_llm", default_llm),
                     ("enabled_components", enabled_components),
                 ]
@@ -677,6 +729,8 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
                     component_settings=settings_instance.component_settings or {},
                     default_embedder=settings_instance.default_embedder or "",
                     default_reranker=settings_instance.default_reranker or "",
+                    default_file_converter=settings_instance.default_file_converter
+                    or "",
                     default_llm=settings_instance.default_llm or "",
                     enabled_components=settings_instance.enabled_components or [],
                     components_with_secrets=list(
@@ -757,6 +811,9 @@ class ResetPipelineSettingsMutation(graphene.Mutation):
             settings_instance.default_reranker = (
                 getattr(django_settings, "DEFAULT_RERANKER", "") or ""
             )
+            settings_instance.default_file_converter = (
+                getattr(django_settings, "DEFAULT_FILE_CONVERTER", "") or ""
+            )
             # ``DEFAULT_LLM`` may be explicitly None; coerce to "" so the NOT NULL
             # default_llm column is never assigned a null value.
             settings_instance.default_llm = (
@@ -780,6 +837,8 @@ class ResetPipelineSettingsMutation(graphene.Mutation):
                     component_settings=settings_instance.component_settings or {},
                     default_embedder=settings_instance.default_embedder or "",
                     default_reranker=settings_instance.default_reranker or "",
+                    default_file_converter=settings_instance.default_file_converter
+                    or "",
                     default_llm=settings_instance.default_llm or "",
                     enabled_components=[],
                     components_with_secrets=list(

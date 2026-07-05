@@ -13,9 +13,11 @@ from opencontractserver.constants.agent_memory import (
 )
 from opencontractserver.constants.celery import CELERY_REDIS_VISIBILITY_TIMEOUT_SECONDS
 from opencontractserver.constants.document_processing import (
+    DEFAULT_GOTENBERG_SERVICE_URL,
     DEFAULT_MAX_CORPUS_MANIFEST_SIZE_BYTES,
     DEFAULT_MAX_CORPUS_REINGEST_SOURCE_BYTES,
     DOCLING_PARSER_REQUEST_TIMEOUT_SECONDS,
+    GOTENBERG_CONVERTER_REQUEST_TIMEOUT_SECONDS,
     MAX_FILE_UPLOAD_SIZE_BYTES,
 )
 from opencontractserver.constants.stats import SYSTEM_STATS_REFRESH_INTERVAL_SECONDS
@@ -1209,6 +1211,17 @@ DOCLING_PARSER_TIMEOUT = env.int(
 )
 use_cloud_run_iam_auth = True
 
+# Gotenberg Settings - for the optional pre-parse file-to-PDF converter
+# (GotenbergFileConverter). These seed the converter's component settings via
+# ``migrate_pipeline_settings`` (PipelineSetting env_var metadata); the DB
+# PipelineSettings singleton is the runtime source of truth.
+GOTENBERG_SERVICE_URL = env(
+    "GOTENBERG_SERVICE_URL", default=DEFAULT_GOTENBERG_SERVICE_URL
+)
+GOTENBERG_CONVERTER_TIMEOUT = env.int(
+    "GOTENBERG_CONVERTER_TIMEOUT", default=GOTENBERG_CONVERTER_REQUEST_TIMEOUT_SECONDS
+)
+
 # LlamaParse Settings - for LlamaParse document parser
 # Supports both LLAMAPARSE_API_KEY and LLAMA_CLOUD_API_KEY (LlamaIndex's default env var)
 _llamaparse_key = env.str("LLAMAPARSE_API_KEY", default="")
@@ -1468,6 +1481,14 @@ PARSER_KWARGS = {
 # To restrict to specific components, list their full class paths, e.g.:
 #   ENABLED_COMPONENTS = ["opencontractserver.pipeline.parsers.docling_parser.DoclingParser"]
 ENABLED_COMPONENTS: list[str] = []
+
+# Optional pre-parse file converter (BaseFileConverter class path). When set,
+# uploads whose extension is in the converter's enabled set are converted to
+# PDF at the head of the ingest chain and then parsed by the normal PDF
+# pipeline. Empty string (the default) disables the conversion step — enable
+# it here or in the admin System Settings UI, e.g.:
+#   DEFAULT_FILE_CONVERTER=opencontractserver.pipeline.file_converters.gotenberg_converter.GotenbergFileConverter  # noqa: E501
+DEFAULT_FILE_CONVERTER = env.str("DEFAULT_FILE_CONVERTER", default="")
 
 # Analyzers
 # ------------------------------------------------------------------------------

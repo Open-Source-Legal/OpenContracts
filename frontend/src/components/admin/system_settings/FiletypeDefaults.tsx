@@ -1,6 +1,13 @@
 import React, { memo, useMemo, useCallback } from "react";
 import { Button, Spinner } from "@os-legal/ui";
-import { AlertTriangle, FileText, Cpu, Settings, Bot } from "lucide-react";
+import {
+  AlertTriangle,
+  FileText,
+  Cpu,
+  Settings,
+  Bot,
+  FileOutput,
+} from "lucide-react";
 import {
   PipelineComponentType,
   SupportedMimeTypeType,
@@ -43,6 +50,7 @@ interface FiletypeDefaultsProps {
   preferredEmbedders: Record<string, string>;
   preferredThumbnailers: Record<string, string>;
   defaultEmbedder: string;
+  defaultFileConverter: string;
   defaultLlm: string;
   updating: boolean;
   onAssign: (
@@ -51,6 +59,7 @@ interface FiletypeDefaultsProps {
     className: string
   ) => void;
   onEditDefaultEmbedder: () => void;
+  onEditDefaultFileConverter: () => void;
   onEditDefaultLlm: () => void;
 }
 
@@ -78,10 +87,12 @@ export const FiletypeDefaults = memo<FiletypeDefaultsProps>(
     preferredEmbedders,
     preferredThumbnailers,
     defaultEmbedder,
+    defaultFileConverter,
     defaultLlm,
     updating,
     onAssign,
     onEditDefaultEmbedder,
+    onEditDefaultFileConverter,
     onEditDefaultLlm,
   }) => {
     // Build a lookup from stage key to its preferred mapping
@@ -245,6 +256,41 @@ export const FiletypeDefaults = memo<FiletypeDefaultsProps>(
                   size="sm"
                   data-testid="edit-default-embedder"
                   onClick={onEditDefaultEmbedder}
+                >
+                  Edit
+                </Button>
+              </DefaultEmbedderDisplay>
+            </div>
+          </FiletypeRow>
+
+          {/* File Converter row. Not file-type-scoped: the converter is
+              keyed by source-file EXTENSION (configured on the component's
+              convert_extensions setting) and there is one install-wide
+              converter selection. Empty = conversion disabled. */}
+          <FiletypeRow>
+            <FiletypeLabel>
+              <FileOutput />
+              File Converter
+            </FiletypeLabel>
+            <div style={{ gridColumn: "2 / -1" }}>
+              <DefaultEmbedderDisplay>
+                {defaultFileConverter ? (
+                  <DefaultEmbedderInfo>
+                    <ComponentName>
+                      {getComponentDisplayName(defaultFileConverter)}
+                    </ComponentName>
+                    <DefaultEmbedderPath>
+                      {defaultFileConverter}
+                    </DefaultEmbedderPath>
+                  </DefaultEmbedderInfo>
+                ) : (
+                  <EmptyValue>Disabled (no pre-parse conversion)</EmptyValue>
+                )}
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  data-testid="edit-default-file-converter"
+                  onClick={onEditDefaultFileConverter}
                 >
                   Edit
                 </Button>

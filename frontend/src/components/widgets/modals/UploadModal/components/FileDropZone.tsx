@@ -24,6 +24,12 @@ interface FileDropZoneProps {
   /** Accepted file types for single mode (from backend). Falls back to PDF-only. */
   acceptedFileTypes?: AcceptedFileType[];
   /**
+   * Extensions (no leading dot) the backend's pre-parse file converter turns
+   * into PDF — accepted in addition to the natively supported types.
+   * Summarized in labels rather than enumerated (~100 formats).
+   */
+  convertibleExtensions?: string[];
+  /**
    * Maximum accepted file size in bytes. Defaults to the single-document
    * cap; callers pass the ZIP cap for bulk mode. Files above the cap are
    * still chunked on upload, but the dropzone bounds what a user can pick
@@ -48,6 +54,7 @@ export const FileDropZone: React.FC<FileDropZoneProps> = ({
   selectedFile,
   hasFiles = false,
   acceptedFileTypes,
+  convertibleExtensions,
   maxSizeBytes = UPLOAD.MAX_FILE_SIZE_BYTES,
   maxSizeDisplay = UPLOAD.MAX_FILE_SIZE_DISPLAY,
   onFilesSelected,
@@ -66,26 +73,39 @@ export const FileDropZone: React.FC<FileDropZoneProps> = ({
     for (const ft of acceptedFileTypes) {
       accept[ft.mimetype] = [`.${ft.extension}`];
     }
+    // Convertible formats match by extension (react-dropzone accepts a file
+    // when its name matches ANY listed extension); the generic MIME key just
+    // anchors the list since these formats have no single MIME type.
+    if (convertibleExtensions && convertibleExtensions.length > 0) {
+      accept["application/octet-stream"] = convertibleExtensions.map(
+        (ext) => `.${ext}`
+      );
+    }
     return accept;
-  }, [acceptedFileTypes]);
+  }, [acceptedFileTypes, convertibleExtensions]);
 
   const acceptConfig = mode === "bulk" ? ACCEPT_ZIP : singleAcceptConfig;
 
-  // Build human-readable label for accepted types (e.g. "PDF, DOCX, TXT")
+  // Build human-readable label for accepted types (e.g. "PDF, DOCX, TXT").
+  // Convertible formats are summarized, not enumerated (~100 extensions).
   const acceptedLabels = useMemo(() => {
     if (!acceptedFileTypes || acceptedFileTypes.length === 0) return "PDF";
-    return acceptedFileTypes.map((ft) => ft.label).join(", ");
-  }, [acceptedFileTypes]);
+    const labels = acceptedFileTypes.map((ft) => ft.label).join(", ");
+    return convertibleExtensions && convertibleExtensions.length > 0
+      ? `${labels} + ${convertibleExtensions.length} convertible formats`
+      : labels;
+  }, [acceptedFileTypes, convertibleExtensions]);
 
   // Build comma-separated accept string for <input> (e.g. ".pdf,.docx,.txt")
   const inputAcceptString = useMemo(() => {
     if (!acceptedFileTypes || acceptedFileTypes.length === 0) {
       return ".pdf,application/pdf";
     }
-    return acceptedFileTypes
-      .flatMap((ft) => [`.${ft.extension}`, ft.mimetype])
-      .join(",");
-  }, [acceptedFileTypes]);
+    return [
+      ...acceptedFileTypes.flatMap((ft) => [`.${ft.extension}`, ft.mimetype]),
+      ...(convertibleExtensions ?? []).map((ext) => `.${ext}`),
+    ].join(",");
+  }, [acceptedFileTypes, convertibleExtensions]);
 
   const onDrop = useCallback(
     (acceptedFiles: File[], rejections: FileRejection[], event: DropEvent) => {
