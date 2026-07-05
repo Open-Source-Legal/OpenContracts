@@ -78,6 +78,7 @@ const sampleAgent = {
   scope: "CORPUS",
   isActive: true,
   isPublic: false,
+  preferredLlm: null as string | null,
   creator: { id: "u1", username: "alice" },
   created: "2026-01-01T00:00:00Z",
   modified: "2026-01-02T00:00:00Z",
@@ -177,6 +178,7 @@ test.describe("CorpusAgentManagement", () => {
           scope: "CORPUS",
           corpusId: TEST_CORPUS_ID,
           isPublic: false,
+          preferredLlm: null,
         },
       },
       result: {
@@ -561,6 +563,8 @@ test.describe("CorpusAgentManagement", () => {
           avatarUrl: null,
           isActive: sampleAgent.isActive,
           isPublic: sampleAgent.isPublic,
+          preferredLlm: undefined,
+          clearPreferredLlm: false,
         },
       },
       result: {
@@ -642,6 +646,7 @@ test.describe("CorpusAgentManagement", () => {
           scope: "CORPUS",
           corpusId: TEST_CORPUS_ID,
           isPublic: false,
+          preferredLlm: null,
         },
       },
       result: {
@@ -762,6 +767,336 @@ test.describe("CorpusAgentManagement", () => {
         exact: true,
       })
     ).not.toBeVisible({ timeout: 5000 });
+
+    await component.unmount();
+  });
+
+  /* ---------------------------------------------------------------------- */
+  /* Preferred LLM (per-agent model override) — issue #2119                 */
+  /* ---------------------------------------------------------------------- */
+
+  test("create modal shows the inherited corpus default hint when the corpus has a preferred LLM", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <CorpusAgentManagementTestWrapper
+        mocks={[buildAgentsMock([]), toolsMock]}
+        corpusId={TEST_CORPUS_ID}
+        corpusPreferredLlm="anthropic:claude-opus-4-6"
+      />
+    );
+
+    await expect(page.getByText("No Agent Configurations")).toBeVisible({
+      timeout: 20000,
+    });
+
+    await page.locator("button:has-text('Create Agent')").first().click();
+    await expect(
+      page.getByText("Create Agent Configuration", { exact: true })
+    ).toBeVisible({ timeout: 5000 });
+
+    const llmInput = page.locator(
+      'input[placeholder="e.g., anthropic:claude-opus-4-6"]'
+    );
+    await expect(llmInput).toHaveValue("");
+
+    // Left blank, the picker surfaces what it will actually inherit from the
+    // corpus's own default (CorpusSettings threads corpus.preferredLlm
+    // through as `corpusPreferredLlm`). This hint was previously never
+    // asserted, so a regression that silently dropped or broke the prop
+    // threading would have shipped with zero test failures.
+    await expect(page.locator("text=Inherited corpus default")).toBeVisible();
+    await expect(
+      page.locator("code:has-text('anthropic:claude-opus-4-6')")
+    ).toBeVisible();
+
+    await component.unmount();
+  });
+
+  test("create modal shows the Preferred LLM picker and sends preferredLlm on submit", async ({
+    mount,
+    page,
+  }) => {
+    const createMock: MockedResponse = {
+      request: {
+        query: CREATE_AGENT_CONFIGURATION,
+        variables: {
+          name: "LLM Agent",
+          slug: null,
+          description: "Uses a specific model",
+          systemInstructions: "Be precise.",
+          availableTools: null,
+          permissionRequiredTools: null,
+          badgeConfig: { icon: "bot", color: "#8b5cf6", label: "AI" },
+          avatarUrl: null,
+          scope: "CORPUS",
+          corpusId: TEST_CORPUS_ID,
+          isPublic: false,
+          preferredLlm: "anthropic:claude-haiku-4-5",
+        },
+      },
+      result: {
+        data: {
+          createAgentConfiguration: {
+            ok: true,
+            message: "Created",
+            agent: {
+              id: "new-llm-agent",
+              name: "LLM Agent",
+              slug: "llm-agent",
+              description: "Uses a specific model",
+              badgeConfig: { icon: "bot", color: "#8b5cf6", label: "AI" },
+              availableTools: [],
+              permissionRequiredTools: [],
+              isActive: true,
+              isPublic: false,
+            },
+          },
+        },
+      },
+    };
+
+    const component = await mount(
+      <CorpusAgentManagementTestWrapper
+        mocks={[
+          buildAgentsMock([]),
+          toolsMock,
+          createMock,
+          // Refetch after create
+          buildAgentsMock([]),
+        ]}
+        corpusId={TEST_CORPUS_ID}
+      />
+    );
+
+    await expect(page.getByText("No Agent Configurations")).toBeVisible({
+      timeout: 20000,
+    });
+
+    await page.locator("button:has-text('Create Agent')").first().click();
+    await expect(
+      page.getByText("Create Agent Configuration", { exact: true })
+    ).toBeVisible({ timeout: 5000 });
+
+    // The picker is visible with its "optional" label and placeholder.
+    await expect(page.getByText("Preferred LLM (optional)")).toBeVisible();
+    const llmInput = page.locator(
+      'input[placeholder="e.g., anthropic:claude-opus-4-6"]'
+    );
+    await expect(llmInput).toBeVisible();
+
+    await page.locator('input[placeholder="Agent name"]').fill("LLM Agent");
+    await page
+      .locator(
+        'textarea[placeholder="Brief description of what this agent does"]'
+      )
+      .fill("Uses a specific model");
+    await page
+      .locator('textarea[placeholder="System prompt for the agent..."]')
+      .fill("Be precise.");
+    await llmInput.fill("anthropic:claude-haiku-4-5");
+
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Create Agent", exact: true })
+      .click();
+
+    await expect(page.getByText("Agent created successfully")).toBeVisible({
+      timeout: 10000,
+    });
+
+    await component.unmount();
+  });
+
+  test("edit modal pre-fills an existing Preferred LLM override and sends clearPreferredLlm when cleared", async ({
+    mount,
+    page,
+  }) => {
+    const agentWithLlm = {
+      ...sampleAgent,
+      id: "agent-with-llm",
+      preferredLlm: "openai:gpt-4o",
+    };
+
+    const updateMock: MockedResponse = {
+      request: {
+        query: UPDATE_AGENT_CONFIGURATION,
+        variables: {
+          agentId: agentWithLlm.id,
+          name: agentWithLlm.name,
+          slug: agentWithLlm.slug,
+          description: agentWithLlm.description,
+          systemInstructions: agentWithLlm.systemInstructions,
+          availableTools: agentWithLlm.availableTools,
+          permissionRequiredTools: agentWithLlm.permissionRequiredTools,
+          badgeConfig: agentWithLlm.badgeConfig,
+          avatarUrl: null,
+          isActive: agentWithLlm.isActive,
+          isPublic: agentWithLlm.isPublic,
+          // Clearing a previously-set override must send clearPreferredLlm:
+          // true with preferredLlm omitted — never an empty-string
+          // preferredLlm, which AgentConfigurationService.update_agent's
+          // model validation rejects.
+          preferredLlm: undefined,
+          clearPreferredLlm: true,
+        },
+      },
+      result: {
+        data: {
+          updateAgentConfiguration: {
+            ok: true,
+            message: "Updated",
+            agent: {
+              id: agentWithLlm.id,
+              name: agentWithLlm.name,
+              slug: agentWithLlm.slug,
+              description: agentWithLlm.description,
+              badgeConfig: agentWithLlm.badgeConfig,
+              availableTools: agentWithLlm.availableTools,
+              permissionRequiredTools: agentWithLlm.permissionRequiredTools,
+              isActive: agentWithLlm.isActive,
+              isPublic: agentWithLlm.isPublic,
+            },
+          },
+        },
+      },
+    };
+
+    const component = await mount(
+      <CorpusAgentManagementTestWrapper
+        mocks={[
+          buildAgentsMock([agentWithLlm]),
+          toolsMock,
+          updateMock,
+          buildAgentsMock([{ ...agentWithLlm, preferredLlm: null }]),
+        ]}
+        corpusId={TEST_CORPUS_ID}
+      />
+    );
+
+    await expect(page.getByText("Summarizer", { exact: true })).toBeVisible({
+      timeout: 20000,
+    });
+
+    await page.getByLabel("Edit agent").click();
+    await expect(
+      page.getByText(`Edit Agent Configuration: ${agentWithLlm.name}`, {
+        exact: true,
+      })
+    ).toBeVisible({ timeout: 5000 });
+
+    const llmInput = page.locator(
+      'input[placeholder="e.g., anthropic:claude-opus-4-6"]'
+    );
+    await expect(llmInput).toHaveValue("openai:gpt-4o");
+
+    await llmInput.fill("");
+
+    await page
+      .getByRole("button", { name: "Save Changes", exact: true })
+      .click();
+
+    await expect(page.getByText("Agent updated successfully")).toBeVisible({
+      timeout: 10000,
+    });
+
+    await component.unmount();
+  });
+
+  test("update mutation changes an existing preferredLlm override to a different value", async ({
+    mount,
+    page,
+  }) => {
+    const agentWithLlm = {
+      ...sampleAgent,
+      id: "agent-with-llm-2",
+      preferredLlm: "openai:gpt-4o",
+    };
+
+    const updateMock: MockedResponse = {
+      request: {
+        query: UPDATE_AGENT_CONFIGURATION,
+        variables: {
+          agentId: agentWithLlm.id,
+          name: agentWithLlm.name,
+          slug: agentWithLlm.slug,
+          description: agentWithLlm.description,
+          systemInstructions: agentWithLlm.systemInstructions,
+          availableTools: agentWithLlm.availableTools,
+          permissionRequiredTools: agentWithLlm.permissionRequiredTools,
+          badgeConfig: agentWithLlm.badgeConfig,
+          avatarUrl: null,
+          isActive: agentWithLlm.isActive,
+          isPublic: agentWithLlm.isPublic,
+          // Switching an existing override to a different non-empty value
+          // must send the new preferredLlm with clearPreferredLlm: false —
+          // never the clear flag, which is reserved for resetting the
+          // override back to the corpus/system default.
+          preferredLlm: "anthropic:claude-haiku-4-5",
+          clearPreferredLlm: false,
+        },
+      },
+      result: {
+        data: {
+          updateAgentConfiguration: {
+            ok: true,
+            message: "Updated",
+            agent: {
+              id: agentWithLlm.id,
+              name: agentWithLlm.name,
+              slug: agentWithLlm.slug,
+              description: agentWithLlm.description,
+              badgeConfig: agentWithLlm.badgeConfig,
+              availableTools: agentWithLlm.availableTools,
+              permissionRequiredTools: agentWithLlm.permissionRequiredTools,
+              isActive: agentWithLlm.isActive,
+              isPublic: agentWithLlm.isPublic,
+            },
+          },
+        },
+      },
+    };
+
+    const component = await mount(
+      <CorpusAgentManagementTestWrapper
+        mocks={[
+          buildAgentsMock([agentWithLlm]),
+          toolsMock,
+          updateMock,
+          buildAgentsMock([
+            { ...agentWithLlm, preferredLlm: "anthropic:claude-haiku-4-5" },
+          ]),
+        ]}
+        corpusId={TEST_CORPUS_ID}
+      />
+    );
+
+    await expect(page.getByText("Summarizer", { exact: true })).toBeVisible({
+      timeout: 20000,
+    });
+
+    await page.getByLabel("Edit agent").click();
+    await expect(
+      page.getByText(`Edit Agent Configuration: ${agentWithLlm.name}`, {
+        exact: true,
+      })
+    ).toBeVisible({ timeout: 5000 });
+
+    const llmInput = page.locator(
+      'input[placeholder="e.g., anthropic:claude-opus-4-6"]'
+    );
+    await expect(llmInput).toHaveValue("openai:gpt-4o");
+
+    await llmInput.fill("anthropic:claude-haiku-4-5");
+
+    await page
+      .getByRole("button", { name: "Save Changes", exact: true })
+      .click();
+
+    await expect(page.getByText("Agent updated successfully")).toBeVisible({
+      timeout: 10000,
+    });
 
     await component.unmount();
   });

@@ -18,9 +18,11 @@ import { StyledTextArea } from "../widgets/modals/styled";
 import { FormField } from "../widgets/form/FormField";
 import { ErrorMessage, InfoMessage, LoadingState } from "../widgets/feedback";
 import { StatusBadge, ToolBadge, ToolsList } from "../agents/AgentBadges";
+import { LlmModelPicker } from "../common/LlmModelPicker";
 import {
   AgentConfigurationType,
   AgentConfigurationTypeEdge,
+  LlmProviderOption,
 } from "../../types/graphql-api";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
 import {
@@ -32,6 +34,12 @@ import {
   PageHeader,
   ScrollableTableWrapper,
 } from "../layout/SharedSegments";
+import {
+  GET_LLM_PROVIDERS,
+  LlmProvidersQueryResult,
+  GET_SYSTEM_DEFAULT_LLM,
+  SystemDefaultLlmQueryResult,
+} from "../../graphql/queries";
 import {
   GET_GLOBAL_AGENTS,
   CREATE_GLOBAL_AGENT_CONFIGURATION,
@@ -67,6 +75,8 @@ interface FormState {
   avatarUrl: string;
   isPublic: boolean;
   isActive: boolean;
+  /** Per-agent LLM override ("provider:model"); "" = inherit. */
+  preferredLlm: string;
 }
 
 const CheckboxLabel = styled.label`
@@ -86,8 +96,10 @@ const FormGroup = styled.div`
 const AgentFormFields: React.FC<{
   formState: FormState;
   onChange: (updates: Partial<FormState>) => void;
+  llmProviders: LlmProviderOption[];
+  systemDefaultLlm: string;
   children?: React.ReactNode;
-}> = ({ formState, onChange, children }) => (
+}> = ({ formState, onChange, llmProviders, systemDefaultLlm, children }) => (
   <form>
     <FormField $required>
       <label>Name</label>
@@ -163,6 +175,19 @@ const AgentFormFields: React.FC<{
         }
       />
     </FormField>
+    <FormField>
+      <LlmModelPicker
+        label="Preferred LLM"
+        value={formState.preferredLlm}
+        onChange={(spec) => onChange({ preferredLlm: spec })}
+        providers={llmProviders}
+        showApiKeyBadge
+        inheritedSpec={systemDefaultLlm || null}
+        inheritedLabel="Inherited system default"
+        placeholder="e.g., anthropic:claude-opus-4-6"
+        helperText='Optional per-agent LLM override, in "provider:model" form. Leave empty to use the system default.'
+      />
+    </FormField>
     {children}
   </form>
 );
@@ -177,6 +202,7 @@ const initialFormState: FormState = {
   avatarUrl: "",
   isPublic: true,
   isActive: true,
+  preferredLlm: "",
 };
 
 export const GlobalAgentManagement: React.FC = () => {
@@ -191,6 +217,20 @@ export const GlobalAgentManagement: React.FC = () => {
   const [formState, setFormState] = useState<FormState>(initialFormState);
 
   const { loading, error, data, refetch } = useQuery(GET_GLOBAL_AGENTS);
+
+  // Providers + the install-wide default power the LlmModelPicker's chip
+  // list and "inherited" hint. Both resolvers are @login_required, secret-free
+  // projections (see queries.ts) — safe for any admin viewing this screen.
+  const { data: llmProvidersData } =
+    useQuery<LlmProvidersQueryResult>(GET_LLM_PROVIDERS);
+  const { data: systemDefaultLlmData } = useQuery<SystemDefaultLlmQueryResult>(
+    GET_SYSTEM_DEFAULT_LLM
+  );
+  const llmProviders = (
+    llmProvidersData?.pipelineComponents?.llmProviders ?? []
+  ).filter((p) => p.enabled !== false);
+  const systemDefaultLlm =
+    systemDefaultLlmData?.pipelineSettings?.defaultLlm ?? "";
 
   const [createAgent, { loading: creating }] = useMutation(
     CREATE_GLOBAL_AGENT_CONFIGURATION,
@@ -272,6 +312,10 @@ export const GlobalAgentManagement: React.FC = () => {
         avatarUrl: formState.avatarUrl || null,
         scope: "GLOBAL",
         isPublic: formState.isPublic,
+        // Create has no clear-flag: None/omitted means "no override" per
+        // AgentConfigurationService.create_agent (preferred_llm=preferred_llm
+        // or None), so an explicit null is equivalent to leaving it unset.
+        preferredLlm: formState.preferredLlm.trim() || null,
       },
     });
   };
@@ -296,6 +340,16 @@ export const GlobalAgentManagement: React.FC = () => {
       return;
     }
 
+    // AgentConfigurationService.update_agent's contract (config/graphql/
+    // agent_mutations.py): preferred_llm=None means "leave unchanged";
+    // clear_preferred_llm=True is the only way to reset the override back to
+    // the corpus/system default (an empty string would fail the model's
+    // validation). So we only ever send a non-empty preferredLlm or the
+    // clear flag — never both, and never an empty-string preferredLlm.
+    const trimmedLlm = formState.preferredLlm.trim();
+    const hadPreferredLlm = Boolean(agentToEdit.preferredLlm?.trim());
+    const clearPreferredLlm = trimmedLlm === "" && hadPreferredLlm;
+
     updateAgent({
       variables: {
         agentId: agentToEdit.id,
@@ -308,6 +362,8 @@ export const GlobalAgentManagement: React.FC = () => {
         avatarUrl: formState.avatarUrl || null,
         isActive: formState.isActive,
         isPublic: formState.isPublic,
+        preferredLlm: trimmedLlm || undefined,
+        clearPreferredLlm,
       },
     });
   };
@@ -330,6 +386,7 @@ export const GlobalAgentManagement: React.FC = () => {
       avatarUrl: agent.avatarUrl || "",
       isPublic: agent.isPublic ?? true,
       isActive: agent.isActive,
+      preferredLlm: agent.preferredLlm ?? "",
     });
     setShowEditModal(true);
   };
@@ -486,6 +543,8 @@ export const GlobalAgentManagement: React.FC = () => {
             onChange={(updates) =>
               setFormState((prev) => ({ ...prev, ...updates }))
             }
+            llmProviders={llmProviders}
+            systemDefaultLlm={systemDefaultLlm}
           >
             <FormField>
               <CheckboxLabel>
@@ -536,6 +595,8 @@ export const GlobalAgentManagement: React.FC = () => {
             onChange={(updates) =>
               setFormState((prev) => ({ ...prev, ...updates }))
             }
+            llmProviders={llmProviders}
+            systemDefaultLlm={systemDefaultLlm}
           >
             <FormGroup>
               <FormField>

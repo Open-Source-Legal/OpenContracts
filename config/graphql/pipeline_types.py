@@ -218,7 +218,10 @@ class PipelineSettingsType(graphene.ObjectType):
         description="Mapping of MIME types to preferred parser class paths"
     )
     preferred_embedders = GenericScalar(
-        description="Mapping of MIME types to preferred embedder class paths"
+        description="Mapping of MIME types to preferred embedder class paths. "
+        "API-only (issue #2114): has no effect at ingest, which always "
+        "resolves the single global default_embedder to keep the "
+        "cross-corpus vector index on one embedding space."
     )
     preferred_thumbnailers = GenericScalar(
         description="Mapping of MIME types to preferred thumbnailer class paths"
@@ -238,7 +241,8 @@ class PipelineSettingsType(graphene.ObjectType):
 
     # Default embedder
     default_embedder = graphene.String(
-        description="Default embedder class path when no MIME-specific embedder is found"
+        description="Default embedder class path used for all ingest embedding. "
+        "There is no MIME-specific override; see preferred_embedders."
     )
 
     # Default reranker (post-retrieval). Empty string means reranking disabled.

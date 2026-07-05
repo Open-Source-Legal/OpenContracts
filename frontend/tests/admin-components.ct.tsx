@@ -43,6 +43,7 @@ const GET_GLOBAL_AGENTS = gql`
           scope
           isActive
           isPublic
+          preferredLlm
           creator {
             id
             username
@@ -72,6 +73,7 @@ const GET_CORPUS_AGENTS = gql`
           scope
           isActive
           isPublic
+          preferredLlm
           creator {
             id
             slug
@@ -99,6 +101,7 @@ const mockGlobalAgent = {
   scope: "GLOBAL",
   isActive: true,
   isPublic: true,
+  preferredLlm: null,
   creator: { id: "VXNlclR5cGU6MQ==", slug: "admin", username: "admin" },
   created: "2024-01-15T10:30:00Z",
   modified: "2024-01-15T10:30:00Z",
@@ -117,6 +120,7 @@ const mockCorpusAgent = {
   scope: "CORPUS",
   isActive: true,
   isPublic: false,
+  preferredLlm: null,
   creator: { id: "VXNlclR5cGU6MQ==", slug: "admin", username: "admin" },
   created: "2024-01-15T10:30:00Z",
   modified: "2024-01-15T10:30:00Z",
