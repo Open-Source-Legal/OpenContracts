@@ -33,6 +33,7 @@ export const GET_GLOBAL_AGENTS = gql`
           scope
           isActive
           isPublic
+          preferredLlm
           creator {
             id
             username
@@ -56,6 +57,7 @@ export const CREATE_GLOBAL_AGENT_CONFIGURATION = gql`
     $avatarUrl: String
     $scope: String!
     $isPublic: Boolean
+    $preferredLlm: String
   ) {
     createAgentConfiguration(
       name: $name
@@ -67,6 +69,7 @@ export const CREATE_GLOBAL_AGENT_CONFIGURATION = gql`
       avatarUrl: $avatarUrl
       scope: $scope
       isPublic: $isPublic
+      preferredLlm: $preferredLlm
     ) {
       ok
       message
@@ -92,6 +95,8 @@ export const UPDATE_GLOBAL_AGENT_CONFIGURATION = gql`
     $avatarUrl: String
     $isActive: Boolean
     $isPublic: Boolean
+    $preferredLlm: String
+    $clearPreferredLlm: Boolean
   ) {
     updateAgentConfiguration(
       agentId: $agentId
@@ -104,6 +109,8 @@ export const UPDATE_GLOBAL_AGENT_CONFIGURATION = gql`
       avatarUrl: $avatarUrl
       isActive: $isActive
       isPublic: $isPublic
+      preferredLlm: $preferredLlm
+      clearPreferredLlm: $clearPreferredLlm
     ) {
       ok
       message

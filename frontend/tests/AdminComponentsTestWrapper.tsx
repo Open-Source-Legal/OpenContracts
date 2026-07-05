@@ -6,6 +6,10 @@ import { GlobalSettingsPanel } from "../src/components/admin/GlobalSettingsPanel
 import { GlobalAgentManagement } from "../src/components/admin/GlobalAgentManagement";
 import { CorpusAgentManagement } from "../src/components/corpuses/CorpusAgentManagement";
 import { SystemSettings } from "../src/components/admin/SystemSettings";
+import {
+  GET_LLM_PROVIDERS,
+  GET_SYSTEM_DEFAULT_LLM,
+} from "../src/graphql/queries";
 
 // Wrapper for GlobalSettingsPanel with routing context
 export const GlobalSettingsPanelWrapper: React.FC = () => (
@@ -13,6 +17,21 @@ export const GlobalSettingsPanelWrapper: React.FC = () => (
     <GlobalSettingsPanel />
   </MemoryRouter>
 );
+
+// Both GlobalAgentManagement and CorpusAgentManagement fire these on mount to
+// power the Preferred LLM picker (chip list + "inherited default" hint).
+// Appended AFTER any test-supplied mocks so a test that cares about specific
+// provider data can still declare its own mock (matched first) while every
+// other test gets a harmless empty-providers fallback instead of a "no more
+// mocked responses" console error.
+const defaultLlmProvidersMock: MockedResponse = {
+  request: { query: GET_LLM_PROVIDERS },
+  result: { data: { pipelineComponents: { llmProviders: [] } } },
+};
+const defaultSystemDefaultLlmMock: MockedResponse = {
+  request: { query: GET_SYSTEM_DEFAULT_LLM },
+  result: { data: { pipelineSettings: { defaultLlm: null } } },
+};
 
 // Wrapper for GlobalAgentManagement with Apollo mocking
 interface GlobalAgentManagementWrapperProps {
@@ -22,7 +41,10 @@ interface GlobalAgentManagementWrapperProps {
 export const GlobalAgentManagementWrapper: React.FC<
   GlobalAgentManagementWrapperProps
 > = ({ mocks = [] }) => (
-  <MockedProvider mocks={mocks} addTypename={false}>
+  <MockedProvider
+    mocks={[...mocks, defaultLlmProvidersMock, defaultSystemDefaultLlmMock]}
+    addTypename={false}
+  >
     <GlobalAgentManagement />
   </MockedProvider>
 );
@@ -33,7 +55,10 @@ export const GlobalAgentManagementWrapper: React.FC<
 export const GlobalAgentManagementWithToastsWrapper: React.FC<
   GlobalAgentManagementWrapperProps
 > = ({ mocks = [] }) => (
-  <MockedProvider mocks={mocks} addTypename={false}>
+  <MockedProvider
+    mocks={[...mocks, defaultLlmProvidersMock, defaultSystemDefaultLlmMock]}
+    addTypename={false}
+  >
     <MemoryRouter>
       <GlobalAgentManagement />
       <ToastContainer />
@@ -46,13 +71,21 @@ interface CorpusAgentManagementWrapperProps {
   corpusId: string;
   canUpdate: boolean;
   mocks?: MockedResponse[];
+  corpusPreferredLlm?: string | null;
 }
 
 export const CorpusAgentManagementWrapper: React.FC<
   CorpusAgentManagementWrapperProps
-> = ({ corpusId, canUpdate, mocks = [] }) => (
-  <MockedProvider mocks={mocks} addTypename={false}>
-    <CorpusAgentManagement corpusId={corpusId} canUpdate={canUpdate} />
+> = ({ corpusId, canUpdate, mocks = [], corpusPreferredLlm }) => (
+  <MockedProvider
+    mocks={[...mocks, defaultLlmProvidersMock]}
+    addTypename={false}
+  >
+    <CorpusAgentManagement
+      corpusId={corpusId}
+      canUpdate={canUpdate}
+      corpusPreferredLlm={corpusPreferredLlm}
+    />
   </MockedProvider>
 );
 
