@@ -1609,7 +1609,9 @@ STEP 6 - TRAVERSE LINKED AUTHORITY (treat this contract like code):
     actual text (pass the canonical_key or target_document_id from the step
     above). Do not guess what a cited law says — go read it.
   • Use `find_documents_citing` to see who else relies on the same authority.
-  • Use `get_reference_neighborhood` to orient before you traverse.
+  • Use `get_reference_neighborhood` to orient before you traverse — omit
+    `focus_document_id` for the whole-corpus map, or pass THIS document's id
+    (stated in your instructions above) to get just its neighbourhood.
   Follow the thread one hop at a time and ground your answer in what you find.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

@@ -337,6 +337,9 @@ def find_documents_citing(
     ):
         src = ref.source_annotation
         did = src.document_id
+        # Deterministic (not "first scanned"): the order_by above sorts rows by
+        # (document_id, id), so a document reachable via several corpus-forked
+        # reference rows always reports its LOWEST-id reference's corpus.
         corpus_by_doc.setdefault(did, ref.corpus_id)
         bucket = samples.setdefault(did, [])
         if len(bucket) < C.NAV_MAX_SAMPLE_CITATIONS:
