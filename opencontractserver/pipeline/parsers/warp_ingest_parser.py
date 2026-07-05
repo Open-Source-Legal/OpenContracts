@@ -249,14 +249,11 @@ class WarpIngestParser(BaseParser):
                 is_transient=False,
             )
 
-        with default_storage.open(document.pdf_file.name, "rb") as f:
-            pdf_bytes = f.read()
-
-        # Guard peak worker memory: the whole PDF is held in memory and POSTed
-        # in one request (no chunking), so reject oversized files up front with
-        # a clear, non-transient error rather than risking an OOM mid-parse.
-        # Mirrors DocxodusServiceParser's max_file_size_mb cap.
-        file_size_mb = len(pdf_bytes) / (1024 * 1024)
+        # Guard peak worker memory: the whole PDF is buffered in memory and
+        # POSTed in one request (no chunking), so reject oversized files using
+        # the storage size metadata *before* reading the bytes in — an
+        # over-limit file is never buffered at all. Fails permanently (no retry).
+        file_size_mb = default_storage.size(document.pdf_file.name) / (1024 * 1024)
         if file_size_mb > self.max_file_size_mb:
             raise DocumentParsingError(
                 f"PDF for document {doc_id} is {file_size_mb:.1f} MB, exceeding "
@@ -264,6 +261,9 @@ class WarpIngestParser(BaseParser):
                 f"WARP_INGEST_MAX_FILE_SIZE_MB to raise it.",
                 is_transient=False,
             )
+
+        with default_storage.open(document.pdf_file.name, "rb") as f:
+            pdf_bytes = f.read()
 
         # A ``.pdf`` filename + explicit content type satisfy Warp-Ingest's
         # media-type check (it returns 415 for non-PDF uploads).
@@ -339,7 +339,20 @@ class WarpIngestParser(BaseParser):
             logger.error(msg)
             raise DocumentParsingError(msg, is_transient=is_transient)
 
-        export = self._extract_export(response.json(), doc_id)
+        # A 200 with a truncated/corrupt body would otherwise raise a raw,
+        # unclassified JSONDecodeError; wrap it so the failure is a classified
+        # (transient) DocumentParsingError like every other error path here.
+        try:
+            payload = response.json()
+        except ValueError as e:
+            msg = (
+                f"Warp-Ingest returned a malformed (non-JSON) response for "
+                f"document {doc_id}: {e}"
+            )
+            logger.error(msg)
+            raise DocumentParsingError(msg, is_transient=True)
+
+        export = self._extract_export(payload, doc_id)
 
         logger.info(
             f"Successfully processed document {doc_id} through Warp-Ingest service "
@@ -361,7 +374,9 @@ class WarpIngestParser(BaseParser):
         sanitizes to nothing.
         """
         raw = (title or "").strip()
-        cleaned = re.sub(r'[\r\n\x00-\x1f\x7f"\\/]+', "_", raw).strip("_ ").strip()
+        # Replace control chars (incl. CR/LF via \x00-\x1f), DEL, quotes and
+        # path separators — anything that could break out of the header value.
+        cleaned = re.sub(r'[\x00-\x1f\x7f"\\/]+', "_", raw).strip("_ ").strip()
         if not cleaned:
             cleaned = f"doc_{doc_id}"
         if not cleaned.lower().endswith(".pdf"):

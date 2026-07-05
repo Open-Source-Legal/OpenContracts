@@ -52,21 +52,36 @@ sequenceDiagram
 
 ## Configuration
 
-Settings are stored in the `PipelineSettings` DB singleton and seeded from
-environment via the `migrate_pipeline_settings` management command. The relevant
-Django settings / env vars (defined in `config/settings/base.py`):
+Settings live in the `PipelineSettings` DB singleton — the runtime source of
+truth — and are edited via the admin **System Settings** UI. There are two ways
+a value gets there:
 
-| Env var | Setting field | Default | Purpose |
+**1. Seeded from `config/settings/base.py` by `migrate_pipeline_settings`.** The
+command resolves each setting's `env_var` as a Django settings attribute
+(`getattr(settings, env_var)`), so **only** these three — which have matching
+attributes in `base.py` — are populated from the environment at migrate time:
+
+| Env var (in `base.py`) | Setting field | Default | Purpose |
 |---------|---------------|---------|---------|
 | `WARP_INGEST_PARSER_SERVICE_URL` | `service_url` | `http://warp-ingest:5001/api/parse` | Warp-Ingest `/api/parse` endpoint |
 | `WARP_INGEST_API_KEY` | `api_key` | `""` | Sent as `X-API-Key`; must match the service's `WARP_API_KEY` |
 | `WARP_INGEST_PARSER_TIMEOUT` | `request_timeout` | `600` | HTTP request timeout (seconds) |
-| `WARP_INGEST_USE_CLOUD_RUN_IAM_AUTH` | `use_cloud_run_iam_auth` | `False` | Force Google Cloud Run IAM `Authorization` bearer |
-| `WARP_INGEST_APPLY_OCR` | `apply_ocr` | `False` | Force OCR on every page |
-| `WARP_INGEST_DISABLE_OCR` | `disable_ocr` | `False` | Disable OCR (mutually exclusive with `apply_ocr`) |
-| `WARP_INGEST_SEMANTIC_UNITS` | `semantic_units` | `False` | Append the Semantic-Unit clause annotation layer |
-| `WARP_INGEST_INCLUDE_IMAGES` | `include_images` | `False` | Embed extracted images in the export |
-| `WARP_INGEST_MAX_FILE_SIZE_MB` | `max_file_size_mb` | `200` | Reject PDFs larger than this before buffering them in memory |
+
+**2. Component-setting defaults, changed via the admin System Settings UI.** The
+remaining fields exist only as `PipelineSetting` metadata on the parser's
+`Settings` dataclass. Their `env_var` names are metadata; because they have no
+`base.py` attribute, setting them in `.env` does **not** change them via
+`migrate_pipeline_settings` — edit them in the admin UI (this matches the other
+parsers, e.g. Docling's image/OCR fields):
+
+| Setting field | `env_var` metadata | Default | Purpose |
+|---------------|--------------------|---------|---------|
+| `use_cloud_run_iam_auth` | `WARP_INGEST_USE_CLOUD_RUN_IAM_AUTH` | `False` | Force Google Cloud Run IAM `Authorization` bearer |
+| `apply_ocr` | `WARP_INGEST_APPLY_OCR` | `False` | Force OCR on every page |
+| `disable_ocr` | `WARP_INGEST_DISABLE_OCR` | `False` | Disable OCR (mutually exclusive with `apply_ocr`) |
+| `semantic_units` | `WARP_INGEST_SEMANTIC_UNITS` | `False` | Append the Semantic-Unit clause annotation layer |
+| `include_images` | `WARP_INGEST_INCLUDE_IMAGES` | `False` | Embed extracted images in the export |
+| `max_file_size_mb` | `WARP_INGEST_MAX_FILE_SIZE_MB` | `200` | Reject PDFs larger than this (checked against storage size before reading) |
 
 The single request-timeout constant lives at
 `opencontractserver/constants/document_processing.py::WARP_INGEST_PARSER_REQUEST_TIMEOUT_SECONDS`
@@ -157,9 +172,10 @@ introducing chunking.
 
 **Memory footprint:** because the whole PDF is buffered in the worker and POSTed
 in one request, peak memory per concurrent parse scales with the file size.
-`WARP_INGEST_MAX_FILE_SIZE_MB` (default 200) caps this — a PDF above the limit is
-rejected up front with a permanent `DocumentParsingError` rather than risking a
-worker OOM. Raise it if you routinely ingest larger scans, sizing it against
+`WARP_INGEST_MAX_FILE_SIZE_MB` (default 200) caps this — the parser checks the
+file's storage size *before* reading it, so a PDF above the limit is rejected
+with a permanent `DocumentParsingError` and is never buffered at all. Raise it if
+you routinely ingest larger scans, sizing it against
 `worker memory / expected concurrent parses`.
 
 ## Error Handling

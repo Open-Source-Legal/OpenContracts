@@ -29,6 +29,9 @@ _POST_PATH = "opencontractserver.pipeline.parsers.warp_ingest_parser.requests.po
 _STORAGE_PATH = (
     "opencontractserver.pipeline.parsers.warp_ingest_parser.default_storage.open"
 )
+_STORAGE_SIZE_PATH = (
+    "opencontractserver.pipeline.parsers.warp_ingest_parser.default_storage.size"
+)
 
 
 class MockResponse:
@@ -227,13 +230,16 @@ class TestWarpIngestParser(TestCase):
         self.assertFalse(ctx.exception.is_transient)
 
     @patch(_POST_PATH)
+    @patch(_STORAGE_SIZE_PATH)
     @patch(_STORAGE_PATH)
-    def test_oversized_pdf_raises_permanent(self, mock_open, mock_post):
-        """A PDF over max_file_size_mb fails fast (no HTTP call, no retry)."""
-        mock_file = MagicMock()
-        mock_file.read.return_value = b"x" * (2 * 1024 * 1024)  # 2 MB
-        mock_open.return_value.__enter__.return_value = mock_file
-        self.parser.max_file_size_mb = 1  # cap below the 2 MB payload
+    def test_oversized_pdf_raises_permanent(self, mock_open, mock_size, mock_post):
+        """A PDF over max_file_size_mb fails fast on the size metadata alone.
+
+        The guard checks ``default_storage.size`` *before* reading the file, so
+        an over-limit PDF is rejected without ever being opened/buffered.
+        """
+        mock_size.return_value = 2 * 1024 * 1024  # 2 MB (metadata only)
+        self.parser.max_file_size_mb = 1  # cap below the 2 MB file
 
         with self.assertRaises(DocumentParsingError) as ctx:
             self.parser.parse_document(user_id=self.user.id, doc_id=self.doc.id)
@@ -241,6 +247,7 @@ class TestWarpIngestParser(TestCase):
         self.assertFalse(ctx.exception.is_transient)
         self.assertIn("MB", str(ctx.exception))
         mock_post.assert_not_called()
+        mock_open.assert_not_called()  # never even read the file
 
     @patch(_POST_PATH)
     @patch(_STORAGE_PATH)
@@ -316,6 +323,23 @@ class TestWarpIngestParser(TestCase):
             self.parser.parse_document(user_id=self.user.id, doc_id=self.doc.id)
 
         self.assertTrue(ctx.exception.is_transient)
+
+    @patch(_POST_PATH)
+    @patch(_STORAGE_PATH)
+    def test_malformed_json_body_is_transient(self, mock_open, mock_post):
+        """A 200 with a truncated/non-JSON body is a classified transient error."""
+        self._mock_storage(mock_open)
+        bad_response = MagicMock()
+        bad_response.status_code = 200
+        bad_response.raise_for_status = MagicMock()
+        bad_response.json.side_effect = ValueError("Expecting value")
+        mock_post.return_value = bad_response
+
+        with self.assertRaises(DocumentParsingError) as ctx:
+            self.parser.parse_document(user_id=self.user.id, doc_id=self.doc.id)
+
+        self.assertTrue(ctx.exception.is_transient)
+        self.assertIn("non-JSON", str(ctx.exception))
 
 
 class TestWarpIngestExtractExport(TestCase):
