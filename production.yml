@@ -63,6 +63,11 @@ services:
         # PipelineSettings (default_file_converter). Deployments without it
         # must still be able to start django / celeryworker.
         required: false
+      warp-ingest:
+        condition: service_started
+        # Opt-in alternative PDF parser (behind the "warp-ingest" profile).
+        # required: false so stacks without the profile still start.
+        required: false
     env_file:
       - ./.envs/.production/.django
       - ./.envs/.production/.postgres

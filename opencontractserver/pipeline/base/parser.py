@@ -389,7 +389,8 @@ class BaseParser(PipelineComponentBase, ABC):
         corpus_id = kwargs.pop("corpus_id", None)
 
         logger.info(
-            f"Processing document {doc_id} with possible parser kwargs: {kwargs}"
+            f"Processing document {doc_id} with possible parser kwargs: "
+            f"{redact_sensitive_kwargs(kwargs)}"
             + (f" (corpus_id={corpus_id})" if corpus_id else "")
         )
 

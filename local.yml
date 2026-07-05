@@ -43,6 +43,9 @@ services:
       gotenberg:
         condition: service_started
         required: false
+      warp-ingest:
+        condition: service_started
+        required: false
     volumes:
       - .:/app:z
     env_file:
@@ -217,6 +220,9 @@ services:
         condition: service_started
         required: false
       gotenberg:
+        condition: service_started
+        required: false
+      warp-ingest:
         condition: service_started
         required: false
     volumes:

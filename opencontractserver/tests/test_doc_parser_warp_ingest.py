@@ -252,13 +252,14 @@ class TestWarpIngestParser(TestCase):
         """The api_key secret must not appear in the base parser's INFO log line."""
         self._mock_storage(mock_open)
         mock_post.return_value = MockResponse(200, _sample_response())
-        # Simulate the DB returning the decrypted secret among component settings.
-        self.parser.get_component_settings = lambda: {
-            "api_key": "super-secret-key-xyz",
-            "apply_ocr": False,
-        }
 
-        with self.assertLogs(
+        # Simulate the DB returning the decrypted secret among component settings
+        # (patch.object avoids a mypy method-assign error on the instance).
+        with patch.object(
+            self.parser,
+            "get_component_settings",
+            return_value={"api_key": "super-secret-key-xyz", "apply_ocr": False},
+        ), self.assertLogs(
             "opencontractserver.pipeline.base.parser", level="INFO"
         ) as cm:
             self.parser.parse_document(user_id=self.user.id, doc_id=self.doc.id)
