@@ -1943,6 +1943,24 @@ class PipelineSettings(django.db.models.Model):
             if key.startswith(TOOL_SETTINGS_PREFIX) and all_secrets[key]
         ]
 
+    def get_components_with_secrets(self) -> list[str]:
+        """
+        Return component class paths that have secrets configured.
+
+        Excludes ``tool:``-prefixed keys — those are agent-tool secrets tracked
+        separately by :meth:`get_tools_with_secrets`. The two secret namespaces
+        share one encrypted store, so surfacing raw ``get_secrets().keys()`` as
+        the component list leaks tool keys (e.g. ``tool:web_search``) into the
+        admin Component Library's per-component secret indicators.
+        """
+        from opencontractserver.constants.tools import TOOL_SETTINGS_PREFIX
+
+        return [
+            key
+            for key in self.get_secrets()
+            if not key.startswith(TOOL_SETTINGS_PREFIX)
+        ]
+
     # =====================================================================
     # Component Schema and Validation Methods
     # =====================================================================

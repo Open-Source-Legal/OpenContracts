@@ -36,6 +36,7 @@ export const GET_PIPELINE_SETTINGS = gql`
       defaultEmbedder
       defaultFileConverter
       defaultLlm
+      defaultReranker
       componentsWithSecrets
       enabledComponents
       modified
@@ -148,6 +149,24 @@ export const GET_PIPELINE_COMPONENTS = gql`
         }
         enabled
       }
+      rerankers {
+        name
+        title
+        description
+        className
+        settingsSchema {
+          name
+          settingType
+          pythonType
+          required
+          description
+          default
+          envVar
+          hasValue
+          currentValue
+        }
+        enabled
+      }
     }
   }
 `;
@@ -162,6 +181,7 @@ export const UPDATE_PIPELINE_SETTINGS = gql`
     $defaultEmbedder: String
     $defaultFileConverter: String
     $defaultLlm: String
+    $defaultReranker: String
     $enabledComponents: [String]
   ) {
     updatePipelineSettings(
@@ -173,6 +193,7 @@ export const UPDATE_PIPELINE_SETTINGS = gql`
       defaultEmbedder: $defaultEmbedder
       defaultFileConverter: $defaultFileConverter
       defaultLlm: $defaultLlm
+      defaultReranker: $defaultReranker
       enabledComponents: $enabledComponents
     ) {
       ok
@@ -185,6 +206,8 @@ export const UPDATE_PIPELINE_SETTINGS = gql`
         componentSettings
         defaultEmbedder
         defaultFileConverter
+        defaultLlm
+        defaultReranker
         componentsWithSecrets
         enabledComponents
         modified
@@ -210,6 +233,8 @@ export const RESET_PIPELINE_SETTINGS = gql`
         componentSettings
         defaultEmbedder
         defaultFileConverter
+        defaultLlm
+        defaultReranker
         componentsWithSecrets
         enabledComponents
         modified

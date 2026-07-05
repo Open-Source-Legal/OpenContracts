@@ -276,6 +276,36 @@ class PipelineSettingsModelTestCase(TestCase):
         # Stored plaintext dict must not be mutated by the merge
         self.assertEqual(instance.component_settings[comp_path]["api_key"], "")
 
+    def test_get_components_with_secrets_excludes_tool_keys(self):
+        """``get_components_with_secrets`` returns only component paths, never
+        ``tool:`` keys.
+
+        Component secrets and agent-tool secrets share the same encrypted store,
+        so building the component-secret list from raw ``get_secrets().keys()``
+        would leak tool keys (e.g. ``tool:web_search``) into the admin Component
+        Library's per-component secret indicators.
+        """
+        PipelineSettings.objects.all().delete()
+        instance = PipelineSettings.get_instance()
+
+        comp_path = (
+            "opencontractserver.pipeline.parsers.llamaparse_parser.LlamaParseParser"
+        )
+        instance.set_secrets(
+            {
+                comp_path: {"api_key": "sk-component"},
+                "tool:web_search": {"api_key": "brave-key"},
+            }
+        )
+        instance.save()
+
+        components = instance.get_components_with_secrets()
+        tools = instance.get_tools_with_secrets()
+
+        self.assertIn(comp_path, components)
+        self.assertNotIn("tool:web_search", components)
+        self.assertEqual(tools, ["tool:web_search"])
+
     def test_get_parser_kwargs_log_redaction_hides_secret(self):
         """The merged dict, after redact_sensitive_kwargs, must not leak the key.
 
@@ -551,6 +581,69 @@ class PipelineSettingsGraphQLTestCase(TestCase):
             "not found",
             result["data"]["updatePipelineSettings"]["message"].lower(),
         )
+
+    def test_update_preferred_thumbnailer_rejects_wrong_component_type(self):
+        """Assigning a registered PARSER class as a thumbnailer is rejected.
+
+        Registry membership alone is not enough: a parser passes the existence
+        check but has no ``generate_thumbnail`` and would fail every affected
+        document at ingest. ``validate_component_mapping`` must reject the
+        cross-type assignment (which the GUI dropdown can never produce, but a
+        raw GraphQL call can).
+        """
+        from opencontractserver.pipeline.registry import get_registry
+
+        registry = get_registry()
+        if not registry.parsers:
+            self.skipTest("No parsers registered to exercise the type guard.")
+        parser_path = registry.parsers[0].class_name
+
+        mutation = """
+            mutation UpdatePipelineSettings($preferredThumbnailers: GenericScalar) {
+                updatePipelineSettings(preferredThumbnailers: $preferredThumbnailers) {
+                    ok
+                    message
+                }
+            }
+        """
+        variables = {"preferredThumbnailers": {"application/pdf": parser_path}}
+
+        result = self.superuser_client.execute(mutation, variables=variables)
+        self.assertIsNone(result.get("errors"))
+        self.assertFalse(result["data"]["updatePipelineSettings"]["ok"])
+        self.assertIn(
+            "not a thumbnailer",
+            result["data"]["updatePipelineSettings"]["message"].lower(),
+        )
+
+    def test_pipeline_settings_query_excludes_tool_secret_keys(self):
+        """The ``componentsWithSecrets`` field must not surface ``tool:`` keys."""
+        instance = PipelineSettings.get_instance()
+        comp_path = (
+            "opencontractserver.pipeline.parsers.llamaparse_parser.LlamaParseParser"
+        )
+        instance.set_secrets(
+            {
+                comp_path: {"api_key": "sk-component"},
+                "tool:web_search": {"api_key": "brave-key"},
+            }
+        )
+        instance.save()
+
+        query = """
+            query {
+                pipelineSettings {
+                    componentsWithSecrets
+                    toolsWithSecrets
+                }
+            }
+        """
+        result = self.superuser_client.execute(query)
+        self.assertIsNone(result.get("errors"))
+        data = result["data"]["pipelineSettings"]
+        self.assertIn(comp_path, data["componentsWithSecrets"])
+        self.assertNotIn("tool:web_search", data["componentsWithSecrets"])
+        self.assertIn("tool:web_search", data["toolsWithSecrets"])
 
     def test_reset_pipeline_settings_as_superuser(self):
         """Test that superusers can reset pipeline settings to defaults."""

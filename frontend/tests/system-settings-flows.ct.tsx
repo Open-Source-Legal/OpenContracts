@@ -28,6 +28,7 @@ const mockSettingsBase = {
   defaultEmbedder: null,
   defaultFileConverter: null,
   defaultLlm: null,
+  defaultReranker: null,
   componentsWithSecrets: [],
   enabledComponents: [
     "opencontractserver.pipeline.parsers.docling.DoclingParser",
@@ -140,6 +141,17 @@ const mockComponents = {
         "opencontractserver.pipeline.file_converters.gotenberg_converter.GotenbergFileConverter",
       supportedExtensions: ["doc", "rtf", "odt", "ppt"],
       requiresApiKey: false,
+      enabled: true,
+      settingsSchema: [],
+    },
+  ],
+  rerankers: [
+    {
+      name: "cross_encoder",
+      title: "Cross-Encoder Reranker",
+      description: "Second-stage reranking via a cross-encoder model",
+      className:
+        "opencontractserver.pipeline.rerankers.cross_encoder_reranker.CrossEncoderReranker",
       enabled: true,
       settingsSchema: [],
     },
@@ -1148,6 +1160,165 @@ test.describe("SystemSettings — LLM providers", () => {
       .first()
       .click();
 
+    await expect(
+      page.locator("text=Settings updated successfully")
+    ).toBeVisible({ timeout: 5000 });
+
+    await component.unmount();
+  });
+});
+
+test.describe("SystemSettings — default reranker", () => {
+  // The install-wide post-retrieval reranker is toggled entirely from this GUI:
+  // picking a reranker enables second-stage reranking, picking "None" (empty
+  // class path) disables it. Both save through UPDATE_PIPELINE_SETTINGS with a
+  // single `defaultReranker` variable.
+  const RERANKER =
+    "opencontractserver.pipeline.rerankers.cross_encoder_reranker.CrossEncoderReranker";
+
+  test("enabling picks a reranker and fires UPDATE with the class path", async ({
+    mount,
+    page,
+  }) => {
+    const saveMock = {
+      request: {
+        query: UPDATE_PIPELINE_SETTINGS,
+        variables: { defaultReranker: RERANKER },
+      },
+      result: {
+        data: {
+          updatePipelineSettings: {
+            ok: true,
+            message: "Updated",
+            pipelineSettings: {
+              ...mockSettingsBase,
+              defaultReranker: RERANKER,
+            },
+          },
+        },
+      },
+    };
+    const refetch = {
+      request: { query: GET_PIPELINE_SETTINGS },
+      result: {
+        data: {
+          pipelineSettings: { ...mockSettingsBase, defaultReranker: RERANKER },
+        },
+      },
+    };
+
+    const component = await mount(
+      <SystemSettingsWrapper
+        mocks={[
+          standardSettingsMock,
+          standardComponentsMock,
+          mimeTypesMock,
+          saveMock,
+          refetch,
+          standardComponentsMock,
+        ]}
+      />
+    );
+    await waitForLoad(page);
+
+    // The row starts disabled (no reranker configured in mockSettingsBase).
+    await expect(page.locator("text=Disabled (no reranking)")).toBeVisible();
+
+    await page.locator('[data-testid="edit-default-reranker"]').click();
+    await expect(page.locator("text=Edit Default Reranker")).toBeVisible();
+
+    // Pick the Cross-Encoder reranker card; the class-path input mirrors it.
+    await page
+      .locator(".oc-modal-body")
+      .locator("text=Cross-Encoder Reranker")
+      .first()
+      .click();
+    await expect(page.locator("#default-reranker")).toHaveValue(RERANKER);
+
+    await page
+      .locator('.oc-modal-footer button:has-text("Save")')
+      .first()
+      .click();
+
+    // Success toast only appears if the mutation matched (variable == RERANKER).
+    await expect(
+      page.locator("text=Settings updated successfully")
+    ).toBeVisible({ timeout: 5000 });
+
+    await component.unmount();
+  });
+
+  test("disabling picks 'None' and fires UPDATE with an empty string", async ({
+    mount,
+    page,
+  }) => {
+    // Start from the enabled state so the row shows the configured reranker.
+    const enabledSettingsMock = {
+      request: { query: GET_PIPELINE_SETTINGS },
+      result: {
+        data: {
+          pipelineSettings: { ...mockSettingsBase, defaultReranker: RERANKER },
+        },
+      },
+    };
+    const saveMock = {
+      request: {
+        query: UPDATE_PIPELINE_SETTINGS,
+        variables: { defaultReranker: "" },
+      },
+      result: {
+        data: {
+          updatePipelineSettings: {
+            ok: true,
+            message: "Updated",
+            pipelineSettings: { ...mockSettingsBase, defaultReranker: null },
+          },
+        },
+      },
+    };
+    const refetch = {
+      request: { query: GET_PIPELINE_SETTINGS },
+      result: {
+        data: {
+          pipelineSettings: { ...mockSettingsBase, defaultReranker: null },
+        },
+      },
+    };
+
+    const component = await mount(
+      <SystemSettingsWrapper
+        mocks={[
+          enabledSettingsMock,
+          standardComponentsMock,
+          mimeTypesMock,
+          saveMock,
+          refetch,
+          standardComponentsMock,
+        ]}
+      />
+    );
+    await waitForLoad(page);
+
+    // The row starts enabled (shows the configured class path).
+    await expect(page.locator(`text=${RERANKER}`).first()).toBeVisible();
+
+    await page.locator('[data-testid="edit-default-reranker"]').click();
+    await expect(page.locator("text=Edit Default Reranker")).toBeVisible();
+
+    // Pick "None (reranking disabled)"; the class-path input clears.
+    await page
+      .locator(".oc-modal-body")
+      .locator("text=None (reranking disabled)")
+      .first()
+      .click();
+    await expect(page.locator("#default-reranker")).toHaveValue("");
+
+    await page
+      .locator('.oc-modal-footer button:has-text("Save")')
+      .first()
+      .click();
+
+    // Success toast only appears if the mutation matched (variable == "").
     await expect(
       page.locator("text=Settings updated successfully")
     ).toBeVisible({ timeout: 5000 });

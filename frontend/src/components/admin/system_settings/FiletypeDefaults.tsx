@@ -7,6 +7,7 @@ import {
   Settings,
   Bot,
   FileOutput,
+  ListOrdered,
 } from "lucide-react";
 import {
   PipelineComponentType,
@@ -52,6 +53,7 @@ interface FiletypeDefaultsProps {
   defaultEmbedder: string;
   defaultFileConverter: string;
   defaultLlm: string;
+  defaultReranker: string;
   updating: boolean;
   onAssign: (
     stage: "parsers" | "embedders" | "thumbnailers",
@@ -61,6 +63,7 @@ interface FiletypeDefaultsProps {
   onEditDefaultEmbedder: () => void;
   onEditDefaultFileConverter: () => void;
   onEditDefaultLlm: () => void;
+  onEditDefaultReranker: () => void;
 }
 
 // ============================================================================
@@ -89,11 +92,13 @@ export const FiletypeDefaults = memo<FiletypeDefaultsProps>(
     defaultEmbedder,
     defaultFileConverter,
     defaultLlm,
+    defaultReranker,
     updating,
     onAssign,
     onEditDefaultEmbedder,
     onEditDefaultFileConverter,
     onEditDefaultLlm,
+    onEditDefaultReranker,
   }) => {
     // Build a lookup from stage key to its preferred mapping
     const preferredByStage = useMemo(
@@ -320,6 +325,39 @@ export const FiletypeDefaults = memo<FiletypeDefaultsProps>(
                   size="sm"
                   data-testid="edit-default-llm"
                   onClick={onEditDefaultLlm}
+                >
+                  Edit
+                </Button>
+              </DefaultEmbedderDisplay>
+            </div>
+          </FiletypeRow>
+
+          {/* Default Reranker row. Not file-type-scoped: a single install-wide
+              post-retrieval reranker applied to vector / hybrid search results
+              across corpora. Empty = reranking disabled (first-stage retrieval
+              results are returned as-is). */}
+          <FiletypeRow>
+            <FiletypeLabel>
+              <ListOrdered />
+              Default Reranker
+            </FiletypeLabel>
+            <div style={{ gridColumn: "2 / -1" }}>
+              <DefaultEmbedderDisplay>
+                {defaultReranker ? (
+                  <DefaultEmbedderInfo>
+                    <ComponentName>
+                      {getComponentDisplayName(defaultReranker)}
+                    </ComponentName>
+                    <DefaultEmbedderPath>{defaultReranker}</DefaultEmbedderPath>
+                  </DefaultEmbedderInfo>
+                ) : (
+                  <EmptyValue>Disabled (no reranking)</EmptyValue>
+                )}
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  data-testid="edit-default-reranker"
+                  onClick={onEditDefaultReranker}
                 >
                   Edit
                 </Button>
