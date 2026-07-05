@@ -18,12 +18,12 @@ See ``docs/deployment/desktop_packaging.md``.
 """
 
 import logging
+import os
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.core.management.base import BaseCommand
-from django.utils.crypto import get_random_string
 
 from opencontractserver.desktop import paths
 
@@ -64,25 +64,29 @@ class Command(BaseCommand):
             self.stdout.write(f"Local user '{username}' already exists; skipping.")
             return
 
-        creds_file = paths.app_data_dir() / "credentials.txt"
-        password = get_random_string(20)
-        User.objects.create_superuser(username=username, email=email, password=password)
-        try:
-            creds_file.parent.mkdir(parents=True, exist_ok=True)
-            creds_file.write_text(
-                f"username: {username}\npassword: {password}\n", encoding="utf-8"
-            )
-            import os
-
-            os.chmod(creds_file, 0o600)
-            where = f" (saved to {creds_file})"
-        except OSError:
-            where = ""
-        self.stdout.write(
-            self.style.SUCCESS(
-                f"Created local superuser '{username}'{where}. " f"Password: {password}"
-            )
+        # The login password comes ONLY from the environment — never generated,
+        # stored on disk, or printed (avoids clear-text secret handling). When
+        # unset, the user is created with an unusable password and the operator
+        # sets one explicitly; the launcher passes OC_DESKTOP_PASSWORD through.
+        password = os.environ.get("OC_DESKTOP_PASSWORD") or None
+        user = User.objects.create_superuser(
+            username=username, email=email, password=password
         )
+        if password:
+            self.stdout.write(
+                self.style.SUCCESS(f"Created local superuser '{username}'.")
+            )
+        else:
+            user.set_unusable_password()
+            user.save(update_fields=["password"])
+            self.stdout.write(
+                self.style.WARNING(
+                    f"Created local superuser '{username}' with NO login "
+                    "password. Set OC_DESKTOP_PASSWORD before first run, or run "
+                    f"`python manage.py changepassword {username} "
+                    "--settings=config.settings.desktop` to enable login."
+                )
+            )
 
     # -------------------------------------------------------- pipeline settings
     def _seed_pipeline_settings(self) -> None:
@@ -93,15 +97,28 @@ class Command(BaseCommand):
         # (PREFERRED_PARSERS/PREFERRED_EMBEDDERS/DEFAULT_EMBEDDER → Warp-Ingest /
         # OpenAIEmbedder). migrate_pipeline_settings then fills component_settings
         # and encrypted secrets (e.g. OPENAI_API_KEY) from settings/env.
+        # get_instance() already seeds the parser/embedder SELECTION from Django
+        # settings, so a migrate_pipeline_settings failure only leaves the
+        # component_settings/secrets (e.g. OPENAI_API_KEY) unseeded — PDF parsing
+        # still works, only Tier-1 embeddings/chat degrade. Surface it loudly
+        # rather than silently, since the .bootstrapped marker is written after.
         PipelineSettings.get_instance()
         try:
             call_command("migrate_pipeline_settings")
-        except Exception as exc:  # pragma: no cover - defensive
-            logger.warning("migrate_pipeline_settings failed: %s", exc)
-        self.stdout.write(
-            "Seeded pipeline components: PDF → Warp-Ingest, embeddings → "
-            f"{getattr(settings, 'DEFAULT_EMBEDDER', '?')}."
-        )
+            self.stdout.write(
+                "Seeded pipeline components: PDF → Warp-Ingest, embeddings → "
+                f"{getattr(settings, 'DEFAULT_EMBEDDER', '?')}."
+            )
+        except Exception as exc:
+            logger.error("migrate_pipeline_settings failed: %s", exc, exc_info=True)
+            self.stderr.write(
+                self.style.WARNING(
+                    "Pipeline SECRET/component settings did not seed "
+                    f"({exc}). PDF parsing still works; embeddings/chat may be "
+                    "disabled until you re-run `python manage.py "
+                    "migrate_pipeline_settings --settings=config.settings.desktop`."
+                )
+            )
 
     # ------------------------------------------------------------------ nltk
     def _ensure_nltk_data(self) -> None:

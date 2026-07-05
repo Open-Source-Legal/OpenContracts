@@ -23,6 +23,7 @@ from __future__ import annotations
 import atexit
 import contextlib
 import os
+import secrets
 import signal
 import socket
 import subprocess
@@ -48,6 +49,10 @@ def _base_env() -> dict[str, str]:
     # Point nltk at the app-data corpora dir so Warp-Ingest resolves stopwords
     # / punkt offline.
     env["NLTK_DATA"] = str(paths.subdir("nltk_data"))
+    # One SECRET_KEY shared by every child (Daphne/worker/beat) so sessions and
+    # JWTs verify across them. Generated per launch when unset — an ephemeral
+    # key; export DJANGO_SECRET_KEY yourself for stability across runs.
+    env.setdefault("DJANGO_SECRET_KEY", secrets.token_urlsafe(64))
     return env
 
 
@@ -64,7 +69,13 @@ def _ensure_dirs() -> None:
 
 
 def _free_port() -> int:
-    """Ask the OS for a free loopback TCP port (bind :0, read, release)."""
+    """Ask the OS for a free loopback TCP port (bind :0, read, release).
+
+    Note: there is a small TOCTOU window between releasing the probe socket here
+    and Daphne binding the port below. On a single-user loopback app the risk of
+    another process grabbing it in that window is negligible; hardening this into
+    a bind-retry loop is a Phase-1 follow-up.
+    """
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
         return int(sock.getsockname()[1])
@@ -150,10 +161,11 @@ def _write_env_config(spa_dir: str, port: int) -> None:
     if not spa_dir:
         return
     origin = f"http://127.0.0.1:{port}"
+    # The SPA resolves the WS origin from window.location (same-origin), so only
+    # the API root + Auth0 flag need injecting here.
     content = (
         "window._env_ = {\n"
         f'  "REACT_APP_API_ROOT_URL": "{origin}",\n'
-        f'  "REACT_APP_WS_ROOT_URL": "ws://127.0.0.1:{port}",\n'
         '  "REACT_APP_USE_AUTH0": "false",\n'
         "};\n"
     )
@@ -257,9 +269,14 @@ def main() -> None:
     _write_env_config(spa_dir, port)
 
     atexit.register(_shutdown)
-    signal.signal(signal.SIGINT, lambda *a: (_shutdown(), sys.exit(0)))
+
+    def _handle_signal(_signum, _frame):
+        _shutdown()
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, _handle_signal)
     with contextlib.suppress(AttributeError, ValueError):
-        signal.signal(signal.SIGTERM, lambda *a: (_shutdown(), sys.exit(0)))
+        signal.signal(signal.SIGTERM, _handle_signal)
 
     _start_worker(env)
     _start_beat(env)

@@ -78,14 +78,23 @@ pip install -r requirements/desktop.txt
 
 # 3. Launch — starts Postgres, migrates, seeds a local user, runs Daphne +
 #    Celery worker/beat, opens the browser. No Docker, no Redis.
-python oc-desktop.py
+#    Set OC_DESKTOP_PASSWORD to enable login (see below).
+OC_DESKTOP_PASSWORD=change-me python oc-desktop.py
 ```
 
 Everything is stored under a per-user app-data directory
 (`opencontractserver/desktop/paths.py`): `pgdata/`, `media/`, `staticfiles/`,
-`celery-broker/`, `nltk_data/`, the persisted `secret_key`, and the generated
-login `credentials.txt`. Point at an existing database instead of the embedded
-one by exporting `DATABASE_URL` before launch.
+`celery-broker/`, `nltk_data/`, and the first-run `.bootstrapped` marker. Point
+at an existing database instead of the embedded one by exporting `DATABASE_URL`
+before launch.
+
+**Secrets are env-sourced, never written to disk** (Phase 0): the launcher
+generates a per-run `DJANGO_SECRET_KEY` and shares it across child processes
+(sessions reset across restarts unless you export a stable `DJANGO_SECRET_KEY`).
+The local login password comes only from `OC_DESKTOP_PASSWORD`; without it the
+user is created with no usable password (set one with `manage.py changepassword`).
+A persistent OS-keyring-backed secret store and seamless auto-login are Phase-1
+follow-ups.
 
 To enable embeddings + chat, set `OPENAI_API_KEY` (and optionally
 `OPENAI_API_BASE_URL` for a local OpenAI-compatible server) before first run so

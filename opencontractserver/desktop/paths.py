@@ -73,9 +73,5 @@ def logs_dir() -> Path:
     return subdir("logs")
 
 
-def secret_key_file() -> Path:
-    return app_data_dir() / "secret_key"
-
-
 def first_run_marker() -> Path:
     return app_data_dir() / ".bootstrapped"

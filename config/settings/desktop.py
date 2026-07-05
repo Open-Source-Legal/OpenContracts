@@ -44,25 +44,26 @@ DEBUG = env.bool("DJANGO_DEBUG", default=False)
 # A desktop app is reachable only on the loopback interface.
 ALLOWED_HOSTS = ["localhost", "127.0.0.1", "0.0.0.0"]
 
-# SECRET_KEY: prefer an explicit env var, else a stable per-user key the launcher
-# persists under the app-data dir. Never fall back to a shared hard-coded value.
+# SECRET_KEY comes from the environment only. The ``oc-desktop`` launcher
+# generates ONE key and exports it to every child process (Daphne/worker/beat)
+# so they share it within a run. When unset (e.g. a bare ``manage.py``), we fall
+# back to an ephemeral in-process key so import never fails; sessions/tokens then
+# reset across restarts. We deliberately do NOT persist the secret to a plaintext
+# file — set ``DJANGO_SECRET_KEY`` (the launcher does) for a stable key. Secure
+# at-rest persistence (OS keyring) is a Phase-1 follow-up.
 SECRET_KEY = env("DJANGO_SECRET_KEY", default=None)
 if not SECRET_KEY:
-    _key_file = paths.secret_key_file()
-    if _key_file.exists():
-        SECRET_KEY = _key_file.read_text(encoding="utf-8").strip()
-    else:
-        from django.core.management.utils import get_random_secret_key
+    import secrets as _secrets
+    import warnings
 
-        SECRET_KEY = get_random_secret_key()
-        try:
-            _key_file.parent.mkdir(parents=True, exist_ok=True)
-            _key_file.write_text(SECRET_KEY, encoding="utf-8")
-            os.chmod(_key_file, 0o600)
-        except OSError:
-            # Read-only install dir: fall back to an ephemeral key (sessions
-            # reset across restarts, acceptable for a single local user).
-            pass
+    SECRET_KEY = _secrets.token_urlsafe(64)
+    warnings.warn(
+        "DJANGO_SECRET_KEY is not set; using an ephemeral key. Sessions and "
+        "tokens will not survive a restart. Set DJANGO_SECRET_KEY (the "
+        "oc-desktop launcher does this automatically) for a stable key.",
+        RuntimeWarning,
+        stacklevel=1,
+    )
 
 # Local, single-user auth — no Auth0 tenant.
 USE_AUTH0 = False
@@ -135,11 +136,14 @@ CHANNEL_LAYERS = {
 _broker_in = str(paths.subdir("celery-broker", "in", create=False))
 _broker_out = str(paths.subdir("celery-broker", "out", create=False))
 CELERY_BROKER_URL = "filesystem://"
-CELERY_BROKER_TRANSPORT_OPTIONS = {
+# Fresh dict of str→str paths; base.py's value is str→int (visibility_timeout),
+# so the reassignment is typed differently on purpose.
+_broker_transport_options = {
     "data_folder_in": _broker_in,
     "data_folder_out": _broker_out,
     "control_folder": str(paths.subdir("celery-broker", "control", create=False)),
 }
+CELERY_BROKER_TRANSPORT_OPTIONS = _broker_transport_options  # type: ignore[assignment]
 
 
 def _sqlalchemy_result_url(database_url: str) -> str:
@@ -152,8 +156,9 @@ def _sqlalchemy_result_url(database_url: str) -> str:
 
 CELERY_RESULT_BACKEND = _sqlalchemy_result_url(env("DATABASE_URL"))
 CELERY_TASK_EAGER_PROPAGATES = True
-# Database scheduler needs a running ``celery beat`` process; the desktop
-# launcher instead drives CELERY_BEAT_SCHEDULE via an in-process APScheduler.
+# Use the file-based PersistentScheduler so beat needs no django_celery_beat DB
+# rows. The launcher runs a ``celery beat`` subprocess against it (Phase 0);
+# collapsing beat into an in-process APScheduler is a Phase-1 follow-up.
 CELERY_BEAT_SCHEDULER = "celery.beat:PersistentScheduler"
 
 # EMAIL — no SMTP server on a desktop; log to the console.
@@ -162,14 +167,11 @@ EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 
 # STATIC / SPA SERVING
 # ------------------------------------------------------------------------------
-# WhiteNoise (already in MIDDLEWARE) serves the built SPA's hashed assets
-# straight from the frontend ``dist/`` dir; a catch-all in config/urls.py
-# returns index.html for client-side routes. Set by the launcher after
-# ``yarn build`` is staged. When unset, SPA serving is disabled (API only).
+# The catch-all view in config/urls.py (config.spa.spa_fallback) serves the
+# built SPA's assets and returns index.html for client-side routes from this
+# dir. Set by the launcher after ``yarn build`` is staged; when unset, SPA
+# serving is disabled (API only).
 OC_DESKTOP_SPA_ROOT = env("OC_DESKTOP_FRONTEND_DIR", default="")
-if OC_DESKTOP_SPA_ROOT:
-    WHITENOISE_ROOT = OC_DESKTOP_SPA_ROOT
-    WHITENOISE_INDEX_FILE = True
 
 # CSP / CORS — same-origin localhost.
 # ------------------------------------------------------------------------------

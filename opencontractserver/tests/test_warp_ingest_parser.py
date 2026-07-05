@@ -89,8 +89,8 @@ class _FakeWarpIngest:
     def __enter__(self):
         pkg = types.ModuleType("warp_ingest")
         ingestor_pkg = types.ModuleType("warp_ingest.ingestor")
-        ingestor_pkg.pdf_ingestor = self.mock
-        pkg.ingestor = ingestor_pkg
+        setattr(ingestor_pkg, "pdf_ingestor", self.mock)
+        setattr(pkg, "ingestor", ingestor_pkg)
         for name, mod in (
             ("warp_ingest", pkg),
             ("warp_ingest.ingestor", ingestor_pkg),
@@ -124,7 +124,7 @@ class WarpIngestParserTests(TestCase):
     def test_parses_pdf_to_export(self):
         with _FakeWarpIngest() as mock:
             result = self.parser._parse_document_impl(self.user.id, self.doc.id)
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertEqual(len(result["labelled_text"]), 1)
         self.assertEqual(len(result["relationships"]), 1)
         self.assertEqual(
@@ -140,6 +140,7 @@ class WarpIngestParserTests(TestCase):
         with _FakeWarpIngest():
             result = self.parser._parse_document_impl(self.user.id, self.doc.id)
         # Warp returned empty title/description → fall back to the document's.
+        assert result is not None
         self.assertEqual(result["title"], "Fallback Title")
         self.assertEqual(result["description"], "Fallback Desc")
 
@@ -159,7 +160,7 @@ class WarpIngestParserTests(TestCase):
     def test_missing_dependency_raises_permanent_error(self):
         # sys.modules[name]=None makes ``import warp_ingest`` raise ImportError.
         saved = sys.modules.get("warp_ingest")
-        sys.modules["warp_ingest"] = None
+        sys.modules["warp_ingest"] = None  # type: ignore[assignment]
         try:
             with self.assertRaises(DocumentParsingError) as ctx:
                 self.parser._parse_document_impl(self.user.id, self.doc.id)
@@ -186,6 +187,6 @@ class WarpIngestParserTests(TestCase):
         with open(fixture, "rb") as fh:
             self.doc.pdf_file.save("real.pdf", ContentFile(fh.read()))
         result = self.parser._parse_document_impl(self.user.id, self.doc.id)
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertGreater(len(result["labelled_text"]), 0)
         self.assertGreater(len(result["pawls_file_content"]), 0)
