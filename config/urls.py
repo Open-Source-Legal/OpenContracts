@@ -49,7 +49,14 @@ urlpatterns = [
     # Discovery endpoints (robots.txt, llms.txt, sitemap.xml, .well-known/mcp.json)
     path("", include("opencontractserver.discovery.urls")),
     path("api/health/", lambda request: JsonResponse({"status": "ok"})),
-    path("", home_redirect, name="home_redirect"),  # Root URL redirect to port 3000
+    # Root URL redirect to the frontend dev server (:3000). Skipped on the
+    # desktop build, where Daphne serves the SPA itself (see the SPA catch-all
+    # appended below when OC_DESKTOP_SPA_ROOT is set).
+    *(
+        []
+        if getattr(settings, "OC_DESKTOP_SPA_ROOT", "")
+        else [path("", home_redirect, name="home_redirect")]
+    ),
     # Custom admin login/logout views (must be before admin.site.urls to override defaults)
     path("admin/login/", Auth0AdminLoginView.as_view(), name="admin_auth0_login"),
     path("admin/logout/", Auth0AdminLogoutView.as_view(), name="admin_auth0_logout"),
@@ -131,5 +138,24 @@ if getattr(settings, "SERVE_MEDIA_WITHOUT_DEBUG", False) and not settings.DEBUG:
             rf"^{settings.MEDIA_URL.lstrip('/')}(?P<path>.*)$",
             media_serve,
             {"document_root": settings.MEDIA_ROOT},
+        ),
+    ]
+
+# Desktop build: serve the pre-built React SPA from Daphne. WhiteNoise serves the
+# hashed assets before the request reaches Django; this catch-all returns
+# index.html for any remaining (client-side route) path. Registered LAST so it
+# never shadows /api/, /graphql/, /admin/, /mcp*, /ws/ or static/media routes,
+# and only when the desktop profile points OC_DESKTOP_SPA_ROOT at a built dist/.
+if getattr(settings, "OC_DESKTOP_SPA_ROOT", ""):
+    from django.urls import re_path as _re_path
+
+    from config.spa import spa_fallback
+
+    urlpatterns += [
+        _re_path(
+            r"^(?!api/|graphql/|admin/|mcp|sse|ws/|static/|media/)"
+            r"(?P<resource_path>.*)$",
+            spa_fallback,
+            name="spa_fallback",
         ),
     ]

@@ -1,0 +1,81 @@
+"""Per-user, per-OS application-data paths for the desktop build.
+
+Pure standard library (no third-party dependency) so it is safe to import from
+``config/settings/desktop.py`` at settings-load time. All locations can be
+overridden with the ``OC_DESKTOP_DATA_DIR`` environment variable; the launcher
+sets that once and every component (settings, Postgres data dir, media/static,
+Celery filesystem broker) derives from it.
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+from pathlib import Path
+
+APP_NAME = "OpenContracts"
+# Environment variable the launcher exports so settings + launcher agree on the
+# root without recomputing platform rules twice.
+DATA_DIR_ENV = "OC_DESKTOP_DATA_DIR"
+
+
+def default_app_data_dir() -> Path:
+    """Return the conventional per-user data directory for this OS.
+
+    * Windows: ``%LOCALAPPDATA%\\OpenContracts``
+    * macOS:   ``~/Library/Application Support/OpenContracts``
+    * Linux:   ``$XDG_DATA_HOME/OpenContracts`` (default ``~/.local/share``)
+    """
+    if sys.platform.startswith("win"):
+        base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+        return Path(base) / APP_NAME
+    if sys.platform == "darwin":
+        return (
+            Path(os.path.expanduser("~")) / "Library" / "Application Support" / APP_NAME
+        )
+    xdg = os.environ.get("XDG_DATA_HOME")
+    base = Path(xdg) if xdg else Path(os.path.expanduser("~")) / ".local" / "share"
+    return base / APP_NAME
+
+
+def app_data_dir() -> Path:
+    """Resolved data dir: the ``OC_DESKTOP_DATA_DIR`` override or the OS default."""
+    override = os.environ.get(DATA_DIR_ENV)
+    return Path(override) if override else default_app_data_dir()
+
+
+def subdir(*parts: str, create: bool = False) -> Path:
+    """Return ``app_data_dir()/parts``, optionally creating it."""
+    path = app_data_dir().joinpath(*parts)
+    if create:
+        path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+# Well-known locations, all under the single data dir.
+def pg_data_dir() -> Path:
+    return subdir("pgdata")
+
+
+def media_dir() -> Path:
+    return subdir("media")
+
+
+def static_dir() -> Path:
+    return subdir("staticfiles")
+
+
+def celery_broker_dir() -> Path:
+    return subdir("celery-broker")
+
+
+def logs_dir() -> Path:
+    return subdir("logs")
+
+
+def secret_key_file() -> Path:
+    return app_data_dir() / "secret_key"
+
+
+def first_run_marker() -> Path:
+    return app_data_dir() / ".bootstrapped"
