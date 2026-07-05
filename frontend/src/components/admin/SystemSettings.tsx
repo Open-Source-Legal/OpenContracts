@@ -26,7 +26,10 @@ import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
 import { LlmModelPicker } from "../common/LlmModelPicker";
 import { PipelineComponentType } from "../../types/graphql-api";
 import { getComponentDisplayName } from "./PipelineIcons";
-import { PIPELINE_UI } from "../../assets/configurations/constants";
+import {
+  PIPELINE_UI,
+  WEB_SEARCH_TOOL_KEY,
+} from "../../assets/configurations/constants";
 import { CORPUS_BREAKPOINTS } from "../corpuses/styles/corpusDesignTokens";
 import { formatSettingLabel } from "../../utils/formatters";
 
@@ -984,6 +987,13 @@ export const SystemSettings: React.FC = () => {
       <ToolSecretsPanel
         toolsWithSecrets={
           (settings?.toolsWithSecrets?.filter(Boolean) as string[]) ?? []
+        }
+        currentSettings={
+          (
+            settings?.componentSettings as
+              | Record<string, Record<string, unknown>>
+              | undefined
+          )?.[WEB_SEARCH_TOOL_KEY]
         }
         onSecretsChanged={refetchSettings}
       />

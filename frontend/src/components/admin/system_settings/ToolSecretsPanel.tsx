@@ -36,6 +36,12 @@ import {
 interface ToolSecretsPanelProps {
   /** Tool keys with encrypted secrets configured (e.g. "tool:web_search"). */
   toolsWithSecrets: string[];
+  /** Currently-persisted non-secret settings for the web search tool
+   * (`PipelineSettings.componentSettings["tool:web_search"]`, e.g.
+   * `{ provider: "tavily" }`). Seeds the initial Provider selection so
+   * reopening an already-configured tool doesn't silently reset its
+   * provider to the hardcoded default on the next save. */
+  currentSettings?: Record<string, unknown>;
   /** Invoked after a successful save/delete so the parent can refetch
    * GET_PIPELINE_SETTINGS and refresh the "Configured" indicator. */
   onSecretsChanged: () => void;
@@ -54,12 +60,15 @@ interface ToolSecretsPanelProps {
  */
 export const ToolSecretsPanel: React.FC<ToolSecretsPanelProps> = ({
   toolsWithSecrets,
+  currentSettings,
   onSecretsChanged,
 }) => {
   const isConfigured = toolsWithSecrets.includes(WEB_SEARCH_TOOL_KEY);
 
   const [provider, setProvider] = useState<string>(
-    WEB_SEARCH_PROVIDERS[0].value
+    () =>
+      (currentSettings?.provider as string | undefined) ||
+      WEB_SEARCH_PROVIDERS[0].value
   );
   const [apiKey, setApiKey] = useState("");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -106,6 +115,12 @@ export const ToolSecretsPanel: React.FC<ToolSecretsPanelProps> = ({
 
   const handleSave = useCallback(() => {
     const trimmedKey = apiKey.trim();
+    if (!isConfigured && !trimmedKey) {
+      toast.error(
+        "Please provide an API key to configure the web search tool."
+      );
+      return;
+    }
     updateToolSecrets({
       variables: {
         toolKey: WEB_SEARCH_TOOL_KEY,
@@ -114,7 +129,7 @@ export const ToolSecretsPanel: React.FC<ToolSecretsPanelProps> = ({
         merge: true,
       },
     });
-  }, [apiKey, provider, updateToolSecrets]);
+  }, [apiKey, isConfigured, provider, updateToolSecrets]);
 
   const handleDeleteClick = useCallback(() => {
     setShowDeleteConfirm(true);

@@ -564,4 +564,94 @@ test.describe("ToolSecretsPanel", () => {
 
     await component.unmount();
   });
+
+  test("seeds the provider dropdown from the persisted setting instead of defaulting to Brave", async ({
+    mount,
+    page,
+  }) => {
+    const settingsWithTavily = {
+      ...mockSettingsBase,
+      toolsWithSecrets: ["tool:web_search"],
+      componentSettings: { "tool:web_search": { provider: "tavily" } },
+    };
+    // Rotating just the API key without touching the Provider dropdown must
+    // preserve the persisted "tavily" — NOT silently reset to the hardcoded
+    // "brave" default.
+    const saveMock = {
+      request: {
+        query: UPDATE_TOOL_SECRETS,
+        variables: {
+          toolKey: "tool:web_search",
+          secrets: { api_key: "new-tavily-key" },
+          settings: { provider: "tavily" },
+          merge: true,
+        },
+      },
+      result: {
+        data: {
+          updateToolSecrets: {
+            ok: true,
+            message: "Tool settings updated for 'tool:web_search'.",
+            toolsWithSecrets: ["tool:web_search"],
+          },
+        },
+      },
+    };
+
+    const component = await mount(
+      <SystemSettingsWrapper
+        mocks={[
+          {
+            request: { query: GET_PIPELINE_SETTINGS },
+            result: { data: { pipelineSettings: settingsWithTavily } },
+          },
+          componentsMock,
+          mimeTypesMock,
+          saveMock,
+        ]}
+      />
+    );
+    await waitForLoad(page);
+
+    const panel = page.locator('[data-testid="tool-secrets-panel"]');
+    await expect(panel.locator("#tool-secrets-provider")).toHaveValue("tavily");
+
+    await panel.locator("#tool-secrets-api-key").fill("new-tavily-key");
+    await panel.locator("button:has-text('Save')").click();
+
+    await expect(
+      page.locator("text=Web search tool configured successfully")
+    ).toBeVisible({ timeout: 5000 });
+
+    await component.unmount();
+  });
+
+  test("clicking Save with a blank API key before ever configuring shows an error and does not save", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <SystemSettingsWrapper
+        mocks={[settingsMock([]), componentsMock, mimeTypesMock]}
+      />
+    );
+    await waitForLoad(page);
+
+    const panel = page.locator('[data-testid="tool-secrets-panel"]');
+    // No mutation mock is registered — if handleSave fired the mutation
+    // despite the blank key, MockedProvider would surface an
+    // unmatched-request error instead of this toast.
+    await panel.locator("button:has-text('Save')").click();
+
+    await expect(
+      page.locator(
+        "text=Please provide an API key to configure the web search tool."
+      )
+    ).toBeVisible({ timeout: 5000 });
+    await expect(
+      page.locator("text=Web search tool configured successfully")
+    ).toHaveCount(0);
+
+    await component.unmount();
+  });
 });
