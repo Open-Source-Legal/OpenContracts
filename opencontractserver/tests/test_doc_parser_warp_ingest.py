@@ -205,6 +205,70 @@ class TestWarpIngestParser(TestCase):
 
     @patch(_POST_PATH)
     @patch(_STORAGE_PATH)
+    def test_disable_ocr_and_include_images_overrides(self, mock_open, mock_post):
+        """disable_ocr / include_images passed at call time reach the query params."""
+        self._mock_storage(mock_open)
+        mock_post.return_value = MockResponse(200, _sample_response())
+
+        self.parser.parse_document(
+            user_id=self.user.id,
+            doc_id=self.doc.id,
+            disable_ocr=True,
+            include_images=True,
+        )
+
+        params = mock_post.call_args.kwargs["params"]
+        self.assertEqual(params["disable_ocr"], "true")
+        self.assertEqual(params["include_images"], "true")
+
+    @patch(
+        "opencontractserver.pipeline.parsers.warp_ingest_parser.maybe_add_cloud_run_auth"
+    )
+    @patch(_POST_PATH)
+    @patch(_STORAGE_PATH)
+    def test_cloud_run_iam_auth_header_path(self, mock_open, mock_post, mock_auth):
+        """use_cloud_run_iam_auth forwards force=True and its Authorization header."""
+        self._mock_storage(mock_open)
+        mock_post.return_value = MockResponse(200, _sample_response())
+        self.parser.use_cloud_run_iam_auth = True
+        self.parser.api_key = "k"
+        mock_auth.side_effect = lambda url, headers, force: {
+            **headers,
+            "Authorization": "Bearer id-token",
+        }
+
+        self.parser.parse_document(user_id=self.user.id, doc_id=self.doc.id)
+
+        # maybe_add_cloud_run_auth called with the service URL and force flag.
+        self.assertEqual(mock_auth.call_args.kwargs.get("force"), True)
+        sent_headers = mock_post.call_args.kwargs["headers"]
+        self.assertEqual(sent_headers["Authorization"], "Bearer id-token")
+        # API key still rides on its own header alongside the IAM bearer.
+        self.assertEqual(sent_headers[WARP_INGEST_API_KEY_HEADER], "k")
+
+    @patch(_POST_PATH)
+    @patch(_STORAGE_PATH)
+    def test_secret_api_key_redacted_in_logs(self, mock_open, mock_post):
+        """The api_key secret must not appear in the base parser's INFO log line."""
+        self._mock_storage(mock_open)
+        mock_post.return_value = MockResponse(200, _sample_response())
+        # Simulate the DB returning the decrypted secret among component settings.
+        self.parser.get_component_settings = lambda: {
+            "api_key": "super-secret-key-xyz",
+            "apply_ocr": False,
+        }
+
+        with self.assertLogs(
+            "opencontractserver.pipeline.base.parser", level="INFO"
+        ) as cm:
+            self.parser.parse_document(user_id=self.user.id, doc_id=self.doc.id)
+
+        joined = "\n".join(cm.output)
+        self.assertNotIn("super-secret-key-xyz", joined)
+        self.assertIn("***", joined)
+
+    @patch(_POST_PATH)
+    @patch(_STORAGE_PATH)
     def test_mutually_exclusive_ocr_flags(self, mock_open, mock_post):
         """apply_ocr + disable_ocr both true fails fast without an HTTP call."""
         self._mock_storage(mock_open)
