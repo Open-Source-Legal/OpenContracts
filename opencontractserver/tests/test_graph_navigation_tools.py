@@ -236,6 +236,59 @@ class GraphNavigationToolTests(TestCase):
         doc_ids = {n["doc_pk"] for n in res["doc_nodes"]}
         self.assertIn(self.exhibit_id, doc_ids)
 
+    def test_neighborhood_focus_survives_cap_eviction(self):
+        """The cap must never evict the focus doc for a higher-degree neighbour.
+
+        focus=exhibit (low global degree) is adjacent to primary (higher degree)
+        via the DOCUMENT edge. The restricted neighbourhood {exhibit, primary}
+        exceeds node_cap=1, so the degree ranking alone would keep primary and
+        drop the exhibit — the tool must force-keep the focus, respect node_cap,
+        and report focus_in_graph against the FINAL node set.
+        """
+        res = get_reference_neighborhood(
+            corpus_id=self.corpus.id,
+            user_id=self.user.id,
+            focus_document_id=self.exhibit_id,
+            depth=1,
+            node_cap=1,
+        )
+        doc_ids = {n["doc_pk"] for n in res["doc_nodes"]}
+        self.assertIn(self.exhibit_id, doc_ids)
+        self.assertTrue(res["focus_in_graph"])
+        # node_cap honoured: exactly one node total, and it is the focus.
+        self.assertEqual(len(res["doc_nodes"]) + len(res["ghost_nodes"]), 1)
+
+    def test_neighborhood_focus_with_no_references_is_honest(self):
+        """A focus document with no references yields focus_in_graph=False."""
+        loner = Document.objects.create(title="Unconnected Memo", creator=self.user)
+        loner.txt_extract_file.save("m.txt", ContentFile(b"No citations here."))
+        self.corpus.add_document(document=loner, user=self.user)
+        loner_id = self.corpus.document_paths.filter(
+            is_current=True, document__title=loner.title
+        ).values_list("document_id", flat=True)[0]
+        res = get_reference_neighborhood(
+            corpus_id=self.corpus.id,
+            user_id=self.user.id,
+            focus_document_id=loner_id,
+        )
+        self.assertFalse(res["focus_in_graph"])
+
+    # ---- input validation branches ------------------------------------ #
+    def test_read_reference_target_requires_an_anchor(self):
+        res = read_reference_target(corpus_id=self.corpus.id, user_id=self.user.id)
+        self.assertFalse(res["resolved"])
+        self.assertIn("error", res)
+
+    def test_get_document_references_invalid_direction_defaults_to_both(self):
+        res = get_document_references(
+            corpus_id=self.corpus.id,
+            user_id=self.user.id,
+            document_id=self.primary_id,
+            direction="sideways",
+        )
+        self.assertEqual(res["direction"], "both")
+        self.assertGreater(res["outbound_count"], 0)
+
     # ---- permissions (load-bearing) ----------------------------------- #
     def test_stranger_sees_no_references(self):
         stranger = User.objects.create_user(username="stranger", password="p")

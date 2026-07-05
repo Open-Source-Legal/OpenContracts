@@ -86,22 +86,9 @@ def _serialize_inbound(ref) -> dict:
 
 def _read_document_text(doc: Document) -> str:
     """Plain text of a target document (text extract, or PDF token layer)."""
-    from opencontractserver.utils.files import read_field_file_text
+    from opencontractserver.utils.files import read_document_plain_text
 
-    if doc.txt_extract_file:
-        # errors="replace": a few undecodable bytes must not crash a read hop.
-        return read_field_file_text(doc.txt_extract_file, errors="replace")
-    if doc.pawls_parse_file:
-        import json
-
-        from plasmapdf.models.PdfDataLayer import build_translation_layer
-
-        from opencontractserver.utils.compact_pawls import expand_pawls_pages
-
-        with doc.pawls_parse_file.open("r") as f:
-            tokens = expand_pawls_pages(json.load(f))
-        return build_translation_layer(tokens).doc_text
-    return ""
+    return read_document_plain_text(doc)
 
 
 # --------------------------------------------------------------------------- #
@@ -316,8 +303,13 @@ def find_documents_citing(
     doc_ids = [r["source_annotation__document_id"] for r in ranked]
     titles = dict(Document.objects.filter(pk__in=doc_ids).values_list("pk", "title"))
 
-    # Bounded second pass: a few citing-clause previews for just the ranked
-    # documents (NAV_CITING_SAMPLE_SCAN caps the rows read for snippets).
+    # Bounded second pass: a few citing-clause previews for the ranked
+    # documents. NAV_CITING_SAMPLE_SCAN caps TOTAL rows read for snippets, so
+    # this is a per-document-fairness trade-off, not just a volume bound: rows
+    # are ordered by (document_id, id), so if the lowest-pk ranked document
+    # alone has more mentions than the budget, later ranked documents can get
+    # empty ``sample_citations``. Their ``mention_count`` stays exact — that is
+    # a separate DB aggregate above — only the illustrative snippet is dropped.
     samples: dict[int, list] = {}
     corpus_by_doc: dict[int, int] = {}
     for ref in (
@@ -358,24 +350,44 @@ def find_documents_citing(
 # --------------------------------------------------------------------------- #
 # Tool 4 — orient: the local governance map (see the module graph)              #
 # --------------------------------------------------------------------------- #
-def _cap_nodes_by_degree(graph: dict, node_cap: int) -> dict:
+def _cap_nodes_by_degree(
+    graph: dict, node_cap: int, always_keep: tuple | None = None
+) -> dict:
     """Cap a graph's node/edge lists to the top ``node_cap`` nodes by degree.
 
     Applied to the *restricted* neighbourhood so ``node_cap`` bounds what is
     RETURNED, not which documents were eligible to be found (see the focus
     branch of :func:`get_reference_neighborhood`).
+
+    ``always_keep`` (an ``("doc", pk)`` / ``("key", key)`` endpoint) is force-
+    retained even if it ranks below the cap — used to guarantee the focus
+    document is never evicted from its own neighbourhood by a higher-GLOBAL-
+    degree neighbour (a corpus-wide hub). It reserves one slot, so the returned
+    count still respects ``node_cap``.
     """
     docs = graph["doc_nodes"]
     ghosts = graph["ghost_nodes"]
     if len(docs) + len(ghosts) <= node_cap:
         return graph
 
-    ranked = sorted(
-        [(("doc", n["doc_pk"]), n["degree"]) for n in docs]
-        + [(("key", n["key"]), n["degree"]) for n in ghosts],
-        key=lambda t: -t[1],
-    )[:node_cap]
-    kept = {ep for ep, _w in ranked}
+    ranked_eps = [
+        ep
+        for ep, _w in sorted(
+            [(("doc", n["doc_pk"]), n["degree"]) for n in docs]
+            + [(("key", n["key"]), n["degree"]) for n in ghosts],
+            key=lambda t: -t[1],
+        )
+    ]
+    kept_eps = ranked_eps[:node_cap]
+    # Force-keep the focus node: if it exists in the graph but fell below the
+    # cap, swap out the lowest-ranked kept node to make room for it.
+    if (
+        always_keep is not None
+        and always_keep in ranked_eps
+        and always_keep not in kept_eps
+    ):
+        kept_eps = kept_eps[: node_cap - 1] + [always_keep]
+    kept = set(kept_eps)
     kept_docs = {v for k, v in kept if k == "doc"}
     kept_keys = {v for k, v in kept if k == "key"}
 
@@ -488,7 +500,16 @@ def get_reference_neighborhood(
 
     if focus_document_id is not None:
         graph = _restrict_to_neighborhood(graph, focus_document_id, depth)
-        graph = _cap_nodes_by_degree(graph, node_cap)
+        graph = _cap_nodes_by_degree(
+            graph, node_cap, always_keep=("doc", focus_document_id)
+        )
+        # Recompute AFTER the cap: _restrict_to_neighborhood set focus_in_graph
+        # from the pre-cap nodes, but the cap could (absent always_keep) have
+        # dropped the focus — the returned flag must reflect the final node set,
+        # never the pre-cap one. A focus with no edges yields False honestly.
+        graph["focus_in_graph"] = any(
+            n["doc_pk"] == focus_document_id for n in graph["doc_nodes"]
+        )
 
     graph["corpus_id"] = corpus_id
     graph["focus_document_id"] = focus_document_id
