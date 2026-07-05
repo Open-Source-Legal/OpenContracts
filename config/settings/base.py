@@ -832,6 +832,9 @@ CELERY_TASK_ALLOW_ERROR_CB_ON_CHORD_HEADER = False
 # production SSL options), merge into this dict rather than reassigning it —
 # a bare ``CELERY_BROKER_TRANSPORT_OPTIONS = {...}`` would drop the
 # visibility timeout and silently regress at-least-once delivery.
+# DELIBERATE EXCEPTION: config/settings/desktop.py *reassigns* this (no Redis
+# broker there — the filesystem transport ignores visibility_timeout), so the
+# merge rule does not apply to that profile.
 CELERY_BROKER_TRANSPORT_OPTIONS = {
     "visibility_timeout": CELERY_REDIS_VISIBILITY_TIMEOUT_SECONDS,
 }

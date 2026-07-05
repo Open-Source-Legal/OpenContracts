@@ -127,8 +127,9 @@ urlpatterns = [
 # S3/GCS/nginx in front) with NO media serving at all — every
 # ``/media/...`` fetch 404s, so flows that load file-backed content in the
 # browser (e.g. the corpus Readme.CAML article body) can never succeed.
-# ``SERVE_MEDIA_WITHOUT_DEBUG`` is set ONLY by the test settings; production
-# serves media from object storage and never enables it.
+# ``SERVE_MEDIA_WITHOUT_DEBUG`` is set by the test settings AND the single-user
+# desktop profile (config.settings.desktop, local storage, no nginx/S3);
+# production serves media from object storage and never enables it.
 if getattr(settings, "SERVE_MEDIA_WITHOUT_DEBUG", False) and not settings.DEBUG:
     from django.urls import re_path
     from django.views.static import serve as media_serve

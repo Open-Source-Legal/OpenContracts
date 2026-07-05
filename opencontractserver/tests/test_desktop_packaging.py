@@ -6,6 +6,7 @@ directory-traversal guard, which must never serve a file outside
 ``OC_DESKTOP_SPA_ROOT``.
 """
 
+import io
 import os
 import shutil
 import sys
@@ -13,11 +14,19 @@ import tempfile
 from pathlib import Path
 from unittest import mock
 
+from django.contrib.auth import get_user_model
 from django.http import Http404
-from django.test import RequestFactory, SimpleTestCase, override_settings
+from django.test import (
+    RequestFactory,
+    SimpleTestCase,
+    TestCase,
+    override_settings,
+)
 
 from config.spa import spa_fallback
 from opencontractserver.desktop import paths
+
+User = get_user_model()
 
 
 class DesktopPathsTests(SimpleTestCase):
@@ -117,3 +126,69 @@ class SpaFallbackTests(SimpleTestCase):
         with override_settings(OC_DESKTOP_SPA_ROOT=""):
             with self.assertRaises(Http404):
                 spa_fallback(self.factory.get("/"), "")
+
+
+class DesktopBootstrapTests(TestCase):
+    """Tests for the ``desktop_bootstrap`` command's user + pipeline seeding."""
+
+    def _command(self):
+        from opencontractserver.documents.management.commands.desktop_bootstrap import (
+            Command,
+        )
+
+        # Real StringIO streams (not MagicMock) so the command's OutputWrapper
+        # type is satisfied; read them back with getvalue().
+        self.out = io.StringIO()
+        self.err = io.StringIO()
+        return Command(stdout=self.out, stderr=self.err)
+
+    def test_seed_user_with_password(self):
+        cmd = self._command()
+        with mock.patch.dict(
+            os.environ, {"OC_DESKTOP_PASSWORD": "s3cret-pw-123"}, clear=False
+        ):
+            cmd._seed_user("alice", "alice@localhost")
+        user = User.objects.get(username="alice")
+        self.assertTrue(user.is_superuser)
+        self.assertTrue(user.has_usable_password())
+        self.assertTrue(user.check_password("s3cret-pw-123"))
+
+    def test_seed_user_without_password_is_unusable(self):
+        cmd = self._command()
+        # Empty OC_DESKTOP_PASSWORD → treated as unset → unusable password.
+        with mock.patch.dict(os.environ, {"OC_DESKTOP_PASSWORD": ""}, clear=False):
+            cmd._seed_user("bob", "bob@localhost")
+        user = User.objects.get(username="bob")
+        self.assertTrue(user.is_superuser)
+        self.assertFalse(user.has_usable_password())
+
+    def test_seed_user_is_idempotent(self):
+        cmd = self._command()
+        with mock.patch.dict(os.environ, {"OC_DESKTOP_PASSWORD": ""}, clear=False):
+            cmd._seed_user("carol", "carol@localhost")
+            cmd._seed_user("carol", "carol@localhost")  # no duplicate / no error
+        self.assertEqual(User.objects.filter(username="carol").count(), 1)
+
+    def test_seed_pipeline_settings_creates_singleton(self):
+        from opencontractserver.documents.models import PipelineSettings
+
+        cmd = self._command()
+        with mock.patch(
+            "opencontractserver.documents.management.commands."
+            "desktop_bootstrap.call_command"
+        ) as mock_call:
+            cmd._seed_pipeline_settings()
+        mock_call.assert_called_once_with("migrate_pipeline_settings")
+        self.assertTrue(PipelineSettings.objects.filter(pk=1).exists())
+
+    def test_seed_pipeline_settings_survives_migrate_failure(self):
+        cmd = self._command()
+        with mock.patch(
+            "opencontractserver.documents.management.commands."
+            "desktop_bootstrap.call_command",
+            side_effect=RuntimeError("boom"),
+        ):
+            # A migrate_pipeline_settings failure must not raise — PDF parsing
+            # still works; only Tier-1 secrets/component settings degrade.
+            cmd._seed_pipeline_settings()
+        self.assertIn("did not seed", self.err.getvalue())

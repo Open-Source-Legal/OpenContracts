@@ -38,6 +38,43 @@ SETTINGS_MODULE = "config.settings.desktop"
 _children: list[subprocess.Popen] = []
 
 
+_KEYRING_SERVICE = "OpenContracts-Desktop"
+_KEYRING_USER = "django-secret-key"
+
+
+def _stable_secret_key() -> str:
+    """A SECRET_KEY that survives restarts, stored in the OS keyring.
+
+    A stable key matters beyond login sessions: ``PipelineSettings`` encrypts
+    secrets (e.g. ``OPENAI_API_KEY``) with a Fernet key derived from
+    ``SECRET_KEY`` (``opencontractserver/documents/models.py``), so a key that
+    rotated every launch would make those stored secrets permanently
+    unrecoverable — silently breaking the Tier-1 "set your API key once" flow on
+    the next restart. We persist the key in the OS credential store (macOS
+    Keychain / Windows Credential Locker / Linux Secret Service) rather than a
+    plaintext file. If keyring is unavailable (e.g. headless Linux with no
+    Secret Service backend), fall back to an ephemeral key with a loud warning —
+    sessions and stored pipeline secrets then do NOT survive a restart.
+    """
+    try:
+        import keyring
+
+        existing = keyring.get_password(_KEYRING_SERVICE, _KEYRING_USER)
+        if existing:
+            return existing
+        new_key = secrets.token_urlsafe(64)
+        keyring.set_password(_KEYRING_SERVICE, _KEYRING_USER, new_key)
+        return new_key
+    except Exception as exc:  # keyring missing or no usable backend
+        print(
+            "[oc-desktop] WARNING: could not persist SECRET_KEY via the OS "
+            f"keyring ({exc}); using an ephemeral key. Login sessions and stored "
+            "pipeline secrets (e.g. your OpenAI API key) will NOT survive a "
+            "restart. Export a stable DJANGO_SECRET_KEY to avoid this."
+        )
+        return secrets.token_urlsafe(64)
+
+
 # --------------------------------------------------------------------------- env
 def _base_env() -> dict[str, str]:
     """Environment shared by the launcher and every child process."""
@@ -50,9 +87,10 @@ def _base_env() -> dict[str, str]:
     # / punkt offline.
     env["NLTK_DATA"] = str(paths.subdir("nltk_data"))
     # One SECRET_KEY shared by every child (Daphne/worker/beat) so sessions and
-    # JWTs verify across them. Generated per launch when unset — an ephemeral
-    # key; export DJANGO_SECRET_KEY yourself for stability across runs.
-    env.setdefault("DJANGO_SECRET_KEY", secrets.token_urlsafe(64))
+    # JWTs verify across them, persisted across restarts via the OS keyring (see
+    # _stable_secret_key). A user-provided DJANGO_SECRET_KEY always wins.
+    if "DJANGO_SECRET_KEY" not in env:
+        env["DJANGO_SECRET_KEY"] = _stable_secret_key()
     return env
 
 

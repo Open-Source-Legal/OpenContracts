@@ -90,13 +90,17 @@ before launch. (An external database must already have the `vector` extension
 available — the embedded `pgserver` path runs `CREATE EXTENSION IF NOT EXISTS
 vector` for you; the external path does not.)
 
-**Secrets are env-sourced, never written to disk** (Phase 0): the launcher
-generates a per-run `DJANGO_SECRET_KEY` and shares it across child processes
-(sessions reset across restarts unless you export a stable `DJANGO_SECRET_KEY`).
-The local login password comes only from `OC_DESKTOP_PASSWORD`; without it the
-user is created with no usable password (set one with `manage.py changepassword`).
-A persistent OS-keyring-backed secret store and seamless auto-login are Phase-1
-follow-ups.
+**Secret handling:** the launcher resolves a stable `DJANGO_SECRET_KEY` from the
+**OS keyring** (macOS Keychain / Windows Credential Locker / Linux Secret
+Service) and shares it across child processes. A stable key is important: it
+survives restarts *and* keeps `PipelineSettings`' encrypted secrets (e.g. your
+`OPENAI_API_KEY`) decryptable — a key that rotated each launch would make them
+permanently unrecoverable. If no keyring backend is available, the launcher
+falls back to an ephemeral key (with a warning) and sessions + stored secrets
+reset on restart; export a stable `DJANGO_SECRET_KEY` yourself in that case. The
+local login password comes only from `OC_DESKTOP_PASSWORD`; without it the user
+is created with no usable password (set one with `manage.py changepassword`). No
+secret is written to a plaintext file.
 
 To enable embeddings + chat, set `OPENAI_API_KEY` (and optionally
 `OPENAI_API_BASE_URL` for a local OpenAI-compatible server) before first run so

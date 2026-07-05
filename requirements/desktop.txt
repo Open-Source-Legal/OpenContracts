@@ -8,16 +8,24 @@
 # In-process PDF parsing (replaces the Docling microservice). Pure-Python,
 # rule-based, no torch/GPU. The [ocr] extra adds CPU-only rapidocr-onnxruntime
 # for scanned pages; drop it for a smaller, born-digital-only install.
-warp-ingest[ocr]>=1.0.0
+# Upper bounds cap early-stage packages so an unreviewed breaking change can't
+# silently land in a desktop build (the rest of requirements/ pins tightly).
+warp-ingest[ocr]>=1.0.0,<2
 
 # Embedded PostgreSQL 16 + pgvector as a supervised child process (bundles the
 # server binaries with Win/Mac/Linux wheels), so no Postgres install is needed.
-pgserver>=0.1.4
+pgserver>=0.1.4,<0.3
 
 # Celery filesystem broker + SQLAlchemy DB result backend (chords need a real
 # result backend; the DB one lets us drop Redis). SQLAlchemy powers the
 # ``db+postgresql://`` result backend.
-sqlalchemy>=2.0
+sqlalchemy>=2.0,<3
+
+# Persist SECRET_KEY in the OS credential store (macOS Keychain / Windows
+# Credential Locker / Linux Secret Service) so it survives restarts. A stable
+# SECRET_KEY keeps PipelineSettings' encrypted secrets (e.g. OPENAI_API_KEY)
+# decryptable across launches. See launcher._stable_secret_key.
+keyring>=24,<26
 
 # nltk corpora (stopwords/punkt) are downloaded on first run by the
 # desktop_bootstrap command; nltk itself arrives transitively via warp-ingest.

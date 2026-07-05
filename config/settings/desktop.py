@@ -45,12 +45,14 @@ DEBUG = env.bool("DJANGO_DEBUG", default=False)
 ALLOWED_HOSTS = ["localhost", "127.0.0.1", "0.0.0.0"]
 
 # SECRET_KEY comes from the environment only. The ``oc-desktop`` launcher
-# generates ONE key and exports it to every child process (Daphne/worker/beat)
-# so they share it within a run. When unset (e.g. a bare ``manage.py``), we fall
-# back to an ephemeral in-process key so import never fails; sessions/tokens then
-# reset across restarts. We deliberately do NOT persist the secret to a plaintext
-# file — set ``DJANGO_SECRET_KEY`` (the launcher does) for a stable key. Secure
-# at-rest persistence (OS keyring) is a Phase-1 follow-up.
+# resolves ONE stable key (persisted in the OS keyring, see
+# ``opencontractserver/desktop/launcher.py::_stable_secret_key``) and exports it
+# to every child process (Daphne/worker/beat) so they share it AND it survives
+# restarts. Stability is critical: ``PipelineSettings`` encrypts secrets (e.g.
+# ``OPENAI_API_KEY``) with a key derived from SECRET_KEY, so a rotating key would
+# render stored secrets permanently unrecoverable. When unset (e.g. a bare
+# ``manage.py`` invocation) we fall back to an ephemeral key so import never
+# fails; sessions and stored secrets then reset across restarts.
 SECRET_KEY = env("DJANGO_SECRET_KEY", default=None)
 if not SECRET_KEY:
     import secrets as _secrets
@@ -160,11 +162,20 @@ def _sqlalchemy_result_url(database_url: str) -> str:
 
 
 CELERY_RESULT_BACKEND = _sqlalchemy_result_url(env("DATABASE_URL"))
-CELERY_TASK_EAGER_PROPAGATES = True
 # Use the file-based PersistentScheduler so beat needs no django_celery_beat DB
 # rows. The launcher runs a ``celery beat`` subprocess against it (Phase 0);
 # collapsing beat into an in-process APScheduler is a Phase-1 follow-up.
 CELERY_BEAT_SCHEDULER = "celery.beat:PersistentScheduler"
+
+# PIPELINE SETTINGS CACHE — disable on desktop.
+# ------------------------------------------------------------------------------
+# PipelineSettings.get_instance() caches the singleton in the process-local
+# LocMemCache (default TTL 300s). On desktop, Daphne, the Celery worker and beat
+# are SEPARATE processes, so clear_cache() from the settings-edit request path
+# (Daphne) never reaches the worker's cache — the worker would keep serving stale
+# parser/embedder/API-key settings for up to the TTL after a user changes them.
+# 0 disables caching (cheap for a single user) so every read is fresh everywhere.
+PIPELINE_SETTINGS_CACHE_TTL_SECONDS = 0
 
 # EMAIL — no SMTP server on a desktop; log to the console.
 # ------------------------------------------------------------------------------
