@@ -580,6 +580,36 @@ class TestPostProcessor(BasePostProcessor):
         with override_settings(DEFAULT_EMBEDDING_DIMENSION=768):
             self.assertEqual(get_dimension_from_embedder("non.existent.Embedder"), 768)
 
+    def test_get_default_embedder_unmocked(self) -> None:
+        """
+        Direct, unmocked exercise of get_default_embedder()'s full real
+        resolution path: a real PipelineSettings.default_embedder DB value ->
+        real importlib.import_module -> real getattr -> class attribute
+        check.
+
+        get_default_embedder() is production-critical (used in
+        embeddings_task.py, utils/embeddings.py, and
+        llms/vector_stores/core_vector_stores.py); every other test of it
+        patches it out via @patch, so this is the only test that would catch
+        a broken resolver end-to-end. This replaces the coverage lost when
+        the (differently-scoped) test_find_embedder_for_filetype was deleted
+        as part of the #2114 per-MIME-embedder cleanup.
+        """
+        from opencontractserver.documents.models import PipelineSettings
+        from opencontractserver.pipeline.utils import get_default_embedder
+
+        pipeline_settings = PipelineSettings.get_instance(use_cache=False)
+        pipeline_settings.default_embedder = (
+            "opencontractserver.pipeline.embedders.temp_embedder.TestEmbedder"
+        )
+        pipeline_settings.save()
+        PipelineSettings.clear_cache()
+        self.addCleanup(PipelineSettings.clear_cache)
+
+        embedder = get_default_embedder()
+        assert embedder is not None
+        self.assertEqual(embedder.title, "Test Embedder")
+
 
 # NOTE: the ``TestEmbedder*`` classes earlier in this file live inside the
 # ``cls.embedder_code`` STRING (they are source written to a temp module at

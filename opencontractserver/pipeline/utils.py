@@ -347,38 +347,6 @@ def get_component_by_name(component_name: str) -> type[PipelineComponentBase]:
     raise ValueError(f"Component '{component_name}' not found.")
 
 
-def get_preferred_embedder(mimetype: str) -> Optional[type[BaseEmbedder]]:
-    """
-    Get the preferred embedder class for a given mimetype.
-
-    Reads from the database PipelineSettings singleton.
-
-    Args:
-        mimetype (str): The mimetype of the file.
-
-    Returns:
-        Optional[Type[BaseEmbedder]]: The preferred embedder class, or None if not found.
-    """
-    # Import here to avoid circular imports
-    from opencontractserver.documents.models import PipelineSettings
-
-    pipeline_settings = PipelineSettings.get_instance()
-    embedder_path = pipeline_settings.get_preferred_embedder(mimetype)
-
-    if embedder_path:
-        try:
-            module_path, class_name = embedder_path.rsplit(".", 1)
-            module = importlib.import_module(module_path)
-            embedder_class = getattr(module, class_name)
-            return embedder_class
-        except (ModuleNotFoundError, AttributeError) as e:
-            logger.error(f"Error loading embedder '{embedder_path}': {e}")
-            return None
-    else:
-        logger.warning(f"No preferred embedder set for mimetype: {mimetype}")
-        return None
-
-
 def get_default_embedder_path() -> str:
     """
     Get the default embedder class path from the database PipelineSettings singleton.

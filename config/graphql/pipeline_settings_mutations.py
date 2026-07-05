@@ -660,8 +660,9 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
             # subset of enabled_components. This must run whenever EITHER
             # enabled_components OR any of the assignment fields
             # (preferred_parsers/preferred_embedders/preferred_thumbnailers/
-            # default_embedder/default_file_converter) changes in this call —
-            # not only when enabled_components itself is touched. Previously
+            # default_embedder/default_file_converter/default_reranker)
+            # changes in this call — not only when enabled_components itself
+            # is touched. Previously
             # this check lived solely inside `if enabled_components is not
             # None:` above, so a call that assigned a NEW disabled component
             # without also re-sending enabled_components skipped the check
@@ -706,6 +707,11 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
                     if default_file_converter is not None
                     else settings_instance.default_file_converter or ""
                 )
+                assigned_reranker = (
+                    default_reranker
+                    if default_reranker is not None
+                    else settings_instance.default_reranker or ""
+                )
 
                 all_assigned = {
                     path
@@ -720,6 +726,8 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
                     all_assigned.add(assigned_default)
                 if assigned_converter:
                     all_assigned.add(assigned_converter)
+                if assigned_reranker:
+                    all_assigned.add(assigned_reranker)
 
                 disabled_but_assigned = all_assigned - enabled_set
                 if not disabled_but_assigned:
@@ -733,6 +741,7 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
                 or preferred_thumbnailers is not None
                 or default_embedder is not None
                 or default_file_converter is not None
+                or default_reranker is not None
             ):
                 names = _find_disabled_but_assigned()
                 if names:

@@ -260,6 +260,86 @@ class MockParser(BaseParser):
             "Keys unique to parser_kwargs must still pass through unchanged.",
         )
 
+    def test_parse_document_empty_component_settings_value_does_not_clobber_direct_kwargs(
+        self,
+    ):
+        """
+        Regression test: an empty-string placeholder in ``component_settings``
+        must NOT override a real, truthy value already present in
+        ``direct_kwargs``/legacy ``parser_kwargs``.
+
+        Concretely this protects LlamaParse's env-seeded ``api_key``: the
+        mutation layer's secret validation (``find_plaintext_secret_keys``)
+        explicitly ALLOWS an empty-string placeholder for a SECRET-type field
+        in ``component_settings`` (only non-empty plaintext secret values are
+        flagged), while the real key is seeded only into legacy
+        ``parser_kwargs``. Without this guard, ``component_settings`` winning
+        on key collision (issue #2115) would let that empty placeholder wipe
+        out the real secret on every parse.
+        """
+        from dataclasses import dataclass, field
+
+        from opencontractserver.documents.models import PipelineSettings
+        from opencontractserver.pipeline.base.parser import BaseParser
+        from opencontractserver.pipeline.base.settings_schema import (
+            PipelineSetting,
+            SettingType,
+        )
+
+        class EmptyPlaceholderParser(BaseParser):
+            title = "EmptyPlaceholderParser"
+
+            @dataclass
+            class Settings:
+                api_key: str = field(
+                    default="",
+                    metadata={
+                        "pipeline_setting": PipelineSetting(
+                            setting_type=SettingType.SECRET,
+                            description="Test secret field for empty-placeholder coverage.",
+                        )
+                    },
+                )
+
+            def _parse_document_impl(self, user_id, doc_id, **kwargs):
+                return None
+
+        full_path = (
+            f"{EmptyPlaceholderParser.__module__}.{EmptyPlaceholderParser.__name__}"
+        )
+
+        pipeline_settings = PipelineSettings.get_instance(use_cache=False)
+        pipeline_settings.parser_kwargs = {
+            **pipeline_settings.parser_kwargs,
+            full_path: {"api_key": "real-secret-value"},
+        }
+        pipeline_settings.component_settings = {
+            **pipeline_settings.component_settings,
+            full_path: {"api_key": ""},
+        }
+        pipeline_settings.save()
+        PipelineSettings.clear_cache()
+        self.addCleanup(PipelineSettings.clear_cache)
+
+        parser = EmptyPlaceholderParser()
+        # Mirror the one production call site (doc_tasks._resolve_parser_for_ingest):
+        # direct_kwargs come from PipelineSettings.get_parser_kwargs(...).
+        direct_kwargs = pipeline_settings.get_parser_kwargs(full_path)
+
+        with patch.object(
+            EmptyPlaceholderParser, "_parse_document_impl", return_value=None
+        ) as mock_impl:
+            parser.parse_document(self.user.id, self.doc.id, **direct_kwargs)
+
+        self.assertTrue(mock_impl.called)
+        _, call_kwargs = mock_impl.call_args
+        self.assertEqual(
+            call_kwargs["api_key"],
+            "real-secret-value",
+            "An empty-string placeholder in component_settings must not "
+            "clobber a real value from direct_kwargs/parser_kwargs.",
+        )
+
     def test_mock_parser_relationship_import(self):
         """
         Demonstrate a direct usage of a local parser class that returns real annotation data.

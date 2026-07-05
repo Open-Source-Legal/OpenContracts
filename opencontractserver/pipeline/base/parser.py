@@ -99,7 +99,24 @@ class BaseParser(PipelineComponentBase, ABC):
         # LlamaParse's api_key, a SECRET-type setting the mutation layer
         # refuses to accept as plaintext in component_settings) never collide
         # and pass through unchanged.
-        merged_kwargs = {**direct_kwargs, **self.get_component_settings()}
+        #
+        # EXCEPTION: a falsy value (``None`` or ``""``) in component_settings
+        # never overrides a truthy value already present in direct_kwargs.
+        # Empty-string is the established "not set" / placeholder convention
+        # throughout this codebase (``default_reranker``, ``default_llm``,
+        # ``default_file_converter``, and the secret-placeholder validation
+        # in the pipeline settings mutation layer all treat "" as unset). A
+        # SECRET-type field like LlamaParse's ``api_key`` is deliberately
+        # excluded from component_settings' required-ness validation and may
+        # be schema-seeded as ``""`` there while the real, env-seeded value
+        # lives only in legacy ``parser_kwargs``/``direct_kwargs``; without
+        # this guard that empty placeholder would silently clobber the real
+        # secret on every parse.
+        component_settings = self.get_component_settings()
+        merged_kwargs = {
+            **direct_kwargs,
+            **{k: v for k, v in component_settings.items() if v not in (None, "")},
+        }
         logger.info(
             f"Calling _parse_document_impl for doc_id {doc_id} with merged kwargs: {merged_kwargs}"
         )
