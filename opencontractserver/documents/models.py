@@ -1103,7 +1103,10 @@ class PipelineSettings(django.db.models.Model):
         preferred_parsers: Dict mapping MIME types to parser class paths
             Example: {"application/pdf": "opencontractserver.pipeline.parsers.docling_parser_rest.DoclingParser"}
 
-        preferred_embedders: Dict mapping MIME types to embedder class paths
+        preferred_embedders: Dict mapping MIME types to embedder class paths.
+            API-only (issue #2114): has no effect at ingest, which always
+            resolves the single global default_embedder to keep the
+            cross-corpus vector index on one embedding space.
             Example: {"application/pdf":
                 "opencontractserver.pipeline.embedders...MicroserviceEmbedder"}
 
@@ -1122,7 +1125,8 @@ class PipelineSettings(django.db.models.Model):
         component_settings: Dict mapping component class paths to their settings overrides
             Example: {"opencontractserver.pipeline.embedders.MicroserviceEmbedder": {"timeout": 30}}
 
-        default_embedder: Default embedder class path when no MIME-specific embedder is found
+        default_embedder: Default embedder class path used for all ingest embedding.
+            There is no MIME-specific override; see preferred_embedders.
 
     Security - Encrypted Secrets Storage:
         Sensitive values (API keys, credentials) can be stored in the `encrypted_secrets`
@@ -1148,11 +1152,16 @@ class PipelineSettings(django.db.models.Model):
         help_text="Mapping of MIME types to preferred parser class paths",
     )
 
-    # Preferred embedders per MIME type
+    # Preferred embedders per MIME type. API-only (issue #2114): has no
+    # effect at ingest, which always resolves the single global
+    # default_embedder to keep the cross-corpus vector index on one
+    # embedding space.
     preferred_embedders = NullableJSONField(
         default=dict,
         blank=True,
-        help_text="Mapping of MIME types to preferred embedder class paths",
+        help_text="Mapping of MIME types to preferred embedder class paths. "
+        "API-only: has no effect at ingest, which always resolves the "
+        "single global default_embedder (issue #2114).",
     )
 
     # Preferred thumbnailers per MIME type
@@ -1197,7 +1206,7 @@ class PipelineSettings(django.db.models.Model):
         help_text="List of enabled component class paths. Empty list means all components are enabled.",
     )
 
-    # Default embedder when no MIME-specific one is found
+    # Default embedder used for all ingest embedding (no MIME-specific override)
     default_embedder = django.db.models.CharField(
         max_length=512,
         blank=True,

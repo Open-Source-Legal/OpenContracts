@@ -241,7 +241,10 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
         )
         preferred_embedders = GenericScalar(
             required=False,
-            description="Mapping of MIME types to preferred embedder class paths.",
+            description="Mapping of MIME types to preferred embedder class paths. "
+            "API-only (issue #2114): has no effect at ingest, which always "
+            "resolves the single global default_embedder to keep the "
+            "cross-corpus vector index on one embedding space.",
         )
         preferred_thumbnailers = GenericScalar(
             required=False,
@@ -258,7 +261,8 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
         )
         default_embedder = graphene.String(
             required=False,
-            description="Default embedder class path when no MIME-specific embedder is found.",
+            description="Default embedder class path used for all ingest embedding. "
+            "There is no MIME-specific override; see preferred_embedders.",
         )
         default_reranker = graphene.String(
             required=False,
@@ -538,13 +542,6 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
                             pipeline_settings=None,
                         )
                 settings_instance.default_reranker = default_reranker
-                # Drop cached reranker instance so the next retrieval picks
-                # up the new configuration without a worker restart.
-                from opencontractserver.pipeline.utils import (
-                    invalidate_reranker_cache,
-                )
-
-                invalidate_reranker_cache()
 
             # Validate default_file_converter (empty string = conversion
             # disabled). Beyond registry presence, require the component to
@@ -754,6 +751,18 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
             # Record who made the change
             settings_instance.modified_by = user
             settings_instance.save()
+
+            if default_reranker is not None:
+                # Drop cached reranker instance so the next retrieval picks
+                # up the new configuration without a worker restart. Runs
+                # only after save() so a mutation rejected by the
+                # disabled-but-assigned consistency check above never
+                # invalidates the cache for a change that wasn't persisted.
+                from opencontractserver.pipeline.utils import (
+                    invalidate_reranker_cache,
+                )
+
+                invalidate_reranker_cache()
 
             updated_fields = [
                 name
