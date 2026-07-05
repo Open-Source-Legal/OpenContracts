@@ -94,8 +94,10 @@ class WarpIngestParser(BaseParser):
                 "pipeline_setting": PipelineSetting(
                     setting_type=SettingType.SECRET,
                     description=(
-                        "API key sent in the X-API-Key header (Warp-Ingest "
-                        "WARP_API_KEY). Leave blank if the service is unauthenticated."
+                        "API key sent in the X-API-Key header; must match the "
+                        "Warp-Ingest service's WARP_API_KEY (which itself defaults "
+                        "to 'abc123'). Warp-Ingest always requires a key, so a "
+                        "blank value here yields a 401 from the service."
                     ),
                     env_var="WARP_INGEST_API_KEY",
                 )

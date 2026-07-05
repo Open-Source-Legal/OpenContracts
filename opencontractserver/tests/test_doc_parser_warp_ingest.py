@@ -8,6 +8,7 @@ the real ``ghcr.io/open-source-legal/warp-ingest`` container lives in
 """
 
 import json
+from typing import cast
 from unittest.mock import MagicMock, patch
 
 from django.contrib.auth import get_user_model
@@ -16,12 +17,14 @@ from django.db import transaction
 from django.test import TestCase
 from requests.exceptions import ConnectionError, RequestException, Timeout
 
+from opencontractserver.annotations.models import Annotation, Relationship
 from opencontractserver.documents.models import Document
 from opencontractserver.pipeline.base.exceptions import DocumentParsingError
 from opencontractserver.pipeline.parsers.warp_ingest_parser import (
     WARP_INGEST_API_KEY_HEADER,
     WarpIngestParser,
 )
+from opencontractserver.types.dicts import OpenContractDocExport
 
 User = get_user_model()
 
@@ -475,3 +478,130 @@ class TestWarpIngestParserSettings(TestCase):
 
     def test_default_max_file_size_is_positive(self):
         self.assertGreater(WarpIngestParser.Settings().max_file_size_mb, 0)
+
+
+def _sample_export_with_relationships():
+    """A Warp-Ingest-shaped export with 2 structural annotations + 1 relationship.
+
+    Uses the real Warp-Ingest field shape (camelCase ``annotationLabel``/
+    ``rawText``, page-keyed ``annotation_json`` with ``bounds``/``tokensJsons``,
+    ``parent_id`` heading link, ``relationshipLabel`` + ``*_annotation_ids``) so
+    the import path is exercised against the actual export contract.
+    """
+    return {
+        "title": "Warp Doc",
+        "content": "Title\nBody",
+        "description": None,
+        "pawls_file_content": [
+            {
+                "page": {"width": 612, "height": 792, "index": 0},
+                "tokens": [
+                    {"x": 100, "y": 100, "width": 60, "height": 18, "text": "Title"},
+                    {"x": 100, "y": 130, "width": 90, "height": 18, "text": "Body"},
+                ],
+            }
+        ],
+        "page_count": 1,
+        "doc_labels": [],
+        "labelled_text": [
+            {
+                "id": "a1",
+                "annotationLabel": "Section Header",
+                "rawText": "Title",
+                "page": 0,
+                "annotation_json": {
+                    "0": {
+                        "bounds": {
+                            "left": 100,
+                            "top": 100,
+                            "right": 160,
+                            "bottom": 118,
+                        },
+                        "tokensJsons": [{"pageIndex": 0, "tokenIndex": 0}],
+                        "rawText": "Title",
+                    }
+                },
+                "parent_id": None,
+                "annotation_type": "TOKEN_LABEL",
+                "structural": True,
+                "content_modalities": ["TEXT"],
+            },
+            {
+                "id": "a2",
+                "annotationLabel": "Paragraph",
+                "rawText": "Body",
+                "page": 0,
+                "annotation_json": {
+                    "0": {
+                        "bounds": {
+                            "left": 100,
+                            "top": 130,
+                            "right": 190,
+                            "bottom": 148,
+                        },
+                        "tokensJsons": [{"pageIndex": 0, "tokenIndex": 1}],
+                        "rawText": "Body",
+                    }
+                },
+                "parent_id": "a1",
+                "annotation_type": "TOKEN_LABEL",
+                "structural": True,
+                "content_modalities": ["TEXT"],
+            },
+        ],
+        "relationships": [
+            {
+                "id": "r1",
+                "relationshipLabel": "warpRefersTo",
+                "source_annotation_ids": ["a1"],
+                "target_annotation_ids": ["a2"],
+                "structural": True,
+            }
+        ],
+    }
+
+
+class TestWarpIngestSaveParsedDataIntegration(TestCase):
+    """Lock the "no key normalization" design claim in CI.
+
+    A Warp-Ingest-shaped export flows through ``save_parsed_data`` →
+    ``import_annotations`` / ``import_relationships`` and creates the expected DB
+    rows without any key remapping — so an upstream schema drift (or a change to
+    the OpenContracts importer) that breaks this compatibility is caught here
+    rather than only by the manual smoke test
+    (``docs/test_scripts/warp_ingest_parser_smoke_test.md``).
+    """
+
+    def setUp(self):
+        with transaction.atomic():
+            self.user = User.objects.create_user(
+                username="warp_save", password="pw12345678"
+            )
+        self.doc = Document.objects.create(
+            title="Warp Save Doc", file_type="pdf", creator=self.user
+        )
+        self.doc.pdf_file.save("s.pdf", ContentFile(b"%PDF-1.7\n%%EOF\n"))
+
+    def test_warp_export_imports_without_normalization(self):
+        WarpIngestParser().save_parsed_data(
+            user_id=self.user.id,
+            doc_id=self.doc.id,
+            open_contracts_data=cast(
+                OpenContractDocExport, _sample_export_with_relationships()
+            ),
+        )
+
+        # Both structural annotations imported verbatim (camelCase keys, no remap).
+        self.assertEqual(Annotation.objects.count(), 2)
+        parent = Annotation.objects.get(raw_text="Title")
+        child = Annotation.objects.get(raw_text="Body")
+        self.assertTrue(child.structural)
+        # parent_id heading link survives the import.
+        self.assertEqual(child.parent, parent)
+        # The relationship imported (subtree-group materialization may add more,
+        # so assert our specific labelled relationship exists rather than a count).
+        self.assertTrue(
+            Relationship.objects.filter(
+                relationship_label__text="warpRefersTo"
+            ).exists()
+        )
