@@ -9,6 +9,7 @@ directory-traversal guard, which must never serve a file outside
 import io
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -191,3 +192,72 @@ class DesktopBootstrapTests(TestCase):
             # still works; only Tier-1 secrets/component settings degrade.
             cmd._seed_pipeline_settings()
         self.assertIn("did not seed", err.getvalue())
+
+
+class SqlAlchemyResultUrlTests(SimpleTestCase):
+    """The Django DATABASE_URL → Celery SQLAlchemy result-backend mapping."""
+
+    def test_postgres_scheme_mapped(self):
+        from opencontractserver.desktop.db import sqlalchemy_result_backend_url
+
+        self.assertEqual(
+            sqlalchemy_result_backend_url("postgres://u:p@h:5432/db"),
+            "db+postgresql://u:p@h:5432/db",
+        )
+
+    def test_query_string_preserved(self):
+        from opencontractserver.desktop.db import sqlalchemy_result_backend_url
+
+        self.assertEqual(
+            sqlalchemy_result_backend_url("postgresql://u@h/db?sslmode=require"),
+            "db+postgresql://u@h/db?sslmode=require",
+        )
+
+    def test_non_postgres_passthrough(self):
+        from opencontractserver.desktop.db import sqlalchemy_result_backend_url
+
+        self.assertEqual(
+            sqlalchemy_result_backend_url("sqlite:////tmp/x.db"),
+            "db+sqlite:////tmp/x.db",
+        )
+
+
+class DesktopSettingsImportTests(SimpleTestCase):
+    """config.settings.desktop must import cleanly even under a hostile env.
+
+    base.py branches on USE_AUTH0 / STORAGE_BACKEND at its own import time with
+    no fallbacks, so a stray ``USE_AUTH0=true`` / ``STORAGE_BACKEND=GCP`` in the
+    process environment must not crash the desktop profile's import.
+    """
+
+    def test_imports_under_hostile_env(self):
+        repo_root = Path(__file__).resolve().parents[2]
+        env = {
+            **os.environ,
+            "DJANGO_SETTINGS_MODULE": "config.settings.desktop",
+            "DJANGO_READ_DOT_ENV_FILE": "False",
+            "USE_AUTH0": "true",  # base would require AUTH0_* with no defaults
+            "STORAGE_BACKEND": "GCP",  # base would require GS_BUCKET_NAME
+            "OC_DESKTOP_DATA_DIR": tempfile.mkdtemp(),
+            "PYTHONPATH": str(repo_root),
+        }
+        # Drop any inherited DATABASE_URL so the profile's setdefault is exercised.
+        env.pop("DATABASE_URL", None)
+        script = (
+            "import config.settings.desktop as s;"
+            "assert s.USE_AUTH0 is False, s.USE_AUTH0;"
+            "assert s.STORAGE_BACKEND == 'LOCAL', s.STORAGE_BACKEND;"
+            "assert s.CELERY_RESULT_BACKEND.startswith('db+postgresql://'), "
+            "s.CELERY_RESULT_BACKEND;"
+            "print('DESKTOP_IMPORT_OK')"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            env=env,
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("DESKTOP_IMPORT_OK", result.stdout)

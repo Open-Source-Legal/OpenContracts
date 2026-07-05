@@ -156,7 +156,11 @@ if getattr(settings, "OC_DESKTOP_SPA_ROOT", ""):
         _re_path(
             # Exclude the backend route prefixes by whole path segment (``/`` or
             # end-of-path) so a future SPA route like ``/mcp-guide`` still falls
-            # through to index.html.
+            # through to index.html. Note: mcp/sse (intercepted by the ASGI
+            # router in config/asgi.py) and ws (a separate websocket protocol
+            # scope) never reach these http urlpatterns anyway — they are
+            # defensive-only here; api/graphql/admin/static/media are the
+            # load-bearing exclusions.
             r"^(?!(?:api|graphql|admin|mcp|sse|ws|static|media)(?:/|$))"
             r"(?P<resource_path>.*)$",
             spa_fallback,

@@ -157,6 +157,13 @@ class WarpIngestParserTests(TestCase):
                 self.parser._parse_document_impl(self.user.id, self.doc.id)
         self.assertFalse(ctx.exception.is_transient)
 
+    def test_network_failure_is_transient(self):
+        # e.g. a first-run OCR model download over a flaky network — retryable.
+        with _FakeWarpIngest(parse_side_effect=ConnectionError("net down")):
+            with self.assertRaises(DocumentParsingError) as ctx:
+                self.parser._parse_document_impl(self.user.id, self.doc.id)
+        self.assertTrue(ctx.exception.is_transient)
+
     def test_missing_dependency_raises_permanent_error(self):
         # sys.modules[name]=None makes ``import warp_ingest`` raise ImportError.
         saved = sys.modules.get("warp_ingest")

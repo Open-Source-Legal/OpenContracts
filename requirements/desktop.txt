@@ -5,6 +5,12 @@
 # docs/deployment/desktop_packaging.md.
 -r base.txt
 
+# PostgreSQL driver for Django's own DB connection. base.txt has no psycopg
+# (it lives in local.txt/production.txt), so the desktop profile must add one
+# or ``manage.py migrate`` fails on a clean install. The -binary wheel needs no
+# system build tools — the right choice for an end-user desktop install.
+psycopg2-binary==2.9.12
+
 # In-process PDF parsing (replaces the Docling microservice). Pure-Python,
 # rule-based, no torch/GPU. The [ocr] extra adds CPU-only rapidocr-onnxruntime
 # for scanned pages; drop it for a smaller, born-digital-only install.

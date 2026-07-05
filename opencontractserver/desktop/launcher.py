@@ -131,9 +131,10 @@ def _start_postgres(env: dict[str, str]) -> None:
     Embedded-Postgres wiring is hardened in Phase 1; if ``pgserver`` is absent we
     fail fast with guidance rather than pretend a DB exists.
     """
-    external = os.environ.get("DATABASE_URL")
+    # Read from the threaded env (a copy of os.environ) for consistency with the
+    # rest of the launcher — nothing mutates DATABASE_URL before this point.
+    external = env.get("DATABASE_URL")
     if external:
-        env["DATABASE_URL"] = external
         print(f"[oc-desktop] Using external DATABASE_URL ({external.split('@')[-1]}).")
         return
 
@@ -310,10 +311,13 @@ def main() -> None:
     port = _free_port()
     _write_env_config(spa_dir, port)
 
+    # Single teardown path: atexit runs _shutdown on every exit (normal return,
+    # SystemExit from a signal, or an unhandled exception). The signal handlers
+    # just raise SystemExit so they funnel through the same hook rather than
+    # calling _shutdown themselves (which would run it twice).
     atexit.register(_shutdown)
 
     def _handle_signal(_signum, _frame):
-        _shutdown()
         sys.exit(0)
 
     signal.signal(signal.SIGINT, _handle_signal)
@@ -330,16 +334,13 @@ def main() -> None:
     with contextlib.suppress(Exception):
         webbrowser.open(url)
 
-    # Supervise: exit if any child dies.
-    try:
-        while True:
-            for proc in _children:
-                if proc.poll() is not None:
-                    print(f"[oc-desktop] child pid {proc.pid} exited; shutting down.")
-                    return
-            time.sleep(1)
-    finally:
-        _shutdown()
+    # Supervise: return (atexit then tears everything down) if any child dies.
+    while True:
+        for proc in _children:
+            if proc.poll() is not None:
+                print(f"[oc-desktop] child pid {proc.pid} exited; shutting down.")
+                return
+        time.sleep(1)
 
 
 def _wait_for_http(url: str, timeout: int = 60) -> bool:

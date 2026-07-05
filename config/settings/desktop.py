@@ -24,15 +24,27 @@ launcher. See ``docs/deployment/desktop_packaging.md``.
 import os
 
 from opencontractserver.desktop import paths
+from opencontractserver.desktop.db import sqlalchemy_result_backend_url
 
-# Env defaults so the profile imports cleanly under a bare ``manage.py`` (the
-# launcher overrides DATABASE_URL with the embedded-Postgres connection). Set
-# BEFORE importing base, which reads DATABASE_URL with no default of its own.
+# These env vars MUST be settled BEFORE importing base, because base.py branches
+# on them AT ITS OWN IMPORT TIME with no fallbacks — a stray value inherited from
+# the process env (e.g. a shell that sourced a production ``.env``) would crash
+# the import before any reassignment below could apply.
+#   * DATABASE_URL — base reads it with no default. ``setdefault`` so a user can
+#     still point the desktop build at an external database.
+#   * USE_AUTH0 — a truthy value makes base require AUTH0_CLIENT_ID/AUDIENCE/etc.
+#     (no defaults). The desktop profile is inherently single-user with no Auth0
+#     tenant, so we FORCE it off (a hard set, not setdefault — setdefault would
+#     leave an explicit ``USE_AUTH0=true`` in place and still crash base).
+#   * STORAGE_BACKEND — AWS/GCP require bucket/credential vars with no defaults;
+#     the desktop build is always local storage, so FORCE it too.
 os.environ.setdefault("DJANGO_READ_DOT_ENV_FILE", "False")
 os.environ.setdefault(
     "DATABASE_URL",
     "postgres://opencontracts:opencontracts@127.0.0.1:5464/opencontracts",
 )
+os.environ["USE_AUTH0"] = "False"
+os.environ["STORAGE_BACKEND"] = "LOCAL"
 
 from .base import *  # noqa: E402,F401,F403
 from .base import SECURE_CSP_DIRECTIVES, env  # noqa: E402
@@ -67,8 +79,9 @@ if not SECRET_KEY:
         stacklevel=1,
     )
 
-# Local, single-user auth — no Auth0 tenant.
-USE_AUTH0 = False
+# USE_AUTH0 and STORAGE_BACKEND are pinned to the desktop-safe values via the
+# ``os.environ.setdefault`` block at the top (they must be settled BEFORE base's
+# import-time branches), so no reassignment is needed here.
 
 # CACHES — no Redis; process-local memory cache.
 # ------------------------------------------------------------------------------
@@ -82,7 +95,8 @@ CACHES = {
 
 # STORAGE — local files under the per-user app-data directory.
 # ------------------------------------------------------------------------------
-STORAGE_BACKEND = "LOCAL"
+# STORAGE_BACKEND=LOCAL is set via the top setdefault block; base already wired
+# the local FileSystemStorage. Only the per-user roots are overridden here.
 MEDIA_ROOT = str(paths.media_dir())
 STATIC_ROOT = str(paths.static_dir())
 # Serve /media/ from Django even with DEBUG=False. The desktop build stores
@@ -152,16 +166,10 @@ _broker_transport_options = {
 }
 CELERY_BROKER_TRANSPORT_OPTIONS = _broker_transport_options  # type: ignore[assignment]
 
-
-def _sqlalchemy_result_url(database_url: str) -> str:
-    """Map a Django ``DATABASE_URL`` to a Celery SQLAlchemy result backend URL."""
-    scheme, _, rest = database_url.partition("://")
-    if scheme in ("postgres", "postgresql", "postgis"):
-        return f"db+postgresql://{rest}"
-    return f"db+{database_url}"
-
-
-CELERY_RESULT_BACKEND = _sqlalchemy_result_url(env("DATABASE_URL"))
+# Reuse the bundled Postgres as the Celery result backend (chords need a real
+# result backend; no Redis). See opencontractserver/desktop/db.py for the pure,
+# unit-tested URL mapping.
+CELERY_RESULT_BACKEND = sqlalchemy_result_backend_url(env("DATABASE_URL"))
 # Use the file-based PersistentScheduler so beat needs no django_celery_beat DB
 # rows. The launcher runs a ``celery beat`` subprocess against it (Phase 0);
 # collapsing beat into an in-process APScheduler is a Phase-1 follow-up.

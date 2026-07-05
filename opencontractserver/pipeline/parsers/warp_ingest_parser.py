@@ -160,7 +160,15 @@ class WarpIngestParser(BaseParser):
                 export: OpenContractDocExport = pdf_ingestor.parse_to_opencontracts(
                     tmp_path, parse_options
                 )
+            except (ConnectionError, TimeoutError) as exc:
+                # e.g. a first-run OCR model download (rapidocr) over a flaky
+                # network — retryable, not a permanent content failure.
+                raise DocumentParsingError(
+                    f"Warp-Ingest transient failure on document {doc_id}: {exc}",
+                    is_transient=True,
+                ) from exc
             except Exception as exc:
+                # Deterministic local parse of a bad/unsupported PDF — permanent.
                 raise DocumentParsingError(
                     f"Warp-Ingest failed to parse document {doc_id}: {exc}",
                     is_transient=False,
