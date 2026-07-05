@@ -153,7 +153,10 @@ if getattr(settings, "OC_DESKTOP_SPA_ROOT", ""):
 
     urlpatterns += [
         _re_path(
-            r"^(?!api/|graphql/|admin/|mcp|sse|ws/|static/|media/)"
+            # Exclude the backend route prefixes by whole path segment (``/`` or
+            # end-of-path) so a future SPA route like ``/mcp-guide`` still falls
+            # through to index.html.
+            r"^(?!(?:api|graphql|admin|mcp|sse|ws|static|media)(?:/|$))"
             r"(?P<resource_path>.*)$",
             spa_fallback,
             name="spa_fallback",

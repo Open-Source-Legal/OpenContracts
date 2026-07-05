@@ -2,12 +2,14 @@
 
 The docker-compose / production topology serves the frontend from its own
 container (nginx). The single-user desktop build has no such container: Daphne
-serves both the API and the SPA. WhiteNoise (already in ``MIDDLEWARE``) serves
-the SPA's hashed static assets directly from ``settings.OC_DESKTOP_SPA_ROOT``;
-this catch-all returns ``index.html`` for any remaining path so client-side
-routes (deep links) resolve. It is only wired into ``urls.py`` when
-``OC_DESKTOP_SPA_ROOT`` is set (i.e. the desktop profile), so other deployments
-are unaffected.
+serves both the API and the SPA. This catch-all serves everything under
+``settings.OC_DESKTOP_SPA_ROOT`` (the built ``dist/``): a real file at the
+requested path (a hashed JS/CSS asset) is streamed directly, and any other path
+falls back to ``index.html`` so client-side routes (deep links) resolve.
+WhiteNoise is only configured against Django's own ``STATIC_ROOT`` (admin/DRF
+static), NOT the SPA dir, so asset requests are handled here, not by WhiteNoise.
+It is only wired into ``urls.py`` when ``OC_DESKTOP_SPA_ROOT`` is set (i.e. the
+desktop profile), so other deployments are unaffected.
 """
 
 import logging

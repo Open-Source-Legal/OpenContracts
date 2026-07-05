@@ -83,6 +83,11 @@ CACHES = {
 STORAGE_BACKEND = "LOCAL"
 MEDIA_ROOT = str(paths.media_dir())
 STATIC_ROOT = str(paths.static_dir())
+# Serve /media/ from Django even with DEBUG=False. The desktop build stores
+# files locally with no nginx/S3/GCS in front, so without this every
+# ``FieldFile.url`` (uploaded PDFs, thumbnails) would 404 in the browser.
+# config/urls.py wires django.views.static.serve when this flag is set.
+SERVE_MEDIA_WITHOUT_DEBUG = True
 
 # PIPELINE — offline / in-process components (no ML microservices).
 # ------------------------------------------------------------------------------

@@ -262,7 +262,11 @@ def main() -> None:
     _start_postgres(env)
     _manage(env, "migrate", "--noinput")
     _first_run_bootstrap(env)
-    _manage(env, "collectstatic", "--noinput", check=False)
+    if _manage(env, "collectstatic", "--noinput", check=False) != 0:
+        print(
+            "[oc-desktop] WARNING: collectstatic failed; Django admin/DRF static "
+            "assets may be missing (the SPA itself is served from dist/)."
+        )
 
     spa_dir = _resolve_spa_dir(env)
     port = _free_port()

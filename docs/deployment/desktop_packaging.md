@@ -86,7 +86,9 @@ Everything is stored under a per-user app-data directory
 (`opencontractserver/desktop/paths.py`): `pgdata/`, `media/`, `staticfiles/`,
 `celery-broker/`, `nltk_data/`, and the first-run `.bootstrapped` marker. Point
 at an existing database instead of the embedded one by exporting `DATABASE_URL`
-before launch.
+before launch. (An external database must already have the `vector` extension
+available — the embedded `pgserver` path runs `CREATE EXTENSION IF NOT EXISTS
+vector` for you; the external path does not.)
 
 **Secrets are env-sourced, never written to disk** (Phase 0): the launcher
 generates a per-run `DJANGO_SECRET_KEY` and shares it across child processes

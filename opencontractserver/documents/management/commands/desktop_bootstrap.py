@@ -69,16 +69,14 @@ class Command(BaseCommand):
         # unset, the user is created with an unusable password and the operator
         # sets one explicitly; the launcher passes OC_DESKTOP_PASSWORD through.
         password = os.environ.get("OC_DESKTOP_PASSWORD") or None
-        user = User.objects.create_superuser(
-            username=username, email=email, password=password
-        )
+        # create_superuser(password=None) already stores an unusable password
+        # (set_password(None) -> set_unusable_password), so no explicit reset.
+        User.objects.create_superuser(username=username, email=email, password=password)
         if password:
             self.stdout.write(
                 self.style.SUCCESS(f"Created local superuser '{username}'.")
             )
         else:
-            user.set_unusable_password()
-            user.save(update_fields=["password"])
             self.stdout.write(
                 self.style.WARNING(
                     f"Created local superuser '{username}' with NO login "
