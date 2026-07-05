@@ -1,11 +1,12 @@
 import functools
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Callable, Optional, TypeVar, Union, cast
+from typing import Any, Optional, Protocol, TypeVar, Union, cast
 
 import requests
 from celery import shared_task
 from celery.utils.log import get_task_logger
+from django.conf import settings
 from django.contrib.auth import get_user_model
 
 from opencontractserver.annotations.models import Annotation, Note, Relationship
@@ -35,6 +36,68 @@ logger = get_task_logger(__name__)
 logger.setLevel(logging.DEBUG)
 
 
+# --------------------------------------------------------------------------- #
+# Bulk-ingest embeddings pool routing
+# --------------------------------------------------------------------------- #
+#
+# Ingest (the Celery tasks in this module) routes embedding calls through a
+# dedicated "bulk" microservice pool so that batch ingest load never competes
+# with — or cold-starts — the always-warm query pod that search call sites use
+# via ``settings.EMBEDDINGS_MICROSERVICE_URL``. The redirect reuses the
+# embedder's *existing* call-time override kwarg (``embeddings_microservice_url``,
+# read in ``MicroserviceEmbedder._get_service_config``) rather than
+# reconstructing the embedder or touching the base class — see
+# ``docs/deployment/performance_tuning.md``.
+
+
+def _bulk_embeddings_service_url() -> Optional[str]:
+    """Resolve the ingest ("bulk") embeddings-pool URL from settings.
+
+    Read at call time (not import time) so ``override_settings`` in tests and
+    runtime reconfiguration both take effect. Returns ``None`` when unset, which
+    leaves ingest on the embedder's configured URL. The setting defaults to
+    ``EMBEDDINGS_MICROSERVICE_URL`` (see ``config/settings/base.py``), so
+    single-pool deployments are unaffected.
+    """
+    return getattr(settings, "EMBEDDINGS_MICROSERVICE_URL_BULK", None)
+
+
+def _service_url_override_kwargs(service_url_override: Optional[str]) -> dict[str, str]:
+    """Translate a ``service_url_override`` into the embedder's call-time URL kwarg.
+
+    The text microservice embedder reads ``embeddings_microservice_url`` from its
+    per-call kwargs, overriding the settings-derived value. Threading the bulk
+    URL this way keeps the embedder client and base class untouched; embedders
+    that don't read this kwarg (hosted providers, multimodal image pools) simply
+    ignore it.
+
+    Returns an empty dict when no override is supplied, leaving the embedder on
+    its configured URL so default (query-pod) behavior is unchanged.
+    """
+    if not service_url_override:
+        return {}
+    return {"embeddings_microservice_url": service_url_override}
+
+
+class _EmbedFunc(Protocol):
+    """Call shape shared by every ``embed_func`` handed to the dual strategy.
+
+    Accepts the ``(obj, embedder, embedder_path)`` positional triple plus an
+    optional ``service_url_override`` keyword. The strategy only forwards the
+    keyword when a bulk URL is set, so closures written against the original
+    three-argument contract keep working.
+    """
+
+    def __call__(
+        self,
+        obj: Any,
+        embedder: "BaseEmbedder",
+        embedder_path: str,
+        *,
+        service_url_override: Optional[str] = ...,
+    ) -> bool: ...
+
+
 def _create_text_embedding(
     obj: HasEmbeddingMixin,
     embedder: BaseEmbedder,
@@ -42,6 +105,7 @@ def _create_text_embedding(
     text: str,
     obj_type: str,
     obj_id: int,
+    service_url_override: Optional[str] = None,
 ) -> bool:
     """
     Helper to create a text embedding for any object with HasEmbeddingMixin.
@@ -53,6 +117,9 @@ def _create_text_embedding(
         text: The text to embed
         obj_type: Type name for logging (e.g., "document", "note")
         obj_id: Object ID for logging
+        service_url_override: Optional embeddings-microservice URL that routes
+            this call to the bulk ingest pool instead of the embedder's
+            configured (query-pod) URL. ``None`` leaves the embedder unchanged.
 
     Returns:
         True if embedding was created successfully, False otherwise
@@ -66,7 +133,9 @@ def _create_text_embedding(
         f"with embedder {embedder_path} (text length={len(text)})"
     )
 
-    vector = embedder.embed_text(text)
+    vector = embedder.embed_text(
+        text, **_service_url_override_kwargs(service_url_override)
+    )
 
     if vector is None:
         logger.error(
@@ -92,6 +161,8 @@ def _create_embedding_for_annotation(
     annotation: Annotation,
     embedder: BaseEmbedder,
     embedder_path: str,
+    *,
+    service_url_override: Optional[str] = None,
 ) -> bool:
     """
     Helper to create a single embedding for an annotation.
@@ -103,6 +174,10 @@ def _create_embedding_for_annotation(
         annotation: The annotation to embed
         embedder: The embedder instance to use
         embedder_path: Path identifier for the embedder
+        service_url_override: Optional embeddings-microservice URL routing the
+            text path to the bulk ingest pool. Only the text branches honor it;
+            multimodal image embedding keeps its own (multimodal) pool since the
+            bulk setting is text-only.
 
     Returns:
         True if embedding was created successfully, False otherwise
@@ -161,6 +236,7 @@ def _create_embedding_for_annotation(
                 annotation.raw_text or "",
                 "annotation",
                 annotation.id,
+                service_url_override=service_url_override,
             )
     # Standard text-only embedding (annotation is either text-only, or
     # contains images that the embedder cannot handle and will drop).
@@ -178,6 +254,7 @@ def _create_embedding_for_annotation(
         annotation.raw_text or "",
         "annotation",
         annotation.id,
+        service_url_override=service_url_override,
     )
 
 
@@ -196,7 +273,8 @@ def _apply_dual_embedding_strategy(
     corpus_id: Optional[int],
     obj_type: str,
     obj_id: int,
-    embed_func: Callable[[_EmbeddableT, BaseEmbedder, str], bool],
+    embed_func: _EmbedFunc,
+    service_url_override: Optional[str] = None,
 ) -> None:
     """
     Apply the dual embedding strategy to any embeddable object.
@@ -212,6 +290,11 @@ def _apply_dual_embedding_strategy(
         obj_type: Type name for logging (e.g., "document", "annotation")
         obj_id: Object ID for logging
         embed_func: Function to call for creating embeddings (handles modality specifics)
+        service_url_override: Optional embeddings-microservice URL forwarded to
+            ``embed_func`` (both the default and corpus-specific passes) so ingest
+            routes through the bulk pool. Forwarded only when set, keeping the
+            original three-argument ``embed_func`` contract intact for callers
+            that don't need it.
 
     Raises:
         EmbeddingGenerationError: If the default embedding fails (triggers Celery retry).
@@ -220,6 +303,13 @@ def _apply_dual_embedding_strategy(
     if not text.strip():
         logger.info(f"{obj_type.capitalize()} {obj_id} has no text to embed.")
         return
+
+    # Only thread the override keyword when a bulk URL is set, so ``embed_func``
+    # closures written against the original ``(obj, embedder, path)`` contract
+    # keep working unchanged.
+    embed_extra: dict[str, str] = (
+        {"service_url_override": service_url_override} if service_url_override else {}
+    )
 
     # 1. Always create DEFAULT_EMBEDDER embedding (for global search)
     default_embedder_path = get_default_embedder_path()
@@ -236,7 +326,7 @@ def _apply_dual_embedding_strategy(
         if default_embedder_class:
             default_embedder = default_embedder_class()
             default_embedding_succeeded = embed_func(
-                obj, default_embedder, default_embedder_path
+                obj, default_embedder, default_embedder_path, **embed_extra
             )
             if not default_embedding_succeeded:
                 default_embedding_error = "Embedder returned None or failed to store"
@@ -266,7 +356,7 @@ def _apply_dual_embedding_strategy(
                     )
                     corpus_embedder = corpus_embedder_class()
                     corpus_succeeded = embed_func(
-                        obj, corpus_embedder, corpus_embedder_path
+                        obj, corpus_embedder, corpus_embedder_path, **embed_extra
                     )
                     if not corpus_succeeded:
                         logger.warning(
@@ -331,9 +421,15 @@ def calculate_embedding_for_doc_text(
             text = ""
 
         # Create embed function for documents (text-only)
-        def doc_embed_func(obj, embedder, embedder_path):
+        def doc_embed_func(obj, embedder, embedder_path, *, service_url_override=None):
             return _create_text_embedding(
-                obj, embedder, embedder_path, text, "document", doc.id
+                obj,
+                embedder,
+                embedder_path,
+                text,
+                "document",
+                doc.id,
+                service_url_override=service_url_override,
             )
 
         _apply_dual_embedding_strategy(
@@ -343,6 +439,7 @@ def calculate_embedding_for_doc_text(
             obj_type="document",
             obj_id=doc.id,
             embed_func=doc_embed_func,
+            service_url_override=_bulk_embeddings_service_url(),
         )
 
     except Exception as e:
@@ -406,7 +503,10 @@ def calculate_embedding_for_annotation_text(
             )
             embedder = embedder_class()
             succeeded = _create_embedding_for_annotation(
-                annotation, embedder, embedder_path
+                annotation,
+                embedder,
+                embedder_path,
+                service_url_override=_bulk_embeddings_service_url(),
             )
             if not succeeded:
                 raise EmbeddingGenerationError(
@@ -433,10 +533,8 @@ def calculate_embedding_for_annotation_text(
         corpus_id=int(effective_corpus_id) if effective_corpus_id else None,
         obj_type="annotation",
         obj_id=annotation.id,
-        embed_func=cast(
-            "Callable[[HasEmbeddingMixin, BaseEmbedder, str], bool]",
-            _create_embedding_for_annotation,
-        ),
+        embed_func=cast(_EmbedFunc, _create_embedding_for_annotation),
+        service_url_override=_bulk_embeddings_service_url(),
     )
 
 
@@ -446,6 +544,7 @@ def _batch_embed_text_annotations(
     embedder_path: str,
     api_batch_size: int,
     result: dict,
+    service_url_override: Optional[str] = None,
 ) -> None:
     """
     Embed a list of text-only annotations using batched API calls.
@@ -473,6 +572,9 @@ def _batch_embed_text_annotations(
         embedder_path: Embedder path string stored alongside the vector.
         api_batch_size: Max texts per ``embed_texts_batch`` call.
         result: Mutable summary dict (keys: succeeded, failed, skipped, errors).
+        service_url_override: Optional embeddings-microservice URL that routes
+            every ``embed_texts_batch`` sub-batch to the bulk ingest pool.
+            ``None`` leaves the embedder on its configured URL.
     """
     # Build (annotation, text) tuples, filtering out empties
     items: list[tuple[Annotation, str]] = []
@@ -527,9 +629,11 @@ def _batch_embed_text_annotations(
     )
     logger.info(log_prefix)
 
+    batch_override_kwargs = _service_url_override_kwargs(service_url_override)
+
     def _embed_one(chunk):
         texts_only = [text for _, text in chunk]
-        return chunk, embedder.embed_texts_batch(texts_only)
+        return chunk, embedder.embed_texts_batch(texts_only, **batch_override_kwargs)
 
     # Map future -> chunk index for logging/sub-batch numbering.
     #
@@ -728,6 +832,10 @@ def calculate_embeddings_for_annotation_batch(
     if not annotation_ids:
         return result
 
+    # Ingest routes every embedder call through the bulk pool (see
+    # ``_bulk_embeddings_service_url``); resolved once for the whole batch.
+    bulk_service_url = _bulk_embeddings_service_url()
+
     logger.info(
         f"Processing batch of {len(annotation_ids)} annotations "
         f"(corpus_id={corpus_id}, embedder_path={embedder_path})"
@@ -805,6 +913,7 @@ def calculate_embeddings_for_annotation_batch(
                     embedder_path,
                     api_batch_size,
                     result,
+                    service_url_override=bulk_service_url,
                 )
             except ValueError as e:
                 # Programming error (e.g., batch size misconfiguration).
@@ -833,7 +942,10 @@ def calculate_embeddings_for_annotation_batch(
         for annot in multimodal_annots:
             try:
                 succeeded = _create_embedding_for_annotation(
-                    annot, embedder, embedder_path
+                    annot,
+                    embedder,
+                    embedder_path,
+                    service_url_override=bulk_service_url,
                 )
                 if succeeded:
                     result["succeeded"] += 1
@@ -867,10 +979,8 @@ def calculate_embeddings_for_annotation_batch(
                     ),
                     obj_type="annotation",
                     obj_id=annotation.id,
-                    embed_func=cast(
-                        "Callable[[HasEmbeddingMixin, BaseEmbedder, str], bool]",
-                        _create_embedding_for_annotation,
-                    ),
+                    embed_func=cast(_EmbedFunc, _create_embedding_for_annotation),
+                    service_url_override=bulk_service_url,
                 )
                 result["succeeded"] += 1
             except Exception as e:
@@ -920,9 +1030,15 @@ def calculate_embedding_for_note_text(
         effective_corpus_id = corpus_id or (note.corpus_id if note.corpus else None)
 
         # Create embed function for notes (text-only)
-        def note_embed_func(obj, embedder, embedder_path):
+        def note_embed_func(obj, embedder, embedder_path, *, service_url_override=None):
             return _create_text_embedding(
-                obj, embedder, embedder_path, text, "note", note.id
+                obj,
+                embedder,
+                embedder_path,
+                text,
+                "note",
+                note.id,
+                service_url_override=service_url_override,
             )
 
         _apply_dual_embedding_strategy(
@@ -932,6 +1048,7 @@ def calculate_embedding_for_note_text(
             obj_type="note",
             obj_id=note.id,
             embed_func=note_embed_func,
+            service_url_override=_bulk_embeddings_service_url(),
         )
 
     except Exception as e:
@@ -952,6 +1069,7 @@ def _embed_relationship(
     embedder_path: str,
     *,
     precomputed_text: str | None = None,
+    service_url_override: Optional[str] = None,
 ) -> bool:
     """Embed a single Relationship using ``synthesize_relationship_block_text``.
 
@@ -964,6 +1082,9 @@ def _embed_relationship(
     would re-synthesize the block text on every embedder pass
     (default + corpus-preferred), which is wasted work when batches
     grow.
+
+    ``service_url_override`` routes the embedder call to the bulk ingest
+    pool; ``None`` leaves the embedder on its configured URL.
     """
     text = (
         precomputed_text
@@ -984,7 +1105,9 @@ def _embed_relationship(
         embedder_path,
         len(text),
     )
-    vector = embedder.embed_text(text)
+    vector = embedder.embed_text(
+        text, **_service_url_override_kwargs(service_url_override)
+    )
     if vector is None:
         logger.error(
             "Embedder %s returned None for relationship %s",
@@ -1069,6 +1192,10 @@ def calculate_embeddings_for_relationship_batch(
     if not relationship_ids:
         return result
 
+    # Ingest routes every embedder call through the bulk pool (see
+    # ``_bulk_embeddings_service_url``); resolved once for the whole batch.
+    bulk_service_url = _bulk_embeddings_service_url()
+
     logger.info(
         "Embedding batch of %s relationships (corpus_id=%s, embedder_path=%s)",
         len(relationship_ids),
@@ -1106,7 +1233,12 @@ def calculate_embeddings_for_relationship_batch(
                 result["skipped"] += 1
                 continue
             try:
-                if _embed_relationship(rel, explicit_embedder, embedder_path):
+                if _embed_relationship(
+                    rel,
+                    explicit_embedder,
+                    embedder_path,
+                    service_url_override=bulk_service_url,
+                ):
                     result["succeeded"] += 1
                 else:
                     result["failed"] += 1
@@ -1147,6 +1279,7 @@ def calculate_embeddings_for_relationship_batch(
                 embed_func=functools.partial(
                     _embed_relationship, precomputed_text=rel_text
                 ),
+                service_url_override=bulk_service_url,
             )
             result["succeeded"] += 1
         except Exception as e:

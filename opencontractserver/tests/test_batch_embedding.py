@@ -303,6 +303,59 @@ class TestBatchEmbedTextAnnotations(unittest.TestCase):
 
         self.assertEqual(result["succeeded"], 6)
 
+    def test_service_url_override_threaded_to_embedder(self):
+        """service_url_override is forwarded as the embeddings_microservice_url kwarg.
+
+        This is how ingest routes to the bulk pool without touching the
+        embedder client or base class (issue: bulk embeddings pool).
+        """
+        captured: dict = {}
+
+        class RecordingEmbedder(DummyEmbedder384):
+            def embed_texts_batch(self, texts, **kw):
+                captured.update(kw)
+                return [[0.1] * self.vector_size for _ in texts]
+
+        annots = [_make_mock_annotation(1, "hello")]
+        result = self._make_result()
+
+        _batch_embed_text_annotations(
+            annots,
+            RecordingEmbedder(),
+            "test.RecordingEmbedder",
+            50,
+            result,
+            service_url_override="http://bulk-pool:8000",
+        )
+
+        self.assertEqual(result["succeeded"], 1)
+        self.assertEqual(
+            captured.get("embeddings_microservice_url"), "http://bulk-pool:8000"
+        )
+
+    def test_no_service_url_override_passes_no_url_kwarg(self):
+        """Default (no override) leaves the embedder on its configured URL.
+
+        No ``embeddings_microservice_url`` kwarg leaks to the embedder, so
+        query-pod behavior is unchanged when the bulk setting is absent.
+        """
+        captured: dict = {"kw": None}
+
+        class RecordingEmbedder(DummyEmbedder384):
+            def embed_texts_batch(self, texts, **kw):
+                captured["kw"] = kw
+                return [[0.1] * self.vector_size for _ in texts]
+
+        annots = [_make_mock_annotation(1, "hello")]
+        result = self._make_result()
+
+        _batch_embed_text_annotations(
+            annots, RecordingEmbedder(), "test.RecordingEmbedder", 50, result
+        )
+
+        self.assertEqual(result["succeeded"], 1)
+        self.assertEqual(captured["kw"], {})
+
     def test_batch_api_failure(self):
         """When embed_texts_batch raises, all annotations in that chunk fail."""
         annots = [_make_mock_annotation(i, f"Text {i}") for i in range(3)]
@@ -877,6 +930,45 @@ class TestCalculateEmbeddingsForAnnotationBatch(unittest.TestCase):
         self.assertEqual(result["skipped"], 0)
         for annot in annots:
             annot.add_embedding.assert_called_once()
+
+    @patch("opencontractserver.tasks.embeddings_task.get_component_by_name")
+    @patch("opencontractserver.tasks.embeddings_task.Annotation")
+    def test_bulk_url_from_settings_threaded_to_embedder(
+        self, mock_ann_cls, mock_get_component
+    ):
+        """The batch task reads EMBEDDINGS_MICROSERVICE_URL_BULK and routes ingest there.
+
+        End-to-end check that the entry point resolves the bulk setting and
+        threads it through to the embedder's per-call override kwarg.
+        """
+        from django.test import override_settings
+
+        captured: dict = {}
+
+        class RecordingEmbedder(DummyEmbedder384):
+            def embed_texts_batch(self, texts, **kw):
+                captured.update(kw)
+                return [[0.1] * self.vector_size for _ in texts]
+
+        annots = [
+            _make_mock_annotation(1, "Hello world"),
+            _make_mock_annotation(2, "Second text"),
+        ]
+        mock_ann_cls.objects = self._mock_objects(annots)
+        mock_get_component.return_value = RecordingEmbedder
+
+        with override_settings(
+            EMBEDDINGS_MICROSERVICE_URL_BULK="http://bulk-pool:8000"
+        ):
+            result = calculate_embeddings_for_annotation_batch(
+                annotation_ids=[1, 2],
+                embedder_path="test.RecordingEmbedder",
+            )
+
+        self.assertEqual(result["succeeded"], 2)
+        self.assertEqual(
+            captured.get("embeddings_microservice_url"), "http://bulk-pool:8000"
+        )
 
     @patch("opencontractserver.tasks.embeddings_task.get_component_by_name")
     def test_batch_path_empty_ids(self, mock_get_component):

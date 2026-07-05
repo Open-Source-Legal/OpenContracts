@@ -1170,6 +1170,16 @@ DEFAULT_PERMISSIONS_GROUP = "Public Objects Access"
 EMBEDDINGS_MICROSERVICE_URL = env(
     "EMBEDDINGS_MICROSERVICE_URL", default="http://vector-embedder:8000"
 )
+# Ingest ("bulk") embeddings pool. Query call sites keep reading
+# EMBEDDINGS_MICROSERVICE_URL (the always-warm pod) so search latency is never
+# affected. Batch ingest (the Celery tasks in
+# opencontractserver/tasks/embeddings_task.py) routes through this bulk pool
+# instead, which can scale to zero / cold-start under load without touching the
+# query path. Defaults to EMBEDDINGS_MICROSERVICE_URL so single-pool
+# deployments need no extra configuration.
+EMBEDDINGS_MICROSERVICE_URL_BULK = env(
+    "EMBEDDINGS_MICROSERVICE_URL_BULK", default=EMBEDDINGS_MICROSERVICE_URL
+)
 VECTOR_EMBEDDER_API_KEY = env("VECTOR_EMBEDDER_API_KEY", default="")
 # CLIP embedder configuration (768-dimensional vectors)
 CLIP_EMBEDDER_URL = env("CLIP_EMBEDDER_URL", default="http://vector-embedder:8000")

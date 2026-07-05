@@ -118,6 +118,32 @@ A process-wide singleton session gives us:
 are permanent failures that should surface as `EmbeddingClientError`
 immediately, not waste retry budget.
 
+#### Separate "bulk" embeddings pool for ingest
+
+Search queries embed one short string and need a *warm* microservice pod
+(cold starts add seconds to every query). Batch ingest embeds thousands of
+strings and is happy to hit an autoscaled / scale-to-zero pool. Serving both
+from the same URL forces a compromise. The `EMBEDDINGS_MICROSERVICE_URL_BULK`
+setting (`config/settings/base.py`, defaults to `EMBEDDINGS_MICROSERVICE_URL`)
+lets operators point ingest at a dedicated bulk pool while query call sites
+stay on the always-warm pod — search latency is then fully isolated from
+ingest load.
+
+The mechanism reuses the embedder's *existing* call-time override kwarg
+(`embeddings_microservice_url`, read in
+`MicroserviceEmbedder._get_service_config`) rather than touching the embedder
+client or base class. The ingest Celery tasks in
+`opencontractserver/tasks/embeddings_task.py` resolve the bulk URL via
+`_bulk_embeddings_service_url()` and thread it through an optional
+`service_url_override` parameter on the four ingest leaves
+(`_create_text_embedding`, `_create_embedding_for_annotation`,
+`_batch_embed_text_annotations`, `_apply_dual_embedding_strategy`, plus
+`_embed_relationship`). When unset, `service_url_override` is `None` and no
+override kwarg is passed, so the embedder stays on its configured URL and
+default behavior is unchanged. The multimodal *image* pool is intentionally
+left on its own URL (`CLIP_EMBEDDER_URL` / `QWEN_EMBEDDER_URL`) — the bulk
+setting is text-only.
+
 ### Annotation-creation changes
 
 #### `import_annotations` uses `bulk_create` + dispatched batch task
