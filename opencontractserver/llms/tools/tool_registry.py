@@ -140,6 +140,12 @@ AVAILABLE_TOOLS: tuple[ToolDefinition, ...] = (
         requires_corpus=True,
         parameters=(
             (
+                "document_id",
+                "Id of the document whose references to list "
+                "(defaults to the current document in a document agent)",
+                False,
+            ),
+            (
                 "direction",
                 "'outbound', 'inbound', or 'both' (default 'both')",
                 False,
