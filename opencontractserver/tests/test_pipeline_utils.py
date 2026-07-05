@@ -20,7 +20,6 @@ from opencontractserver.pipeline.utils import (
     get_all_thumbnailers,
     get_component_by_name,
     get_components_by_mimetype,
-    get_default_embedder_for_filetype,
     get_dimension_from_embedder,
     get_metadata_by_component_name,
     get_metadata_for_component,
@@ -581,124 +580,25 @@ class TestPostProcessor(BasePostProcessor):
         with override_settings(DEFAULT_EMBEDDING_DIMENSION=768):
             self.assertEqual(get_dimension_from_embedder("non.existent.Embedder"), 768)
 
-    def test_get_default_embedder_for_filetype(self) -> None:
-        """get_default_embedder_for_filetype delegates to get_preferred_embedder
-        which reads from the PipelineSettings singleton."""
-        from unittest.mock import patch
-
-        mock_embedders = {
-            "application/pdf": "opencontractserver.pipeline.embedders.temp_embedder.TestEmbedder384",
-            "text/plain": "opencontractserver.pipeline.embedders.temp_embedder.TestEmbedder768",
-        }
-
-        with patch(
-            "opencontractserver.pipeline.utils.get_preferred_embedder"
-        ) as mock_get_pref:
-            # Simulate get_preferred_embedder returning classes via import
-            import importlib
-
-            def side_effect(mimetype):
-                path = mock_embedders.get(mimetype)
-                if not path:
-                    return None
-                module_path, class_name = path.rsplit(".", 1)
-                module = importlib.import_module(module_path)
-                return getattr(module, class_name)
-
-            mock_get_pref.side_effect = side_effect
-
-            # Test getting embedder for PDF with dimension 384
-            embedder = get_default_embedder_for_filetype("application/pdf")
-            assert embedder is not None
-            self.assertEqual(embedder.title, "Test Embedder 384")
-
-            # Test getting embedder for TXT with dimension 768
-            embedder = get_default_embedder_for_filetype("text/plain")
-            assert embedder is not None
-            self.assertEqual(embedder.title, "Test Embedder 768")
-
-            # Test getting embedder for non-existent mimetype falls back
-            # to the global default embedder (not None)
-            with patch(
-                "opencontractserver.pipeline.utils.get_default_embedder",
-                return_value=None,
-            ):
-                embedder = get_default_embedder_for_filetype("application/json")
-                self.assertIsNone(embedder)
-
-    def test_find_embedder_for_filetype(self) -> None:
+    def test_get_default_embedder_unmocked(self) -> None:
         """
-        Test find_embedder_for_filetype function with different input types and scenarios.
+        Direct, unmocked exercise of get_default_embedder()'s full real
+        resolution path: a real PipelineSettings.default_embedder DB value ->
+        real importlib.import_module -> real getattr -> class attribute
+        check.
 
-        Sets embedder values directly on PipelineSettings (database is single source of truth).
+        get_default_embedder() is production-critical (used in
+        embeddings_task.py, utils/embeddings.py, and
+        llms/vector_stores/core_vector_stores.py); every other test of it
+        patches it out via @patch, so this is the only test that would catch
+        a broken resolver end-to-end. This replaces the coverage lost when
+        the (differently-scoped) test_find_embedder_for_filetype was deleted
+        as part of the #2114 per-MIME-embedder cleanup.
         """
         from opencontractserver.documents.models import PipelineSettings
-        from opencontractserver.pipeline.base.file_types import FileTypeEnum
-        from opencontractserver.pipeline.utils import (
-            find_embedder_for_filetype,
-            get_default_embedder,
-        )
+        from opencontractserver.pipeline.utils import get_default_embedder
 
-        # Set values directly on PipelineSettings (database is single source of truth)
         pipeline_settings = PipelineSettings.get_instance(use_cache=False)
-        pipeline_settings.preferred_embedders = {
-            "application/pdf": "opencontractserver.pipeline.embedders.temp_embedder.TestEmbedder384",
-            "text/plain": "opencontractserver.pipeline.embedders.temp_embedder.TestEmbedder768",
-        }
-        pipeline_settings.default_embedder = (
-            "opencontractserver.pipeline.embedders.temp_embedder.TestEmbedder"
-        )
-        pipeline_settings.save()
-        PipelineSettings.clear_cache()
-        # Ensure cache is cleared after TestCase rolls back the transaction,
-        # so stale values don't leak to other tests on the same xdist worker.
-        self.addCleanup(PipelineSettings.clear_cache)
-
-        # Get the default embedder for comparison
-        default_embedder = get_default_embedder()
-        assert default_embedder is not None
-        self.assertEqual(default_embedder.title, "Test Embedder")
-
-        # Test with mimetype string
-        embedder = find_embedder_for_filetype("application/pdf")
-        assert embedder is not None
-        self.assertEqual(embedder.title, "Test Embedder 384")
-
-        embedder = find_embedder_for_filetype("text/plain")
-        assert embedder is not None
-        self.assertEqual(embedder.title, "Test Embedder 768")
-
-        # Test with FileTypeEnum
-        embedder = find_embedder_for_filetype(FileTypeEnum.PDF)
-        assert embedder is not None
-        self.assertEqual(embedder.title, "Test Embedder 384")
-
-        embedder = find_embedder_for_filetype(FileTypeEnum.TXT)
-        assert embedder is not None
-        self.assertEqual(embedder.title, "Test Embedder 768")
-
-        # Test with unknown mimetype — falls back to the global default embedder
-        embedder = find_embedder_for_filetype("application/unknown")
-        assert embedder is not None
-        self.assertEqual(embedder.title, "Test Embedder")
-
-        # Test with DOCX FileTypeEnum — falls back to the global default embedder
-        embedder = find_embedder_for_filetype(FileTypeEnum.DOCX)
-        assert embedder is not None
-        self.assertEqual(embedder.title, "Test Embedder")
-
-    def test_find_embedder_for_filetype_error_handling(self) -> None:
-        """
-        Test find_embedder_for_filetype error handling when embedder path can't be loaded.
-        """
-        from opencontractserver.documents.models import PipelineSettings
-        from opencontractserver.pipeline.utils import find_embedder_for_filetype
-
-        # Set a non-existent embedder path directly on PipelineSettings
-        pipeline_settings = PipelineSettings.get_instance(use_cache=False)
-        pipeline_settings.preferred_embedders = {
-            "application/pdf": "non.existent.EmbedderClass",
-        }
         pipeline_settings.default_embedder = (
             "opencontractserver.pipeline.embedders.temp_embedder.TestEmbedder"
         )
@@ -706,9 +606,7 @@ class TestPostProcessor(BasePostProcessor):
         PipelineSettings.clear_cache()
         self.addCleanup(PipelineSettings.clear_cache)
 
-        # When a preferred embedder can't be loaded, the function falls back
-        # to the global default embedder
-        embedder = find_embedder_for_filetype("application/pdf")
+        embedder = get_default_embedder()
         assert embedder is not None
         self.assertEqual(embedder.title, "Test Embedder")
 

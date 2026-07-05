@@ -23,13 +23,13 @@ const mockSettingsBase = {
   preferredParsers: {},
   preferredEmbedders: {},
   preferredThumbnailers: {},
-  parserKwargs: {},
+  preferredEnrichers: {},
   componentSettings: {},
   defaultEmbedder: null,
   defaultFileConverter: null,
   defaultLlm: null,
   defaultReranker: null,
-  componentsWithSecrets: [],
+  toolsWithSecrets: [],
   enabledComponents: [
     "opencontractserver.pipeline.parsers.docling.DoclingParser",
     "opencontractserver.pipeline.parsers.llamaparse.LlamaParser",
@@ -152,6 +152,28 @@ const mockComponents = {
       description: "Second-stage reranking via a cross-encoder model",
       className:
         "opencontractserver.pipeline.rerankers.cross_encoder_reranker.CrossEncoderReranker",
+      enabled: true,
+      settingsSchema: [],
+    },
+  ],
+  enrichers: [
+    {
+      name: "pdf_outline",
+      title: "PDF Outline Enricher",
+      description: "Turns embedded PDF bookmarks into section annotations",
+      className:
+        "opencontractserver.pipeline.enrichers.pdf_outline_enricher.PdfOutlineEnricher",
+      supportedFileTypes: ["PDF"],
+      enabled: true,
+      settingsSchema: [],
+    },
+    {
+      name: "metadata_enricher",
+      title: "Metadata Enricher",
+      description: "Extracts document metadata",
+      className:
+        "opencontractserver.pipeline.enrichers.metadata.MetadataEnricher",
+      supportedFileTypes: ["PDF"],
       enabled: true,
       settingsSchema: [],
     },
@@ -1370,6 +1392,660 @@ test.describe("SystemSettings — default reranker", () => {
 
     // Row remains disabled — nothing was saved.
     await expect(page.locator("text=Disabled (no reranking)")).toBeVisible();
+
+    await component.unmount();
+  });
+});
+
+test.describe("SystemSettings — enrichment chain editor", () => {
+  // preferred_enrichers is a per-MIME ORDERED LIST (issue #2118), unlike the
+  // single-class-path Parser/Thumbnailer stages above — so it gets its own
+  // add/remove/reorder test suite rather than reusing the dropdown pattern.
+  const PDF_OUTLINE =
+    "opencontractserver.pipeline.enrichers.pdf_outline_enricher.PdfOutlineEnricher";
+  const METADATA =
+    "opencontractserver.pipeline.enrichers.metadata.MetadataEnricher";
+
+  // "All enabled" (empty enabledComponents) so both mock enrichers are
+  // selectable in the "Add enricher" dropdown regardless of the restrictive
+  // list mockSettingsBase otherwise carries for the parser/embedder tests.
+  const enricherSettingsBase = { ...mockSettingsBase, enabledComponents: [] };
+
+  test("renders existing configured enrichers in order", async ({
+    mount,
+    page,
+  }) => {
+    const settingsWithChain = {
+      ...enricherSettingsBase,
+      preferredEnrichers: { "application/pdf": [PDF_OUTLINE, METADATA] },
+    };
+
+    const component = await mount(
+      <SystemSettingsWrapper
+        mocks={[
+          {
+            request: { query: GET_PIPELINE_SETTINGS },
+            result: { data: { pipelineSettings: settingsWithChain } },
+          },
+          standardComponentsMock,
+          mimeTypesMock,
+        ]}
+      />
+    );
+    await waitForLoad(page);
+
+    const editor = page.locator('[data-testid="enricher-chain-editor"]');
+    await expect(editor).toBeVisible();
+    const items = editor.locator("li");
+    await expect(items).toHaveCount(2);
+    await expect(items.nth(0)).toContainText("PDF Outline Enricher");
+    await expect(items.nth(1)).toContainText("Metadata Enricher");
+
+    await docScreenshot(page, "admin--pipeline-settings--enrichment-chain", {
+      element: editor,
+    });
+
+    await component.unmount();
+  });
+
+  test("empty state shows 'No enrichers configured'", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <SystemSettingsWrapper
+        mocks={[
+          {
+            request: { query: GET_PIPELINE_SETTINGS },
+            result: { data: { pipelineSettings: enricherSettingsBase } },
+          },
+          standardComponentsMock,
+          mimeTypesMock,
+        ]}
+      />
+    );
+    await waitForLoad(page);
+
+    await expect(
+      page
+        .locator('[data-testid="enricher-chain-editor"]')
+        .locator("text=No enrichers configured")
+    ).toBeVisible();
+
+    await component.unmount();
+  });
+
+  test("adding an enricher appends it and fires the mutation with the full list", async ({
+    mount,
+    page,
+  }) => {
+    const settingsWithOne = {
+      ...enricherSettingsBase,
+      preferredEnrichers: { "application/pdf": [PDF_OUTLINE] },
+    };
+    const expectedChain = { "application/pdf": [PDF_OUTLINE, METADATA] };
+
+    const addMock = {
+      request: {
+        query: UPDATE_PIPELINE_SETTINGS,
+        variables: { preferredEnrichers: expectedChain },
+      },
+      result: {
+        data: {
+          updatePipelineSettings: {
+            ok: true,
+            message: "Updated",
+            pipelineSettings: {
+              ...settingsWithOne,
+              preferredEnrichers: expectedChain,
+            },
+          },
+        },
+      },
+    };
+    const refetch = {
+      request: { query: GET_PIPELINE_SETTINGS },
+      result: {
+        data: {
+          pipelineSettings: {
+            ...settingsWithOne,
+            preferredEnrichers: expectedChain,
+          },
+        },
+      },
+    };
+
+    const component = await mount(
+      <SystemSettingsWrapper
+        mocks={[
+          {
+            request: { query: GET_PIPELINE_SETTINGS },
+            result: { data: { pipelineSettings: settingsWithOne } },
+          },
+          standardComponentsMock,
+          mimeTypesMock,
+          addMock,
+          refetch,
+          standardComponentsMock,
+        ]}
+      />
+    );
+    await waitForLoad(page);
+
+    const editor = page.locator('[data-testid="enricher-chain-editor"]');
+    await editor
+      .locator('select[aria-label="Add enricher for PDF files"]')
+      .selectOption(METADATA);
+    await editor.locator('button:has-text("Add")').click();
+
+    await expect(
+      page.locator("text=Settings updated successfully")
+    ).toBeVisible({ timeout: 5000 });
+
+    await component.unmount();
+  });
+
+  test("removing an enricher fires the mutation with the item excluded", async ({
+    mount,
+    page,
+  }) => {
+    const settingsWithTwo = {
+      ...enricherSettingsBase,
+      preferredEnrichers: { "application/pdf": [PDF_OUTLINE, METADATA] },
+    };
+    const expectedChain = { "application/pdf": [METADATA] };
+
+    const removeMock = {
+      request: {
+        query: UPDATE_PIPELINE_SETTINGS,
+        variables: { preferredEnrichers: expectedChain },
+      },
+      result: {
+        data: {
+          updatePipelineSettings: {
+            ok: true,
+            message: "Updated",
+            pipelineSettings: {
+              ...settingsWithTwo,
+              preferredEnrichers: expectedChain,
+            },
+          },
+        },
+      },
+    };
+    const refetch = {
+      request: { query: GET_PIPELINE_SETTINGS },
+      result: {
+        data: {
+          pipelineSettings: {
+            ...settingsWithTwo,
+            preferredEnrichers: expectedChain,
+          },
+        },
+      },
+    };
+
+    const component = await mount(
+      <SystemSettingsWrapper
+        mocks={[
+          {
+            request: { query: GET_PIPELINE_SETTINGS },
+            result: { data: { pipelineSettings: settingsWithTwo } },
+          },
+          standardComponentsMock,
+          mimeTypesMock,
+          removeMock,
+          refetch,
+          standardComponentsMock,
+        ]}
+      />
+    );
+    await waitForLoad(page);
+
+    const editor = page.locator('[data-testid="enricher-chain-editor"]');
+    await editor.locator('button[aria-label="Remove PDF enricher 1"]').click();
+
+    await expect(
+      page.locator("text=Settings updated successfully")
+    ).toBeVisible({ timeout: 5000 });
+
+    await component.unmount();
+  });
+
+  test("moving an enricher down fires the mutation with the reordered list", async ({
+    mount,
+    page,
+  }) => {
+    const settingsWithTwo = {
+      ...enricherSettingsBase,
+      preferredEnrichers: { "application/pdf": [PDF_OUTLINE, METADATA] },
+    };
+    const expectedChain = { "application/pdf": [METADATA, PDF_OUTLINE] };
+
+    const reorderMock = {
+      request: {
+        query: UPDATE_PIPELINE_SETTINGS,
+        variables: { preferredEnrichers: expectedChain },
+      },
+      result: {
+        data: {
+          updatePipelineSettings: {
+            ok: true,
+            message: "Updated",
+            pipelineSettings: {
+              ...settingsWithTwo,
+              preferredEnrichers: expectedChain,
+            },
+          },
+        },
+      },
+    };
+    const refetch = {
+      request: { query: GET_PIPELINE_SETTINGS },
+      result: {
+        data: {
+          pipelineSettings: {
+            ...settingsWithTwo,
+            preferredEnrichers: expectedChain,
+          },
+        },
+      },
+    };
+
+    const component = await mount(
+      <SystemSettingsWrapper
+        mocks={[
+          {
+            request: { query: GET_PIPELINE_SETTINGS },
+            result: { data: { pipelineSettings: settingsWithTwo } },
+          },
+          standardComponentsMock,
+          mimeTypesMock,
+          reorderMock,
+          refetch,
+          standardComponentsMock,
+        ]}
+      />
+    );
+    await waitForLoad(page);
+
+    const editor = page.locator('[data-testid="enricher-chain-editor"]');
+    await editor
+      .locator('button[aria-label="Move PDF enricher 1 down"]')
+      .click();
+
+    await expect(
+      page.locator("text=Settings updated successfully")
+    ).toBeVisible({ timeout: 5000 });
+
+    await component.unmount();
+  });
+
+  test("moving an enricher up fires the mutation with the reordered list", async ({
+    mount,
+    page,
+  }) => {
+    const settingsWithTwo = {
+      ...enricherSettingsBase,
+      preferredEnrichers: { "application/pdf": [PDF_OUTLINE, METADATA] },
+    };
+    const expectedChain = { "application/pdf": [METADATA, PDF_OUTLINE] };
+
+    const reorderMock = {
+      request: {
+        query: UPDATE_PIPELINE_SETTINGS,
+        variables: { preferredEnrichers: expectedChain },
+      },
+      result: {
+        data: {
+          updatePipelineSettings: {
+            ok: true,
+            message: "Updated",
+            pipelineSettings: {
+              ...settingsWithTwo,
+              preferredEnrichers: expectedChain,
+            },
+          },
+        },
+      },
+    };
+    const refetch = {
+      request: { query: GET_PIPELINE_SETTINGS },
+      result: {
+        data: {
+          pipelineSettings: {
+            ...settingsWithTwo,
+            preferredEnrichers: expectedChain,
+          },
+        },
+      },
+    };
+
+    const component = await mount(
+      <SystemSettingsWrapper
+        mocks={[
+          {
+            request: { query: GET_PIPELINE_SETTINGS },
+            result: { data: { pipelineSettings: settingsWithTwo } },
+          },
+          standardComponentsMock,
+          mimeTypesMock,
+          reorderMock,
+          refetch,
+          standardComponentsMock,
+        ]}
+      />
+    );
+    await waitForLoad(page);
+
+    const editor = page.locator('[data-testid="enricher-chain-editor"]');
+    await editor.locator('button[aria-label="Move PDF enricher 2 up"]').click();
+
+    await expect(
+      page.locator("text=Settings updated successfully")
+    ).toBeVisible({ timeout: 5000 });
+
+    await component.unmount();
+  });
+
+  test("removing the only enricher for a MIME type clears its entry instead of leaving an empty list", async ({
+    mount,
+    page,
+  }) => {
+    const settingsWithOne = {
+      ...enricherSettingsBase,
+      preferredEnrichers: { "application/pdf": [PDF_OUTLINE] },
+    };
+    // handleAssignEnrichers deletes the key entirely when the resulting
+    // chain is empty, rather than persisting `{ "application/pdf": [] }`.
+    const expectedChain = {};
+
+    const removeMock = {
+      request: {
+        query: UPDATE_PIPELINE_SETTINGS,
+        variables: { preferredEnrichers: expectedChain },
+      },
+      result: {
+        data: {
+          updatePipelineSettings: {
+            ok: true,
+            message: "Updated",
+            pipelineSettings: {
+              ...settingsWithOne,
+              preferredEnrichers: expectedChain,
+            },
+          },
+        },
+      },
+    };
+    const refetch = {
+      request: { query: GET_PIPELINE_SETTINGS },
+      result: {
+        data: {
+          pipelineSettings: {
+            ...settingsWithOne,
+            preferredEnrichers: expectedChain,
+          },
+        },
+      },
+    };
+
+    const component = await mount(
+      <SystemSettingsWrapper
+        mocks={[
+          {
+            request: { query: GET_PIPELINE_SETTINGS },
+            result: { data: { pipelineSettings: settingsWithOne } },
+          },
+          standardComponentsMock,
+          mimeTypesMock,
+          removeMock,
+          refetch,
+          standardComponentsMock,
+        ]}
+      />
+    );
+    await waitForLoad(page);
+
+    const editor = page.locator('[data-testid="enricher-chain-editor"]');
+    await editor.locator('button[aria-label="Remove PDF enricher 1"]').click();
+
+    await expect(
+      page.locator("text=Settings updated successfully")
+    ).toBeVisible({ timeout: 5000 });
+
+    await component.unmount();
+  });
+
+  test("adding an enricher when preferredEnrichers is null falls back to an empty mapping", async ({
+    mount,
+    page,
+  }) => {
+    // settings.preferredEnrichers can come back null from the API (rather
+    // than {}); handleAssignEnrichers must fall back to an empty mapping
+    // instead of throwing on `{...null}`.
+    const settingsWithNullEnrichers = {
+      ...enricherSettingsBase,
+      preferredEnrichers: null,
+    };
+    const expectedChain = { "application/pdf": [PDF_OUTLINE] };
+
+    const addMock = {
+      request: {
+        query: UPDATE_PIPELINE_SETTINGS,
+        variables: { preferredEnrichers: expectedChain },
+      },
+      result: {
+        data: {
+          updatePipelineSettings: {
+            ok: true,
+            message: "Updated",
+            pipelineSettings: {
+              ...settingsWithNullEnrichers,
+              preferredEnrichers: expectedChain,
+            },
+          },
+        },
+      },
+    };
+    const refetch = {
+      request: { query: GET_PIPELINE_SETTINGS },
+      result: {
+        data: {
+          pipelineSettings: {
+            ...settingsWithNullEnrichers,
+            preferredEnrichers: expectedChain,
+          },
+        },
+      },
+    };
+
+    const component = await mount(
+      <SystemSettingsWrapper
+        mocks={[
+          {
+            request: { query: GET_PIPELINE_SETTINGS },
+            result: { data: { pipelineSettings: settingsWithNullEnrichers } },
+          },
+          standardComponentsMock,
+          mimeTypesMock,
+          addMock,
+          refetch,
+          standardComponentsMock,
+        ]}
+      />
+    );
+    await waitForLoad(page);
+
+    const editor = page.locator('[data-testid="enricher-chain-editor"]');
+    await editor
+      .locator('select[aria-label="Add enricher for PDF files"]')
+      .selectOption(PDF_OUTLINE);
+    await editor.locator('button:has-text("Add")').click();
+
+    await expect(
+      page.locator("text=Settings updated successfully")
+    ).toBeVisible({ timeout: 5000 });
+
+    await component.unmount();
+  });
+
+  test("falls back to a derived display name when an enricher has no title", async ({
+    mount,
+    page,
+  }) => {
+    const componentsWithBlankTitles = {
+      ...mockComponents,
+      enrichers: mockComponents.enrichers.map((e) => ({ ...e, title: "" })),
+    };
+    const settingsWithOne = {
+      ...enricherSettingsBase,
+      preferredEnrichers: { "application/pdf": [PDF_OUTLINE] },
+    };
+
+    const component = await mount(
+      <SystemSettingsWrapper
+        mocks={[
+          {
+            request: { query: GET_PIPELINE_SETTINGS },
+            result: { data: { pipelineSettings: settingsWithOne } },
+          },
+          {
+            request: { query: GET_PIPELINE_COMPONENTS },
+            result: {
+              data: { pipelineComponents: componentsWithBlankTitles },
+            },
+          },
+          mimeTypesMock,
+        ]}
+      />
+    );
+    await waitForLoad(page);
+
+    const editor = page.locator('[data-testid="enricher-chain-editor"]');
+    // Configured item: derived from the className, not the (blank) title.
+    await expect(editor.locator("li").first()).toContainText(
+      "PDF Outline Enricher"
+    );
+    // Available-to-add option: same derivation applied in the dropdown.
+    await expect(
+      editor.locator('select[aria-label="Add enricher for PDF files"] option')
+    ).toContainText(["-- Select enricher --", "Metadata Enricher"]);
+
+    await component.unmount();
+  });
+});
+
+test.describe("SystemSettings — reverting a component setting (issue #2121)", () => {
+  test("clearing a previously-populated field removes the key instead of sending an empty string", async ({
+    mount,
+    page,
+  }) => {
+    const LLAMA_PARSER =
+      "opencontractserver.pipeline.parsers.llamaparse.LlamaParser";
+
+    // Start with num_workers already saved as "8" so clearing it is an
+    // EXPLICIT clear of a previously-populated value, not a no-op.
+    const settingsWithConfig = {
+      ...mockSettingsBase,
+      componentSettings: {
+        [LLAMA_PARSER]: { num_workers: 8 },
+      },
+    };
+    const componentsWithCurrentValue = {
+      ...mockComponents,
+      parsers: mockComponents.parsers.map((p) =>
+        p.className === LLAMA_PARSER
+          ? {
+              ...p,
+              settingsSchema: p.settingsSchema.map((s) =>
+                s.name === "num_workers"
+                  ? { ...s, hasValue: true, currentValue: 8 }
+                  : s
+              ),
+            }
+          : p
+      ),
+    };
+
+    // The key must be ABSENT from the submitted componentSettings for
+    // LLAMA_PARSER — not present with an empty string.
+    const clearMock = {
+      request: {
+        query: UPDATE_PIPELINE_SETTINGS,
+        variables: {
+          componentSettings: { [LLAMA_PARSER]: {} },
+        },
+      },
+      result: {
+        data: {
+          updatePipelineSettings: {
+            ok: true,
+            message: "Updated",
+            pipelineSettings: {
+              ...settingsWithConfig,
+              componentSettings: { [LLAMA_PARSER]: {} },
+            },
+          },
+        },
+      },
+    };
+
+    const component = await mount(
+      <SystemSettingsWrapper
+        mocks={[
+          {
+            request: { query: GET_PIPELINE_SETTINGS },
+            result: { data: { pipelineSettings: settingsWithConfig } },
+          },
+          {
+            request: { query: GET_PIPELINE_COMPONENTS },
+            result: {
+              data: { pipelineComponents: componentsWithCurrentValue },
+            },
+          },
+          mimeTypesMock,
+          clearMock,
+          {
+            request: { query: GET_PIPELINE_SETTINGS },
+            result: {
+              data: {
+                pipelineSettings: {
+                  ...settingsWithConfig,
+                  componentSettings: { [LLAMA_PARSER]: {} },
+                },
+              },
+            },
+          },
+          {
+            request: { query: GET_PIPELINE_COMPONENTS },
+            result: {
+              data: { pipelineComponents: componentsWithCurrentValue },
+            },
+          },
+        ]}
+      />
+    );
+    await waitForLoad(page);
+
+    await page.locator("button:has-text('Advanced Settings')").first().click();
+
+    const workersInput = page.locator(
+      "#config-library-opencontractserver\\.pipeline\\.parsers\\.llamaparse\\.LlamaParser-num_workers"
+    );
+    await expect(workersInput).toHaveValue("8");
+
+    await workersInput.fill("");
+
+    const saveBtn = page.locator("button:has-text('Save Configuration')");
+    await expect(saveBtn).toBeVisible();
+    await saveBtn.click();
+
+    // The mock only matches (and the toast only fires) if the mutation was
+    // called with num_workers ABSENT — not "" — from componentSettings.
+    await expect(
+      page.locator("text=Settings updated successfully")
+    ).toBeVisible({ timeout: 5000 });
 
     await component.unmount();
   });

@@ -643,6 +643,23 @@ export const PIPELINE_UI = {
 } as const;
 
 /**
+ * Agent tool settings key for the web search tool. Mirrors
+ * `opencontractserver.constants.web_search.WEB_SEARCH_SETTINGS_KEY` on the
+ * backend — keep in sync if that constant changes.
+ */
+export const WEB_SEARCH_TOOL_KEY = "tool:web_search";
+
+/**
+ * Providers supported by the web search agent tool. Mirrors
+ * `opencontractserver.constants.web_search.SUPPORTED_PROVIDERS` — update here
+ * if a new provider is added there.
+ */
+export const WEB_SEARCH_PROVIDERS = [
+  { value: "brave", label: "Brave" },
+  { value: "tavily", label: "Tavily" },
+] as const;
+
+/**
  * Legacy MIME type for plain text files used in some parts of the system.
  * Standard type is "text/plain", but some documents use this non-standard value.
  */
