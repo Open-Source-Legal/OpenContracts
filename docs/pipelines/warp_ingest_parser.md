@@ -66,6 +66,7 @@ Django settings / env vars (defined in `config/settings/base.py`):
 | `WARP_INGEST_DISABLE_OCR` | `disable_ocr` | `False` | Disable OCR (mutually exclusive with `apply_ocr`) |
 | `WARP_INGEST_SEMANTIC_UNITS` | `semantic_units` | `False` | Append the Semantic-Unit clause annotation layer |
 | `WARP_INGEST_INCLUDE_IMAGES` | `include_images` | `False` | Embed extracted images in the export |
+| `WARP_INGEST_MAX_FILE_SIZE_MB` | `max_file_size_mb` | `200` | Reject PDFs larger than this before buffering them in memory |
 
 The single request-timeout constant lives at
 `opencontractserver/constants/document_processing.py::WARP_INGEST_PARSER_REQUEST_TIMEOUT_SECONDS`
@@ -153,6 +154,13 @@ request**:
 
 For very large scanned documents, raise `WARP_INGEST_PARSER_TIMEOUT` rather than
 introducing chunking.
+
+**Memory footprint:** because the whole PDF is buffered in the worker and POSTed
+in one request, peak memory per concurrent parse scales with the file size.
+`WARP_INGEST_MAX_FILE_SIZE_MB` (default 200) caps this — a PDF above the limit is
+rejected up front with a permanent `DocumentParsingError` rather than risking a
+worker OOM. Raise it if you routinely ingest larger scans, sizing it against
+`worker memory / expected concurrent parses`.
 
 ## Error Handling
 

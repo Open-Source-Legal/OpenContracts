@@ -8,6 +8,10 @@
     (multipart), authenticates via the `X-API-Key` header (leaving `Authorization`
     free for Cloud Run IAM), unwraps the `result` payload, and classifies
     timeout/connection/5xx as transient vs 4xx as permanent `DocumentParsingError`s.
+    A configurable `max_file_size_mb` cap (default 200, env
+    `WARP_INGEST_MAX_FILE_SIZE_MB`) bounds per-worker memory before buffering the
+    file, and the user-controlled `document.title` is sanitized before it becomes
+    the multipart filename.
   - Settings wired in `config/settings/base.py` (`WARP_INGEST_PARSER_SERVICE_URL`,
     `WARP_INGEST_API_KEY`, `WARP_INGEST_PARSER_TIMEOUT`) with the shared
     request-timeout constant `WARP_INGEST_PARSER_REQUEST_TIMEOUT_SECONDS` in

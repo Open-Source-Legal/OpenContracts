@@ -228,6 +228,40 @@ class TestWarpIngestParser(TestCase):
 
     @patch(_POST_PATH)
     @patch(_STORAGE_PATH)
+    def test_oversized_pdf_raises_permanent(self, mock_open, mock_post):
+        """A PDF over max_file_size_mb fails fast (no HTTP call, no retry)."""
+        mock_file = MagicMock()
+        mock_file.read.return_value = b"x" * (2 * 1024 * 1024)  # 2 MB
+        mock_open.return_value.__enter__.return_value = mock_file
+        self.parser.max_file_size_mb = 1  # cap below the 2 MB payload
+
+        with self.assertRaises(DocumentParsingError) as ctx:
+            self.parser.parse_document(user_id=self.user.id, doc_id=self.doc.id)
+
+        self.assertFalse(ctx.exception.is_transient)
+        self.assertIn("MB", str(ctx.exception))
+        mock_post.assert_not_called()
+
+    @patch(_POST_PATH)
+    @patch(_STORAGE_PATH)
+    def test_malicious_title_sanitized_in_multipart_filename(
+        self, mock_open, mock_post
+    ):
+        """CR/LF in document.title cannot leak into the multipart filename."""
+        self._mock_storage(mock_open)
+        mock_post.return_value = MockResponse(200, _sample_response())
+        self.doc.title = "evil\r\nContent-Disposition: x"
+        self.doc.save()
+
+        self.parser.parse_document(user_id=self.user.id, doc_id=self.doc.id)
+
+        filename = mock_post.call_args.kwargs["files"]["file"][0]
+        self.assertNotIn("\r", filename)
+        self.assertNotIn("\n", filename)
+        self.assertTrue(filename.lower().endswith(".pdf"))
+
+    @patch(_POST_PATH)
+    @patch(_STORAGE_PATH)
     def test_timeout_is_transient(self, mock_open, mock_post):
         self._mock_storage(mock_open)
         mock_post.side_effect = Timeout()
@@ -307,6 +341,30 @@ class TestWarpIngestExtractExport(TestCase):
         self.assertFalse(ctx.exception.is_transient)
 
 
+class TestWarpIngestSafeFilename(TestCase):
+    """Unit tests for the multipart-filename sanitizer."""
+
+    def test_plain_title_gets_pdf_suffix(self):
+        self.assertEqual(
+            WarpIngestParser._safe_pdf_filename("My Contract", 7), "My Contract.pdf"
+        )
+
+    def test_existing_pdf_suffix_preserved(self):
+        self.assertEqual(
+            WarpIngestParser._safe_pdf_filename("report.pdf", 7), "report.pdf"
+        )
+
+    def test_control_chars_and_separators_stripped(self):
+        out = WarpIngestParser._safe_pdf_filename('a\r\nb/c\\d"e', 7)
+        for bad in ("\r", "\n", "/", "\\", '"'):
+            self.assertNotIn(bad, out)
+        self.assertTrue(out.endswith(".pdf"))
+
+    def test_empty_or_none_title_falls_back_to_doc_id(self):
+        self.assertEqual(WarpIngestParser._safe_pdf_filename(None, 42), "doc_42.pdf")
+        self.assertEqual(WarpIngestParser._safe_pdf_filename("   ", 42), "doc_42.pdf")
+
+
 class TestWarpIngestParserSettings(TestCase):
     """The dataclass default timeout must agree with the shared constant."""
 
@@ -322,3 +380,6 @@ class TestWarpIngestParserSettings(TestCase):
 
     def test_default_service_url_targets_parse_endpoint(self):
         self.assertTrue(WarpIngestParser.Settings().service_url.endswith("/api/parse"))
+
+    def test_default_max_file_size_is_positive(self):
+        self.assertGreater(WarpIngestParser.Settings().max_file_size_mb, 0)

@@ -22,6 +22,7 @@ REST shape.
 """
 
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Any, Optional, cast
 
@@ -166,6 +167,20 @@ class WarpIngestParser(BaseParser):
                 )
             },
         )
+        max_file_size_mb: int = field(
+            default=200,
+            metadata={
+                "pipeline_setting": PipelineSetting(
+                    setting_type=SettingType.OPTIONAL,
+                    description=(
+                        "Maximum PDF size in MB. The whole file is buffered in "
+                        "memory and POSTed in one request (this parser does not "
+                        "chunk), so this caps a worker's peak memory per parse."
+                    ),
+                    env_var="WARP_INGEST_MAX_FILE_SIZE_MB",
+                )
+            },
+        )
 
     def __init__(self):
         """Initialize the Warp-Ingest REST parser with settings from PipelineSettings."""
@@ -180,11 +195,13 @@ class WarpIngestParser(BaseParser):
         self.disable_ocr = s.disable_ocr
         self.semantic_units = s.semantic_units
         self.include_images = s.include_images
+        self.max_file_size_mb = s.max_file_size_mb
 
         logger.info(
             f"WarpIngestParser initialized with service URL: {self.service_url}, "
             f"apply_ocr={self.apply_ocr}, disable_ocr={self.disable_ocr}, "
-            f"semantic_units={self.semantic_units}, include_images={self.include_images}"
+            f"semantic_units={self.semantic_units}, include_images={self.include_images}, "
+            f"max_file_size_mb={self.max_file_size_mb}"
         )
 
     def _parse_document_impl(
@@ -235,11 +252,22 @@ class WarpIngestParser(BaseParser):
         with default_storage.open(document.pdf_file.name, "rb") as f:
             pdf_bytes = f.read()
 
+        # Guard peak worker memory: the whole PDF is held in memory and POSTed
+        # in one request (no chunking), so reject oversized files up front with
+        # a clear, non-transient error rather than risking an OOM mid-parse.
+        # Mirrors DocxodusServiceParser's max_file_size_mb cap.
+        file_size_mb = len(pdf_bytes) / (1024 * 1024)
+        if file_size_mb > self.max_file_size_mb:
+            raise DocumentParsingError(
+                f"PDF for document {doc_id} is {file_size_mb:.1f} MB, exceeding "
+                f"the {self.max_file_size_mb} MB Warp-Ingest limit. Adjust "
+                f"WARP_INGEST_MAX_FILE_SIZE_MB to raise it.",
+                is_transient=False,
+            )
+
         # A ``.pdf`` filename + explicit content type satisfy Warp-Ingest's
         # media-type check (it returns 415 for non-PDF uploads).
-        filename = document.title or f"doc_{doc_id}.pdf"
-        if not filename.lower().endswith(".pdf"):
-            filename = f"{filename}.pdf"
+        filename = self._safe_pdf_filename(document.title, doc_id)
 
         params = {
             "render_format": WARP_INGEST_RENDER_FORMAT,
@@ -322,9 +350,26 @@ class WarpIngestParser(BaseParser):
         return export
 
     @staticmethod
-    def _extract_export(
-        response_data: dict[str, Any], doc_id: int
-    ) -> OpenContractDocExport:
+    def _safe_pdf_filename(title: Optional[str], doc_id: int) -> str:
+        """Build a safe multipart filename ending in ``.pdf``.
+
+        ``document.title`` is user-controlled and flows into the multipart
+        part's ``Content-Disposition`` header, so strip CR/LF, other control
+        characters, quotes and path separators that could smuggle header-like
+        content into that MIME part (defense-in-depth; modern urllib3 also
+        guards this). Falls back to ``doc_{id}.pdf`` when the title is empty or
+        sanitizes to nothing.
+        """
+        raw = (title or "").strip()
+        cleaned = re.sub(r'[\r\n\x00-\x1f\x7f"\\/]+', "_", raw).strip("_ ").strip()
+        if not cleaned:
+            cleaned = f"doc_{doc_id}"
+        if not cleaned.lower().endswith(".pdf"):
+            cleaned = f"{cleaned}.pdf"
+        return cleaned
+
+    @staticmethod
+    def _extract_export(response_data: Any, doc_id: int) -> OpenContractDocExport:
         """Pull the OpenContractDocExport out of a Warp-Ingest response.
 
         Warp-Ingest wraps the export as ``{"page_dim": ..., "num_pages": ...,
