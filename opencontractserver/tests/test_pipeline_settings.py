@@ -524,6 +524,144 @@ class PipelineSettingsGraphQLTestCase(TestCase):
                 parser.class_name,
             )
 
+    def test_update_preferred_parsers_merges_and_preserves_siblings(self):
+        """Updating one MIME type's preferred parser must not drop other
+        MIME types' entries. The mutation used to assign the incoming dict
+        wholesale, so setting only "application/pdf" would silently erase
+        an existing "text/plain" mapping.
+        """
+        from opencontractserver.pipeline.registry import get_registry
+
+        registry = get_registry()
+        if not registry.parsers:
+            self.skipTest("No parsers registered to exercise this test.")
+        parser_path = registry.parsers[0].class_name
+
+        mutation = """
+            mutation UpdatePipelineSettings($preferredParsers: GenericScalar) {
+                updatePipelineSettings(preferredParsers: $preferredParsers) {
+                    ok
+                    message
+                    pipelineSettings {
+                        preferredParsers
+                    }
+                }
+            }
+        """
+
+        # First call assigns two MIME types.
+        result = self.superuser_client.execute(
+            mutation,
+            variables={
+                "preferredParsers": {
+                    "application/pdf": parser_path,
+                    "text/plain": parser_path,
+                }
+            },
+        )
+        self.assertTrue(result["data"]["updatePipelineSettings"]["ok"])
+
+        # Second call only touches application/pdf.
+        result = self.superuser_client.execute(
+            mutation,
+            variables={"preferredParsers": {"application/pdf": parser_path}},
+        )
+        self.assertIsNone(result.get("errors"))
+        data = result["data"]["updatePipelineSettings"]
+        self.assertTrue(data["ok"], data.get("message"))
+        preferred_parsers = data["pipelineSettings"]["preferredParsers"]
+        self.assertEqual(preferred_parsers["application/pdf"], parser_path)
+        self.assertEqual(
+            preferred_parsers["text/plain"],
+            parser_path,
+            "Updating application/pdf must not drop the existing text/plain entry.",
+        )
+
+    def test_update_parser_kwargs_merges_and_preserves_siblings(self):
+        """Updating one parser's kwargs must not drop another parser's kwargs."""
+        mutation = """
+            mutation UpdatePipelineSettings($parserKwargs: GenericScalar) {
+                updatePipelineSettings(parserKwargs: $parserKwargs) {
+                    ok
+                    message
+                    pipelineSettings {
+                        parserKwargs
+                    }
+                }
+            }
+        """
+
+        result = self.superuser_client.execute(
+            mutation,
+            variables={
+                "parserKwargs": {
+                    "some.parser.TestParserA": {"force_ocr": True},
+                    "some.parser.TestParserB": {"timeout": 60},
+                }
+            },
+        )
+        self.assertTrue(result["data"]["updatePipelineSettings"]["ok"])
+
+        result = self.superuser_client.execute(
+            mutation,
+            variables={
+                "parserKwargs": {"some.parser.TestParserA": {"force_ocr": False}}
+            },
+        )
+        self.assertIsNone(result.get("errors"))
+        data = result["data"]["updatePipelineSettings"]
+        self.assertTrue(data["ok"], data.get("message"))
+        parser_kwargs = data["pipelineSettings"]["parserKwargs"]
+        self.assertEqual(parser_kwargs["some.parser.TestParserA"]["force_ocr"], False)
+        self.assertEqual(
+            parser_kwargs["some.parser.TestParserB"]["timeout"],
+            60,
+            "Updating TestParserA's kwargs must not drop TestParserB's kwargs.",
+        )
+
+    def test_update_component_settings_merges_and_preserves_siblings(self):
+        """Updating one component's settings must not drop another
+        component's settings."""
+        mutation = """
+            mutation UpdatePipelineSettings($componentSettings: GenericScalar) {
+                updatePipelineSettings(componentSettings: $componentSettings) {
+                    ok
+                    message
+                    pipelineSettings {
+                        componentSettings
+                    }
+                }
+            }
+        """
+
+        result = self.superuser_client.execute(
+            mutation,
+            variables={
+                "componentSettings": {
+                    "some.component.ParserA": {"timeout": 30},
+                    "some.component.ParserB": {"timeout": 60},
+                }
+            },
+        )
+        self.assertTrue(result["data"]["updatePipelineSettings"]["ok"])
+
+        result = self.superuser_client.execute(
+            mutation,
+            variables={
+                "componentSettings": {"some.component.ParserA": {"timeout": 99}}
+            },
+        )
+        self.assertIsNone(result.get("errors"))
+        data = result["data"]["updatePipelineSettings"]
+        self.assertTrue(data["ok"], data.get("message"))
+        component_settings = data["pipelineSettings"]["componentSettings"]
+        self.assertEqual(component_settings["some.component.ParserA"]["timeout"], 99)
+        self.assertEqual(
+            component_settings["some.component.ParserB"]["timeout"],
+            60,
+            "Updating ParserA's settings must not drop ParserB's settings.",
+        )
+
     def test_update_pipeline_settings_as_regular_user_fails(self):
         """Test that regular users cannot update pipeline settings."""
         mutation = """
