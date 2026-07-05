@@ -452,7 +452,11 @@ export const CorpusSettings: React.FC<CorpusSettingsProps> = ({ corpus }) => {
             <SettingsCardTitle>Corpus Agents</SettingsCardTitle>
           </SettingsCardHeader>
           <SettingsCardContent>
-            <CorpusAgentManagement corpusId={corpus.id} canUpdate={canUpdate} />
+            <CorpusAgentManagement
+              corpusId={corpus.id}
+              canUpdate={canUpdate}
+              corpusPreferredLlm={corpus.preferredLlm}
+            />
           </SettingsCardContent>
         </SettingsCard>
 

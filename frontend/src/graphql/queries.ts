@@ -6484,6 +6484,7 @@ export const GET_CORPUS_AGENTS = gql`
           scope
           isActive
           isPublic
+          preferredLlm
           creator {
             id
             slug
