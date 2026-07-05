@@ -1441,6 +1441,10 @@ test.describe("SystemSettings — enrichment chain editor", () => {
     await expect(items.nth(0)).toContainText("PDF Outline Enricher");
     await expect(items.nth(1)).toContainText("Metadata Enricher");
 
+    await docScreenshot(page, "admin--pipeline-settings--enrichment-chain", {
+      element: editor,
+    });
+
     await component.unmount();
   });
 

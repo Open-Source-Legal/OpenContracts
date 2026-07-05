@@ -4,6 +4,7 @@
 import React from "react";
 import type { Page } from "@playwright/test";
 import { test, expect } from "./utils/coverage";
+import { docScreenshot } from "./utils/docScreenshot";
 import { SystemSettingsWrapper } from "./AdminComponentsTestWrapper";
 import {
   GET_PIPELINE_SETTINGS,
@@ -86,6 +87,10 @@ test.describe("ToolSecretsPanel", () => {
     await expect(
       panel.locator("button:has-text('Remove Configuration')")
     ).toHaveCount(0);
+
+    await docScreenshot(page, "admin--pipeline-settings--tool-secrets", {
+      element: panel,
+    });
 
     await component.unmount();
   });
