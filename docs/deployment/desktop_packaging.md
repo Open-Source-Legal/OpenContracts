@@ -18,7 +18,7 @@ any native shell or installer work.
 | `celeryworker` | Worker **subprocess** over the filesystem broker (Phase 0) → in-process thread worker (later). |
 | `celerybeat` | `celery beat` **subprocess** (Phase 0) → in-process APScheduler (later). The periodic sweeps (`reconcile_stuck_documents`, `recover_stalled_uploads`, …) matter *more* on a force-quit-prone desktop. |
 | `flower` | Deleted. |
-| `frontend` | `yarn build` once → **WhiteNoise serves `dist/`** from Daphne + a SPA catch-all (`config/spa.py`, wired in `config/urls.py` when `OC_DESKTOP_SPA_ROOT` is set). No Node at install time. |
+| `frontend` | `yarn build` once → Daphne serves the built `dist/` via the `spa_fallback` catch-all (`config/spa.py`, wired in `config/urls.py` when `OC_DESKTOP_SPA_ROOT` is set) — it serves both the hashed assets and `index.html` for client routes. WhiteNoise still covers only Django's own `STATIC_ROOT` (admin/DRF). No Node at install time. |
 | `docling-parser` | **`WarpIngestParser`** (`opencontractserver/pipeline/parsers/warp_ingest_parser.py`) — in-process, rule-based, no torch/GPU. |
 | `docxodus-parser`, `vector-embedder`, `multimodal-embedder`, `privacy_filter` | Not used. Embeddings come from an OpenAI-compatible endpoint (`OpenAIEmbedder`, cloud key or a local server via `OPENAI_API_BASE_URL`). |
 
@@ -99,7 +99,9 @@ permanently unrecoverable. If no keyring backend is available, the launcher
 falls back to an ephemeral key (with a warning) and sessions + stored secrets
 reset on restart; export a stable `DJANGO_SECRET_KEY` yourself in that case. The
 local login password comes only from `OC_DESKTOP_PASSWORD`; without it the user
-is created with no usable password (set one with `manage.py changepassword`). No
+is created with no usable password (set one with `manage.py changepassword`).
+Because this account is a superuser, choose a strong `OC_DESKTOP_PASSWORD` (it is
+not strength-validated on the desktop profile). No
 secret is written to a plaintext file.
 
 To enable embeddings + chat, set `OPENAI_API_KEY` (and optionally

@@ -36,6 +36,8 @@ from opencontractserver.desktop import paths
 
 SETTINGS_MODULE = "config.settings.desktop"
 _children: list[subprocess.Popen] = []
+# Open log-file handles for the child processes, closed on shutdown.
+_log_handles: list = []
 
 
 _KEYRING_SERVICE = "OpenContracts-Desktop"
@@ -123,10 +125,11 @@ def _ensure_dirs() -> None:
 def _free_port() -> int:
     """Ask the OS for a free loopback TCP port (bind :0, read, release).
 
-    Note: there is a small TOCTOU window between releasing the probe socket here
-    and Daphne binding the port below. On a single-user loopback app the risk of
-    another process grabbing it in that window is negligible; hardening this into
-    a bind-retry loop is a Phase-1 follow-up.
+    Note: there is a TOCTOU window between releasing the probe socket here and
+    Daphne binding the port. The caller reserves the port immediately before
+    ``_start_daphne`` (after the slow worker/beat spawn) to keep that window
+    near-instant. On a single-user loopback app the residual risk of another
+    process grabbing it is negligible; a bind-retry loop is a Phase-1 follow-up.
     """
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
@@ -228,8 +231,14 @@ def _write_env_config(spa_dir: str, port: int) -> None:
 
 # ---------------------------------------------------------------- child processes
 def _spawn(name: str, cmd: list[str], env: dict[str, str]) -> subprocess.Popen:
-    print(f"[oc-desktop] starting {name}: {' '.join(cmd)}")
-    proc = subprocess.Popen(cmd, env=env)
+    # Redirect each child's stdout+stderr to a per-child file under the logs dir
+    # so a Daphne/worker/beat crash leaves a durable traceback — essential once
+    # the Phase-2 Tauri shell launches this with no attached console.
+    log_path = paths.logs_dir() / f"{name}.log"
+    print(f"[oc-desktop] starting {name} (log: {log_path})")
+    log_file = open(log_path, "a")
+    _log_handles.append(log_file)
+    proc = subprocess.Popen(cmd, env=env, stdout=log_file, stderr=subprocess.STDOUT)
     _children.append(proc)
     return proc
 
@@ -305,6 +314,9 @@ def _shutdown(*_args) -> None:
         if proc.poll() is None:
             with contextlib.suppress(Exception):
                 proc.kill()
+    for handle in _log_handles:
+        with contextlib.suppress(Exception):
+            handle.close()
 
 
 def main() -> None:
@@ -322,8 +334,6 @@ def main() -> None:
         )
 
     spa_dir = _resolve_spa_dir(env)
-    port = _free_port()
-    _write_env_config(spa_dir, port)
 
     # Single teardown path: atexit runs _shutdown on every exit (normal return,
     # SystemExit from a signal, or an unhandled exception). The signal handlers
@@ -340,6 +350,10 @@ def main() -> None:
 
     _start_worker(env)
     _start_beat(env)
+    # Reserve the port immediately before Daphne binds it (not before the slow
+    # worker/beat spawn) to keep the release-then-rebind window near-instant.
+    port = _free_port()
+    _write_env_config(spa_dir, port)
     _start_daphne(env, port)
 
     url = f"http://127.0.0.1:{port}/"

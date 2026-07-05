@@ -26,11 +26,11 @@ logger = logging.getLogger(__name__)
 def spa_fallback(request, resource_path: str = ""):
     """Return a static file under the SPA root, else ``index.html``.
 
-    WhiteNoise normally serves the hashed assets before the request reaches
-    Django, so in practice this view mostly returns ``index.html`` for
-    client-side routes. It still resolves real files defensively (traversal is
-    blocked by ``safe_join``) so the desktop build works even if WhiteNoise is
-    disabled.
+    This view serves BOTH the SPA's hashed assets (a real file at the requested
+    path) and, for any other path, ``index.html`` so client-side routes resolve.
+    WhiteNoise is configured only against Django's ``STATIC_ROOT`` (admin/DRF
+    static), not the SPA dir, so it does not handle these asset requests — this
+    view does. Directory traversal is blocked by ``safe_join``.
     """
     root = getattr(settings, "OC_DESKTOP_SPA_ROOT", "")
     if not root:

@@ -24,7 +24,10 @@ launcher. See ``docs/deployment/desktop_packaging.md``.
 import os
 
 from opencontractserver.desktop import paths
-from opencontractserver.desktop.db import sqlalchemy_result_backend_url
+from opencontractserver.desktop.db import (
+    DEFAULT_DESKTOP_DATABASE_URL,
+    sqlalchemy_result_backend_url,
+)
 
 # These env vars MUST be settled BEFORE importing base, because base.py branches
 # on them AT ITS OWN IMPORT TIME with no fallbacks — a stray value inherited from
@@ -39,10 +42,7 @@ from opencontractserver.desktop.db import sqlalchemy_result_backend_url
 #   * STORAGE_BACKEND — AWS/GCP require bucket/credential vars with no defaults;
 #     the desktop build is always local storage, so FORCE it too.
 os.environ.setdefault("DJANGO_READ_DOT_ENV_FILE", "False")
-os.environ.setdefault(
-    "DATABASE_URL",
-    "postgres://opencontracts:opencontracts@127.0.0.1:5464/opencontracts",
-)
+os.environ.setdefault("DATABASE_URL", DEFAULT_DESKTOP_DATABASE_URL)
 os.environ["USE_AUTH0"] = "False"
 os.environ["STORAGE_BACKEND"] = "LOCAL"
 

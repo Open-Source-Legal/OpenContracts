@@ -142,10 +142,11 @@ if getattr(settings, "SERVE_MEDIA_WITHOUT_DEBUG", False) and not settings.DEBUG:
         ),
     ]
 
-# Desktop build: serve the pre-built React SPA from Daphne. WhiteNoise serves the
-# hashed assets before the request reaches Django; this catch-all returns
-# index.html for any remaining (client-side route) path. Registered LAST so it
-# never shadows /api/, /graphql/, /admin/, /mcp*, /ws/ or static/media routes,
+# Desktop build: serve the pre-built React SPA from Daphne. The spa_fallback view
+# serves the SPA's hashed assets AND returns index.html for any remaining
+# (client-side route) path (WhiteNoise covers only Django's STATIC_ROOT, not the
+# SPA dir). Registered LAST so it never shadows /api/, /graphql/, /admin/, /mcp*,
+# /ws/ or static/media routes,
 # and only when the desktop profile points OC_DESKTOP_SPA_ROOT at a built dist/.
 if getattr(settings, "OC_DESKTOP_SPA_ROOT", ""):
     from django.urls import re_path as _re_path

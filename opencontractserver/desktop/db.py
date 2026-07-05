@@ -10,6 +10,15 @@ from __future__ import annotations
 # Django DATABASE_URL schemes that map onto SQLAlchemy's psycopg2 dialect.
 _POSTGRES_SCHEMES = ("postgres", "postgresql", "postgis")
 
+# Placeholder DATABASE_URL used ONLY so ``config.settings.desktop`` imports under
+# a bare ``manage.py`` (base.py reads DATABASE_URL with no default). The launcher
+# always overrides it with an external URL or ``pgserver.get_uri()`` before any
+# subprocess runs, so nothing ever connects to this. Port 5464 avoids clashing
+# with a system Postgres on 5432.
+DEFAULT_DESKTOP_DATABASE_URL = (
+    "postgres://opencontracts:opencontracts@127.0.0.1:5464/opencontracts"
+)
+
 
 def sqlalchemy_result_backend_url(database_url: str) -> str:
     """Map a Django ``DATABASE_URL`` to a Celery SQLAlchemy result-backend URL.
