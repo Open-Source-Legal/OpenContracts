@@ -172,6 +172,9 @@ class TestWarpIngestParser(TestCase):
         # free for a Cloud Run IAM id_token.
         self.assertEqual(kwargs["headers"][WARP_INGEST_API_KEY_HEADER], "test-key")
 
+        # The configured request timeout is forwarded to requests.post.
+        self.assertEqual(kwargs["timeout"], self.parser.request_timeout)
+
     @patch(_POST_PATH)
     @patch(_STORAGE_PATH)
     def test_no_api_key_header_when_unset(self, mock_open, mock_post):

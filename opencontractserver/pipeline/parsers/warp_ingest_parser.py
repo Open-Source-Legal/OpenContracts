@@ -390,10 +390,15 @@ class WarpIngestParser(BaseParser):
         Warp-Ingest wraps the export as ``{"page_dim": ..., "num_pages": ...,
         "result": <OpenContractDocExport>}`` for ``render_format=opencontracts``.
         We read ``result`` but fall back to the top-level body if a future API
-        revision returns the export unwrapped — either way we validate that it
-        carries the fields ``save_parsed_data`` needs before handing it on, so a
-        shape change surfaces as a clear parse error rather than a silent empty
-        document.
+        revision returns the export unwrapped. Either way we run a lightweight
+        sanity check that the payload *resembles* an export — i.e. carries at
+        least one recognized export key (``content`` / ``pawls_file_content`` /
+        ``labelled_text``) — so an obviously-wrong body (e.g. an error envelope
+        with only ``page_dim``/``num_pages``) surfaces as a clear parse error
+        instead of a silently empty document. It is deliberately shallow:
+        ``save_parsed_data`` reads every field via ``.get()`` with defaults, so
+        it tolerates a partial export; this guard only distinguishes "an export"
+        from "not an export at all".
 
         The export already uses the OpenContracts field names (snake_case
         top-level keys, camelCase ``annotationLabel``/``rawText`` within
