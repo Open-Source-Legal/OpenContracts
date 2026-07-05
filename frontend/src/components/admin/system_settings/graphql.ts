@@ -199,7 +199,6 @@ export const UPDATE_PIPELINE_SETTINGS = gql`
     $preferredEmbedders: GenericScalar
     $preferredThumbnailers: GenericScalar
     $preferredEnrichers: GenericScalar
-    $parserKwargs: GenericScalar
     $componentSettings: GenericScalar
     $defaultEmbedder: String
     $defaultFileConverter: String
@@ -212,7 +211,6 @@ export const UPDATE_PIPELINE_SETTINGS = gql`
       preferredEmbedders: $preferredEmbedders
       preferredThumbnailers: $preferredThumbnailers
       preferredEnrichers: $preferredEnrichers
-      parserKwargs: $parserKwargs
       componentSettings: $componentSettings
       defaultEmbedder: $defaultEmbedder
       defaultFileConverter: $defaultFileConverter

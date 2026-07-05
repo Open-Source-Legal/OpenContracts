@@ -102,8 +102,22 @@ class PipelineQueryMixin:
             configured_components.update(preferred_parsers.values())
             configured_components.update(preferred_embedders.values())
             configured_components.update(preferred_thumbnailers.values())
-            for enricher_list in preferred_enrichers.values():
-                configured_components.update(enricher_list)
+            for mimetype_key, enricher_list in preferred_enrichers.items():
+                if isinstance(enricher_list, list):
+                    configured_components.update(enricher_list)
+                else:
+                    # Mirror PipelineSettings.get_preferred_enrichers()'s
+                    # defensive guard: a misconfigured non-list value (e.g. a
+                    # bare string or None from a shell/migration edit that
+                    # bypassed validate_enricher_mapping()) would otherwise
+                    # raise (None) or character-split a string via
+                    # set.update() -- ignore it rather than crash the query.
+                    logger.warning(
+                        "PipelineSettings.preferred_enrichers[%r] is %s, not a "
+                        "list; ignoring for component visibility filtering.",
+                        mimetype_key,
+                        type(enricher_list).__name__,
+                    )
 
             if settings_instance.default_embedder:
                 configured_components.add(settings_instance.default_embedder)
