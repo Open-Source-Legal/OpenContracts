@@ -3,7 +3,14 @@ import { FileText, Cpu, Image, Bot, FileOutput } from "lucide-react";
 import { StageType, LibraryStageType, PipelineMappingKey } from "./types";
 import { OS_LEGAL_COLORS } from "../../../assets/configurations/osLegalStyles";
 
-/** Stage configuration with properly typed settings keys */
+/**
+ * Stage configuration with properly typed settings keys.
+ *
+ * Covers only the per-MIME-assignable stages (see `StageType`). Embedders are
+ * NOT here — `preferred_embedders` has no per-MIME settingsKey to assign
+ * through this table (issue #2114); their Component Library display config
+ * lives directly in {@link LIBRARY_STAGE_CONFIG} below.
+ */
 export const STAGE_CONFIG: Record<
   StageType,
   {
@@ -28,21 +35,15 @@ export const STAGE_CONFIG: Record<
     subtitle: "Generate document previews",
     settingsKey: "preferredThumbnailers",
   },
-  embedders: {
-    color: OS_LEGAL_COLORS.greenMedium,
-    icon: Cpu,
-    title: "Embedder",
-    subtitle: "Create vector embeddings",
-    settingsKey: "preferredEmbedders",
-  },
 };
 
 /**
  * Display metadata for the Component Library list. Covers every library stage,
- * including LLM providers which are NOT file-type-scoped and therefore absent
- * from {@link STAGE_CONFIG} (which carries the per-MIME `settingsKey`). The
- * three filetype stages are reused from `STAGE_CONFIG` to keep colors/icons in
- * one place.
+ * including ones which are NOT file-type-scoped and therefore absent from
+ * {@link STAGE_CONFIG} (which carries the per-MIME `settingsKey`): LLM
+ * providers, file converters, and embedders (see `types.ts` for why embedders
+ * are excluded from `STAGE_CONFIG`/`StageType`). The two filetype stages are
+ * reused from `STAGE_CONFIG` to keep colors/icons in one place.
  */
 type LibraryStageDisplay = {
   color: string;
@@ -65,7 +66,12 @@ export const LIBRARY_STAGE_CONFIG: Record<
 > = {
   parsers: toLibraryDisplay("parsers"),
   thumbnailers: toLibraryDisplay("thumbnailers"),
-  embedders: toLibraryDisplay("embedders"),
+  embedders: {
+    color: OS_LEGAL_COLORS.greenMedium,
+    icon: Cpu,
+    title: "Embedder",
+    subtitle: "Create vector embeddings",
+  },
   llmProviders: {
     // Violet, distinct from the three filetype stages. Literal hex matches the
     // existing per-stage color convention in this file (e.g. thumbnailers).

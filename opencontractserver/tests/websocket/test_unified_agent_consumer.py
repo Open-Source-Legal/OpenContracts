@@ -782,6 +782,56 @@ class UnifiedAgentConsumerTitleGenerationTestCase(WebsocketFixtureBaseTestCase):
 
 @override_settings(USE_AUTH0=False)
 @pytest.mark.django_db(transaction=True)
+class UnifiedAgentConsumerAgentLlmTestCase(WebsocketFixtureBaseTestCase):
+    """``_initialize_agent`` must thread ``AgentConfiguration.preferred_llm``
+    into the agent factory so the per-agent model override takes effect in
+    interactive chat — parity with the Celery (``agent_tasks``) and delegation
+    (``delegation_tools``) paths, which already pass ``agent_preferred_llm=``.
+    """
+
+    def _make_corpus_consumer(self, preferred_llm: str) -> UnifiedAgentConsumer:
+        consumer = UnifiedAgentConsumer()
+        consumer.session_id = "test-session"
+        consumer.user_id = self.user.id
+        consumer.conversation_id = None
+        consumer.document = None
+        consumer.corpus = SimpleNamespace(preferred_embedder=None)
+        consumer.corpus_id = self.corpus.id
+        consumer.agent_config = SimpleNamespace(
+            preferred_llm=preferred_llm,
+            system_instructions=None,
+        )
+        return consumer
+
+    async def test_initialize_agent_threads_agent_preferred_llm(self) -> None:
+        """A non-empty agent ``preferred_llm`` reaches the factory."""
+        consumer = self._make_corpus_consumer("anthropic:claude-haiku-4-5")
+        with patch(
+            "config.websocket.consumers.unified_agent_conversation.agents.for_corpus"
+        ) as mock_for_corpus:
+            mock_for_corpus.return_value = _StubAgent(lambda: iter(()))
+            await consumer._initialize_agent()
+            mock_for_corpus.assert_called_once()
+            kwargs = mock_for_corpus.call_args.kwargs
+            self.assertEqual(
+                kwargs.get("agent_preferred_llm"), "anthropic:claude-haiku-4-5"
+            )
+
+    async def test_initialize_agent_omits_preferred_llm_when_unset(self) -> None:
+        """An empty/blank agent ``preferred_llm`` is not forwarded, so
+        lower-precedence resolution (corpus / install default) still applies."""
+        consumer = self._make_corpus_consumer("")
+        with patch(
+            "config.websocket.consumers.unified_agent_conversation.agents.for_corpus"
+        ) as mock_for_corpus:
+            mock_for_corpus.return_value = _StubAgent(lambda: iter(()))
+            await consumer._initialize_agent()
+            kwargs = mock_for_corpus.call_args.kwargs
+            self.assertNotIn("agent_preferred_llm", kwargs)
+
+
+@override_settings(USE_AUTH0=False)
+@pytest.mark.django_db(transaction=True)
 class UnifiedAgentConsumerDisconnectTestCase(WebsocketFixtureBaseTestCase):
     """Tests for graceful disconnect handling."""
 

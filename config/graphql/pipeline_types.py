@@ -132,6 +132,10 @@ class PipelineComponentsType(graphene.ObjectType):
         PipelineComponentType,
         description="List of available post-retrieval rerankers.",
     )
+    enrichers = graphene.List(
+        PipelineComponentType,
+        description="List of available document enrichers (run between parsing and persistence).",
+    )
     llm_providers = graphene.List(
         PipelineComponentType,
         description="List of available LLM providers (pydantic-ai model "
@@ -214,10 +218,17 @@ class PipelineSettingsType(graphene.ObjectType):
         description="Mapping of MIME types to preferred parser class paths"
     )
     preferred_embedders = GenericScalar(
-        description="Mapping of MIME types to preferred embedder class paths"
+        description="Mapping of MIME types to preferred embedder class paths. "
+        "API-only (issue #2114): has no effect at ingest, which always "
+        "resolves the single global default_embedder to keep the "
+        "cross-corpus vector index on one embedding space."
     )
     preferred_thumbnailers = GenericScalar(
         description="Mapping of MIME types to preferred thumbnailer class paths"
+    )
+    preferred_enrichers = GenericScalar(
+        description="Mapping of MIME types to ORDERED LISTS of preferred enricher "
+        "class paths (the enrichment chain run between parsing and persistence)."
     )
 
     # Component configuration
@@ -230,7 +241,8 @@ class PipelineSettingsType(graphene.ObjectType):
 
     # Default embedder
     default_embedder = graphene.String(
-        description="Default embedder class path when no MIME-specific embedder is found"
+        description="Default embedder class path used for all ingest embedding. "
+        "There is no MIME-specific override; see preferred_embedders."
     )
 
     # Default reranker (post-retrieval). Empty string means reranking disabled.

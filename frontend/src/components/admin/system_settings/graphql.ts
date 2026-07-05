@@ -29,14 +29,18 @@ export const GET_PIPELINE_SETTINGS = gql`
   query GetPipelineSettings {
     pipelineSettings {
       preferredParsers
+      # API-only (issue #2114): no per-MIME GUI editor. Ingest never consults
+      # this — the dual-embedding strategy always resolves the single global
+      # default_embedder. Selected here for API completeness only.
       preferredEmbedders
       preferredThumbnailers
-      parserKwargs
+      preferredEnrichers
       componentSettings
       defaultEmbedder
       defaultFileConverter
       defaultLlm
-      componentsWithSecrets
+      defaultReranker
+      toolsWithSecrets
       enabledComponents
       modified
       modifiedBy {
@@ -148,6 +152,43 @@ export const GET_PIPELINE_COMPONENTS = gql`
         }
         enabled
       }
+      rerankers {
+        name
+        title
+        description
+        className
+        settingsSchema {
+          name
+          settingType
+          pythonType
+          required
+          description
+          default
+          envVar
+          hasValue
+          currentValue
+        }
+        enabled
+      }
+      enrichers {
+        name
+        title
+        description
+        className
+        supportedFileTypes
+        settingsSchema {
+          name
+          settingType
+          pythonType
+          required
+          description
+          default
+          envVar
+          hasValue
+          currentValue
+        }
+        enabled
+      }
     }
   }
 `;
@@ -157,22 +198,24 @@ export const UPDATE_PIPELINE_SETTINGS = gql`
     $preferredParsers: GenericScalar
     $preferredEmbedders: GenericScalar
     $preferredThumbnailers: GenericScalar
-    $parserKwargs: GenericScalar
+    $preferredEnrichers: GenericScalar
     $componentSettings: GenericScalar
     $defaultEmbedder: String
     $defaultFileConverter: String
     $defaultLlm: String
+    $defaultReranker: String
     $enabledComponents: [String]
   ) {
     updatePipelineSettings(
       preferredParsers: $preferredParsers
       preferredEmbedders: $preferredEmbedders
       preferredThumbnailers: $preferredThumbnailers
-      parserKwargs: $parserKwargs
+      preferredEnrichers: $preferredEnrichers
       componentSettings: $componentSettings
       defaultEmbedder: $defaultEmbedder
       defaultFileConverter: $defaultFileConverter
       defaultLlm: $defaultLlm
+      defaultReranker: $defaultReranker
       enabledComponents: $enabledComponents
     ) {
       ok
@@ -181,11 +224,12 @@ export const UPDATE_PIPELINE_SETTINGS = gql`
         preferredParsers
         preferredEmbedders
         preferredThumbnailers
-        parserKwargs
+        preferredEnrichers
         componentSettings
         defaultEmbedder
         defaultFileConverter
-        componentsWithSecrets
+        defaultLlm
+        defaultReranker
         enabledComponents
         modified
         modifiedBy {
@@ -206,11 +250,12 @@ export const RESET_PIPELINE_SETTINGS = gql`
         preferredParsers
         preferredEmbedders
         preferredThumbnailers
-        parserKwargs
+        preferredEnrichers
         componentSettings
         defaultEmbedder
         defaultFileConverter
-        componentsWithSecrets
+        defaultLlm
+        defaultReranker
         enabledComponents
         modified
         modifiedBy {
@@ -246,6 +291,36 @@ export const DELETE_COMPONENT_SECRETS = gql`
       ok
       message
       componentsWithSecrets
+    }
+  }
+`;
+
+export const UPDATE_TOOL_SECRETS = gql`
+  mutation UpdateToolSecrets(
+    $toolKey: String!
+    $secrets: GenericScalar
+    $settings: GenericScalar
+    $merge: Boolean
+  ) {
+    updateToolSecrets(
+      toolKey: $toolKey
+      secrets: $secrets
+      settings: $settings
+      merge: $merge
+    ) {
+      ok
+      message
+      toolsWithSecrets
+    }
+  }
+`;
+
+export const DELETE_TOOL_SECRETS = gql`
+  mutation DeleteToolSecrets($toolKey: String!) {
+    deleteToolSecrets(toolKey: $toolKey) {
+      ok
+      message
+      toolsWithSecrets
     }
   }
 `;

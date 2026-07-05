@@ -97,10 +97,27 @@ class PipelineQueryMixin:
             preferred_parsers = settings_instance.preferred_parsers or {}
             preferred_embedders = settings_instance.preferred_embedders or {}
             preferred_thumbnailers = settings_instance.preferred_thumbnailers or {}
+            preferred_enrichers = settings_instance.preferred_enrichers or {}
 
             configured_components.update(preferred_parsers.values())
             configured_components.update(preferred_embedders.values())
             configured_components.update(preferred_thumbnailers.values())
+            for mimetype_key, enricher_list in preferred_enrichers.items():
+                if isinstance(enricher_list, list):
+                    configured_components.update(enricher_list)
+                else:
+                    # Mirror PipelineSettings.get_preferred_enrichers()'s
+                    # defensive guard: a misconfigured non-list value (e.g. a
+                    # bare string or None from a shell/migration edit that
+                    # bypassed validate_enricher_mapping()) would otherwise
+                    # raise (None) or character-split a string via
+                    # set.update() -- ignore it rather than crash the query.
+                    logger.warning(
+                        "PipelineSettings.preferred_enrichers[%r] is %s, not a "
+                        "list; ignoring for component visibility filtering.",
+                        mimetype_key,
+                        type(enricher_list).__name__,
+                    )
 
             if settings_instance.default_embedder:
                 configured_components.add(settings_instance.default_embedder)
@@ -136,6 +153,7 @@ class PipelineQueryMixin:
                     components_data["post_processors"]
                 ),
                 "rerankers": filter_configured(components_data.get("rerankers", [])),
+                "enrichers": filter_configured(components_data.get("enrichers", [])),
             }
             file_converters_data = filter_configured(list(file_converters_data))
 
@@ -208,6 +226,10 @@ class PipelineQueryMixin:
             rerankers=[
                 to_graphql_type(d, "reranker")
                 for d in components_data.get("rerankers", [])
+            ],
+            enrichers=[
+                to_graphql_type(d, "enricher")
+                for d in components_data.get("enrichers", [])
             ],
             llm_providers=[
                 # LLM providers are intentionally NOT run through
@@ -305,12 +327,13 @@ class PipelineQueryMixin:
         settings_instance = PipelineSettings.get_instance()
 
         # Get list of components that have secrets (don't expose actual secrets)
-        components_with_secrets = list(settings_instance.get_secrets().keys())
+        components_with_secrets = settings_instance.get_components_with_secrets()
 
         return PipelineSettingsType(
             preferred_parsers=settings_instance.preferred_parsers or {},
             preferred_embedders=settings_instance.preferred_embedders or {},
             preferred_thumbnailers=settings_instance.preferred_thumbnailers or {},
+            preferred_enrichers=settings_instance.preferred_enrichers or {},
             parser_kwargs=settings_instance.parser_kwargs or {},
             component_settings=settings_instance.component_settings or {},
             default_embedder=settings_instance.default_embedder or "",

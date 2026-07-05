@@ -17,6 +17,10 @@ import { render } from "@testing-library/react";
 import { MockedProvider } from "@apollo/client/testing";
 import { GlobalAgentManagement } from "../GlobalAgentManagement";
 import { GET_GLOBAL_AGENTS } from "../global_agent_management.graphql";
+import {
+  GET_LLM_PROVIDERS,
+  GET_SYSTEM_DEFAULT_LLM,
+} from "../../../graphql/queries";
 
 const agentsQueryMock = {
   request: { query: GET_GLOBAL_AGENTS },
@@ -27,10 +31,30 @@ const agentsQueryMock = {
   },
 };
 
+// GlobalAgentManagement also fires these to power the Preferred LLM picker's
+// chip list + "inherited system default" hint. Mock them so the mount doesn't
+// leave a dangling unmatched-mock error in the MockedProvider.
+const llmProvidersMock = {
+  request: { query: GET_LLM_PROVIDERS },
+  result: {
+    data: { pipelineComponents: { llmProviders: [] } },
+  },
+};
+
+const systemDefaultLlmMock = {
+  request: { query: GET_SYSTEM_DEFAULT_LLM },
+  result: {
+    data: { pipelineSettings: { defaultLlm: null } },
+  },
+};
+
 describe("GlobalAgentManagement (mount smoke test)", () => {
   it("mounts without throwing under a MockedProvider", () => {
     const { container } = render(
-      <MockedProvider mocks={[agentsQueryMock]} addTypename={false}>
+      <MockedProvider
+        mocks={[agentsQueryMock, llmProvidersMock, systemDefaultLlmMock]}
+        addTypename={false}
+      >
         <GlobalAgentManagement />
       </MockedProvider>
     );

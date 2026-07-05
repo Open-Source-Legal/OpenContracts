@@ -1103,7 +1103,10 @@ class PipelineSettings(django.db.models.Model):
         preferred_parsers: Dict mapping MIME types to parser class paths
             Example: {"application/pdf": "opencontractserver.pipeline.parsers.docling_parser_rest.DoclingParser"}
 
-        preferred_embedders: Dict mapping MIME types to embedder class paths
+        preferred_embedders: Dict mapping MIME types to embedder class paths.
+            API-only (issue #2114): has no effect at ingest, which always
+            resolves the single global default_embedder to keep the
+            cross-corpus vector index on one embedding space.
             Example: {"application/pdf":
                 "opencontractserver.pipeline.embedders...MicroserviceEmbedder"}
 
@@ -1122,7 +1125,8 @@ class PipelineSettings(django.db.models.Model):
         component_settings: Dict mapping component class paths to their settings overrides
             Example: {"opencontractserver.pipeline.embedders.MicroserviceEmbedder": {"timeout": 30}}
 
-        default_embedder: Default embedder class path when no MIME-specific embedder is found
+        default_embedder: Default embedder class path used for all ingest embedding.
+            There is no MIME-specific override; see preferred_embedders.
 
     Security - Encrypted Secrets Storage:
         Sensitive values (API keys, credentials) can be stored in the `encrypted_secrets`
@@ -1148,11 +1152,16 @@ class PipelineSettings(django.db.models.Model):
         help_text="Mapping of MIME types to preferred parser class paths",
     )
 
-    # Preferred embedders per MIME type
+    # Preferred embedders per MIME type. API-only (issue #2114): has no
+    # effect at ingest, which always resolves the single global
+    # default_embedder to keep the cross-corpus vector index on one
+    # embedding space.
     preferred_embedders = NullableJSONField(
         default=dict,
         blank=True,
-        help_text="Mapping of MIME types to preferred embedder class paths",
+        help_text="Mapping of MIME types to preferred embedder class paths. "
+        "API-only: has no effect at ingest, which always resolves the "
+        "single global default_embedder (issue #2114).",
     )
 
     # Preferred thumbnailers per MIME type
@@ -1197,7 +1206,7 @@ class PipelineSettings(django.db.models.Model):
         help_text="List of enabled component class paths. Empty list means all components are enabled.",
     )
 
-    # Default embedder when no MIME-specific one is found
+    # Default embedder used for all ingest embedding (no MIME-specific override)
     default_embedder = django.db.models.CharField(
         max_length=512,
         blank=True,
@@ -1429,6 +1438,25 @@ class PipelineSettings(django.db.models.Model):
 
         return instance
 
+    # -------------------------------------------------------------------
+    # enabled_components enforcement (issue #2116)
+    # -------------------------------------------------------------------
+    # Historically, ``enabled_components`` only gated the admin "Component
+    # Library" checkbox UI and a same-mutation-call validation check (the
+    # "assigned components must be a subset of enabled_components" guard in
+    # ``UpdatePipelineSettingsMutation.mutate``) -- it was never consulted at
+    # actual resolution time. A component unchecked in the Component Library
+    # would still run at ingest if it remained assigned as a MIME default (or
+    # as the global default embedder/reranker/file converter), because these
+    # getters returned the raw configured path unconditionally.
+    #
+    # Each getter below now treats a resolved-but-disabled path as "not
+    # configured", matching that getter's existing "nothing configured"
+    # contract (``None`` for single-value getters, ``""`` for the CharField
+    # defaults, filtered-out for the enricher list) rather than surfacing a
+    # component the admin explicitly disabled. The documented backward-
+    # compatible default is unchanged: an empty ``enabled_components`` list
+    # still means "all components enabled" (see ``is_component_enabled``).
     def get_preferred_parser(self, mimetype: str) -> str | None:
         """
         Get the preferred parser class path for a MIME type.
@@ -1440,10 +1468,14 @@ class PipelineSettings(django.db.models.Model):
             mimetype: The MIME type (e.g., "application/pdf")
 
         Returns:
-            Parser class path or None if not found.
+            Parser class path, or None if not found or if the configured
+            parser is disabled via ``enabled_components``.
         """
         if self.preferred_parsers and mimetype in self.preferred_parsers:
-            return self.preferred_parsers[mimetype]
+            path = self.preferred_parsers[mimetype]
+            if path and not self.is_component_enabled(path):
+                return None
+            return path
         return None
 
     def get_preferred_embedder(self, mimetype: str) -> str | None:
@@ -1457,10 +1489,14 @@ class PipelineSettings(django.db.models.Model):
             mimetype: The MIME type (e.g., "application/pdf")
 
         Returns:
-            Embedder class path or None if not found.
+            Embedder class path, or None if not found or if the configured
+            embedder is disabled via ``enabled_components``.
         """
         if self.preferred_embedders and mimetype in self.preferred_embedders:
-            return self.preferred_embedders[mimetype]
+            path = self.preferred_embedders[mimetype]
+            if path and not self.is_component_enabled(path):
+                return None
+            return path
         return None
 
     def get_preferred_thumbnailer(self, mimetype: str) -> str | None:
@@ -1473,10 +1509,14 @@ class PipelineSettings(django.db.models.Model):
             mimetype: The MIME type (e.g., "application/pdf")
 
         Returns:
-            Thumbnailer class path or None if not found.
+            Thumbnailer class path, or None if not found or if the configured
+            thumbnailer is disabled via ``enabled_components``.
         """
         if self.preferred_thumbnailers and mimetype in self.preferred_thumbnailers:
-            return self.preferred_thumbnailers[mimetype]
+            path = self.preferred_thumbnailers[mimetype]
+            if path and not self.is_component_enabled(path):
+                return None
+            return path
         return None
 
     def get_preferred_enrichers(self, mimetype: str) -> list[str]:
@@ -1495,13 +1535,17 @@ class PipelineSettings(django.db.models.Model):
 
         Returns:
             Ordered list of enricher class paths (empty if none configured).
+            Entries disabled via ``enabled_components`` are filtered out
+            rather than raised as an error -- enrichment is already an
+            optional, best-effort chain (see ``run_enrichers``), so silently
+            dropping a disabled entry matches its existing failure semantics.
         """
         if self.preferred_enrichers and mimetype in self.preferred_enrichers:
             configured = self.preferred_enrichers[mimetype]
             if configured is None:
                 return []
             if isinstance(configured, list):
-                return configured
+                return [path for path in configured if self.is_component_enabled(path)]
             # A misconfigured non-list value (e.g. a bare string) would make
             # run_enrichers iterate characters — ignore it rather than run a
             # garbage chain.
@@ -1569,9 +1613,14 @@ class PipelineSettings(django.db.models.Model):
         A fresh dict is built on every call so decrypted secrets are not
         retained on the model instance between calls.
 
-        This method only returns database settings, not Django settings fallback.
-        The Django settings fallback (with proper simple name vs full path
-        precedence) is handled by PipelineComponentBase.get_component_settings().
+        This method only returns database settings. There is currently no
+        Django-settings-based fallback for component_settings: if the
+        database has no entry for ``component_class_path`` (and no matching
+        secrets), this returns an empty dict, and the component's ``Settings``
+        dataclass defaults apply from there (see
+        ``PipelineComponentBase.get_component_settings()``, which merely calls
+        ``get_full_component_settings()`` and returns ``{}`` on an empty
+        result — it does not implement a fallback itself).
 
         Args:
             component_class_path: Full class path of the component
@@ -1599,9 +1648,18 @@ class PipelineSettings(django.db.models.Model):
         Initial values are populated from Django settings via get_instance().
 
         Returns:
-            Default embedder class path.
+            Default embedder class path, or empty string if unset or if the
+            configured embedder is disabled via ``enabled_components`` (see
+            the enforcement note above ``get_preferred_parser``) -- downstream
+            resolution in ``pipeline/utils.py::get_default_embedder`` already
+            treats an empty path as "no default configured" and logs an
+            error, so this is a safe, loud failure rather than silently
+            using a disabled component.
         """
-        return self.default_embedder or ""
+        path = self.default_embedder or ""
+        if path and not self.is_component_enabled(path):
+            return ""
+        return path
 
     def get_default_reranker(self) -> str:
         """
@@ -1612,9 +1670,16 @@ class PipelineSettings(django.db.models.Model):
         retrieval results as-is.
 
         Returns:
-            Default reranker class path, or empty string if unset.
+            Default reranker class path, or empty string if unset or if the
+            configured reranker is disabled via ``enabled_components`` (see
+            the enforcement note above ``get_preferred_parser``) -- reranking
+            already treats "" as "disabled" everywhere downstream, so this is
+            a safe, soft fallback with no new failure mode.
         """
-        return self.default_reranker or ""
+        path = self.default_reranker or ""
+        if path and not self.is_component_enabled(path):
+            return ""
+        return path
 
     def get_default_file_converter(self) -> str:
         """
@@ -1624,9 +1689,15 @@ class PipelineSettings(django.db.models.Model):
         means the convert-to-PDF ingest step is disabled.
 
         Returns:
-            File converter class path, or empty string if unset.
+            File converter class path, or empty string if unset or if the
+            configured converter is disabled via ``enabled_components`` (see
+            the enforcement note above ``get_preferred_parser``) -- conversion
+            already treats "" as "disabled" downstream, so this is safe.
         """
-        return self.default_file_converter or ""
+        path = self.default_file_converter or ""
+        if path and not self.is_component_enabled(path):
+            return ""
+        return path
 
     def get_default_llm(self) -> str:
         """
@@ -1941,6 +2012,24 @@ class PipelineSettings(django.db.models.Model):
             key
             for key in all_secrets
             if key.startswith(TOOL_SETTINGS_PREFIX) and all_secrets[key]
+        ]
+
+    def get_components_with_secrets(self) -> list[str]:
+        """
+        Return component class paths that have secrets configured.
+
+        Excludes ``tool:``-prefixed keys — those are agent-tool secrets tracked
+        separately by :meth:`get_tools_with_secrets`. The two secret namespaces
+        share one encrypted store, so surfacing raw ``get_secrets().keys()`` as
+        the component list leaks tool keys (e.g. ``tool:web_search``) into the
+        admin Component Library's per-component secret indicators.
+        """
+        from opencontractserver.constants.tools import TOOL_SETTINGS_PREFIX
+
+        return [
+            key
+            for key in self.get_secrets()
+            if not key.startswith(TOOL_SETTINGS_PREFIX)
         ]
 
     # =====================================================================

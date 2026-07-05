@@ -26,7 +26,10 @@ import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
 import { LlmModelPicker } from "../common/LlmModelPicker";
 import { PipelineComponentType } from "../../types/graphql-api";
 import { getComponentDisplayName } from "./PipelineIcons";
-import { PIPELINE_UI } from "../../assets/configurations/constants";
+import {
+  PIPELINE_UI,
+  WEB_SEARCH_TOOL_KEY,
+} from "../../assets/configurations/constants";
 import { CORPUS_BREAKPOINTS } from "../corpuses/styles/corpusDesignTokens";
 import { formatSettingLabel } from "../../utils/formatters";
 
@@ -43,7 +46,10 @@ import {
   PipelineComponentsQueryResult,
   SupportedMimeTypesQueryResult,
 } from "./system_settings/graphql";
-import { SettingsSchemaEntry } from "./system_settings/types";
+import {
+  SettingsSchemaEntry,
+  PreferredEnrichersMap,
+} from "./system_settings/types";
 import { STAGE_CONFIG } from "./system_settings/config";
 import {
   Container,
@@ -76,6 +82,8 @@ import {
 } from "./system_settings/styles";
 import { ComponentLibrary } from "./system_settings/ComponentLibrary";
 import { FiletypeDefaults } from "./system_settings/FiletypeDefaults";
+import { EnricherChainEditor } from "./system_settings/EnricherChainEditor";
+import { ToolSecretsPanel } from "./system_settings/ToolSecretsPanel";
 
 // ============================================================================
 // Constants
@@ -153,6 +161,9 @@ export const SystemSettings: React.FC = () => {
     useState("");
   const [showDefaultLlmModal, setShowDefaultLlmModal] = useState(false);
   const [defaultLlmValue, setDefaultLlmValue] = useState("");
+  const [showDefaultRerankerModal, setShowDefaultRerankerModal] =
+    useState(false);
+  const [defaultRerankerValue, setDefaultRerankerValue] = useState("");
   const [showDeleteSecretsConfirm, setShowDeleteSecretsConfirm] =
     useState(false);
   const [deleteSecretsPath, setDeleteSecretsPath] = useState("");
@@ -300,8 +311,24 @@ export const SystemSettings: React.FC = () => {
       (comp): comp is PipelineComponentType & { className: string } =>
         Boolean(comp?.className)
     );
+    const rerankers = (components?.rerankers || []).filter(
+      (comp): comp is PipelineComponentType & { className: string } =>
+        Boolean(comp?.className)
+    );
+    const enrichers = (components?.enrichers || []).filter(
+      (comp): comp is PipelineComponentType & { className: string } =>
+        Boolean(comp?.className)
+    );
 
-    return { parsers, embedders, thumbnailers, llmProviders, fileConverters };
+    return {
+      parsers,
+      embedders,
+      thumbnailers,
+      llmProviders,
+      fileConverters,
+      rerankers,
+      enrichers,
+    };
   }, [components]);
 
   const componentByClassName = useMemo(() => {
@@ -426,10 +453,12 @@ export const SystemSettings: React.FC = () => {
     ]
   );
 
-  // Assign a component to a filetype default
+  // Assign a component to a filetype default. "embedders" is intentionally
+  // excluded (issue #2114): preferred_embedders has no effect on ingest — see
+  // the STAGES comment in FiletypeDefaults.tsx.
   const handleAssign = useCallback(
     (
-      stage: "parsers" | "embedders" | "thumbnailers",
+      stage: "parsers" | "thumbnailers",
       mimeType: string,
       className: string
     ) => {
@@ -446,6 +475,30 @@ export const SystemSettings: React.FC = () => {
 
       updateSettings({
         variables: { [settingsKey]: newMapping },
+      });
+    },
+    [settings, updateSettings]
+  );
+
+  // Assign the FULL ordered enricher chain for a MIME type. Unlike
+  // `handleAssign` (single class path per MIME type), `preferred_enrichers`
+  // is a per-MIME ORDERED LIST, so this takes the whole recomputed list
+  // (after an add/remove/reorder) rather than a single value.
+  const handleAssignEnrichers = useCallback(
+    (mimeType: string, enricherPaths: string[]) => {
+      const currentMapping =
+        (settings?.preferredEnrichers as PreferredEnrichersMap | undefined) ??
+        {};
+      const newMapping: PreferredEnrichersMap = { ...currentMapping };
+
+      if (enricherPaths.length > 0) {
+        newMapping[mimeType] = enricherPaths;
+      } else {
+        delete newMapping[mimeType];
+      }
+
+      updateSettings({
+        variables: { preferredEnrichers: newMapping },
       });
     },
     [settings, updateSettings]
@@ -544,21 +597,48 @@ export const SystemSettings: React.FC = () => {
     setDeleteSecretsPath("");
   }, [deleteSecrets, deleteSecretsPath]);
 
-  // Handle saving non-secret component settings
+  // Handle saving non-secret component settings.
+  //
+  // issue #2121: a field the user explicitly clears to "" must actually be
+  // REMOVED from the persisted per-component settings (so the component
+  // falls back to its Settings dataclass default at read time), not silently
+  // skipped while the stale value survives via the merge-with-existing
+  // spread below. A field that was already empty and is still empty is a
+  // no-op — there is nothing to clear. This distinction is what makes
+  // reverting a single field (or re-widening a narrowed list like
+  // `convert_extensions`, which goes through this same generic path) possible
+  // without a full Reset-to-Defaults.
   const handleSaveComponentSettings = useCallback(
     (componentPath: string, values: Record<string, string>) => {
       // Build the component_settings update: merge with existing
       const existing = settings?.componentSettings ?? {};
-      const existingForComponent =
-        (existing as Record<string, Record<string, unknown>>)[componentPath] ??
-        {};
+      const existingForComponent = {
+        ...((existing as Record<string, Record<string, unknown>>)[
+          componentPath
+        ] ?? {}),
+      };
 
       // Coerce values to proper types based on schema
       const schema = getNonSecretSettingsForComponent(componentPath);
       const coerced: Record<string, unknown> = {};
+      const keysToClear: string[] = [];
       for (const entry of schema) {
         const raw = values[entry.name];
-        if (raw === undefined || raw === "") continue;
+        if (raw === undefined) continue;
+        if (raw === "") {
+          const priorValue = existingForComponent[entry.name];
+          const hadPriorValue =
+            priorValue !== undefined &&
+            priorValue !== null &&
+            priorValue !== "";
+          if (hadPriorValue) {
+            // Explicit clear of a previously-populated field: remove the key
+            // entirely rather than keeping the stale value.
+            keysToClear.push(entry.name);
+          }
+          // Already empty/unset: no-op, nothing to send.
+          continue;
+        }
         switch (entry.pythonType) {
           case "int":
             coerced[entry.name] = parseInt(raw, 10);
@@ -574,9 +654,17 @@ export const SystemSettings: React.FC = () => {
         }
       }
 
+      const mergedForComponent: Record<string, unknown> = {
+        ...existingForComponent,
+        ...coerced,
+      };
+      for (const key of keysToClear) {
+        delete mergedForComponent[key];
+      }
+
       const updatedComponentSettings = {
         ...existing,
-        [componentPath]: { ...existingForComponent, ...coerced },
+        [componentPath]: mergedForComponent,
       };
 
       updateSettings({
@@ -638,6 +726,23 @@ export const SystemSettings: React.FC = () => {
     setShowDefaultLlmModal(false);
   }, [defaultLlmValue, updateSettings]);
 
+  // Handle default reranker. Empty string DISABLES second-stage reranking
+  // (the backend treats "" as "reranking off"), so we always send the string
+  // value — never null (null means "leave unchanged").
+  const handleEditDefaultReranker = useCallback(() => {
+    setDefaultRerankerValue(settings?.defaultReranker || "");
+    setShowDefaultRerankerModal(true);
+  }, [settings]);
+
+  const handleSaveDefaultReranker = useCallback(() => {
+    updateSettings({
+      variables: {
+        defaultReranker: defaultRerankerValue.trim(),
+      },
+    });
+    setShowDefaultRerankerModal(false);
+  }, [defaultRerankerValue, updateSettings]);
+
   // Format date
   const formatDate = useCallback((dateStr: string | null | undefined) => {
     if (!dateStr) return "Never";
@@ -688,18 +793,18 @@ export const SystemSettings: React.FC = () => {
         (settings?.enabledComponents?.filter(Boolean) as string[]) ?? [],
       preferredParsers:
         (settings?.preferredParsers as Record<string, string>) || {},
-      preferredEmbedders:
-        (settings?.preferredEmbedders as Record<string, string>) || {},
       preferredThumbnailers:
         (settings?.preferredThumbnailers as Record<string, string>) || {},
       defaultEmbedder: settings?.defaultEmbedder || "",
       defaultFileConverter: settings?.defaultFileConverter || "",
       defaultLlm: settings?.defaultLlm || "",
+      defaultReranker: settings?.defaultReranker || "",
       updating,
       onAssign: handleAssign,
       onEditDefaultEmbedder: handleEditDefaultEmbedder,
       onEditDefaultFileConverter: handleEditDefaultFileConverter,
       onEditDefaultLlm: handleEditDefaultLlm,
+      onEditDefaultReranker: handleEditDefaultReranker,
     }),
     [
       componentsByStage,
@@ -707,16 +812,40 @@ export const SystemSettings: React.FC = () => {
       mimeTypesLoading,
       settings?.enabledComponents,
       settings?.preferredParsers,
-      settings?.preferredEmbedders,
       settings?.preferredThumbnailers,
       settings?.defaultEmbedder,
       settings?.defaultFileConverter,
       settings?.defaultLlm,
+      settings?.defaultReranker,
       updating,
       handleAssign,
       handleEditDefaultEmbedder,
       handleEditDefaultFileConverter,
       handleEditDefaultLlm,
+      handleEditDefaultReranker,
+    ]
+  );
+
+  const enricherChainEditorProps = useMemo(
+    () => ({
+      enrichers: componentsByStage.enrichers,
+      supportedMimeTypes,
+      mimeTypesLoading,
+      enabledComponents:
+        (settings?.enabledComponents?.filter(Boolean) as string[]) ?? [],
+      preferredEnrichers:
+        (settings?.preferredEnrichers as PreferredEnrichersMap) || {},
+      updating,
+      onAssignEnrichers: handleAssignEnrichers,
+    }),
+    [
+      componentsByStage.enrichers,
+      supportedMimeTypes,
+      mimeTypesLoading,
+      settings?.enabledComponents,
+      settings?.preferredEnrichers,
+      updating,
+      handleAssignEnrichers,
     ]
   );
 
@@ -836,7 +965,10 @@ export const SystemSettings: React.FC = () => {
             {activeTab === "library" ? (
               <ComponentLibrary {...componentLibraryProps} />
             ) : (
-              <FiletypeDefaults {...filetypeDefaultsProps} />
+              <>
+                <FiletypeDefaults {...filetypeDefaultsProps} />
+                <EnricherChainEditor {...enricherChainEditorProps} />
+              </>
             )}
           </MobileSettingsTabPanel>
         </MobileSettingsTabContainer>
@@ -847,9 +979,24 @@ export const SystemSettings: React.FC = () => {
           </SettingsLeftColumn>
           <SettingsRightColumn>
             <FiletypeDefaults {...filetypeDefaultsProps} />
+            <EnricherChainEditor {...enricherChainEditorProps} />
           </SettingsRightColumn>
         </SettingsTwoColumnLayout>
       )}
+
+      <ToolSecretsPanel
+        toolsWithSecrets={
+          (settings?.toolsWithSecrets?.filter(Boolean) as string[]) ?? []
+        }
+        currentSettings={
+          (
+            settings?.componentSettings as
+              | Record<string, Record<string, unknown>>
+              | undefined
+          )?.[WEB_SEARCH_TOOL_KEY]
+        }
+        onSecretsChanged={refetchSettings}
+      />
 
       {/* Reset to Defaults */}
       <ActionButtons>
@@ -877,8 +1024,12 @@ export const SystemSettings: React.FC = () => {
           <WarningBanner>
             <AlertTriangle />
             <WarningText>
-              This will reset all pipeline settings to their Django
-              configuration defaults. This action cannot be undone.
+              This will reset pipeline component assignments and settings
+              (filetype defaults, enrichment chains, enabled components, and
+              related overrides) to their Django configuration defaults. This
+              action cannot be undone. Stored secrets — component API keys and
+              agent tool secrets (e.g. web search) — are <strong>not</strong>{" "}
+              affected and must be cleared separately if desired.
             </WarningText>
           </WarningBanner>
         </ModalBody>
@@ -1248,6 +1399,109 @@ export const SystemSettings: React.FC = () => {
           <Button
             variant="primary"
             onClick={handleSaveDefaultLlm}
+            loading={updating}
+          >
+            <Save style={{ width: 16, height: 16, marginRight: 8 }} />
+            Save
+          </Button>
+        </ModalFooter>
+      </Modal>
+
+      {/* Default Reranker Modal */}
+      <Modal
+        open={showDefaultRerankerModal}
+        onClose={() => setShowDefaultRerankerModal(false)}
+        size="md"
+      >
+        <ModalHeader
+          title="Edit Default Reranker"
+          onClose={() => setShowDefaultRerankerModal(false)}
+        />
+        <ModalBody>
+          <FormField>
+            <FormLabel>Reranker Class Path</FormLabel>
+            <Input
+              id="default-reranker"
+              value={defaultRerankerValue}
+              onChange={(e) => setDefaultRerankerValue(e.target.value)}
+              placeholder="e.g., opencontractserver.pipeline.rerankers.cross_encoder_reranker.CrossEncoderReranker"
+              fullWidth
+            />
+            <FormHelperText>
+              Applied as a second-stage reorder over vector / hybrid search
+              results across all corpora. Leave empty to disable reranking
+              (first-stage retrieval results are returned as-is).
+            </FormHelperText>
+          </FormField>
+          <div style={{ marginTop: "1rem" }}>
+            <FormLabel>Available Rerankers:</FormLabel>
+            <div
+              style={{
+                padding: "0.75rem",
+                fontSize: "0.875rem",
+                cursor: "pointer",
+                borderRadius: "8px",
+                marginBottom: "0.5rem",
+                background:
+                  defaultRerankerValue === ""
+                    ? "#e0e7ff"
+                    : OS_LEGAL_COLORS.surfaceHover,
+                border: `1px solid ${
+                  defaultRerankerValue === ""
+                    ? "#6366f1"
+                    : OS_LEGAL_COLORS.border
+                }`,
+              }}
+              onClick={() => setDefaultRerankerValue("")}
+            >
+              <strong>None (reranking disabled)</strong>
+            </div>
+            {componentsByStage.rerankers.map((r) => (
+              <div
+                key={r.className}
+                style={{
+                  padding: "0.75rem",
+                  fontSize: "0.875rem",
+                  cursor: "pointer",
+                  borderRadius: "8px",
+                  marginBottom: "0.5rem",
+                  background:
+                    defaultRerankerValue === r.className
+                      ? "#e0e7ff"
+                      : OS_LEGAL_COLORS.surfaceHover,
+                  border: `1px solid ${
+                    defaultRerankerValue === r.className
+                      ? "#6366f1"
+                      : OS_LEGAL_COLORS.border
+                  }`,
+                }}
+                onClick={() => setDefaultRerankerValue(r.className)}
+              >
+                <strong>{r.title || r.name}</strong>
+                <div
+                  style={{
+                    fontSize: "0.75rem",
+                    color: OS_LEGAL_COLORS.textSecondary,
+                    fontFamily: "monospace",
+                    marginTop: "0.25rem",
+                  }}
+                >
+                  {r.className}
+                </div>
+              </div>
+            ))}
+          </div>
+        </ModalBody>
+        <ModalFooter>
+          <Button
+            variant="secondary"
+            onClick={() => setShowDefaultRerankerModal(false)}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            onClick={handleSaveDefaultReranker}
             loading={updating}
           >
             <Save style={{ width: 16, height: 16, marginRight: 8 }} />

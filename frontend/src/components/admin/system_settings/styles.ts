@@ -518,7 +518,7 @@ export const DefaultsContainer = styled.div`
 
 export const DefaultsHeaderRow = styled.div`
   display: grid;
-  grid-template-columns: 120px 1fr 1fr 1fr;
+  grid-template-columns: 120px 1fr 1fr;
   gap: 0.75rem;
   padding: 0 0.75rem;
   font-size: 0.6875rem;
@@ -534,7 +534,7 @@ export const DefaultsHeaderRow = styled.div`
 
 export const FiletypeRow = styled.div`
   display: grid;
-  grid-template-columns: 120px 1fr 1fr 1fr;
+  grid-template-columns: 120px 1fr 1fr;
   gap: 0.75rem;
   align-items: center;
   padding: 0.75rem;
@@ -608,6 +608,90 @@ export const StyledSelect = styled.select<{ $warning?: boolean }>`
     opacity: 0.5;
     cursor: not-allowed;
   }
+`;
+
+// ============================================================================
+// Enrichment Chain Editor Styled Components
+// ============================================================================
+
+export const EnricherMimeBlock = styled.div`
+  padding: 1rem;
+  background: ${OS_LEGAL_COLORS.surfaceHover};
+  border: 1px solid ${OS_LEGAL_COLORS.border};
+  border-radius: 8px;
+  margin-bottom: 0.75rem;
+
+  &:last-child {
+    margin-bottom: 0;
+  }
+`;
+
+export const EnricherMimeHeader = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: ${OS_LEGAL_COLORS.textPrimary};
+  margin-bottom: 0.75rem;
+
+  svg {
+    width: 16px;
+    height: 16px;
+    color: ${OS_LEGAL_COLORS.textSecondary};
+  }
+`;
+
+export const EnricherOrderedList = styled.ol`
+  list-style: none;
+  margin: 0 0 0.75rem 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+`;
+
+export const EnricherListItem = styled.li`
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: white;
+  border: 1px solid ${OS_LEGAL_COLORS.border};
+  border-radius: 6px;
+`;
+
+export const EnricherOrderBadge = styled.span`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  border-radius: 9999px;
+  background: ${PIPELINE_UI.PRIMARY_ACCENT_COLOR}15;
+  color: ${PIPELINE_UI.PRIMARY_ACCENT_COLOR};
+  font-size: 0.6875rem;
+  font-weight: 700;
+`;
+
+export const EnricherItemInfo = styled.div`
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+`;
+
+export const EnricherItemActions = styled.div`
+  display: flex;
+  gap: 0.25rem;
+  flex-shrink: 0;
+`;
+
+export const EnricherAddRow = styled.div`
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
 `;
 
 // ============================================================================

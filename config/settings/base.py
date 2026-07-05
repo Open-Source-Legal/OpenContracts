@@ -1417,15 +1417,6 @@ IMAGE_EXTRACTION_GC_INTERVAL_PAGES = env.int(
     "IMAGE_EXTRACTION_GC_INTERVAL_PAGES", default=1
 )
 
-# Thumbnail extraction tasks
-THUMBNAIL_TASKS = {
-    "application/pdf": "opencontractserver.tasks.doc_tasks.extract_pdf_thumbnail",
-    "application/txt": "opencontractserver.tasks.doc_tasks.extract_txt_thumbnail",
-    "text/plain": "opencontractserver.tasks.doc_tasks.extract_txt_thumbnail",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "opencontractserver.tasks.doc_tasks.extract_docx_thumbnail",  # noqa
-    # Add other MIME types and their thumbnail tasks as needed
-}
-
 # Annotation JSON validation
 # When True, Annotation.clean() validates the structure of annotation JSON
 # on every save. Enabled by default — the validation is a lightweight
@@ -1476,11 +1467,6 @@ DEFAULT_EMBEDDING_DIMENSION = 768
 TEST_RUNNER = "opencontractserver.tests.runner.TerminateConnectionsTestRunner"
 
 PARSER_KWARGS = {
-    "opencontractserver.pipeline.parsers.docling_parser.DoclingParser": {
-        "force_ocr": False,
-        "roll_up_groups": True,
-        "llm_enhanced_hierarchy": False,
-    },
     "opencontractserver.pipeline.parsers.llamaparse_parser.LlamaParseParser": {
         "api_key": LLAMAPARSE_API_KEY,
         "result_type": "json",
@@ -1493,7 +1479,7 @@ PARSER_KWARGS = {
 
 # Enabled pipeline components. An empty list means all registered components are enabled.
 # To restrict to specific components, list their full class paths, e.g.:
-#   ENABLED_COMPONENTS = ["opencontractserver.pipeline.parsers.docling_parser.DoclingParser"]
+#   ENABLED_COMPONENTS = ["opencontractserver.pipeline.parsers.docling_parser_rest.DoclingParser"]
 ENABLED_COMPONENTS: list[str] = []
 
 # Optional pre-parse file converter (BaseFileConverter class path). When set,

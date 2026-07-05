@@ -653,6 +653,17 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
             # This will be a future enhancement. For now, the default instructions apply.
             pass
 
+        # Thread the per-agent LLM override (``AgentConfiguration.preferred_llm``)
+        # into the factory so interactive chat honors it. Without this the
+        # interactive WebSocket path silently falls back to the corpus/install
+        # default model, diverging from the Celery (agent_tasks.py) and
+        # delegation (delegation_tools.py) paths, which both pass
+        # ``agent_preferred_llm=``. The factory treats this as the top-of-chain
+        # override that wins over ``Corpus.preferred_llm`` and the install
+        # default (see api.for_document/for_corpus and agent_factory).
+        if self.agent_config and self.agent_config.preferred_llm:
+            agent_kwargs["agent_preferred_llm"] = self.agent_config.preferred_llm
+
         if extra_tools:
             agent_kwargs["tools"] = list(extra_tools)
 

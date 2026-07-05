@@ -76,7 +76,7 @@ def validate_mime_type(mime_type: str) -> Optional[str]:
 
 
 def validate_component_mapping(
-    mapping: dict, registry, component_type: str
+    mapping: dict, registry, component_type: str, expected_type=None
 ) -> Optional[str]:
     """
     Validate a mapping of MIME types to component paths.
@@ -85,6 +85,12 @@ def validate_component_mapping(
         mapping: Dict mapping MIME types to component class paths
         registry: Pipeline component registry for validation
         component_type: Type name for error messages (e.g., "Parser")
+        expected_type: When provided (a ``ComponentType``), require each mapped
+            component to actually BE that stage. Registry membership alone is
+            insufficient — assigning e.g. a parser class as a thumbnailer passes
+            the membership check but blows up at ingest with an ``AttributeError``
+            on ``.generate_thumbnail`` and marks every affected document FAILED.
+            Mirrors the stricter guard already applied to ``default_file_converter``.
 
     Returns:
         Error message if invalid, None if valid
@@ -104,8 +110,70 @@ def validate_component_mapping(
             return error
 
         # Validate component exists in registry
-        if not registry.get_by_class_name(component_path):
+        component_def = registry.get_by_class_name(component_path)
+        if not component_def:
             return f"{component_type} '{component_path}' not found in registry"
+
+        # Validate the component is the RIGHT KIND for this stage.
+        if expected_type is not None and component_def.component_type != expected_type:
+            return (
+                f"Component '{component_path}' is a "
+                f"{component_def.component_type.value}, not a "
+                f"{component_type.lower()}."
+            )
+
+    return None
+
+
+def validate_enricher_mapping(mapping: dict, registry) -> Optional[str]:
+    """
+    Validate a mapping of MIME types to ORDERED LISTS of enricher class paths.
+
+    Unlike ``validate_component_mapping`` (MIME type -> single component
+    path), ``preferred_enrichers`` maps each MIME type to an ORDERED LIST of
+    enricher class paths run as a chain between parsing and persistence
+    (see ``PipelineSettings.get_preferred_enrichers`` and
+    ``opencontractserver.pipeline.utils.run_enrichers``).
+
+    Args:
+        mapping: Dict mapping MIME types to lists of enricher class paths
+        registry: Pipeline component registry for validation
+
+    Returns:
+        Error message if invalid, None if valid
+    """
+    from opencontractserver.pipeline.registry import ComponentType
+
+    if not isinstance(mapping, dict):
+        return "Enricher mapping must be a dictionary"
+
+    for mime_type, path_list in mapping.items():
+        # Validate MIME type
+        error = validate_mime_type(mime_type)
+        if error:
+            return error
+
+        # preferred_enrichers is a mime -> ORDERED LIST mapping, not mime -> path
+        if not isinstance(path_list, list):
+            return (
+                f"Enricher mapping for '{mime_type}' must be a list of "
+                f"class paths, got {type(path_list).__name__}."
+            )
+
+        for component_path in path_list:
+            error = validate_component_path(component_path)
+            if error:
+                return error
+
+            component_def = registry.get_by_class_name(component_path)
+            if not component_def:
+                return f"Enricher '{component_path}' not found in registry"
+
+            if component_def.component_type != ComponentType.ENRICHER:
+                return (
+                    f"Component '{component_path}' is a "
+                    f"{component_def.component_type.value}, not an enricher."
+                )
 
     return None
 
@@ -208,6 +276,7 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
         preferred_parsers: Dict mapping MIME types to parser class paths
         preferred_embedders: Dict mapping MIME types to embedder class paths
         preferred_thumbnailers: Dict mapping MIME types to thumbnailer class paths
+        preferred_enrichers: Dict mapping MIME types to ORDERED LISTS of enricher class paths
         parser_kwargs: Dict mapping parser class paths to their configuration kwargs
         component_settings: Dict mapping component class paths to settings overrides
         default_embedder: Default embedder class path
@@ -226,11 +295,18 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
         )
         preferred_embedders = GenericScalar(
             required=False,
-            description="Mapping of MIME types to preferred embedder class paths.",
+            description="Mapping of MIME types to preferred embedder class paths. "
+            "API-only (issue #2114): has no effect at ingest, which always "
+            "resolves the single global default_embedder to keep the "
+            "cross-corpus vector index on one embedding space.",
         )
         preferred_thumbnailers = GenericScalar(
             required=False,
             description="Mapping of MIME types to preferred thumbnailer class paths.",
+        )
+        preferred_enrichers = GenericScalar(
+            required=False,
+            description="Mapping of MIME types to ordered lists of preferred enricher class paths.",
         )
         parser_kwargs = GenericScalar(
             required=False,
@@ -243,7 +319,8 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
         )
         default_embedder = graphene.String(
             required=False,
-            description="Default embedder class path when no MIME-specific embedder is found.",
+            description="Default embedder class path used for all ingest embedding. "
+            "There is no MIME-specific override; see preferred_embedders.",
         )
         default_reranker = graphene.String(
             required=False,
@@ -291,6 +368,7 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
         preferred_parsers=None,
         preferred_embedders=None,
         preferred_thumbnailers=None,
+        preferred_enrichers=None,
         parser_kwargs=None,
         component_settings=None,
         default_embedder=None,
@@ -305,7 +383,7 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
         Security: Only superusers can update these settings.
         """
         from opencontractserver.documents.models import PipelineSettings
-        from opencontractserver.pipeline.registry import get_registry
+        from opencontractserver.pipeline.registry import ComponentType, get_registry
 
         user = info.context.user
 
@@ -324,7 +402,7 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
             # Validate and apply preferred_parsers
             if preferred_parsers is not None:
                 error = validate_component_mapping(
-                    preferred_parsers, registry, "Parser"
+                    preferred_parsers, registry, "Parser", ComponentType.PARSER
                 ) or validate_json_field_size(preferred_parsers, "preferred_parsers")
                 if error:
                     return UpdatePipelineSettingsMutation(
@@ -335,7 +413,7 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
             # Validate and apply preferred_embedders
             if preferred_embedders is not None:
                 error = validate_component_mapping(
-                    preferred_embedders, registry, "Embedder"
+                    preferred_embedders, registry, "Embedder", ComponentType.EMBEDDER
                 ) or validate_json_field_size(
                     preferred_embedders, "preferred_embedders"
                 )
@@ -348,7 +426,10 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
             # Validate and apply preferred_thumbnailers
             if preferred_thumbnailers is not None:
                 error = validate_component_mapping(
-                    preferred_thumbnailers, registry, "Thumbnailer"
+                    preferred_thumbnailers,
+                    registry,
+                    "Thumbnailer",
+                    ComponentType.THUMBNAILER,
                 ) or validate_json_field_size(
                     preferred_thumbnailers, "preferred_thumbnailers"
                 )
@@ -357,6 +438,19 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
                         ok=False, message=error, pipeline_settings=None
                     )
                 settings_instance.preferred_thumbnailers = preferred_thumbnailers
+
+            # Validate and apply preferred_enrichers
+            if preferred_enrichers is not None:
+                error = validate_enricher_mapping(
+                    preferred_enrichers, registry
+                ) or validate_json_field_size(
+                    preferred_enrichers, "preferred_enrichers"
+                )
+                if error:
+                    return UpdatePipelineSettingsMutation(
+                        ok=False, message=error, pipeline_settings=None
+                    )
+                settings_instance.preferred_enrichers = preferred_enrichers
 
             # Validate parser_kwargs
             if parser_kwargs is not None:
@@ -520,13 +614,6 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
                             pipeline_settings=None,
                         )
                 settings_instance.default_reranker = default_reranker
-                # Drop cached reranker instance so the next retrieval picks
-                # up the new configuration without a worker restart.
-                from opencontractserver.pipeline.utils import (
-                    invalidate_reranker_cache,
-                )
-
-                invalidate_reranker_cache()
 
             # Validate default_file_converter (empty string = conversion
             # disabled). Beyond registry presence, require the component to
@@ -634,66 +721,120 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
                             pipeline_settings=None,
                         )
 
-                # Validate that all currently assigned components are in the enabled list.
-                # Empty list means "all enabled" — skip the assigned-component check.
-                enabled_set = set(enabled_components)
-                if enabled_set:
-                    assigned_parsers = (
-                        preferred_parsers
-                        if preferred_parsers is not None
-                        else settings_instance.preferred_parsers or {}
-                    )
-                    assigned_embedders = (
-                        preferred_embedders
-                        if preferred_embedders is not None
-                        else settings_instance.preferred_embedders or {}
-                    )
-                    assigned_thumbnailers = (
-                        preferred_thumbnailers
-                        if preferred_thumbnailers is not None
-                        else settings_instance.preferred_thumbnailers or {}
-                    )
-                    assigned_default = (
-                        default_embedder
-                        if default_embedder is not None
-                        else settings_instance.default_embedder or ""
-                    )
-                    assigned_converter = (
-                        default_file_converter
-                        if default_file_converter is not None
-                        else settings_instance.default_file_converter or ""
-                    )
-
-                    all_assigned = {
-                        path
-                        for path in (
-                            *assigned_parsers.values(),
-                            *assigned_embedders.values(),
-                            *assigned_thumbnailers.values(),
-                        )
-                        if path
-                    }
-                    if assigned_default:
-                        all_assigned.add(assigned_default)
-                    if assigned_converter:
-                        all_assigned.add(assigned_converter)
-
-                    disabled_but_assigned = all_assigned - enabled_set
-                    if disabled_but_assigned:
-                        names = ", ".join(sorted(disabled_but_assigned))
-                        return UpdatePipelineSettingsMutation(
-                            ok=False,
-                            message=f"Cannot disable components that are assigned as filetype defaults: {names}",
-                            pipeline_settings=None,
-                        )
-
                 settings_instance.enabled_components = list(
                     dict.fromkeys(enabled_components)
                 )
 
+            # Consistency check (issue #2116): assigned components must be a
+            # subset of enabled_components. This must run whenever EITHER
+            # enabled_components OR any of the assignment fields
+            # (preferred_parsers/preferred_embedders/preferred_thumbnailers/
+            # default_embedder/default_file_converter/default_reranker)
+            # changes in this call — not only when enabled_components itself
+            # is touched. Previously
+            # this check lived solely inside `if enabled_components is not
+            # None:` above, so a call that assigned a NEW disabled component
+            # without also re-sending enabled_components skipped the check
+            # entirely, even though a prior save had already set a non-empty
+            # enabled_components list.
+            def _find_disabled_but_assigned() -> Optional[str]:
+                """Return a comma-joined list of assigned-but-disabled
+                component paths, or None if everything assigned is enabled
+                (including the "empty enabled_components = all enabled"
+                backward-compatible default)."""
+                resolved_enabled_components = (
+                    enabled_components
+                    if enabled_components is not None
+                    else settings_instance.enabled_components or []
+                )
+                enabled_set = set(resolved_enabled_components)
+                if not enabled_set:
+                    return None
+
+                assigned_parsers = (
+                    preferred_parsers
+                    if preferred_parsers is not None
+                    else settings_instance.preferred_parsers or {}
+                )
+                assigned_embedders = (
+                    preferred_embedders
+                    if preferred_embedders is not None
+                    else settings_instance.preferred_embedders or {}
+                )
+                assigned_thumbnailers = (
+                    preferred_thumbnailers
+                    if preferred_thumbnailers is not None
+                    else settings_instance.preferred_thumbnailers or {}
+                )
+                assigned_default = (
+                    default_embedder
+                    if default_embedder is not None
+                    else settings_instance.default_embedder or ""
+                )
+                assigned_converter = (
+                    default_file_converter
+                    if default_file_converter is not None
+                    else settings_instance.default_file_converter or ""
+                )
+                assigned_reranker = (
+                    default_reranker
+                    if default_reranker is not None
+                    else settings_instance.default_reranker or ""
+                )
+
+                all_assigned = {
+                    path
+                    for path in (
+                        *assigned_parsers.values(),
+                        *assigned_embedders.values(),
+                        *assigned_thumbnailers.values(),
+                    )
+                    if path
+                }
+                if assigned_default:
+                    all_assigned.add(assigned_default)
+                if assigned_converter:
+                    all_assigned.add(assigned_converter)
+                if assigned_reranker:
+                    all_assigned.add(assigned_reranker)
+
+                disabled_but_assigned = all_assigned - enabled_set
+                if not disabled_but_assigned:
+                    return None
+                return ", ".join(sorted(disabled_but_assigned))
+
+            if (
+                enabled_components is not None
+                or preferred_parsers is not None
+                or preferred_embedders is not None
+                or preferred_thumbnailers is not None
+                or default_embedder is not None
+                or default_file_converter is not None
+                or default_reranker is not None
+            ):
+                names = _find_disabled_but_assigned()
+                if names:
+                    return UpdatePipelineSettingsMutation(
+                        ok=False,
+                        message=f"Cannot disable components that are assigned as filetype defaults: {names}",
+                        pipeline_settings=None,
+                    )
+
             # Record who made the change
             settings_instance.modified_by = user
             settings_instance.save()
+
+            if default_reranker is not None:
+                # Drop cached reranker instance so the next retrieval picks
+                # up the new configuration without a worker restart. Runs
+                # only after save() so a mutation rejected by the
+                # disabled-but-assigned consistency check above never
+                # invalidates the cache for a change that wasn't persisted.
+                from opencontractserver.pipeline.utils import (
+                    invalidate_reranker_cache,
+                )
+
+                invalidate_reranker_cache()
 
             updated_fields = [
                 name
@@ -701,6 +842,7 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
                     ("preferred_parsers", preferred_parsers),
                     ("preferred_embedders", preferred_embedders),
                     ("preferred_thumbnailers", preferred_thumbnailers),
+                    ("preferred_enrichers", preferred_enrichers),
                     ("parser_kwargs", parser_kwargs),
                     ("component_settings", component_settings),
                     ("default_embedder", default_embedder),
@@ -725,6 +867,7 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
                     preferred_embedders=settings_instance.preferred_embedders or {},
                     preferred_thumbnailers=settings_instance.preferred_thumbnailers
                     or {},
+                    preferred_enrichers=settings_instance.preferred_enrichers or {},
                     parser_kwargs=settings_instance.parser_kwargs or {},
                     component_settings=settings_instance.component_settings or {},
                     default_embedder=settings_instance.default_embedder or "",
@@ -733,8 +876,8 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
                     or "",
                     default_llm=settings_instance.default_llm or "",
                     enabled_components=settings_instance.enabled_components or [],
-                    components_with_secrets=list(
-                        settings_instance.get_secrets().keys()
+                    components_with_secrets=(
+                        settings_instance.get_components_with_secrets()
                     ),
                     modified=settings_instance.modified,
                     modified_by=settings_instance.modified_by,
@@ -799,6 +942,9 @@ class ResetPipelineSettingsMutation(graphene.Mutation):
                 django_settings, "PREFERRED_EMBEDDERS", {}
             )
             settings_instance.preferred_thumbnailers = {}
+            settings_instance.preferred_enrichers = getattr(
+                django_settings, "PREFERRED_ENRICHERS", {}
+            )
             settings_instance.parser_kwargs = getattr(
                 django_settings, "PARSER_KWARGS", {}
             )
@@ -833,6 +979,7 @@ class ResetPipelineSettingsMutation(graphene.Mutation):
                     preferred_embedders=settings_instance.preferred_embedders or {},
                     preferred_thumbnailers=settings_instance.preferred_thumbnailers
                     or {},
+                    preferred_enrichers=settings_instance.preferred_enrichers or {},
                     parser_kwargs=settings_instance.parser_kwargs or {},
                     component_settings=settings_instance.component_settings or {},
                     default_embedder=settings_instance.default_embedder or "",
@@ -841,8 +988,8 @@ class ResetPipelineSettingsMutation(graphene.Mutation):
                     or "",
                     default_llm=settings_instance.default_llm or "",
                     enabled_components=[],
-                    components_with_secrets=list(
-                        settings_instance.get_secrets().keys()
+                    components_with_secrets=(
+                        settings_instance.get_components_with_secrets()
                     ),
                     modified=settings_instance.modified,
                     modified_by=settings_instance.modified_by,
@@ -958,9 +1105,9 @@ class UpdateComponentSecretsMutation(graphene.Mutation):
             settings_instance.modified_by = user
             settings_instance.save()
 
-            # Return list of components that have secrets (don't return actual secrets)
-            all_secrets = settings_instance.get_secrets()
-            components_with_secrets = list(all_secrets.keys())
+            # Return list of components that have secrets (don't return actual
+            # secrets). Excludes tool: keys, which are tracked separately.
+            components_with_secrets = settings_instance.get_components_with_secrets()
 
             logger.info(
                 "Secrets updated for component '%s' by %s (keys=%s, merge=%s)",
@@ -1276,9 +1423,8 @@ class DeleteComponentSecretsMutation(graphene.Mutation):
             settings_instance.modified_by = user
             settings_instance.save()
 
-            # Return updated list of components with secrets
-            all_secrets = settings_instance.get_secrets()
-            components_with_secrets = list(all_secrets.keys())
+            # Return updated list of components with secrets (excludes tool: keys).
+            components_with_secrets = settings_instance.get_components_with_secrets()
 
             logger.info(
                 f"Secrets deleted for component '{component_path}' by {user.username}"

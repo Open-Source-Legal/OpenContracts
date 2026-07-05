@@ -84,7 +84,6 @@ def synthesize_relationship_block_text(
 
 def get_embedder(
     corpus_id: Optional[Union[int, str]] = None,
-    mimetype_or_enum: Optional[Union[str, FileTypeEnum]] = None,
     embedder_path: Optional[str] = None,
 ) -> tuple[Optional[type[BaseEmbedder]], Optional[str]]:
     """
@@ -92,20 +91,16 @@ def get_embedder(
 
     Args:
         corpus_id: The ID of the corpus
-        mimetype_or_enum: The MIME type of the document or a FileTypeEnum (used as fallback)
         embedder_path: The path to the embedder class to use (OVERRIDES ALL OTHER ARGUMENTS)
 
     Returns:
         A tuple of (embedder_class, embedder_path)
     """
 
-    logger.debug(
-        f"get_embedders - arguments: {corpus_id}, {mimetype_or_enum}, {embedder_path}  "
-    )
+    logger.debug(f"get_embedders - arguments: {corpus_id}, {embedder_path}  ")
 
     from opencontractserver.corpuses.models import Corpus
     from opencontractserver.pipeline.utils import (
-        find_embedder_for_filetype,
         get_component_by_name,
         get_default_embedder,
     )
@@ -161,29 +156,13 @@ def get_embedder(
                         f"Failed to load corpus preferred embedder {corpus.preferred_embedder}: {str(e)}"
                     )
                     logger.debug(f"Exception details: {repr(e)}")
-                    logger.debug("Will fall back to mimetype-based embedder selection")
+                    logger.debug("Will fall back to the global default embedder")
             else:
                 logger.debug(f"Corpus {corpus_id} has no preferred_embedder configured")
         except Exception as e:
             logger.warning(f"Failed to retrieve corpus with id {corpus_id}: {str(e)}")
             logger.debug(f"Exception details: {repr(e)}")
-            logger.debug("Will fall back to mimetype-based embedder selection")
-
-    # If no explicit or corpus-specific embedder was found and a mimetype is provided,
-    # try to find an appropriate embedder for the mimetype
-    if embedder_class is None and mimetype_or_enum:
-        logger.debug(
-            f"No embedder found yet, trying mimetype-based selection with: {mimetype_or_enum}"
-        )
-
-        # Find an embedder for the mimetype and dimension
-        logger.debug(f"Calling find_embedder_for_filetype with: {mimetype_or_enum}")
-        embedder_class = find_embedder_for_filetype(mimetype_or_enum)
-        if embedder_class:
-            embedder_path = f"{embedder_class.__module__}.{embedder_class.__name__}"
-            logger.debug(f"Found mimetype-specific embedder: {embedder_path}")
-        else:
-            logger.debug(f"No mimetype-specific embedder found for: {mimetype_or_enum}")
+            logger.debug("Will fall back to the global default embedder")
 
     # Fall back to default embedder if no specific embedder is found
     if embedder_class is None:
@@ -218,7 +197,11 @@ def generate_embeddings_from_text(
     Args:
         text (str): The text to embed.
         corpus_id (Optional[int]): ID of the corpus to retrieve embedder configuration from.
-        mimetype (Optional[Union[str, FileTypeEnum]]): MIME type or file type for specialized embedding logic.
+        mimetype (Optional[Union[str, FileTypeEnum]]): Currently a no-op. Per-MIME
+            embedder resolution was removed (issue #2114) — mixing embedder
+            classes/dimensions per MIME type inside the single global,
+            cross-corpus vector index would fragment it. Kept only for call-site
+            source compatibility; ``get_embedder()`` no longer accepts it.
 
     Returns:
         Tuple[Optional[str], Optional[List[float]]]:
@@ -231,9 +214,7 @@ def generate_embeddings_from_text(
         )
         return None, None
 
-    embedder_class, embedder_path = get_embedder(
-        corpus_id, mimetype_or_enum=mimetype, embedder_path=embedder_path
-    )
+    embedder_class, embedder_path = get_embedder(corpus_id, embedder_path=embedder_path)
     logger.debug(
         f"Selected embedder: class={embedder_class.__name__ if embedder_class else None}, path={embedder_path}"
     )
@@ -281,7 +262,6 @@ def calculate_embedding_for_text(
 
 async def aget_embedder(
     corpus_id: Optional[Union[int, str]] = None,
-    mimetype_or_enum: Optional[Union[str, FileTypeEnum]] = None,
     embedder_path: Optional[str] = None,
 ) -> tuple[Optional[type[BaseEmbedder]], Optional[str]]:
     """
@@ -293,7 +273,7 @@ async def aget_embedder(
     """
     # Wrap the synchronous implementation to keep the code DRY.
     return await database_sync_to_async(get_embedder, thread_sensitive=False)(
-        corpus_id, mimetype_or_enum, embedder_path
+        corpus_id, embedder_path
     )
 
 

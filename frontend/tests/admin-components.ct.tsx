@@ -43,6 +43,7 @@ const GET_GLOBAL_AGENTS = gql`
           scope
           isActive
           isPublic
+          preferredLlm
           creator {
             id
             username
@@ -72,6 +73,7 @@ const GET_CORPUS_AGENTS = gql`
           scope
           isActive
           isPublic
+          preferredLlm
           creator {
             id
             slug
@@ -99,6 +101,7 @@ const mockGlobalAgent = {
   scope: "GLOBAL",
   isActive: true,
   isPublic: true,
+  preferredLlm: null,
   creator: { id: "VXNlclR5cGU6MQ==", slug: "admin", username: "admin" },
   created: "2024-01-15T10:30:00Z",
   modified: "2024-01-15T10:30:00Z",
@@ -117,6 +120,7 @@ const mockCorpusAgent = {
   scope: "CORPUS",
   isActive: true,
   isPublic: false,
+  preferredLlm: null,
   creator: { id: "VXNlclR5cGU6MQ==", slug: "admin", username: "admin" },
   created: "2024-01-15T10:30:00Z",
   modified: "2024-01-15T10:30:00Z",
@@ -1141,7 +1145,7 @@ test.describe("SystemSettings Component", () => {
       page.locator(".oc-modal-header__title:has-text('Reset to Defaults')")
     ).toBeVisible();
     await expect(
-      page.locator("text=This will reset all pipeline settings")
+      page.locator("text=This will reset pipeline component assignments")
     ).toBeVisible();
 
     await component.unmount();
@@ -1464,10 +1468,30 @@ test.describe("SystemSettings Component", () => {
     await expect(page.locator("text=Plain Text").first()).toBeVisible();
     await expect(page.locator("text=Word Document").first()).toBeVisible();
 
-    // Check select dropdowns exist (3 MIME types x 3 stages = 9 minimum)
-    const selects = page.locator("select").filter({ visible: true });
-    const selectCount = await selects.count();
-    expect(selectCount).toBeGreaterThanOrEqual(9);
+    // Scope to the FiletypeDefaults table itself (data-testid="filetype-defaults"
+    // on its root <Section>, see FiletypeDefaults.tsx) rather than the whole
+    // page: other admin-page features (e.g. EnricherChainEditor's per-MIME
+    // "add enricher" dropdown, issue #2118) legitimately render their own
+    // <select> elements elsewhere on the page, and a page-wide count would
+    // break every time an unrelated feature adds one.
+    const filetypeTable = page.locator('[data-testid="filetype-defaults"]');
+
+    // Check select dropdowns exist (3 MIME types x 2 per-MIME stages = 6,
+    // exactly). Embedder is not one of them (issue #2114): preferred_embedders
+    // has no effect at ingest, so it was removed as a per-MIME GUI control —
+    // only Parser and Thumbnailer remain assignable here. An exact count (not
+    // a lower bound) is required so a future regression that re-adds the
+    // removed Embedder column (which would produce 9, still satisfying a
+    // `>=6` bound) actually fails this test.
+    const selects = filetypeTable.locator("select").filter({ visible: true });
+    await expect(selects).toHaveCount(6);
+
+    // Belt-and-suspenders: assert no per-MIME "Embedder" select exists at all
+    // (aria-label pattern is "${stage.label} for ${mime.label} files", see
+    // FiletypeDefaults.tsx), independent of the total select count.
+    await expect(
+      filetypeTable.locator('select[aria-label^="Embedder for "]')
+    ).toHaveCount(0);
 
     await docScreenshot(page, "admin--pipeline-settings--filetype-defaults");
 
@@ -1548,8 +1572,9 @@ test.describe("SystemSettings Component", () => {
     await expect(page.locator("text=Default LLM")).toBeVisible();
     await expect(page.locator("text=Using server default")).toBeVisible();
 
-    // Each default exposes its own Edit button (Default Embedder, Default LLM).
-    await expect(page.locator("button:has-text('Edit')")).toHaveCount(2);
+    // Each default exposes its own Edit button (Default Embedder, File
+    // Converter, Default LLM, Default Reranker).
+    await expect(page.locator("button:has-text('Edit')")).toHaveCount(4);
 
     await component.unmount();
   });
@@ -1806,7 +1831,7 @@ test.describe("SystemSettings Component", () => {
     // Confirmation modal should appear
     await expect(page.locator("text=Reset to Defaults").nth(1)).toBeVisible();
     await expect(
-      page.locator("text=This will reset all pipeline settings")
+      page.locator("text=This will reset pipeline component assignments")
     ).toBeVisible();
 
     // Click confirm reset button in modal
