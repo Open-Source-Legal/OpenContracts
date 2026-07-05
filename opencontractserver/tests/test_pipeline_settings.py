@@ -892,6 +892,56 @@ class PipelineSettingsGraphQLTestCase(TestCase):
             [enricher_path],
         )
 
+    def test_update_preferred_enrichers_merges_and_preserves_siblings(self):
+        """Updating one MIME type's enricher chain must not drop other MIME
+        types' chains (same class of bug as the preferred_parsers case)."""
+        from opencontractserver.pipeline.registry import get_registry
+
+        registry = get_registry()
+        if not registry.enrichers:
+            self.skipTest("No enrichers registered to exercise this test.")
+        enricher_path = registry.enrichers[0].class_name
+
+        mutation = """
+            mutation UpdatePipelineSettings($preferredEnrichers: GenericScalar) {
+                updatePipelineSettings(preferredEnrichers: $preferredEnrichers) {
+                    ok
+                    message
+                    pipelineSettings {
+                        preferredEnrichers
+                    }
+                }
+            }
+        """
+
+        # First call assigns two MIME types.
+        result = self.superuser_client.execute(
+            mutation,
+            variables={
+                "preferredEnrichers": {
+                    "application/pdf": [enricher_path],
+                    "text/plain": [enricher_path],
+                }
+            },
+        )
+        self.assertTrue(result["data"]["updatePipelineSettings"]["ok"])
+
+        # Second call only touches application/pdf.
+        result = self.superuser_client.execute(
+            mutation,
+            variables={"preferredEnrichers": {"application/pdf": [enricher_path]}},
+        )
+        self.assertIsNone(result.get("errors"))
+        data = result["data"]["updatePipelineSettings"]
+        self.assertTrue(data["ok"], data.get("message"))
+        preferred_enrichers = data["pipelineSettings"]["preferredEnrichers"]
+        self.assertEqual(preferred_enrichers["application/pdf"], [enricher_path])
+        self.assertEqual(
+            preferred_enrichers["text/plain"],
+            [enricher_path],
+            "Updating application/pdf must not drop the existing text/plain entry.",
+        )
+
     def test_update_preferred_enrichers_rejects_non_enricher_component(self):
         """Assigning a non-enricher component path (e.g. a parser) is rejected."""
         from opencontractserver.pipeline.registry import get_registry

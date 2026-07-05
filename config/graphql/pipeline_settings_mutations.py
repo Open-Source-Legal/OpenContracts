@@ -471,22 +471,25 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
                     )
                 settings_instance.preferred_thumbnailers = merged_thumbnailers
 
-            # Validate and merge parser_kwargs (per parser class path — setting
-            # one parser's kwargs must not drop another parser's kwargs).
-            # Validate and apply preferred_enrichers
+            # Validate and merge preferred_enrichers (per MIME type — each
+            # entry is an ordered enricher-chain list, atomically replaced
+            # for the MIME types the caller names; sibling MIME types keep
+            # their existing chains).
             if preferred_enrichers is not None:
+                merged_enrichers = merge_mapping_field(
+                    settings_instance.preferred_enrichers, preferred_enrichers
+                )
                 error = validate_enricher_mapping(
                     preferred_enrichers, registry
-                ) or validate_json_field_size(
-                    preferred_enrichers, "preferred_enrichers"
-                )
+                ) or validate_json_field_size(merged_enrichers, "preferred_enrichers")
                 if error:
                     return UpdatePipelineSettingsMutation(
                         ok=False, message=error, pipeline_settings=None
                     )
-                settings_instance.preferred_enrichers = preferred_enrichers
+                settings_instance.preferred_enrichers = merged_enrichers
 
-            # Validate parser_kwargs
+            # Validate and merge parser_kwargs (per parser class path — setting
+            # one parser's kwargs must not drop another parser's kwargs).
             if parser_kwargs is not None:
                 if not isinstance(parser_kwargs, dict):
                     return UpdatePipelineSettingsMutation(
@@ -763,54 +766,12 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
                             pipeline_settings=None,
                         )
 
-                # Validate that all currently assigned components are in the enabled list.
-                # Empty list means "all enabled" — skip the assigned-component check.
-                # preferred_parsers/embedders/thumbnailers are read straight off
-                # settings_instance here (rather than the raw request args)
-                # because the blocks above already merged any incoming update
-                # into it — settings_instance reflects the full post-merge
-                # state whether or not this request touched each field.
-                enabled_set = set(enabled_components)
-                if enabled_set:
-                    assigned_parsers = settings_instance.preferred_parsers or {}
-                    assigned_embedders = settings_instance.preferred_embedders or {}
-                    assigned_thumbnailers = (
-                        settings_instance.preferred_thumbnailers or {}
-                    )
-                    assigned_default = (
-                        default_embedder
-                        if default_embedder is not None
-                        else settings_instance.default_embedder or ""
-                    )
-                    assigned_converter = (
-                        default_file_converter
-                        if default_file_converter is not None
-                        else settings_instance.default_file_converter or ""
-                    )
-
-                    all_assigned = {
-                        path
-                        for path in (
-                            *assigned_parsers.values(),
-                            *assigned_embedders.values(),
-                            *assigned_thumbnailers.values(),
-                        )
-                        if path
-                    }
-                    if assigned_default:
-                        all_assigned.add(assigned_default)
-                    if assigned_converter:
-                        all_assigned.add(assigned_converter)
-
-                    disabled_but_assigned = all_assigned - enabled_set
-                    if disabled_but_assigned:
-                        names = ", ".join(sorted(disabled_but_assigned))
-                        return UpdatePipelineSettingsMutation(
-                            ok=False,
-                            message=f"Cannot disable components that are assigned as filetype defaults: {names}",
-                            pipeline_settings=None,
-                        )
-
+                # The "assigned components must stay enabled" check used to
+                # live here, scoped to only this branch. It's now handled
+                # uniformly below by `_find_disabled_but_assigned`, which
+                # covers this same case (enabled_components touched) plus
+                # every other field whose assignment can conflict with it —
+                # see the "Consistency check (issue #2116)" comment below.
                 settings_instance.enabled_components = list(
                     dict.fromkeys(enabled_components)
                 )
@@ -841,21 +802,16 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
                 if not enabled_set:
                     return None
 
-                assigned_parsers = (
-                    preferred_parsers
-                    if preferred_parsers is not None
-                    else settings_instance.preferred_parsers or {}
-                )
-                assigned_embedders = (
-                    preferred_embedders
-                    if preferred_embedders is not None
-                    else settings_instance.preferred_embedders or {}
-                )
-                assigned_thumbnailers = (
-                    preferred_thumbnailers
-                    if preferred_thumbnailers is not None
-                    else settings_instance.preferred_thumbnailers or {}
-                )
+                # preferred_parsers/embedders/thumbnailers are read straight
+                # off settings_instance (not the raw request args) because
+                # the blocks above already merged any incoming update into
+                # it — settings_instance reflects the full post-merge state
+                # whether or not this call touched each field. Using the raw
+                # arg here would only see this call's partial delta and miss
+                # pre-existing sibling assignments the merge preserved.
+                assigned_parsers = settings_instance.preferred_parsers or {}
+                assigned_embedders = settings_instance.preferred_embedders or {}
+                assigned_thumbnailers = settings_instance.preferred_thumbnailers or {}
                 assigned_default = (
                     default_embedder
                     if default_embedder is not None
