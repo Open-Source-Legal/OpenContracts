@@ -18,7 +18,7 @@ import zipfile
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.db import transaction
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from opencontractserver.corpuses.models import Corpus, TemporaryFileHandle
 from opencontractserver.documents.models import (
@@ -1032,3 +1032,100 @@ class TestMalformedLabelsImport(_SidecarImportTestMixin, TestCase):
         self.assertFalse(result["labels_loaded"])
         error_text = " ".join(result["errors"])
         self.assertIn("must be a JSON object", error_text)
+
+    @override_settings(ZIP_MAX_SINGLE_FILE_SIZE_BYTES=500)
+    def test_oversized_labels_file_rejected_not_read_unbounded(self):
+        """Regression: labels.json previously had no size guard at all, so a
+        crafted zip could force an unbounded ``ZipExtFile.read()`` on this
+        member. It must now respect ZIP_MAX_SINGLE_FILE_SIZE_BYTES like every
+        other member read in this importer.
+
+        Uses minimal doc/sidecar content (rather than ``_run_import``'s real
+        PDF fixture) so the 500-byte override only trips on labels.json —
+        the same setting also gates ``validate_zip_for_import``'s per-member
+        declared-size check, which would otherwise skip doc.pdf/doc.json too
+        and short-circuit the labels-loading block before it ever runs.
+        """
+        sidecar = _build_sidecar_json(
+            annotations=[_make_annotation(1, "Exhibit", "Heading", page=0)],
+        )
+        oversized_labels = {
+            "text_labels": {
+                f"Label{i}": _make_label_data(f"Label{i}") for i in range(20)
+            }
+        }
+        files = {
+            "doc.pdf": b"%PDF-1.4 minimal",
+            "doc.json": json.dumps(sidecar).encode("utf-8"),
+            "labels.json": json.dumps(oversized_labels).encode("utf-8"),
+        }
+        zip_buffer = self._create_test_zip(files)
+        handle = self._create_temp_file_handle(zip_buffer)
+
+        result = import_zip_with_folder_structure.apply(
+            kwargs={
+                "temporary_file_handle_id": handle.id,
+                "user_id": self.user.id,
+                "job_id": "test-labels-oversized",
+                "corpus_id": self.corpus.id,
+            }
+        ).get()
+
+        self.assertFalse(result["labels_loaded"])
+        error_text = " ".join(result["errors"])
+        self.assertIn("Labels file error", error_text)
+
+
+class TestReadSidecarBoundedRead(TestCase):
+    """Direct unit tests for ``_read_sidecar``'s bounded-read guard.
+
+    ``_read_sidecar`` already rejects a sidecar by its declared
+    central-directory ``file_size`` before reading it, but (prior to this
+    test) the actual read was unbounded (``sidecar_handle.read()``) — a
+    crafted zip whose declared size under-reports the true content could
+    bypass the cheap pre-check and force an unbounded decompression, the
+    same bug class the ``MAX_CORPUS_REINGEST_SOURCE_BYTES`` guard closes
+    elsewhere in this codebase (see ``import_tasks_v2._read_guarded_source_bytes``).
+    """
+
+    def _zip_with_member(self, name: str, content: bytes, compression):
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", compression=compression) as zf:
+            zf.writestr(name, content)
+        buf.seek(0)
+        return zipfile.ZipFile(buf)
+
+    def test_allows_sidecar_under_limit(self):
+        from opencontractserver.tasks.import_tasks import _read_sidecar
+
+        with self._zip_with_member("doc.json", b'{"a": 1}', zipfile.ZIP_DEFLATED) as zf:
+            self.assertEqual(_read_sidecar(zf, "doc.json"), {"a": 1})
+
+    @override_settings(ZIP_MAX_SIDECAR_SIZE_BYTES=4)
+    def test_rejects_oversized_sidecar_by_declared_size(self):
+        from opencontractserver.tasks.import_tasks import _read_sidecar
+
+        with self._zip_with_member(
+            "doc.json",
+            json.dumps({"annotations": []}).encode("utf-8"),
+            zipfile.ZIP_DEFLATED,
+        ) as zf:
+            with self.assertRaises(ValueError):
+                _read_sidecar(zf, "doc.json")
+
+    @override_settings(ZIP_MAX_SIDECAR_SIZE_BYTES=4)
+    def test_rejects_metadata_lie_on_read(self):
+        """A crafted sidecar whose declared ``file_size`` under-reports its
+        true content bypasses the cheap pre-check, but the bounded read
+        itself is capped — the sidecar is still rejected, not streamed
+        unbounded into memory.
+        """
+        from opencontractserver.tasks.import_tasks import _read_sidecar
+
+        with self._zip_with_member(
+            "doc.json", b"0123456789", zipfile.ZIP_STORED
+        ) as real_zf:
+            info = real_zf.getinfo("doc.json")
+            info.file_size = 3  # Lie: declare 3 bytes when 10 are stored.
+            with self.assertRaises((ValueError, zipfile.BadZipFile)):
+                _read_sidecar(real_zf, "doc.json")

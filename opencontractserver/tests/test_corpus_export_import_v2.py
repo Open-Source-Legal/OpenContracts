@@ -1980,6 +1980,36 @@ class TestV2EdgeCases(TestCase):
         )
         self.assertIsNone(result)
 
+    @override_settings(MAX_CORPUS_MANIFEST_SIZE_BYTES=100)
+    def test_import_zip_data_json_exceeds_manifest_size_limit(self):
+        """Regression: data.json was previously read with an unbounded
+        ``ZipExtFile.read()`` — the very first zip member this importer
+        opens, before any per-document guard runs. A data.json entry over
+        MAX_CORPUS_MANIFEST_SIZE_BYTES must now be rejected (import returns
+        None) rather than read unbounded into memory.
+        """
+        oversized_data = {
+            "annotated_docs": {},
+            "corpus": {"title": "X" * 200},
+            "label_set": {"title": "LS"},
+            "doc_labels": {},
+            "text_labels": {},
+        }
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("data.json", json.dumps(oversized_data))
+        buf.seek(0)
+
+        temp_file = TemporaryFileHandle.objects.create()
+        temp_file.file.save("oversized_manifest.zip", ContentFile(buf.getvalue()))
+
+        result = import_corpus_v2(
+            temporary_file_handle_id=temp_file.id,
+            user_id=self.user.id,
+            seed_corpus_id=None,
+        )
+        self.assertIsNone(result)
+
     def test_import_corpus_v2_invalid_handle(self):
         """Test import_corpus_v2 with non-existent file handle returns None."""
         result = import_corpus_v2(

@@ -17,6 +17,7 @@ import logging
 import os
 import stat
 import zipfile
+import zlib
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -701,3 +702,59 @@ def validate_zip_for_import(
     )
 
     return manifest
+
+
+def read_zip_member_bounded(
+    zip_file: zipfile.ZipFile,
+    member: str | zipfile.ZipInfo,
+    max_bytes: int | None,
+) -> bytes | None:
+    """Read a zip member into memory, bounded to ``max_bytes``.
+
+    This is the single choke point for this pattern in the codebase — every
+    caller that reads a zip member's full content into memory (document
+    sources, sidecars, labels files, the V2 export manifest) should route
+    through here rather than hand-rolling the same check-then-bounded-read
+    shape, so a future change to the read strategy only has to happen once.
+
+    A zip's central directory declares each member's uncompressed
+    ``file_size``, but that value is attacker-controlled metadata on a
+    hand-crafted archive — it does not bound how many bytes
+    ``ZipExtFile.read()`` actually produces. Checking only the declared
+    size (as ``validate_zip_for_import`` does, for a cheap up-front
+    skip) lets a member whose metadata under-reports its true
+    decompressed size force an unbounded allocation once opened. This
+    helper closes that gap: it checks the declared size first (fast
+    rejection for the common case), then performs the real read with
+    ``read(max_bytes + 1)`` so the amount of memory allocated is capped
+    regardless of what the metadata claims.
+
+    ``max_bytes=None`` disables the size guard entirely (an unbounded read) —
+    for callers that expose their own disable sentinel (e.g. a negative
+    setting value parsed to ``None``, mirroring
+    ``MAX_CORPUS_REINGEST_SOURCE_BYTES``). Pass a literal ``int`` (including
+    ``0``, which rejects every non-empty member) for a real cap.
+
+    Returns the member's bytes, or ``None`` when the member exceeds
+    ``max_bytes`` (by declared size or actual content) or cannot be
+    read safely (missing member, corrupt stream, decompression error)
+    — callers should treat ``None`` as "skip this member".
+    """
+    try:
+        zip_info = (
+            member if isinstance(member, zipfile.ZipInfo) else zip_file.getinfo(member)
+        )
+        if max_bytes is not None and zip_info.file_size > max_bytes:
+            return None
+        with zip_file.open(zip_info) as fh:
+            data = fh.read(max_bytes + 1 if max_bytes is not None else -1)
+    except (KeyError, zipfile.BadZipFile, OSError, EOFError, zlib.error) as exc:
+        logger.warning(
+            "read_zip_member_bounded: member %r could not be read safely (%s).",
+            member,
+            exc,
+        )
+        return None
+    if max_bytes is not None and len(data) > max_bytes:
+        return None
+    return data

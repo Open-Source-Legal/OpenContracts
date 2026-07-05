@@ -1,4 +1,4 @@
-Pillow>=12.2.0  # https://github.com/python-pillow/Pillow
+Pillow>=12.3.0  # https://github.com/python-pillow/Pillow
 argon2-cffi==25.1.0  # https://github.com/hynek/argon2_cffi
 hiredis==3.4.0  # https://github.com/redis/hiredis-py
 redis==8.0.1  # https://github.com/redis/redis-py
@@ -63,7 +63,7 @@ shapely>=2.1.2  # https://github.com/shapely/shapely - spatial operations for bb
 
 # Data Processing Tools
 # -------------------------------------------------------------------------------
-opencv-python-headless==4.13.0.92 # https://github.com/opencv/opencv-python (headless: no GUI deps needed for server)
+opencv-python-headless==5.0.0.93 # https://github.com/opencv/opencv-python (headless: no GUI deps needed for server)
 filetype==1.2.0  # https://github.com/h2non/filetype.py
 
 # Permissioning
@@ -77,7 +77,7 @@ django-graphql-jwt==0.4.0
 
 # Telemetry
 # ------------------------------------------------------------------------------
-posthog==7.21.1  # https://github.com/posthog/posthog-python
+posthog==7.21.3  # https://github.com/posthog/posthog-python
 
 # Model Context Protocol
 # ------------------------------------------------------------------------------

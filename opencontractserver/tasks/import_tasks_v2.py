@@ -8,12 +8,14 @@ creation, and corpus.add_document() for proper corpus isolation.
 
 from __future__ import annotations
 
+import io
 import json
 import logging
 import uuid
 import zipfile
 from typing import IO, TYPE_CHECKING, Any, cast
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
 from django.utils import timezone
@@ -62,6 +64,7 @@ from opencontractserver.utils.packaging import (
     unpack_label_set_from_export,
 )
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
+from opencontractserver.utils.zip_security import read_zip_member_bounded
 
 if TYPE_CHECKING:
     from opencontractserver.corpuses.models import CorpusFolder
@@ -82,6 +85,33 @@ _UNRESOLVED_FOLDER_KEY_SAMPLE_SIZE = 20
 # byte. Reingest cannot re-parse it, so such docs fall back to the baked import.
 # Kept as a named constant so it cross-references the exporter side.
 _NUL_SOURCE_PLACEHOLDER = b"\x00"
+
+
+def _read_guarded_source_bytes(
+    import_zip: zipfile.ZipFile, doc_filename: str
+) -> bytes | None:
+    """Read a document source member into memory only when its size is safe.
+
+    Thin wrapper around the shared ``read_zip_member_bounded()`` choke point
+    (see ``opencontractserver.utils.zip_security``) — used by BOTH the
+    reingest peek and the baked-import fallback. User-facing corpus-export
+    imports default to reingest mode, so a crafted ZIP can otherwise force
+    Celery workers to allocate memory proportional to an uncompressed member.
+    Routing the baked path through the same guard means an over-size member
+    cannot bypass the limit by falling through to baked import.
+
+    ``settings.MAX_CORPUS_REINGEST_SOURCE_BYTES`` is the per-member cap: a
+    negative value is parsed in ``config/settings/base.py`` into ``None``
+    (guard disabled → unbounded read); ``0`` is a literal zero-byte limit
+    that rejects every non-empty member (so zeroing the setting hardens
+    rather than disables).
+
+    Returns the member bytes, or ``None`` when the member exceeds the cap or
+    cannot be read safely — the caller then skips the document.
+    """
+    return read_zip_member_bounded(
+        import_zip, doc_filename, settings.MAX_CORPUS_REINGEST_SOURCE_BYTES
+    )
 
 
 def import_corpus_v2_from_bytes(
@@ -123,8 +153,23 @@ def import_corpus_v2_from_bytes(
                 )
                 return None
 
-            with import_zip.open("data.json") as corpus_data:
-                data_json = json.loads(corpus_data.read().decode("UTF-8"))
+            # Bounded read: data.json is the first member this importer opens,
+            # before any per-document guard runs. It is just as
+            # attacker-controlled as a document member — a small compressed
+            # ZIP can still declare a data.json entry with a high compression
+            # ratio (classic zip-bomb pattern) that decompresses to gigabytes
+            # (see read_zip_member_bounded docstring).
+            manifest_bytes = read_zip_member_bounded(
+                import_zip, "data.json", settings.MAX_CORPUS_MANIFEST_SIZE_BYTES
+            )
+            if manifest_bytes is None:
+                logger.error(
+                    "import_corpus_v2_from_bytes() - data.json exceeds "
+                    "MAX_CORPUS_MANIFEST_SIZE_BYTES=%s or could not be read safely",
+                    settings.MAX_CORPUS_MANIFEST_SIZE_BYTES,
+                )
+                return None
+            data_json = json.loads(manifest_bytes.decode("UTF-8"))
 
             version = data_json.get("version", "1.0")
             logger.info("Detected export format version: %s", version)
@@ -310,10 +355,18 @@ def _import_document_with_annotations(
     # still recording a DONE ``PendingDocumentAnnotations`` row so the
     # relationship fan-in can resolve this doc's annotation ids.
     reingest_fallback = False
+    # Bytes the reingest peek already read, reused by the baked block so it never
+    # re-opens the same member a second time. ``None`` here is ambiguous on its
+    # own (it means both "not yet read" AND "read but rejected by the guard"),
+    # so ``source_read_attempted`` tracks whether the peek ran at all — the
+    # baked block below must not mistake a rejection for "not yet read" and
+    # re-read (and re-reject) the same member a second time.
+    baked_source_bytes: bytes | None = None
+    source_read_attempted = False
     if reingest_and_remap:
-        with import_zip.open(doc_filename) as fh:
-            source_bytes = fh.read()
-        if _source_is_reingestable(source_bytes):
+        source_bytes = _read_guarded_source_bytes(import_zip, doc_filename)
+        source_read_attempted = True
+        if source_bytes is not None and _source_is_reingestable(source_bytes):
             return _reingest_document_with_deferred_remap(
                 doc_filename,
                 doc_data,
@@ -324,15 +377,42 @@ def _import_document_with_annotations(
                 label_lookup,
             )
         reingest_fallback = True
+        baked_source_bytes = source_bytes
+        # Distinguish a size-guarded / unreadable source (source_bytes is None)
+        # from a genuine NUL placeholder (bytes present but not reingestable),
+        # so a ZIP-bomb / crafted-member probe stays visible in normal logs
+        # instead of being indistinguishable from a placeholder doc. Kept as one
+        # log statement so the line stays exercised by the existing placeholder
+        # fallback test regardless of which reason applies.
+        fallback_reason = (
+            "source was skipped (exceeds size limit or unreadable)"
+            if source_bytes is None
+            else "has no preserved source file (placeholder)"
+        )
         logger.info(
-            "Reingest: document %s has no preserved source file (placeholder); "
-            "importing its baked layer instead and recording its id_map for "
-            "the relationship fan-in.",
+            "Reingest: document %s %s; importing its baked layer instead and "
+            "recording its id_map for the relationship fan-in.",
             doc_filename,
+            fallback_reason,
         )
 
     try:
-        with import_zip.open(doc_filename) as pdf_file_handle:
+        if not source_read_attempted:
+            # Direct baked import (reingest_and_remap=False): the member has not
+            # been read yet (a reingest fallback already attempted the read above,
+            # whether it yielded bytes or a rejection, so it never reaches here).
+            # Read through the SAME size guard so the baked path can never stream
+            # an unbounded member into storage — the reingest guard must not be
+            # bypassable by falling through to baked.
+            baked_source_bytes = _read_guarded_source_bytes(import_zip, doc_filename)
+        if baked_source_bytes is None:
+            logger.warning(
+                "Skipping import of %s: source member exceeds "
+                "MAX_CORPUS_REINGEST_SOURCE_BYTES or could not be read safely.",
+                doc_filename,
+            )
+            return None, {}
+        with io.BytesIO(baked_source_bytes) as pdf_file_handle:
             # Check for structural annotation set (V2 feature)
             structural_set = None
             struct_hash = doc_data.get("structural_set_hash")

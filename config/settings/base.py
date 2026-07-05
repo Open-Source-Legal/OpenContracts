@@ -14,6 +14,8 @@ from opencontractserver.constants.agent_memory import (
 from opencontractserver.constants.celery import CELERY_REDIS_VISIBILITY_TIMEOUT_SECONDS
 from opencontractserver.constants.document_processing import (
     DEFAULT_GOTENBERG_SERVICE_URL,
+    DEFAULT_MAX_CORPUS_MANIFEST_SIZE_BYTES,
+    DEFAULT_MAX_CORPUS_REINGEST_SOURCE_BYTES,
     DOCLING_PARSER_REQUEST_TIMEOUT_SECONDS,
     GOTENBERG_CONVERTER_REQUEST_TIMEOUT_SECONDS,
     MAX_FILE_UPLOAD_SIZE_BYTES,
@@ -931,6 +933,49 @@ MAX_DOCUMENT_IMPORT_SIZE_BYTES = int(
         "MAX_DOCUMENT_IMPORT_SIZE_BYTES",
         default=str(MAX_FILE_UPLOAD_SIZE_BYTES),
     )
+)
+
+# Maximum uncompressed size (in bytes) for a single document source member that
+# the V2 corpus-export importer reads into memory. Despite the "REINGEST" name
+# (kept for backward compatibility with existing deployments' env config), this
+# guards BOTH the reingest peek AND the baked-import fallback — every document
+# source read in the V2 importer goes through it, so an over-size member cannot
+# bypass the limit by falling through to the baked path. Over-size members are
+# skipped (the document is not imported) rather than risking worker exhaustion.
+#
+# Sentinel: a NEGATIVE value disables the guard entirely (the read becomes
+# unbounded). 0 is NOT a disable — it is a literal zero-byte limit that rejects
+# every non-empty member, so an operator who zeroes the value to *harden* gets
+# stricter behavior, not an accidental full-disable. Because the guard now also
+# covers the baked-only path, 0 rejects even the 1-byte NUL placeholder the V2
+# exporter writes for text/markdown/source-less documents — i.e. it blocks
+# importing ANY document via this importer, not just reingest-mode documents.
+_max_corpus_reingest_source_bytes = int(
+    env(
+        "MAX_CORPUS_REINGEST_SOURCE_BYTES",
+        default=str(DEFAULT_MAX_CORPUS_REINGEST_SOURCE_BYTES),
+    )
+)
+MAX_CORPUS_REINGEST_SOURCE_BYTES: int | None = (
+    None if _max_corpus_reingest_source_bytes < 0 else _max_corpus_reingest_source_bytes
+)
+
+# Maximum size (in bytes) of the top-level ``data.json`` manifest inside a V2
+# corpus-export ZIP. Read in full before any per-document guard runs (it is
+# the very first member the importer opens), so it needs its own bound — see
+# DEFAULT_MAX_CORPUS_MANIFEST_SIZE_BYTES for the threat model.
+#
+# Sentinel: same convention as MAX_CORPUS_REINGEST_SOURCE_BYTES — a NEGATIVE
+# value disables the guard entirely (unbounded read); 0 is a literal
+# zero-byte limit, not a disable.
+_max_corpus_manifest_size_bytes = int(
+    env(
+        "MAX_CORPUS_MANIFEST_SIZE_BYTES",
+        default=str(DEFAULT_MAX_CORPUS_MANIFEST_SIZE_BYTES),
+    )
+)
+MAX_CORPUS_MANIFEST_SIZE_BYTES: int | None = (
+    None if _max_corpus_manifest_size_bytes < 0 else _max_corpus_manifest_size_bytes
 )
 
 # Chunked (resumable) upload limits
