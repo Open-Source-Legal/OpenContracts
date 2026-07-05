@@ -18,6 +18,7 @@ from django.test import TestCase
 
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
+from opencontractserver.enrichment import constants as C
 from opencontractserver.enrichment.authorities import (
     AuthorityCorpusBootstrapper,
     AuthoritySection,
@@ -288,6 +289,32 @@ class GraphNavigationToolTests(TestCase):
         )
         self.assertEqual(res["direction"], "both")
         self.assertGreater(res["outbound_count"], 0)
+
+    def test_missing_document_id_error_envelope_matches_happy_path(self):
+        res = get_document_references(corpus_id=self.corpus.id, user_id=self.user.id)
+        # Error envelope carries the same context keys the happy path returns.
+        for key in ("corpus_id", "direction", "outbound", "inbound"):
+            self.assertIn(key, res)
+
+    # ---- abuse-resistance clamps -------------------------------------- #
+    def test_reference_limit_is_clamped(self):
+        # A huge limit is clamped to NAV_MAX_REFERENCES, not passed through raw.
+        res = get_document_references(
+            corpus_id=self.corpus.id,
+            user_id=self.user.id,
+            document_id=self.primary_id,
+            limit=100000,
+        )
+        self.assertLessEqual(res["outbound_count"], C.NAV_MAX_REFERENCES)
+
+    def test_neighborhood_depth_is_clamped(self):
+        res = get_reference_neighborhood(
+            corpus_id=self.corpus.id,
+            user_id=self.user.id,
+            focus_document_id=self.primary_id,
+            depth=99,
+        )
+        self.assertEqual(res["depth"], C.NAV_NEIGHBORHOOD_MAX_DEPTH)
 
     # ---- permissions (load-bearing) ----------------------------------- #
     def test_stranger_sees_no_references(self):

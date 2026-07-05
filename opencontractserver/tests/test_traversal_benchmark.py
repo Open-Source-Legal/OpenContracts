@@ -90,9 +90,16 @@ class TraversalBenchmarkHelperTests(SimpleTestCase):
 
     def test_key_grounded(self):
         self.assertTrue(tb._key_grounded("dgcl:145", "see dgcl:145 here", ""))
-        # Prose "Section 145" grounds via the section number.
+        # Prose "Section 145" grounds via the citation-token-adjacent number.
         self.assertTrue(tb._key_grounded("dgcl:145", "under Section 145", ""))
+        self.assertTrue(tb._key_grounded("dgcl:145", "per § 145 thereof", ""))
         self.assertFalse(tb._key_grounded("dgcl:145", "unrelated text", ""))
+        # A bare number without a citation token must NOT ground (page number,
+        # unrelated figure) — the tightened metric's whole point.
+        self.assertFalse(tb._key_grounded("dgcl:145", "the total was 145 units", ""))
+        self.assertFalse(tb._key_grounded("dgcl:145", "see page 145", ""))
+        # Adjacent-but-longer number must not partial-match.
+        self.assertFalse(tb._key_grounded("dgcl:145", "section 1450 applies", ""))
 
     def test_mean(self):
         self.assertEqual(tb._mean([1.0, 2.0, 3.0]), 2.0)

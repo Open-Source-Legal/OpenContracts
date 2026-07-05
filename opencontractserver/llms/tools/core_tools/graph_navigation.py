@@ -130,8 +130,13 @@ def get_document_references(
                 "get_document_references needs a document_id. In a corpus agent, "
                 "pass the id of the document whose references you want."
             ),
+            "document_id": None,
+            "corpus_id": corpus_id,
+            "direction": direction,
             "outbound": [],
             "inbound": [],
+            "outbound_count": 0,
+            "inbound_count": 0,
         }
 
     user = get_user_or_none(user_id)
@@ -200,6 +205,8 @@ def read_reference_target(
         return {
             "resolved": False,
             "error": "Provide either canonical_key or target_document_id.",
+            "canonical_key": canonical_key,
+            "target_document_id": target_document_id,
         }
 
     user = get_user_or_none(user_id)
@@ -285,6 +292,8 @@ def find_documents_citing(
 
     from django.db.models import Count
 
+    from opencontractserver.shared.services.base import BaseService
+
     base = CorpusReferenceService.visible_to_user(user)
     # canonical_key wins when both are supplied (the more specific anchor).
     anchored = (
@@ -301,7 +310,16 @@ def find_documents_citing(
         .order_by("-mention_count", "source_annotation__document_id")[:limit]
     )
     doc_ids = [r["source_annotation__document_id"] for r in ranked]
-    titles = dict(Document.objects.filter(pk__in=doc_ids).values_list("pk", "title"))
+    # Route the title lookup through the service layer too (defense-in-depth):
+    # doc_ids is already permission-filtered via ``anchored``, but a raw
+    # ``Document.objects`` call here would be a latent Tier-0 leak if a future
+    # edit ever seeded doc_ids from an unfiltered source. E001 does not scan
+    # this package, so keep it service-routed.
+    titles = dict(
+        BaseService.filter_visible(Document, user)
+        .filter(pk__in=doc_ids)
+        .values_list("pk", "title")
+    )
 
     # Bounded second pass: a few citing-clause previews for the ranked
     # documents. NAV_CITING_SAMPLE_SCAN caps TOTAL rows read for snippets, so

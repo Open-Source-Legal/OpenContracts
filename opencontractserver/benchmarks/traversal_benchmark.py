@@ -24,6 +24,7 @@ keep for a given corpus — we do not trim anything here.
 from __future__ import annotations
 
 import json
+import re
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -118,16 +119,23 @@ def _key_grounded(key: str, answer: str, sources_blob: str) -> bool:
 
     Matches the full key (``dgcl:145``), and — because an answer often phrases a
     statute in prose ("Section 145") rather than by canonical key — the section
-    number after the prefix as well. Intentionally lenient: this is a coarse
-    grounding signal for a first-pass harness, not a precision metric.
+    number *when it is adjacent to a citation token* (``§`` / section / sec /
+    rule / art). Requiring the token avoids counting a bare "145" that is really
+    a page number or an unrelated section, which would bias this benchmark
+    toward false "traversal wins". Still a coarse signal, not a precision
+    metric — but deliberately no longer a loose substring match.
     """
     key_l = key.lower()
     haystack = f"{answer}\n{sources_blob}".lower()
     if key_l in haystack:
         return True
     section = key_l.split(":", 1)[-1]
-    # Guard against a 1-2 char section spuriously matching; require a boundary.
-    return bool(section) and f"{section}" in haystack and len(section) >= 2
+    if len(section) < 2:
+        return False
+    # Section number must follow a citation token and not run into more digits
+    # (so "section 145" grounds but "section 1450" / "page 145" do not).
+    pattern = rf"(§|section|sec\.?|rule|art\.?)\s*{re.escape(section)}(?!\d)"
+    return re.search(pattern, haystack) is not None
 
 
 async def run_one(
