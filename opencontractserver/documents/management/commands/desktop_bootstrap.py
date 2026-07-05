@@ -5,8 +5,8 @@ Idempotent. Run once after ``migrate`` on the desktop profile
 launcher invokes it automatically on first boot. It:
 
 1. Creates a single local superuser for the graphql_jwt / session login
-   (Auth0 is off on desktop), persisting the generated password under the
-   app-data dir.
+   (Auth0 is off on desktop) from the ``OC_DESKTOP_PASSWORD`` env var; no
+   secret is generated, printed, or written to disk.
 2. Seeds the ``PipelineSettings`` singleton from the desktop Django settings —
    PDF → Warp-Ingest, embeddings → OpenAI-compatible endpoint — via
    ``migrate_pipeline_settings``. That row is written ONCE, so it must be seeded
@@ -93,13 +93,12 @@ class Command(BaseCommand):
 
         # get_instance() creates pk=1 seeded from the desktop Django settings
         # (PREFERRED_PARSERS/PREFERRED_EMBEDDERS/DEFAULT_EMBEDDER → Warp-Ingest /
-        # OpenAIEmbedder). migrate_pipeline_settings then fills component_settings
-        # and encrypted secrets (e.g. OPENAI_API_KEY) from settings/env.
-        # get_instance() already seeds the parser/embedder SELECTION from Django
-        # settings, so a migrate_pipeline_settings failure only leaves the
-        # component_settings/secrets (e.g. OPENAI_API_KEY) unseeded — PDF parsing
-        # still works, only Tier-1 embeddings/chat degrade. Surface it loudly
-        # rather than silently, since the .bootstrapped marker is written after.
+        # OpenAIEmbedder) — so the parser/embedder SELECTION is seeded here.
+        # migrate_pipeline_settings then fills component_settings + encrypted
+        # secrets (e.g. OPENAI_API_KEY). A failure there only leaves those
+        # unseeded — PDF parsing still works, only Tier-1 embeddings/chat degrade
+        # — so surface it loudly rather than silently, since the .bootstrapped
+        # marker is written after this returns.
         PipelineSettings.get_instance()
         try:
             call_command("migrate_pipeline_settings")
