@@ -177,8 +177,9 @@ class DesktopBootstrapTests(TestCase):
             "opencontractserver.documents.management.commands."
             "desktop_bootstrap.call_command"
         ) as mock_call:
-            cmd._seed_pipeline_settings()
+            ok = cmd._seed_pipeline_settings()
         mock_call.assert_called_once_with("migrate_pipeline_settings")
+        self.assertTrue(ok)
         self.assertTrue(PipelineSettings.objects.filter(pk=1).exists())
 
     def test_seed_pipeline_settings_survives_migrate_failure(self):
@@ -189,9 +190,27 @@ class DesktopBootstrapTests(TestCase):
             side_effect=RuntimeError("boom"),
         ):
             # A migrate_pipeline_settings failure must not raise — PDF parsing
-            # still works; only Tier-1 secrets/component settings degrade.
-            cmd._seed_pipeline_settings()
+            # still works; only Tier-1 secrets/component settings degrade —
+            # but it returns False so the caller can signal a retry.
+            ok = cmd._seed_pipeline_settings()
+        self.assertFalse(ok)
         self.assertIn("did not seed", err.getvalue())
+
+    def test_handle_raises_on_pipeline_failure_so_marker_is_not_written(self):
+        # handle() must exit non-zero (CommandError) when pipeline seeding fails,
+        # so the launcher leaves the first-run marker unwritten and retries.
+        from django.core.management.base import CommandError
+
+        cmd, _out, _err = self._command()
+        with mock.patch(
+            "opencontractserver.documents.management.commands."
+            "desktop_bootstrap.call_command",
+            side_effect=RuntimeError("boom"),
+        ), mock.patch.dict(os.environ, {"OC_DESKTOP_PASSWORD": ""}, clear=False):
+            with self.assertRaises(CommandError):
+                cmd.handle(username="dave", email="dave@localhost", skip_nltk=True)
+        # The idempotent user seed still happened despite the pipeline failure.
+        self.assertTrue(User.objects.filter(username="dave").exists())
 
 
 class SqlAlchemyResultUrlTests(SimpleTestCase):

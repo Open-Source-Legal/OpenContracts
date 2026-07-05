@@ -116,6 +116,10 @@ To enable embeddings + chat, set `OPENAI_API_KEY` (and optionally
   + staged `dist/` per-OS; harden embedded-Postgres supervision (stale-lock
   recovery, major-version datadir guard); loop-safe notification transport;
   collapse worker/beat in-process (thread worker + APScheduler); pystray tray.
+  Windows shutdown note: `Popen.terminate()` on Windows is a hard
+  `TerminateProcess` (no graceful signal), so a Celery worker's in-flight task is
+  interrupted rather than drained — the `reconcile_stuck_documents` beat sweep
+  recovers any stranded document, but graceful Windows teardown is a Phase-1 item.
 - **Phase 2:** native shell (Tauri v2 sidecar) + dmg/msi/AppImage installers.
 - **Phase 3:** code-signing, macOS notarization, auto-update (Tauri updater).
 - **Phase 4 (optional):** full offline ML pack (torch + sentence-transformers +

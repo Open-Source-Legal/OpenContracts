@@ -23,7 +23,7 @@ import os
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 
 from opencontractserver.desktop import paths
 
@@ -51,10 +51,20 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        # Seed the (idempotent) user and nltk corpora regardless, then signal
+        # failure via a non-zero exit if pipeline seeding did not fully succeed.
+        # The launcher only writes the first-run marker on a clean exit, so a
+        # transient failure here is retried automatically on the next launch
+        # rather than permanently disabling Tier-1 embeddings/chat.
         self._seed_user(options["username"], options["email"])
-        self._seed_pipeline_settings()
+        pipeline_ok = self._seed_pipeline_settings()
         if not options["skip_nltk"]:
             self._ensure_nltk_data()
+        if not pipeline_ok:
+            raise CommandError(
+                "Pipeline settings did not fully seed; the desktop launcher will "
+                "retry bootstrap on the next launch."
+            )
         self.stdout.write(self.style.SUCCESS("Desktop bootstrap complete."))
 
     # ------------------------------------------------------------------ user
@@ -87,8 +97,12 @@ class Command(BaseCommand):
             )
 
     # -------------------------------------------------------- pipeline settings
-    def _seed_pipeline_settings(self) -> None:
-        """Seed the PipelineSettings singleton at the offline components."""
+    def _seed_pipeline_settings(self) -> bool:
+        """Seed the PipelineSettings singleton at the offline components.
+
+        Returns True on success, False if ``migrate_pipeline_settings`` failed
+        (the caller turns a False into a non-zero exit so the launcher retries).
+        """
         from opencontractserver.documents.models import PipelineSettings
 
         # get_instance() creates pk=1 seeded from the desktop Django settings
@@ -96,9 +110,7 @@ class Command(BaseCommand):
         # OpenAIEmbedder) — so the parser/embedder SELECTION is seeded here.
         # migrate_pipeline_settings then fills component_settings + encrypted
         # secrets (e.g. OPENAI_API_KEY). A failure there only leaves those
-        # unseeded — PDF parsing still works, only Tier-1 embeddings/chat degrade
-        # — so surface it loudly rather than silently, since the .bootstrapped
-        # marker is written after this returns.
+        # unseeded — PDF parsing still works, only Tier-1 embeddings/chat degrade.
         PipelineSettings.get_instance()
         try:
             call_command("migrate_pipeline_settings")
@@ -106,16 +118,19 @@ class Command(BaseCommand):
                 "Seeded pipeline components: PDF → Warp-Ingest, embeddings → "
                 f"{getattr(settings, 'DEFAULT_EMBEDDER', '?')}."
             )
+            return True
         except Exception as exc:
             logger.error("migrate_pipeline_settings failed: %s", exc, exc_info=True)
             self.stderr.write(
                 self.style.WARNING(
                     "Pipeline SECRET/component settings did not seed "
                     f"({exc}). PDF parsing still works; embeddings/chat may be "
-                    "disabled until you re-run `python manage.py "
-                    "migrate_pipeline_settings --settings=config.settings.desktop`."
+                    "disabled until the next launch retries bootstrap (or you "
+                    "re-run `python manage.py migrate_pipeline_settings "
+                    "--settings=config.settings.desktop`)."
                 )
             )
+            return False
 
     # ------------------------------------------------------------------ nltk
     def _ensure_nltk_data(self) -> None:

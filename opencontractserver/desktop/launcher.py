@@ -41,6 +41,10 @@ _log_handles: list = []
 
 
 _KEYRING_SERVICE = "OpenContracts-Desktop"
+# Hard timeout for the keyring resolution — a locked GNOME Keyring / KWallet can
+# block on an interactive unlock prompt rather than raising, which would hang the
+# launcher before any child starts. On timeout we fall back to an ephemeral key.
+_KEYRING_TIMEOUT_SECONDS = 10
 
 
 def _keyring_username() -> str:
@@ -57,6 +61,19 @@ def _keyring_username() -> str:
     return f"django-secret-key-{digest}"
 
 
+def _keyring_get_or_create() -> str:
+    """Fetch (or create+persist) the SECRET_KEY in the OS keyring. Raises on error."""
+    import keyring
+
+    username = _keyring_username()
+    existing = keyring.get_password(_KEYRING_SERVICE, username)
+    if existing:
+        return existing
+    new_key = secrets.token_urlsafe(64)
+    keyring.set_password(_KEYRING_SERVICE, username, new_key)
+    return new_key
+
+
 def _stable_secret_key() -> str:
     """A SECRET_KEY that survives restarts, stored in the OS keyring.
 
@@ -67,28 +84,45 @@ def _stable_secret_key() -> str:
     unrecoverable — silently breaking the Tier-1 "set your API key once" flow on
     the next restart. We persist the key in the OS credential store (macOS
     Keychain / Windows Credential Locker / Linux Secret Service) rather than a
-    plaintext file. If keyring is unavailable (e.g. headless Linux with no
-    Secret Service backend), fall back to an ephemeral key with a loud warning —
-    sessions and stored pipeline secrets then do NOT survive a restart.
-    """
-    try:
-        import keyring
+    plaintext file.
 
-        username = _keyring_username()
-        existing = keyring.get_password(_KEYRING_SERVICE, username)
-        if existing:
-            return existing
-        new_key = secrets.token_urlsafe(64)
-        keyring.set_password(_KEYRING_SERVICE, username, new_key)
-        return new_key
-    except Exception as exc:  # keyring missing or no usable backend
-        print(
-            "[oc-desktop] WARNING: could not persist SECRET_KEY via the OS "
-            f"keyring ({exc}); using an ephemeral key. Login sessions and stored "
-            "pipeline secrets (e.g. your OpenAI API key) will NOT survive a "
-            "restart. Export a stable DJANGO_SECRET_KEY to avoid this."
-        )
-        return secrets.token_urlsafe(64)
+    The keyring call runs in a daemon thread with a hard timeout: a locked
+    Linux keyring can block on an interactive unlock prompt instead of raising,
+    which would otherwise hang the launcher before any child starts. On timeout
+    OR any error (missing/broken backend), fall back to an ephemeral key with a
+    loud warning — sessions and stored pipeline secrets then do NOT survive a
+    restart.
+    """
+    import threading
+
+    box: dict = {}
+
+    def _run() -> None:
+        try:
+            box["key"] = _keyring_get_or_create()
+        except Exception as exc:  # keyring missing or no usable backend
+            box["error"] = exc
+
+    worker = threading.Thread(target=_run, daemon=True)
+    worker.start()
+    worker.join(_KEYRING_TIMEOUT_SECONDS)
+
+    if "key" in box:
+        return box["key"]
+
+    reason = (
+        f"timed out after {_KEYRING_TIMEOUT_SECONDS}s (a locked OS keyring can "
+        "block on an interactive unlock prompt)"
+        if worker.is_alive()
+        else f"failed ({box.get('error')})"
+    )
+    print(
+        f"[oc-desktop] WARNING: SECRET_KEY keyring persistence {reason}; using an "
+        "ephemeral key. Login sessions and stored pipeline secrets (e.g. your "
+        "OpenAI API key) will NOT survive a restart. Export a stable "
+        "DJANGO_SECRET_KEY to avoid this."
+    )
+    return secrets.token_urlsafe(64)
 
 
 # --------------------------------------------------------------------------- env
@@ -195,14 +229,24 @@ def _first_run_bootstrap(env: dict[str, str]) -> None:
     if marker.exists():
         return
     print("[oc-desktop] First run: bootstrapping local user + pipeline settings …")
-    _manage(env, "desktop_bootstrap")
-    marker.write_text("ok\n", encoding="utf-8")
+    # Write the first-run marker ONLY on a clean bootstrap (rc == 0). The command
+    # exits non-zero if pipeline seeding failed; leaving the marker unwritten lets
+    # the next launch retry (every step is idempotent) instead of permanently
+    # stranding Tier-1 embeddings/chat behind a one-shot failure.
+    if _manage(env, "desktop_bootstrap", check=False) == 0:
+        marker.write_text("ok\n", encoding="utf-8")
+    else:
+        print(
+            "[oc-desktop] WARNING: first-run bootstrap did not fully complete; "
+            "it will retry on the next launch."
+        )
 
 
 # --------------------------------------------------------------------------- SPA
 def _resolve_spa_dir(env: dict[str, str]) -> str:
     """Locate the built SPA dist/ dir and export it for settings + WhiteNoise."""
-    spa = os.environ.get("OC_DESKTOP_FRONTEND_DIR")
+    # Read from the threaded env (consistent with the rest of the launcher).
+    spa = env.get("OC_DESKTOP_FRONTEND_DIR")
     if not spa:
         candidate = Path(__file__).resolve().parents[2] / "frontend" / "dist"
         if candidate.is_dir():
@@ -362,9 +406,13 @@ def main() -> None:
     _write_env_config(spa_dir, port)
     _start_daphne(env, port)
 
-    url = f"http://127.0.0.1:{port}/"
+    base = f"http://127.0.0.1:{port}"
+    url = f"{base}/"
     print(f"[oc-desktop] OpenContracts is starting at {url}")
-    if not _wait_for_http(url, timeout=60):
+    # Health-check the API endpoint, NOT ``/``: when the SPA isn't built, ``/``
+    # redirects to the (absent) :3000 dev server and every poll would error,
+    # falsely reporting the server as down even though Daphne is up.
+    if not _wait_for_http(f"{base}/api/health/", timeout=60):
         print(
             "[oc-desktop] WARNING: server did not answer within 60s; opening the "
             "browser anyway — it may show a connection error until Daphne is up."
