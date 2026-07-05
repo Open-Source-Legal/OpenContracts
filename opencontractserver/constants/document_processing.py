@@ -143,6 +143,18 @@ RERANKER_REQUEST_TIMEOUT_SECONDS = 30
 # per-deployment via the ``DOCLING_PARSER_TIMEOUT`` env var.
 DOCLING_PARSER_REQUEST_TIMEOUT_SECONDS = 600
 
+# HTTP request timeout (seconds) for the Warp-Ingest document-parser microservice
+# (rule-based, deterministic PDF parser — see
+# ``opencontractserver/pipeline/parsers/warp_ingest_parser.py``). Warp-Ingest is
+# CPU-only (no GPU layout model), so a typical parse is faster than Docling, but
+# OCR of a large scanned document can still take minutes; the generous ceiling
+# mirrors Docling so big scanned uploads don't fail with ``Timeout``. Single
+# source of truth for both the Django setting default (``WARP_INGEST_PARSER_TIMEOUT``
+# in ``config/settings/base.py``, used to seed the DB pipeline settings) and the
+# ``WarpIngestParser`` dataclass field default (the runtime fallback). Still
+# overridable per-deployment via the ``WARP_INGEST_PARSER_TIMEOUT`` env var.
+WARP_INGEST_PARSER_REQUEST_TIMEOUT_SECONDS = 600
+
 # Maximum number of embedding batch tasks to queue in a single reembed_corpus run.
 # For very large corpuses (millions of annotations), this prevents flooding the
 # Celery queue. Remaining annotations will be logged but not queued; re-running

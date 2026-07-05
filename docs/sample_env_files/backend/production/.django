@@ -72,3 +72,11 @@ DOCLING_PARSER_SERVICE_URL=http://docling-parser:8000/parse/
 # ------------------------------------------------------------------------------
 DOCLING_MODELS_PATH=/models/docling
 SENTENCE_TRANSFORMER_MODELS_PATH=/models/sentence-transformers
+
+# Warp-Ingest parser (optional alternative PDF parser; deterministic, rule-based)
+# Run the official ghcr.io/open-source-legal/warp-ingest image as the
+# `warp-ingest` service. See docs/pipelines/warp_ingest_parser.md.
+# ------------------------------------------------------------------------------
+WARP_INGEST_PARSER_SERVICE_URL=http://warp-ingest:5001/api/parse
+# Must match the WARP_API_KEY set on the warp-ingest container (blank = unauthenticated).
+WARP_INGEST_API_KEY=

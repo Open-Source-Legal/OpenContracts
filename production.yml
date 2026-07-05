@@ -137,6 +137,21 @@ services:
     image: ghcr.io/open-source-legal/docxodus-service:1.1.0-docxodus5.4.2
     container_name: docxodus-parser
 
+  # Optional alternative PDF parser (deterministic, rule-based; renders straight
+  # to the OpenContracts format). Opt-in via the "warp-ingest" compose profile:
+  #   docker compose -f production.yml --profile warp-ingest up
+  # Then select "Warp-Ingest Parser (REST)" for PDFs in the admin System Settings
+  # UI. WARP_API_KEY must match the WARP_INGEST_API_KEY the django client sends
+  # (set both from the same env var). Bridge-only (no host port); django and
+  # celeryworker reach it at http://warp-ingest:5001/api/parse.
+  warp-ingest:
+    image: ghcr.io/open-source-legal/warp-ingest:latest
+    container_name: warp-ingest
+    profiles:
+      - warp-ingest
+    environment:
+      - WARP_API_KEY=${WARP_INGEST_API_KEY:-abc123}
+
   # Powers the optional pre-parse file-to-PDF converter
   # (GotenbergFileConverter). Bridge-only (no host port); django/celeryworker
   # reach it at http://gotenberg:3000. No healthcheck: the stock image ships

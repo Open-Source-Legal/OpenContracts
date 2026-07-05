@@ -19,6 +19,7 @@ from opencontractserver.constants.document_processing import (
     DOCLING_PARSER_REQUEST_TIMEOUT_SECONDS,
     GOTENBERG_CONVERTER_REQUEST_TIMEOUT_SECONDS,
     MAX_FILE_UPLOAD_SIZE_BYTES,
+    WARP_INGEST_PARSER_REQUEST_TIMEOUT_SECONDS,
 )
 from opencontractserver.constants.stats import SYSTEM_STATS_REFRESH_INTERVAL_SECONDS
 
@@ -1210,6 +1211,19 @@ DOCLING_PARSER_TIMEOUT = env.int(
     "DOCLING_PARSER_TIMEOUT", default=DOCLING_PARSER_REQUEST_TIMEOUT_SECONDS
 )
 use_cloud_run_iam_auth = True
+
+# Warp-Ingest parser microservice (deterministic, rule-based PDF parser). These
+# seed the WarpIngestParser component settings via ``migrate_pipeline_settings``
+# (PipelineSetting env_var metadata); the DB PipelineSettings singleton is the
+# runtime source of truth. Run the official ``ghcr.io/open-source-legal/warp-ingest``
+# image as the ``warp-ingest`` service — see ``docs/pipelines/warp_ingest_parser.md``.
+WARP_INGEST_PARSER_SERVICE_URL = env(
+    "WARP_INGEST_PARSER_SERVICE_URL", default="http://warp-ingest:5001/api/parse"
+)
+WARP_INGEST_PARSER_TIMEOUT = env.int(
+    "WARP_INGEST_PARSER_TIMEOUT", default=WARP_INGEST_PARSER_REQUEST_TIMEOUT_SECONDS
+)
+WARP_INGEST_API_KEY = env("WARP_INGEST_API_KEY", default="")
 
 # Gotenberg Settings - for the optional pre-parse file-to-PDF converter
 # (GotenbergFileConverter). These seed the converter's component settings via
