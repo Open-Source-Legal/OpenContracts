@@ -1676,6 +1676,260 @@ test.describe("SystemSettings — enrichment chain editor", () => {
 
     await component.unmount();
   });
+
+  test("moving an enricher up fires the mutation with the reordered list", async ({
+    mount,
+    page,
+  }) => {
+    const settingsWithTwo = {
+      ...enricherSettingsBase,
+      preferredEnrichers: { "application/pdf": [PDF_OUTLINE, METADATA] },
+    };
+    const expectedChain = { "application/pdf": [METADATA, PDF_OUTLINE] };
+
+    const reorderMock = {
+      request: {
+        query: UPDATE_PIPELINE_SETTINGS,
+        variables: { preferredEnrichers: expectedChain },
+      },
+      result: {
+        data: {
+          updatePipelineSettings: {
+            ok: true,
+            message: "Updated",
+            pipelineSettings: {
+              ...settingsWithTwo,
+              preferredEnrichers: expectedChain,
+            },
+          },
+        },
+      },
+    };
+    const refetch = {
+      request: { query: GET_PIPELINE_SETTINGS },
+      result: {
+        data: {
+          pipelineSettings: {
+            ...settingsWithTwo,
+            preferredEnrichers: expectedChain,
+          },
+        },
+      },
+    };
+
+    const component = await mount(
+      <SystemSettingsWrapper
+        mocks={[
+          {
+            request: { query: GET_PIPELINE_SETTINGS },
+            result: { data: { pipelineSettings: settingsWithTwo } },
+          },
+          standardComponentsMock,
+          mimeTypesMock,
+          reorderMock,
+          refetch,
+          standardComponentsMock,
+        ]}
+      />
+    );
+    await waitForLoad(page);
+
+    const editor = page.locator('[data-testid="enricher-chain-editor"]');
+    await editor.locator('button[aria-label="Move PDF enricher 2 up"]').click();
+
+    await expect(
+      page.locator("text=Settings updated successfully")
+    ).toBeVisible({ timeout: 5000 });
+
+    await component.unmount();
+  });
+
+  test("removing the only enricher for a MIME type clears its entry instead of leaving an empty list", async ({
+    mount,
+    page,
+  }) => {
+    const settingsWithOne = {
+      ...enricherSettingsBase,
+      preferredEnrichers: { "application/pdf": [PDF_OUTLINE] },
+    };
+    // handleAssignEnrichers deletes the key entirely when the resulting
+    // chain is empty, rather than persisting `{ "application/pdf": [] }`.
+    const expectedChain = {};
+
+    const removeMock = {
+      request: {
+        query: UPDATE_PIPELINE_SETTINGS,
+        variables: { preferredEnrichers: expectedChain },
+      },
+      result: {
+        data: {
+          updatePipelineSettings: {
+            ok: true,
+            message: "Updated",
+            pipelineSettings: {
+              ...settingsWithOne,
+              preferredEnrichers: expectedChain,
+            },
+          },
+        },
+      },
+    };
+    const refetch = {
+      request: { query: GET_PIPELINE_SETTINGS },
+      result: {
+        data: {
+          pipelineSettings: {
+            ...settingsWithOne,
+            preferredEnrichers: expectedChain,
+          },
+        },
+      },
+    };
+
+    const component = await mount(
+      <SystemSettingsWrapper
+        mocks={[
+          {
+            request: { query: GET_PIPELINE_SETTINGS },
+            result: { data: { pipelineSettings: settingsWithOne } },
+          },
+          standardComponentsMock,
+          mimeTypesMock,
+          removeMock,
+          refetch,
+          standardComponentsMock,
+        ]}
+      />
+    );
+    await waitForLoad(page);
+
+    const editor = page.locator('[data-testid="enricher-chain-editor"]');
+    await editor.locator('button[aria-label="Remove PDF enricher 1"]').click();
+
+    await expect(
+      page.locator("text=Settings updated successfully")
+    ).toBeVisible({ timeout: 5000 });
+
+    await component.unmount();
+  });
+
+  test("adding an enricher when preferredEnrichers is null falls back to an empty mapping", async ({
+    mount,
+    page,
+  }) => {
+    // settings.preferredEnrichers can come back null from the API (rather
+    // than {}); handleAssignEnrichers must fall back to an empty mapping
+    // instead of throwing on `{...null}`.
+    const settingsWithNullEnrichers = {
+      ...enricherSettingsBase,
+      preferredEnrichers: null,
+    };
+    const expectedChain = { "application/pdf": [PDF_OUTLINE] };
+
+    const addMock = {
+      request: {
+        query: UPDATE_PIPELINE_SETTINGS,
+        variables: { preferredEnrichers: expectedChain },
+      },
+      result: {
+        data: {
+          updatePipelineSettings: {
+            ok: true,
+            message: "Updated",
+            pipelineSettings: {
+              ...settingsWithNullEnrichers,
+              preferredEnrichers: expectedChain,
+            },
+          },
+        },
+      },
+    };
+    const refetch = {
+      request: { query: GET_PIPELINE_SETTINGS },
+      result: {
+        data: {
+          pipelineSettings: {
+            ...settingsWithNullEnrichers,
+            preferredEnrichers: expectedChain,
+          },
+        },
+      },
+    };
+
+    const component = await mount(
+      <SystemSettingsWrapper
+        mocks={[
+          {
+            request: { query: GET_PIPELINE_SETTINGS },
+            result: { data: { pipelineSettings: settingsWithNullEnrichers } },
+          },
+          standardComponentsMock,
+          mimeTypesMock,
+          addMock,
+          refetch,
+          standardComponentsMock,
+        ]}
+      />
+    );
+    await waitForLoad(page);
+
+    const editor = page.locator('[data-testid="enricher-chain-editor"]');
+    await editor
+      .locator('select[aria-label="Add enricher for PDF files"]')
+      .selectOption(PDF_OUTLINE);
+    await editor.locator('button:has-text("Add")').click();
+
+    await expect(
+      page.locator("text=Settings updated successfully")
+    ).toBeVisible({ timeout: 5000 });
+
+    await component.unmount();
+  });
+
+  test("falls back to a derived display name when an enricher has no title", async ({
+    mount,
+    page,
+  }) => {
+    const componentsWithBlankTitles = {
+      ...mockComponents,
+      enrichers: mockComponents.enrichers.map((e) => ({ ...e, title: "" })),
+    };
+    const settingsWithOne = {
+      ...enricherSettingsBase,
+      preferredEnrichers: { "application/pdf": [PDF_OUTLINE] },
+    };
+
+    const component = await mount(
+      <SystemSettingsWrapper
+        mocks={[
+          {
+            request: { query: GET_PIPELINE_SETTINGS },
+            result: { data: { pipelineSettings: settingsWithOne } },
+          },
+          {
+            request: { query: GET_PIPELINE_COMPONENTS },
+            result: {
+              data: { pipelineComponents: componentsWithBlankTitles },
+            },
+          },
+          mimeTypesMock,
+        ]}
+      />
+    );
+    await waitForLoad(page);
+
+    const editor = page.locator('[data-testid="enricher-chain-editor"]');
+    // Configured item: derived from the className, not the (blank) title.
+    await expect(editor.locator("li").first()).toContainText(
+      "PDF Outline Enricher"
+    );
+    // Available-to-add option: same derivation applied in the dropdown.
+    await expect(
+      editor.locator('select[aria-label="Add enricher for PDF files"] option')
+    ).toContainText(["-- Select enricher --", "Metadata Enricher"]);
+
+    await component.unmount();
+  });
 });
 
 test.describe("SystemSettings — reverting a component setting (issue #2121)", () => {

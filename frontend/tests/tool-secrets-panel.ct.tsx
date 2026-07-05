@@ -197,4 +197,371 @@ test.describe("ToolSecretsPanel", () => {
 
     await component.unmount();
   });
+
+  test("save failure (ok=false) surfaces the server-provided message", async ({
+    mount,
+    page,
+  }) => {
+    const saveMock = {
+      request: {
+        query: UPDATE_TOOL_SECRETS,
+        variables: {
+          toolKey: "tool:web_search",
+          secrets: { api_key: "brave-secret-key" },
+          settings: { provider: "brave" },
+          merge: true,
+        },
+      },
+      result: {
+        data: {
+          updateToolSecrets: {
+            ok: false,
+            message: "Invalid API key format.",
+            toolsWithSecrets: [],
+          },
+        },
+      },
+    };
+
+    const component = await mount(
+      <SystemSettingsWrapper
+        mocks={[settingsMock([]), componentsMock, mimeTypesMock, saveMock]}
+      />
+    );
+    await waitForLoad(page);
+
+    const panel = page.locator('[data-testid="tool-secrets-panel"]');
+    await panel.locator("#tool-secrets-api-key").fill("brave-secret-key");
+    await panel.locator("button:has-text('Save')").click();
+
+    await expect(page.locator("text=Invalid API key format.")).toBeVisible({
+      timeout: 5000,
+    });
+
+    await component.unmount();
+  });
+
+  test("save failure without a server message falls back to a generic message", async ({
+    mount,
+    page,
+  }) => {
+    const saveMock = {
+      request: {
+        query: UPDATE_TOOL_SECRETS,
+        variables: {
+          toolKey: "tool:web_search",
+          secrets: { api_key: "brave-secret-key" },
+          settings: { provider: "brave" },
+          merge: true,
+        },
+      },
+      result: {
+        data: {
+          updateToolSecrets: { ok: false, message: null, toolsWithSecrets: [] },
+        },
+      },
+    };
+
+    const component = await mount(
+      <SystemSettingsWrapper
+        mocks={[settingsMock([]), componentsMock, mimeTypesMock, saveMock]}
+      />
+    );
+    await waitForLoad(page);
+
+    const panel = page.locator('[data-testid="tool-secrets-panel"]');
+    await panel.locator("#tool-secrets-api-key").fill("brave-secret-key");
+    await panel.locator("button:has-text('Save')").click();
+
+    await expect(
+      page.locator("text=Failed to update tool secrets")
+    ).toBeVisible({ timeout: 5000 });
+
+    await component.unmount();
+  });
+
+  test("network error while saving surfaces the error message", async ({
+    mount,
+    page,
+  }) => {
+    const saveMock = {
+      request: {
+        query: UPDATE_TOOL_SECRETS,
+        variables: {
+          toolKey: "tool:web_search",
+          secrets: { api_key: "brave-secret-key" },
+          settings: { provider: "brave" },
+          merge: true,
+        },
+      },
+      error: new Error("backend unavailable"),
+    };
+
+    const component = await mount(
+      <SystemSettingsWrapper
+        mocks={[settingsMock([]), componentsMock, mimeTypesMock, saveMock]}
+      />
+    );
+    await waitForLoad(page);
+
+    const panel = page.locator('[data-testid="tool-secrets-panel"]');
+    await panel.locator("#tool-secrets-api-key").fill("brave-secret-key");
+    await panel.locator("button:has-text('Save')").click();
+
+    await expect(
+      page.locator("text=/Error updating tool secrets:/")
+    ).toBeVisible({ timeout: 5000 });
+
+    await component.unmount();
+  });
+
+  test("delete failure (ok=false) surfaces the server-provided message", async ({
+    mount,
+    page,
+  }) => {
+    const deleteMock = {
+      request: {
+        query: DELETE_TOOL_SECRETS,
+        variables: { toolKey: "tool:web_search" },
+      },
+      result: {
+        data: {
+          deleteToolSecrets: {
+            ok: false,
+            message: "Cannot remove: tool is in use.",
+            toolsWithSecrets: ["tool:web_search"],
+          },
+        },
+      },
+    };
+
+    const component = await mount(
+      <SystemSettingsWrapper
+        mocks={[
+          settingsMock(["tool:web_search"]),
+          componentsMock,
+          mimeTypesMock,
+          deleteMock,
+        ]}
+      />
+    );
+    await waitForLoad(page);
+
+    const panel = page.locator('[data-testid="tool-secrets-panel"]');
+    await panel.locator("button:has-text('Remove Configuration')").click();
+    await panel.locator("button:has-text('Confirm Delete')").click();
+
+    await expect(
+      page.locator("text=Cannot remove: tool is in use.")
+    ).toBeVisible({ timeout: 5000 });
+
+    await component.unmount();
+  });
+
+  test("delete failure without a server message falls back to a generic message", async ({
+    mount,
+    page,
+  }) => {
+    const deleteMock = {
+      request: {
+        query: DELETE_TOOL_SECRETS,
+        variables: { toolKey: "tool:web_search" },
+      },
+      result: {
+        data: {
+          deleteToolSecrets: {
+            ok: false,
+            message: null,
+            toolsWithSecrets: ["tool:web_search"],
+          },
+        },
+      },
+    };
+
+    const component = await mount(
+      <SystemSettingsWrapper
+        mocks={[
+          settingsMock(["tool:web_search"]),
+          componentsMock,
+          mimeTypesMock,
+          deleteMock,
+        ]}
+      />
+    );
+    await waitForLoad(page);
+
+    const panel = page.locator('[data-testid="tool-secrets-panel"]');
+    await panel.locator("button:has-text('Remove Configuration')").click();
+    await panel.locator("button:has-text('Confirm Delete')").click();
+
+    await expect(
+      page.locator("text=Failed to delete tool secrets")
+    ).toBeVisible({ timeout: 5000 });
+
+    await component.unmount();
+  });
+
+  test("network error while deleting surfaces the error message", async ({
+    mount,
+    page,
+  }) => {
+    const deleteMock = {
+      request: {
+        query: DELETE_TOOL_SECRETS,
+        variables: { toolKey: "tool:web_search" },
+      },
+      error: new Error("backend unavailable"),
+    };
+
+    const component = await mount(
+      <SystemSettingsWrapper
+        mocks={[
+          settingsMock(["tool:web_search"]),
+          componentsMock,
+          mimeTypesMock,
+          deleteMock,
+        ]}
+      />
+    );
+    await waitForLoad(page);
+
+    const panel = page.locator('[data-testid="tool-secrets-panel"]');
+    await panel.locator("button:has-text('Remove Configuration')").click();
+    await panel.locator("button:has-text('Confirm Delete')").click();
+
+    await expect(
+      page.locator("text=/Error deleting tool secrets:/")
+    ).toBeVisible({ timeout: 5000 });
+
+    await component.unmount();
+  });
+
+  test("Cancel dismisses the delete confirmation banner without deleting", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <SystemSettingsWrapper
+        mocks={[
+          settingsMock(["tool:web_search"]),
+          componentsMock,
+          mimeTypesMock,
+        ]}
+      />
+    );
+    await waitForLoad(page);
+
+    const panel = page.locator('[data-testid="tool-secrets-panel"]');
+    await panel.locator("button:has-text('Remove Configuration')").click();
+    await expect(
+      panel.locator("text=Are you sure you want to remove")
+    ).toBeVisible();
+
+    await panel.locator("button:has-text('Cancel')").click();
+
+    await expect(
+      panel.locator("text=Are you sure you want to remove")
+    ).toHaveCount(0);
+    await expect(
+      panel.locator("button:has-text('Remove Configuration')")
+    ).toBeVisible();
+
+    await component.unmount();
+  });
+
+  test("changing the provider select saves the newly-selected provider", async ({
+    mount,
+    page,
+  }) => {
+    const saveMock = {
+      request: {
+        query: UPDATE_TOOL_SECRETS,
+        variables: {
+          toolKey: "tool:web_search",
+          secrets: { api_key: "tavily-secret-key" },
+          settings: { provider: "tavily" },
+          merge: true,
+        },
+      },
+      result: {
+        data: {
+          updateToolSecrets: {
+            ok: true,
+            message: "Tool settings updated for 'tool:web_search'.",
+            toolsWithSecrets: ["tool:web_search"],
+          },
+        },
+      },
+    };
+
+    const component = await mount(
+      <SystemSettingsWrapper
+        mocks={[settingsMock([]), componentsMock, mimeTypesMock, saveMock]}
+      />
+    );
+    await waitForLoad(page);
+
+    const panel = page.locator('[data-testid="tool-secrets-panel"]');
+    await panel.locator("#tool-secrets-provider").selectOption("tavily");
+    await expect(panel.locator("#tool-secrets-provider")).toHaveValue("tavily");
+
+    await panel.locator("#tool-secrets-api-key").fill("tavily-secret-key");
+    await panel.locator("button:has-text('Save')").click();
+
+    await expect(
+      page.locator("text=Web search tool configured successfully")
+    ).toBeVisible({ timeout: 5000 });
+
+    await component.unmount();
+  });
+
+  test("saving with a blank API key sends secrets: null (keeps the existing value)", async ({
+    mount,
+    page,
+  }) => {
+    const saveMock = {
+      request: {
+        query: UPDATE_TOOL_SECRETS,
+        variables: {
+          toolKey: "tool:web_search",
+          secrets: null,
+          settings: { provider: "brave" },
+          merge: true,
+        },
+      },
+      result: {
+        data: {
+          updateToolSecrets: {
+            ok: true,
+            message: "Tool settings updated for 'tool:web_search'.",
+            toolsWithSecrets: ["tool:web_search"],
+          },
+        },
+      },
+    };
+
+    const component = await mount(
+      <SystemSettingsWrapper
+        mocks={[
+          settingsMock(["tool:web_search"]),
+          componentsMock,
+          mimeTypesMock,
+          saveMock,
+        ]}
+      />
+    );
+    await waitForLoad(page);
+
+    const panel = page.locator('[data-testid="tool-secrets-panel"]');
+    // API key field is left blank — saving should still fire, sending
+    // secrets: null so the provider setting updates without clobbering the
+    // already-configured key.
+    await panel.locator("button:has-text('Save')").click();
+
+    await expect(
+      page.locator("text=Web search tool configured successfully")
+    ).toBeVisible({ timeout: 5000 });
+
+    await component.unmount();
+  });
 });

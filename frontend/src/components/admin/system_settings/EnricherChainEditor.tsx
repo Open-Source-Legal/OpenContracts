@@ -7,7 +7,7 @@ import {
 } from "../../../types/graphql-api";
 import { getComponentDisplayName } from "../PipelineIcons";
 import { PreferredEnrichersMap } from "./types";
-import { isComponentAvailable } from "./utils";
+import { appendToChain, isComponentAvailable, reorderChain } from "./utils";
 import {
   Section,
   SectionHeader,
@@ -91,11 +91,8 @@ export const EnricherChainEditor = memo<EnricherChainEditorProps>(
 
     const handleMove = useCallback(
       (mimeType: string, index: number, direction: -1 | 1) => {
-        const chain = [...getChain(mimeType)];
-        const target = index + direction;
-        if (target < 0 || target >= chain.length) return;
-        [chain[index], chain[target]] = [chain[target], chain[index]];
-        onAssignEnrichers(mimeType, chain);
+        const chain = getChain(mimeType);
+        onAssignEnrichers(mimeType, reorderChain(chain, index, direction));
       },
       [getChain, onAssignEnrichers]
     );
@@ -110,11 +107,11 @@ export const EnricherChainEditor = memo<EnricherChainEditorProps>(
 
     const handleAdd = useCallback(
       (mimeType: string) => {
-        const className = pendingSelection[mimeType];
-        if (!className) return;
         const chain = getChain(mimeType);
-        if (chain.includes(className)) return;
-        onAssignEnrichers(mimeType, [...chain, className]);
+        onAssignEnrichers(
+          mimeType,
+          appendToChain(chain, pendingSelection[mimeType])
+        );
         setPendingSelection((prev) => ({ ...prev, [mimeType]: "" }));
       },
       [getChain, onAssignEnrichers, pendingSelection]
