@@ -69,8 +69,8 @@ EMBEDDINGS_MICROSERVICE_URL=http://vector-embedder:8000
 # Optional: dedicated "bulk" embeddings pool for ingest (document/annotation
 # embedding Celery tasks). Query call sites keep using EMBEDDINGS_MICROSERVICE_URL
 # (the always-warm pod); only batch ingest routes here, so a cold-starting /
-# autoscaled bulk pool never affects search latency. Defaults to
-# EMBEDDINGS_MICROSERVICE_URL when unset.
+# autoscaled bulk pool never affects search latency. Opt-in: when unset, ingest
+# uses EMBEDDINGS_MICROSERVICE_URL exactly as before.
 # EMBEDDINGS_MICROSERVICE_URL_BULK=http://vector-embedder-bulk:8000
 DOCLING_PARSER_SERVICE_URL=http://docling-parser:8000/parse/
 

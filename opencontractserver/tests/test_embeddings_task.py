@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from django.contrib.auth import get_user_model
+from django.test import override_settings
 
 from opencontractserver.annotations.models import Annotation, Note
 from opencontractserver.pipeline.base.embedder import BaseEmbedder
@@ -1751,6 +1752,144 @@ class TestCalculateEmbeddingsForRelationshipBatch(unittest.TestCase):
         self.assertEqual(result["succeeded"], 1)
         self.assertEqual(result["failed"], 1)
         self.assertEqual(len(result["errors"]), 1)
+
+
+class TestBulkEmbeddingsPoolRouting(unittest.TestCase):
+    """Ingest tasks route embedder calls through EMBEDDINGS_MICROSERVICE_URL_BULK.
+
+    Complements the batch-annotation coverage in test_batch_embedding.py by
+    asserting the bulk-pool override reaches the embedder for the document,
+    note, and relationship entry points, which all funnel through
+    ``_apply_dual_embedding_strategy`` / ``_service_url_override_kwargs``.
+    """
+
+    class _RecordingEmbedder:
+        """Captures the kwargs passed to ``embed_text`` (shared across tests)."""
+
+        def __init__(self):
+            self.captured: dict = {}
+
+        def embed_text(self, text, **kw):
+            self.captured.update(kw)
+            return [0.1, 0.2]
+
+    @override_settings(EMBEDDINGS_MICROSERVICE_URL_BULK="http://bulk-pool:8000")
+    @patch("opencontractserver.tasks.embeddings_task.get_default_embedder_path")
+    @patch("opencontractserver.tasks.embeddings_task.get_default_embedder")
+    @patch("opencontractserver.tasks.embeddings_task.read_field_file_text")
+    @patch("opencontractserver.tasks.embeddings_task.Document")
+    def test_doc_text_task_threads_bulk_url(
+        self, mock_doc_cls, mock_read, mock_get_default, mock_get_path
+    ):
+        from opencontractserver.tasks.embeddings_task import (
+            calculate_embedding_for_doc_text,
+        )
+
+        embedder = self._RecordingEmbedder()
+        mock_get_default.return_value = lambda: embedder
+        mock_get_path.return_value = "default.path"
+        mock_read.return_value = "hello world"
+
+        mock_doc = MagicMock()
+        mock_doc.id = 1
+        mock_doc.txt_extract_file.name = "doc.txt"
+        mock_doc_cls.objects.get.return_value = mock_doc
+
+        calculate_embedding_for_doc_text(doc_id=1)
+
+        self.assertEqual(
+            embedder.captured.get("embeddings_microservice_url"),
+            "http://bulk-pool:8000",
+        )
+
+    @override_settings(EMBEDDINGS_MICROSERVICE_URL_BULK="http://bulk-pool:8000")
+    @patch("opencontractserver.tasks.embeddings_task.get_default_embedder_path")
+    @patch("opencontractserver.tasks.embeddings_task.get_default_embedder")
+    @patch("opencontractserver.tasks.embeddings_task.Note")
+    def test_note_text_task_threads_bulk_url(
+        self, mock_note_cls, mock_get_default, mock_get_path
+    ):
+        from opencontractserver.tasks.embeddings_task import (
+            calculate_embedding_for_note_text,
+        )
+
+        embedder = self._RecordingEmbedder()
+        mock_get_default.return_value = lambda: embedder
+        mock_get_path.return_value = "default.path"
+
+        mock_note = MagicMock()
+        mock_note.id = 1
+        mock_note.content = "note text"
+        mock_note.corpus = None
+        mock_note_cls.objects.get.return_value = mock_note
+
+        calculate_embedding_for_note_text(note_id=1)
+
+        self.assertEqual(
+            embedder.captured.get("embeddings_microservice_url"),
+            "http://bulk-pool:8000",
+        )
+
+    @override_settings(EMBEDDINGS_MICROSERVICE_URL_BULK="http://bulk-pool:8000")
+    @patch("opencontractserver.tasks.embeddings_task.get_component_by_name")
+    @patch("opencontractserver.tasks.embeddings_task.Relationship")
+    def test_relationship_batch_task_threads_bulk_url(
+        self, mock_rel_cls, mock_get_component
+    ):
+        from opencontractserver.tasks.embeddings_task import (
+            calculate_embeddings_for_relationship_batch,
+        )
+
+        embedder = self._RecordingEmbedder()
+        mock_get_component.return_value = lambda: embedder
+
+        mock_rel = MagicMock()
+        mock_rel.pk = 1
+        mock_rel.id = 1
+        mock_rel.add_embedding.return_value = MagicMock(pk=9)
+        mock_rel_cls.objects.filter.return_value = [mock_rel]
+
+        with patch(
+            "opencontractserver.tasks.embeddings_task."
+            "synthesize_relationship_block_text",
+            return_value="relationship text",
+        ):
+            result = calculate_embeddings_for_relationship_batch(
+                relationship_ids=[1], embedder_path="test.RecordingEmbedder"
+            )
+
+        self.assertEqual(result["succeeded"], 1)
+        self.assertEqual(
+            embedder.captured.get("embeddings_microservice_url"),
+            "http://bulk-pool:8000",
+        )
+
+    @patch("opencontractserver.tasks.embeddings_task.get_default_embedder_path")
+    @patch("opencontractserver.tasks.embeddings_task.get_default_embedder")
+    @patch("opencontractserver.tasks.embeddings_task.read_field_file_text")
+    @patch("opencontractserver.tasks.embeddings_task.Document")
+    def test_doc_text_task_without_bulk_setting_passes_no_url_kwarg(
+        self, mock_doc_cls, mock_read, mock_get_default, mock_get_path
+    ):
+        """With the bulk setting unset (default), no override kwarg leaks."""
+        from opencontractserver.tasks.embeddings_task import (
+            calculate_embedding_for_doc_text,
+        )
+
+        embedder = self._RecordingEmbedder()
+        mock_get_default.return_value = lambda: embedder
+        mock_get_path.return_value = "default.path"
+        mock_read.return_value = "hello world"
+
+        mock_doc = MagicMock()
+        mock_doc.id = 1
+        mock_doc.txt_extract_file.name = "doc.txt"
+        mock_doc_cls.objects.get.return_value = mock_doc
+
+        with override_settings(EMBEDDINGS_MICROSERVICE_URL_BULK=None):
+            calculate_embedding_for_doc_text(doc_id=1)
+
+        self.assertNotIn("embeddings_microservice_url", embedder.captured)
 
 
 if __name__ == "__main__":

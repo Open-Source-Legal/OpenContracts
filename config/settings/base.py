@@ -1175,11 +1175,10 @@ EMBEDDINGS_MICROSERVICE_URL = env(
 # affected. Batch ingest (the Celery tasks in
 # opencontractserver/tasks/embeddings_task.py) routes through this bulk pool
 # instead, which can scale to zero / cold-start under load without touching the
-# query path. Defaults to EMBEDDINGS_MICROSERVICE_URL so single-pool
-# deployments need no extra configuration.
-EMBEDDINGS_MICROSERVICE_URL_BULK = env(
-    "EMBEDDINGS_MICROSERVICE_URL_BULK", default=EMBEDDINGS_MICROSERVICE_URL
-)
+# query path. Opt-in: when unset (the default) it is ``None`` and ingest stays
+# on the embedder's configured URL (EMBEDDINGS_MICROSERVICE_URL) exactly as
+# before — set it only to split ingest onto a separate pool.
+EMBEDDINGS_MICROSERVICE_URL_BULK = env("EMBEDDINGS_MICROSERVICE_URL_BULK", default=None)
 VECTOR_EMBEDDER_API_KEY = env("VECTOR_EMBEDDER_API_KEY", default="")
 # CLIP embedder configuration (768-dimensional vectors)
 CLIP_EMBEDDER_URL = env("CLIP_EMBEDDER_URL", default="http://vector-embedder:8000")

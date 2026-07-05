@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, patch
 
 import numpy as np
 import requests
+from django.test import override_settings
 
 from opencontractserver.constants.document_processing import (
     MICROSERVICE_EMBEDDER_MAX_BATCH_SIZE,
@@ -941,8 +942,6 @@ class TestCalculateEmbeddingsForAnnotationBatch(unittest.TestCase):
         End-to-end check that the entry point resolves the bulk setting and
         threads it through to the embedder's per-call override kwarg.
         """
-        from django.test import override_settings
-
         captured: dict = {}
 
         class RecordingEmbedder(DummyEmbedder384):

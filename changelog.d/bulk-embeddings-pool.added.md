@@ -1,7 +1,8 @@
 - **Separate "bulk" embeddings microservice pool for ingest.** Added the
   `EMBEDDINGS_MICROSERVICE_URL_BULK` setting (`config/settings/base.py`, next to
-  `EMBEDDINGS_MICROSERVICE_URL`), defaulting to `EMBEDDINGS_MICROSERVICE_URL` so
-  single-pool deployments are unaffected. The Celery ingest tasks in
+  `EMBEDDINGS_MICROSERVICE_URL`). It is opt-in and defaults to unset (`None`), so
+  single-pool deployments keep using `EMBEDDINGS_MICROSERVICE_URL` unchanged. The
+  Celery ingest tasks in
   `opencontractserver/tasks/embeddings_task.py` now thread this bulk URL into
   the embedder's existing call-time `embeddings_microservice_url` override kwarg
   via a new optional `service_url_override` parameter on `_create_text_embedding`,

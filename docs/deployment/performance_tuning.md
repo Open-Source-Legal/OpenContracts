@@ -124,10 +124,11 @@ Search queries embed one short string and need a *warm* microservice pod
 (cold starts add seconds to every query). Batch ingest embeds thousands of
 strings and is happy to hit an autoscaled / scale-to-zero pool. Serving both
 from the same URL forces a compromise. The `EMBEDDINGS_MICROSERVICE_URL_BULK`
-setting (`config/settings/base.py`, defaults to `EMBEDDINGS_MICROSERVICE_URL`)
-lets operators point ingest at a dedicated bulk pool while query call sites
-stay on the always-warm pod — search latency is then fully isolated from
-ingest load.
+setting (`config/settings/base.py`, opt-in — defaults to unset/`None`) lets
+operators point ingest at a dedicated bulk pool while query call sites stay on
+the always-warm pod — search latency is then fully isolated from ingest load.
+When unset, ingest stays on `EMBEDDINGS_MICROSERVICE_URL` exactly as before and
+no override kwarg is threaded at all.
 
 The mechanism reuses the embedder's *existing* call-time override kwarg
 (`embeddings_microservice_url`, read in

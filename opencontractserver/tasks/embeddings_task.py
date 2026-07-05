@@ -1,7 +1,7 @@
 import functools
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Optional, Protocol, TypeVar, Union, cast
+from typing import Any, Callable, Optional, TypeVar, Union, cast
 
 import requests
 from celery import shared_task
@@ -54,10 +54,10 @@ def _bulk_embeddings_service_url() -> Optional[str]:
     """Resolve the ingest ("bulk") embeddings-pool URL from settings.
 
     Read at call time (not import time) so ``override_settings`` in tests and
-    runtime reconfiguration both take effect. Returns ``None`` when unset, which
-    leaves ingest on the embedder's configured URL. The setting defaults to
-    ``EMBEDDINGS_MICROSERVICE_URL`` (see ``config/settings/base.py``), so
-    single-pool deployments are unaffected.
+    runtime reconfiguration both take effect. The setting is opt-in and defaults
+    to ``None`` (see ``config/settings/base.py``); when unset this returns
+    ``None`` and no override kwarg is threaded, leaving ingest on the embedder's
+    configured URL (``EMBEDDINGS_MICROSERVICE_URL``) exactly as before.
     """
     return getattr(settings, "EMBEDDINGS_MICROSERVICE_URL_BULK", None)
 
@@ -77,25 +77,6 @@ def _service_url_override_kwargs(service_url_override: Optional[str]) -> dict[st
     if not service_url_override:
         return {}
     return {"embeddings_microservice_url": service_url_override}
-
-
-class _EmbedFunc(Protocol):
-    """Call shape shared by every ``embed_func`` handed to the dual strategy.
-
-    Accepts the ``(obj, embedder, embedder_path)`` positional triple plus an
-    optional ``service_url_override`` keyword. The strategy only forwards the
-    keyword when a bulk URL is set, so closures written against the original
-    three-argument contract keep working.
-    """
-
-    def __call__(
-        self,
-        obj: Any,
-        embedder: "BaseEmbedder",
-        embedder_path: str,
-        *,
-        service_url_override: Optional[str] = ...,
-    ) -> bool: ...
 
 
 def _create_text_embedding(
@@ -273,7 +254,7 @@ def _apply_dual_embedding_strategy(
     corpus_id: Optional[int],
     obj_type: str,
     obj_id: int,
-    embed_func: _EmbedFunc,
+    embed_func: Callable[..., bool],
     service_url_override: Optional[str] = None,
 ) -> None:
     """
@@ -307,6 +288,14 @@ def _apply_dual_embedding_strategy(
     # Only thread the override keyword when a bulk URL is set, so ``embed_func``
     # closures written against the original ``(obj, embedder, path)`` contract
     # keep working unchanged.
+    #
+    # NOTE: the override is forwarded to BOTH the default-embedder pass and the
+    # corpus-preferred-embedder pass below. Today only one MicroserviceEmbedder
+    # class reads ``embeddings_microservice_url``, so a corpus embedder either
+    # ignores it (hosted / multimodal) or is the same microservice family — the
+    # bulk URL is always the right target. If a second microservice-embedder
+    # variant with its own dedicated pool is ever added, revisit this so a
+    # corpus's ingest isn't silently redirected to the default bulk pool.
     embed_extra: dict[str, str] = (
         {"service_url_override": service_url_override} if service_url_override else {}
     )
@@ -533,7 +522,7 @@ def calculate_embedding_for_annotation_text(
         corpus_id=int(effective_corpus_id) if effective_corpus_id else None,
         obj_type="annotation",
         obj_id=annotation.id,
-        embed_func=cast(_EmbedFunc, _create_embedding_for_annotation),
+        embed_func=_create_embedding_for_annotation,
         service_url_override=_bulk_embeddings_service_url(),
     )
 
@@ -979,7 +968,7 @@ def calculate_embeddings_for_annotation_batch(
                     ),
                     obj_type="annotation",
                     obj_id=annotation.id,
-                    embed_func=cast(_EmbedFunc, _create_embedding_for_annotation),
+                    embed_func=_create_embedding_for_annotation,
                     service_url_override=bulk_service_url,
                 )
                 result["succeeded"] += 1
