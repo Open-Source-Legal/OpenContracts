@@ -1141,7 +1141,7 @@ test.describe("SystemSettings Component", () => {
       page.locator(".oc-modal-header__title:has-text('Reset to Defaults')")
     ).toBeVisible();
     await expect(
-      page.locator("text=This will reset all pipeline settings")
+      page.locator("text=This will reset pipeline component assignments")
     ).toBeVisible();
 
     await component.unmount();
@@ -1819,7 +1819,7 @@ test.describe("SystemSettings Component", () => {
     // Confirmation modal should appear
     await expect(page.locator("text=Reset to Defaults").nth(1)).toBeVisible();
     await expect(
-      page.locator("text=This will reset all pipeline settings")
+      page.locator("text=This will reset pipeline component assignments")
     ).toBeVisible();
 
     // Click confirm reset button in modal

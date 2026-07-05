@@ -125,6 +125,59 @@ def validate_component_mapping(
     return None
 
 
+def validate_enricher_mapping(mapping: dict, registry) -> Optional[str]:
+    """
+    Validate a mapping of MIME types to ORDERED LISTS of enricher class paths.
+
+    Unlike ``validate_component_mapping`` (MIME type -> single component
+    path), ``preferred_enrichers`` maps each MIME type to an ORDERED LIST of
+    enricher class paths run as a chain between parsing and persistence
+    (see ``PipelineSettings.get_preferred_enrichers`` and
+    ``opencontractserver.pipeline.utils.run_enrichers``).
+
+    Args:
+        mapping: Dict mapping MIME types to lists of enricher class paths
+        registry: Pipeline component registry for validation
+
+    Returns:
+        Error message if invalid, None if valid
+    """
+    from opencontractserver.pipeline.registry import ComponentType
+
+    if not isinstance(mapping, dict):
+        return "Enricher mapping must be a dictionary"
+
+    for mime_type, path_list in mapping.items():
+        # Validate MIME type
+        error = validate_mime_type(mime_type)
+        if error:
+            return error
+
+        # preferred_enrichers is a mime -> ORDERED LIST mapping, not mime -> path
+        if not isinstance(path_list, list):
+            return (
+                f"Enricher mapping for '{mime_type}' must be a list of "
+                f"class paths, got {type(path_list).__name__}."
+            )
+
+        for component_path in path_list:
+            error = validate_component_path(component_path)
+            if error:
+                return error
+
+            component_def = registry.get_by_class_name(component_path)
+            if not component_def:
+                return f"Enricher '{component_path}' not found in registry"
+
+            if component_def.component_type != ComponentType.ENRICHER:
+                return (
+                    f"Component '{component_path}' is a "
+                    f"{component_def.component_type.value}, not an enricher."
+                )
+
+    return None
+
+
 def validate_secrets_input(secrets: dict) -> Optional[str]:
     """
     Validate secrets input structure and size.
@@ -223,6 +276,7 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
         preferred_parsers: Dict mapping MIME types to parser class paths
         preferred_embedders: Dict mapping MIME types to embedder class paths
         preferred_thumbnailers: Dict mapping MIME types to thumbnailer class paths
+        preferred_enrichers: Dict mapping MIME types to ORDERED LISTS of enricher class paths
         parser_kwargs: Dict mapping parser class paths to their configuration kwargs
         component_settings: Dict mapping component class paths to settings overrides
         default_embedder: Default embedder class path
@@ -246,6 +300,10 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
         preferred_thumbnailers = GenericScalar(
             required=False,
             description="Mapping of MIME types to preferred thumbnailer class paths.",
+        )
+        preferred_enrichers = GenericScalar(
+            required=False,
+            description="Mapping of MIME types to ordered lists of preferred enricher class paths.",
         )
         parser_kwargs = GenericScalar(
             required=False,
@@ -306,6 +364,7 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
         preferred_parsers=None,
         preferred_embedders=None,
         preferred_thumbnailers=None,
+        preferred_enrichers=None,
         parser_kwargs=None,
         component_settings=None,
         default_embedder=None,
@@ -375,6 +434,19 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
                         ok=False, message=error, pipeline_settings=None
                     )
                 settings_instance.preferred_thumbnailers = preferred_thumbnailers
+
+            # Validate and apply preferred_enrichers
+            if preferred_enrichers is not None:
+                error = validate_enricher_mapping(
+                    preferred_enrichers, registry
+                ) or validate_json_field_size(
+                    preferred_enrichers, "preferred_enrichers"
+                )
+                if error:
+                    return UpdatePipelineSettingsMutation(
+                        ok=False, message=error, pipeline_settings=None
+                    )
+                settings_instance.preferred_enrichers = preferred_enrichers
 
             # Validate parser_kwargs
             if parser_kwargs is not None:
@@ -761,6 +833,7 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
                     ("preferred_parsers", preferred_parsers),
                     ("preferred_embedders", preferred_embedders),
                     ("preferred_thumbnailers", preferred_thumbnailers),
+                    ("preferred_enrichers", preferred_enrichers),
                     ("parser_kwargs", parser_kwargs),
                     ("component_settings", component_settings),
                     ("default_embedder", default_embedder),
@@ -785,6 +858,7 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
                     preferred_embedders=settings_instance.preferred_embedders or {},
                     preferred_thumbnailers=settings_instance.preferred_thumbnailers
                     or {},
+                    preferred_enrichers=settings_instance.preferred_enrichers or {},
                     parser_kwargs=settings_instance.parser_kwargs or {},
                     component_settings=settings_instance.component_settings or {},
                     default_embedder=settings_instance.default_embedder or "",
@@ -859,6 +933,9 @@ class ResetPipelineSettingsMutation(graphene.Mutation):
                 django_settings, "PREFERRED_EMBEDDERS", {}
             )
             settings_instance.preferred_thumbnailers = {}
+            settings_instance.preferred_enrichers = getattr(
+                django_settings, "PREFERRED_ENRICHERS", {}
+            )
             settings_instance.parser_kwargs = getattr(
                 django_settings, "PARSER_KWARGS", {}
             )
@@ -893,6 +970,7 @@ class ResetPipelineSettingsMutation(graphene.Mutation):
                     preferred_embedders=settings_instance.preferred_embedders or {},
                     preferred_thumbnailers=settings_instance.preferred_thumbnailers
                     or {},
+                    preferred_enrichers=settings_instance.preferred_enrichers or {},
                     parser_kwargs=settings_instance.parser_kwargs or {},
                     component_settings=settings_instance.component_settings or {},
                     default_embedder=settings_instance.default_embedder or "",

@@ -706,6 +706,127 @@ class PipelineSettingsGraphQLTestCase(TestCase):
             result["data"]["updatePipelineSettings"]["message"].lower(),
         )
 
+    def test_update_preferred_enrichers_as_superuser(self):
+        """A valid preferred_enrichers mapping is accepted and round-trips."""
+        from opencontractserver.pipeline.registry import get_registry
+
+        registry = get_registry()
+        if not registry.enrichers:
+            self.skipTest("No enrichers registered to exercise this test.")
+        enricher_path = registry.enrichers[0].class_name
+
+        mutation = """
+            mutation UpdatePipelineSettings($preferredEnrichers: GenericScalar) {
+                updatePipelineSettings(preferredEnrichers: $preferredEnrichers) {
+                    ok
+                    message
+                    pipelineSettings {
+                        preferredEnrichers
+                    }
+                }
+            }
+        """
+        variables = {"preferredEnrichers": {"application/pdf": [enricher_path]}}
+
+        result = self.superuser_client.execute(mutation, variables=variables)
+        self.assertIsNone(result.get("errors"))
+        data = result["data"]["updatePipelineSettings"]
+        self.assertTrue(data["ok"], data.get("message"))
+        self.assertEqual(
+            data["pipelineSettings"]["preferredEnrichers"]["application/pdf"],
+            [enricher_path],
+        )
+
+        # Confirm it round-trips through a fresh query too.
+        query = """
+            query {
+                pipelineSettings {
+                    preferredEnrichers
+                }
+            }
+        """
+        query_result = self.superuser_client.execute(query)
+        self.assertIsNone(query_result.get("errors"))
+        self.assertEqual(
+            query_result["data"]["pipelineSettings"]["preferredEnrichers"][
+                "application/pdf"
+            ],
+            [enricher_path],
+        )
+
+    def test_update_preferred_enrichers_rejects_non_enricher_component(self):
+        """Assigning a non-enricher component path (e.g. a parser) is rejected."""
+        from opencontractserver.pipeline.registry import get_registry
+
+        registry = get_registry()
+        if not registry.parsers:
+            self.skipTest("No parsers registered to exercise the type guard.")
+        parser_path = registry.parsers[0].class_name
+
+        mutation = """
+            mutation UpdatePipelineSettings($preferredEnrichers: GenericScalar) {
+                updatePipelineSettings(preferredEnrichers: $preferredEnrichers) {
+                    ok
+                    message
+                }
+            }
+        """
+        variables = {"preferredEnrichers": {"application/pdf": [parser_path]}}
+
+        result = self.superuser_client.execute(mutation, variables=variables)
+        self.assertIsNone(result.get("errors"))
+        data = result["data"]["updatePipelineSettings"]
+        self.assertFalse(data["ok"])
+        self.assertIn("not an enricher", data["message"].lower())
+
+    def test_update_preferred_enrichers_rejects_non_list_value(self):
+        """A MIME type mapped to a string instead of a list is rejected."""
+        from opencontractserver.pipeline.registry import get_registry
+
+        registry = get_registry()
+        if not registry.enrichers:
+            self.skipTest("No enrichers registered to exercise this test.")
+        enricher_path = registry.enrichers[0].class_name
+
+        mutation = """
+            mutation UpdatePipelineSettings($preferredEnrichers: GenericScalar) {
+                updatePipelineSettings(preferredEnrichers: $preferredEnrichers) {
+                    ok
+                    message
+                }
+            }
+        """
+        # Malformed: value is a bare string, not a list.
+        variables = {"preferredEnrichers": {"application/pdf": enricher_path}}
+
+        result = self.superuser_client.execute(mutation, variables=variables)
+        self.assertIsNone(result.get("errors"))
+        data = result["data"]["updatePipelineSettings"]
+        self.assertFalse(data["ok"])
+        self.assertIn("must be a list", data["message"].lower())
+
+    def test_pipeline_components_query_includes_enrichers(self):
+        """The pipelineComponents query now surfaces registered enrichers."""
+        from opencontractserver.pipeline.registry import get_registry
+
+        registry = get_registry()
+        if not registry.enrichers:
+            self.skipTest("No enrichers registered to exercise this test.")
+
+        query = """
+            query {
+                pipelineComponents {
+                    enrichers { className enabled }
+                }
+            }
+        """
+        result = self.superuser_client.execute(query)
+        self.assertIsNone(result.get("errors"))
+        enricher_paths = {
+            c["className"] for c in result["data"]["pipelineComponents"]["enrichers"]
+        }
+        self.assertIn(registry.enrichers[0].class_name, enricher_paths)
+
     def test_pipeline_settings_query_excludes_tool_secret_keys(self):
         """The ``componentsWithSecrets`` field must not surface ``tool:`` keys."""
         instance = PipelineSettings.get_instance()
@@ -2328,6 +2449,55 @@ class PipelineSettingsIntegrationTestCase(TestCase):
         self.assertEqual(
             instance.get_preferred_parser("application/pdf"),
             expected,
+        )
+
+    @override_settings(
+        PREFERRED_ENRICHERS={
+            "application/pdf": [
+                "opencontractserver.pipeline.enrichers.pdf_outline_enricher.PdfOutlineEnricher"
+            ]
+        }
+    )
+    def test_reset_restores_preferred_enrichers_django_default(self):
+        """Reset mutation restores PREFERRED_ENRICHERS from Django settings.
+
+        Unlike the other legacy defaults, preferred_enrichers was historically
+        EXCLUDED from Reset-to-Defaults even though PipelineSettings.get_instance()
+        seeds it from Django settings at first creation (issue #2118). This
+        confirms the mutation now includes it.
+        """
+        instance = PipelineSettings.get_instance()
+        instance.preferred_enrichers = {"application/pdf": ["custom.Enricher"]}
+        instance.save()
+        PipelineSettings.clear_cache()
+
+        self.assertEqual(
+            PipelineSettings.get_instance(use_cache=False).get_preferred_enrichers(
+                "application/pdf"
+            ),
+            ["custom.Enricher"],
+        )
+
+        mutation = """
+            mutation {
+                resetPipelineSettings {
+                    ok
+                    message
+                    pipelineSettings {
+                        preferredEnrichers
+                    }
+                }
+            }
+        """
+        result = self.superuser_client.execute(mutation)
+        self.assertIsNone(result.get("errors"))
+        data = result["data"]["resetPipelineSettings"]
+        self.assertTrue(data["ok"], data.get("message"))
+        self.assertEqual(
+            data["pipelineSettings"]["preferredEnrichers"]["application/pdf"],
+            [
+                "opencontractserver.pipeline.enrichers.pdf_outline_enricher.PdfOutlineEnricher"
+            ],
         )
 
 

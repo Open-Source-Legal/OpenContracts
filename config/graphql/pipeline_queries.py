@@ -97,10 +97,13 @@ class PipelineQueryMixin:
             preferred_parsers = settings_instance.preferred_parsers or {}
             preferred_embedders = settings_instance.preferred_embedders or {}
             preferred_thumbnailers = settings_instance.preferred_thumbnailers or {}
+            preferred_enrichers = settings_instance.preferred_enrichers or {}
 
             configured_components.update(preferred_parsers.values())
             configured_components.update(preferred_embedders.values())
             configured_components.update(preferred_thumbnailers.values())
+            for enricher_list in preferred_enrichers.values():
+                configured_components.update(enricher_list)
 
             if settings_instance.default_embedder:
                 configured_components.add(settings_instance.default_embedder)
@@ -136,6 +139,7 @@ class PipelineQueryMixin:
                     components_data["post_processors"]
                 ),
                 "rerankers": filter_configured(components_data.get("rerankers", [])),
+                "enrichers": filter_configured(components_data.get("enrichers", [])),
             }
             file_converters_data = filter_configured(list(file_converters_data))
 
@@ -208,6 +212,10 @@ class PipelineQueryMixin:
             rerankers=[
                 to_graphql_type(d, "reranker")
                 for d in components_data.get("rerankers", [])
+            ],
+            enrichers=[
+                to_graphql_type(d, "enricher")
+                for d in components_data.get("enrichers", [])
             ],
             llm_providers=[
                 # LLM providers are intentionally NOT run through
@@ -311,6 +319,7 @@ class PipelineQueryMixin:
             preferred_parsers=settings_instance.preferred_parsers or {},
             preferred_embedders=settings_instance.preferred_embedders or {},
             preferred_thumbnailers=settings_instance.preferred_thumbnailers or {},
+            preferred_enrichers=settings_instance.preferred_enrichers or {},
             parser_kwargs=settings_instance.parser_kwargs or {},
             component_settings=settings_instance.component_settings or {},
             default_embedder=settings_instance.default_embedder or "",

@@ -1957,6 +1957,8 @@ export type PipelineComponentsType = {
   fileConverters?: Maybe<Array<Maybe<PipelineComponentType>>>;
   /** List of available post-retrieval rerankers. */
   rerankers?: Maybe<Array<Maybe<PipelineComponentType>>>;
+  /** List of available document enrichers (run between parsing and persistence). */
+  enrichers?: Maybe<Array<Maybe<PipelineComponentType>>>;
 };
 
 /** Enum for file types. */
@@ -2007,6 +2009,8 @@ export type PipelineSettingsType = {
   preferredEmbedders?: Maybe<Scalars["GenericScalar"]>;
   /** Mapping of MIME types to thumbnailer class paths. */
   preferredThumbnailers?: Maybe<Scalars["GenericScalar"]>;
+  /** Mapping of MIME types to ORDERED LISTS of preferred enricher class paths. */
+  preferredEnrichers?: Maybe<Scalars["GenericScalar"]>;
   /** Mapping of parser class paths to configuration kwargs. */
   parserKwargs?: Maybe<Scalars["GenericScalar"]>;
   /** Mapping of component class paths to settings overrides. */
@@ -2069,6 +2073,26 @@ export type DeleteComponentSecretsResponse = {
   ok?: Maybe<Scalars["Boolean"]>;
   message?: Maybe<Scalars["String"]>;
   componentsWithSecrets?: Maybe<Array<Maybe<Scalars["String"]>>>;
+};
+
+/**
+ * Mutation response for updating agent tool secrets (e.g. 'tool:web_search').
+ */
+export type UpdateToolSecretsResponse = {
+  __typename?: "UpdateToolSecretsMutation";
+  ok?: Maybe<Scalars["Boolean"]>;
+  message?: Maybe<Scalars["String"]>;
+  toolsWithSecrets?: Maybe<Array<Maybe<Scalars["String"]>>>;
+};
+
+/**
+ * Mutation response for deleting agent tool secrets.
+ */
+export type DeleteToolSecretsResponse = {
+  __typename?: "DeleteToolSecretsMutation";
+  ok?: Maybe<Scalars["Boolean"]>;
+  message?: Maybe<Scalars["String"]>;
+  toolsWithSecrets?: Maybe<Array<Maybe<Scalars["String"]>>>;
 };
 
 /* ------------------------------------------------------------------ *

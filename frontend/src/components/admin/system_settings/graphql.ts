@@ -34,13 +34,13 @@ export const GET_PIPELINE_SETTINGS = gql`
       # default_embedder. Selected here for API completeness only.
       preferredEmbedders
       preferredThumbnailers
-      parserKwargs
+      preferredEnrichers
       componentSettings
       defaultEmbedder
       defaultFileConverter
       defaultLlm
       defaultReranker
-      componentsWithSecrets
+      toolsWithSecrets
       enabledComponents
       modified
       modifiedBy {
@@ -170,6 +170,25 @@ export const GET_PIPELINE_COMPONENTS = gql`
         }
         enabled
       }
+      enrichers {
+        name
+        title
+        description
+        className
+        supportedFileTypes
+        settingsSchema {
+          name
+          settingType
+          pythonType
+          required
+          description
+          default
+          envVar
+          hasValue
+          currentValue
+        }
+        enabled
+      }
     }
   }
 `;
@@ -179,6 +198,7 @@ export const UPDATE_PIPELINE_SETTINGS = gql`
     $preferredParsers: GenericScalar
     $preferredEmbedders: GenericScalar
     $preferredThumbnailers: GenericScalar
+    $preferredEnrichers: GenericScalar
     $parserKwargs: GenericScalar
     $componentSettings: GenericScalar
     $defaultEmbedder: String
@@ -191,6 +211,7 @@ export const UPDATE_PIPELINE_SETTINGS = gql`
       preferredParsers: $preferredParsers
       preferredEmbedders: $preferredEmbedders
       preferredThumbnailers: $preferredThumbnailers
+      preferredEnrichers: $preferredEnrichers
       parserKwargs: $parserKwargs
       componentSettings: $componentSettings
       defaultEmbedder: $defaultEmbedder
@@ -205,13 +226,12 @@ export const UPDATE_PIPELINE_SETTINGS = gql`
         preferredParsers
         preferredEmbedders
         preferredThumbnailers
-        parserKwargs
+        preferredEnrichers
         componentSettings
         defaultEmbedder
         defaultFileConverter
         defaultLlm
         defaultReranker
-        componentsWithSecrets
         enabledComponents
         modified
         modifiedBy {
@@ -232,13 +252,12 @@ export const RESET_PIPELINE_SETTINGS = gql`
         preferredParsers
         preferredEmbedders
         preferredThumbnailers
-        parserKwargs
+        preferredEnrichers
         componentSettings
         defaultEmbedder
         defaultFileConverter
         defaultLlm
         defaultReranker
-        componentsWithSecrets
         enabledComponents
         modified
         modifiedBy {
@@ -274,6 +293,36 @@ export const DELETE_COMPONENT_SECRETS = gql`
       ok
       message
       componentsWithSecrets
+    }
+  }
+`;
+
+export const UPDATE_TOOL_SECRETS = gql`
+  mutation UpdateToolSecrets(
+    $toolKey: String!
+    $secrets: GenericScalar
+    $settings: GenericScalar
+    $merge: Boolean
+  ) {
+    updateToolSecrets(
+      toolKey: $toolKey
+      secrets: $secrets
+      settings: $settings
+      merge: $merge
+    ) {
+      ok
+      message
+      toolsWithSecrets
+    }
+  }
+`;
+
+export const DELETE_TOOL_SECRETS = gql`
+  mutation DeleteToolSecrets($toolKey: String!) {
+    deleteToolSecrets(toolKey: $toolKey) {
+      ok
+      message
+      toolsWithSecrets
     }
   }
 `;
