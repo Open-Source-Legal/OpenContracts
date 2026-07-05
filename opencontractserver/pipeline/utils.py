@@ -13,7 +13,6 @@ from opencontractserver.pipeline.base.file_converter import (
     extension_for_filename,
 )
 from opencontractserver.pipeline.base.file_types import (
-    FILE_TYPE_TO_MIME,
     NATIVE_PIPELINE_EXTENSIONS,
     FileTypeEnum,
 )
@@ -442,27 +441,6 @@ def get_default_embedder() -> Optional[type[BaseEmbedder]]:
         return None
 
 
-def get_default_embedder_for_filetype(mimetype: str) -> Optional[type[BaseEmbedder]]:
-    """
-    Get the default embedder for a specific filetype.
-
-    Reads from the database PipelineSettings singleton's preferred_embedders,
-    falling back to the global default embedder if no MIME-specific embedder
-    is configured.
-
-    Args:
-        mimetype: The MIME type of the file
-
-    Returns:
-        Optional[Type[BaseEmbedder]]: The default embedder for the specified filetype,
-        or None if not found
-    """
-    embedder = get_preferred_embedder(mimetype)
-    if embedder is not None:
-        return embedder
-    return get_default_embedder()
-
-
 def get_dimension_from_embedder(
     embedder_class_or_path: Union[type[BaseEmbedder], str],
 ) -> int:
@@ -492,36 +470,6 @@ def get_dimension_from_embedder(
         return embedder_class.vector_size
 
     return default_dim
-
-
-def find_embedder_for_filetype(
-    mimetype_or_enum: Union[str, FileTypeEnum],
-) -> Optional[type[BaseEmbedder]]:
-    """
-    Find an appropriate embedder for a specific file type and dimension.
-
-    Args:
-        mimetype_or_enum: The MIME type of the file or a FileTypeEnum
-        dimension: The desired embedding dimension (optional)
-
-    Returns:
-        Optional[Type[BaseEmbedder]]: An appropriate embedder class, or None if not found
-    """
-    # Ensure we're working with a mimetype string, not a FileTypeEnum
-    if isinstance(mimetype_or_enum, FileTypeEnum):
-        mimetype = FILE_TYPE_TO_MIME.get(mimetype_or_enum.value)
-        if not mimetype:
-            logger.warning(
-                f"Could not convert FileTypeEnum {mimetype_or_enum} to mimetype"
-            )
-            return get_default_embedder()
-    else:
-        mimetype = mimetype_or_enum
-
-    embedder = get_preferred_embedder(mimetype)
-    if embedder is not None:
-        return embedder
-    return get_default_embedder()
 
 
 def run_post_processors(

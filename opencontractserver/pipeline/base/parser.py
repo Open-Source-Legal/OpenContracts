@@ -77,13 +77,29 @@ class BaseParser(PipelineComponentBase, ABC):
             doc_id (int): ID of the document to parse.
             **direct_kwargs: Arbitrary keyword arguments that may be provided
                              for specific parser functionalities at call time.
-                             These will override settings from PIPELINE_SETTINGS.
+                             At the one production call site
+                             (``doc_tasks._resolve_parser_for_ingest``), this is
+                             always ``PipelineSettings.get_parser_kwargs(...)``
+                             — the legacy, seed-only ``parser_kwargs`` channel
+                             with no admin GUI editor today (see issue #2120).
 
         Returns:
             Optional[OpenContractDocExport]: The parsed document data, or None if parsing failed.
         """
-        # Merge component settings with direct kwargs, direct_kwargs take precedence
-        merged_kwargs = {**self.get_component_settings(), **direct_kwargs}
+        # Merge component settings with direct kwargs. ``get_component_settings()``
+        # (the schema-validated, superuser-GUI-editable "Advanced Settings" /
+        # component-config channel) WINS on key collisions — not
+        # ``direct_kwargs``/legacy ``parser_kwargs``. This is intentional
+        # (issue #2115): several parsers (e.g. LlamaParseParser's
+        # result_type/extract_layout/num_workers/language/verbose) seed the
+        # same field names into both the component's Settings dataclass
+        # defaults and the legacy Django-settings PARSER_KWARGS seed, so the
+        # old direct_kwargs-wins order made GUI edits to component_settings
+        # silently invisible at parse time. Keys unique to parser_kwargs (e.g.
+        # LlamaParse's api_key, a SECRET-type setting the mutation layer
+        # refuses to accept as plaintext in component_settings) never collide
+        # and pass through unchanged.
+        merged_kwargs = {**direct_kwargs, **self.get_component_settings()}
         logger.info(
             f"Calling _parse_document_impl for doc_id {doc_id} with merged kwargs: {merged_kwargs}"
         )

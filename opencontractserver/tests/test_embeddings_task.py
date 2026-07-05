@@ -103,12 +103,10 @@ class TestEmbeddingsTask(unittest.TestCase):
 
     @patch("opencontractserver.corpuses.models.Corpus")
     @patch("opencontractserver.pipeline.utils.get_component_by_name")
-    @patch("opencontractserver.pipeline.utils.find_embedder_for_filetype")
     @patch("opencontractserver.pipeline.utils.get_default_embedder")
     def test_get_embedder_for_corpus_with_preferred_embedder(
         self,
         mock_get_default,
-        mock_find_embedder,
         mock_get_component,
         mock_corpus_model,
     ):
@@ -132,8 +130,7 @@ class TestEmbeddingsTask(unittest.TestCase):
         # Verify the embedder class was loaded by path
         mock_get_component.assert_called_with("path.to.TestEmbedder")
 
-        # Verify the fallback methods were not called
-        mock_find_embedder.assert_not_called()
+        # Verify the fallback method was not called
         mock_get_default.assert_not_called()
 
         # Verify the correct results were returned
@@ -141,45 +138,15 @@ class TestEmbeddingsTask(unittest.TestCase):
         self.assertEqual(embedder_path, "path.to.TestEmbedder")
 
     @patch("opencontractserver.corpuses.models.Corpus")
-    @patch("opencontractserver.pipeline.utils.find_embedder_for_filetype")
-    @patch("opencontractserver.pipeline.utils.get_default_embedder")
-    def test_get_embedder_for_corpus_with_mimetype(
-        self, mock_get_default, mock_find_embedder, mock_corpus
-    ):
-        """
-        Test get_embedder_for_corpus when no preferred embedder but mimetype is provided.
-        """
-        # Set up mocks
-        mock_corpus_obj = MagicMock()
-        mock_corpus_obj.preferred_embedder = None
-        mock_corpus.objects.get.return_value = mock_corpus_obj
-
-        # Mock the embedder lookup
-        mock_find_embedder.return_value = TestEmbedder
-
-        # Call the function
-        embedder_class, embedder_path = get_embedder(
-            corpus_id=1, mimetype_or_enum="application/pdf"
-        )
-
-        # Verify the results
-        self.assertEqual(embedder_class, TestEmbedder)
-        self.assertEqual(
-            embedder_path, f"{TestEmbedder.__module__}.{TestEmbedder.__name__}"
-        )
-        mock_corpus.objects.get.assert_called_with(id=1)
-        mock_find_embedder.assert_called_with("application/pdf")
-        mock_get_default.assert_not_called()
-
-    @patch("opencontractserver.corpuses.models.Corpus")
     @patch("opencontractserver.pipeline.utils.get_component_by_name")
-    @patch("opencontractserver.pipeline.utils.find_embedder_for_filetype")
     @patch("opencontractserver.pipeline.utils.get_default_embedder")
     def test_get_embedder_for_corpus_with_error_loading_preferred(
-        self, mock_get_default, mock_find_embedder, mock_get_component, mock_corpus
+        self, mock_get_default, mock_get_component, mock_corpus
     ):
         """
-        Test get_embedder_for_corpus when there's an error loading the preferred embedder.
+        Test get_embedder_for_corpus when there's an error loading the preferred
+        embedder. There is no mimetype-based resolution any more (#2114), so
+        this now falls straight through to the global default embedder.
         """
         # Set up mocks
         mock_corpus_obj = MagicMock()
@@ -189,13 +156,11 @@ class TestEmbeddingsTask(unittest.TestCase):
         # Mock the component lookup to raise an exception
         mock_get_component.side_effect = Exception("Component not found")
 
-        # Mock the embedder lookup
-        mock_find_embedder.return_value = TestEmbedder
+        # Mock the default embedder
+        mock_get_default.return_value = TestEmbedder
 
         # Call the function
-        embedder_class, embedder_path = get_embedder(
-            corpus_id=1, mimetype_or_enum="application/pdf"
-        )
+        embedder_class, embedder_path = get_embedder(corpus_id=1)
 
         # Verify the results
         self.assertEqual(embedder_class, TestEmbedder)
@@ -204,28 +169,26 @@ class TestEmbeddingsTask(unittest.TestCase):
         )
         mock_corpus.objects.get.assert_called_with(id=1)
         mock_get_component.assert_called_with("path.to.NonExistentEmbedder")
-        mock_find_embedder.assert_called_with("application/pdf")
-        mock_get_default.assert_not_called()
+        mock_get_default.assert_called_once()
 
     @patch("opencontractserver.corpuses.models.Corpus")
-    @patch("opencontractserver.pipeline.utils.find_embedder_for_filetype")
     @patch("opencontractserver.pipeline.utils.get_default_embedder")
     def test_get_embedder_for_corpus_with_corpus_not_found(
-        self, mock_get_default, mock_find_embedder, mock_corpus
+        self, mock_get_default, mock_corpus
     ):
         """
-        Test get_embedder_for_corpus when the corpus is not found.
+        Test get_embedder_for_corpus when the corpus is not found. Falls
+        straight through to the global default embedder (no mimetype-based
+        resolution, #2114).
         """
         # Set up mocks
         mock_corpus.objects.get.side_effect = Exception("Corpus not found")
 
-        # Mock the embedder lookup
-        mock_find_embedder.return_value = TestEmbedder
+        # Mock the default embedder
+        mock_get_default.return_value = TestEmbedder
 
         # Call the function
-        embedder_class, embedder_path = get_embedder(
-            corpus_id=1, mimetype_or_enum="application/pdf"
-        )
+        embedder_class, embedder_path = get_embedder(corpus_id=1)
 
         # Verify the results
         self.assertEqual(embedder_class, TestEmbedder)
@@ -233,33 +196,27 @@ class TestEmbeddingsTask(unittest.TestCase):
             embedder_path, f"{TestEmbedder.__module__}.{TestEmbedder.__name__}"
         )
         mock_corpus.objects.get.assert_called_with(id=1)
-        mock_find_embedder.assert_called_with("application/pdf")
-        mock_get_default.assert_not_called()
+        mock_get_default.assert_called_once()
 
     @patch("opencontractserver.corpuses.models.Corpus")
-    @patch("opencontractserver.pipeline.utils.find_embedder_for_filetype")
     @patch("opencontractserver.pipeline.utils.get_default_embedder")
     def test_get_embedder_for_corpus_fallback_to_default(
-        self, mock_get_default, mock_find_embedder, mock_corpus
+        self, mock_get_default, mock_corpus
     ):
         """
-        Test get_embedder_for_corpus fallback to default embedder.
+        Test get_embedder_for_corpus fallback to default embedder when the
+        corpus has no preferred embedder configured.
         """
         # Set up mocks
         mock_corpus_obj = MagicMock()
         mock_corpus_obj.preferred_embedder = None
         mock_corpus.objects.get.return_value = mock_corpus_obj
 
-        # Mock the embedder lookup to return None
-        mock_find_embedder.return_value = None
-
         # Mock the default embedder
         mock_get_default.return_value = TestEmbedder
 
         # Call the function
-        embedder_class, embedder_path = get_embedder(
-            corpus_id=1, mimetype_or_enum="application/pdf"
-        )
+        embedder_class, embedder_path = get_embedder(corpus_id=1)
 
         # Verify the results
         self.assertEqual(embedder_class, TestEmbedder)
@@ -267,7 +224,6 @@ class TestEmbeddingsTask(unittest.TestCase):
             embedder_path, f"{TestEmbedder.__module__}.{TestEmbedder.__name__}"
         )
         mock_corpus.objects.get.assert_called_with(id=1)
-        mock_find_embedder.assert_called_with("application/pdf")
         mock_get_default.assert_called_once()
 
 
@@ -1439,10 +1395,9 @@ class TestGetEmbedderExplicitPath(unittest.TestCase):
     """
 
     @patch("opencontractserver.pipeline.utils.get_component_by_name")
-    @patch("opencontractserver.pipeline.utils.find_embedder_for_filetype")
     @patch("opencontractserver.pipeline.utils.get_default_embedder")
     def test_explicit_path_loads_via_get_component_by_name(
-        self, mock_get_default, mock_find, mock_get_component
+        self, mock_get_default, mock_get_component
     ):
         mock_get_component.return_value = TestEmbedder
 
@@ -1451,22 +1406,19 @@ class TestGetEmbedderExplicitPath(unittest.TestCase):
         )
 
         mock_get_component.assert_called_once_with("path.to.TestEmbedder")
-        # Explicit path short-circuits both fallback paths.
-        mock_find.assert_not_called()
+        # Explicit path short-circuits the default-embedder fallback.
         mock_get_default.assert_not_called()
         self.assertIs(embedder_class, TestEmbedder)
         self.assertEqual(embedder_path, "path.to.TestEmbedder")
 
     @patch("opencontractserver.pipeline.utils.get_component_by_name")
-    @patch("opencontractserver.pipeline.utils.find_embedder_for_filetype")
     @patch("opencontractserver.pipeline.utils.get_default_embedder")
     def test_explicit_path_falls_through_on_load_failure(
-        self, mock_get_default, mock_find, mock_get_component
+        self, mock_get_default, mock_get_component
     ):
         """If loading the explicit path raises, the helper logs and
         falls through to the default-embedder branch."""
         mock_get_component.side_effect = ImportError("nope")
-        mock_find.return_value = None
         mock_get_default.return_value = TestEmbedder
 
         embedder_class, embedder_path = get_embedder(embedder_path="bogus.module.Bogus")

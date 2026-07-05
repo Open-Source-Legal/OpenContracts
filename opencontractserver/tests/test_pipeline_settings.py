@@ -438,6 +438,96 @@ class TestEnabledComponents(TestCase):
         self.assertTrue(instance.is_component_enabled("any.path"))
         self.assertEqual(instance.get_enabled_components(), [])
 
+    def test_disabled_but_assigned_parser_not_returned(self):
+        """Issue #2116: a resolved-but-disabled parser is treated as 'not
+        configured', matching get_preferred_parser's existing None contract,
+        rather than being returned for use at ingest."""
+        instance = PipelineSettings.get_instance()
+        instance.preferred_parsers = {"application/pdf": "comp.DisabledParser"}
+        instance.enabled_components = ["comp.OtherEnabledThing"]
+        instance.save()
+
+        self.assertIsNone(instance.get_preferred_parser("application/pdf"))
+
+        # Enabling it makes it resolve again.
+        instance.enabled_components = ["comp.DisabledParser"]
+        instance.save()
+        self.assertEqual(
+            instance.get_preferred_parser("application/pdf"), "comp.DisabledParser"
+        )
+
+    def test_disabled_but_assigned_embedder_and_thumbnailer_not_returned(self):
+        """Same enforcement as parsers, for embedders and thumbnailers."""
+        instance = PipelineSettings.get_instance()
+        instance.preferred_embedders = {"application/pdf": "comp.DisabledEmbedder"}
+        instance.preferred_thumbnailers = {
+            "application/pdf": "comp.DisabledThumbnailer"
+        }
+        instance.enabled_components = ["comp.SomethingElse"]
+        instance.save()
+
+        self.assertIsNone(instance.get_preferred_embedder("application/pdf"))
+        self.assertIsNone(instance.get_preferred_thumbnailer("application/pdf"))
+
+    def test_disabled_default_embedder_reranker_and_converter_return_empty_string(
+        self,
+    ):
+        """Issue #2116: a disabled default embedder/reranker/file converter
+        returns '' -- the existing 'disabled/unset' contract for each -- so
+        downstream resolution treats it the same as never having been
+        configured, rather than silently using a disabled component."""
+        instance = PipelineSettings.get_instance()
+        instance.default_embedder = "comp.DisabledEmbedder"
+        instance.default_reranker = "comp.DisabledReranker"
+        instance.default_file_converter = "comp.DisabledConverter"
+        instance.enabled_components = ["comp.SomethingElse"]
+        instance.save()
+
+        self.assertEqual(instance.get_default_embedder(), "")
+        self.assertEqual(instance.get_default_reranker(), "")
+        self.assertEqual(instance.get_default_file_converter(), "")
+
+        # Enabling them makes each resolve again.
+        instance.enabled_components = [
+            "comp.DisabledEmbedder",
+            "comp.DisabledReranker",
+            "comp.DisabledConverter",
+        ]
+        instance.save()
+        self.assertEqual(instance.get_default_embedder(), "comp.DisabledEmbedder")
+        self.assertEqual(instance.get_default_reranker(), "comp.DisabledReranker")
+        self.assertEqual(
+            instance.get_default_file_converter(), "comp.DisabledConverter"
+        )
+
+    def test_get_preferred_enrichers_filters_disabled_entries(self):
+        """Issue #2116: get_preferred_enrichers drops disabled entries from
+        the chain (matching run_enrichers' existing best-effort/skip-on-error
+        semantics) while preserving the order of the enabled ones."""
+        instance = PipelineSettings.get_instance()
+        instance.preferred_enrichers = {
+            "application/pdf": [
+                "comp.EnricherOne",
+                "comp.DisabledEnricher",
+                "comp.EnricherTwo",
+            ]
+        }
+        instance.enabled_components = ["comp.EnricherOne", "comp.EnricherTwo"]
+        instance.save()
+
+        self.assertEqual(
+            instance.get_preferred_enrichers("application/pdf"),
+            ["comp.EnricherOne", "comp.EnricherTwo"],
+        )
+
+        # Empty enabled_components ("all enabled") keeps every entry, in order.
+        instance.enabled_components = []
+        instance.save()
+        self.assertEqual(
+            instance.get_preferred_enrichers("application/pdf"),
+            ["comp.EnricherOne", "comp.DisabledEnricher", "comp.EnricherTwo"],
+        )
+
 
 class PipelineSettingsGraphQLTestCase(TestCase):
     """Tests for the PipelineSettings GraphQL endpoints."""
@@ -1230,6 +1320,80 @@ class EnabledComponentsMutationTestCase(TestCase):
         self.assertFalse(data["ok"])
         self.assertIn("Cannot disable", data["message"])
         self.assertIn(parser_path, data["message"])
+
+    def test_assign_disabled_component_without_touching_enabled_components_rejected(
+        self,
+    ):
+        """Issue #2116 validation-gap fix: assigning a component that is NOT
+        in a pre-existing, non-empty enabled_components list must be rejected
+        even when the mutation call doesn't also touch enabled_components.
+
+        Previously the "assigned components must be a subset of
+        enabled_components" check only ran inside the `if enabled_components
+        is not None:` branch, so a call that only sent preferredParsers
+        skipped it entirely.
+        """
+        components = self._get_real_component_paths()
+        if "parser" not in components:
+            self.skipTest("Need at least 1 registered parser for this test")
+        parser_path = components["parser"]
+
+        from opencontractserver.pipeline.registry import get_registry
+
+        registry = get_registry()
+        all_paths = [
+            c.class_name
+            for c in registry.parsers + registry.embedders + registry.thumbnailers
+        ]
+        enabled_without_parser = [p for p in all_paths if p != parser_path]
+        if not enabled_without_parser:
+            self.skipTest("Need at least 2 registered components for this test")
+
+        # First, save a non-empty enabled_components list that legitimately
+        # excludes the parser (no filetype defaults are assigned yet, so this
+        # call succeeds on its own).
+        enable_mutation = """
+            mutation UpdatePipelineSettings($enabledComponents: [String]) {
+                updatePipelineSettings(enabledComponents: $enabledComponents) {
+                    ok
+                    message
+                }
+            }
+        """
+        result = self.superuser_client.execute(
+            enable_mutation,
+            variables={"enabledComponents": enabled_without_parser},
+        )
+        self.assertTrue(
+            result["data"]["updatePipelineSettings"]["ok"],
+            result["data"]["updatePipelineSettings"].get("message"),
+        )
+
+        # Now, WITHOUT sending enabledComponents, try to assign the disabled
+        # parser as a filetype default.
+        assign_mutation = """
+            mutation UpdatePipelineSettings($preferredParsers: GenericScalar) {
+                updatePipelineSettings(preferredParsers: $preferredParsers) {
+                    ok
+                    message
+                }
+            }
+        """
+        result = self.superuser_client.execute(
+            assign_mutation,
+            variables={"preferredParsers": {"application/pdf": parser_path}},
+        )
+        self.assertIsNone(result.get("errors"))
+        data = result["data"]["updatePipelineSettings"]
+        self.assertFalse(data["ok"])
+        self.assertIn("Cannot disable", data["message"])
+        self.assertIn(parser_path, data["message"])
+
+        # Confirm nothing was persisted (the mutation returned before .save()).
+        instance = PipelineSettings.get_instance(use_cache=False)
+        self.assertEqual(
+            (instance.preferred_parsers or {}).get("application/pdf"), None
+        )
 
     def test_invalid_component_path_rejected(self):
         """Nonexistent component paths in enabled_components should be rejected."""

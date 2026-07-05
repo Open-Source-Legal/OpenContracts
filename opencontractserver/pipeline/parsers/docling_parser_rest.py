@@ -232,6 +232,39 @@ class DoclingParser(BaseChunkedParser):
                 )
             },
         )
+        force_ocr: bool = field(
+            default=False,
+            metadata={
+                "pipeline_setting": PipelineSetting(
+                    setting_type=SettingType.OPTIONAL,
+                    description=(
+                        "Force OCR on every page, even where extractable text "
+                        "already exists. Adds significant processing time."
+                    ),
+                    env_var="DOCLING_FORCE_OCR",
+                )
+            },
+        )
+        roll_up_groups: bool = field(
+            default=True,
+            metadata={
+                "pipeline_setting": PipelineSetting(
+                    setting_type=SettingType.OPTIONAL,
+                    description="Roll up nested structural groups in the parsed hierarchy.",
+                    env_var="DOCLING_ROLL_UP_GROUPS",
+                )
+            },
+        )
+        llm_enhanced_hierarchy: bool = field(
+            default=False,
+            metadata={
+                "pipeline_setting": PipelineSetting(
+                    setting_type=SettingType.OPTIONAL,
+                    description="Use an LLM to enhance detected document hierarchy/structure.",
+                    env_var="DOCLING_LLM_ENHANCED_HIERARCHY",
+                )
+            },
+        )
 
     def __init__(self):
         """Initialize the Docling REST parser with settings from PipelineSettings."""
@@ -257,6 +290,10 @@ class DoclingParser(BaseChunkedParser):
         self.max_concurrent_chunks = s.max_concurrent_chunks
         self.max_chord_tasks = s.max_chord_tasks
         self.chunk_overlap = s.chunk_overlap
+
+        self.force_ocr = s.force_ocr
+        self.roll_up_groups = s.roll_up_groups
+        self.llm_enhanced_hierarchy = s.llm_enhanced_hierarchy
 
         logger.info(
             f"DoclingParser initialized with service URL: {self.service_url}, "
@@ -355,12 +392,15 @@ class DoclingParser(BaseChunkedParser):
             f"for user {user_id} with effective kwargs: {all_kwargs}"
         )
 
-        # Get settings from all_kwargs (which includes PIPELINE_SETTINGS and direct_kwargs)
-        force_ocr = all_kwargs.get("force_ocr", False)
-        roll_up_groups = all_kwargs.get(
-            "roll_up_groups", True
-        )  # Defaulting to True as per original PARSER_KWARGS
-        llm_enhanced_hierarchy = all_kwargs.get("llm_enhanced_hierarchy", False)
+        # Get settings from all_kwargs (which includes component_settings and
+        # direct_kwargs), falling back to the instance attribute (itself
+        # sourced from the Settings dataclass at __init__ time) rather than a
+        # hardcoded literal -- mirrors extract_images_flag below.
+        force_ocr = all_kwargs.get("force_ocr", self.force_ocr)
+        roll_up_groups = all_kwargs.get("roll_up_groups", self.roll_up_groups)
+        llm_enhanced_hierarchy = all_kwargs.get(
+            "llm_enhanced_hierarchy", self.llm_enhanced_hierarchy
+        )
 
         if force_ocr:
             logger.info(

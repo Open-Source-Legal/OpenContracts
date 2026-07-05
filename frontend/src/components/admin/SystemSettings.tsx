@@ -440,10 +440,12 @@ export const SystemSettings: React.FC = () => {
     ]
   );
 
-  // Assign a component to a filetype default
+  // Assign a component to a filetype default. "embedders" is intentionally
+  // excluded (issue #2114): preferred_embedders has no effect on ingest — see
+  // the STAGES comment in FiletypeDefaults.tsx.
   const handleAssign = useCallback(
     (
-      stage: "parsers" | "embedders" | "thumbnailers",
+      stage: "parsers" | "thumbnailers",
       mimeType: string,
       className: string
     ) => {
@@ -719,8 +721,6 @@ export const SystemSettings: React.FC = () => {
         (settings?.enabledComponents?.filter(Boolean) as string[]) ?? [],
       preferredParsers:
         (settings?.preferredParsers as Record<string, string>) || {},
-      preferredEmbedders:
-        (settings?.preferredEmbedders as Record<string, string>) || {},
       preferredThumbnailers:
         (settings?.preferredThumbnailers as Record<string, string>) || {},
       defaultEmbedder: settings?.defaultEmbedder || "",
@@ -740,7 +740,6 @@ export const SystemSettings: React.FC = () => {
       mimeTypesLoading,
       settings?.enabledComponents,
       settings?.preferredParsers,
-      settings?.preferredEmbedders,
       settings?.preferredThumbnailers,
       settings?.defaultEmbedder,
       settings?.defaultFileConverter,

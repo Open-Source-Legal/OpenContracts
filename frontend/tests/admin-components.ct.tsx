@@ -1464,10 +1464,13 @@ test.describe("SystemSettings Component", () => {
     await expect(page.locator("text=Plain Text").first()).toBeVisible();
     await expect(page.locator("text=Word Document").first()).toBeVisible();
 
-    // Check select dropdowns exist (3 MIME types x 3 stages = 9 minimum)
+    // Check select dropdowns exist (3 MIME types x 2 per-MIME stages = 6
+    // minimum). Embedder is not one of them (issue #2114): preferred_embedders
+    // has no effect at ingest, so it was removed as a per-MIME GUI control —
+    // only Parser and Thumbnailer remain assignable here.
     const selects = page.locator("select").filter({ visible: true });
     const selectCount = await selects.count();
-    expect(selectCount).toBeGreaterThanOrEqual(9);
+    expect(selectCount).toBeGreaterThanOrEqual(6);
 
     await docScreenshot(page, "admin--pipeline-settings--filetype-defaults");
 
