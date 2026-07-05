@@ -126,7 +126,10 @@ services:
   # sends (set it in your env so both sides agree; defaults to warp-ingest's own
   # "abc123" fallback). The ~2.5 GB image is why this is behind a profile.
   warp-ingest:
-    image: ghcr.io/open-source-legal/warp-ingest:latest
+    # Pinned (not :latest): Warp-Ingest's value proposition is *deterministic*
+    # output, so a floating tag could silently change parse results without an
+    # OpenContracts version bump. Mirrors docxodus-parser's exact-version pin.
+    image: ghcr.io/open-source-legal/warp-ingest:1.0.0
     container_name: warp-ingest
     profiles:
       - warp-ingest

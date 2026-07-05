@@ -150,7 +150,10 @@ services:
   # (set both from the same env var). Bridge-only (no host port); django and
   # celeryworker reach it at http://warp-ingest:5001/api/parse.
   warp-ingest:
-    image: ghcr.io/open-source-legal/warp-ingest:latest
+    # Pinned (not :latest): Warp-Ingest's value proposition is *deterministic*
+    # output, so a floating tag could silently change parse results without an
+    # OpenContracts version bump. Mirrors docxodus-parser's exact-version pin.
+    image: ghcr.io/open-source-legal/warp-ingest:1.0.0
     container_name: warp-ingest
     profiles:
       - warp-ingest

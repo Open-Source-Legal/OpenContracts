@@ -113,7 +113,7 @@ docker compose -f local.yml --profile warp-ingest up
 # local.yml / production.yml (abridged)
 services:
   warp-ingest:
-    image: ghcr.io/open-source-legal/warp-ingest:latest
+    image: ghcr.io/open-source-legal/warp-ingest:1.0.0
     container_name: warp-ingest
     profiles:
       - warp-ingest

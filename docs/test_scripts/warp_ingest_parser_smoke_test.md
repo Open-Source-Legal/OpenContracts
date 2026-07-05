@@ -13,7 +13,7 @@ full ingestion path, not just a mocked HTTP call.
   ```bash
   docker run -d --name warp-ingest -p 5001:5001 \
     -e WARP_API_KEY=smoke-test-key \
-    ghcr.io/open-source-legal/warp-ingest:latest
+    ghcr.io/open-source-legal/warp-ingest:1.0.0
   # health check
   curl -s http://localhost:5001/healthz
   # -> {"status":"ok","version":"...","ocr_available":true,...}
