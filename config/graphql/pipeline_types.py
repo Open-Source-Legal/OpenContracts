@@ -132,6 +132,10 @@ class PipelineComponentsType(graphene.ObjectType):
         PipelineComponentType,
         description="List of available post-retrieval rerankers.",
     )
+    enrichers = graphene.List(
+        PipelineComponentType,
+        description="List of available document enrichers (run between parsing and persistence).",
+    )
     llm_providers = graphene.List(
         PipelineComponentType,
         description="List of available LLM providers (pydantic-ai model "
@@ -221,6 +225,10 @@ class PipelineSettingsType(graphene.ObjectType):
     )
     preferred_thumbnailers = GenericScalar(
         description="Mapping of MIME types to preferred thumbnailer class paths"
+    )
+    preferred_enrichers = GenericScalar(
+        description="Mapping of MIME types to ORDERED LISTS of preferred enricher "
+        "class paths (the enrichment chain run between parsing and persistence)."
     )
 
     # Component configuration

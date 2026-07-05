@@ -37,6 +37,15 @@ export type LibraryStageType =
 /** Type for pipeline settings keys that hold MIME-type mappings */
 export type PipelineMappingKey = "preferredParsers" | "preferredThumbnailers";
 
+/**
+ * Mapping of MIME types to ORDERED LISTS of enricher class paths (the
+ * enrichment chain run between parsing and persistence). Deliberately NOT a
+ * `StageType`/`PipelineMappingKey` — those model a single class path per MIME
+ * type via a `<select>`, while `preferred_enrichers` is a per-MIME ordered
+ * list requiring its own add/remove/reorder UI (see `EnricherChainEditor`).
+ */
+export type PreferredEnrichersMap = Record<string, string[]>;
+
 export type SettingsSchemaEntry = ComponentSettingSchemaType;
 
 // ============================================================================
