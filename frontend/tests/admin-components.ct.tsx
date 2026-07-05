@@ -1548,8 +1548,9 @@ test.describe("SystemSettings Component", () => {
     await expect(page.locator("text=Default LLM")).toBeVisible();
     await expect(page.locator("text=Using server default")).toBeVisible();
 
-    // Each default exposes its own Edit button (Default Embedder, Default LLM).
-    await expect(page.locator("button:has-text('Edit')")).toHaveCount(2);
+    // Each default exposes its own Edit button (Default Embedder, File
+    // Converter, Default LLM, Default Reranker).
+    await expect(page.locator("button:has-text('Edit')")).toHaveCount(4);
 
     await component.unmount();
   });

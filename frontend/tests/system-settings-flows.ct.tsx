@@ -1325,4 +1325,52 @@ test.describe("SystemSettings — default reranker", () => {
 
     await component.unmount();
   });
+
+  test("typing a class path and dismissing the modal do not save", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <SystemSettingsWrapper
+        mocks={[
+          standardSettingsMock,
+          standardComponentsMock,
+          mimeTypesMock,
+          standardComponentsMock,
+          standardComponentsMock,
+        ]}
+      />
+    );
+    await waitForLoad(page);
+
+    // Typing directly into the class-path input mirrors the field (no card
+    // selection needed).
+    await page.locator('[data-testid="edit-default-reranker"]').click();
+    await expect(page.locator("text=Edit Default Reranker")).toBeVisible();
+    await page.locator("#default-reranker").fill("some.custom.Reranker");
+    await expect(page.locator("#default-reranker")).toHaveValue(
+      "some.custom.Reranker"
+    );
+
+    // The header's close (X) button dismisses without saving.
+    await page.locator(".oc-modal-header button[aria-label='Close']").click();
+    await expect(page.locator("text=Edit Default Reranker")).toBeHidden();
+
+    // Cancel also dismisses without saving.
+    await page.locator('[data-testid="edit-default-reranker"]').click();
+    await page.locator('.oc-modal-footer button:has-text("Cancel")').click();
+    await expect(page.locator("text=Edit Default Reranker")).toBeHidden();
+
+    // Escape dismisses the modal too (Modal's own onClose, distinct from the
+    // header's close button).
+    await page.locator('[data-testid="edit-default-reranker"]').click();
+    await expect(page.locator("text=Edit Default Reranker")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.locator("text=Edit Default Reranker")).toBeHidden();
+
+    // Row remains disabled — nothing was saved.
+    await expect(page.locator("text=Disabled (no reranking)")).toBeVisible();
+
+    await component.unmount();
+  });
 });
