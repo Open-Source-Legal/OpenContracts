@@ -131,19 +131,18 @@ class SpaFallbackTests(SimpleTestCase):
 class DesktopBootstrapTests(TestCase):
     """Tests for the ``desktop_bootstrap`` command's user + pipeline seeding."""
 
-    def _command(self):
+    @staticmethod
+    def _command():
+        """Build the command with real StringIO streams (mypy-clean, readable)."""
         from opencontractserver.documents.management.commands.desktop_bootstrap import (
             Command,
         )
 
-        # Real StringIO streams (not MagicMock) so the command's OutputWrapper
-        # type is satisfied; read them back with getvalue().
-        self.out = io.StringIO()
-        self.err = io.StringIO()
-        return Command(stdout=self.out, stderr=self.err)
+        out, err = io.StringIO(), io.StringIO()
+        return Command(stdout=out, stderr=err), out, err
 
     def test_seed_user_with_password(self):
-        cmd = self._command()
+        cmd, _out, _err = self._command()
         with mock.patch.dict(
             os.environ, {"OC_DESKTOP_PASSWORD": "s3cret-pw-123"}, clear=False
         ):
@@ -154,7 +153,7 @@ class DesktopBootstrapTests(TestCase):
         self.assertTrue(user.check_password("s3cret-pw-123"))
 
     def test_seed_user_without_password_is_unusable(self):
-        cmd = self._command()
+        cmd, _out, _err = self._command()
         # Empty OC_DESKTOP_PASSWORD → treated as unset → unusable password.
         with mock.patch.dict(os.environ, {"OC_DESKTOP_PASSWORD": ""}, clear=False):
             cmd._seed_user("bob", "bob@localhost")
@@ -163,7 +162,7 @@ class DesktopBootstrapTests(TestCase):
         self.assertFalse(user.has_usable_password())
 
     def test_seed_user_is_idempotent(self):
-        cmd = self._command()
+        cmd, _out, _err = self._command()
         with mock.patch.dict(os.environ, {"OC_DESKTOP_PASSWORD": ""}, clear=False):
             cmd._seed_user("carol", "carol@localhost")
             cmd._seed_user("carol", "carol@localhost")  # no duplicate / no error
@@ -172,7 +171,7 @@ class DesktopBootstrapTests(TestCase):
     def test_seed_pipeline_settings_creates_singleton(self):
         from opencontractserver.documents.models import PipelineSettings
 
-        cmd = self._command()
+        cmd, _out, _err = self._command()
         with mock.patch(
             "opencontractserver.documents.management.commands."
             "desktop_bootstrap.call_command"
@@ -182,7 +181,7 @@ class DesktopBootstrapTests(TestCase):
         self.assertTrue(PipelineSettings.objects.filter(pk=1).exists())
 
     def test_seed_pipeline_settings_survives_migrate_failure(self):
-        cmd = self._command()
+        cmd, _out, err = self._command()
         with mock.patch(
             "opencontractserver.documents.management.commands."
             "desktop_bootstrap.call_command",
@@ -191,4 +190,4 @@ class DesktopBootstrapTests(TestCase):
             # A migrate_pipeline_settings failure must not raise — PDF parsing
             # still works; only Tier-1 secrets/component settings degrade.
             cmd._seed_pipeline_settings()
-        self.assertIn("did not seed", self.err.getvalue())
+        self.assertIn("did not seed", err.getvalue())
