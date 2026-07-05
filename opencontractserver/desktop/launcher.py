@@ -237,8 +237,14 @@ def _spawn(name: str, cmd: list[str], env: dict[str, str]) -> subprocess.Popen:
     log_path = paths.logs_dir() / f"{name}.log"
     print(f"[oc-desktop] starting {name} (log: {log_path})")
     log_file = open(log_path, "a")
+    try:
+        proc = subprocess.Popen(cmd, env=env, stdout=log_file, stderr=subprocess.STDOUT)
+    except Exception:
+        # Don't leak the fd if process creation fails (e.g. bad executable).
+        log_file.close()
+        raise
+    # Track for shutdown only after a successful spawn.
     _log_handles.append(log_file)
-    proc = subprocess.Popen(cmd, env=env, stdout=log_file, stderr=subprocess.STDOUT)
     _children.append(proc)
     return proc
 
