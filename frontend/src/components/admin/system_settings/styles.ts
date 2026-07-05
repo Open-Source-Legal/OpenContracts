@@ -518,7 +518,7 @@ export const DefaultsContainer = styled.div`
 
 export const DefaultsHeaderRow = styled.div`
   display: grid;
-  grid-template-columns: 120px 1fr 1fr 1fr;
+  grid-template-columns: 120px 1fr 1fr;
   gap: 0.75rem;
   padding: 0 0.75rem;
   font-size: 0.6875rem;
@@ -534,7 +534,7 @@ export const DefaultsHeaderRow = styled.div`
 
 export const FiletypeRow = styled.div`
   display: grid;
-  grid-template-columns: 120px 1fr 1fr 1fr;
+  grid-template-columns: 120px 1fr 1fr;
   gap: 0.75rem;
   align-items: center;
   padding: 0.75rem;

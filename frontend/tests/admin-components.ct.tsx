@@ -1468,10 +1468,22 @@ test.describe("SystemSettings Component", () => {
     await expect(page.locator("text=Plain Text").first()).toBeVisible();
     await expect(page.locator("text=Word Document").first()).toBeVisible();
 
-    // Check select dropdowns exist (3 MIME types x 3 stages = 9 minimum)
+    // Check select dropdowns exist (3 MIME types x 2 per-MIME stages = 6,
+    // exactly). Embedder is not one of them (issue #2114): preferred_embedders
+    // has no effect at ingest, so it was removed as a per-MIME GUI control —
+    // only Parser and Thumbnailer remain assignable here. An exact count (not
+    // a lower bound) is required so a future regression that re-adds the
+    // removed Embedder column (which would produce 9, still satisfying a
+    // `>=6` bound) actually fails this test.
     const selects = page.locator("select").filter({ visible: true });
-    const selectCount = await selects.count();
-    expect(selectCount).toBeGreaterThanOrEqual(9);
+    await expect(selects).toHaveCount(6);
+
+    // Belt-and-suspenders: assert no per-MIME "Embedder" select exists at all
+    // (aria-label pattern is "${stage.label} for ${mime.label} files", see
+    // FiletypeDefaults.tsx), independent of the total select count.
+    await expect(
+      page.locator('select[aria-label^="Embedder for "]')
+    ).toHaveCount(0);
 
     await docScreenshot(page, "admin--pipeline-settings--filetype-defaults");
 

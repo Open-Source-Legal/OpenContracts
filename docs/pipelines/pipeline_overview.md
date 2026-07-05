@@ -46,7 +46,11 @@ graph TD
 
 ### Component Registration
 
-Components are registered in `settings/base.py` through configuration dictionaries:
+Components are seeded once from `settings/base.py` configuration dictionaries
+(`PREFERRED_PARSERS`, `PREFERRED_EMBEDDERS`) into the `PipelineSettings`
+database singleton on first creation; at runtime the database is the single
+source of truth, editable via the admin System Settings UI or GraphQL
+mutations (see `opencontractserver/documents/models.py::PipelineSettings`):
 
 ```python
 PREFERRED_PARSERS = {
@@ -55,17 +59,19 @@ PREFERRED_PARSERS = {
     # ... other mime types
 }
 
-THUMBNAIL_TASKS = {
-    "application/pdf": "opencontractserver.tasks.doc_tasks.extract_pdf_thumbnail",
-    "text/plain": "opencontractserver.tasks.doc_tasks.extract_txt_thumbnail",
-    # ... other mime types
-}
-
 PREFERRED_EMBEDDERS = {
     "application/pdf": "opencontractserver.pipeline.embedders.sent_transformer_microservice.MicroserviceEmbedder",
     # ... other mime types
 }
 ```
+
+Note: `preferred_embedders` is API-only — the ingest-time dual-embedding
+strategy always resolves the single global `default_embedder`, never a
+per-MIME embedder, to avoid fragmenting the shared cross-corpus vector index
+(issue #2114). Thumbnailers are resolved via
+`PipelineSettings.preferred_thumbnailers` (also DB-backed); the legacy
+`THUMBNAIL_TASKS` Django setting some older docs referenced named Celery
+tasks that never existed and was removed.
 
 ## Component Types
 

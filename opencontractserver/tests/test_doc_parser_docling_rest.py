@@ -1102,3 +1102,48 @@ class TestDoclingParserTimeoutDefault(TestCase):
             DoclingParser.Settings().request_timeout,
             DOCLING_PARSER_REQUEST_TIMEOUT_SECONDS,
         )
+
+
+class TestDoclingParserFlagSettings(TestCase):
+    """
+    Issue #2120: force_ocr/roll_up_groups/llm_enhanced_hierarchy are now
+    declared on DoclingParser.Settings so they are schema-driven (and
+    therefore GUI-editable via the admin "Advanced Settings" component-config
+    modal) instead of only reachable through a raw parserKwargs GraphQL call
+    with no UI. The legacy, mis-keyed PARSER_KWARGS seed for a nonexistent
+    ``docling_parser.DoclingParser`` module has been removed in favor of these
+    dataclass field defaults.
+    """
+
+    def test_flags_appear_in_settings_schema_with_expected_defaults(self):
+        schema = DoclingParser.get_settings_schema()
+
+        self.assertIn("force_ocr", schema)
+        self.assertEqual(schema["force_ocr"]["default"], False)
+
+        self.assertIn("roll_up_groups", schema)
+        self.assertEqual(schema["roll_up_groups"]["default"], True)
+
+        self.assertIn("llm_enhanced_hierarchy", schema)
+        self.assertEqual(schema["llm_enhanced_hierarchy"]["default"], False)
+
+    def test_component_settings_override_sets_instance_attribute(self):
+        from opencontractserver.documents.models import PipelineSettings
+
+        full_path = f"{DoclingParser.__module__}.{DoclingParser.__name__}"
+
+        pipeline_settings = PipelineSettings.get_instance(use_cache=False)
+        pipeline_settings.component_settings = {
+            **pipeline_settings.component_settings,
+            full_path: {"force_ocr": True},
+        }
+        pipeline_settings.save()
+        PipelineSettings.clear_cache()
+        self.addCleanup(PipelineSettings.clear_cache)
+
+        parser = DoclingParser()
+
+        self.assertTrue(parser.force_ocr)
+        # Untouched flags keep their dataclass defaults.
+        self.assertTrue(parser.roll_up_groups)
+        self.assertFalse(parser.llm_enhanced_hierarchy)

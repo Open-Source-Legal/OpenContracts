@@ -178,6 +178,168 @@ class MockParser(BaseParser):
                 "Kwargs from settings should match the ones _parse_document_impl receives.",
             )
 
+    def test_parse_document_component_settings_wins_over_parser_kwargs(self):
+        """
+        Issue #2115: on a key collision, ``parse_document`` must let the
+        schema-validated, GUI-editable ``component_settings`` channel win over
+        the legacy, seed-only ``parser_kwargs`` channel -- otherwise editing a
+        component's settings via the admin "Advanced Settings" modal has no
+        effect whenever the field name was also seeded into PARSER_KWARGS
+        (e.g. LlamaParseParser's result_type/extract_layout/num_workers/
+        language/verbose). Keys unique to parser_kwargs (e.g. a real secret
+        like api_key, which the mutation layer refuses as plaintext in
+        component_settings) must still pass through unchanged.
+        """
+        from dataclasses import dataclass, field
+
+        from opencontractserver.documents.models import PipelineSettings
+        from opencontractserver.pipeline.base.parser import BaseParser
+        from opencontractserver.pipeline.base.settings_schema import (
+            PipelineSetting,
+            SettingType,
+        )
+
+        class MergePrecedenceParser(BaseParser):
+            title = "MergePrecedenceParser"
+
+            @dataclass
+            class Settings:
+                foo: str = field(
+                    default="settings_default",
+                    metadata={
+                        "pipeline_setting": PipelineSetting(
+                            setting_type=SettingType.OPTIONAL,
+                            description="Test field for merge-precedence coverage.",
+                        )
+                    },
+                )
+
+            def _parse_document_impl(self, user_id, doc_id, **kwargs):
+                return None
+
+        full_path = (
+            f"{MergePrecedenceParser.__module__}.{MergePrecedenceParser.__name__}"
+        )
+
+        pipeline_settings = PipelineSettings.get_instance(use_cache=False)
+        pipeline_settings.parser_kwargs = {
+            **pipeline_settings.parser_kwargs,
+            full_path: {
+                "foo": "from_parser_kwargs",
+                "only_in_parser_kwargs": "kw_only_value",
+            },
+        }
+        pipeline_settings.component_settings = {
+            **pipeline_settings.component_settings,
+            full_path: {"foo": "from_component_settings"},
+        }
+        pipeline_settings.save()
+        PipelineSettings.clear_cache()
+        self.addCleanup(PipelineSettings.clear_cache)
+
+        parser = MergePrecedenceParser()
+        # Mirror the one production call site (doc_tasks._resolve_parser_for_ingest):
+        # direct_kwargs come from PipelineSettings.get_parser_kwargs(...).
+        direct_kwargs = pipeline_settings.get_parser_kwargs(full_path)
+
+        with patch.object(
+            MergePrecedenceParser, "_parse_document_impl", return_value=None
+        ) as mock_impl:
+            parser.parse_document(self.user.id, self.doc.id, **direct_kwargs)
+
+        self.assertTrue(mock_impl.called)
+        _, call_kwargs = mock_impl.call_args
+        self.assertEqual(
+            call_kwargs["foo"],
+            "from_component_settings",
+            "component_settings must win over parser_kwargs on key collision.",
+        )
+        self.assertEqual(
+            call_kwargs["only_in_parser_kwargs"],
+            "kw_only_value",
+            "Keys unique to parser_kwargs must still pass through unchanged.",
+        )
+
+    def test_parse_document_empty_component_settings_value_does_not_clobber_direct_kwargs(
+        self,
+    ):
+        """
+        Regression test: an empty-string placeholder in ``component_settings``
+        must NOT override a real, truthy value already present in
+        ``direct_kwargs``/legacy ``parser_kwargs``.
+
+        Concretely this protects LlamaParse's env-seeded ``api_key``: the
+        mutation layer's secret validation (``find_plaintext_secret_keys``)
+        explicitly ALLOWS an empty-string placeholder for a SECRET-type field
+        in ``component_settings`` (only non-empty plaintext secret values are
+        flagged), while the real key is seeded only into legacy
+        ``parser_kwargs``. Without this guard, ``component_settings`` winning
+        on key collision (issue #2115) would let that empty placeholder wipe
+        out the real secret on every parse.
+        """
+        from dataclasses import dataclass, field
+
+        from opencontractserver.documents.models import PipelineSettings
+        from opencontractserver.pipeline.base.parser import BaseParser
+        from opencontractserver.pipeline.base.settings_schema import (
+            PipelineSetting,
+            SettingType,
+        )
+
+        class EmptyPlaceholderParser(BaseParser):
+            title = "EmptyPlaceholderParser"
+
+            @dataclass
+            class Settings:
+                api_key: str = field(
+                    default="",
+                    metadata={
+                        "pipeline_setting": PipelineSetting(
+                            setting_type=SettingType.SECRET,
+                            description="Test secret field for empty-placeholder coverage.",
+                        )
+                    },
+                )
+
+            def _parse_document_impl(self, user_id, doc_id, **kwargs):
+                return None
+
+        full_path = (
+            f"{EmptyPlaceholderParser.__module__}.{EmptyPlaceholderParser.__name__}"
+        )
+
+        pipeline_settings = PipelineSettings.get_instance(use_cache=False)
+        pipeline_settings.parser_kwargs = {
+            **pipeline_settings.parser_kwargs,
+            full_path: {"api_key": "real-secret-value"},
+        }
+        pipeline_settings.component_settings = {
+            **pipeline_settings.component_settings,
+            full_path: {"api_key": ""},
+        }
+        pipeline_settings.save()
+        PipelineSettings.clear_cache()
+        self.addCleanup(PipelineSettings.clear_cache)
+
+        parser = EmptyPlaceholderParser()
+        # Mirror the one production call site (doc_tasks._resolve_parser_for_ingest):
+        # direct_kwargs come from PipelineSettings.get_parser_kwargs(...).
+        direct_kwargs = pipeline_settings.get_parser_kwargs(full_path)
+
+        with patch.object(
+            EmptyPlaceholderParser, "_parse_document_impl", return_value=None
+        ) as mock_impl:
+            parser.parse_document(self.user.id, self.doc.id, **direct_kwargs)
+
+        self.assertTrue(mock_impl.called)
+        _, call_kwargs = mock_impl.call_args
+        self.assertEqual(
+            call_kwargs["api_key"],
+            "real-secret-value",
+            "An empty-string placeholder in component_settings must not "
+            "clobber a real value from direct_kwargs/parser_kwargs.",
+        )
+
     def test_mock_parser_relationship_import(self):
         """
         Demonstrate a direct usage of a local parser class that returns real annotation data.

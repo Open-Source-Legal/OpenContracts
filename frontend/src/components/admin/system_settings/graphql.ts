@@ -29,6 +29,9 @@ export const GET_PIPELINE_SETTINGS = gql`
   query GetPipelineSettings {
     pipelineSettings {
       preferredParsers
+      # API-only (issue #2114): no per-MIME GUI editor. Ingest never consults
+      # this — the dual-embedding strategy always resolves the single global
+      # default_embedder. Selected here for API completeness only.
       preferredEmbedders
       preferredThumbnailers
       parserKwargs

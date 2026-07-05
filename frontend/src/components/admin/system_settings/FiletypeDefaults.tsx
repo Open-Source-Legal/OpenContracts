@@ -41,14 +41,12 @@ import {
 interface FiletypeDefaultsProps {
   components: {
     parsers: (PipelineComponentType & { className: string })[];
-    embedders: (PipelineComponentType & { className: string })[];
     thumbnailers: (PipelineComponentType & { className: string })[];
   };
   supportedMimeTypes: SupportedMimeTypeType[];
   mimeTypesLoading?: boolean;
   enabledComponents: string[];
   preferredParsers: Record<string, string>;
-  preferredEmbedders: Record<string, string>;
   preferredThumbnailers: Record<string, string>;
   defaultEmbedder: string;
   defaultFileConverter: string;
@@ -56,7 +54,7 @@ interface FiletypeDefaultsProps {
   defaultReranker: string;
   updating: boolean;
   onAssign: (
-    stage: "parsers" | "embedders" | "thumbnailers",
+    stage: "parsers" | "thumbnailers",
     mimeType: string,
     className: string
   ) => void;
@@ -70,9 +68,15 @@ interface FiletypeDefaultsProps {
 // Helpers
 // ============================================================================
 
+// The per-MIME "Embedder" column was removed (issue #2114): preferred_embedders
+// has no effect at ingest (the dual-embedding strategy always resolves the
+// single global default_embedder), and wiring per-MIME embedder resolution
+// into the real ingest path would risk mixed embedder classes/dimensions in
+// the shared cross-corpus vector index. Only Parser and Thumbnailer remain
+// per-MIME assignable here; embedders are still configured globally via the
+// "Default Embedder" row below and remain manageable in the Component Library.
 const STAGES: { key: StageType; label: string }[] = [
   { key: "parsers", label: "Parser" },
-  { key: "embedders", label: "Embedder" },
   { key: "thumbnailers", label: "Thumbnailer" },
 ];
 
@@ -87,7 +91,6 @@ export const FiletypeDefaults = memo<FiletypeDefaultsProps>(
     mimeTypesLoading,
     enabledComponents,
     preferredParsers,
-    preferredEmbedders,
     preferredThumbnailers,
     defaultEmbedder,
     defaultFileConverter,
@@ -104,10 +107,9 @@ export const FiletypeDefaults = memo<FiletypeDefaultsProps>(
     const preferredByStage = useMemo(
       () => ({
         parsers: preferredParsers,
-        embedders: preferredEmbedders,
         thumbnailers: preferredThumbnailers,
       }),
-      [preferredParsers, preferredEmbedders, preferredThumbnailers]
+      [preferredParsers, preferredThumbnailers]
     );
 
     // Pre-compute available components per stage per MIME type
@@ -117,7 +119,6 @@ export const FiletypeDefaults = memo<FiletypeDefaultsProps>(
         Record<string, (PipelineComponentType & { className: string })[]>
       > = {
         parsers: {},
-        embedders: {},
         thumbnailers: {},
       };
 
@@ -154,7 +155,6 @@ export const FiletypeDefaults = memo<FiletypeDefaultsProps>(
           <DefaultsHeaderRow>
             <span>File Type</span>
             <span>Parser</span>
-            <span>Embedder</span>
             <span>Thumbnailer</span>
           </DefaultsHeaderRow>
 
