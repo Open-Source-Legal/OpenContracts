@@ -1012,4 +1012,106 @@ test.describe("GlobalAgentManagement — preferred LLM", () => {
 
     await component.unmount();
   });
+
+  test("changes an existing preferredLlm override to a different value on update", async ({
+    mount,
+    page,
+  }) => {
+    const agentWithLlm = {
+      ...baseAgent,
+      id: "QWdlbnRDb25maWd1cmF0aW9uVHlwZTpsbG0y",
+      preferredLlm: "openai:gpt-4o",
+    };
+    const agentWithLlmMock = {
+      request: { query: GET_GLOBAL_AGENTS },
+      result: {
+        data: { agentConfigurations: { edges: [{ node: agentWithLlm }] } },
+      },
+    };
+
+    const updateMock = {
+      request: {
+        query: UPDATE_GLOBAL_AGENT_CONFIGURATION,
+        variables: {
+          agentId: agentWithLlm.id,
+          name: agentWithLlm.name,
+          description: agentWithLlm.description,
+          systemInstructions: agentWithLlm.systemInstructions,
+          availableTools: ["similarity_search", "load_document_text"],
+          permissionRequiredTools: [],
+          badgeConfig: JSON.stringify(agentWithLlm.badgeConfig),
+          avatarUrl: null,
+          isActive: true,
+          isPublic: true,
+          // Switching an existing override to a different non-empty value
+          // must send the new preferredLlm with clearPreferredLlm: false —
+          // never the clear flag, which is reserved for resetting the
+          // override back to the system default.
+          preferredLlm: "anthropic:claude-haiku-4-5",
+          clearPreferredLlm: false,
+        },
+      },
+      result: {
+        data: {
+          updateAgentConfiguration: {
+            ok: true,
+            message: "Updated",
+            agent: {
+              id: agentWithLlm.id,
+              name: agentWithLlm.name,
+              slug: agentWithLlm.slug,
+              description: agentWithLlm.description,
+            },
+          },
+        },
+      },
+    };
+
+    const afterUpdateMock = {
+      request: { query: GET_GLOBAL_AGENTS },
+      result: {
+        data: {
+          agentConfigurations: {
+            edges: [
+              {
+                node: {
+                  ...agentWithLlm,
+                  preferredLlm: "anthropic:claude-haiku-4-5",
+                },
+              },
+            ],
+          },
+        },
+      },
+    };
+
+    const component = await mount(
+      <GlobalAgentManagementWithToastsWrapper
+        mocks={[agentWithLlmMock, updateMock, afterUpdateMock]}
+      />
+    );
+
+    await expect(page.locator("text=Research Assistant")).toBeVisible({
+      timeout: 5000,
+    });
+
+    await page.locator('button[aria-label="Edit agent"]').first().click();
+
+    const llmInput = page.locator(
+      'input[placeholder="e.g., anthropic:claude-opus-4-6"]'
+    );
+    await expect(llmInput).toHaveValue("openai:gpt-4o");
+
+    await llmInput.fill("anthropic:claude-haiku-4-5");
+
+    await page
+      .locator('.oc-modal-footer button:has-text("Save Changes")')
+      .click();
+
+    await expect(page.locator("text=Agent updated successfully")).toBeVisible({
+      timeout: 5000,
+    });
+
+    await component.unmount();
+  });
 });
