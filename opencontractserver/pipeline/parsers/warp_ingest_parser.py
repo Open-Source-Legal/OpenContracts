@@ -26,6 +26,7 @@ load); the desktop bootstrap downloads them on first run.
 
 import logging
 import os
+import shutil
 import tempfile
 from dataclasses import dataclass, field
 from typing import Optional
@@ -155,15 +156,17 @@ class WarpIngestParser(BaseParser):
             return None
 
         # Warp-Ingest's front-end consumes a filesystem path, so stream the
-        # stored PDF (which may live in object storage) to a temp file.
-        with default_storage.open(document.pdf_file.name, mode="rb") as pdf_file:
-            pdf_bytes = pdf_file.read()
-
+        # stored PDF (which may live in object storage) to a temp file. Stream
+        # via copyfileobj rather than read()-into-memory so a very large PDF does
+        # not briefly double memory usage.
         tmp_path: Optional[str] = None
         try:
             with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_pdf:
-                tmp_pdf.write(pdf_bytes)
                 tmp_path = tmp_pdf.name
+                with default_storage.open(
+                    document.pdf_file.name, mode="rb"
+                ) as pdf_file:
+                    shutil.copyfileobj(pdf_file, tmp_pdf)
 
             try:
                 from warp_ingest.ingestor import pdf_ingestor

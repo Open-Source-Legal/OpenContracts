@@ -39,7 +39,20 @@ _children: list[subprocess.Popen] = []
 
 
 _KEYRING_SERVICE = "OpenContracts-Desktop"
-_KEYRING_USER = "django-secret-key"
+
+
+def _keyring_username() -> str:
+    """Keyring entry name, scoped to the data dir.
+
+    Two desktop instances under different ``OC_DESKTOP_DATA_DIR``s (e.g. a test
+    profile alongside a real one) each get their own persisted SECRET_KEY rather
+    than silently sharing one. The data dir is hashed to keep the entry name
+    short and backend-safe (some OS keyrings cap target-name length).
+    """
+    import hashlib
+
+    digest = hashlib.sha256(str(paths.app_data_dir()).encode()).hexdigest()[:16]
+    return f"django-secret-key-{digest}"
 
 
 def _stable_secret_key() -> str:
@@ -59,11 +72,12 @@ def _stable_secret_key() -> str:
     try:
         import keyring
 
-        existing = keyring.get_password(_KEYRING_SERVICE, _KEYRING_USER)
+        username = _keyring_username()
+        existing = keyring.get_password(_KEYRING_SERVICE, username)
         if existing:
             return existing
         new_key = secrets.token_urlsafe(64)
-        keyring.set_password(_KEYRING_SERVICE, _KEYRING_USER, new_key)
+        keyring.set_password(_KEYRING_SERVICE, username, new_key)
         return new_key
     except Exception as exc:  # keyring missing or no usable backend
         print(
