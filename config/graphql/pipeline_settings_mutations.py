@@ -76,7 +76,7 @@ def validate_mime_type(mime_type: str) -> Optional[str]:
 
 
 def validate_component_mapping(
-    mapping: dict, registry, component_type: str
+    mapping: dict, registry, component_type: str, expected_type=None
 ) -> Optional[str]:
     """
     Validate a mapping of MIME types to component paths.
@@ -85,6 +85,12 @@ def validate_component_mapping(
         mapping: Dict mapping MIME types to component class paths
         registry: Pipeline component registry for validation
         component_type: Type name for error messages (e.g., "Parser")
+        expected_type: When provided (a ``ComponentType``), require each mapped
+            component to actually BE that stage. Registry membership alone is
+            insufficient — assigning e.g. a parser class as a thumbnailer passes
+            the membership check but blows up at ingest with an ``AttributeError``
+            on ``.generate_thumbnail`` and marks every affected document FAILED.
+            Mirrors the stricter guard already applied to ``default_file_converter``.
 
     Returns:
         Error message if invalid, None if valid
@@ -104,8 +110,17 @@ def validate_component_mapping(
             return error
 
         # Validate component exists in registry
-        if not registry.get_by_class_name(component_path):
+        component_def = registry.get_by_class_name(component_path)
+        if not component_def:
             return f"{component_type} '{component_path}' not found in registry"
+
+        # Validate the component is the RIGHT KIND for this stage.
+        if expected_type is not None and component_def.component_type != expected_type:
+            return (
+                f"Component '{component_path}' is a "
+                f"{component_def.component_type.value}, not a "
+                f"{component_type.lower()}."
+            )
 
     return None
 
@@ -305,7 +320,7 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
         Security: Only superusers can update these settings.
         """
         from opencontractserver.documents.models import PipelineSettings
-        from opencontractserver.pipeline.registry import get_registry
+        from opencontractserver.pipeline.registry import ComponentType, get_registry
 
         user = info.context.user
 
@@ -324,7 +339,7 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
             # Validate and apply preferred_parsers
             if preferred_parsers is not None:
                 error = validate_component_mapping(
-                    preferred_parsers, registry, "Parser"
+                    preferred_parsers, registry, "Parser", ComponentType.PARSER
                 ) or validate_json_field_size(preferred_parsers, "preferred_parsers")
                 if error:
                     return UpdatePipelineSettingsMutation(
@@ -335,7 +350,7 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
             # Validate and apply preferred_embedders
             if preferred_embedders is not None:
                 error = validate_component_mapping(
-                    preferred_embedders, registry, "Embedder"
+                    preferred_embedders, registry, "Embedder", ComponentType.EMBEDDER
                 ) or validate_json_field_size(
                     preferred_embedders, "preferred_embedders"
                 )
@@ -348,7 +363,10 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
             # Validate and apply preferred_thumbnailers
             if preferred_thumbnailers is not None:
                 error = validate_component_mapping(
-                    preferred_thumbnailers, registry, "Thumbnailer"
+                    preferred_thumbnailers,
+                    registry,
+                    "Thumbnailer",
+                    ComponentType.THUMBNAILER,
                 ) or validate_json_field_size(
                     preferred_thumbnailers, "preferred_thumbnailers"
                 )
@@ -733,8 +751,8 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
                     or "",
                     default_llm=settings_instance.default_llm or "",
                     enabled_components=settings_instance.enabled_components or [],
-                    components_with_secrets=list(
-                        settings_instance.get_secrets().keys()
+                    components_with_secrets=(
+                        settings_instance.get_components_with_secrets()
                     ),
                     modified=settings_instance.modified,
                     modified_by=settings_instance.modified_by,
@@ -841,8 +859,8 @@ class ResetPipelineSettingsMutation(graphene.Mutation):
                     or "",
                     default_llm=settings_instance.default_llm or "",
                     enabled_components=[],
-                    components_with_secrets=list(
-                        settings_instance.get_secrets().keys()
+                    components_with_secrets=(
+                        settings_instance.get_components_with_secrets()
                     ),
                     modified=settings_instance.modified,
                     modified_by=settings_instance.modified_by,
@@ -958,9 +976,9 @@ class UpdateComponentSecretsMutation(graphene.Mutation):
             settings_instance.modified_by = user
             settings_instance.save()
 
-            # Return list of components that have secrets (don't return actual secrets)
-            all_secrets = settings_instance.get_secrets()
-            components_with_secrets = list(all_secrets.keys())
+            # Return list of components that have secrets (don't return actual
+            # secrets). Excludes tool: keys, which are tracked separately.
+            components_with_secrets = settings_instance.get_components_with_secrets()
 
             logger.info(
                 "Secrets updated for component '%s' by %s (keys=%s, merge=%s)",
@@ -1276,9 +1294,8 @@ class DeleteComponentSecretsMutation(graphene.Mutation):
             settings_instance.modified_by = user
             settings_instance.save()
 
-            # Return updated list of components with secrets
-            all_secrets = settings_instance.get_secrets()
-            components_with_secrets = list(all_secrets.keys())
+            # Return updated list of components with secrets (excludes tool: keys).
+            components_with_secrets = settings_instance.get_components_with_secrets()
 
             logger.info(
                 f"Secrets deleted for component '{component_path}' by {user.username}"

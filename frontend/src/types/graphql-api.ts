@@ -1955,6 +1955,8 @@ export type PipelineComponentsType = {
   llmProviders?: Maybe<Array<Maybe<PipelineComponentType>>>;
   /** List of available pre-parse file converters (convert non-native formats to PDF). */
   fileConverters?: Maybe<Array<Maybe<PipelineComponentType>>>;
+  /** List of available post-retrieval rerankers. */
+  rerankers?: Maybe<Array<Maybe<PipelineComponentType>>>;
 };
 
 /** Enum for file types. */
@@ -2015,8 +2017,12 @@ export type PipelineSettingsType = {
   defaultFileConverter?: Maybe<Scalars["String"]>;
   /** Install-wide default LLM model spec for agents (e.g. 'anthropic:claude-opus-4-6'). Empty falls back to the Django settings default. */
   defaultLlm?: Maybe<Scalars["String"]>;
+  /** Default post-retrieval reranker class path. Empty string disables reranking (first-stage retrieval only). */
+  defaultReranker?: Maybe<Scalars["String"]>;
   /** List of components with encrypted secrets configured (actual secrets never exposed). */
   componentsWithSecrets?: Maybe<Array<Maybe<Scalars["String"]>>>;
+  /** List of tool keys (e.g. 'tool:web_search') with encrypted secrets configured (actual secrets never exposed). */
+  toolsWithSecrets?: Maybe<Array<Maybe<Scalars["String"]>>>;
   /** List of enabled component class paths. */
   enabledComponents?: Maybe<Array<Maybe<Scalars["String"]>>>;
   /** When settings were last modified. */

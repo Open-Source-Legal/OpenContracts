@@ -153,6 +153,9 @@ export const SystemSettings: React.FC = () => {
     useState("");
   const [showDefaultLlmModal, setShowDefaultLlmModal] = useState(false);
   const [defaultLlmValue, setDefaultLlmValue] = useState("");
+  const [showDefaultRerankerModal, setShowDefaultRerankerModal] =
+    useState(false);
+  const [defaultRerankerValue, setDefaultRerankerValue] = useState("");
   const [showDeleteSecretsConfirm, setShowDeleteSecretsConfirm] =
     useState(false);
   const [deleteSecretsPath, setDeleteSecretsPath] = useState("");
@@ -300,8 +303,19 @@ export const SystemSettings: React.FC = () => {
       (comp): comp is PipelineComponentType & { className: string } =>
         Boolean(comp?.className)
     );
+    const rerankers = (components?.rerankers || []).filter(
+      (comp): comp is PipelineComponentType & { className: string } =>
+        Boolean(comp?.className)
+    );
 
-    return { parsers, embedders, thumbnailers, llmProviders, fileConverters };
+    return {
+      parsers,
+      embedders,
+      thumbnailers,
+      llmProviders,
+      fileConverters,
+      rerankers,
+    };
   }, [components]);
 
   const componentByClassName = useMemo(() => {
@@ -638,6 +652,23 @@ export const SystemSettings: React.FC = () => {
     setShowDefaultLlmModal(false);
   }, [defaultLlmValue, updateSettings]);
 
+  // Handle default reranker. Empty string DISABLES second-stage reranking
+  // (the backend treats "" as "reranking off"), so we always send the string
+  // value — never null (null means "leave unchanged").
+  const handleEditDefaultReranker = useCallback(() => {
+    setDefaultRerankerValue(settings?.defaultReranker || "");
+    setShowDefaultRerankerModal(true);
+  }, [settings]);
+
+  const handleSaveDefaultReranker = useCallback(() => {
+    updateSettings({
+      variables: {
+        defaultReranker: defaultRerankerValue.trim(),
+      },
+    });
+    setShowDefaultRerankerModal(false);
+  }, [defaultRerankerValue, updateSettings]);
+
   // Format date
   const formatDate = useCallback((dateStr: string | null | undefined) => {
     if (!dateStr) return "Never";
@@ -695,11 +726,13 @@ export const SystemSettings: React.FC = () => {
       defaultEmbedder: settings?.defaultEmbedder || "",
       defaultFileConverter: settings?.defaultFileConverter || "",
       defaultLlm: settings?.defaultLlm || "",
+      defaultReranker: settings?.defaultReranker || "",
       updating,
       onAssign: handleAssign,
       onEditDefaultEmbedder: handleEditDefaultEmbedder,
       onEditDefaultFileConverter: handleEditDefaultFileConverter,
       onEditDefaultLlm: handleEditDefaultLlm,
+      onEditDefaultReranker: handleEditDefaultReranker,
     }),
     [
       componentsByStage,
@@ -712,11 +745,13 @@ export const SystemSettings: React.FC = () => {
       settings?.defaultEmbedder,
       settings?.defaultFileConverter,
       settings?.defaultLlm,
+      settings?.defaultReranker,
       updating,
       handleAssign,
       handleEditDefaultEmbedder,
       handleEditDefaultFileConverter,
       handleEditDefaultLlm,
+      handleEditDefaultReranker,
     ]
   );
 
@@ -1248,6 +1283,109 @@ export const SystemSettings: React.FC = () => {
           <Button
             variant="primary"
             onClick={handleSaveDefaultLlm}
+            loading={updating}
+          >
+            <Save style={{ width: 16, height: 16, marginRight: 8 }} />
+            Save
+          </Button>
+        </ModalFooter>
+      </Modal>
+
+      {/* Default Reranker Modal */}
+      <Modal
+        open={showDefaultRerankerModal}
+        onClose={() => setShowDefaultRerankerModal(false)}
+        size="md"
+      >
+        <ModalHeader
+          title="Edit Default Reranker"
+          onClose={() => setShowDefaultRerankerModal(false)}
+        />
+        <ModalBody>
+          <FormField>
+            <FormLabel>Reranker Class Path</FormLabel>
+            <Input
+              id="default-reranker"
+              value={defaultRerankerValue}
+              onChange={(e) => setDefaultRerankerValue(e.target.value)}
+              placeholder="e.g., opencontractserver.pipeline.rerankers.cross_encoder_reranker.CrossEncoderReranker"
+              fullWidth
+            />
+            <FormHelperText>
+              Applied as a second-stage reorder over vector / hybrid search
+              results across all corpora. Leave empty to disable reranking
+              (first-stage retrieval results are returned as-is).
+            </FormHelperText>
+          </FormField>
+          <div style={{ marginTop: "1rem" }}>
+            <FormLabel>Available Rerankers:</FormLabel>
+            <div
+              style={{
+                padding: "0.75rem",
+                fontSize: "0.875rem",
+                cursor: "pointer",
+                borderRadius: "8px",
+                marginBottom: "0.5rem",
+                background:
+                  defaultRerankerValue === ""
+                    ? "#e0e7ff"
+                    : OS_LEGAL_COLORS.surfaceHover,
+                border: `1px solid ${
+                  defaultRerankerValue === ""
+                    ? "#6366f1"
+                    : OS_LEGAL_COLORS.border
+                }`,
+              }}
+              onClick={() => setDefaultRerankerValue("")}
+            >
+              <strong>None (reranking disabled)</strong>
+            </div>
+            {componentsByStage.rerankers.map((r) => (
+              <div
+                key={r.className}
+                style={{
+                  padding: "0.75rem",
+                  fontSize: "0.875rem",
+                  cursor: "pointer",
+                  borderRadius: "8px",
+                  marginBottom: "0.5rem",
+                  background:
+                    defaultRerankerValue === r.className
+                      ? "#e0e7ff"
+                      : OS_LEGAL_COLORS.surfaceHover,
+                  border: `1px solid ${
+                    defaultRerankerValue === r.className
+                      ? "#6366f1"
+                      : OS_LEGAL_COLORS.border
+                  }`,
+                }}
+                onClick={() => setDefaultRerankerValue(r.className)}
+              >
+                <strong>{r.title || r.name}</strong>
+                <div
+                  style={{
+                    fontSize: "0.75rem",
+                    color: OS_LEGAL_COLORS.textSecondary,
+                    fontFamily: "monospace",
+                    marginTop: "0.25rem",
+                  }}
+                >
+                  {r.className}
+                </div>
+              </div>
+            ))}
+          </div>
+        </ModalBody>
+        <ModalFooter>
+          <Button
+            variant="secondary"
+            onClick={() => setShowDefaultRerankerModal(false)}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            onClick={handleSaveDefaultReranker}
             loading={updating}
           >
             <Save style={{ width: 16, height: 16, marginRight: 8 }} />

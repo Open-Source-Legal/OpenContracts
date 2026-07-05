@@ -305,7 +305,7 @@ class PipelineQueryMixin:
         settings_instance = PipelineSettings.get_instance()
 
         # Get list of components that have secrets (don't expose actual secrets)
-        components_with_secrets = list(settings_instance.get_secrets().keys())
+        components_with_secrets = settings_instance.get_components_with_secrets()
 
         return PipelineSettingsType(
             preferred_parsers=settings_instance.preferred_parsers or {},
