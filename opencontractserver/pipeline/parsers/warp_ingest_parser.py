@@ -44,6 +44,30 @@ from opencontractserver.types.dicts import OpenContractDocExport
 
 logger = logging.getLogger(__name__)
 
+# requests/httpx network errors do NOT subclass the builtin ConnectionError/
+# TimeoutError, so a flaky first-run OCR model fetch could otherwise be
+# misclassified as permanent. Match those by exception class name across the MRO
+# (without importing the optional libraries) in addition to the builtins.
+_TRANSIENT_ERROR_NAMES = frozenset(
+    {
+        "ConnectionError",
+        "Timeout",
+        "ConnectTimeout",
+        "ReadTimeout",
+        "ConnectError",
+        "ReadError",
+        "TimeoutException",
+        "PoolTimeout",
+    }
+)
+
+
+def _is_transient_error(exc: BaseException) -> bool:
+    """True if ``exc`` looks like a retryable network/timeout failure."""
+    if isinstance(exc, (ConnectionError, TimeoutError)):
+        return True
+    return any(cls.__name__ in _TRANSIENT_ERROR_NAMES for cls in type(exc).__mro__)
+
 
 class WarpIngestParser(BaseParser):
     """Parse PDFs to an ``OpenContractDocExport`` with the Warp-Ingest engine."""
@@ -160,18 +184,13 @@ class WarpIngestParser(BaseParser):
                 export: OpenContractDocExport = pdf_ingestor.parse_to_opencontracts(
                     tmp_path, parse_options
                 )
-            except (ConnectionError, TimeoutError) as exc:
-                # e.g. a first-run OCR model download (rapidocr) over a flaky
-                # network — retryable, not a permanent content failure.
-                raise DocumentParsingError(
-                    f"Warp-Ingest transient failure on document {doc_id}: {exc}",
-                    is_transient=True,
-                ) from exc
             except Exception as exc:
-                # Deterministic local parse of a bad/unsupported PDF — permanent.
+                # A network/timeout hiccup (e.g. a first-run OCR model fetch) is
+                # retryable; a deterministic local parse of a bad/unsupported
+                # PDF is permanent.
                 raise DocumentParsingError(
                     f"Warp-Ingest failed to parse document {doc_id}: {exc}",
-                    is_transient=False,
+                    is_transient=_is_transient_error(exc),
                 ) from exc
         finally:
             if tmp_path and os.path.exists(tmp_path):

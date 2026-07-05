@@ -53,8 +53,9 @@ from .base import SECURE_CSP_DIRECTIVES, env  # noqa: E402
 # ------------------------------------------------------------------------------
 DEBUG = env.bool("DJANGO_DEBUG", default=False)
 
-# A desktop app is reachable only on the loopback interface.
-ALLOWED_HOSTS = ["localhost", "127.0.0.1", "0.0.0.0"]
+# A desktop app is reachable only on the loopback interface. (No "0.0.0.0" — it
+# is a bind address, never an incoming Host header; Daphne binds 127.0.0.1.)
+ALLOWED_HOSTS = ["localhost", "127.0.0.1"]
 
 # SECRET_KEY comes from the environment only. The ``oc-desktop`` launcher
 # resolves ONE stable key (persisted in the OS keyring, see

@@ -330,7 +330,11 @@ def main() -> None:
 
     url = f"http://127.0.0.1:{port}/"
     print(f"[oc-desktop] OpenContracts is starting at {url}")
-    _wait_for_http(url, timeout=60)
+    if not _wait_for_http(url, timeout=60):
+        print(
+            "[oc-desktop] WARNING: server did not answer within 60s; opening the "
+            "browser anyway — it may show a connection error until Daphne is up."
+        )
     with contextlib.suppress(Exception):
         webbrowser.open(url)
 

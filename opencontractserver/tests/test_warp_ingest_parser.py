@@ -164,6 +164,17 @@ class WarpIngestParserTests(TestCase):
                 self.parser._parse_document_impl(self.user.id, self.doc.id)
         self.assertTrue(ctx.exception.is_transient)
 
+    def test_requests_style_network_error_is_transient(self):
+        # requests/httpx network errors do NOT subclass builtin ConnectionError;
+        # they must still be classified transient (matched by MRO class name).
+        class ConnectTimeout(Exception):  # httpx-style name, not a builtin subclass
+            pass
+
+        with _FakeWarpIngest(parse_side_effect=ConnectTimeout("slow")):
+            with self.assertRaises(DocumentParsingError) as ctx:
+                self.parser._parse_document_impl(self.user.id, self.doc.id)
+        self.assertTrue(ctx.exception.is_transient)
+
     def test_missing_dependency_raises_permanent_error(self):
         # sys.modules[name]=None makes ``import warp_ingest`` raise ImportError.
         saved = sys.modules.get("warp_ingest")
