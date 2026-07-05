@@ -25,6 +25,7 @@ graph TD
         B --> B1[DoclingParser REST]
         B --> B2[TxtParser]
         B --> B3[LlamaParseParser]
+        B --> B4[WarpIngestParser REST]
 
         C --> C1[PdfThumbnailGenerator]
         C --> C2[TextThumbnailGenerator]
@@ -102,6 +103,7 @@ Parsers inherit from [`BaseParser`](../../opencontractserver/pipeline/base/parse
 
 Current implementations:
 - **DoclingParser**: Advanced PDF parser using machine learning (REST microservice)
+- **[WarpIngestParser](warp_ingest_parser.md)**: Deterministic, rule-based PDF parser that renders straight to the OpenContracts format (REST microservice)
 - **LlamaParseParser**: Cloud-based parser using LlamaParse API with layout extraction
 - **TxtParser**: Simple text file parser
 
