@@ -1216,6 +1216,13 @@ def calculate_embeddings_for_relationship_batch(
             result["failed"] = len(relationship_ids)
             return result
 
+        # Thread the bulk pool only when configured, so the default (unset)
+        # call keeps the original ``_embed_relationship(rel, embedder, path)``
+        # shape — the same conditional-forwarding pattern used for ``embed_extra``
+        # in ``_apply_dual_embedding_strategy``.
+        rel_override_kwargs = (
+            {"service_url_override": bulk_service_url} if bulk_service_url else {}
+        )
         for rid in relationship_ids:
             rel = rel_map.get(rid)
             if rel is None:
@@ -1223,10 +1230,7 @@ def calculate_embeddings_for_relationship_batch(
                 continue
             try:
                 if _embed_relationship(
-                    rel,
-                    explicit_embedder,
-                    embedder_path,
-                    service_url_override=bulk_service_url,
+                    rel, explicit_embedder, embedder_path, **rel_override_kwargs
                 ):
                     result["succeeded"] += 1
                 else:

@@ -1754,6 +1754,44 @@ class TestCalculateEmbeddingsForRelationshipBatch(unittest.TestCase):
         self.assertEqual(len(result["errors"]), 1)
 
 
+class TestBulkPoolHelpers(unittest.TestCase):
+    """Direct unit tests for the bulk-pool routing helpers."""
+
+    def test_service_url_override_kwargs_none_returns_empty(self):
+        from opencontractserver.tasks.embeddings_task import (
+            _service_url_override_kwargs,
+        )
+
+        self.assertEqual(_service_url_override_kwargs(None), {})
+        self.assertEqual(_service_url_override_kwargs(""), {})
+
+    def test_service_url_override_kwargs_maps_to_embedder_kwarg(self):
+        from opencontractserver.tasks.embeddings_task import (
+            _service_url_override_kwargs,
+        )
+
+        self.assertEqual(
+            _service_url_override_kwargs("http://bulk-pool:8000"),
+            {"embeddings_microservice_url": "http://bulk-pool:8000"},
+        )
+
+    @override_settings(EMBEDDINGS_MICROSERVICE_URL_BULK="http://bulk-pool:8000")
+    def test_bulk_service_url_resolves_from_settings(self):
+        from opencontractserver.tasks.embeddings_task import (
+            _bulk_embeddings_service_url,
+        )
+
+        self.assertEqual(_bulk_embeddings_service_url(), "http://bulk-pool:8000")
+
+    @override_settings(EMBEDDINGS_MICROSERVICE_URL_BULK=None)
+    def test_bulk_service_url_none_when_unset(self):
+        from opencontractserver.tasks.embeddings_task import (
+            _bulk_embeddings_service_url,
+        )
+
+        self.assertIsNone(_bulk_embeddings_service_url())
+
+
 class TestBulkEmbeddingsPoolRouting(unittest.TestCase):
     """Ingest tasks route embedder calls through EMBEDDINGS_MICROSERVICE_URL_BULK.
 
