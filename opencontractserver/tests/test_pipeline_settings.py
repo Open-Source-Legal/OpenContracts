@@ -667,6 +667,54 @@ class PipelineSettingsGraphQLTestCase(TestCase):
             "Updating application/pdf must not drop the existing text/plain entry.",
         )
 
+    def test_update_preferred_parsers_null_value_deletes_entry(self):
+        """Sending an explicit `null` for a MIME type removes that entry
+        while preserving siblings — this is how the admin GUI's
+        "-- Unassigned --" option clears a single filetype default without
+        resending the full mapping (SystemSettings.tsx handleAssign)."""
+        from opencontractserver.pipeline.registry import get_registry
+
+        registry = get_registry()
+        if not registry.parsers:
+            self.skipTest("No parsers registered to exercise this test.")
+        parser_path = registry.parsers[0].class_name
+
+        mutation = """
+            mutation UpdatePipelineSettings($preferredParsers: GenericScalar) {
+                updatePipelineSettings(preferredParsers: $preferredParsers) {
+                    ok
+                    message
+                    pipelineSettings {
+                        preferredParsers
+                    }
+                }
+            }
+        """
+
+        # Assign two MIME types.
+        result = self.superuser_client.execute(
+            mutation,
+            variables={
+                "preferredParsers": {
+                    "application/pdf": parser_path,
+                    "text/plain": parser_path,
+                }
+            },
+        )
+        self.assertTrue(result["data"]["updatePipelineSettings"]["ok"])
+
+        # Clear application/pdf via an explicit null, leaving text/plain alone.
+        result = self.superuser_client.execute(
+            mutation,
+            variables={"preferredParsers": {"application/pdf": None}},
+        )
+        self.assertIsNone(result.get("errors"))
+        data = result["data"]["updatePipelineSettings"]
+        self.assertTrue(data["ok"], data.get("message"))
+        preferred_parsers = data["pipelineSettings"]["preferredParsers"]
+        self.assertNotIn("application/pdf", preferred_parsers)
+        self.assertEqual(preferred_parsers["text/plain"], parser_path)
+
     def test_update_parser_kwargs_merges_and_preserves_siblings(self):
         """Updating one parser's kwargs must not drop another parser's kwargs."""
         mutation = """

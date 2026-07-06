@@ -92,6 +92,10 @@ def validate_component_mapping(
             on ``.generate_thumbnail`` and marks every affected document FAILED.
             Mirrors the stricter guard already applied to ``default_file_converter``.
 
+    A ``None`` value for a MIME type is a delete marker (see
+    ``merge_mapping_field``) — its MIME type key is still format-checked, but
+    the value itself is not resolved against the registry.
+
     Returns:
         Error message if invalid, None if valid
     """
@@ -103,6 +107,11 @@ def validate_component_mapping(
         error = validate_mime_type(mime_type)
         if error:
             return error
+
+        # None is a delete marker (merge_mapping_field drops this key from
+        # the stored mapping) — nothing further to validate for this entry.
+        if component_path is None:
+            continue
 
         # Validate component path format
         error = validate_component_path(component_path)
@@ -139,6 +148,10 @@ def validate_enricher_mapping(mapping: dict, registry) -> Optional[str]:
         mapping: Dict mapping MIME types to lists of enricher class paths
         registry: Pipeline component registry for validation
 
+    A ``None`` value for a MIME type is a delete marker (see
+    ``merge_mapping_field``) — its MIME type key is still format-checked, but
+    the value itself is not required to be a list.
+
     Returns:
         Error message if invalid, None if valid
     """
@@ -152,6 +165,11 @@ def validate_enricher_mapping(mapping: dict, registry) -> Optional[str]:
         error = validate_mime_type(mime_type)
         if error:
             return error
+
+        # None is a delete marker (merge_mapping_field drops this key from
+        # the stored mapping) — nothing further to validate for this entry.
+        if path_list is None:
+            continue
 
         # preferred_enrichers is a mime -> ORDERED LIST mapping, not mime -> path
         if not isinstance(path_list, list):
@@ -270,20 +288,30 @@ def merge_mapping_field(existing: Optional[dict], incoming: dict) -> dict:
     Shallow-merge ``incoming`` over ``existing`` (top-level keys only).
 
     The mapping fields on ``PipelineSettings`` (preferred_parsers,
-    preferred_embedders, preferred_thumbnailers, parser_kwargs,
-    component_settings) are keyed per MIME-type or per-component, and each
-    key is independently owned by whichever admin action last touched it.
-    A caller updating one key (e.g. the PDF parser) must not silently drop
-    sibling keys it never mentioned (e.g. the DOCX parser) — that previously
-    happened because the mutation assigned the incoming dict wholesale.
+    preferred_embedders, preferred_thumbnailers, preferred_enrichers,
+    parser_kwargs, component_settings) are keyed per MIME-type or
+    per-component, and each key is independently owned by whichever admin
+    action last touched it. A caller updating one key (e.g. the PDF parser)
+    must not silently drop sibling keys it never mentioned (e.g. the DOCX
+    parser) — that previously happened because the mutation assigned the
+    incoming dict wholesale.
 
-    Removing a key is intentionally out of scope here: it goes through a
-    dedicated delete mutation, matching the existing
-    ``UpdateComponentSecretsMutation`` / ``DeleteComponentSecretsMutation``
-    split rather than overloading this update path with null-to-delete
-    semantics.
+    A ``None`` value for a key is a delete marker: that key is dropped from
+    the merged result instead of being kept or overwritten. This is required
+    by the admin GUI's "-- Unassigned --" / remove-enricher actions
+    (``SystemSettings.tsx`` ``handleAssign`` / ``handleAssignEnrichers``),
+    which send only the single changed MIME type with ``null`` to clear it —
+    a plain ``{**existing, **incoming}`` merge would silently resurrect the
+    "removed" key from ``existing`` since the client never re-sends the
+    other keys to omit it by.
     """
-    return {**(existing or {}), **incoming}
+    merged = {**(existing or {})}
+    for key, value in incoming.items():
+        if value is None:
+            merged.pop(key, None)
+        else:
+            merged[key] = value
+    return merged
 
 
 class UpdatePipelineSettingsMutation(graphene.Mutation):
@@ -511,6 +539,10 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
                 # so they are encrypted at rest. Empty placeholders are allowed
                 # as schema markers.
                 for parser_path, kwargs in parser_kwargs.items():
+                    # None is a delete marker (merge_mapping_field drops this
+                    # parser's kwargs entirely) — nothing to validate.
+                    if kwargs is None:
+                        continue
                     if not isinstance(kwargs, dict):
                         return UpdatePipelineSettingsMutation(
                             ok=False,
@@ -568,6 +600,11 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
                             message=f"Invalid component path in component_settings: {error}",
                             pipeline_settings=None,
                         )
+
+                    # None is a delete marker (merge_mapping_field drops this
+                    # component's settings entirely) — nothing to validate.
+                    if comp_settings is None:
+                        continue
 
                     if not isinstance(comp_settings, dict):
                         return UpdatePipelineSettingsMutation(

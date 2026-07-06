@@ -300,7 +300,8 @@ test.describe("SystemSettings — filetype default assignment", () => {
     page,
   }) => {
     // Settings have PDF -> Docling assigned; clearing the dropdown should
-    // remove the entry and call updateSettings with an empty object.
+    // send just the changed MIME type with a null value, which the server
+    // treats as a delete marker (removes the key, preserves any siblings).
     const settingsWithPdf = {
       ...mockSettingsBase,
       preferredParsers: {
@@ -312,7 +313,7 @@ test.describe("SystemSettings — filetype default assignment", () => {
     const clearMock = {
       request: {
         query: UPDATE_PIPELINE_SETTINGS,
-        variables: { preferredParsers: {} },
+        variables: { preferredParsers: { "application/pdf": null } },
       },
       result: {
         data: {
@@ -1756,14 +1757,16 @@ test.describe("SystemSettings — enrichment chain editor", () => {
       ...enricherSettingsBase,
       preferredEnrichers: { "application/pdf": [PDF_OUTLINE] },
     };
-    // handleAssignEnrichers deletes the key entirely when the resulting
-    // chain is empty, rather than persisting `{ "application/pdf": [] }`.
-    const expectedChain = {};
+    // handleAssignEnrichers sends `null` for the MIME type entirely when the
+    // resulting chain is empty (a delete marker the server merges away),
+    // rather than persisting `{ "application/pdf": [] }`.
+    const sentVariables = { "application/pdf": null };
+    const resultingChain = {};
 
     const removeMock = {
       request: {
         query: UPDATE_PIPELINE_SETTINGS,
-        variables: { preferredEnrichers: expectedChain },
+        variables: { preferredEnrichers: sentVariables },
       },
       result: {
         data: {
@@ -1772,7 +1775,7 @@ test.describe("SystemSettings — enrichment chain editor", () => {
             message: "Updated",
             pipelineSettings: {
               ...settingsWithOne,
-              preferredEnrichers: expectedChain,
+              preferredEnrichers: resultingChain,
             },
           },
         },
@@ -1784,7 +1787,7 @@ test.describe("SystemSettings — enrichment chain editor", () => {
         data: {
           pipelineSettings: {
             ...settingsWithOne,
-            preferredEnrichers: expectedChain,
+            preferredEnrichers: resultingChain,
           },
         },
       },
