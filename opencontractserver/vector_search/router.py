@@ -118,6 +118,10 @@ def search_via_object_index(
     and if even that is not enough (see the shortfall rule below), the caller
     falls back to pgvector rather than under-filling.
     """
+    if top_k <= 0:
+        # Degenerate input: defer to the pgvector path so behavior stays
+        # byte-identical to the default backend for any caller quirk.
+        return None
     namespace = namespace_for_queryset(queryset, embedder_path, len(query_vector))
     if namespace is None:
         return None

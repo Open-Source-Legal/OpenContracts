@@ -198,12 +198,6 @@ class ObjectStorageVectorEngine:
         return name
 
     # -------------------------------------------------------------- read path
-    def namespace_exists(self, namespace: str) -> bool:
-        return (
-            self.store.exists(self._manifest_key(namespace))
-            or len(self._list_wal(namespace)) > 0
-        )
-
     def wal_tail_count(self, namespace: str) -> int:
         """
         Number of WAL files NOT yet folded into the current generation.
