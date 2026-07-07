@@ -246,6 +246,12 @@ class AuthorityMappingLoader:
         ``authority_pack_config`` applies to shape rules / abbreviations.
 
         Returns ``{origin: load_all()-summary}`` in load order.
+
+        Deliberate asymmetry: only PACK loads get per-origin fault isolation.
+        The initial core load raises on failure — a broken shipped
+        ``authority_mappings.yaml`` is a build defect (its own test suite and
+        the plain ``load_authority_mappings`` path fail on it), not an
+        installed-pack problem to route around.
         """
         # Lazy import: authority_pack_config reaches the pipeline registry to
         # enumerate packs; consuming it lazily (like constants.classify_prefix

@@ -795,6 +795,33 @@ class LoadAuthorityMappingsCommandTests(TestCase):
         assert f"[{BASELINE_ORIGIN_CORE}]" in out.getvalue()
         assert "[bolivia]" in out.getvalue()
 
+    def test_command_include_packs_prints_skipped_for_broken_pack(self):
+        # A broken pack's error entry must reach the command's stderr as a
+        # SKIPPED line — the operator-facing half of the per-pack isolation.
+        import tempfile as _tempfile
+        from pathlib import Path as _Path
+        from unittest import mock
+
+        from opencontractserver.enrichment.services import authority_pack_config as apc
+
+        with _tempfile.TemporaryDirectory() as tmp:
+            pack = _Path(tmp) / "brokenpack"
+            pack.mkdir()
+            (pack / "pack.yaml").write_text(
+                "name: brokenpack\nmappings: m.yaml\n", encoding="utf-8"
+            )
+            (pack / "m.yaml").write_text("prefixes: [unclosed\n", encoding="utf-8")
+            out, err = StringIO(), StringIO()
+            with mock.patch.object(apc, "authority_pack_dirs", return_value=[pack]):
+                call_command(
+                    "load_authority_mappings",
+                    "--include-packs",
+                    stdout=out,
+                    stderr=err,
+                )
+        assert "[brokenpack] SKIPPED:" in err.getvalue()
+        assert f"[{BASELINE_ORIGIN_CORE}]" in out.getvalue()
+
 
 class AuthorityMappingsMigrationTests(TestCase):
     """Verify the data migration's effect: the shipped baseline loads.

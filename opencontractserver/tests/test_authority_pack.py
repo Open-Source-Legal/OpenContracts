@@ -291,6 +291,27 @@ class LoadAuthorityPackEdgeCaseTests(TestCase):
         self.assertGreaterEqual(rows.count(), 5)
         self.assertTrue(all(ns.baseline_origin == "p" for ns in rows))
 
+    def test_foreign_owned_prefix_reported_in_output(self):
+        # A prefix another baseline origin already owns is skipped (first
+        # writer wins) — and the command must SAY so in its output, not just
+        # count it: the operator-facing half of the collision guard.
+        AuthorityNamespace.objects.create(
+            prefix="cpe",
+            display_name="Owned elsewhere",
+            source="baseline",
+            baseline_origin="otherpack",
+        )
+        self._write_pack(
+            {"name": "p", "mappings": "m.yaml"},
+            copy_mappings=True,
+        )
+        output = self._run()
+        self.assertIn("skipped_foreign_baseline=1", output)
+        self.assertIn("already owned by another baseline origin", output)
+        ns = AuthorityNamespace.objects.get(prefix="cpe")
+        self.assertEqual(ns.display_name, "Owned elsewhere")
+        self.assertEqual(ns.baseline_origin, "otherpack")
+
     def test_persona_idempotent_and_modified_persisted(self):
         # Finding #7: an unchanged persona must NOT rewrite the corpus.
         # Finding #2: a CHANGED persona must save AND advance ``modified``.
