@@ -447,6 +447,25 @@ class LoadInstalledTests(TestCase):
         assert BASELINE_ORIGIN_CORE in results
         assert AuthorityNamespace.objects.filter(prefix="exchange-act").exists()
 
+    def test_load_all_error_leaves_no_partial_namespace_rows(self):
+        # load_all is atomic: valid prefixes: + a malformed equivalences: entry
+        # must roll the namespace writes back — an "errored" pack in the
+        # load_installed report means NOTHING took effect, not "namespaces
+        # landed, equivalences didn't".
+        body = (
+            "prefixes:\n"
+            "  test-atomic:\n"
+            '    display_name: "Atomic Body"\n'
+            '    jurisdiction: "aa"\n'
+            '    authority_type: "statute"\n'
+            '    aliases: ["atomic body"]\n'
+            "equivalences:\n"
+            '  - {from_key: "test-atomic:1"}\n'  # missing to_key -> ValueError
+        )
+        results = self._load_installed_with_bad_pack(body)
+        assert "error" in results["badpack"]
+        assert not AuthorityNamespace.objects.filter(prefix="test-atomic").exists()
+
     def test_load_installed_reports_an_unparsable_manifest(self):
         # A pack whose pack.yaml ITSELF cannot be parsed never yields a mappings
         # file — it must still appear in the report as an error (keyed by its

@@ -53,6 +53,9 @@ from opencontractserver.enrichment.constants import BASELINE_ORIGIN_CORE
 from opencontractserver.enrichment.services.authority_mapping_loader import (
     AuthorityMappingLoader,
 )
+from opencontractserver.enrichment.services.authority_pack_config import (
+    pack_origin_name,
+)
 from opencontractserver.enrichment.services.authority_source_hosts import (
     is_valid_source_host,
 )
@@ -114,7 +117,10 @@ class Command(BaseCommand):
                 "Pack manifest declares neither 'mappings' nor 'corpora' — "
                 "nothing to load. Check the pack.yaml keys for typos."
             )
-        if str(manifest.get("name") or pack_dir.name) == BASELINE_ORIGIN_CORE:
+        origin = pack_origin_name(pack_dir, manifest)
+        if origin.lower() == BASELINE_ORIGIN_CORE:
+            # Case-insensitive so "Core" can't sail past while reading as the
+            # reserved name to a human.
             raise CommandError(
                 f"Pack name {BASELINE_ORIGIN_CORE!r} is reserved for the shipped "
                 "core baseline (it is the namespace rows' baseline_origin stamp); "
@@ -142,7 +148,6 @@ class Command(BaseCommand):
         # their baseline origin so another baseline writer (the core YAML or a
         # different pack) can never silently clobber them, and vice versa.
         if mappings_path is not None:
-            origin = str(manifest.get("name") or pack_dir.name)
             self._load_taxonomy(mappings_path, origin=origin)
 
         # 2) Corpora + content + personas. Defer the reactive re-link until the

@@ -25,6 +25,7 @@ import logging
 from pathlib import Path
 
 import yaml
+from django.db import transaction
 
 from opencontractserver.annotations.models import AuthorityNamespace
 from opencontractserver.enrichment.constants import BASELINE_ORIGIN_CORE
@@ -212,17 +213,24 @@ class AuthorityMappingLoader:
     def load_all(
         cls, *, path: Path | str | None = None, origin: str | None = None
     ) -> dict:
-        """Upsert both namespaces and equivalences from one YAML.
+        """Upsert both namespaces and equivalences from one YAML, atomically.
 
         Returns ``{"namespaces": {...}, "equivalences": {...}}``. Namespaces are
         loaded first so an equivalence's prefix always has a registry row.
         ``origin`` is threaded to :meth:`load_namespaces` (equivalence rows carry
         no per-writer origin — see :meth:`load`).
+
+        The two steps run in ONE transaction: without it, a YAML with valid
+        ``prefixes:`` but a malformed ``equivalences:`` entry would durably
+        commit the namespace rows and then raise — leaving a half-loaded file
+        that ``load_installed`` / ``load_authority_pack`` would report as
+        "errored / nothing loaded". An error must mean nothing took effect.
         """
-        return {
-            "namespaces": cls.load_namespaces(path=path, origin=origin),
-            "equivalences": cls.load(path=path),
-        }
+        with transaction.atomic():
+            return {
+                "namespaces": cls.load_namespaces(path=path, origin=origin),
+                "equivalences": cls.load(path=path),
+            }
 
     @classmethod
     def load_installed(cls) -> dict[str, dict]:
@@ -245,6 +253,7 @@ class AuthorityMappingLoader:
         # does) keeps this module import-light for the migration/seed path.
         from opencontractserver.enrichment.services.authority_pack_config import (
             iter_pack_mapping_files,
+            pack_origin_name,
         )
 
         results: dict[str, dict] = {BASELINE_ORIGIN_CORE: cls.load_all()}
@@ -252,8 +261,8 @@ class AuthorityMappingLoader:
         for pack_dir, mappings_path, manifest in iter_pack_mapping_files(
             errors=manifest_errors
         ):
-            origin = str(manifest.get("name") or pack_dir.name)
-            if origin == BASELINE_ORIGIN_CORE:
+            origin = pack_origin_name(pack_dir, manifest)
+            if origin.lower() == BASELINE_ORIGIN_CORE:
                 # A pack literally named "core" would impersonate the shipped
                 # baseline and bypass the collision guard — refuse it.
                 logger.warning(

@@ -173,7 +173,10 @@ another (issue #2057):
   `skipped_foreign_baseline` in the command output) — first writer wins. Resolve
   a genuine collision by dropping the prefix from one YAML, or by curating the
   row through the console (making it manual-owned). The pack name `core` is
-  reserved for the shipped baseline.
+  reserved for the shipped baseline, and a pack's `name:` must be **unique
+  across every installed pack directory** (in-tree + `AUTHORITY_PACK_PATHS`):
+  two directories declaring the same name are treated as the same pack — they
+  co-own their prefixes with no collision guard between them.
 
 To converge the whole installed taxonomy — the shipped baseline plus every
 installed pack's mappings — in one idempotent run (e.g. after editing several

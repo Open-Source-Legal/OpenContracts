@@ -54,6 +54,14 @@ ShapeRule = tuple[re.Pattern, "str | None", "str | None"]
 AbbrevEntry = tuple[str, str, str]
 
 
+def pack_origin_name(pack_dir: Path, manifest: dict) -> str:
+    """A pack's identity string (its ``baseline_origin`` stamp / registry key):
+    the manifest ``name:``, falling back to the pack directory's name. Shared by
+    the mapping loader and ``load_authority_pack`` so the two can never derive
+    different origins for the same pack."""
+    return str((manifest or {}).get("name") or pack_dir.name)
+
+
 def iter_pack_mapping_files(errors: "list | None" = None):
     """Yield ``(pack_dir, mappings_yaml_path, manifest)`` for every installed pack
     that declares a ``mappings:`` file that exists on disk.
