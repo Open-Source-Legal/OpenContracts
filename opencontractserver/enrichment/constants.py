@@ -46,6 +46,19 @@ AUTHORITY_PREFIX = _mappings.authority_prefix_map()
 # 17 CFR rules cited without a named authority.
 SEC_RULE_PREFIX = "sec-rule"
 
+# ``AuthorityNamespace.baseline_origin`` stamp for rows written from the shipped
+# core ``authority_mappings.yaml`` (loader default path + post_migrate seed).
+# Pack loads stamp the pack's manifest ``name`` instead, so two baseline writers
+# on the same prefix are distinguishable and the loader can refuse to clobber a
+# prefix another origin owns (see ``AuthorityMappingLoader.load_namespaces``).
+BASELINE_ORIGIN_CORE = "core"
+
+# Column width of ``AuthorityNamespace.baseline_origin`` (migration 0101). A
+# pack's manifest ``name`` becomes the stamp verbatim, so ``load_authority_pack``
+# fail-fasts a longer name up-front rather than surfacing a DB DataError
+# mid-load.
+BASELINE_ORIGIN_MAX_LENGTH = 64
+
 # Document-level relationship type for graph rollups — must match
 # DocumentRelationship.RELATIONSHIP_TYPE_CHOICES.
 DOC_REL_RELATIONSHIP = "RELATIONSHIP"

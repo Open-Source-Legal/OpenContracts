@@ -9,6 +9,7 @@ from opencontractserver.annotations.models import (
     AuthorityKeyEquivalence,
     AuthorityNamespace,
 )
+from opencontractserver.enrichment.constants import BASELINE_ORIGIN_CORE
 from opencontractserver.enrichment.services.authority_mapping_loader import (
     AuthorityMappingLoader,
 )
@@ -33,6 +34,9 @@ _FIXTURE_FROM = "test-act:1"
 _FIXTURE_TO = "usc-99:1"
 _FIXTURE_FROM_2 = "test-act:2"
 _FIXTURE_TO_2 = "usc-99:2"
+
+# Logger the loader emits its ownership/collision warnings on (assertLogs target).
+_LOADER_LOGGER = "opencontractserver.enrichment.services.authority_mapping_loader"
 
 
 class AuthorityKeyEquivalenceBaselineChoiceTests(TestCase):
@@ -260,6 +264,409 @@ class AuthorityNamespaceLoaderTests(TestCase):
         assert "exchange act" in ns.aliases
 
 
+class BaselineOriginGuardTests(TestCase):
+    """Baseline-vs-baseline collision guard (issue #2057).
+
+    Every ``source="baseline"`` namespace row is stamped with its WRITER origin
+    (``baseline_origin``: "core" for the shipped YAML, else the pack's name), and
+    a loader run never overwrites a prefix a DIFFERENT origin owns — first
+    writer wins, the collision is warned + counted. Before the guard, two
+    baseline writers on the same prefix silently last-write-wins'd each other
+    (``update_or_create`` with no writer partition).
+    """
+
+    _PACK_A_YAML = (
+        "prefixes:\n"
+        "  test-pack-a:\n"
+        '    display_name: "Pack A Body"\n'
+        '    jurisdiction: "aa"\n'
+        '    authority_type: "statute"\n'
+        '    aliases: ["pack a body"]\n'
+    )
+    _PACK_B_YAML = (
+        "prefixes:\n"
+        "  test-pack-b:\n"
+        '    display_name: "Pack B Body"\n'
+        '    jurisdiction: "bb"\n'
+        '    authority_type: "statute"\n'
+        '    aliases: ["pack b body"]\n'
+    )
+    # Pack B claiming Pack A's prefix — the collision case.
+    _PACK_B_CLAIMS_A_YAML = (
+        "prefixes:\n"
+        "  test-pack-a:\n"
+        '    display_name: "Pack B CLOBBER"\n'
+        '    jurisdiction: "bb"\n'
+        '    authority_type: "regulation"\n'
+        '    aliases: ["clobbered"]\n'
+    )
+
+    def test_default_core_load_stamps_core_origin(self):
+        AuthorityMappingLoader.load_namespaces()
+        ns = AuthorityNamespace.objects.get(prefix="exchange-act")
+        assert ns.baseline_origin == BASELINE_ORIGIN_CORE
+
+    def test_reloading_two_packs_with_distinct_prefixes_never_clobbers(self):
+        # Issue #2057 acceptance criterion: re-loading two packs that touch
+        # distinct prefixes never clobbers each other.
+        path_a = _write_yaml(self._PACK_A_YAML)
+        path_b = _write_yaml(self._PACK_B_YAML)
+        AuthorityMappingLoader.load_namespaces(path=path_a, origin="pack-a")
+        AuthorityMappingLoader.load_namespaces(path=path_b, origin="pack-b")
+        summary = AuthorityMappingLoader.load_namespaces(path=path_a, origin="pack-a")
+        assert summary["updated"] == 1
+        assert summary["skipped_foreign_baseline"] == 0
+
+        row_a = AuthorityNamespace.objects.get(prefix="test-pack-a")
+        row_b = AuthorityNamespace.objects.get(prefix="test-pack-b")
+        assert (row_a.display_name, row_a.baseline_origin) == (
+            "Pack A Body",
+            "pack-a",
+        )
+        assert (row_b.display_name, row_b.baseline_origin) == (
+            "Pack B Body",
+            "pack-b",
+        )
+
+    def test_same_prefix_foreign_origin_is_skipped_and_warned(self):
+        AuthorityMappingLoader.load_namespaces(
+            path=_write_yaml(self._PACK_A_YAML), origin="pack-a"
+        )
+        with self.assertLogs(_LOADER_LOGGER, level="WARNING"):
+            summary = AuthorityMappingLoader.load_namespaces(
+                path=_write_yaml(self._PACK_B_CLAIMS_A_YAML), origin="pack-b"
+            )
+        assert summary["skipped_foreign_baseline"] == 1
+        assert summary["created"] == 0
+        assert summary["updated"] == 0
+        row = AuthorityNamespace.objects.get(prefix="test-pack-a")
+        assert row.display_name == "Pack A Body"  # first writer wins
+        assert row.baseline_origin == "pack-a"
+
+    def test_unattributed_run_cannot_steal_owned_prefix(self):
+        # origin=None with an explicit path (an untagged ad-hoc load) must not
+        # be able to overwrite a prefix a named origin owns.
+        AuthorityMappingLoader.load_namespaces(
+            path=_write_yaml(self._PACK_A_YAML), origin="pack-a"
+        )
+        summary = AuthorityMappingLoader.load_namespaces(
+            path=_write_yaml(self._PACK_B_CLAIMS_A_YAML)
+        )
+        assert summary["skipped_foreign_baseline"] == 1
+        assert (
+            AuthorityNamespace.objects.get(prefix="test-pack-a").display_name
+            == "Pack A Body"
+        )
+
+    def test_legacy_null_origin_baseline_row_is_adopted(self):
+        # Pre-0101 baseline rows have no origin; the next owning load updates
+        # them and stamps its origin (adoption), so the fleet converges.
+        AuthorityNamespace.objects.create(
+            prefix="test-pack-a", display_name="Legacy row", source="baseline"
+        )
+        summary = AuthorityMappingLoader.load_namespaces(
+            path=_write_yaml(self._PACK_A_YAML), origin="pack-a"
+        )
+        assert summary["updated"] == 1
+        row = AuthorityNamespace.objects.get(prefix="test-pack-a")
+        assert row.display_name == "Pack A Body"
+        assert row.baseline_origin == "pack-a"
+
+    def test_manual_row_still_trumps_any_origin(self):
+        AuthorityNamespace.objects.create(
+            prefix="test-pack-a", display_name="CURATOR", source="manual"
+        )
+        summary = AuthorityMappingLoader.load_namespaces(
+            path=_write_yaml(self._PACK_A_YAML), origin="pack-a"
+        )
+        assert summary["skipped_manual"] == 1
+        assert (
+            AuthorityNamespace.objects.get(prefix="test-pack-a").display_name
+            == "CURATOR"
+        )
+
+
+class LoadInstalledTests(TestCase):
+    """``load_installed`` merge-loads the core YAML + every installed pack."""
+
+    def test_load_installed_merges_core_and_installed_packs(self):
+        results = AuthorityMappingLoader.load_installed()
+        # The in-tree reference bolivia pack is always installed.
+        assert BASELINE_ORIGIN_CORE in results
+        assert "bolivia" in results
+
+        core_ns = AuthorityNamespace.objects.get(prefix="exchange-act")
+        assert core_ns.baseline_origin == BASELINE_ORIGIN_CORE
+        pack_ns = AuthorityNamespace.objects.get(prefix="cpe")
+        assert pack_ns.baseline_origin == "bolivia"
+        assert pack_ns.is_global is True
+
+    def test_load_installed_is_idempotent(self):
+        AuthorityMappingLoader.load_installed()
+        second = AuthorityMappingLoader.load_installed()
+        for origin, summary in second.items():
+            ns = summary["namespaces"]
+            assert ns["created"] == 0, origin
+            assert ns["skipped_foreign_baseline"] == 0, origin
+
+    @staticmethod
+    def _load_installed_with_bad_pack(mappings_body: str) -> dict:
+        """Run ``load_installed`` with one synthetic pack whose mappings YAML is
+        *mappings_body* as the only installed pack."""
+        import tempfile as _tempfile
+        from pathlib import Path as _Path
+        from unittest import mock
+
+        from opencontractserver.enrichment.services import authority_pack_config as apc
+
+        with _tempfile.TemporaryDirectory() as tmp:
+            bad_pack = _Path(tmp) / "badpack"
+            bad_pack.mkdir()
+            (bad_pack / "pack.yaml").write_text(
+                "name: badpack\nmappings: m.yaml\n", encoding="utf-8"
+            )
+            (bad_pack / "m.yaml").write_text(mappings_body, encoding="utf-8")
+            with mock.patch.object(apc, "authority_pack_dirs", return_value=[bad_pack]):
+                return AuthorityMappingLoader.load_installed()
+
+    def test_load_installed_isolates_a_schema_invalid_pack(self):
+        # One pack whose YAML parses but fails shape validation (ValueError from
+        # the reader) must not abort the converge run: it is reported under its
+        # origin as an error, the core baseline (and any other pack) still loads.
+        results = self._load_installed_with_bad_pack(
+            'prefixes:\n  "NOT A VALID PREFIX!!":\n    display_name: "x"\n'
+        )
+        assert "error" in results["badpack"]
+        assert BASELINE_ORIGIN_CORE in results
+        assert AuthorityNamespace.objects.filter(prefix="exchange-act").exists()
+
+    def test_load_installed_isolates_an_unparsable_pack(self):
+        # A genuine YAML *syntax* error raises yaml.YAMLError — which is NOT a
+        # ValueError subclass — so the isolation guard must catch it explicitly
+        # or one broken file aborts every other installed pack's load.
+        results = self._load_installed_with_bad_pack("prefixes: [unclosed\n")
+        assert "error" in results["badpack"]
+        assert BASELINE_ORIGIN_CORE in results
+        assert AuthorityNamespace.objects.filter(prefix="exchange-act").exists()
+
+    def test_load_all_error_leaves_no_partial_namespace_rows(self):
+        # load_all is atomic: valid prefixes: + a malformed equivalences: entry
+        # must roll the namespace writes back — an "errored" pack in the
+        # load_installed report means NOTHING took effect, not "namespaces
+        # landed, equivalences didn't".
+        body = (
+            "prefixes:\n"
+            "  test-atomic:\n"
+            '    display_name: "Atomic Body"\n'
+            '    jurisdiction: "aa"\n'
+            '    authority_type: "statute"\n'
+            '    aliases: ["atomic body"]\n'
+            "equivalences:\n"
+            '  - {from_key: "test-atomic:1"}\n'  # missing to_key -> ValueError
+        )
+        results = self._load_installed_with_bad_pack(body)
+        assert "error" in results["badpack"]
+        assert not AuthorityNamespace.objects.filter(prefix="test-atomic").exists()
+
+    def test_load_installed_isolates_a_db_level_failure(self):
+        # An over-length pack name only fails at the DB layer (DataError writing
+        # baseline_origin) — not a ValueError/YAMLError. The per-pack isolation
+        # must still contain it: load_all's transaction rolls the pack back, the
+        # error is reported under its origin, and the core baseline survives.
+        import tempfile as _tempfile
+        from pathlib import Path as _Path
+        from unittest import mock
+
+        from opencontractserver.enrichment.constants import (
+            BASELINE_ORIGIN_MAX_LENGTH,
+        )
+        from opencontractserver.enrichment.services import authority_pack_config as apc
+
+        long_name = "x" * (BASELINE_ORIGIN_MAX_LENGTH + 1)
+        with _tempfile.TemporaryDirectory() as tmp:
+            pack = _Path(tmp) / "longname"
+            pack.mkdir()
+            (pack / "pack.yaml").write_text(
+                f"name: {long_name}\nmappings: m.yaml\n", encoding="utf-8"
+            )
+            (pack / "m.yaml").write_text(
+                "prefixes:\n"
+                "  test-longname:\n"
+                '    display_name: "Long"\n'
+                '    jurisdiction: "aa"\n'
+                '    authority_type: "statute"\n'
+                '    aliases: ["long name body"]\n',
+                encoding="utf-8",
+            )
+            with mock.patch.object(apc, "authority_pack_dirs", return_value=[pack]):
+                results = AuthorityMappingLoader.load_installed()
+
+        assert "error" in results[long_name]
+        assert not AuthorityNamespace.objects.filter(prefix="test-longname").exists()
+        assert AuthorityNamespace.objects.filter(prefix="exchange-act").exists()
+
+    def test_load_installed_warns_on_case_different_duplicate_names(self):
+        # "Bolivia" vs "bolivia" is almost certainly an authoring typo: the two
+        # load as distinct origins (the collision guard keeps them from
+        # clobbering each other) but the duplicate-name warning must fire,
+        # case-insensitively — matching the reserved-name check.
+        import tempfile as _tempfile
+        from pathlib import Path as _Path
+        from unittest import mock
+
+        from opencontractserver.enrichment.services import authority_pack_config as apc
+
+        def _mk(root: _Path, dirname: str, name: str, prefix: str) -> _Path:
+            pack = root / dirname
+            pack.mkdir()
+            (pack / "pack.yaml").write_text(
+                f"name: {name}\nmappings: m.yaml\n", encoding="utf-8"
+            )
+            (pack / "m.yaml").write_text(
+                f"prefixes:\n"
+                f"  {prefix}:\n"
+                f'    display_name: "{name}"\n'
+                f'    jurisdiction: "aa"\n'
+                f'    authority_type: "statute"\n'
+                f'    aliases: ["{prefix} body"]\n',
+                encoding="utf-8",
+            )
+            return pack
+
+        with _tempfile.TemporaryDirectory() as tmp:
+            root = _Path(tmp)
+            packs = [
+                _mk(root, "dup-a", "DupPack", "test-dup-a"),
+                _mk(root, "dup-b", "duppack", "test-dup-b"),
+            ]
+            with mock.patch.object(apc, "authority_pack_dirs", return_value=packs):
+                with self.assertLogs(_LOADER_LOGGER, level="WARNING") as logs:
+                    results = AuthorityMappingLoader.load_installed()
+
+        assert any("Duplicate authority pack name" in line for line in logs.output)
+        # Both still load, as distinct origins the guard keeps apart.
+        assert results["DupPack"]["namespaces"]["created"] == 1
+        assert results["duppack"]["namespaces"]["created"] == 1
+
+    def test_load_installed_reports_a_missing_mappings_file(self):
+        # `mappings: typo.yaml` with no such file on disk — the most likely
+        # authoring mistake — must show up in the report, not silently make the
+        # pack's taxonomy never load.
+        import tempfile as _tempfile
+        from pathlib import Path as _Path
+        from unittest import mock
+
+        from opencontractserver.enrichment.services import authority_pack_config as apc
+
+        with _tempfile.TemporaryDirectory() as tmp:
+            pack = _Path(tmp) / "typo-pack"
+            pack.mkdir()
+            (pack / "pack.yaml").write_text(
+                "name: typo-pack\nmappings: typo.yaml\n", encoding="utf-8"
+            )
+            with mock.patch.object(apc, "authority_pack_dirs", return_value=[pack]):
+                results = AuthorityMappingLoader.load_installed()
+
+        assert "not found" in results["typo-pack"]["error"]
+        assert BASELINE_ORIGIN_CORE in results
+
+    def test_load_installed_exact_duplicate_names_coown_and_warn(self):
+        # Two directories declaring the SAME manifest name are by declaration
+        # the same pack: both load under one origin (idempotent, co-owned
+        # prefixes), the duplicate warning fires, and the report carries one
+        # entry for that origin.
+        import tempfile as _tempfile
+        from pathlib import Path as _Path
+        from unittest import mock
+
+        from opencontractserver.enrichment.services import authority_pack_config as apc
+
+        def _mk(root: _Path, dirname: str, prefix: str) -> _Path:
+            pack = root / dirname
+            pack.mkdir()
+            (pack / "pack.yaml").write_text(
+                "name: SamePack\nmappings: m.yaml\n", encoding="utf-8"
+            )
+            (pack / "m.yaml").write_text(
+                f"prefixes:\n"
+                f"  {prefix}:\n"
+                f'    display_name: "Same"\n'
+                f'    jurisdiction: "aa"\n'
+                f'    authority_type: "statute"\n'
+                f'    aliases: ["{prefix} body"]\n',
+                encoding="utf-8",
+            )
+            return pack
+
+        with _tempfile.TemporaryDirectory() as tmp:
+            root = _Path(tmp)
+            packs = [
+                _mk(root, "same-a", "test-same-a"),
+                _mk(root, "same-b", "test-same-b"),
+            ]
+            with mock.patch.object(apc, "authority_pack_dirs", return_value=packs):
+                with self.assertLogs(_LOADER_LOGGER, level="WARNING") as logs:
+                    results = AuthorityMappingLoader.load_installed()
+
+        assert any("Duplicate authority pack name" in line for line in logs.output)
+        # One shared origin: both dirs' prefixes exist, stamped identically.
+        assert "error" not in results["SamePack"]
+        for prefix in ("test-same-a", "test-same-b"):
+            ns = AuthorityNamespace.objects.get(prefix=prefix)
+            assert ns.baseline_origin == "SamePack"
+
+    def test_load_installed_reports_a_reserved_core_pack_name(self):
+        # An installed pack named "core" (any case) is refused — and the refusal
+        # must appear in the report keyed by the pack's directory name, not
+        # vanish into the log. Nothing from the pack's YAML may load.
+        import tempfile as _tempfile
+        from pathlib import Path as _Path
+        from unittest import mock
+
+        from opencontractserver.enrichment.services import authority_pack_config as apc
+
+        with _tempfile.TemporaryDirectory() as tmp:
+            pack = _Path(tmp) / "impostor"
+            pack.mkdir()
+            (pack / "pack.yaml").write_text(
+                "name: Core\nmappings: m.yaml\n", encoding="utf-8"
+            )
+            (pack / "m.yaml").write_text(
+                "prefixes:\n"
+                "  test-impostor:\n"
+                '    display_name: "Impostor"\n'
+                '    jurisdiction: "aa"\n'
+                '    authority_type: "statute"\n'
+                '    aliases: ["impostor body"]\n',
+                encoding="utf-8",
+            )
+            with mock.patch.object(apc, "authority_pack_dirs", return_value=[pack]):
+                results = AuthorityMappingLoader.load_installed()
+
+        assert "reserved" in results["impostor"]["error"]
+        assert not AuthorityNamespace.objects.filter(prefix="test-impostor").exists()
+
+    def test_load_installed_reports_an_unparsable_manifest(self):
+        # A pack whose pack.yaml ITSELF cannot be parsed never yields a mappings
+        # file — it must still appear in the report as an error (keyed by its
+        # directory name) rather than vanishing into the log.
+        import tempfile as _tempfile
+        from pathlib import Path as _Path
+        from unittest import mock
+
+        from opencontractserver.enrichment.services import authority_pack_config as apc
+
+        with _tempfile.TemporaryDirectory() as tmp:
+            bad_pack = _Path(tmp) / "broken-manifest"
+            bad_pack.mkdir()
+            (bad_pack / "pack.yaml").write_text("name: [unclosed\n", encoding="utf-8")
+            with mock.patch.object(apc, "authority_pack_dirs", return_value=[bad_pack]):
+                results = AuthorityMappingLoader.load_installed()
+
+        assert "error" in results["broken-manifest"]
+        assert BASELINE_ORIGIN_CORE in results
+
+
 class NamespaceReseedOwnershipTests(TestCase):
     """The ``post_migrate`` namespace convergence (``ensure_seeded``) must honour
     the same source-ownership partition as ``AuthorityMappingLoader.load_namespaces``.
@@ -324,7 +731,8 @@ class NamespaceReseedOwnershipTests(TestCase):
 
     def test_reseed_still_converges_baseline_rows(self):
         # The convergence must still (re)create a shipped baseline prefix that is
-        # absent — its whole reason for existing (post-flush re-seed).
+        # absent — its whole reason for existing (post-flush re-seed). Rows it
+        # writes are stamped as core-origin baseline, same as the loader.
         from opencontractserver.enrichment._namespace_seed import ensure_seeded
 
         AuthorityNamespace.objects.filter(prefix="dgcl").delete()
@@ -332,6 +740,29 @@ class NamespaceReseedOwnershipTests(TestCase):
         ns = AuthorityNamespace.objects.get(prefix="dgcl")
         assert ns.is_global is True
         assert ns.source == "baseline"
+        assert ns.baseline_origin == BASELINE_ORIGIN_CORE
+
+    def test_reseed_respects_pack_owned_prefix(self):
+        # A shipped-constants prefix that a PACK claimed first (baseline_origin
+        # != "core") must survive the convergence: the seed mirrors the loader's
+        # first-writer-wins baseline-origin guard (issue #2057).
+        from opencontractserver.enrichment._namespace_seed import ensure_seeded
+
+        AuthorityNamespace.objects.update_or_create(
+            prefix="dgcl",
+            defaults={
+                "display_name": "PACK OWNED",
+                "is_global": True,
+                "source": "baseline",
+                "baseline_origin": "somepack",
+            },
+        )
+
+        ensure_seeded()
+
+        ns = AuthorityNamespace.objects.get(prefix="dgcl")
+        assert ns.display_name == "PACK OWNED"
+        assert ns.baseline_origin == "somepack"
 
 
 class LoadAuthorityMappingsCommandTests(TestCase):
@@ -343,6 +774,53 @@ class LoadAuthorityMappingsCommandTests(TestCase):
         ).exists()
         assert AuthorityNamespace.objects.filter(prefix="exchange-act").exists()
         assert "created" in out.getvalue().lower()
+
+    def test_command_default_does_not_load_packs(self):
+        # "cpe" ships only in the in-tree bolivia PACK, not the core YAML —
+        # clear any leaked copy, then verify the default (pack-less) run does
+        # not create it.
+        AuthorityNamespace.objects.filter(prefix="cpe").delete()
+        out = StringIO()
+        call_command("load_authority_mappings", stdout=out)
+        assert not AuthorityNamespace.objects.filter(prefix="cpe").exists()
+        assert f"[{BASELINE_ORIGIN_CORE}]" in out.getvalue()
+        assert "[bolivia]" not in out.getvalue()
+
+    def test_command_include_packs_merges_installed_packs(self):
+        out = StringIO()
+        call_command("load_authority_mappings", "--include-packs", stdout=out)
+        assert AuthorityNamespace.objects.filter(
+            prefix="cpe", baseline_origin="bolivia"
+        ).exists()
+        assert f"[{BASELINE_ORIGIN_CORE}]" in out.getvalue()
+        assert "[bolivia]" in out.getvalue()
+
+    def test_command_include_packs_prints_skipped_for_broken_pack(self):
+        # A broken pack's error entry must reach the command's stderr as a
+        # SKIPPED line — the operator-facing half of the per-pack isolation.
+        import tempfile as _tempfile
+        from pathlib import Path as _Path
+        from unittest import mock
+
+        from opencontractserver.enrichment.services import authority_pack_config as apc
+
+        with _tempfile.TemporaryDirectory() as tmp:
+            pack = _Path(tmp) / "brokenpack"
+            pack.mkdir()
+            (pack / "pack.yaml").write_text(
+                "name: brokenpack\nmappings: m.yaml\n", encoding="utf-8"
+            )
+            (pack / "m.yaml").write_text("prefixes: [unclosed\n", encoding="utf-8")
+            out, err = StringIO(), StringIO()
+            with mock.patch.object(apc, "authority_pack_dirs", return_value=[pack]):
+                call_command(
+                    "load_authority_mappings",
+                    "--include-packs",
+                    stdout=out,
+                    stderr=err,
+                )
+        assert "[brokenpack] SKIPPED:" in err.getvalue()
+        assert f"[{BASELINE_ORIGIN_CORE}]" in out.getvalue()
 
 
 class AuthorityMappingsMigrationTests(TestCase):
@@ -365,3 +843,16 @@ class AuthorityMappingsMigrationTests(TestCase):
         assert AuthorityKeyEquivalence.objects.filter(
             from_key="exchange-act:10", to_key="usc-15:78j", source="baseline"
         ).exists()
+
+
+class BaselineOriginGraphQLExposureTests(TestCase):
+    """Pin the console surface of the collision guard: ``baseline_origin`` is
+    queryable on ``AuthorityNamespaceNode`` (whose ``get_queryset`` already
+    gates the whole type behind ``is_authority_admin``), so a curator can see
+    which origin owns a prefix when a load reports a skipped collision."""
+
+    def test_baseline_origin_exposed_on_namespace_node(self):
+        from config.graphql.schema import schema
+
+        fields = schema.graphql_schema.type_map["AuthorityNamespaceNode"].fields
+        assert "baselineOrigin" in fields

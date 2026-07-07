@@ -280,15 +280,37 @@ class LoadAuthorityPackEdgeCaseTests(TestCase):
 
     def test_taxonomy_only_pack_loads_namespaces(self):
         # A pack may declare just taxonomy (no corpora) — that is valid, not a
-        # silent no-op.
+        # silent no-op. Every namespace row is stamped with the pack's name as
+        # its baseline_origin (the #2057 collision guard).
         self._write_pack(
             {"name": "p", "mappings": "m.yaml"},
             copy_mappings=True,
         )
         self._run()
-        self.assertGreaterEqual(
-            AuthorityNamespace.objects.filter(jurisdiction="bo").count(), 5
+        rows = AuthorityNamespace.objects.filter(jurisdiction="bo")
+        self.assertGreaterEqual(rows.count(), 5)
+        self.assertTrue(all(ns.baseline_origin == "p" for ns in rows))
+
+    def test_foreign_owned_prefix_reported_in_output(self):
+        # A prefix another baseline origin already owns is skipped (first
+        # writer wins) — and the command must SAY so in its output, not just
+        # count it: the operator-facing half of the collision guard.
+        AuthorityNamespace.objects.create(
+            prefix="cpe",
+            display_name="Owned elsewhere",
+            source="baseline",
+            baseline_origin="otherpack",
         )
+        self._write_pack(
+            {"name": "p", "mappings": "m.yaml"},
+            copy_mappings=True,
+        )
+        output = self._run()
+        self.assertIn("skipped_foreign_baseline=1", output)
+        self.assertIn("already owned by another baseline origin", output)
+        ns = AuthorityNamespace.objects.get(prefix="cpe")
+        self.assertEqual(ns.display_name, "Owned elsewhere")
+        self.assertEqual(ns.baseline_origin, "otherpack")
 
     def test_persona_idempotent_and_modified_persisted(self):
         # Finding #7: an unchanged persona must NOT rewrite the corpus.
@@ -364,6 +386,37 @@ class LoadAuthorityPackEdgeCaseTests(TestCase):
         # Neither mappings nor corpora → nothing to load (catches a typo'd key).
         self._write_pack({"name": "p"})
         with self.assertRaises(CommandError):
+            self._run()
+
+    def test_reserved_core_pack_name_rejected(self):
+        # "core" is the baseline_origin stamp of the shipped core YAML; a pack
+        # named "core" would impersonate it and bypass the #2057 collision
+        # guard. Rejected fail-fast, before any DB write.
+        # Defensive baseline for the assertFalse below: "bo" rows are not part
+        # of this TestCase's transaction-start state, but a reused --keepdb
+        # database can carry cross-module leakage; clearing makes the
+        # nothing-was-written assertion unambiguous.
+        AuthorityNamespace.objects.filter(jurisdiction="bo").delete()
+        self._write_pack(
+            {"name": "core", "mappings": "m.yaml"},
+            copy_mappings=True,
+        )
+        with self.assertRaises(CommandError):
+            self._run()
+        self.assertFalse(AuthorityNamespace.objects.filter(jurisdiction="bo").exists())
+
+    def test_over_length_pack_name_rejected(self):
+        # The manifest name becomes the baseline_origin stamp verbatim; longer
+        # than the column allows must fail fast, not as a DataError mid-load.
+        from opencontractserver.enrichment.constants import (
+            BASELINE_ORIGIN_MAX_LENGTH,
+        )
+
+        self._write_pack(
+            {"name": "x" * (BASELINE_ORIGIN_MAX_LENGTH + 1), "mappings": "m.yaml"},
+            copy_mappings=True,
+        )
+        with self.assertRaisesMessage(CommandError, "exceeds"):
             self._run()
 
     def test_corpora_null_rejected(self):
