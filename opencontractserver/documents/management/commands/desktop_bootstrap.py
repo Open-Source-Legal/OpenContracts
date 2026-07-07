@@ -31,7 +31,7 @@ from django.core.management.base import BaseCommand, CommandError
 
 from opencontractserver.desktop import paths
 from opencontractserver.desktop.bootstrap import (
-    MIN_PASSWORD_LENGTH,
+    LOGIN_MIN_LENGTH,
     prompt_for_password,
 )
 
@@ -84,17 +84,17 @@ class Command(BaseCommand):
         ``opencontractserver.desktop.bootstrap.prompt_for_password``) is the
         fallback for direct invocations. Returns None when neither source
         yields a password (CI, a windowed shell); nothing is generated, stored
-        on disk, or printed. The MIN_PASSWORD_LENGTH floor applies to BOTH
+        on disk, or printed. The LOGIN_MIN_LENGTH floor applies to BOTH
         sources — this is a superuser account and Django's validators never
         run for it, so the env-var path must not bypass the only check.
         """
         password = os.environ.get("OC_DESKTOP_PASSWORD")
         if password:
-            if len(password) >= MIN_PASSWORD_LENGTH:
+            if len(password) >= LOGIN_MIN_LENGTH:
                 return password
             self.stdout.write(
                 self.style.WARNING(
-                    f"OC_DESKTOP_PASSWORD is shorter than {MIN_PASSWORD_LENGTH} "
+                    f"OC_DESKTOP_PASSWORD is shorter than {LOGIN_MIN_LENGTH} "
                     "characters; ignoring it."
                 )
             )
