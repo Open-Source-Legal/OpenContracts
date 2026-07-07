@@ -156,15 +156,18 @@ def _base_env() -> dict[str, str]:
 
 
 def _ensure_dirs() -> None:
+    # mode=0o700 (before umask; ignored on Windows): the app-data tree holds
+    # the full local database and uploaded documents — keep it user-private on
+    # shared machines. Matches paths.subdir(create=True).
     for maker in (
         paths.app_data_dir,
         paths.media_dir,
         paths.static_dir,
         paths.logs_dir,
     ):
-        Path(maker()).mkdir(parents=True, exist_ok=True)
+        Path(maker()).mkdir(mode=0o700, parents=True, exist_ok=True)
     for name in ("in", "out", "control"):
-        (paths.celery_broker_dir() / name).mkdir(parents=True, exist_ok=True)
+        paths.subdir("celery-broker", name, create=True)
 
 
 def _free_port() -> int:
@@ -219,7 +222,8 @@ def _start_postgres(env: dict[str, str]) -> None:
         )
 
     pgdata = paths.pg_data_dir()
-    pgdata.mkdir(parents=True, exist_ok=True)
+    # User-private like the rest of app-data — this is the whole database.
+    pgdata.mkdir(mode=0o700, parents=True, exist_ok=True)
     print(f"[oc-desktop] Starting embedded PostgreSQL at {pgdata} …")
     server = pgserver.get_server(str(pgdata))
 
@@ -407,10 +411,15 @@ def _shutdown(*_args) -> None:
         if proc.poll() is None:
             with contextlib.suppress(Exception):
                 proc.terminate()
-    deadline = time.time() + 10
-    for proc in reversed(_children):
-        with contextlib.suppress(Exception):
-            proc.wait(timeout=max(0, deadline - time.time()))
+    # An impatient second Ctrl+C during the drain raises KeyboardInterrupt
+    # here; skip straight to the kill phase instead of dying mid-teardown.
+    try:
+        deadline = time.time() + 10
+        for proc in reversed(_children):
+            with contextlib.suppress(Exception):
+                proc.wait(timeout=max(0, deadline - time.time()))
+    except KeyboardInterrupt:
+        pass
     for proc in reversed(_children):
         if proc.poll() is None:
             with contextlib.suppress(Exception):
@@ -418,6 +427,12 @@ def _shutdown(*_args) -> None:
     for handle in _log_handles:
         with contextlib.suppress(Exception):
             handle.close()
+    if _children:
+        print(
+            "\n[oc-desktop] Stopped. Your documents and settings are saved "
+            f"under\n             {paths.app_data_dir()}\n             Run the "
+            "same command to start OpenContracts again."
+        )
 
 
 def main() -> None:
@@ -428,6 +443,10 @@ def main() -> None:
     _start_postgres(env)
     _manage(env, "migrate", "--noinput")
     _first_run_bootstrap(env)
+    # The first-run password (possibly injected by bootstrap's early prompt) is
+    # only needed by desktop_bootstrap — never expose it to the long-lived
+    # children (Daphne/worker/beat) below.
+    env.pop("OC_DESKTOP_PASSWORD", None)
     if _manage(env, "collectstatic", "--noinput", check=False) != 0:
         print(
             "[oc-desktop] WARNING: collectstatic failed; Django admin/DRF static "

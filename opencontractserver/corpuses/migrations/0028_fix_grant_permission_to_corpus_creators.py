@@ -40,8 +40,17 @@ def grant_permission_to_creators(apps, schema_editor):
             codename="permission_corpus", content_type=content_type
         )
     except Permission.DoesNotExist:
-        print("\nERROR: permission_corpus Permission does not exist!")
-        print("Run 'python manage.py migrate' to create permissions first.")
+        # EXPECTED (and harmless) on a fresh database: Django only creates
+        # Permission rows in post_migrate, after this whole migrate run — and a
+        # fresh DB has no corpuses to backfill anyway. Only warn when there is
+        # real data this fix could not touch, and don't shout "ERROR" at every
+        # first-time installer (it read as a crash in desktop usability tests).
+        if Corpus.objects.exists():
+            print(
+                "\nWARNING: permission_corpus Permission does not exist yet, "
+                "so existing corpuses were not backfilled."
+            )
+            print("Run 'python manage.py migrate' once more to apply this fix.")
         return
 
     # Process all corpuses with creators

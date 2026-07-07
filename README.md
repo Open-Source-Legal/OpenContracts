@@ -232,7 +232,7 @@ The simplest way to try OpenContracts on Windows, macOS, or Linux — one comman
 python3 oc-desktop.py       # Windows: py oc-desktop.py
 ```
 
-The first run takes several minutes: it installs everything into a private environment (your system Python is untouched), downloads the app UI, starts the built-in database, and asks you to choose a password. Your browser then opens at the app — log in as user **`desktop`** with the password you chose. To stop the app, press `Ctrl+C` in that terminal. Later launches skip setup and start in well under a minute.
+The first run asks you to choose a password up front, then sets everything up unattended (10–20 minutes: it installs into a private environment — your system Python is untouched — fetches the app UI, and prepares the built-in database). Your browser then opens at the app, which lives at **http://127.0.0.1:8406/** — log in as user **`desktop`** with the password you chose. To stop the app, press `Ctrl+C` in that terminal. Later launches skip setup and start in well under a minute.
 
 See [Desktop packaging](docs/deployment/desktop_packaging.md) for details, advanced options, and current limitations.
 

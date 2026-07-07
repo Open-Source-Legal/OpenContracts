@@ -156,18 +156,17 @@ class DesktopBootstrapTests(TestCase):
     @staticmethod
     def _no_tty():
         """Force the non-interactive path (no password prompt) regardless of
-        how the test runner's stdin is wired."""
+        how the test runner's stdin is wired. The prompt lives in the shared
+        opencontractserver.desktop.bootstrap helper."""
         return mock.patch(
-            "opencontractserver.documents.management.commands."
-            "desktop_bootstrap.sys.stdin.isatty",
+            "opencontractserver.desktop.bootstrap.sys.stdin.isatty",
             return_value=False,
         )
 
     @staticmethod
     def _tty():
         return mock.patch(
-            "opencontractserver.documents.management.commands."
-            "desktop_bootstrap.sys.stdin.isatty",
+            "opencontractserver.desktop.bootstrap.sys.stdin.isatty",
             return_value=True,
         )
 
@@ -199,8 +198,7 @@ class DesktopBootstrapTests(TestCase):
         with mock.patch.dict(
             os.environ, {"OC_DESKTOP_PASSWORD": ""}, clear=False
         ), self._tty(), mock.patch(
-            "opencontractserver.documents.management.commands."
-            "desktop_bootstrap.getpass.getpass",
+            "getpass.getpass",
             side_effect=lambda *_a, **_k: next(answers),
         ):
             cmd._seed_user("erin", "erin@localhost")
@@ -235,8 +233,7 @@ class DesktopBootstrapTests(TestCase):
         with mock.patch.dict(
             os.environ, {"OC_DESKTOP_PASSWORD": ""}, clear=False
         ), self._tty(), mock.patch(
-            "opencontractserver.documents.management.commands."
-            "desktop_bootstrap.getpass.getpass",
+            "getpass.getpass",
             side_effect=AssertionError("must not prompt"),
         ):
             cmd._seed_user("gina", "gina@localhost")
@@ -619,3 +616,78 @@ class TrigramMigrationGuardTests(TestCase):
         )
         self.assertIn("CREATE EXTENSION IF NOT EXISTS pg_trgm", executed)
         self.assertIn("annotation_raw_text_trgm_gin", executed)
+
+
+class EarlyPasswordPromptTests(SimpleTestCase):
+    """The stdlib-only prompt helpers in ``desktop.bootstrap``."""
+
+    def test_prompt_returns_none_without_tty(self):
+        from opencontractserver.desktop import bootstrap
+
+        with mock.patch(
+            "opencontractserver.desktop.bootstrap.sys.stdin.isatty",
+            return_value=False,
+        ):
+            self.assertIsNone(bootstrap.prompt_for_password())
+
+    def test_prompt_survives_ctrl_c(self):
+        from opencontractserver.desktop import bootstrap
+
+        with mock.patch(
+            "opencontractserver.desktop.bootstrap.sys.stdin.isatty",
+            return_value=True,
+        ), mock.patch("getpass.getpass", side_effect=KeyboardInterrupt):
+            self.assertIsNone(bootstrap.prompt_for_password())
+
+    def test_early_prompt_sets_env_before_install(self):
+        from opencontractserver.desktop import bootstrap
+
+        with tempfile.TemporaryDirectory() as tmp:
+            env = {paths.DATA_DIR_ENV: tmp}
+            env.pop("OC_DESKTOP_PASSWORD", None)
+            with mock.patch.dict(os.environ, env, clear=False):
+                os.environ.pop("OC_DESKTOP_PASSWORD", None)
+                with mock.patch.object(
+                    bootstrap, "prompt_for_password", return_value="chosen-pw-123"
+                ):
+                    bootstrap.maybe_prompt_first_run_password()
+                self.assertEqual(os.environ.get("OC_DESKTOP_PASSWORD"), "chosen-pw-123")
+                os.environ.pop("OC_DESKTOP_PASSWORD", None)
+
+    def test_early_prompt_skipped_after_first_run(self):
+        from opencontractserver.desktop import bootstrap
+
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / ".bootstrapped").write_text("ok\n")
+            with mock.patch.dict(
+                os.environ, {paths.DATA_DIR_ENV: tmp}, clear=False
+            ), mock.patch.object(
+                bootstrap,
+                "prompt_for_password",
+                side_effect=AssertionError("must not prompt"),
+            ):
+                os.environ.pop("OC_DESKTOP_PASSWORD", None)
+                bootstrap.maybe_prompt_first_run_password()
+                self.assertIsNone(os.environ.get("OC_DESKTOP_PASSWORD"))
+
+
+class EnvPasswordFloorTests(TestCase):
+    """OC_DESKTOP_PASSWORD must not bypass the minimum-length floor."""
+
+    def test_short_env_password_is_ignored(self):
+        from opencontractserver.documents.management.commands.desktop_bootstrap import (
+            Command,
+        )
+
+        out, err = io.StringIO(), io.StringIO()
+        cmd = Command(stdout=out, stderr=err)
+        with mock.patch.dict(
+            os.environ, {"OC_DESKTOP_PASSWORD": "short"}, clear=False
+        ), mock.patch(
+            "opencontractserver.desktop.bootstrap.sys.stdin.isatty",
+            return_value=False,
+        ):
+            cmd._seed_user("hana", "hana@localhost")
+        user = User.objects.get(username="hana")
+        self.assertFalse(user.has_usable_password())
+        self.assertIn("shorter than", out.getvalue())

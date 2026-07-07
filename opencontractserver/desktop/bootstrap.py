@@ -36,6 +36,13 @@ MAX_PYTHON_EXCLUSIVE = (3, 13)
 # Set on the re-exec'ed child so a broken install can't recurse forever.
 _REEXEC_GUARD_ENV = "OC_DESKTOP_BOOTSTRAP_CHILD"
 
+# Local login account seeded by the desktop_bootstrap management command.
+LOCAL_USERNAME = "desktop"
+# Django's AUTH_PASSWORD_VALIDATORS are form/serializer-level and never run for
+# this account (`create_superuser`/`set_password` bypass them), so enforce a
+# floor ourselves — it is a superuser.
+MIN_PASSWORD_LENGTH = 8
+
 # Modules whose presence marks the desktop requirement set as installed. Chosen
 # to span the distinct dependency groups (Django stack, ASGI server, task queue,
 # embedded DB, parser) so a partially-completed install is detected.
@@ -45,6 +52,63 @@ _SENTINEL_MODULES = ("django", "daphne", "celery", "pgserver", "warp_ingest")
 def repo_root() -> Path:
     """The source checkout root (``manage.py``/``oc-desktop.py`` live here)."""
     return Path(__file__).resolve().parents[2]
+
+
+def prompt_for_password(username: str = LOCAL_USERNAME) -> str | None:
+    """Interactively choose the local login password on the attached terminal.
+
+    Returns None when there is no TTY, or on Ctrl+D/Ctrl+C at the prompt — the
+    caller falls back to the password-less path, which self-heals on the next
+    interactive run. The password is never printed, logged, or written to disk.
+    Shared by the early first-run prompt below and the ``desktop_bootstrap``
+    management command (its fallback when the env var isn't threaded through).
+    """
+    if not sys.stdin.isatty():
+        return None
+    import getpass
+
+    print(
+        "\nChoose a password for your local OpenContracts login "
+        f"(you will sign in as user '{username}')."
+    )
+    while True:
+        try:
+            password = getpass.getpass(
+                f"  Password (min {MIN_PASSWORD_LENGTH} characters): "
+            )
+            if len(password) < MIN_PASSWORD_LENGTH:
+                print(f"  Too short — use at least {MIN_PASSWORD_LENGTH} characters.")
+                continue
+            if password != getpass.getpass("  Repeat password: "):
+                print("  Passwords did not match — try again.")
+                continue
+        except (EOFError, KeyboardInterrupt):
+            print(
+                "\n[oc-desktop] No password chosen — you can set one on the "
+                "next launch."
+            )
+            return None
+        return password
+
+
+def maybe_prompt_first_run_password() -> None:
+    """Ask the one interactive question UP FRONT, before the long install.
+
+    First runs take many minutes (dependency install, database setup); the
+    password prompt used to land in the middle, after the user had walked
+    away, stalling everything. Asking first makes the rest unattended. The
+    answer travels to ``desktop_bootstrap`` via the process env; the launcher
+    drops it from the long-lived children's env after bootstrap.
+    """
+    if os.environ.get("OC_DESKTOP_PASSWORD") or paths.first_run_marker().exists():
+        return
+    password = prompt_for_password()
+    if password:
+        os.environ["OC_DESKTOP_PASSWORD"] = password
+        print(
+            "[oc-desktop] Thanks — setup now runs unattended (several minutes "
+            "on a first run)."
+        )
 
 
 def python_version_error(version_info: tuple[int, int] | None = None) -> str | None:
@@ -200,6 +264,10 @@ def main(argv: list[str] | None = None) -> None:  # pragma: no cover
     error = python_version_error()
     if error:
         sys.exit(error)
+
+    # Ask the single interactive question before anything slow happens, so the
+    # rest of the first run needs no attention.
+    maybe_prompt_first_run_password()
 
     if deps_ready():
         # Already inside a fully-provisioned environment (the venv child, a dev

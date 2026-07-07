@@ -21,10 +21,8 @@ launcher invokes it automatically on first boot. It:
 See ``docs/deployment/desktop_packaging.md``.
 """
 
-import getpass
 import logging
 import os
-import sys
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -32,13 +30,12 @@ from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
 
 from opencontractserver.desktop import paths
+from opencontractserver.desktop.bootstrap import (
+    MIN_PASSWORD_LENGTH,
+    prompt_for_password,
+)
 
 logger = logging.getLogger(__name__)
-
-# Django's AUTH_PASSWORD_VALIDATORS are form/serializer-level and are never
-# invoked here (`create_superuser`/`set_password` bypass them), so enforce a
-# floor ourselves — this account is a superuser.
-MIN_PASSWORD_LENGTH = 8
 
 
 class Command(BaseCommand):
@@ -82,39 +79,26 @@ class Command(BaseCommand):
     def _resolve_password(self, username: str) -> str | None:
         """The login password: ``OC_DESKTOP_PASSWORD`` wins, else prompt.
 
-        Prompting on the attached terminal is the default end-user path — no
-        env-var knowledge required. Returns None when the env var is unset and
-        no interactive terminal is available (CI, a windowed shell); the
-        password is never generated, stored on disk, or printed.
+        The launcher's early first-run prompt normally injects the env var
+        before this command runs; the interactive prompt here (shared helper,
+        ``opencontractserver.desktop.bootstrap.prompt_for_password``) is the
+        fallback for direct invocations. Returns None when neither source
+        yields a password (CI, a windowed shell); nothing is generated, stored
+        on disk, or printed. The MIN_PASSWORD_LENGTH floor applies to BOTH
+        sources — this is a superuser account and Django's validators never
+        run for it, so the env-var path must not bypass the only check.
         """
         password = os.environ.get("OC_DESKTOP_PASSWORD")
         if password:
-            return password
-        if not sys.stdin.isatty():
-            return None
-        self.stdout.write(
-            "\nChoose a password for your local OpenContracts login "
-            f"(you will sign in as user '{username}')."
-        )
-        while True:
-            # Ctrl+D / a closed stdin mid-prompt must not crash first-run
-            # bootstrap — fall back to the no-password path (self-heals on the
-            # next interactive launch).
-            try:
-                password = getpass.getpass(
-                    f"  Password (min {MIN_PASSWORD_LENGTH} characters): "
+            if len(password) >= MIN_PASSWORD_LENGTH:
+                return password
+            self.stdout.write(
+                self.style.WARNING(
+                    f"OC_DESKTOP_PASSWORD is shorter than {MIN_PASSWORD_LENGTH} "
+                    "characters; ignoring it."
                 )
-                if len(password) < MIN_PASSWORD_LENGTH:
-                    self.stdout.write(
-                        f"  Too short — use at least {MIN_PASSWORD_LENGTH} characters."
-                    )
-                    continue
-                if password != getpass.getpass("  Repeat password: "):
-                    self.stdout.write("  Passwords did not match — try again.")
-                    continue
-            except EOFError:
-                return None
-            return password
+            )
+        return prompt_for_password(username)
 
     def _no_password_warning(self, username: str) -> str:
         return (
@@ -168,9 +152,10 @@ class Command(BaseCommand):
         """
         from opencontractserver.documents.models import PipelineSettings
 
-        # get_instance() creates pk=1 seeded from the desktop Django settings
-        # (PREFERRED_PARSERS/PREFERRED_EMBEDDERS/DEFAULT_EMBEDDER → Warp-Ingest /
-        # OpenAIEmbedder) — so the parser/embedder SELECTION is seeded here.
+        # The pk=1 singleton is normally created at migrate time (migration
+        # 0031, reading the active settings module — config.settings.desktop
+        # here, so PREFERRED_PARSERS/DEFAULT_EMBEDDER → Warp-Ingest/OpenAI);
+        # get_instance() is a get_or_create backstop for that same seeding.
         # migrate_pipeline_settings then fills component_settings + encrypted
         # secrets (e.g. OPENAI_API_KEY). A failure there only leaves those
         # unseeded — PDF parsing still works, only Tier-1 embeddings/chat degrade.

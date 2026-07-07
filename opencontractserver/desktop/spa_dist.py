@@ -126,12 +126,26 @@ def _verify_checksum(zip_path: Path, checksum_url: str) -> bool:
 
 
 def safe_extract_zip(archive: zipfile.ZipFile, dest: Path) -> None:
-    """Extract ``archive`` under ``dest``, refusing path-traversal members."""
+    """Extract ``archive`` under ``dest``, refusing unsafe members.
+
+    Rejects path traversal (``../``, absolute paths — the post-join
+    ``is_relative_to`` check catches both) and symlink members (a link
+    pointing outside ``dest`` would let a later member write through it).
+    Our CI-built bundle contains neither; refusing is pure defense-in-depth.
+    """
+    import stat
+
     dest = dest.resolve()
-    for member in archive.namelist():
-        target = (dest / member).resolve()
+    for info in archive.infolist():
+        target = (dest / info.filename).resolve()
         if not target.is_relative_to(dest):
-            raise ValueError(f"Refusing to extract unsafe zip member: {member!r}")
+            raise ValueError(
+                f"Refusing to extract unsafe zip member: {info.filename!r}"
+            )
+        if stat.S_ISLNK(info.external_attr >> 16):
+            raise ValueError(
+                f"Refusing to extract symlink zip member: {info.filename!r}"
+            )
     archive.extractall(dest)
 
 
@@ -174,6 +188,11 @@ def download_spa(version: str) -> Path | None:  # pragma: no cover - network
     asset_url, checksum_url = found
 
     spa_root = paths.subdir("spa")
+    # Download + extract into a STAGING sibling and only swap it in after the
+    # whole pipeline (checksum, extraction, index.html present) succeeded — a
+    # failed refresh must never destroy a previously working cached copy
+    # (which is exactly what ensure_spa falls back to).
+    staging = spa_root.with_name(spa_root.name + ".new")
     print(f"[oc-desktop] Downloading the frontend bundle …\n             {asset_url}")
     try:
         with tempfile.TemporaryDirectory() as tmp:
@@ -192,19 +211,26 @@ def download_spa(version: str) -> Path | None:  # pragma: no cover - network
                     "check; refusing to install it."
                 )
                 return None
-            # Replace any stale/partial previous extraction wholesale.
+            if staging.exists():
+                shutil.rmtree(staging)
+            staging.mkdir(parents=True, exist_ok=True)
+            with zipfile.ZipFile(zip_path) as archive:
+                safe_extract_zip(archive, staging)
+            if not _dist_dir_within(staging):
+                print("[oc-desktop] Downloaded bundle did not contain an index.html.")
+                shutil.rmtree(staging, ignore_errors=True)
+                return None
+            # Success — swap the verified staging dir into place.
             if spa_root.exists():
                 shutil.rmtree(spa_root)
-            spa_root.mkdir(parents=True, exist_ok=True)
-            with zipfile.ZipFile(zip_path) as archive:
-                safe_extract_zip(archive, spa_root)
+            staging.rename(spa_root)
     except (urllib.error.URLError, OSError, ValueError, zipfile.BadZipFile) as exc:
         print(f"[oc-desktop] Frontend bundle download failed: {exc}")
+        shutil.rmtree(staging, ignore_errors=True)
         return None
 
     dist = _dist_dir_within(spa_root)
-    if not dist:
-        print("[oc-desktop] Downloaded bundle did not contain an index.html.")
+    if not dist:  # unreachable after the staging check; belt-and-braces
         return None
     # Stamp the cache with the version it was fetched FOR (not necessarily the
     # release it came from — the latest-release fallback still satisfies this
