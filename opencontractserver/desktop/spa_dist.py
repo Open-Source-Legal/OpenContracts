@@ -120,7 +120,13 @@ def _verify_checksum(zip_path: Path, checksum_url: str) -> bool:
     with urllib.request.urlopen(  # pragma: no cover - network
         checksum_url, timeout=_HTTP_TIMEOUT_SECONDS, context=_ssl_context()
     ) as response:
-        expected = response.read().decode("utf-8", "replace").split()[0].lower()
+        tokens = response.read().decode("utf-8", "replace").split()
+    if not tokens:
+        # Empty/mangled sidecar (truncated response, proxy interstitial):
+        # ValueError keeps this on download_spa's graceful-degrade path
+        # instead of crashing the launcher with an IndexError.
+        raise ValueError("checksum file was empty or malformed")
+    expected = tokens[0].lower()
     digest = hashlib.sha256()
     with open(zip_path, "rb") as fh:
         for chunk in iter(lambda: fh.read(1 << 20), b""):

@@ -573,6 +573,24 @@ class SpaDistTests(SimpleTestCase):
             with fake_urlopen("0" * 64):
                 self.assertFalse(spa_dist._verify_checksum(bundle, "https://x/sha"))
 
+    def test_verify_checksum_malformed_response_degrades_gracefully(self):
+        # An empty .sha256 body (truncated response, proxy interstitial) must
+        # raise ValueError — the type download_spa catches — never IndexError,
+        # which would crash the launcher instead of degrading to "no UI".
+        from opencontractserver.desktop import spa_dist
+
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle = Path(tmp) / "bundle.zip"
+            bundle.write_bytes(b"bundle-bytes")
+            response = mock.MagicMock()
+            response.read.return_value = b"   \n"
+            response.__enter__.return_value = response
+            with mock.patch.object(
+                spa_dist.urllib.request, "urlopen", return_value=response
+            ):
+                with self.assertRaises(ValueError):
+                    spa_dist._verify_checksum(bundle, "https://x/sha")
+
 
 class TrigramMigrationGuardTests(TestCase):
     """annotations/0074 must skip (not crash) when pg_trgm is unavailable.
