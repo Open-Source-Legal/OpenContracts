@@ -35,6 +35,9 @@ _FIXTURE_TO = "usc-99:1"
 _FIXTURE_FROM_2 = "test-act:2"
 _FIXTURE_TO_2 = "usc-99:2"
 
+# Logger the loader emits its ownership/collision warnings on (assertLogs target).
+_LOADER_LOGGER = "opencontractserver.enrichment.services.authority_mapping_loader"
+
 
 class AuthorityKeyEquivalenceBaselineChoiceTests(TestCase):
     def test_baseline_is_a_valid_source(self):
@@ -272,7 +275,6 @@ class BaselineOriginGuardTests(TestCase):
     (``update_or_create`` with no writer partition).
     """
 
-    _LOADER_LOGGER = "opencontractserver.enrichment.services.authority_mapping_loader"
     _PACK_A_YAML = (
         "prefixes:\n"
         "  test-pack-a:\n"
@@ -330,7 +332,7 @@ class BaselineOriginGuardTests(TestCase):
         AuthorityMappingLoader.load_namespaces(
             path=_write_yaml(self._PACK_A_YAML), origin="pack-a"
         )
-        with self.assertLogs(self._LOADER_LOGGER, level="WARNING"):
+        with self.assertLogs(_LOADER_LOGGER, level="WARNING"):
             summary = AuthorityMappingLoader.load_namespaces(
                 path=_write_yaml(self._PACK_B_CLAIMS_A_YAML), origin="pack-b"
             )
@@ -538,15 +540,13 @@ class LoadInstalledTests(TestCase):
                 _mk(root, "dup-b", "duppack", "test-dup-b"),
             ]
             with mock.patch.object(apc, "authority_pack_dirs", return_value=packs):
-                with self.assertLogs(self._LOADER_LOGGER, level="WARNING") as logs:
+                with self.assertLogs(_LOADER_LOGGER, level="WARNING") as logs:
                     results = AuthorityMappingLoader.load_installed()
 
         assert any("Duplicate authority pack name" in line for line in logs.output)
         # Both still load, as distinct origins the guard keeps apart.
         assert results["DupPack"]["namespaces"]["created"] == 1
         assert results["duppack"]["namespaces"]["created"] == 1
-
-    _LOADER_LOGGER = "opencontractserver.enrichment.services.authority_mapping_loader"
 
     def test_load_installed_reports_a_reserved_core_pack_name(self):
         # An installed pack named "core" (any case) is refused — and the refusal
