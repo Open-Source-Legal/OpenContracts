@@ -91,6 +91,8 @@ class DjangoStorageObjectStore:
         try:
             self._storage.delete(name)
         except FileNotFoundError:
+            # Delete is idempotent: a missing key is already deleted (e.g. a
+            # concurrent compaction GC'd the same WAL file first).
             pass
 
     def exists(self, key: str) -> bool:
