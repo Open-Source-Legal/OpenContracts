@@ -12,9 +12,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import unittest
 from pathlib import Path
-from unittest import mock
+from unittest import mock, skipIf
 
 from django.contrib.auth import get_user_model
 from django.http import Http404
@@ -759,7 +758,7 @@ class PrivateDirPermissionTests(SimpleTestCase):
     def _mode(path):
         return os.stat(path).st_mode & 0o777
 
-    @unittest.skipIf(os.name == "nt", "POSIX permission bits")
+    @skipIf(os.name == "nt", "POSIX permission bits")
     def test_tightens_preexisting_permissive_tree(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "appdata"
@@ -772,7 +771,7 @@ class PrivateDirPermissionTests(SimpleTestCase):
             self.assertEqual(self._mode(root), 0o700)
             self.assertEqual(self._mode(created), 0o700)
 
-    @unittest.skipIf(os.name == "nt", "POSIX permission bits")
+    @skipIf(os.name == "nt", "POSIX permission bits")
     def test_applies_mode_to_intermediate_parents(self):
         # parents=True never applies mode= to intermediate levels either.
         with tempfile.TemporaryDirectory() as tmp:
