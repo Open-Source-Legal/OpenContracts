@@ -46,6 +46,15 @@ def _decode_pks(global_ids: list[str] | None) -> list[str] | None:
     return pks
 
 
+def _decode_pk(global_id: str) -> str:
+    """Decode a single GraphQL global id to a raw pk.
+
+    Same malformed-input contract as :func:`_decode_pks` — raises
+    ``ValueError`` on garbage input or an empty decoded pk.
+    """
+    return _decode_pks([global_id])[0]  # type: ignore[index]  # non-None input
+
+
 class CreateCorpusGroupMutation(graphene.Mutation):
     """Create a corpus group bundling N corpora for multi-corpus retrieval."""
 
@@ -88,9 +97,7 @@ class CreateCorpusGroupMutation(graphene.Mutation):
         try:
             try:
                 corpus_pks = _decode_pks(corpus_ids)
-                agent_pk = (
-                    from_global_id(default_agent_id)[1] if default_agent_id else None
-                )
+                agent_pk = _decode_pk(default_agent_id) if default_agent_id else None
             except Exception:
                 return CreateCorpusGroupMutation(
                     ok=False, message="Malformed id argument", corpus_group=None
@@ -169,15 +176,21 @@ class UpdateCorpusGroupMutation(graphene.Mutation):
     ) -> "UpdateCorpusGroupMutation":
         user = info.context.user
         try:
+            # A malformed TARGET id is indistinguishable from a missing
+            # group (IDOR-uniform NOT_FOUND); malformed ARGUMENT ids get the
+            # same "Malformed id argument" envelope as the create mutation.
             try:
                 group_pk = from_global_id(corpus_group_id)[1]
-                corpus_pks = _decode_pks(corpus_ids)
-                agent_pk = (
-                    from_global_id(default_agent_id)[1] if default_agent_id else None
-                )
             except Exception:
                 return UpdateCorpusGroupMutation(
                     ok=False, message=GROUP_NOT_FOUND_MESSAGE, corpus_group=None
+                )
+            try:
+                corpus_pks = _decode_pks(corpus_ids)
+                agent_pk = _decode_pk(default_agent_id) if default_agent_id else None
+            except Exception:
+                return UpdateCorpusGroupMutation(
+                    ok=False, message="Malformed id argument", corpus_group=None
                 )
 
             group = CorpusGroupService.get_group_by_id(

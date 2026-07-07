@@ -247,6 +247,37 @@ class CorpusGroupServiceTests(TestCase):
         self.assertFalse(missing_result.ok)
         self.assertIn("Corpora not found", missing_result.error)
 
+    def test_explicit_slug_collision_fails_cleanly(self):
+        """An explicit slug that collides with an existing group surfaces a
+        friendly failure from create AND update — never a raw DB
+        IntegrityError (auto-generated slugs de-duplicate in ``save()``)."""
+        CorpusGroup.objects.create(
+            title="Slug Holder", slug="taken-slug", creator=self.owner
+        )
+        create_result = CorpusGroupService.create_group(
+            self.owner, title="Another", slug="taken-slug"
+        )
+        self.assertFalse(create_result.ok)
+        self.assertIn("already exists", create_result.error)
+
+        update_result = CorpusGroupService.update_group(
+            self.owner, self.group, slug="taken-slug"
+        )
+        self.assertFalse(update_result.ok)
+        self.assertIn("already exists", update_result.error)
+
+    def test_create_group_rejects_non_numeric_corpus_pks(self):
+        """A non-numeric pk (e.g. a well-formed global id that decoded to a
+        garbage string) surfaces the uniform "Corpora not found" failure —
+        never a raw int-coercion ValueError out of the queryset."""
+        result = CorpusGroupService.create_group(
+            self.owner,
+            title="Probe3",
+            corpus_pks=["abc", self.owner_corpus.pk],
+        )
+        self.assertFalse(result.ok)
+        self.assertIn("Corpora not found: abc", result.error)
+
     def test_create_group_grants_creator_crud(self):
         result = CorpusGroupService.create_group(
             self.owner,
@@ -646,6 +677,74 @@ class CorpusGroupGraphQLTests(GraphQLTestCase):
         member_titles = {e["node"]["title"] for e in node["corpora"]["edges"]}
         self.assertEqual(member_titles, {"GQL Public Corpus"})
 
+    def test_default_agent_gated_per_viewer(self):
+        """``defaultAgent`` is null for viewers who cannot see the bound
+        agent (here: a corpus-scoped agent on a private corpus), while a
+        viewer with corpus access still resolves it — the binding must not
+        leak a private agent's config through a public group."""
+        private_agent = AgentConfiguration.objects.create(
+            name="Private Orchestrator",
+            scope="CORPUS",
+            corpus=self.owner_corpus,  # private corpus -> agent invisible to stranger
+            is_active=True,
+            is_public=False,
+            creator=self.owner,
+            system_instructions="sensitive persona",
+        )
+        agent_group = CorpusGroup.objects.create(
+            title="GQL Agent Group",
+            creator=self.owner,
+            is_public=True,
+            default_agent=private_agent,
+        )
+        query = """
+            query {
+                corpusGroups {
+                    edges { node { title defaultAgent { id name } } }
+                }
+            }
+            """
+
+        self.client.login(username="gql_cg_stranger", password="testpass")
+        response = self.query(query)
+        self.assertResponseNoErrors(response)
+        edges = response.json()["data"]["corpusGroups"]["edges"]
+        node = next(e["node"] for e in edges if e["node"]["title"] == agent_group.title)
+        self.assertIsNone(node["defaultAgent"])
+
+        self.client.logout()
+        self.client.login(username="gql_cg_owner", password="testpass")
+        response = self.query(query)
+        self.assertResponseNoErrors(response)
+        edges = response.json()["data"]["corpusGroups"]["edges"]
+        node = next(e["node"] for e in edges if e["node"]["title"] == agent_group.title)
+        self.assertIsNotNone(node["defaultAgent"])
+        self.assertEqual(node["defaultAgent"]["name"], "Private Orchestrator")
+
+    def test_create_corpus_group_non_numeric_decoded_pk(self):
+        """A well-formed global id that decodes to a non-numeric pk gets the
+        uniform "Corpora not found" envelope — not a raw int-coercion error
+        through the outer exception handler."""
+        self.client.login(username="gql_cg_owner", password="testpass")
+        response = self.query(
+            """
+            mutation($title: String!, $corpusIds: [ID]) {
+                createCorpusGroup(title: $title, corpusIds: $corpusIds) {
+                    ok
+                    message
+                }
+            }
+            """,
+            variables={
+                "title": "Garbage Pk Group",
+                "corpusIds": [to_global_id("CorpusType", "abc")],
+            },
+        )
+        self.assertResponseNoErrors(response)
+        data = response.json()["data"]["createCorpusGroup"]
+        self.assertFalse(data["ok"])
+        self.assertIn("Corpora not found: abc", data["message"])
+
     def test_create_corpus_group_mutation(self):
         self.client.login(username="gql_cg_owner", password="testpass")
         response = self.query(
@@ -806,6 +905,38 @@ class CorpusGroupGraphQLTests(GraphQLTestCase):
             data = response.json()["data"]["updateCorpusGroup"]
             self.assertFalse(data["ok"])
             self.assertEqual(data["message"], GROUP_NOT_FOUND_MESSAGE)
+
+    def test_update_corpus_group_malformed_argument_ids(self):
+        """Malformed ARGUMENT ids (member corpora / default agent) return the
+        same "Malformed id argument" envelope as the create mutation; only a
+        malformed TARGET id folds into the IDOR-uniform not-found message."""
+        self.client.login(username="gql_cg_owner", password="testpass")
+        for variables in (
+            {"corpusIds": ["!!not-a-global-id!!"]},
+            {"defaultAgentId": "!!not-a-global-id!!"},
+        ):
+            response = self.query(
+                """
+                mutation($id: ID!, $corpusIds: [ID], $defaultAgentId: ID) {
+                    updateCorpusGroup(
+                        corpusGroupId: $id,
+                        corpusIds: $corpusIds,
+                        defaultAgentId: $defaultAgentId
+                    ) {
+                        ok
+                        message
+                    }
+                }
+                """,
+                variables={
+                    "id": to_global_id("CorpusGroupType", self.group.pk),
+                    **variables,
+                },
+            )
+            self.assertResponseNoErrors(response)
+            data = response.json()["data"]["updateCorpusGroup"]
+            self.assertFalse(data["ok"])
+            self.assertEqual(data["message"], "Malformed id argument")
 
     def test_delete_corpus_group_malformed_and_missing_ids(self):
         self.client.login(username="gql_cg_owner", password="testpass")

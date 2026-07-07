@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from django.db import IntegrityError, transaction
 from django.db.models import Q
 
 from opencontractserver.shared.services.base import BaseService
@@ -116,8 +117,23 @@ class CorpusGroupService(BaseService):
         if not corpus_pks:
             return ServiceResult.success([])
 
-        corpora = list(Corpus.objects.visible_to_user(user).filter(pk__in=corpus_pks))
-        missing = set(map(str, corpus_pks)) - {str(c.pk) for c in corpora}
+        # A non-numeric pk (e.g. a well-formed global id that decoded to a
+        # garbage string) can never match a Corpus row — coerce up front so
+        # the queryset never raises a raw int-coercion ValueError; the bad
+        # value falls through to the uniform "not found" set below instead.
+        numeric_pks: list[int] = []
+        for pk in corpus_pks:
+            try:
+                numeric_pks.append(int(pk))
+            except (TypeError, ValueError):
+                continue
+
+        corpora = (
+            list(Corpus.objects.visible_to_user(user).filter(pk__in=numeric_pks))
+            if numeric_pks
+            else []
+        )
+        missing = {str(pk) for pk in corpus_pks} - {str(c.pk) for c in corpora}
         if missing:
             return ServiceResult.failure(
                 f"Corpora not found: {', '.join(sorted(missing))}"
@@ -181,14 +197,28 @@ class CorpusGroupService(BaseService):
                 return agent_result
             default_agent = agent_result.value
 
-        group = CorpusGroup.objects.create(
-            title=title.strip(),
-            slug=slug or "",  # empty triggers auto-generation in ``save()``
-            description=description or "",
-            default_agent=default_agent,
-            creator=user,
-            is_public=is_public,
-        )
+        try:
+            # ``atomic()`` scopes the failure to a savepoint so catching the
+            # IntegrityError doesn't poison a caller's enclosing transaction
+            # (e.g. TestCase blocks / atomic GraphQL requests).
+            with transaction.atomic():
+                group = CorpusGroup.objects.create(
+                    title=title.strip(),
+                    slug=slug or "",  # empty triggers auto-generation in ``save()``
+                    description=description or "",
+                    default_agent=default_agent,
+                    creator=user,
+                    is_public=is_public,
+                )
+        except IntegrityError:
+            # The unique ``slug`` column is the model's only unique
+            # constraint, so an IntegrityError here means the caller's
+            # explicit slug collided (auto-generated slugs are de-duplicated
+            # in ``save()``). Surface a friendly message instead of a raw
+            # DB constraint error.
+            return ServiceResult.failure(
+                "A corpus group with this slug already exists."
+            )
         if corpora_result.value:
             group.corpora.set(corpora_result.value)
 
@@ -258,7 +288,15 @@ class CorpusGroupService(BaseService):
         if is_public is not None:
             group.is_public = is_public
 
-        group.save()
+        try:
+            with transaction.atomic():  # savepoint-scoped; see create_group
+                group.save()
+        except IntegrityError:
+            # See the matching guard in ``create_group`` — the unique slug
+            # is the model's only unique constraint.
+            return ServiceResult.failure(
+                "A corpus group with this slug already exists."
+            )
         if corpora_result is not None:
             group.corpora.set(corpora_result.value or [])
         cls.log_action("Updated", group, user)
