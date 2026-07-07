@@ -103,7 +103,7 @@ def _fingerprint_marker(venv_path: Path) -> Path:
     return venv_path / ".requirements-fingerprint"
 
 
-def _install_dependencies(root: Path, venv_path: Path) -> None:
+def _install_dependencies(root: Path, venv_path: Path) -> None:  # pragma: no cover
     """Create/refresh the private venv and install the desktop requirements."""
     vpy = venv_python(venv_path)
     if not vpy.exists():
@@ -148,7 +148,9 @@ def _venv_is_current(root: Path, venv_path: Path) -> bool:
     )
 
 
-def _reexec_in_venv(root: Path, venv_path: Path, argv: list[str]) -> int:
+def _reexec_in_venv(
+    root: Path, venv_path: Path, argv: list[str]
+) -> int:  # pragma: no cover
     """Run the launcher inside the venv as a child and relay its exit code.
 
     A child process (not ``os.execv``) keeps behaviour identical on Windows,
@@ -171,7 +173,7 @@ def _reexec_in_venv(root: Path, venv_path: Path, argv: list[str]) -> int:
             continue
 
 
-def main(argv: list[str] | None = None) -> None:
+def main(argv: list[str] | None = None) -> None:  # pragma: no cover
     argv = list(sys.argv[1:] if argv is None else argv)
 
     error = python_version_error()

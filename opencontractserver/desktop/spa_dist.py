@@ -68,7 +68,7 @@ def _ssl_context() -> ssl.SSLContext:
         return ssl.create_default_context()
 
 
-def _fetch_json(url: str) -> dict:
+def _fetch_json(url: str) -> dict:  # pragma: no cover - network
     request = urllib.request.Request(
         url, headers={"Accept": "application/vnd.github+json"}
     )
@@ -87,7 +87,7 @@ def find_asset_url(release: dict, asset_name: str = SPA_ASSET_NAME) -> str | Non
     return None
 
 
-def _release_asset_url(version: str) -> str | None:
+def _release_asset_url(version: str) -> str | None:  # pragma: no cover - network
     """Find the SPA asset on the version-matched release, then the latest one."""
     api_base = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
     urls = [f"{api_base}/tags/{tag}" for tag in release_tag_candidates(version)]
@@ -120,7 +120,7 @@ def _dist_dir_within(spa_root: Path) -> Path | None:
     return None
 
 
-def download_spa(version: str) -> Path | None:
+def download_spa(version: str) -> Path | None:  # pragma: no cover - network
     """Download + extract the release SPA bundle into app-data. None on failure."""
     asset_url = _release_asset_url(version)
     if not asset_url:
@@ -157,7 +157,7 @@ def download_spa(version: str) -> Path | None:
     return dist
 
 
-def build_spa_with_yarn(repo_root: Path) -> Path | None:
+def build_spa_with_yarn(repo_root: Path) -> Path | None:  # pragma: no cover
     """Developer fallback: build ``frontend/dist`` with a local yarn toolchain."""
     yarn = shutil.which("yarn")
     if not yarn:
