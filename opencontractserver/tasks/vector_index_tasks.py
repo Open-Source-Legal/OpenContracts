@@ -76,8 +76,22 @@ def sync_embedding_to_object_index(embedding_id: int, dimension: int) -> str:
     engine.upsert(namespace, [(parent_pk, list(vector))])
 
     if engine.wal_tail_count(namespace) >= OBJECT_INDEX_COMPACT_MIN_WAL_FILES:
-        compact_object_vector_namespace.si(namespace).apply_async()
+        # Pending-marker gate: during a sustained write burst every write past
+        # the threshold would otherwise enqueue its own (no-op) compaction
+        # task. Only the writer that claims the marker enqueues; the marker is
+        # cleared when compaction finishes (or by TTL if the queued task is
+        # lost), letting the next threshold crossing re-trigger.
+        if cache.add(
+            _compact_pending_key(namespace),
+            "1",
+            timeout=OBJECT_INDEX_COMPACT_LOCK_TIMEOUT_SECONDS,
+        ):
+            compact_object_vector_namespace.si(namespace).apply_async()
     return f"upserted {parent_kind} {parent_pk} into {namespace}"
+
+
+def _compact_pending_key(namespace: str) -> str:
+    return f"object-vector-index-compact-pending:{namespace}"
 
 
 @shared_task
@@ -96,3 +110,4 @@ def compact_object_vector_namespace(namespace: str) -> str:
         return f"compacted {namespace}: {stats}"
     finally:
         cache.delete(lock_key)
+        cache.delete(_compact_pending_key(namespace))

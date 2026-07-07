@@ -14,6 +14,7 @@ from opencontractserver.annotations.models import Embedding
 from opencontractserver.constants.search import (
     DIM_TO_FIELD_MAP,
     OBJECT_INDEX_REBUILD_BATCH_SIZE,
+    OBJECT_INDEX_REBUILD_PROGRESS_EVERY,
 )
 from opencontractserver.tasks.vector_index_tasks import PARENT_FK_TO_KIND
 from opencontractserver.vector_search.router import (
@@ -26,7 +27,12 @@ class Command(BaseCommand):
     help = (
         "Replay all Embedding vectors into the object-storage vector index "
         "and compact each namespace. Idempotent; run before enabling "
-        "VECTOR_SEARCH_BACKEND=object_storage."
+        "VECTOR_SEARCH_BACKEND=object_storage. Runtime expectation: this is "
+        "a FULL WAL replay plus a full k-means recluster per namespace — on "
+        "large deployments expect it to run for a while (progress is printed "
+        "every %d embeddings); use --embedder-path to scope, or --dry-run to "
+        "preview namespaces and counts without writing."
+        % OBJECT_INDEX_REBUILD_PROGRESS_EVERY
     )
 
     def add_arguments(self, parser):
@@ -41,23 +47,36 @@ class Command(BaseCommand):
             default=OBJECT_INDEX_REBUILD_BATCH_SIZE,
             help="Vectors per WAL file written during the replay.",
         )
+        parser.add_argument(
+            "--dry-run",
+            action="store_true",
+            help="Report namespaces and vector counts without writing anything.",
+        )
 
     def handle(self, *args, **options):
         engine = get_default_engine()
         batch_size = options["batch_size"]
+        dry_run = options["dry_run"]
         queryset = Embedding.objects.all()
         if options["embedder_path"]:
             queryset = queryset.filter(embedder_path=options["embedder_path"])
 
         buffers: dict[str, list[tuple[int, list[float]]]] = {}
         totals: dict[str, int] = {}
+        processed = 0
 
         def flush(namespace: str) -> None:
             batch = buffers.pop(namespace, [])
-            if batch:
+            if batch and not dry_run:
                 engine.upsert(namespace, batch)
 
         for embedding in queryset.iterator(chunk_size=batch_size):
+            processed += 1
+            if processed % OBJECT_INDEX_REBUILD_PROGRESS_EVERY == 0:
+                self.stdout.write(
+                    f"...processed {processed} embeddings across "
+                    f"{len(totals)} namespace(s)"
+                )
             parent = next(
                 (
                     (kind, getattr(embedding, fk_attr))
@@ -85,6 +104,12 @@ class Command(BaseCommand):
             flush(namespace)
 
         for namespace in sorted(totals):
+            if dry_run:
+                self.stdout.write(
+                    f"[dry-run] {namespace}: would replay "
+                    f"{totals[namespace]} vectors and compact"
+                )
+                continue
             stats = engine.compact(namespace)
             self.stdout.write(
                 self.style.SUCCESS(

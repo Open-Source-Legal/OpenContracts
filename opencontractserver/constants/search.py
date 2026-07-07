@@ -211,6 +211,11 @@ OBJECT_INDEX_CACHE_MAX_ENTRIES = 64
 # vectors are folded into a single WAL file per PUT.
 OBJECT_INDEX_REBUILD_BATCH_SIZE = 500
 
+# How often (in embeddings processed) the rebuild command prints a progress
+# line — the full-table replay can run for a long time on large deployments
+# and should not be silent throughout.
+OBJECT_INDEX_REBUILD_PROGRESS_EVERY = 10_000
+
 # =============================================================================
 # Full-Text Search Configuration
 # =============================================================================

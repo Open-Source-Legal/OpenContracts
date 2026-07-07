@@ -20,6 +20,7 @@ from unittest import mock
 
 import numpy as np
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.core.files.storage import FileSystemStorage
 from django.core.management import call_command
 from django.test import SimpleTestCase, TestCase, override_settings
@@ -391,6 +392,28 @@ class VectorSearchSystemCheckTests(SimpleTestCase):
             AWS_QUERYSTRING_AUTH=False,
         ):
             self.assertEqual(check_vector_index_storage_exposure(None), [])
+        # GCS public-read signals are covered too.
+        for gcs_signal in (
+            {"GS_DEFAULT_ACL": "publicRead"},
+            {"GS_QUERYSTRING_AUTH": False},
+        ):
+            with override_settings(
+                VECTOR_SEARCH_BACKEND="object_storage",
+                STORAGE_BACKEND="GCP",
+                **gcs_signal,
+            ):
+                issues = check_vector_index_storage_exposure(None)
+                self.assertEqual(
+                    [issue.id for issue in issues],
+                    ["opencontracts.W004"],
+                    gcs_signal,
+                )
+        with override_settings(
+            VECTOR_SEARCH_BACKEND="object_storage",
+            STORAGE_BACKEND="GCP",
+            GS_QUERYSTRING_AUTH=True,
+        ):
+            self.assertEqual(check_vector_index_storage_exposure(None), [])
 
 
 class ObjectStorageBackendIntegrationTests(TestCase):
@@ -401,6 +424,10 @@ class ObjectStorageBackendIntegrationTests(TestCase):
         self.addCleanup(shutil.rmtree, self.tmpdir, ignore_errors=True)
         router.reset_default_engine()
         self.addCleanup(router.reset_default_engine)
+        # Compaction lock/pending markers live in the (locmem) cache and would
+        # otherwise leak between tests sharing a namespace.
+        cache.clear()
+        self.addCleanup(cache.clear)
         self.user = User.objects.create_user(username="owner", password="pw")
         self.other_user = User.objects.create_user(username="other", password="pw")
 
@@ -543,6 +570,26 @@ class ObjectStorageBackendIntegrationTests(TestCase):
             manifest = must(engine._load_manifest(namespace))
             self.assertGreaterEqual(manifest["count"], 2)
             self.assertLessEqual(engine.wal_tail_count(namespace), 1)
+
+    def test_compaction_enqueued_once_per_threshold_crossing(self):
+        """
+        The pending-marker gate: during a write burst past the threshold,
+        only the writer that claims the marker enqueues a compaction task —
+        not every subsequent write (compaction storm).
+        """
+        with self.object_backend_settings():
+            with mock.patch(
+                "opencontractserver.tasks.vector_index_tasks"
+                ".OBJECT_INDEX_COMPACT_MIN_WAL_FILES",
+                1,
+            ), mock.patch(
+                "opencontractserver.tasks.vector_index_tasks"
+                ".compact_object_vector_namespace.si"
+            ) as mock_signature:
+                # Compaction never actually runs (si is mocked), so the WAL
+                # tail stays >= threshold for all three writes.
+                self._make_documents()
+            self.assertEqual(mock_signature.call_count, 1)
 
     def test_filter_shortfall_falls_back_to_pgvector(self):
         """

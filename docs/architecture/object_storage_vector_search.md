@@ -163,9 +163,13 @@ The engine talks to Django's default file storage through
 `DjangoStorageObjectStore` (put/get/list/delete/exists), so the index lives
 wherever `STORAGE_BACKEND` points: local disk (`LOCAL`), S3 or any
 S3-compatible store like MinIO (`AWS`), or GCS (`GCP`), under
-`VECTOR_INDEX_STORAGE_PREFIX` (default `vector-index/`). Verified against
-MinIO via the real S3 API — see
-`docs/test_scripts/object_storage_vector_backend_minio.md`.
+`VECTOR_INDEX_STORAGE_PREFIX` (default `vector-index/`). Local filesystem is
+covered by the automated suite and S3 is verified against MinIO via the real
+S3 API — see `docs/test_scripts/object_storage_vector_backend_minio.md`.
+**GCS is currently unverified**: `list_keys()` (load-bearing for the WAL
+overlay and `wal_tail_count`) relies on `Storage.listdir` semantics, which
+GCS emulates over a flat namespace — run an equivalent smoke test before
+enabling the backend on `GCP`.
 
 ## Operations
 
@@ -234,3 +238,9 @@ Parameters*.
   per namespace, revisit beyond.
 - **Per-process memory LRU only** — no shared SSD cache tier between
   workers yet.
+- **Namespaces are deployment-wide, not corpus-scoped.** A very narrow
+  corpus-scoped query on a large multi-tenant deployment may exhaust the
+  oversampled candidate set and take the shortfall fallback to pgvector
+  often — correct, but eroding the backend's benefit for that access
+  pattern. Corpus-sharded namespaces are the natural follow-up if this
+  dominates.

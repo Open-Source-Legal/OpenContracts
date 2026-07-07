@@ -135,8 +135,11 @@ def check_vector_index_storage_exposure(
     independently readable (public ACL, unsigned URLs, or a CDN custom
     domain fronting the whole bucket), anyone with bucket read access could
     enumerate vectors for every document/annotation in the system outside
-    Django auth entirely. Warning ``opencontracts.W004``; see the
-    "Permissions" section of
+    Django auth entirely. Covers AWS (``AWS_DEFAULT_ACL``,
+    ``AWS_QUERYSTRING_AUTH``, ``AWS_S3_CUSTOM_DOMAIN``) and GCS
+    (``GS_DEFAULT_ACL``, ``GS_QUERYSTRING_AUTH``) signals; ``LOCAL`` storage
+    is not network-readable and passes. Warning ``opencontracts.W004``; see
+    the "Permissions" section of
     ``docs/architecture/object_storage_vector_search.md``.
     """
     from django.conf import settings
@@ -150,19 +153,32 @@ def check_vector_index_storage_exposure(
         != VECTOR_SEARCH_BACKEND_OBJECT_STORAGE
     ):
         return []
-    if getattr(settings, "STORAGE_BACKEND", "LOCAL") != "AWS":
-        return []
+    storage_backend = getattr(settings, "STORAGE_BACKEND", "LOCAL")
     public_signals = []
-    default_acl = getattr(settings, "AWS_DEFAULT_ACL", None)
-    if default_acl in ("public-read", "public-read-write"):
-        public_signals.append(f"AWS_DEFAULT_ACL={default_acl!r}")
-    if getattr(settings, "AWS_QUERYSTRING_AUTH", True) is False:
-        public_signals.append("AWS_QUERYSTRING_AUTH=False (unsigned URLs)")
-    custom_domain = getattr(settings, "AWS_S3_CUSTOM_DOMAIN", None)
-    if custom_domain:
-        public_signals.append(
-            f"AWS_S3_CUSTOM_DOMAIN={custom_domain!r} (CDN fronting the bucket)"
-        )
+    if storage_backend == "AWS":
+        default_acl = getattr(settings, "AWS_DEFAULT_ACL", None)
+        if default_acl in ("public-read", "public-read-write"):
+            public_signals.append(f"AWS_DEFAULT_ACL={default_acl!r}")
+        if getattr(settings, "AWS_QUERYSTRING_AUTH", True) is False:
+            public_signals.append("AWS_QUERYSTRING_AUTH=False (unsigned URLs)")
+        custom_domain = getattr(settings, "AWS_S3_CUSTOM_DOMAIN", None)
+        if custom_domain:
+            public_signals.append(
+                f"AWS_S3_CUSTOM_DOMAIN={custom_domain!r} (CDN fronting the bucket)"
+            )
+    elif storage_backend == "GCP":
+        gs_default_acl = getattr(settings, "GS_DEFAULT_ACL", None)
+        if gs_default_acl in (
+            "publicRead",
+            "public-read",
+            "publicReadWrite",
+            "public-read-write",
+        ):
+            public_signals.append(f"GS_DEFAULT_ACL={gs_default_acl!r}")
+        if getattr(settings, "GS_QUERYSTRING_AUTH", True) is False:
+            public_signals.append("GS_QUERYSTRING_AUTH=False (unsigned URLs)")
+    else:
+        return []
     if public_signals:
         return [
             Warning(
