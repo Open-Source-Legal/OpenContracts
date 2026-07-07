@@ -624,6 +624,23 @@ class ObjectStorageBackendIntegrationTests(TestCase):
             self.assertGreaterEqual(manifest["count"], 2)
             self.assertLessEqual(engine.wal_tail_count(namespace), 1)
 
+    def test_rebuild_command_dry_run_reports_without_writing(self):
+        import io as io_module
+
+        # Backend off during creation: no on_commit hook, so nothing is in
+        # the object store yet — exactly the pre-flip state --dry-run previews.
+        doc = Document.objects.create(title="Dry", creator=self.user)
+        doc.add_embedding(EMBEDDER, sparse_vector((0, 1.0)))
+        with self.object_backend_settings():
+            out = io_module.StringIO()
+            call_command("rebuild_object_vector_index", "--dry-run", stdout=out)
+            namespace = build_namespace("document", EMBEDDER, DIM)
+            self.assertIn(f"[dry-run] {namespace}: would replay 1", out.getvalue())
+            engine = router.get_default_engine()
+            # Nothing written: no WAL files, no manifest.
+            self.assertEqual(engine._list_wal(namespace), [])
+            self.assertIsNone(engine._load_manifest(namespace))
+
     def test_rebuild_command_respects_compaction_lock(self):
         """
         The rebuild command must never compact concurrently with an

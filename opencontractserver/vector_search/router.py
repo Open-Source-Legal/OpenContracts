@@ -24,6 +24,7 @@ from typing import Any
 from django.conf import settings
 
 from opencontractserver.constants.search import (
+    EMBEDDABLE_PARENT_KINDS,
     OBJECT_INDEX_FILTER_OVERSAMPLE,
     OBJECT_INDEX_MAX_FETCH_CANDIDATES,
     VECTOR_SEARCH_BACKEND_OBJECT_STORAGE,
@@ -35,20 +36,12 @@ from .object_store import DjangoStorageObjectStore
 
 logger = logging.getLogger(__name__)
 
-# Maps Django model_name -> namespace parent-kind segment. Only models that
-# can own Embedding rows (Embedding's parent FKs) are searchable.
-# KEEP IN SYNC with PARENT_FK_TO_KIND in
-# opencontractserver/tasks/vector_index_tasks.py — same taxonomy keyed by
-# Embedding FK attribute instead of model name; adding an embeddable parent
-# type requires updating both (kind VALUES must match exactly, or writes and
-# reads land in different namespaces).
+# Maps Django model_name -> namespace parent-kind segment, derived from the
+# shared EMBEDDABLE_PARENT_KINDS taxonomy (single source of truth with the
+# write-path map in opencontractserver/tasks/vector_index_tasks.py). Only
+# models that can own Embedding rows (Embedding's parent FKs) are searchable.
 PARENT_KIND_BY_MODEL_NAME: dict[str, str] = {
-    "annotation": "annotation",
-    "document": "document",
-    "note": "note",
-    "conversation": "conversation",
-    "chatmessage": "message",
-    "relationship": "relationship",
+    model_name: kind for model_name, (_fk_attr, kind) in EMBEDDABLE_PARENT_KINDS.items()
 }
 
 _default_engine: ObjectStorageVectorEngine | None = None

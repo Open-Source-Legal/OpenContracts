@@ -15,6 +15,7 @@ from django.core.cache import cache
 
 from opencontractserver.constants.search import (
     DIM_TO_FIELD_MAP,
+    EMBEDDABLE_PARENT_KINDS,
     OBJECT_INDEX_COMPACT_LOCK_TIMEOUT_SECONDS,
     OBJECT_INDEX_COMPACT_MIN_WAL_FILES,
 )
@@ -26,18 +27,11 @@ from opencontractserver.vector_search.router import (
 
 logger = logging.getLogger(__name__)
 
-# Mirrors Embedding's parent FK columns -> namespace parent-kind segment.
-# KEEP IN SYNC with PARENT_KIND_BY_MODEL_NAME in
-# opencontractserver/vector_search/router.py — same taxonomy keyed by model
-# name; kind VALUES must match exactly or writes and reads land in different
-# namespaces.
+# Maps Embedding's parent FK columns -> namespace parent-kind segment,
+# derived from the shared EMBEDDABLE_PARENT_KINDS taxonomy (single source of
+# truth with the read-path map in opencontractserver/vector_search/router.py).
 PARENT_FK_TO_KIND = {
-    "document_id": "document",
-    "annotation_id": "annotation",
-    "note_id": "note",
-    "conversation_id": "conversation",
-    "message_id": "message",
-    "relationship_id": "relationship",
+    fk_attr: kind for _model_name, (fk_attr, kind) in EMBEDDABLE_PARENT_KINDS.items()
 }
 
 

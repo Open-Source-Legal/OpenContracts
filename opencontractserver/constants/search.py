@@ -156,6 +156,27 @@ VALID_VECTOR_SEARCH_BACKENDS = frozenset(
 # =============================================================================
 # Tuning knobs for opencontractserver/vector_search/engine.py.
 
+# Single source of truth for the embeddable parent-type taxonomy:
+# Django model_name -> (Embedding FK attribute, namespace parent-kind).
+# opencontractserver/vector_search/router.py derives its model-name map and
+# opencontractserver/tasks/vector_index_tasks.py its FK-attribute map from
+# this dict, so the two can never silently diverge (divergent kind values
+# would route reads and writes into different namespaces with no error —
+# just silently-empty search results).
+#
+# NOTE: the engine stores parent pks as int64 (engine.upsert casts via
+# ``int(doc_id)``). Every model listed here uses an integer AutoField pk;
+# adding an embeddable parent with a non-integer pk (e.g. UUID) requires
+# changing the engine's id representation first.
+EMBEDDABLE_PARENT_KINDS: dict[str, tuple[str, str]] = {
+    "document": ("document_id", "document"),
+    "annotation": ("annotation_id", "annotation"),
+    "note": ("note_id", "note"),
+    "conversation": ("conversation_id", "conversation"),
+    "chatmessage": ("message_id", "message"),
+    "relationship": ("relationship_id", "relationship"),
+}
+
 # Below this many vectors a namespace is stored as a single brute-force
 # cluster — k-means clustering only pays off once fetching the whole segment
 # per query costs more than the extra centroid roundtrip.
@@ -206,6 +227,9 @@ OBJECT_INDEX_COMPACT_LOCK_TIMEOUT_SECONDS = 600
 # (non-empty WAL) are retried once after this delay: put_bytes overwrites the
 # manifest via delete-then-save, so a reader can catch the sub-second window
 # between the two and would otherwise silently serve only the WAL tail.
+# NOTE: this is a synchronous time.sleep that can run on a request-serving
+# thread (GraphQL resolver -> search_by_embedding); it only fires in the
+# rare mid-overwrite/pre-first-compaction case, but keep it small.
 OBJECT_INDEX_MANIFEST_RETRY_DELAY_SECONDS = 0.05
 
 # Bounded retries for the delete-then-save overwrite dance in
