@@ -369,7 +369,7 @@ class BootstrapTests(SimpleTestCase):
             self.assertIsNone(bootstrap.python_version_error(supported))
         for unsupported in ((3, 9), (3, 13), (3, 14)):
             message = bootstrap.python_version_error(unsupported)
-            self.assertIsNotNone(message)
+            assert message is not None  # narrows the type for mypy
             self.assertIn("python.org", message)
 
     def test_venv_python_per_os(self):
