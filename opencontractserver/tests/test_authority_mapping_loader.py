@@ -9,6 +9,7 @@ from opencontractserver.annotations.models import (
     AuthorityKeyEquivalence,
     AuthorityNamespace,
 )
+from opencontractserver.enrichment.constants import BASELINE_ORIGIN_CORE
 from opencontractserver.enrichment.services.authority_mapping_loader import (
     AuthorityMappingLoader,
 )
@@ -260,6 +261,182 @@ class AuthorityNamespaceLoaderTests(TestCase):
         assert "exchange act" in ns.aliases
 
 
+class BaselineOriginGuardTests(TestCase):
+    """Baseline-vs-baseline collision guard (issue #2057).
+
+    Every ``source="baseline"`` namespace row is stamped with its WRITER origin
+    (``baseline_origin``: "core" for the shipped YAML, else the pack's name), and
+    a loader run never overwrites a prefix a DIFFERENT origin owns — first
+    writer wins, the collision is warned + counted. Before the guard, two
+    baseline writers on the same prefix silently last-write-wins'd each other
+    (``update_or_create`` with no writer partition).
+    """
+
+    _LOADER_LOGGER = "opencontractserver.enrichment.services.authority_mapping_loader"
+    _PACK_A_YAML = (
+        "prefixes:\n"
+        "  test-pack-a:\n"
+        '    display_name: "Pack A Body"\n'
+        '    jurisdiction: "aa"\n'
+        '    authority_type: "statute"\n'
+        '    aliases: ["pack a body"]\n'
+    )
+    _PACK_B_YAML = (
+        "prefixes:\n"
+        "  test-pack-b:\n"
+        '    display_name: "Pack B Body"\n'
+        '    jurisdiction: "bb"\n'
+        '    authority_type: "statute"\n'
+        '    aliases: ["pack b body"]\n'
+    )
+    # Pack B claiming Pack A's prefix — the collision case.
+    _PACK_B_CLAIMS_A_YAML = (
+        "prefixes:\n"
+        "  test-pack-a:\n"
+        '    display_name: "Pack B CLOBBER"\n'
+        '    jurisdiction: "bb"\n'
+        '    authority_type: "regulation"\n'
+        '    aliases: ["clobbered"]\n'
+    )
+
+    def test_default_core_load_stamps_core_origin(self):
+        AuthorityMappingLoader.load_namespaces()
+        ns = AuthorityNamespace.objects.get(prefix="exchange-act")
+        assert ns.baseline_origin == BASELINE_ORIGIN_CORE
+
+    def test_reloading_two_packs_with_distinct_prefixes_never_clobbers(self):
+        # Issue #2057 acceptance criterion: re-loading two packs that touch
+        # distinct prefixes never clobbers each other.
+        path_a = _write_yaml(self._PACK_A_YAML)
+        path_b = _write_yaml(self._PACK_B_YAML)
+        AuthorityMappingLoader.load_namespaces(path=path_a, origin="pack-a")
+        AuthorityMappingLoader.load_namespaces(path=path_b, origin="pack-b")
+        summary = AuthorityMappingLoader.load_namespaces(path=path_a, origin="pack-a")
+        assert summary["updated"] == 1
+        assert summary["skipped_foreign_baseline"] == 0
+
+        row_a = AuthorityNamespace.objects.get(prefix="test-pack-a")
+        row_b = AuthorityNamespace.objects.get(prefix="test-pack-b")
+        assert (row_a.display_name, row_a.baseline_origin) == (
+            "Pack A Body",
+            "pack-a",
+        )
+        assert (row_b.display_name, row_b.baseline_origin) == (
+            "Pack B Body",
+            "pack-b",
+        )
+
+    def test_same_prefix_foreign_origin_is_skipped_and_warned(self):
+        AuthorityMappingLoader.load_namespaces(
+            path=_write_yaml(self._PACK_A_YAML), origin="pack-a"
+        )
+        with self.assertLogs(self._LOADER_LOGGER, level="WARNING"):
+            summary = AuthorityMappingLoader.load_namespaces(
+                path=_write_yaml(self._PACK_B_CLAIMS_A_YAML), origin="pack-b"
+            )
+        assert summary["skipped_foreign_baseline"] == 1
+        assert summary["created"] == 0
+        assert summary["updated"] == 0
+        row = AuthorityNamespace.objects.get(prefix="test-pack-a")
+        assert row.display_name == "Pack A Body"  # first writer wins
+        assert row.baseline_origin == "pack-a"
+
+    def test_unattributed_run_cannot_steal_owned_prefix(self):
+        # origin=None with an explicit path (an untagged ad-hoc load) must not
+        # be able to overwrite a prefix a named origin owns.
+        AuthorityMappingLoader.load_namespaces(
+            path=_write_yaml(self._PACK_A_YAML), origin="pack-a"
+        )
+        summary = AuthorityMappingLoader.load_namespaces(
+            path=_write_yaml(self._PACK_B_CLAIMS_A_YAML)
+        )
+        assert summary["skipped_foreign_baseline"] == 1
+        assert (
+            AuthorityNamespace.objects.get(prefix="test-pack-a").display_name
+            == "Pack A Body"
+        )
+
+    def test_legacy_null_origin_baseline_row_is_adopted(self):
+        # Pre-0101 baseline rows have no origin; the next owning load updates
+        # them and stamps its origin (adoption), so the fleet converges.
+        AuthorityNamespace.objects.create(
+            prefix="test-pack-a", display_name="Legacy row", source="baseline"
+        )
+        summary = AuthorityMappingLoader.load_namespaces(
+            path=_write_yaml(self._PACK_A_YAML), origin="pack-a"
+        )
+        assert summary["updated"] == 1
+        row = AuthorityNamespace.objects.get(prefix="test-pack-a")
+        assert row.display_name == "Pack A Body"
+        assert row.baseline_origin == "pack-a"
+
+    def test_manual_row_still_trumps_any_origin(self):
+        AuthorityNamespace.objects.create(
+            prefix="test-pack-a", display_name="CURATOR", source="manual"
+        )
+        summary = AuthorityMappingLoader.load_namespaces(
+            path=_write_yaml(self._PACK_A_YAML), origin="pack-a"
+        )
+        assert summary["skipped_manual"] == 1
+        assert (
+            AuthorityNamespace.objects.get(prefix="test-pack-a").display_name
+            == "CURATOR"
+        )
+
+
+class LoadInstalledTests(TestCase):
+    """``load_installed`` merge-loads the core YAML + every installed pack."""
+
+    def test_load_installed_merges_core_and_installed_packs(self):
+        results = AuthorityMappingLoader.load_installed()
+        # The in-tree reference bolivia pack is always installed.
+        assert BASELINE_ORIGIN_CORE in results
+        assert "bolivia" in results
+
+        core_ns = AuthorityNamespace.objects.get(prefix="exchange-act")
+        assert core_ns.baseline_origin == BASELINE_ORIGIN_CORE
+        pack_ns = AuthorityNamespace.objects.get(prefix="cpe")
+        assert pack_ns.baseline_origin == "bolivia"
+        assert pack_ns.is_global is True
+
+    def test_load_installed_is_idempotent(self):
+        AuthorityMappingLoader.load_installed()
+        second = AuthorityMappingLoader.load_installed()
+        for origin, summary in second.items():
+            ns = summary["namespaces"]
+            assert ns["created"] == 0, origin
+            assert ns["skipped_foreign_baseline"] == 0, origin
+
+    def test_load_installed_isolates_a_malformed_pack(self):
+        # One pack with a broken mappings YAML must not abort the converge run:
+        # it is reported under its origin as an error, the core baseline (and
+        # any other pack) still loads.
+        import tempfile as _tempfile
+        from pathlib import Path as _Path
+        from unittest import mock
+
+        from opencontractserver.enrichment.services import (
+            authority_pack_config as apc,
+        )
+
+        with _tempfile.TemporaryDirectory() as tmp:
+            bad_pack = _Path(tmp) / "badpack"
+            bad_pack.mkdir()
+            (bad_pack / "pack.yaml").write_text(
+                "name: badpack\nmappings: m.yaml\n", encoding="utf-8"
+            )
+            (bad_pack / "m.yaml").write_text(
+                'prefixes:\n  "NOT A VALID PREFIX!!":\n    display_name: "x"\n',
+                encoding="utf-8",
+            )
+            with mock.patch.object(apc, "authority_pack_dirs", return_value=[bad_pack]):
+                results = AuthorityMappingLoader.load_installed()
+
+        assert "error" in results["badpack"]
+        assert BASELINE_ORIGIN_CORE in results
+        assert AuthorityNamespace.objects.filter(prefix="exchange-act").exists()
+
+
 class NamespaceReseedOwnershipTests(TestCase):
     """The ``post_migrate`` namespace convergence (``ensure_seeded``) must honour
     the same source-ownership partition as ``AuthorityMappingLoader.load_namespaces``.
@@ -324,7 +501,8 @@ class NamespaceReseedOwnershipTests(TestCase):
 
     def test_reseed_still_converges_baseline_rows(self):
         # The convergence must still (re)create a shipped baseline prefix that is
-        # absent — its whole reason for existing (post-flush re-seed).
+        # absent — its whole reason for existing (post-flush re-seed). Rows it
+        # writes are stamped as core-origin baseline, same as the loader.
         from opencontractserver.enrichment._namespace_seed import ensure_seeded
 
         AuthorityNamespace.objects.filter(prefix="dgcl").delete()
@@ -332,6 +510,29 @@ class NamespaceReseedOwnershipTests(TestCase):
         ns = AuthorityNamespace.objects.get(prefix="dgcl")
         assert ns.is_global is True
         assert ns.source == "baseline"
+        assert ns.baseline_origin == BASELINE_ORIGIN_CORE
+
+    def test_reseed_respects_pack_owned_prefix(self):
+        # A shipped-constants prefix that a PACK claimed first (baseline_origin
+        # != "core") must survive the convergence: the seed mirrors the loader's
+        # first-writer-wins baseline-origin guard (issue #2057).
+        from opencontractserver.enrichment._namespace_seed import ensure_seeded
+
+        AuthorityNamespace.objects.update_or_create(
+            prefix="dgcl",
+            defaults={
+                "display_name": "PACK OWNED",
+                "is_global": True,
+                "source": "baseline",
+                "baseline_origin": "somepack",
+            },
+        )
+
+        ensure_seeded()
+
+        ns = AuthorityNamespace.objects.get(prefix="dgcl")
+        assert ns.display_name == "PACK OWNED"
+        assert ns.baseline_origin == "somepack"
 
 
 class LoadAuthorityMappingsCommandTests(TestCase):
@@ -343,6 +544,26 @@ class LoadAuthorityMappingsCommandTests(TestCase):
         ).exists()
         assert AuthorityNamespace.objects.filter(prefix="exchange-act").exists()
         assert "created" in out.getvalue().lower()
+
+    def test_command_default_does_not_load_packs(self):
+        # "cpe" ships only in the in-tree bolivia PACK, not the core YAML —
+        # clear any leaked copy, then verify the default (pack-less) run does
+        # not create it.
+        AuthorityNamespace.objects.filter(prefix="cpe").delete()
+        out = StringIO()
+        call_command("load_authority_mappings", stdout=out)
+        assert not AuthorityNamespace.objects.filter(prefix="cpe").exists()
+        assert f"[{BASELINE_ORIGIN_CORE}]" in out.getvalue()
+        assert "[bolivia]" not in out.getvalue()
+
+    def test_command_include_packs_merges_installed_packs(self):
+        out = StringIO()
+        call_command("load_authority_mappings", "--include-packs", stdout=out)
+        assert AuthorityNamespace.objects.filter(
+            prefix="cpe", baseline_origin="bolivia"
+        ).exists()
+        assert f"[{BASELINE_ORIGIN_CORE}]" in out.getvalue()
+        assert "[bolivia]" in out.getvalue()
 
 
 class AuthorityMappingsMigrationTests(TestCase):

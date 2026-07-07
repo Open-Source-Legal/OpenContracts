@@ -1,23 +1,31 @@
 """Idempotent, source-scoped loader for the declarative authority-mappings baseline.
 
 ``opencontractserver/enrichment/data/authority_mappings.yaml`` is the single
-source of truth. This loader upserts it into the database:
+source of truth for the CORE baseline; each installed authority pack may carry
+its own mappings YAML (the file its ``pack.yaml`` points at via ``mappings:``).
+This loader upserts either into the database:
 
 - ``prefixes:``     → ``AuthorityNamespace`` registry rows (global, baseline)
 - ``equivalences:`` → ``AuthorityKeyEquivalence`` rows tagged ``source="baseline"``
 
 It NEVER overwrites a ``source="manual"`` equivalence (runtime curator override)
 nor a corpus-linked ``AuthorityNamespace`` (``is_global=False``, bootstrap-owned),
-so a re-load can't clobber operator/runtime state. Parsing + validation are
+so a re-load can't clobber operator/runtime state. Baseline namespace rows are
+additionally stamped with a writer ``baseline_origin`` (``"core"`` or the pack's
+manifest name) so two baseline writers on the same prefix cannot silently
+last-write-wins each other either — the first writer owns the prefix and a
+foreign origin is skipped with a warning (issue #2057). Parsing + validation are
 delegated to the pure ``enrichment.data.mappings`` reader (no Django models), so
 the YAML grammar has exactly one definition shared with ``enrichment.constants``.
 """
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from opencontractserver.annotations.models import AuthorityNamespace
+from opencontractserver.enrichment.constants import BASELINE_ORIGIN_CORE
 from opencontractserver.enrichment.data import mappings as _mappings
 from opencontractserver.enrichment.services.authority_equivalence_ingest import (
     CREATED,
@@ -26,9 +34,11 @@ from opencontractserver.enrichment.services.authority_equivalence_ingest import 
     upsert_equivalence,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class AuthorityMappingLoader:
-    """Load the declarative authority-mappings YAML into the database."""
+    """Load a declarative authority-mappings YAML into the database."""
 
     BASELINE = "baseline"
     MANUAL = "manual"
@@ -43,6 +53,12 @@ class AuthorityMappingLoader:
         untouched and counted under ``skipped_owned``. Mirrors
         ``authority_equivalence_ingest.upsert_equivalence``'s symmetric guard so
         no writer ever overwrites a row another source owns.
+
+        Unlike namespaces, equivalence rows carry no per-writer origin: the
+        ``(from_key, to_key)`` pair IS the row's content, so two baseline
+        writers declaring the same pair assert the same fact (only the optional
+        ``note`` can differ, and the last load's note wins — cosmetic, not a
+        clobber). Distinct pairs never touch each other.
 
         Returns ``{created, updated, skipped_owned, total}`` where ``total`` is
         the count of distinct validated ``(from_key, to_key)`` pairs in the file.
@@ -91,26 +107,42 @@ class AuthorityMappingLoader:
         }
 
     @classmethod
-    def load_namespaces(cls, *, path: Path | str | None = None) -> dict:
+    def load_namespaces(
+        cls, *, path: Path | str | None = None, origin: str | None = None
+    ) -> dict:
         """Upsert global ``AuthorityNamespace`` registry rows from ``prefixes:``.
 
-        Source-ownership partition (the loader owns only ``baseline``): a
-        pre-existing row is left untouched when EITHER
+        ``origin`` identifies the baseline WRITER — ``BASELINE_ORIGIN_CORE``
+        (``"core"``) for the shipped default YAML (the default when ``path`` is
+        omitted), or the pack's manifest ``name`` when loading a pack's mappings.
+
+        Source-ownership partition (the loader owns only ``baseline``, and each
+        baseline writer owns only its own prefixes): a pre-existing row is left
+        untouched when ANY of
 
         - it is corpus-linked (``is_global=False``, bootstrap-owned) — a re-load
           must never flip a corpus namespace to global (see
           ``AuthorityNamespace.save()``), OR
         - it is ``source="manual"`` — a curator created/edited it through the
           admin console; clobbering it on the next loader run would silently
-          discard the operator's edits.
+          discard the operator's edits, OR
+        - it is a baseline row stamped with a DIFFERENT ``baseline_origin`` —
+          another baseline writer (the core YAML vs. a pack, or two packs)
+          already owns the prefix. First writer wins; the collision is logged
+          and counted under ``skipped_foreign_baseline`` so two packs (or a
+          pack and the core baseline) can never silently clobber each other
+          (issue #2057). A legacy baseline row with a null origin is adopted —
+          updated and stamped with this run's origin.
 
-        Mirrors the equivalence loader's ``skipped_owned`` guard exactly.
         Returns ``{created, updated, skipped_corpus_linked, skipped_manual,
-        total}``.
+        skipped_foreign_baseline, total}``.
         """
+        if origin is None and path is None:
+            origin = BASELINE_ORIGIN_CORE
         prefixes = _mappings.iter_prefixes(path)
 
-        created = updated = skipped_corpus_linked = skipped_manual = 0
+        created = updated = 0
+        skipped_corpus_linked = skipped_manual = skipped_foreign_baseline = 0
         for prefix, spec in prefixes.items():
             existing = AuthorityNamespace.objects.filter(prefix=prefix).first()
             if existing is not None and existing.authority_corpus_id:
@@ -120,6 +152,25 @@ class AuthorityMappingLoader:
             if existing is not None and existing.source == cls.MANUAL:
                 # A curator owns this prefix via the admin console; never clobber.
                 skipped_manual += 1
+                continue
+            if (
+                existing is not None
+                and existing.baseline_origin
+                and existing.baseline_origin != origin
+            ):
+                # Another baseline writer owns this prefix; never clobber. (An
+                # unattributed run — origin=None with an explicit path — can
+                # never steal an owned prefix either.)
+                skipped_foreign_baseline += 1
+                logger.warning(
+                    "Baseline collision on authority prefix %r: owned by origin "
+                    "%r, skipping the load from origin %r (first writer wins; "
+                    "resolve by removing the prefix from one YAML, or curate the "
+                    "row through the console to make it manual-owned).",
+                    prefix,
+                    existing.baseline_origin,
+                    origin,
+                )
                 continue
 
             _, was_created = AuthorityNamespace.objects.update_or_create(
@@ -131,6 +182,7 @@ class AuthorityMappingLoader:
                     "aliases": sorted(set(spec["aliases"])),
                     "is_global": True,
                     "source": cls.BASELINE,
+                    "baseline_origin": origin,
                 },
             )
             created += int(was_created)
@@ -141,17 +193,87 @@ class AuthorityMappingLoader:
             "updated": updated,
             "skipped_corpus_linked": skipped_corpus_linked,
             "skipped_manual": skipped_manual,
+            "skipped_foreign_baseline": skipped_foreign_baseline,
             "total": len(prefixes),
         }
 
     @classmethod
-    def load_all(cls, *, path: Path | str | None = None) -> dict:
-        """Upsert both namespaces and equivalences from the YAML.
+    def load_all(
+        cls, *, path: Path | str | None = None, origin: str | None = None
+    ) -> dict:
+        """Upsert both namespaces and equivalences from one YAML.
 
         Returns ``{"namespaces": {...}, "equivalences": {...}}``. Namespaces are
         loaded first so an equivalence's prefix always has a registry row.
+        ``origin`` is threaded to :meth:`load_namespaces` (equivalence rows carry
+        no per-writer origin — see :meth:`load`).
         """
         return {
-            "namespaces": cls.load_namespaces(path=path),
+            "namespaces": cls.load_namespaces(path=path, origin=origin),
             "equivalences": cls.load(path=path),
         }
+
+    @classmethod
+    def load_installed(cls) -> dict[str, dict]:
+        """Merge-load the core baseline YAML plus every installed pack's mappings.
+
+        One idempotent call converges the whole installed taxonomy: the shipped
+        ``authority_mappings.yaml`` first (origin ``"core"``), then each
+        installed pack's mappings YAML (in-tree ``authority_packs/`` +
+        ``AUTHORITY_PACK_PATHS``, in ``authority_pack_dirs()`` discovery order)
+        stamped with the pack's manifest ``name`` (falling back to its directory
+        name). Core loading first means that on a same-prefix collision the
+        shipped engine baseline wins and the pack's claim is skipped + warned —
+        the same "the baseline always wins" merge rule
+        ``authority_pack_config`` applies to shape rules / abbreviations.
+
+        Returns ``{origin: load_all()-summary}`` in load order.
+        """
+        # Lazy import: authority_pack_config reaches the pipeline registry to
+        # enumerate packs; consuming it lazily (like constants.classify_prefix
+        # does) keeps this module import-light for the migration/seed path.
+        from opencontractserver.enrichment.services.authority_pack_config import (
+            iter_pack_mapping_files,
+        )
+
+        results: dict[str, dict] = {BASELINE_ORIGIN_CORE: cls.load_all()}
+        for pack_dir, mappings_path, manifest in iter_pack_mapping_files():
+            origin = str(manifest.get("name") or pack_dir.name)
+            if origin == BASELINE_ORIGIN_CORE:
+                # A pack literally named "core" would impersonate the shipped
+                # baseline and bypass the collision guard — refuse it.
+                logger.warning(
+                    "Skipping authority pack at %s: pack name %r is reserved "
+                    "for the shipped core baseline.",
+                    pack_dir,
+                    origin,
+                )
+                continue
+            if origin in results:
+                # Two installed pack dirs declaring the same manifest name are,
+                # by declaration, the same pack (e.g. an in-tree copy + an
+                # AUTHORITY_PACK_PATHS copy): they co-own their prefixes and the
+                # load stays idempotent, but flag it — the later summary
+                # replaces the earlier one in the report.
+                logger.warning(
+                    "Duplicate authority pack name %r (dir %s); loading anyway "
+                    "under the same baseline origin.",
+                    origin,
+                    pack_dir,
+                )
+            try:
+                results[origin] = cls.load_all(path=mappings_path, origin=origin)
+            except ValueError as exc:
+                # Per-pack fault isolation, mirroring authority_pack_config's
+                # runtime scans: one malformed pack YAML must not abort the
+                # converge run for every other installed pack. (A DIRECT
+                # ``load_all(path=...)`` on the same file still raises — the
+                # fail-fast path ``load_authority_pack`` relies on.)
+                logger.error(
+                    "Skipping authority pack %r mappings (%s): %s",
+                    origin,
+                    mappings_path,
+                    exc,
+                )
+                results[origin] = {"error": str(exc)}
+        return results

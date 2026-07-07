@@ -10,7 +10,7 @@ module pins the *defensive* contract:
   ``ValueError`` on every malformed shape so ``load_authority_pack`` aborts a bad
   install loudly, and
 * the runtime scan (``pack_declared_shape_rules`` / ``pack_declared_abbreviations``
-  / ``_iter_pack_mapping_files`` / ``_load_yaml``) downgrades those raises to
+  / ``iter_pack_mapping_files`` / ``_load_yaml``) downgrades those raises to
   log-and-skip so a single broken pack can never break extraction for every
   jurisdiction.
 
@@ -146,7 +146,7 @@ class LoadYamlTests(SimpleTestCase):
 
 
 class IterPackMappingFilesSkipTests(SimpleTestCase):
-    """``_iter_pack_mapping_files`` skips packs it cannot use, never raises."""
+    """``iter_pack_mapping_files`` skips packs it cannot use, never raises."""
 
     def _patch_dirs(self, *dirs: Path):
         return mock.patch.object(apc, "authority_pack_dirs", return_value=list(dirs))
@@ -156,7 +156,7 @@ class IterPackMappingFilesSkipTests(SimpleTestCase):
             pack = Path(tmp) / "no-manifest"
             pack.mkdir()
             with self._patch_dirs(pack):
-                self.assertEqual(list(apc._iter_pack_mapping_files()), [])
+                self.assertEqual(list(apc.iter_pack_mapping_files()), [])
 
     def test_pack_with_malformed_manifest_is_skipped(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -165,7 +165,7 @@ class IterPackMappingFilesSkipTests(SimpleTestCase):
             (pack / "pack.yaml").write_text(_BAD_YAML, encoding="utf-8")
             with self._patch_dirs(pack):
                 with self.assertLogs(_MODULE, level="WARNING"):
-                    self.assertEqual(list(apc._iter_pack_mapping_files()), [])
+                    self.assertEqual(list(apc.iter_pack_mapping_files()), [])
 
     def test_pack_without_mappings_key_is_skipped(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -173,7 +173,7 @@ class IterPackMappingFilesSkipTests(SimpleTestCase):
             pack.mkdir()
             (pack / "pack.yaml").write_text("name: x\n", encoding="utf-8")
             with self._patch_dirs(pack):
-                self.assertEqual(list(apc._iter_pack_mapping_files()), [])
+                self.assertEqual(list(apc.iter_pack_mapping_files()), [])
 
     def test_well_formed_pack_is_yielded(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -184,8 +184,11 @@ class IterPackMappingFilesSkipTests(SimpleTestCase):
             )
             (pack / "m.yaml").write_text("shape_rules: []\n", encoding="utf-8")
             with self._patch_dirs(pack):
-                yielded = list(apc._iter_pack_mapping_files())
-            self.assertEqual([p for p, _ in yielded], [pack])
+                yielded = list(apc.iter_pack_mapping_files())
+            self.assertEqual([p for p, _, _ in yielded], [pack])
+            # The parsed manifest rides along so callers (e.g. load_installed
+            # deriving the pack's baseline origin) never re-read pack.yaml.
+            self.assertEqual(yielded[0][2].get("name"), "x")
 
 
 class RuntimeScanFaultIsolationTests(SimpleTestCase):

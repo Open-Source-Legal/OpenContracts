@@ -54,9 +54,14 @@ ShapeRule = tuple[re.Pattern, "str | None", "str | None"]
 AbbrevEntry = tuple[str, str, str]
 
 
-def _iter_pack_mapping_files():
-    """Yield ``(pack_dir, mappings_yaml_path)`` for every installed pack that
-    declares a ``mappings:`` file that exists on disk."""
+def iter_pack_mapping_files():
+    """Yield ``(pack_dir, mappings_yaml_path, manifest)`` for every installed pack
+    that declares a ``mappings:`` file that exists on disk.
+
+    ``manifest`` is the parsed ``pack.yaml`` dict — yielded so callers that need
+    manifest metadata (e.g. ``AuthorityMappingLoader.load_installed`` deriving the
+    pack's baseline origin from ``name:``) don't re-read/re-parse the file.
+    """
     for pack_dir in authority_pack_dirs():
         manifest = pack_dir / "pack.yaml"
         if not manifest.is_file():
@@ -71,7 +76,7 @@ def _iter_pack_mapping_files():
             continue
         path = pack_dir / rel
         if path.is_file():
-            yield pack_dir, path
+            yield pack_dir, path, data
 
 
 def _load_yaml(path: Path) -> dict:
@@ -170,7 +175,7 @@ def validate_pack_taxonomy_extensions(mappings_path: Path) -> None:
 def pack_declared_shape_rules() -> tuple[ShapeRule, ...]:
     """Compiled shape rules contributed by every installed pack (cached)."""
     rules: list[ShapeRule] = []
-    for pack_dir, mappings_path in _iter_pack_mapping_files():
+    for pack_dir, mappings_path, _manifest in iter_pack_mapping_files():
         data = _load_yaml(mappings_path)
         try:
             parsed = iter_shape_rules(data, label=str(mappings_path))
@@ -203,7 +208,7 @@ def pack_declared_abbreviations() -> (
     """
     state: dict[str, AbbrevEntry] = {}
     municipal: dict[str, AbbrevEntry] = {}
-    for pack_dir, mappings_path in _iter_pack_mapping_files():
+    for pack_dir, mappings_path, _manifest in iter_pack_mapping_files():
         data = _load_yaml(mappings_path)
         try:
             parsed = iter_abbreviations(data, label=str(mappings_path))

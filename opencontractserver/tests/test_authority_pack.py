@@ -280,15 +280,16 @@ class LoadAuthorityPackEdgeCaseTests(TestCase):
 
     def test_taxonomy_only_pack_loads_namespaces(self):
         # A pack may declare just taxonomy (no corpora) — that is valid, not a
-        # silent no-op.
+        # silent no-op. Every namespace row is stamped with the pack's name as
+        # its baseline_origin (the #2057 collision guard).
         self._write_pack(
             {"name": "p", "mappings": "m.yaml"},
             copy_mappings=True,
         )
         self._run()
-        self.assertGreaterEqual(
-            AuthorityNamespace.objects.filter(jurisdiction="bo").count(), 5
-        )
+        rows = AuthorityNamespace.objects.filter(jurisdiction="bo")
+        self.assertGreaterEqual(rows.count(), 5)
+        self.assertTrue(all(ns.baseline_origin == "p" for ns in rows))
 
     def test_persona_idempotent_and_modified_persisted(self):
         # Finding #7: an unchanged persona must NOT rewrite the corpus.
@@ -365,6 +366,19 @@ class LoadAuthorityPackEdgeCaseTests(TestCase):
         self._write_pack({"name": "p"})
         with self.assertRaises(CommandError):
             self._run()
+
+    def test_reserved_core_pack_name_rejected(self):
+        # "core" is the baseline_origin stamp of the shipped core YAML; a pack
+        # named "core" would impersonate it and bypass the #2057 collision
+        # guard. Rejected fail-fast, before any DB write.
+        AuthorityNamespace.objects.filter(jurisdiction="bo").delete()  # leaked rows
+        self._write_pack(
+            {"name": "core", "mappings": "m.yaml"},
+            copy_mappings=True,
+        )
+        with self.assertRaises(CommandError):
+            self._run()
+        self.assertFalse(AuthorityNamespace.objects.filter(jurisdiction="bo").exists())
 
     def test_corpora_null_rejected(self):
         self._write("pack.yaml", "name: p\ncorpora:\n")

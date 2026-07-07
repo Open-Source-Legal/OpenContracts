@@ -49,6 +49,7 @@ from opencontractserver.enrichment.authorities import (
     bootstrap_authority_corpus,
     read_section_spec,
 )
+from opencontractserver.enrichment.constants import BASELINE_ORIGIN_CORE
 from opencontractserver.enrichment.services.authority_mapping_loader import (
     AuthorityMappingLoader,
 )
@@ -113,6 +114,12 @@ class Command(BaseCommand):
                 "Pack manifest declares neither 'mappings' nor 'corpora' — "
                 "nothing to load. Check the pack.yaml keys for typos."
             )
+        if str(manifest.get("name") or pack_dir.name) == BASELINE_ORIGIN_CORE:
+            raise CommandError(
+                f"Pack name {BASELINE_ORIGIN_CORE!r} is reserved for the shipped "
+                "core baseline (it is the namespace rows' baseline_origin stamp); "
+                "rename the pack."
+            )
 
         self._validate_source_hosts(manifest)
         if mappings_path is not None:
@@ -131,9 +138,12 @@ class Command(BaseCommand):
         validated = [self._validate_corpus_entry(entry, pack_dir) for entry in corpora]
 
         # ---- DB writes start here (pack fully validated) ----------------------
-        # 1) Taxonomy
+        # 1) Taxonomy — namespace rows are stamped with this pack's name as
+        # their baseline origin so another baseline writer (the core YAML or a
+        # different pack) can never silently clobber them, and vice versa.
         if mappings_path is not None:
-            self._load_taxonomy(mappings_path)
+            origin = str(manifest.get("name") or pack_dir.name)
+            self._load_taxonomy(mappings_path, origin=origin)
 
         # 2) Corpora + content + personas. Defer the reactive re-link until the
         # whole pack has loaded: each bootstrap_authority_corpus(relink=True)
@@ -196,18 +206,28 @@ class Command(BaseCommand):
             raise CommandError(f"Manifest 'mappings' not found: {mappings_path}")
         return mappings_path
 
-    def _load_taxonomy(self, mappings_path: Path) -> None:
+    def _load_taxonomy(self, mappings_path: Path, *, origin: str) -> None:
         """Load a pre-validated authority-mappings YAML into the registry."""
-        summary = AuthorityMappingLoader.load_all(path=mappings_path)
+        summary = AuthorityMappingLoader.load_all(path=mappings_path, origin=origin)
         ns, eq = summary["namespaces"], summary["equivalences"]
         self.stdout.write(
             self.style.SUCCESS(
                 f"taxonomy loaded: namespaces created={ns['created']} "
-                f"updated={ns['updated']} total={ns['total']}; "
+                f"updated={ns['updated']} "
+                f"skipped_foreign_baseline={ns['skipped_foreign_baseline']} "
+                f"total={ns['total']}; "
                 f"equivalences created={eq['created']} updated={eq['updated']} "
                 f"total={eq['total']}"
             )
         )
+        if ns["skipped_foreign_baseline"]:
+            self.stdout.write(
+                self.style.WARNING(
+                    f"{ns['skipped_foreign_baseline']} prefix(es) already owned "
+                    "by another baseline origin were left untouched (first "
+                    "writer wins) — see the log for the colliding prefixes."
+                )
+            )
 
     def _validate_corpus_entry(self, entry: dict, pack_dir: Path) -> tuple:
         """Validate one ``corpora[]`` entry without touching the database.
