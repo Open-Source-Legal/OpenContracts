@@ -156,13 +156,26 @@ VALID_VECTOR_SEARCH_BACKENDS = frozenset(
 # =============================================================================
 # Tuning knobs for opencontractserver/vector_search/engine.py.
 
-# Single source of truth for the embeddable parent-type taxonomy:
+# Single source of truth for the object-indexed parent-type taxonomy:
 # Django model_name -> (Embedding FK attribute, namespace parent-kind).
 # opencontractserver/vector_search/router.py derives its model-name map and
 # opencontractserver/tasks/vector_index_tasks.py its FK-attribute map from
 # this dict, so the two can never silently diverge (divergent kind values
 # would route reads and writes into different namespaces with no error —
 # just silently-empty search results).
+#
+# ONLY parent kinds whose READ path routes through
+# ``VectorSearchViaEmbeddingMixin.search_by_embedding`` are listed —
+# document/annotation/note (their querysets in shared/QuerySets.py inherit
+# the mixin). Conversation, ChatMessage and Relationship embeddings
+# deliberately stay pgvector-only: their reads use separate inline
+# CosineDistance implementations with a *different result contract*
+# (QuerySet + distance-valued ``similarity_score`` in
+# opencontractserver/conversations/models.py; an inlined join in
+# opencontractserver/llms/vector_stores/core_relationship_vector_store.py),
+# so indexing their writes would be pure write amplification with no read
+# benefit. To add a kind: first route its read path through
+# ``router.search_via_object_index``, then list it here.
 #
 # NOTE: the engine stores parent pks as int64 (engine.upsert casts via
 # ``int(doc_id)``). Every model listed here uses an integer AutoField pk;
@@ -172,9 +185,6 @@ EMBEDDABLE_PARENT_KINDS: dict[str, tuple[str, str]] = {
     "document": ("document_id", "document"),
     "annotation": ("annotation_id", "annotation"),
     "note": ("note_id", "note"),
-    "conversation": ("conversation_id", "conversation"),
-    "chatmessage": ("message_id", "message"),
-    "relationship": ("relationship_id", "relationship"),
 }
 
 # Below this many vectors a namespace is stored as a single brute-force

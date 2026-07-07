@@ -723,6 +723,48 @@ class ObjectStorageBackendIntegrationTests(TestCase):
         )
         self.assertGreater(results[0].similarity_score, 0.99)
 
+    def test_non_indexed_parent_kinds_do_not_fan_out(self):
+        """
+        Read/write symmetry (round 12): conversation embeddings' read path
+        bypasses the mixin (own inline pgvector implementation), so their
+        writes must not fan out to the object index — that would be pure
+        write amplification with no read benefit. The hook skips them
+        before any Celery task is queued.
+        """
+        from opencontractserver.annotations.models import Embedding
+        from opencontractserver.conversations.models import Conversation
+
+        with self.object_backend_settings():
+            conversation = Conversation.objects.create(creator=self.user, title="Chat")
+            with mock.patch(
+                "opencontractserver.tasks.vector_index_tasks"
+                ".sync_embedding_to_object_index.si"
+            ) as mock_signature:
+                with self.captureOnCommitCallbacks(execute=True):
+                    Embedding.objects.store_embedding(
+                        creator=self.user,
+                        dimension=DIM,
+                        vector=sparse_vector((0, 1.0)),
+                        embedder_path=EMBEDDER,
+                        conversation_id=conversation.pk,
+                    )
+            mock_signature.assert_not_called()
+            # Document embeddings (an indexed kind) DO fan out.
+            doc = Document.objects.create(title="Indexed", creator=self.user)
+            with mock.patch(
+                "opencontractserver.tasks.vector_index_tasks"
+                ".sync_embedding_to_object_index.si"
+            ) as mock_signature:
+                with self.captureOnCommitCallbacks(execute=True):
+                    Embedding.objects.store_embedding(
+                        creator=self.user,
+                        dimension=DIM,
+                        vector=sparse_vector((0, 1.0)),
+                        embedder_path=EMBEDDER,
+                        document_id=doc.pk,
+                    )
+            mock_signature.assert_called_once()
+
     def test_fetch_cap_binds_for_abusive_top_k(self):
         """
         Regression (round 11): fetch_n must be bounded by

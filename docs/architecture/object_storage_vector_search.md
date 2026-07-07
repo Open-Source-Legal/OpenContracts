@@ -91,7 +91,10 @@ list[Model instance] with .similarity_score  ← identical contract to pgvector
 
 - **Namespace** = `(parent kind, embedder_path, dimension)` — mirroring the
   filters the pgvector path applies (`embedder_path` + `vector_<dim>`
-  column). See `router.build_namespace`.
+  column). See `router.build_namespace`. Indexed kinds are **document,
+  annotation, note** — the parents whose reads route through the mixin
+  (`EMBEDDABLE_PARENT_KINDS` is the single source of truth; see its comment
+  for why conversation/message/relationship are excluded).
 - **Consistency**: reads list the WAL tail **before** reading the manifest —
   this ordering is load-bearing. Compaction commits the new manifest strictly
   before GC'ing folded WAL files, so a WAL-first reader sees either the
@@ -199,6 +202,14 @@ Parameters*.
 - **Vector arm only.** The FTS arm of hybrid search stays in Postgres
   (`search_vector` tsvector), so hybrid/RRF behavior is unchanged. A BM25
   index on object storage (turbopuffer's other half) is future work.
+- **Document/annotation/note only.** Conversation, ChatMessage and
+  Relationship vector search stays on pgvector regardless of the flag:
+  their read paths don't go through `VectorSearchViaEmbeddingMixin`
+  (separate inline implementations with a different result contract — see
+  the `EMBEDDABLE_PARENT_KINDS` comment), and their writes are accordingly
+  not fanned out to the object index either (no write amplification without
+  a read benefit). Migrating those read paths onto
+  `router.search_via_object_index` is the follow-up that unlocks them.
 - **Recall on unclustered data.** IVF-style probing depends on cluster
   structure; real embedding corpora have it, uniform random data does not
   (recall test in the suite uses clustered fixtures for this reason). Raise

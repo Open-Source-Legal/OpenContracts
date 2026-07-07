@@ -77,7 +77,7 @@ def sync_embedding_to_object_index(embedding_id: int, dimension: int) -> str:
         return f"skipped: embedding {embedding_id} has no vector_{dimension}"
     parent = _parent_ref(embedding)
     if parent is None:
-        return f"skipped: embedding {embedding_id} has no parent reference"
+        return f"skipped: embedding {embedding_id} has no indexed parent kind"
 
     parent_kind, parent_pk = parent
     namespace = build_namespace(parent_kind, embedding.embedder_path, dimension)
