@@ -21,6 +21,7 @@ importable because python.org macOS builds ship without system root certs.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import ssl
@@ -53,6 +54,12 @@ def release_tag_candidates(version: str) -> list[str]:
 
 
 def _ssl_context() -> ssl.SSLContext:
+    # An explicit CA override (corporate proxy, custom bundle) must win — the
+    # default context honors SSL_CERT_FILE/SSL_CERT_DIR. certifi is only the
+    # fallback for interpreters with no usable system roots (python.org macOS
+    # builds ship without them until "Install Certificates.command" is run).
+    if os.environ.get("SSL_CERT_FILE") or os.environ.get("SSL_CERT_DIR"):
+        return ssl.create_default_context()
     try:
         import certifi
 
