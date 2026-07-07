@@ -100,6 +100,11 @@ def _stable_secret_key() -> str:
     OR any error (missing/broken backend), fall back to an ephemeral key with a
     loud warning — sessions and stored pipeline secrets then do NOT survive a
     restart.
+
+    Known race (accepted): a timed-out thread keeps running and may still
+    persist ITS freshly-generated key after we've already fallen back to a
+    different ephemeral one — this session's key stays ephemeral either way;
+    the next launch simply adopts whatever got persisted.
     """
     import threading
 
@@ -447,8 +452,11 @@ def main() -> None:
     _first_run_bootstrap(env)
     # The first-run password (possibly injected by bootstrap's early prompt) is
     # only needed by desktop_bootstrap — never expose it to the long-lived
-    # children (Daphne/worker/beat) below.
+    # children (Daphne/worker/beat) below, and scrub it from THIS supervising
+    # process's own environment too (bootstrap set it on os.environ, and this
+    # process lives until Ctrl+C — /proc/<pid>/environ must not hold it).
     env.pop("OC_DESKTOP_PASSWORD", None)
+    os.environ.pop("OC_DESKTOP_PASSWORD", None)
     if _manage(env, "collectstatic", "--noinput", check=False) != 0:
         print(
             "[oc-desktop] WARNING: collectstatic failed; Django admin/DRF static "

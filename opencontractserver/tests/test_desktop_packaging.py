@@ -691,3 +691,38 @@ class EnvPasswordFloorTests(TestCase):
         user = User.objects.get(username="hana")
         self.assertFalse(user.has_usable_password())
         self.assertIn("shorter than", out.getvalue())
+
+
+class LauncherPureHelperTests(SimpleTestCase):
+    """Targeted tests for launcher.py's pure helpers.
+
+    The module is coverage-omitted as process orchestration (setup.cfg), but
+    these helpers have deterministic logic worth pinning regardless.
+    """
+
+    def test_free_port_prefers_stable_default(self):
+        from opencontractserver.desktop import launcher
+
+        # The stable default should win when nothing holds it; if something in
+        # the test environment does, the fallback must yield a usable port.
+        port = launcher._free_port()
+        self.assertTrue(1 <= port <= 65535)
+        import socket
+
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            probe.bind(("127.0.0.1", launcher.DEFAULT_PORT))
+            fallback = launcher._free_port()
+        self.assertNotEqual(fallback, launcher.DEFAULT_PORT)
+        self.assertTrue(1 <= fallback <= 65535)
+
+    def test_keyring_username_is_stable_and_data_dir_scoped(self):
+        from opencontractserver.desktop import launcher
+
+        with mock.patch.dict(os.environ, {paths.DATA_DIR_ENV: "/data/a"}, clear=False):
+            first = launcher._keyring_username()
+            again = launcher._keyring_username()
+        with mock.patch.dict(os.environ, {paths.DATA_DIR_ENV: "/data/b"}, clear=False):
+            other = launcher._keyring_username()
+        self.assertEqual(first, again)  # deterministic per data dir
+        self.assertNotEqual(first, other)  # scoped per data dir
+        self.assertTrue(first.startswith("django-secret-key-"))
