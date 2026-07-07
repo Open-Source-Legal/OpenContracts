@@ -21,6 +21,7 @@ from opencontractserver.constants.search import (
 from opencontractserver.tasks.vector_index_tasks import (
     PARENT_FK_TO_KIND,
     compact_lock_key,
+    compact_pending_key,
 )
 from opencontractserver.vector_search.router import (
     build_namespace,
@@ -136,6 +137,11 @@ class Command(BaseCommand):
                 stats = engine.compact(namespace)
             finally:
                 cache.delete(lock_key)
+                # Also clear any pending auto-compaction marker: this manual
+                # compaction just serviced it, and a stale marker would
+                # suppress the next threshold-crossing enqueue for up to the
+                # marker TTL.
+                cache.delete(compact_pending_key(namespace))
             self.stdout.write(
                 self.style.SUCCESS(
                     f"{namespace}: replayed {totals[namespace]} vectors, "

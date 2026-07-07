@@ -128,11 +128,12 @@ def search_via_object_index(
     try:
         engine = get_default_engine()
         # Capped independent of caller top_k: bounds the in-memory ranking
-        # and the pk__in re-filter. A cap-truncated candidate set that can't
-        # fill top_k takes the shortfall fallback below.
+        # and the pk__in re-filter even for abusive top_k values. When the
+        # cap truncates below top_k, a result set that can't fill top_k takes
+        # the shortfall fallback below (pgvector fills via SQL LIMIT).
         fetch_n = min(
             top_k * OBJECT_INDEX_FILTER_OVERSAMPLE,
-            max(top_k, OBJECT_INDEX_MAX_FETCH_CANDIDATES),
+            OBJECT_INDEX_MAX_FETCH_CANDIDATES,
         )
         hits = engine.search(namespace, query_vector, fetch_n)
     except Exception:

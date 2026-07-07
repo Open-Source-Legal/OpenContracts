@@ -723,6 +723,40 @@ class ObjectStorageBackendIntegrationTests(TestCase):
         )
         self.assertGreater(results[0].similarity_score, 0.99)
 
+    def test_fetch_cap_binds_for_abusive_top_k(self):
+        """
+        Regression (round 11): fetch_n must be bounded by
+        OBJECT_INDEX_MAX_FETCH_CANDIDATES even when top_k exceeds the cap —
+        the earlier max(top_k, CAP) formulation collapsed the cap to top_k
+        exactly when the cap was needed (caller-controlled top_k reaches this
+        path unbounded, e.g. from GraphQL search resolvers).
+        """
+        from opencontractserver.constants.search import (
+            OBJECT_INDEX_MAX_FETCH_CANDIDATES,
+        )
+
+        with self.object_backend_settings():
+            with self.captureOnCommitCallbacks(execute=True):
+                self._make_documents()
+            engine = router.get_default_engine()
+            requested: dict[str, int] = {}
+            real_search = engine.search
+
+            def spying_search(namespace, query_vector, top_k):
+                requested["fetch_n"] = top_k
+                return real_search(namespace, query_vector, top_k)
+
+            with mock.patch.object(engine, "search", side_effect=spying_search):
+                results = Document.objects.search_by_embedding(
+                    sparse_vector((0, 1.0)),
+                    EMBEDDER,
+                    top_k=OBJECT_INDEX_MAX_FETCH_CANDIDATES * 10,
+                )
+        self.assertEqual(requested["fetch_n"], OBJECT_INDEX_MAX_FETCH_CANDIDATES)
+        # Only 3 documents exist (< fetch_n): the namespace was exhausted, so
+        # the short result set is complete — served without fallback.
+        self.assertEqual(len(results), 3)
+
     def test_compaction_enqueued_once_per_threshold_crossing(self):
         """
         The pending-marker gate: during a write burst past the threshold,

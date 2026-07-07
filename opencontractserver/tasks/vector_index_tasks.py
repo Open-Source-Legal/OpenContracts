@@ -91,7 +91,7 @@ def sync_embedding_to_object_index(embedding_id: int, dimension: int) -> str:
         # cleared when compaction finishes (or by TTL if the queued task is
         # lost), letting the next threshold crossing re-trigger.
         if cache.add(
-            _compact_pending_key(namespace),
+            compact_pending_key(namespace),
             "1",
             timeout=OBJECT_INDEX_COMPACT_LOCK_TIMEOUT_SECONDS,
         ):
@@ -99,7 +99,7 @@ def sync_embedding_to_object_index(embedding_id: int, dimension: int) -> str:
     return f"upserted {parent_kind} {parent_pk} into {namespace}"
 
 
-def _compact_pending_key(namespace: str) -> str:
+def compact_pending_key(namespace: str) -> str:
     return f"object-vector-index-compact-pending:{namespace}"
 
 
@@ -129,4 +129,4 @@ def compact_object_vector_namespace(namespace: str) -> str:
         return f"compacted {namespace}: {stats}"
     finally:
         cache.delete(lock_key)
-        cache.delete(_compact_pending_key(namespace))
+        cache.delete(compact_pending_key(namespace))
