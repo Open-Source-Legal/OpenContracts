@@ -1462,6 +1462,22 @@ DEFAULT_EMBEDDER = "opencontractserver.pipeline.embedders.sent_transformer_micro
 # Default embedding dimension to use if no dimension is specified
 DEFAULT_EMBEDDING_DIMENSION = 768
 
+# Vector search backend
+# ------------------------------------------------------------------------------
+# "pgvector" (default): similarity search runs in Postgres via HNSW indexes.
+# "object_storage": similarity ranking is served from a turbopuffer-style
+# WAL + centroid index kept in the default file storage (S3/GCS/local disk),
+# with Postgres remaining the source of truth (automatic fallback to pgvector
+# for unindexed namespaces or engine errors). See
+# docs/architecture/object_storage_vector_search.md.
+VECTOR_SEARCH_BACKEND = env.str("VECTOR_SEARCH_BACKEND", default="pgvector")
+
+# Key prefix under which the object-storage vector index lives inside the
+# default storage backend.
+VECTOR_INDEX_STORAGE_PREFIX = env.str(
+    "VECTOR_INDEX_STORAGE_PREFIX", default="vector-index"
+)
+
 
 # Default runner
 TEST_RUNNER = "opencontractserver.tests.runner.TerminateConnectionsTestRunner"

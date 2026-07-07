@@ -139,6 +139,67 @@ HNSW_MAX_INDEXED_DIM = max(HNSW_INDEXED_DIMS)
 MAX_SELECT_ALL_DOCUMENT_IDS = 25_000
 
 # =============================================================================
+# Vector Search Backend Selection
+# =============================================================================
+# Values accepted by settings.VECTOR_SEARCH_BACKEND. "pgvector" is the default
+# Postgres HNSW path; "object_storage" serves similarity ranking from the
+# turbopuffer-style WAL + centroid index in object storage (see
+# docs/architecture/object_storage_vector_search.md).
+VECTOR_SEARCH_BACKEND_PGVECTOR = "pgvector"
+VECTOR_SEARCH_BACKEND_OBJECT_STORAGE = "object_storage"
+VALID_VECTOR_SEARCH_BACKENDS = frozenset(
+    {VECTOR_SEARCH_BACKEND_PGVECTOR, VECTOR_SEARCH_BACKEND_OBJECT_STORAGE}
+)
+
+# =============================================================================
+# Object-Storage Vector Index Parameters
+# =============================================================================
+# Tuning knobs for opencontractserver/vector_search/engine.py.
+
+# Below this many vectors a namespace is stored as a single brute-force
+# cluster — k-means clustering only pays off once fetching the whole segment
+# per query costs more than the extra centroid roundtrip.
+OBJECT_INDEX_MIN_VECTORS_FOR_ANN = 256
+
+# Upper bound on k-means centroids per namespace (k = sqrt(n) capped here).
+# 1024 clusters keeps the centroid blob < 6 MB for 1536-dim float32 vectors.
+OBJECT_INDEX_MAX_CENTROIDS = 1024
+
+# Lloyd iterations during compaction. Compaction is offline/async, but each
+# iteration is O(n*k); 8 gets within a few percent of converged assignment.
+OBJECT_INDEX_KMEANS_ITERATIONS = 8
+
+# Fixed seed so compaction is deterministic (same data -> same segments),
+# which makes rebuilds reproducible and cache keys stable.
+OBJECT_INDEX_KMEANS_SEED = 0
+
+# How many nearest clusters a query probes: max(NPROBE_MIN, k * NPROBE_RATIO),
+# clamped to k. Higher = better recall, more object-store roundtrips.
+OBJECT_INDEX_NPROBE_MIN = 4
+OBJECT_INDEX_NPROBE_RATIO = 0.25
+
+# Permission filtering happens AFTER ANN retrieval (post-filtering), so the
+# engine is asked for this multiple of top_k so that heavily-filtered
+# querysets can still fill top_k results.
+OBJECT_INDEX_FILTER_OVERSAMPLE = 4
+
+# WAL tail length that triggers async compaction after a write. Each tail file
+# costs one GET per query, so this bounds worst-case query roundtrips.
+OBJECT_INDEX_COMPACT_MIN_WAL_FILES = 16
+
+# Cache-lock TTL for the per-namespace compaction mutex (seconds). Must exceed
+# the slowest realistic compaction so a crashed worker's lock expires.
+OBJECT_INDEX_COMPACT_LOCK_TIMEOUT_SECONDS = 600
+
+# Max entries in the per-process LRU for immutable index artifacts
+# (centroids + cluster blobs, keyed by generation).
+OBJECT_INDEX_CACHE_MAX_ENTRIES = 64
+
+# Batch size for the rebuild_object_vector_index management command — how many
+# vectors are folded into a single WAL file per PUT.
+OBJECT_INDEX_REBUILD_BATCH_SIZE = 500
+
+# =============================================================================
 # Full-Text Search Configuration
 # =============================================================================
 # PostgreSQL text search configuration name for tsvector generation.

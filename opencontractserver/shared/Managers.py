@@ -29,6 +29,7 @@ from opencontractserver.types.enums import PermissionTypes as _PermissionTypes
 from opencontractserver.types.protocols import (  # noqa: F401
     PermissionedQueryManagerProtocol,
 )
+from opencontractserver.vector_search.hooks import enqueue_embedding_index_sync
 
 # Subset of permission codes Annotation / Relationship recognise for
 # row-creator shortcuts. PUBLISH/PERMISSION are intentionally excluded so they
@@ -1423,13 +1424,14 @@ class EmbeddingManager(BaseVisibilityManager):
         if embedding:
             setattr(embedding, field_name, vector)
             embedding.save(update_fields=[field_name, "modified"])
+            enqueue_embedding_index_sync(embedding, dimension)
             return embedding
 
         # Try to create a new embedding. If a race condition causes a constraint
         # violation (another worker created the same embedding between our check
         # and create), catch the IntegrityError and update the existing record.
         try:
-            return self.create(
+            embedding = self.create(
                 creator=creator,
                 **lookup,
                 **{field_name: vector},
@@ -1444,4 +1446,5 @@ class EmbeddingManager(BaseVisibilityManager):
             embedding = self.get(**lookup)
             setattr(embedding, field_name, vector)
             embedding.save(update_fields=[field_name, "modified"])
-            return embedding
+        enqueue_embedding_index_sync(embedding, dimension)
+        return embedding

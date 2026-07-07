@@ -10,6 +10,13 @@ Our approach uses a **two-layer architecture**:
 
 This design enables efficient vector search across granular, visually-locatable annotations from PDF pages while supporting multiple agent frameworks through a single, well-tested codebase.
 
+> **Storage backend note:** the similarity ranking underneath all of this
+> (`VectorSearchViaEmbeddingMixin.search_by_embedding`) is itself pluggable via
+> `VECTOR_SEARCH_BACKEND` — `pgvector` (default, Postgres HNSW) or
+> `object_storage` (turbopuffer-style WAL + centroid index in S3/GCS/local
+> storage). See `docs/architecture/object_storage_vector_search.md`. All
+> permission filtering described below applies identically to both backends.
+
 ## Architecture Overview
 
 ### Core Layer: `CoreAnnotationVectorStore`

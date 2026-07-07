@@ -208,6 +208,9 @@ When working in async contexts (such as Django Channels WebSocket consumers), al
    - Core store builds Django queryset with filters (corpus, document, user, metadata)
    - Applies structural annotation logic (structural annotations bypass corpus filtering)
    - Uses `.search_by_embedding(...)` from `VectorSearchViaEmbeddingMixin` for similarity search
+     (backend-pluggable: pgvector HNSW by default, or the object-storage index
+     when `VECTOR_SEARCH_BACKEND=object_storage` — see
+     `docs/architecture/object_storage_vector_search.md`)
    - Returns `VectorSearchResult` objects with annotations and similarity scores
 
 4. **Result Conversion**

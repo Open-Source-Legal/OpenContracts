@@ -50,6 +50,13 @@ class VectorSearchViaEmbeddingMixin:
         Vector search for records of this model by embeddings stored in
         a reverse relation to Embedding (embedding->document, for instance).
 
+        Backend selection: when ``settings.VECTOR_SEARCH_BACKEND`` is
+        ``"object_storage"``, the similarity ranking is served from the
+        object-storage index (opencontractserver/vector_search/) and candidate
+        ids are re-filtered through this queryset, preserving all scoping
+        already applied to it. Unindexed namespaces and engine errors fall
+        back to the pgvector path below.
+
         - dimension is inferred from len(query_vector)
         - filters on embedder_path
         - excludes cases where the chosen vector field is null
@@ -70,6 +77,18 @@ class VectorSearchViaEmbeddingMixin:
         Returns a **list** (not a QuerySet) of model instances annotated
         with 'similarity_score'. Do not chain QuerySet methods on the result.
         """
+        # Late import: vector_search.router has no model imports, but keeping
+        # it out of module scope avoids import-order coupling with settings.
+        from opencontractserver.vector_search.router import (
+            object_storage_backend_enabled,
+            search_via_object_index,
+        )
+
+        if object_storage_backend_enabled():
+            results = search_via_object_index(self, query_vector, embedder_path, top_k)
+            if results is not None:
+                return results
+
         dimension = len(query_vector)
         if dimension > HNSW_MAX_INDEXED_DIM:
             _logger.warning(

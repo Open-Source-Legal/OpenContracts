@@ -55,3 +55,29 @@ def check_graphql_service_layer(app_configs: Any, **kwargs: Any) -> list[Error]:
         short, hint = format_violation(module_path, lineno, name)
         issues.append(Error(short, hint=hint, id="opencontracts.E001"))
     return issues
+
+
+@register("settings")
+def check_vector_search_backend(app_configs: Any, **kwargs: Any) -> list[Error]:
+    """Fail startup on an invalid ``VECTOR_SEARCH_BACKEND`` value.
+
+    The backend flag is compared by string equality at query time, so a typo
+    (``objectstorage``, ``turbopuffer``…) would otherwise silently degrade to
+    the pgvector path — exactly the kind of misconfiguration that should fail
+    loudly at boot instead (``opencontracts.E002``).
+    """
+    from django.conf import settings
+
+    from opencontractserver.constants.search import VALID_VECTOR_SEARCH_BACKENDS
+
+    configured = getattr(settings, "VECTOR_SEARCH_BACKEND", None)
+    if configured is not None and configured not in VALID_VECTOR_SEARCH_BACKENDS:
+        return [
+            Error(
+                f"VECTOR_SEARCH_BACKEND={configured!r} is not a valid vector "
+                f"search backend.",
+                hint=f"Valid values: {sorted(VALID_VECTOR_SEARCH_BACKENDS)}.",
+                id="opencontracts.E002",
+            )
+        ]
+    return []

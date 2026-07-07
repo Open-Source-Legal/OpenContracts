@@ -26,6 +26,10 @@ from .permissioning_tasks import make_analysis_public_task, make_corpus_public_t
 from .research_tasks import reap_stalled_research, run_deep_research
 from .stats_tasks import refresh_system_stats
 from .telemetry_tasks import send_usage_heartbeat
+from .vector_index_tasks import (
+    compact_object_vector_namespace,
+    sync_embedding_to_object_index,
+)
 
 # Great, quick guidance on how to restructure tasks into multiple modules:
 # https://blog.sneawo.com/blog/2018/12/05/how-to-split-celery-tasks-file/
@@ -59,4 +63,6 @@ __all__ = [
     "reap_stalled_research",
     "check_conversations_for_curation",
     "curate_corpus_memory",
+    "sync_embedding_to_object_index",
+    "compact_object_vector_namespace",
 ]
