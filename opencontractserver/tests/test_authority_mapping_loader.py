@@ -415,9 +415,7 @@ class LoadInstalledTests(TestCase):
         from pathlib import Path as _Path
         from unittest import mock
 
-        from opencontractserver.enrichment.services import (
-            authority_pack_config as apc,
-        )
+        from opencontractserver.enrichment.services import authority_pack_config as apc
 
         with _tempfile.TemporaryDirectory() as tmp:
             bad_pack = _Path(tmp) / "badpack"
