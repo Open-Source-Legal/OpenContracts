@@ -125,10 +125,13 @@ def _stable_secret_key() -> str:
         else f"failed ({box.get('error')})"
     )
     print(
-        f"[oc-desktop] WARNING: SECRET_KEY keyring persistence {reason}; using an "
-        "ephemeral key. Login sessions and stored pipeline secrets (e.g. your "
-        "OpenAI API key) will NOT survive a restart. Export a stable "
-        "DJANGO_SECRET_KEY to avoid this."
+        f"[oc-desktop] WARNING: could not save the app's security key in your "
+        f"system's credential store ({reason}).\n"
+        "             The app still works, but you will be logged out when it "
+        "restarts and any saved\n"
+        "             AI API key will need re-entering. (Advanced fix: set a "
+        "stable DJANGO_SECRET_KEY\n"
+        "             environment variable before launching.)"
     )
     return secrets.token_urlsafe(64)
 
@@ -286,8 +289,12 @@ def _resolve_spa_dir(env: dict[str, str]) -> str:
             print(
                 "[oc-desktop] WARNING: no frontend bundle could be found, "
                 "downloaded, or built.\n             The API will run, but "
-                "the app UI will be unavailable. Check your internet\n"
-                "             connection and relaunch to retry the download."
+                "the app UI will be unavailable. Usual causes: no\n"
+                "             internet connection (relaunch to retry the "
+                "download), or a pre-release\n             source checkout "
+                "whose release has no UI bundle published yet (build one\n"
+                "             with Node/yarn: `cd frontend && yarn install && "
+                "yarn build`)."
             )
     if spa:
         env["OC_DESKTOP_FRONTEND_DIR"] = spa

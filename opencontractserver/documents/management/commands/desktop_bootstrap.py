@@ -203,6 +203,9 @@ class Command(BaseCommand):
             self.stdout.write("nltk not installed; skipping corpus download.")
             return
 
+        # Progress line: this download can take a minute on slow connections
+        # and previously ran silently, which read as a hang.
+        self.stdout.write("Downloading language data for the PDF parser …")
         nltk_dir = paths.subdir("nltk_data", create=True)
         if str(nltk_dir) not in nltk.data.path:
             nltk.data.path.insert(0, str(nltk_dir))
