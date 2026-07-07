@@ -139,7 +139,15 @@ def python_version_error(version_info: tuple[int, int] | None = None) -> str | N
 
 
 def deps_ready() -> bool:
-    """True when every sentinel dependency is importable in this interpreter."""
+    """True when every sentinel dependency is importable in this interpreter.
+
+    Deliberately importability-based, not version-pinned: it lets the venv
+    child, a developer environment, or an installer payload run directly. The
+    accepted trade-off is that an ambient interpreter that happens to have all
+    five sentinels installed (at whatever versions) bypasses the fingerprinted
+    private venv — if that drifts into breakage, run inside a clean Python or
+    let the private venv own the deps.
+    """
     return all(importlib.util.find_spec(name) is not None for name in _SENTINEL_MODULES)
 
 

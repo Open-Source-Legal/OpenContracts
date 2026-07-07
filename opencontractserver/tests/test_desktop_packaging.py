@@ -788,3 +788,71 @@ class PrivateDirPermissionTests(SimpleTestCase):
             self.assertEqual(self._mode(root), 0o700)
             self.assertEqual(self._mode(root / "celery-broker"), 0o700)
             self.assertEqual(self._mode(leaf), 0o700)
+
+
+class LauncherShutdownTests(SimpleTestCase):
+    """Behavioral check: _shutdown must actually stop spawned children."""
+
+    def test_shutdown_terminates_spawned_children(self):
+        from opencontractserver.desktop import launcher
+
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
+            os.environ, {paths.DATA_DIR_ENV: tmp}, clear=False
+        ):
+            paths.subdir("logs", create=True)
+            proc = launcher._spawn(
+                "test-sleeper",
+                [sys.executable, "-c", "import time; time.sleep(60)"],
+                os.environ.copy(),
+            )
+            try:
+                self.assertIsNone(proc.poll())  # actually running
+                launcher._shutdown()
+                self.assertIsNotNone(proc.poll())  # actually stopped
+                log_file = paths.logs_dir() / "test-sleeper.log"
+                self.assertTrue(log_file.exists())  # durable child log created
+            finally:
+                if proc.poll() is None:
+                    proc.kill()
+                launcher._children.clear()
+                launcher._log_handles.clear()
+
+
+class StableSecretKeyFallbackTests(SimpleTestCase):
+    """_stable_secret_key must fall back to an ephemeral key, never hang/raise."""
+
+    def test_falls_back_when_keyring_hangs(self):
+        import time as time_mod
+
+        from opencontractserver.desktop import launcher
+
+        with mock.patch.object(
+            launcher, "_KEYRING_TIMEOUT_SECONDS", 0.1
+        ), mock.patch.object(
+            launcher,
+            "_keyring_get_or_create",
+            side_effect=lambda: time_mod.sleep(5),
+        ):
+            key = launcher._stable_secret_key()
+        self.assertIsInstance(key, str)
+        self.assertGreater(len(key), 32)
+
+    def test_falls_back_when_keyring_backend_broken(self):
+        from opencontractserver.desktop import launcher
+
+        with mock.patch.object(
+            launcher,
+            "_keyring_get_or_create",
+            side_effect=RuntimeError("no backend"),
+        ):
+            key = launcher._stable_secret_key()
+        self.assertIsInstance(key, str)
+        self.assertGreater(len(key), 32)
+
+    def test_returns_persisted_key_when_keyring_works(self):
+        from opencontractserver.desktop import launcher
+
+        with mock.patch.object(
+            launcher, "_keyring_get_or_create", return_value="stable-key-123"
+        ):
+            self.assertEqual(launcher._stable_secret_key(), "stable-key-123")
