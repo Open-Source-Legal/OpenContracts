@@ -173,7 +173,27 @@ class IterPackMappingFilesSkipTests(SimpleTestCase):
             pack.mkdir()
             (pack / "pack.yaml").write_text("name: x\n", encoding="utf-8")
             with self._patch_dirs(pack):
-                self.assertEqual(list(apc.iter_pack_mapping_files()), [])
+                errors: list = []
+                self.assertEqual(list(apc.iter_pack_mapping_files(errors)), [])
+            # Content-only pack: skipped by design, NOT an error.
+            self.assertEqual(errors, [])
+
+    def test_declared_but_missing_mappings_file_is_skipped_and_reported(self):
+        # `mappings: typo.yaml` with no such file is the classic authoring
+        # mistake: the pack must be skipped with a warning AND land in the
+        # errors sink so load_installed can surface it — not vanish silently.
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = Path(tmp) / "typo-mappings"
+            pack.mkdir()
+            (pack / "pack.yaml").write_text(
+                "name: x\nmappings: typo.yaml\n", encoding="utf-8"
+            )
+            with self._patch_dirs(pack):
+                errors: list = []
+                with self.assertLogs(_MODULE, level="WARNING"):
+                    self.assertEqual(list(apc.iter_pack_mapping_files(errors)), [])
+        self.assertEqual(len(errors), 1)
+        self.assertIn("not found", errors[0][1])
 
     def test_well_formed_pack_is_yielded(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -256,34 +256,29 @@ class AuthorityMappingLoader:
         )
 
         results: dict[str, dict] = {BASELINE_ORIGIN_CORE: cls.load_all()}
-        manifest_errors: list = []
+        pack_errors: list = []
         for pack_dir, mappings_path, manifest in iter_pack_mapping_files(
-            errors=manifest_errors
+            errors=pack_errors
         ):
             origin = pack_origin_name(pack_dir, manifest)
             if origin.lower() == BASELINE_ORIGIN_CORE:
                 # A pack literally named "core" would impersonate the shipped
                 # baseline and bypass the collision guard — refuse it, and put
-                # the refusal in the report (keyed by directory name — the
-                # reserved origin itself already keys the real core summary;
-                # setdefault keeps the loaded entry if even the dir is named
-                # "core") so the operator sees it in the command output, same
-                # as every other per-pack failure. load_authority_pack raises
-                # CommandError for the same condition.
+                # the refusal in the report so the operator sees it in the
+                # command output, same as every other per-pack failure.
+                # load_authority_pack raises CommandError for the same
+                # condition.
                 logger.warning(
                     "Skipping authority pack at %s: pack name %r is reserved "
                     "for the shipped core baseline.",
                     pack_dir,
                     origin,
                 )
-                results.setdefault(
-                    pack_dir.name,
-                    {
-                        "error": (
-                            f"pack name {origin!r} is reserved for the shipped "
-                            "core baseline; rename the pack"
-                        )
-                    },
+                _report_pack_error(
+                    results,
+                    pack_dir,
+                    f"pack name {origin!r} is reserved for the shipped "
+                    "core baseline; rename the pack",
                 )
                 continue
             if any(origin.lower() == seen.lower() for seen in results):
@@ -324,9 +319,19 @@ class AuthorityMappingLoader:
                     exc,
                 )
                 results[origin] = {"error": f"{type(exc).__name__}: {exc}"}
-        # A pack whose pack.yaml itself failed to parse never reaches the loop
-        # above; surface it in the report (keyed by directory name — the
-        # manifest name is unreadable) instead of leaving it log-only.
-        for pack_dir, message in manifest_errors:
-            results.setdefault(pack_dir.name, {"error": message})
+        # A pack the iterator classified as broken (unparsable pack.yaml, or a
+        # declared mappings file missing on disk) never reaches the loop above;
+        # surface it in the report instead of leaving it log-only.
+        for pack_dir, message in pack_errors:
+            _report_pack_error(results, pack_dir, message)
         return results
+
+
+def _report_pack_error(results: dict, pack_dir: Path, message: str) -> None:
+    """Record a per-pack failure in ``load_installed``'s report without ever
+    displacing (or being hidden behind) another entry: keyed by the pack's
+    directory name, falling back to its full path when that key is already
+    taken (e.g. a directory literally named "core" — the reserved origin keys
+    the real core summary)."""
+    key = pack_dir.name if pack_dir.name not in results else str(pack_dir)
+    results.setdefault(key, {"error": message})

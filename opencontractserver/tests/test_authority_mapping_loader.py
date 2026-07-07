@@ -548,6 +548,73 @@ class LoadInstalledTests(TestCase):
         assert results["DupPack"]["namespaces"]["created"] == 1
         assert results["duppack"]["namespaces"]["created"] == 1
 
+    def test_load_installed_reports_a_missing_mappings_file(self):
+        # `mappings: typo.yaml` with no such file on disk — the most likely
+        # authoring mistake — must show up in the report, not silently make the
+        # pack's taxonomy never load.
+        import tempfile as _tempfile
+        from pathlib import Path as _Path
+        from unittest import mock
+
+        from opencontractserver.enrichment.services import authority_pack_config as apc
+
+        with _tempfile.TemporaryDirectory() as tmp:
+            pack = _Path(tmp) / "typo-pack"
+            pack.mkdir()
+            (pack / "pack.yaml").write_text(
+                "name: typo-pack\nmappings: typo.yaml\n", encoding="utf-8"
+            )
+            with mock.patch.object(apc, "authority_pack_dirs", return_value=[pack]):
+                results = AuthorityMappingLoader.load_installed()
+
+        assert "not found" in results["typo-pack"]["error"]
+        assert BASELINE_ORIGIN_CORE in results
+
+    def test_load_installed_exact_duplicate_names_coown_and_warn(self):
+        # Two directories declaring the SAME manifest name are by declaration
+        # the same pack: both load under one origin (idempotent, co-owned
+        # prefixes), the duplicate warning fires, and the report carries one
+        # entry for that origin.
+        import tempfile as _tempfile
+        from pathlib import Path as _Path
+        from unittest import mock
+
+        from opencontractserver.enrichment.services import authority_pack_config as apc
+
+        def _mk(root: _Path, dirname: str, prefix: str) -> _Path:
+            pack = root / dirname
+            pack.mkdir()
+            (pack / "pack.yaml").write_text(
+                "name: SamePack\nmappings: m.yaml\n", encoding="utf-8"
+            )
+            (pack / "m.yaml").write_text(
+                f"prefixes:\n"
+                f"  {prefix}:\n"
+                f'    display_name: "Same"\n'
+                f'    jurisdiction: "aa"\n'
+                f'    authority_type: "statute"\n'
+                f'    aliases: ["{prefix} body"]\n',
+                encoding="utf-8",
+            )
+            return pack
+
+        with _tempfile.TemporaryDirectory() as tmp:
+            root = _Path(tmp)
+            packs = [
+                _mk(root, "same-a", "test-same-a"),
+                _mk(root, "same-b", "test-same-b"),
+            ]
+            with mock.patch.object(apc, "authority_pack_dirs", return_value=packs):
+                with self.assertLogs(_LOADER_LOGGER, level="WARNING") as logs:
+                    results = AuthorityMappingLoader.load_installed()
+
+        assert any("Duplicate authority pack name" in line for line in logs.output)
+        # One shared origin: both dirs' prefixes exist, stamped identically.
+        assert "error" not in results["SamePack"]
+        for prefix in ("test-same-a", "test-same-b"):
+            ns = AuthorityNamespace.objects.get(prefix=prefix)
+            assert ns.baseline_origin == "SamePack"
+
     def test_load_installed_reports_a_reserved_core_pack_name(self):
         # An installed pack named "core" (any case) is refused — and the refusal
         # must appear in the report keyed by the pack's directory name, not
@@ -749,3 +816,16 @@ class AuthorityMappingsMigrationTests(TestCase):
         assert AuthorityKeyEquivalence.objects.filter(
             from_key="exchange-act:10", to_key="usc-15:78j", source="baseline"
         ).exists()
+
+
+class BaselineOriginGraphQLExposureTests(TestCase):
+    """Pin the console surface of the collision guard: ``baseline_origin`` is
+    queryable on ``AuthorityNamespaceNode`` (whose ``get_queryset`` already
+    gates the whole type behind ``is_authority_admin``), so a curator can see
+    which origin owns a prefix when a load reports a skipped collision."""
+
+    def test_baseline_origin_exposed_on_namespace_node(self):
+        from config.graphql.schema import schema
+
+        fields = schema.graphql_schema.type_map["AuthorityNamespaceNode"].fields
+        assert "baselineOrigin" in fields

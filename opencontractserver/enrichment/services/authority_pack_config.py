@@ -71,11 +71,13 @@ def iter_pack_mapping_files(errors: list | None = None):
     pack's baseline origin from ``name:``) don't re-read/re-parse the file.
 
     ``errors``: optional list to which ``(pack_dir, message)`` is appended for a
-    pack whose ``pack.yaml`` cannot be parsed, so a reporting caller
-    (``load_installed``) can surface the skip to the operator instead of it
-    living only in the log. The runtime vocab scans omit it (log-and-skip is
-    their whole contract). A manifest with no ``mappings:`` key is a
-    content-only pack — skipped by design, never an error.
+    pack that is broken rather than merely mappings-less — an unparsable
+    ``pack.yaml``, or a declared ``mappings:`` file missing on disk (the classic
+    typo) — so a reporting caller (``load_installed``) can surface the skip to
+    the operator instead of it living only in the log. The runtime vocab scans
+    omit it (log-and-skip is their whole contract). A manifest with no
+    ``mappings:`` key is a content-only pack — skipped by design, never an
+    error.
     """
     for pack_dir in authority_pack_dirs():
         manifest = pack_dir / "pack.yaml"
@@ -92,8 +94,20 @@ def iter_pack_mapping_files(errors: list | None = None):
         if not rel:
             continue
         path = pack_dir / rel
-        if path.is_file():
-            yield pack_dir, path, data
+        if not path.is_file():
+            # Declared but absent — a typo'd path would otherwise make the
+            # pack's taxonomy silently never load (load_authority_pack raises
+            # CommandError for this same condition).
+            logger.warning(
+                "Pack %s declares mappings %r but %s does not exist",
+                pack_dir.name,
+                rel,
+                path,
+            )
+            if errors is not None:
+                errors.append((pack_dir, f"declared mappings file not found: {path}"))
+            continue
+        yield pack_dir, path, data
 
 
 def _load_yaml(path: Path) -> dict:
