@@ -163,13 +163,15 @@ The engine talks to Django's default file storage through
 `DjangoStorageObjectStore` (put/get/list/delete/exists), so the index lives
 wherever `STORAGE_BACKEND` points: local disk (`LOCAL`), S3 or any
 S3-compatible store like MinIO (`AWS`), or GCS (`GCP`), under
-`VECTOR_INDEX_STORAGE_PREFIX` (default `vector-index/`). Local filesystem is
-covered by the automated suite and S3 is verified against MinIO via the real
-S3 API — see `docs/test_scripts/object_storage_vector_backend_minio.md`.
-**GCS is currently unverified**: `list_keys()` (load-bearing for the WAL
-overlay and `wal_tail_count`) relies on `Storage.listdir` semantics, which
-GCS emulates over a flat namespace — run an equivalent smoke test before
-enabling the backend on `GCP`.
+`VECTOR_INDEX_STORAGE_PREFIX` (default `vector-index/`). All three are
+verified: local filesystem by the automated suite, S3 against MinIO via the
+real S3 API (`docs/test_scripts/object_storage_vector_backend_minio.md`),
+and GCS against `fake-gcs-server` via the real GCS JSON API + django-storages
+`GoogleCloudStorage` (`docs/test_scripts/object_storage_vector_backend_gcs.md`)
+— including the load-bearing `listdir` emulation over GCS's flat namespace,
+the manifest delete-then-save overwrite, and multi-generation deferred GC.
+As with any emulator-verified path, run the recorded smoke script once
+against your production bucket before flipping the flag on `GCP`.
 
 ## Operations
 

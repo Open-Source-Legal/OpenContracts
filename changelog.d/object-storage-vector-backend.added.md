@@ -12,6 +12,7 @@
   is preserved; unindexed namespaces and engine errors fall back to pgvector automatically.
   Includes `manage.py rebuild_object_vector_index`, system check `opencontracts.E002` for invalid
   backend values, constants in `opencontractserver/constants/search.py`, design doc
-  `docs/architecture/object_storage_vector_search.md`, MinIO manual test script
-  `docs/test_scripts/object_storage_vector_backend_minio.md`, and 18 tests in
-  `opencontractserver/tests/test_object_storage_vector_backend.py`.
+  `docs/architecture/object_storage_vector_search.md`, manual verification scripts
+  against real S3 (MinIO — `docs/test_scripts/object_storage_vector_backend_minio.md`)
+  and the GCS API (fake-gcs-server — `docs/test_scripts/object_storage_vector_backend_gcs.md`),
+  and the test suite in `opencontractserver/tests/test_object_storage_vector_backend.py`.
