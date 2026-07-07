@@ -352,6 +352,28 @@ class DjangoStorageObjectStoreTests(SimpleTestCase):
         # No stray uniquified blobs left behind.
         self.assertEqual(self.store.list_keys("ns"), ["manifest.json"])
 
+    def test_put_bytes_raises_when_overwrite_retries_exhausted(self):
+        """
+        Sustained contention (= a breached compaction lock) must fail loudly:
+        a compaction whose manifest never persisted cannot report success.
+        """
+        from django.core.files.base import ContentFile
+
+        from opencontractserver.vector_search.object_store import (
+            ObjectStoreWriteError,
+        )
+
+        real_save = self.storage.save
+
+        def always_racing_save(name, content, *args, **kwargs):
+            if not self.storage.exists(name):
+                real_save(name, ContentFile(b"racer"))
+            return real_save(name, content)
+
+        with mock.patch.object(self.storage, "save", side_effect=always_racing_save):
+            with self.assertRaises(ObjectStoreWriteError):
+                self.store.put_bytes("ns/manifest.json", b"ours")
+
 
 class VectorSearchSystemCheckTests(SimpleTestCase):
     """The opencontracts.E002/W003 settings checks."""
@@ -601,6 +623,88 @@ class ObjectStorageBackendIntegrationTests(TestCase):
             manifest = must(engine._load_manifest(namespace))
             self.assertGreaterEqual(manifest["count"], 2)
             self.assertLessEqual(engine.wal_tail_count(namespace), 1)
+
+    def test_rebuild_command_respects_compaction_lock(self):
+        """
+        The rebuild command must never compact concurrently with an
+        auto-compaction: holding the per-namespace lock makes it replay the
+        WAL but skip compaction (deferred to the next cycle).
+        """
+        import io as io_module
+
+        from opencontractserver.tasks.vector_index_tasks import compact_lock_key
+
+        with self.object_backend_settings():
+            with self.captureOnCommitCallbacks(execute=True):
+                doc = Document.objects.create(title="Locked", creator=self.user)
+                doc.add_embedding(EMBEDDER, sparse_vector((0, 1.0)))
+            namespace = build_namespace("document", EMBEDDER, DIM)
+            cache.add(compact_lock_key(namespace), "1", timeout=60)
+            try:
+                out = io_module.StringIO()
+                call_command("rebuild_object_vector_index", stdout=out)
+                self.assertIn("compaction is already running", out.getvalue())
+                engine = router.get_default_engine()
+                # WAL replayed but no generation committed by the command.
+                self.assertIsNone(engine._load_manifest(namespace))
+                self.assertGreater(engine.wal_tail_count(namespace), 0)
+            finally:
+                cache.delete(compact_lock_key(namespace))
+
+    def test_toggle_serves_core_annotation_vector_store_callers(self):
+        """
+        End-to-end through a real caller (CoreAnnotationVectorStore, the
+        store behind GraphQL semantic search / agents / MCP): with the
+        backend enabled, its vector search is served from the object index
+        without ever touching pgvector's CosineDistance.
+        """
+        from opencontractserver.annotations.models import Annotation
+        from opencontractserver.llms.vector_stores.core_vector_stores import (
+            CoreAnnotationVectorStore,
+            VectorSearchQuery,
+        )
+
+        # Must be a real, loadable embedder class path: the store resolves it
+        # and silently substitutes the default embedder for unknown paths,
+        # which would route the query to a different namespace.
+        embedder_path = (
+            "opencontractserver.pipeline.embedders.test_embedder.TestEmbedder"
+        )
+        with self.object_backend_settings():
+            with self.captureOnCommitCallbacks(execute=True):
+                doc = Document.objects.create(title="Host doc", creator=self.user)
+                anno_hit = Annotation.objects.create(
+                    document=doc, creator=self.user, raw_text="close annotation"
+                )
+                anno_miss = Annotation.objects.create(
+                    document=doc, creator=self.user, raw_text="far annotation"
+                )
+                # Overwrites the signal-created TestEmbedder embeddings with
+                # known sparse vectors (same embedder_path -> same rows).
+                anno_hit.add_embedding(embedder_path, sparse_vector((0, 1.0)))
+                anno_miss.add_embedding(embedder_path, sparse_vector((1, 1.0)))
+
+            store = CoreAnnotationVectorStore(
+                user_id=self.user.id,
+                document_id=doc.id,
+                embedder_path=embedder_path,
+                embed_dim=DIM,
+            )
+            query = VectorSearchQuery(
+                query_embedding=sparse_vector((0, 1.0)),
+                similarity_top_k=2,
+                mode="vector",
+            )
+            with mock.patch(
+                "opencontractserver.shared.mixins.CosineDistance",
+                side_effect=AssertionError("pgvector path must not be used"),
+            ):
+                results = store.search(query)
+        self.assertEqual(
+            [result.annotation.pk for result in results],
+            [anno_hit.pk, anno_miss.pk],
+        )
+        self.assertGreater(results[0].similarity_score, 0.99)
 
     def test_compaction_enqueued_once_per_threshold_crossing(self):
         """

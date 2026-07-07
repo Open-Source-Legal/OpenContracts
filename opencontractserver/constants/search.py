@@ -183,6 +183,12 @@ OBJECT_INDEX_NPROBE_RATIO = 0.25
 # querysets can still fill top_k results.
 OBJECT_INDEX_FILTER_OVERSAMPLE = 4
 
+# Hard cap on the oversampled candidate fetch, independent of caller top_k —
+# bounds the in-memory ranking and the pk__in re-filter query for abusive or
+# buggy top_k values. When the cap truncates, the shortfall rule falls back
+# to pgvector rather than under-filling.
+OBJECT_INDEX_MAX_FETCH_CANDIDATES = 2048
+
 # WAL tail length that triggers async compaction after a write. Each tail file
 # costs one GET per query, so this bounds worst-case query roundtrips.
 OBJECT_INDEX_COMPACT_MIN_WAL_FILES = 16

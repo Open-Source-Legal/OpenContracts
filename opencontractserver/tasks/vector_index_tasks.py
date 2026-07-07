@@ -27,6 +27,10 @@ from opencontractserver.vector_search.router import (
 logger = logging.getLogger(__name__)
 
 # Mirrors Embedding's parent FK columns -> namespace parent-kind segment.
+# KEEP IN SYNC with PARENT_KIND_BY_MODEL_NAME in
+# opencontractserver/vector_search/router.py — same taxonomy keyed by model
+# name; kind VALUES must match exactly or writes and reads land in different
+# namespaces.
 PARENT_FK_TO_KIND = {
     "document_id": "document",
     "annotation_id": "annotation",
@@ -46,11 +50,22 @@ def _parent_ref(embedding) -> tuple[str, int] | None:
     return None
 
 
-@shared_task
+@shared_task(
+    autoretry_for=(Exception,),
+    max_retries=3,
+    retry_backoff=True,
+    retry_jitter=True,
+)
 def sync_embedding_to_object_index(embedding_id: int, dimension: int) -> str:
     """
     Upsert one stored embedding into its object-storage namespace, then
     trigger compaction when the WAL tail has grown past the threshold.
+
+    Retries with backoff on any exception (typically transient object-store
+    throttling/network errors) — the upsert is idempotent, and without a
+    retry a failed sync silently drops this embedding from the index until
+    the next rebuild. After retries are exhausted the failure is visible in
+    Celery, and pgvector remains ground truth either way.
     """
     if not object_storage_backend_enabled():
         return "skipped: backend disabled"
@@ -94,6 +109,16 @@ def _compact_pending_key(namespace: str) -> str:
     return f"object-vector-index-compact-pending:{namespace}"
 
 
+def compact_lock_key(namespace: str) -> str:
+    """
+    Per-namespace compaction mutex key. Shared by the Celery task below and
+    ``rebuild_object_vector_index`` (the management command) so that a manual
+    rebuild can never compact concurrently with an auto-compaction —
+    ``ObjectStorageVectorEngine.compact`` is not concurrency-safe with itself.
+    """
+    return f"object-vector-index-compact:{namespace}"
+
+
 @shared_task
 def compact_object_vector_namespace(namespace: str) -> str:
     """
@@ -101,7 +126,7 @@ def compact_object_vector_namespace(namespace: str) -> str:
     guarantees a single compactor per namespace; contenders skip (the next
     threshold crossing re-triggers).
     """
-    lock_key = f"object-vector-index-compact:{namespace}"
+    lock_key = compact_lock_key(namespace)
     if not cache.add(lock_key, "1", timeout=OBJECT_INDEX_COMPACT_LOCK_TIMEOUT_SECONDS):
         return f"skipped: compaction already running for {namespace}"
     try:

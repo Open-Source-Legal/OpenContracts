@@ -25,6 +25,7 @@ from django.conf import settings
 
 from opencontractserver.constants.search import (
     OBJECT_INDEX_FILTER_OVERSAMPLE,
+    OBJECT_INDEX_MAX_FETCH_CANDIDATES,
     VECTOR_SEARCH_BACKEND_OBJECT_STORAGE,
     VECTOR_SEARCH_BACKEND_PGVECTOR,
 )
@@ -36,6 +37,11 @@ logger = logging.getLogger(__name__)
 
 # Maps Django model_name -> namespace parent-kind segment. Only models that
 # can own Embedding rows (Embedding's parent FKs) are searchable.
+# KEEP IN SYNC with PARENT_FK_TO_KIND in
+# opencontractserver/tasks/vector_index_tasks.py — same taxonomy keyed by
+# Embedding FK attribute instead of model name; adding an embeddable parent
+# type requires updating both (kind VALUES must match exactly, or writes and
+# reads land in different namespaces).
 PARENT_KIND_BY_MODEL_NAME: dict[str, str] = {
     "annotation": "annotation",
     "document": "document",
@@ -124,7 +130,13 @@ def search_via_object_index(
         return None
     try:
         engine = get_default_engine()
-        fetch_n = top_k * OBJECT_INDEX_FILTER_OVERSAMPLE
+        # Capped independent of caller top_k: bounds the in-memory ranking
+        # and the pk__in re-filter. A cap-truncated candidate set that can't
+        # fill top_k takes the shortfall fallback below.
+        fetch_n = min(
+            top_k * OBJECT_INDEX_FILTER_OVERSAMPLE,
+            max(top_k, OBJECT_INDEX_MAX_FETCH_CANDIDATES),
+        )
         hits = engine.search(namespace, query_vector, fetch_n)
     except Exception:
         logger.exception(
@@ -162,7 +174,10 @@ def search_via_object_index(
     # engine returned fewer than fetch_n hits it exhausted the namespace, so
     # a short result list is genuinely complete and is returned as-is. This
     # keeps "enabling the backend never returns worse results than pgvector"
-    # true even for heavily-filtered querysets.
+    # true even for heavily-filtered querysets. Accepted false positive: a
+    # namespace holding EXACTLY fetch_n matching vectors is indistinguishable
+    # from a truncated set, so that boundary pays one unnecessary (harmless)
+    # pgvector fallback.
     if len(results) < top_k and len(hits) >= fetch_n:
         logger.info(
             "Object-storage candidates for namespace %s were exhausted by "

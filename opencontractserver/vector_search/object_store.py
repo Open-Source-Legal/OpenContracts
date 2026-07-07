@@ -32,6 +32,10 @@ class ObjectNotFound(Exception):
     """Raised when a requested key does not exist in the object store."""
 
 
+class ObjectStoreWriteError(Exception):
+    """Raised when an overwrite could not be committed (race retries exhausted)."""
+
+
 class DjangoStorageObjectStore:
     """
     Blob-store primitives over a Django ``Storage`` instance.
@@ -66,8 +70,10 @@ class DjangoStorageObjectStore:
         bounded — the only mutable key is the manifest, whose writers are
         serialised by the compaction cache-lock, so contention here means
         that lock was breached (e.g. it expired mid-compaction); after the
-        bound we concede last-writer-wins to the racing writer and log,
-        leaving a valid (their) manifest in place.
+        bound we raise ``ObjectStoreWriteError`` so the caller fails visibly
+        (a compaction whose manifest never persisted must not report
+        success) — the racing writer's blob, itself a valid manifest,
+        remains in place.
         """
         name = self._full(key)
         for _ in range(OBJECT_STORE_PUT_OVERWRITE_MAX_ATTEMPTS):
@@ -77,11 +83,10 @@ class DjangoStorageObjectStore:
             if saved_as == name:
                 return
             self._storage.delete(saved_as)
-        logger.warning(
-            "put_bytes lost the overwrite race for %s after %d attempts; "
-            "keeping the racing writer's blob.",
-            name,
-            OBJECT_STORE_PUT_OVERWRITE_MAX_ATTEMPTS,
+        raise ObjectStoreWriteError(
+            f"Lost the overwrite race for {name} "
+            f"{OBJECT_STORE_PUT_OVERWRITE_MAX_ATTEMPTS} times; the racing "
+            "writer's blob was kept and this write was NOT committed."
         )
 
     def get_bytes(self, key: str) -> bytes:

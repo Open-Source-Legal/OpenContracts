@@ -8,15 +8,20 @@ while ``VECTOR_SEARCH_BACKEND`` is still ``pgvector`` — build the index
 first, then flip the flag.
 """
 
+from django.core.cache import cache
 from django.core.management.base import BaseCommand
 
 from opencontractserver.annotations.models import Embedding
 from opencontractserver.constants.search import (
     DIM_TO_FIELD_MAP,
+    OBJECT_INDEX_COMPACT_LOCK_TIMEOUT_SECONDS,
     OBJECT_INDEX_REBUILD_BATCH_SIZE,
     OBJECT_INDEX_REBUILD_PROGRESS_EVERY,
 )
-from opencontractserver.tasks.vector_index_tasks import PARENT_FK_TO_KIND
+from opencontractserver.tasks.vector_index_tasks import (
+    PARENT_FK_TO_KIND,
+    compact_lock_key,
+)
 from opencontractserver.vector_search.router import (
     build_namespace,
     get_default_engine,
@@ -110,7 +115,27 @@ class Command(BaseCommand):
                     f"{totals[namespace]} vectors and compact"
                 )
                 continue
-            stats = engine.compact(namespace)
+            # Same per-namespace mutex as the auto-compaction Celery task:
+            # engine.compact() is not concurrency-safe with itself, and this
+            # command may be re-run for drift repair while background
+            # compactions are active.
+            lock_key = compact_lock_key(namespace)
+            if not cache.add(
+                lock_key, "1", timeout=OBJECT_INDEX_COMPACT_LOCK_TIMEOUT_SECONDS
+            ):
+                self.stdout.write(
+                    self.style.WARNING(
+                        f"{namespace}: replayed {totals[namespace]} vectors, "
+                        "but a compaction is already running — skipping "
+                        "compaction here (the replayed WAL will fold on the "
+                        "next compaction cycle)."
+                    )
+                )
+                continue
+            try:
+                stats = engine.compact(namespace)
+            finally:
+                cache.delete(lock_key)
             self.stdout.write(
                 self.style.SUCCESS(
                     f"{namespace}: replayed {totals[namespace]} vectors, "
