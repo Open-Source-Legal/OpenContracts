@@ -733,7 +733,10 @@ class LauncherPureHelperTests(SimpleTestCase):
         import socket
 
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-            probe.bind(("127.0.0.1", launcher.DEFAULT_PORT))
+            try:
+                probe.bind(("127.0.0.1", launcher.DEFAULT_PORT))
+            except OSError:
+                self.skipTest("DEFAULT_PORT already busy on this runner")
             fallback = launcher._free_port()
         self.assertNotEqual(fallback, launcher.DEFAULT_PORT)
         self.assertTrue(1 <= fallback <= 65535)

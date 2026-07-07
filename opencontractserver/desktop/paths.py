@@ -54,8 +54,10 @@ def ensure_private_dir(path: Path) -> Path:
     the app-data root with umask defaults on a first run — would keep
     world-listable permissions forever. Chmod explicitly and idempotently
     instead: the app-data tree holds the full local database and uploaded
-    documents, so other local accounts on a shared machine get no access.
-    Chmod failures are ignored (Windows has no POSIX modes).
+    documents, so on POSIX other local accounts on a shared machine get no
+    access. On Windows ``os.chmod`` has no such effect (failures suppressed
+    too) — there the protection is whatever the default NTFS ACLs on the
+    per-user ``%LOCALAPPDATA%`` grant, which is user-private by default.
     """
     root = app_data_dir()
     # mode= narrows the pre-chmod window for the leaf; the chmod loop below is

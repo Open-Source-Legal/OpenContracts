@@ -47,6 +47,9 @@ DEFAULT_PORT = 8406
 # browser anyway, and how long to drain children gracefully on shutdown.
 _HEALTH_TIMEOUT_SECONDS = 60
 _SHUTDOWN_GRACE_SECONDS = 10
+# Per-child log cap: rotate (one generation) at spawn time so a long-lived
+# install restarted many times can't grow daphne/worker/beat logs unbounded.
+_LOG_MAX_BYTES = 10 * 1024 * 1024
 # Local login account seeded by desktop_bootstrap (its --username default);
 # surfaced in the startup banner so users never have to read source to log in.
 LOCAL_USERNAME = "desktop"
@@ -337,11 +340,22 @@ def _write_env_config(spa_dir: str, port: int) -> None:
 
 
 # ---------------------------------------------------------------- child processes
+def _rotate_log(log_path: Path) -> None:
+    """One-generation rotation keeping the previous run's tail for diagnosis."""
+    with contextlib.suppress(OSError):
+        if log_path.exists() and log_path.stat().st_size > _LOG_MAX_BYTES:
+            backup = log_path.with_suffix(log_path.suffix + ".1")
+            if backup.exists():
+                backup.unlink()
+            log_path.rename(backup)
+
+
 def _spawn(name: str, cmd: list[str], env: dict[str, str]) -> subprocess.Popen:
     # Redirect each child's stdout+stderr to a per-child file under the logs dir
     # so a Daphne/worker/beat crash leaves a durable traceback — essential once
     # the Phase-2 Tauri shell launches this with no attached console.
     log_path = paths.logs_dir() / f"{name}.log"
+    _rotate_log(log_path)
     print(f"[oc-desktop] starting {name} (log: {log_path})")
     log_file = open(log_path, "a")
     try:
@@ -448,7 +462,15 @@ def _shutdown(*_args) -> None:
 def main() -> None:
     os.chdir(Path(__file__).resolve().parents[2])  # repo root (manage.py lives here)
     env = _base_env()
-    _ensure_dirs()
+    try:
+        _ensure_dirs()
+    except OSError as exc:
+        sys.exit(
+            f"[oc-desktop] Could not create the app's data folder ({exc}).\n"
+            "  Usual causes: the disk is full, or the location is read-only.\n"
+            f"  Data folder: {paths.app_data_dir()}\n"
+            "  (Advanced: set OC_DESKTOP_DATA_DIR to use a different location.)"
+        )
 
     _start_postgres(env)
     _manage(env, "migrate", "--noinput")

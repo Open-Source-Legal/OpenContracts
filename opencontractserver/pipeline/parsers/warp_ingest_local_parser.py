@@ -143,6 +143,21 @@ class WarpIngestLocalParser(BaseParser):
                 )
             },
         )
+        max_file_size_mb: int = field(
+            default=200,
+            metadata={
+                "pipeline_setting": PipelineSetting(
+                    setting_type=SettingType.OPTIONAL,
+                    description=(
+                        "Maximum PDF size in MB. Parsing runs in-process (no "
+                        "microservice isolation), so this caps the worker's "
+                        "peak memory/CPU exposure per parse. Matches the REST "
+                        "variant's guard."
+                    ),
+                    env_var="WARP_INGEST_LOCAL_MAX_FILE_SIZE_MB",
+                )
+            },
+        )
 
     def _parse_document_impl(
         self, user_id: int, doc_id: int, **all_kwargs
@@ -166,6 +181,26 @@ class WarpIngestLocalParser(BaseParser):
         if not document.pdf_file or not document.pdf_file.name:
             logger.error(f"No pdf_file found for document {doc_id}")
             return None
+
+        # Size guard, mirroring the REST variant: parsing runs in-process with
+        # no microservice isolation, so an oversized/pathological PDF would tie
+        # up (or OOM) the worker directly. Runaway parse TIME is bounded by
+        # Celery's task time limits where configured — an in-process alarm
+        # would be POSIX-only and break the Windows desktop build.
+        max_file_size_mb = int(
+            all_kwargs.get("max_file_size_mb") or self.Settings.max_file_size_mb
+        )
+        try:
+            file_size_mb = default_storage.size(document.pdf_file.name) / (1024 * 1024)
+        except OSError:
+            file_size_mb = None
+        if file_size_mb is not None and file_size_mb > max_file_size_mb:
+            raise DocumentParsingError(
+                f"Document {doc_id} PDF is {file_size_mb:.1f} MB, over the "
+                f"{max_file_size_mb} MB Warp-Ingest limit. Adjust "
+                "max_file_size_mb in the pipeline settings to parse it.",
+                is_transient=False,
+            )
 
         # Warp-Ingest's front-end consumes a filesystem path, so stream the
         # stored PDF (which may live in object storage) to a temp file. Stream
@@ -194,14 +229,14 @@ class WarpIngestLocalParser(BaseParser):
                 "disable_ocr": bool(all_kwargs.get("disable_ocr", False)),
                 "semantic_units": bool(all_kwargs.get("semantic_units", False)),
             }
-            # apply_ocr and disable_ocr are documented as mutually exclusive;
-            # precedence between them is warp-ingest's call, so surface the
-            # misconfiguration rather than silently picking a winner here.
+            # apply_ocr and disable_ocr are mutually exclusive; fail fast with
+            # a classified, non-transient error (same convention as the REST
+            # variant) instead of forwarding contradictory flags to the library.
             if parse_options["apply_ocr"] and parse_options["disable_ocr"]:
-                logger.warning(
-                    "WarpIngestLocalParser: apply_ocr and disable_ocr are both "
-                    "set; they are mutually exclusive and warp-ingest decides "
-                    "which wins. Unset one in the pipeline settings."
+                raise DocumentParsingError(
+                    f"WarpIngestLocalParser misconfigured for document {doc_id}: "
+                    "apply_ocr and disable_ocr are mutually exclusive.",
+                    is_transient=False,
                 )
 
             try:
@@ -216,12 +251,14 @@ class WarpIngestLocalParser(BaseParser):
                     f"Warp-Ingest failed to parse document {doc_id}: {exc}",
                     is_transient=_is_transient_error(exc),
                 ) from exc
-            if export is None:
-                # Defensive: the library contract returns a dict, but a falsy
-                # return must surface as a classified parse failure, not an
-                # AttributeError on export.get() below.
+            if not isinstance(export, dict):
+                # Defensive: the library contract returns a dict; anything else
+                # (None, a list, a mismatched warp-ingest version) must surface
+                # as a classified parse failure, not an AttributeError on
+                # export.get() below.
                 raise DocumentParsingError(
-                    f"Warp-Ingest returned no export for document {doc_id}.",
+                    f"Warp-Ingest returned an unexpected export "
+                    f"({type(export).__name__}) for document {doc_id}.",
                     is_transient=False,
                 )
         finally:

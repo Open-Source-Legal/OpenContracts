@@ -373,18 +373,33 @@ def main(argv: list[str] | None = None) -> None:  # pragma: no cover
     root = repo_root()
     venv_path = venv_dir()
     if not _venv_is_current(root, venv_path):
-        with _install_lock(venv_path):
-            # Re-check under the lock: a concurrent launch may have just
-            # finished the install while we waited to acquire it.
-            if not _venv_is_current(root, venv_path):
-                try:
-                    _install_dependencies(root, venv_path)
-                except subprocess.CalledProcessError:
-                    sys.exit(
-                        "[oc-desktop] Automatic dependency install failed (see "
-                        "the pip output above).\n  Common causes: no internet "
-                        "connection, or a proxy blocking https://pypi.org.\n  "
-                        "Fix the connection and run `python3 oc-desktop.py` "
-                        "again — it resumes where it left off."
-                    )
+        try:
+            _run_locked_install(root, venv_path)
+        except OSError as exc:
+            sys.exit(
+                f"[oc-desktop] Could not write to the app's data folder ({exc}).\n"
+                "  Usual causes: the disk is full, or the location is "
+                "read-only.\n"
+                f"  Data folder: {paths.app_data_dir()}\n"
+                "  (Advanced: set OC_DESKTOP_DATA_DIR to use a different "
+                "location.)"
+            )
     sys.exit(_reexec_in_venv(root, venv_path, argv))
+
+
+def _run_locked_install(root: Path, venv_path: Path) -> None:  # pragma: no cover
+    """First-run install under the cross-process lock, with re-check."""
+    with _install_lock(venv_path):
+        # Re-check under the lock: a concurrent launch may have just finished
+        # the install while we waited to acquire it.
+        if not _venv_is_current(root, venv_path):
+            try:
+                _install_dependencies(root, venv_path)
+            except subprocess.CalledProcessError:
+                sys.exit(
+                    "[oc-desktop] Automatic dependency install failed (see "
+                    "the pip output above).\n  Common causes: no internet "
+                    "connection, or a proxy blocking https://pypi.org.\n  "
+                    "Fix the connection and run `python3 oc-desktop.py` "
+                    "again — it resumes where it left off."
+                )
