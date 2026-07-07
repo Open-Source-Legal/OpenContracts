@@ -280,3 +280,155 @@ class DesktopSettingsImportTests(SimpleTestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("DESKTOP_IMPORT_OK", result.stdout)
+
+
+class BootstrapTests(SimpleTestCase):
+    """Pure logic of the stdlib-only self-bootstrap (`desktop.bootstrap`)."""
+
+    def test_python_version_window(self):
+        from opencontractserver.desktop import bootstrap
+
+        for supported in ((3, 10), (3, 11), (3, 12)):
+            self.assertIsNone(bootstrap.python_version_error(supported))
+        for unsupported in ((3, 9), (3, 13), (3, 14)):
+            message = bootstrap.python_version_error(unsupported)
+            self.assertIsNotNone(message)
+            self.assertIn("python.org", message)
+
+    def test_venv_python_per_os(self):
+        from opencontractserver.desktop import bootstrap
+
+        venv_path = Path("/data/venv")
+        with mock.patch.object(os, "name", "posix"):
+            self.assertEqual(
+                bootstrap.venv_python(venv_path), venv_path / "bin" / "python"
+            )
+        with mock.patch.object(os, "name", "nt"):
+            self.assertEqual(
+                bootstrap.venv_python(venv_path),
+                venv_path / "Scripts" / "python.exe",
+            )
+
+    def test_requirements_fingerprint_tracks_content(self):
+        from opencontractserver.desktop import bootstrap
+
+        with tempfile.TemporaryDirectory() as tmp:
+            first = Path(tmp) / "desktop.txt"
+            second = Path(tmp) / "base.txt"
+            first.write_text("pkg-a==1.0\n")
+            second.write_text("pkg-b==2.0\n")
+            before = bootstrap.requirements_fingerprint([first, second])
+            self.assertEqual(
+                before, bootstrap.requirements_fingerprint([first, second])
+            )
+            second.write_text("pkg-b==2.1\n")
+            self.assertNotEqual(
+                before, bootstrap.requirements_fingerprint([first, second])
+            )
+
+    def test_deps_ready_requires_every_sentinel(self):
+        from opencontractserver.desktop import bootstrap
+
+        with mock.patch("importlib.util.find_spec", return_value=object()):
+            self.assertTrue(bootstrap.deps_ready())
+        with mock.patch("importlib.util.find_spec", return_value=None):
+            self.assertFalse(bootstrap.deps_ready())
+
+    def test_repo_root_contains_entrypoints(self):
+        from opencontractserver.desktop import bootstrap
+
+        root = bootstrap.repo_root()
+        self.assertTrue((root / "manage.py").is_file())
+        self.assertTrue((root / "oc-desktop.py").is_file())
+
+
+class SpaDistTests(SimpleTestCase):
+    """SPA bundle acquisition helpers (`desktop.spa_dist`)."""
+
+    def test_release_tag_candidates_cover_both_spellings(self):
+        from opencontractserver.desktop import spa_dist
+
+        self.assertEqual(
+            spa_dist.release_tag_candidates("3.0.0b4"),
+            ["v3.0.0b4", "v3.0.0.b4"],
+        )
+        self.assertEqual(spa_dist.release_tag_candidates("3.1.0"), ["v3.1.0"])
+
+    def test_find_asset_url(self):
+        from opencontractserver.desktop import spa_dist
+
+        release = {
+            "assets": [
+                {"name": "other.zip", "browser_download_url": "https://x/other"},
+                {
+                    "name": spa_dist.SPA_ASSET_NAME,
+                    "browser_download_url": "https://x/spa",
+                },
+            ]
+        }
+        self.assertEqual(spa_dist.find_asset_url(release), "https://x/spa")
+        self.assertIsNone(spa_dist.find_asset_url({"assets": []}))
+
+    def test_safe_extract_blocks_traversal(self):
+        import zipfile
+
+        from opencontractserver.desktop import spa_dist
+
+        with tempfile.TemporaryDirectory() as tmp:
+            archive_path = Path(tmp) / "evil.zip"
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                archive.writestr("../evil.txt", "pwned")
+            dest = Path(tmp) / "dest"
+            dest.mkdir()
+            with zipfile.ZipFile(archive_path) as archive:
+                with self.assertRaises(ValueError):
+                    spa_dist.safe_extract_zip(archive, dest)
+            self.assertFalse((Path(tmp) / "evil.txt").exists())
+
+    def test_safe_extract_extracts_good_archive(self):
+        import zipfile
+
+        from opencontractserver.desktop import spa_dist
+
+        with tempfile.TemporaryDirectory() as tmp:
+            archive_path = Path(tmp) / "good.zip"
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                archive.writestr("dist/index.html", "<html></html>")
+                archive.writestr("dist/assets/app.js", "console.log(1)")
+            dest = Path(tmp) / "dest"
+            dest.mkdir()
+            with zipfile.ZipFile(archive_path) as archive:
+                spa_dist.safe_extract_zip(archive, dest)
+            self.assertTrue((dest / "dist" / "index.html").is_file())
+            self.assertTrue((dest / "dist" / "assets" / "app.js").is_file())
+
+    def test_ensure_spa_prefers_repo_dist(self):
+        from opencontractserver.desktop import spa_dist
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            dist = repo / "frontend" / "dist"
+            dist.mkdir(parents=True)
+            (dist / "index.html").write_text("<html></html>")
+            self.assertEqual(spa_dist.ensure_spa(repo, "0.0.0"), dist)
+
+    def test_ensure_spa_uses_cached_download(self):
+        from opencontractserver.desktop import spa_dist
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            repo.mkdir()
+            data_dir = Path(tmp) / "appdata"
+            cached = data_dir / "spa" / "dist"
+            cached.mkdir(parents=True)
+            (cached / "index.html").write_text("<html></html>")
+            with mock.patch.dict(
+                os.environ, {paths.DATA_DIR_ENV: str(data_dir)}, clear=False
+            ):
+                self.assertEqual(spa_dist.ensure_spa(repo, "0.0.0"), cached)
+
+    def test_download_spa_returns_none_without_asset(self):
+        from opencontractserver.desktop import spa_dist
+
+        with mock.patch.object(spa_dist, "_release_asset_url", return_value=None):
+            self.assertIsNone(spa_dist.download_spa("0.0.0"))

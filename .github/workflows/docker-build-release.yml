@@ -10,6 +10,45 @@ env:
   IMAGE_PREFIX: ${{ github.repository_owner }}/opencontractserver
 
 jobs:
+  # Attach the built SPA to the release as a plain zip so the desktop launcher
+  # (opencontractserver/desktop/spa_dist.py) can download it at first run —
+  # end users then need no Node/yarn toolchain to run `python oc-desktop.py`.
+  # The bundle is environment-agnostic: the launcher rewrites env-config.js at
+  # startup, so no build-time REACT_APP_* values are baked in.
+  build-frontend-dist:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+          cache: yarn
+          cache-dependency-path: frontend/yarn.lock
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: yarn install --frozen-lockfile
+
+      - name: Build SPA
+        working-directory: frontend
+        run: yarn build
+
+      - name: Zip dist
+        working-directory: frontend
+        run: zip -r ../opencontracts-frontend-dist.zip dist
+
+      - name: Attach bundle to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ github.event.release.tag_name }}" \
+            opencontracts-frontend-dist.zip --clobber
+
   build-and-push:
     runs-on: ubuntu-latest
     permissions:
