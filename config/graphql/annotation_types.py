@@ -457,6 +457,11 @@ class AuthorityNamespaceNode(DjangoObjectType):
             "source_root_url",
             "license",
             "is_global",
+            # Which baseline writer owns the row ("core" or a pack name; null on
+            # manual/corpus-linked and pre-#2057 rows) — lets the console show
+            # who owns a prefix when a load reports a skipped foreign-baseline
+            # collision. Plain CharField (no choices) → auto-resolves as String.
+            "baseline_origin",
             "authority_corpus",
             "created",
             "modified",

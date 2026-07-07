@@ -24,6 +24,8 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+import yaml
+
 from opencontractserver.annotations.models import AuthorityNamespace
 from opencontractserver.enrichment.constants import BASELINE_ORIGIN_CORE
 from opencontractserver.enrichment.data import mappings as _mappings
@@ -144,6 +146,15 @@ class AuthorityMappingLoader:
         created = updated = 0
         skipped_corpus_linked = skipped_manual = skipped_foreign_baseline = 0
         for prefix, spec in prefixes.items():
+            # NOTE: read-then-decide-then-write without select_for_update. Two
+            # CONCURRENT loader runs with different origins racing on a
+            # brand-new prefix could both see "absent" and the second write
+            # would win without hitting the ownership guard. Accepted: namespace
+            # loads are operator-run management commands / migrations, not
+            # concurrent runtime writers (unlike equivalences, whose
+            # ``upsert_equivalence`` IS invoked from concurrent ingest tasks and
+            # therefore locks). Revisit if namespace loading ever moves into a
+            # task fan-out.
             existing = AuthorityNamespace.objects.filter(prefix=prefix).first()
             if existing is not None and existing.authority_corpus_id:
                 # A corpus-scoped namespace owns this prefix; never overwrite it.
@@ -237,7 +248,10 @@ class AuthorityMappingLoader:
         )
 
         results: dict[str, dict] = {BASELINE_ORIGIN_CORE: cls.load_all()}
-        for pack_dir, mappings_path, manifest in iter_pack_mapping_files():
+        manifest_errors: list = []
+        for pack_dir, mappings_path, manifest in iter_pack_mapping_files(
+            errors=manifest_errors
+        ):
             origin = str(manifest.get("name") or pack_dir.name)
             if origin == BASELINE_ORIGIN_CORE:
                 # A pack literally named "core" would impersonate the shipped
@@ -263,12 +277,14 @@ class AuthorityMappingLoader:
                 )
             try:
                 results[origin] = cls.load_all(path=mappings_path, origin=origin)
-            except ValueError as exc:
+            except (ValueError, OSError, yaml.YAMLError) as exc:
                 # Per-pack fault isolation, mirroring authority_pack_config's
                 # runtime scans: one malformed pack YAML must not abort the
-                # converge run for every other installed pack. (A DIRECT
-                # ``load_all(path=...)`` on the same file still raises — the
-                # fail-fast path ``load_authority_pack`` relies on.)
+                # converge run for every other installed pack. ValueError is the
+                # reader's schema failure; yaml.YAMLError is a genuine parse
+                # failure (NOT a ValueError subclass); OSError an unreadable
+                # file. (A DIRECT ``load_all(path=...)`` on the same file still
+                # raises — the fail-fast path ``load_authority_pack`` relies on.)
                 logger.error(
                     "Skipping authority pack %r mappings (%s): %s",
                     origin,
@@ -276,4 +292,9 @@ class AuthorityMappingLoader:
                     exc,
                 )
                 results[origin] = {"error": str(exc)}
+        # A pack whose pack.yaml itself failed to parse never reaches the loop
+        # above; surface it in the report (keyed by directory name — the
+        # manifest name is unreadable) instead of leaving it log-only.
+        for pack_dir, message in manifest_errors:
+            results.setdefault(pack_dir.name, {"error": message})
         return results

@@ -407,10 +407,10 @@ class LoadInstalledTests(TestCase):
             assert ns["created"] == 0, origin
             assert ns["skipped_foreign_baseline"] == 0, origin
 
-    def test_load_installed_isolates_a_malformed_pack(self):
-        # One pack with a broken mappings YAML must not abort the converge run:
-        # it is reported under its origin as an error, the core baseline (and
-        # any other pack) still loads.
+    @staticmethod
+    def _load_installed_with_bad_pack(mappings_body: str) -> dict:
+        """Run ``load_installed`` with one synthetic pack whose mappings YAML is
+        *mappings_body* as the only installed pack."""
         import tempfile as _tempfile
         from pathlib import Path as _Path
         from unittest import mock
@@ -423,16 +423,49 @@ class LoadInstalledTests(TestCase):
             (bad_pack / "pack.yaml").write_text(
                 "name: badpack\nmappings: m.yaml\n", encoding="utf-8"
             )
-            (bad_pack / "m.yaml").write_text(
-                'prefixes:\n  "NOT A VALID PREFIX!!":\n    display_name: "x"\n',
-                encoding="utf-8",
-            )
+            (bad_pack / "m.yaml").write_text(mappings_body, encoding="utf-8")
             with mock.patch.object(apc, "authority_pack_dirs", return_value=[bad_pack]):
-                results = AuthorityMappingLoader.load_installed()
+                return AuthorityMappingLoader.load_installed()
 
+    def test_load_installed_isolates_a_schema_invalid_pack(self):
+        # One pack whose YAML parses but fails shape validation (ValueError from
+        # the reader) must not abort the converge run: it is reported under its
+        # origin as an error, the core baseline (and any other pack) still loads.
+        results = self._load_installed_with_bad_pack(
+            'prefixes:\n  "NOT A VALID PREFIX!!":\n    display_name: "x"\n'
+        )
         assert "error" in results["badpack"]
         assert BASELINE_ORIGIN_CORE in results
         assert AuthorityNamespace.objects.filter(prefix="exchange-act").exists()
+
+    def test_load_installed_isolates_an_unparsable_pack(self):
+        # A genuine YAML *syntax* error raises yaml.YAMLError — which is NOT a
+        # ValueError subclass — so the isolation guard must catch it explicitly
+        # or one broken file aborts every other installed pack's load.
+        results = self._load_installed_with_bad_pack("prefixes: [unclosed\n")
+        assert "error" in results["badpack"]
+        assert BASELINE_ORIGIN_CORE in results
+        assert AuthorityNamespace.objects.filter(prefix="exchange-act").exists()
+
+    def test_load_installed_reports_an_unparsable_manifest(self):
+        # A pack whose pack.yaml ITSELF cannot be parsed never yields a mappings
+        # file — it must still appear in the report as an error (keyed by its
+        # directory name) rather than vanishing into the log.
+        import tempfile as _tempfile
+        from pathlib import Path as _Path
+        from unittest import mock
+
+        from opencontractserver.enrichment.services import authority_pack_config as apc
+
+        with _tempfile.TemporaryDirectory() as tmp:
+            bad_pack = _Path(tmp) / "broken-manifest"
+            bad_pack.mkdir()
+            (bad_pack / "pack.yaml").write_text("name: [unclosed\n", encoding="utf-8")
+            with mock.patch.object(apc, "authority_pack_dirs", return_value=[bad_pack]):
+                results = AuthorityMappingLoader.load_installed()
+
+        assert "error" in results["broken-manifest"]
+        assert BASELINE_ORIGIN_CORE in results
 
 
 class NamespaceReseedOwnershipTests(TestCase):

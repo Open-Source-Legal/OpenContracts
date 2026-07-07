@@ -54,13 +54,20 @@ ShapeRule = tuple[re.Pattern, "str | None", "str | None"]
 AbbrevEntry = tuple[str, str, str]
 
 
-def iter_pack_mapping_files():
+def iter_pack_mapping_files(errors: "list | None" = None):
     """Yield ``(pack_dir, mappings_yaml_path, manifest)`` for every installed pack
     that declares a ``mappings:`` file that exists on disk.
 
     ``manifest`` is the parsed ``pack.yaml`` dict — yielded so callers that need
     manifest metadata (e.g. ``AuthorityMappingLoader.load_installed`` deriving the
     pack's baseline origin from ``name:``) don't re-read/re-parse the file.
+
+    ``errors``: optional list to which ``(pack_dir, message)`` is appended for a
+    pack whose ``pack.yaml`` cannot be parsed, so a reporting caller
+    (``load_installed``) can surface the skip to the operator instead of it
+    living only in the log. The runtime vocab scans omit it (log-and-skip is
+    their whole contract). A manifest with no ``mappings:`` key is a
+    content-only pack — skipped by design, never an error.
     """
     for pack_dir in authority_pack_dirs():
         manifest = pack_dir / "pack.yaml"
@@ -70,6 +77,8 @@ def iter_pack_mapping_files():
             data = yaml.safe_load(manifest.read_text(encoding="utf-8")) or {}
         except yaml.YAMLError as exc:
             logger.warning("Could not parse %s: %s", manifest, exc)
+            if errors is not None:
+                errors.append((pack_dir, f"could not parse pack.yaml: {exc}"))
             continue
         rel = data.get("mappings")
         if not rel:

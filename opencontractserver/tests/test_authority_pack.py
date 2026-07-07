@@ -371,7 +371,11 @@ class LoadAuthorityPackEdgeCaseTests(TestCase):
         # "core" is the baseline_origin stamp of the shipped core YAML; a pack
         # named "core" would impersonate it and bypass the #2057 collision
         # guard. Rejected fail-fast, before any DB write.
-        AuthorityNamespace.objects.filter(jurisdiction="bo").delete()  # leaked rows
+        # Defensive baseline for the assertFalse below: "bo" rows are not part
+        # of this TestCase's transaction-start state, but a reused --keepdb
+        # database can carry cross-module leakage; clearing makes the
+        # nothing-was-written assertion unambiguous.
+        AuthorityNamespace.objects.filter(jurisdiction="bo").delete()
         self._write_pack(
             {"name": "core", "mappings": "m.yaml"},
             copy_mappings=True,
