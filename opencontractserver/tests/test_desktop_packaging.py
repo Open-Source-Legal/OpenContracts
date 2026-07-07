@@ -885,3 +885,23 @@ class ReexecPasswordScrubTests(SimpleTestCase):
             self.assertNotIn("OC_DESKTOP_PASSWORD", os.environ)
             child_env = popen.call_args.kwargs["env"]
             self.assertEqual(child_env["OC_DESKTOP_PASSWORD"], "pw-123456")
+
+
+class ZipBombGuardTests(SimpleTestCase):
+    def test_safe_extract_rejects_oversized_uncompressed_total(self):
+        import zipfile
+
+        from opencontractserver.desktop import spa_dist
+
+        with tempfile.TemporaryDirectory() as tmp:
+            archive_path = Path(tmp) / "bomb.zip"
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                archive.writestr("dist/index.html", "<html></html>")
+            dest = Path(tmp) / "dest"
+            dest.mkdir()
+            # Shrink the cap instead of building a real multi-hundred-MB zip.
+            with mock.patch.object(spa_dist, "MAX_BUNDLE_BYTES", 4):
+                with zipfile.ZipFile(archive_path) as archive:
+                    with self.assertRaises(ValueError):
+                        spa_dist.safe_extract_zip(archive, dest)
+            self.assertFalse((dest / "dist").exists())

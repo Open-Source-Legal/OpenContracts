@@ -140,13 +140,16 @@ def safe_extract_zip(archive: zipfile.ZipFile, dest: Path) -> None:
     """Extract ``archive`` under ``dest``, refusing unsafe members.
 
     Rejects path traversal (``../``, absolute paths — the post-join
-    ``is_relative_to`` check catches both) and symlink members (a link
-    pointing outside ``dest`` would let a later member write through it).
-    Our CI-built bundle contains neither; refusing is pure defense-in-depth.
+    ``is_relative_to`` check catches both), symlink members (a link pointing
+    outside ``dest`` would let a later member write through it), and
+    decompression bombs (declared uncompressed total past the same ceiling
+    the download itself is capped at). Our CI-built bundle trips none of
+    these; refusing is pure defense-in-depth.
     """
     import stat
 
     dest = dest.resolve()
+    total_uncompressed = 0
     for info in archive.infolist():
         target = (dest / info.filename).resolve()
         if not target.is_relative_to(dest):
@@ -156,6 +159,12 @@ def safe_extract_zip(archive: zipfile.ZipFile, dest: Path) -> None:
         if stat.S_ISLNK(info.external_attr >> 16):
             raise ValueError(
                 f"Refusing to extract symlink zip member: {info.filename!r}"
+            )
+        total_uncompressed += info.file_size
+        if total_uncompressed > MAX_BUNDLE_BYTES:
+            raise ValueError(
+                "Refusing to extract zip: uncompressed size exceeds the "
+                f"{MAX_BUNDLE_BYTES // (1024 * 1024)} MB safety cap"
             )
     archive.extractall(dest)
 
