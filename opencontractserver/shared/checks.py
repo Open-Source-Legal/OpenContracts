@@ -153,17 +153,15 @@ def check_vector_index_storage_exposure(
     if getattr(settings, "STORAGE_BACKEND", "LOCAL") != "AWS":
         return []
     public_signals = []
-    if getattr(settings, "AWS_DEFAULT_ACL", None) in (
-        "public-read",
-        "public-read-write",
-    ):
-        public_signals.append(f"AWS_DEFAULT_ACL={settings.AWS_DEFAULT_ACL!r}")
+    default_acl = getattr(settings, "AWS_DEFAULT_ACL", None)
+    if default_acl in ("public-read", "public-read-write"):
+        public_signals.append(f"AWS_DEFAULT_ACL={default_acl!r}")
     if getattr(settings, "AWS_QUERYSTRING_AUTH", True) is False:
         public_signals.append("AWS_QUERYSTRING_AUTH=False (unsigned URLs)")
-    if getattr(settings, "AWS_S3_CUSTOM_DOMAIN", None):
+    custom_domain = getattr(settings, "AWS_S3_CUSTOM_DOMAIN", None)
+    if custom_domain:
         public_signals.append(
-            f"AWS_S3_CUSTOM_DOMAIN={settings.AWS_S3_CUSTOM_DOMAIN!r} "
-            "(CDN fronting the bucket)"
+            f"AWS_S3_CUSTOM_DOMAIN={custom_domain!r} (CDN fronting the bucket)"
         )
     if public_signals:
         return [
