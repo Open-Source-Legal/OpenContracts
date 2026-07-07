@@ -419,6 +419,8 @@ def _shutdown(*_args) -> None:
             with contextlib.suppress(Exception):
                 proc.wait(timeout=max(0, deadline - time.time()))
     except KeyboardInterrupt:
+        # Deliberate: abandon the graceful drain and fall through to the
+        # kill phase below so teardown always completes.
         pass
     for proc in reversed(_children):
         if proc.poll() is None:

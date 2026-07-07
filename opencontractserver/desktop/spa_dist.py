@@ -38,6 +38,9 @@ from opencontractserver.desktop import paths
 GITHUB_REPO = "Open-Source-Legal/OpenContracts"
 SPA_ASSET_NAME = "opencontracts-frontend-dist.zip"
 _HTTP_TIMEOUT_SECONDS = 30
+# Defense-in-depth cap on the bundle download (the real dist is ~15 MB; a
+# release asset an order of magnitude past this ceiling is wrong, full stop).
+MAX_BUNDLE_BYTES = 500 * 1024 * 1024
 
 
 def release_tag_candidates(version: str) -> list[str]:
@@ -200,7 +203,15 @@ def download_spa(version: str) -> Path | None:  # pragma: no cover - network
             with urllib.request.urlopen(
                 asset_url, timeout=_HTTP_TIMEOUT_SECONDS, context=_ssl_context()
             ) as response, open(zip_path, "wb") as out:
-                shutil.copyfileobj(response, out)
+                copied = 0
+                while chunk := response.read(1 << 20):
+                    copied += len(chunk)
+                    if copied > MAX_BUNDLE_BYTES:
+                        raise ValueError(
+                            "frontend bundle exceeds the "
+                            f"{MAX_BUNDLE_BYTES // (1024 * 1024)} MB safety cap"
+                        )
+                    out.write(chunk)
             # Integrity gate: releases publish a .sha256 next to the bundle
             # (see docker-build-release.yml); a mismatch means a corrupted or
             # tampered asset, so refuse it. Older releases without the sibling

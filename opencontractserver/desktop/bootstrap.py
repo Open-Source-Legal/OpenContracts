@@ -43,6 +43,14 @@ LOCAL_USERNAME = "desktop"
 # floor ourselves — it is a superuser.
 MIN_PASSWORD_LENGTH = 8
 
+# Prompt strings precomputed OUTSIDE the password-handling flow: no expression
+# passed to print() below may be data-dependent on the password value (CodeQL
+# py/clear-text-logging-sensitive-data flags any such sink, even when the
+# string itself contains no secret).
+_PASSWORD_PROMPT = f"  Password (min {MIN_PASSWORD_LENGTH} characters): "
+_TOO_SHORT_MSG = f"  Too short — use at least {MIN_PASSWORD_LENGTH} characters."
+_NO_MATCH_MSG = "  Passwords did not match — try again."
+
 # Modules whose presence marks the desktop requirement set as installed. Chosen
 # to span the distinct dependency groups (Django stack, ASGI server, task queue,
 # embedded DB, parser) so a partially-completed install is detected.
@@ -73,14 +81,12 @@ def prompt_for_password(username: str = LOCAL_USERNAME) -> str | None:
     )
     while True:
         try:
-            password = getpass.getpass(
-                f"  Password (min {MIN_PASSWORD_LENGTH} characters): "
-            )
+            password = getpass.getpass(_PASSWORD_PROMPT)
             if len(password) < MIN_PASSWORD_LENGTH:
-                print(f"  Too short — use at least {MIN_PASSWORD_LENGTH} characters.")
+                print(_TOO_SHORT_MSG)
                 continue
             if password != getpass.getpass("  Repeat password: "):
-                print("  Passwords did not match — try again.")
+                print(_NO_MATCH_MSG)
                 continue
         except (EOFError, KeyboardInterrupt):
             print(
