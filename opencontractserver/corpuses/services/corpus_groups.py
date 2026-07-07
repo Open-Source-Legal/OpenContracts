@@ -197,34 +197,37 @@ class CorpusGroupService(BaseService):
                 return agent_result
             default_agent = agent_result.value
 
-        try:
-            # ``atomic()`` scopes the failure to a savepoint so catching the
-            # IntegrityError doesn't poison a caller's enclosing transaction
-            # (e.g. TestCase blocks / atomic GraphQL requests).
-            with transaction.atomic():
-                group = CorpusGroup.objects.create(
-                    title=title.strip(),
-                    slug=slug or "",  # empty triggers auto-generation in ``save()``
-                    description=description or "",
-                    default_agent=default_agent,
-                    creator=user,
-                    is_public=is_public,
+        # Outer ``atomic()`` makes the row + M2M + permission writes
+        # all-or-nothing; the inner savepoint scopes the slug-collision
+        # IntegrityError so catching it doesn't poison a caller's enclosing
+        # transaction (e.g. TestCase blocks / atomic GraphQL requests).
+        with transaction.atomic():
+            try:
+                with transaction.atomic():
+                    group = CorpusGroup.objects.create(
+                        title=title.strip(),
+                        # empty slug triggers auto-generation in ``save()``
+                        slug=slug or "",
+                        description=description or "",
+                        default_agent=default_agent,
+                        creator=user,
+                        is_public=is_public,
+                    )
+            except IntegrityError:
+                # The unique ``slug`` column is the model's only unique
+                # constraint, so an IntegrityError here means the caller's
+                # explicit slug collided (auto-generated slugs are
+                # de-duplicated in ``save()``). Surface a friendly message
+                # instead of a raw DB constraint error.
+                return ServiceResult.failure(
+                    "A corpus group with this slug already exists."
                 )
-        except IntegrityError:
-            # The unique ``slug`` column is the model's only unique
-            # constraint, so an IntegrityError here means the caller's
-            # explicit slug collided (auto-generated slugs are de-duplicated
-            # in ``save()``). Surface a friendly message instead of a raw
-            # DB constraint error.
-            return ServiceResult.failure(
-                "A corpus group with this slug already exists."
-            )
-        if corpora_result.value:
-            group.corpora.set(corpora_result.value)
+            if corpora_result.value:
+                group.corpora.set(corpora_result.value)
 
-        set_permissions_for_obj_to_user(
-            user, group, [PermissionTypes.CRUD], is_new=True, request=request
-        )
+            set_permissions_for_obj_to_user(
+                user, group, [PermissionTypes.CRUD], is_new=True, request=request
+            )
         cls.log_action("Created", group, user)
         return ServiceResult.success(group)
 
@@ -288,17 +291,20 @@ class CorpusGroupService(BaseService):
         if is_public is not None:
             group.is_public = is_public
 
-        try:
-            with transaction.atomic():  # savepoint-scoped; see create_group
-                group.save()
-        except IntegrityError:
-            # See the matching guard in ``create_group`` — the unique slug
-            # is the model's only unique constraint.
-            return ServiceResult.failure(
-                "A corpus group with this slug already exists."
-            )
-        if corpora_result is not None:
-            group.corpora.set(corpora_result.value or [])
+        # Outer ``atomic()`` keeps the field update + membership replace
+        # all-or-nothing; inner savepoint scopes the slug-collision catch
+        # (see the matching structure in ``create_group``).
+        with transaction.atomic():
+            try:
+                with transaction.atomic():
+                    group.save()
+            except IntegrityError:
+                # The unique slug is the model's only unique constraint.
+                return ServiceResult.failure(
+                    "A corpus group with this slug already exists."
+                )
+            if corpora_result is not None:
+                group.corpora.set(corpora_result.value or [])
         cls.log_action("Updated", group, user)
         return ServiceResult.success(group)
 

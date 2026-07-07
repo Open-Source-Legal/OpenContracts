@@ -50,7 +50,9 @@ def _decode_pk(global_id: str) -> str:
     """Decode a single GraphQL global id to a raw pk.
 
     Same malformed-input contract as :func:`_decode_pks` — raises
-    ``ValueError`` on garbage input or an empty decoded pk.
+    ``ValueError`` on garbage input or an empty decoded pk. Requires a
+    non-empty ``global_id``; callers guard ``None``/absent arguments before
+    calling (``... if default_agent_id else None``).
     """
     return _decode_pks([global_id])[0]  # type: ignore[index]  # non-None input
 
