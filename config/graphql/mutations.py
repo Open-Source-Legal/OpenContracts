@@ -386,12 +386,12 @@ class Mutation(graphene.ObjectType):
     update_corpus_category = UpdateCorpusCategory.Field()
     delete_corpus_category = DeleteCorpusCategory.Field()
 
-    # CORPUS FOLDER MUTATIONS ##################################################
-    # Corpus groups (multi-corpus retrieval, issue #2056)
+    # CORPUS GROUP MUTATIONS (multi-corpus retrieval, issue #2056) #############
     create_corpus_group = CreateCorpusGroupMutation.Field()
     update_corpus_group = UpdateCorpusGroupMutation.Field()
     delete_corpus_group = DeleteCorpusGroupMutation.Field()
 
+    # CORPUS FOLDER MUTATIONS ##################################################
     create_corpus_folder = CreateCorpusFolderMutation.Field()
     update_corpus_folder = UpdateCorpusFolderMutation.Field()
     move_corpus_folder = MoveCorpusFolderMutation.Field()
