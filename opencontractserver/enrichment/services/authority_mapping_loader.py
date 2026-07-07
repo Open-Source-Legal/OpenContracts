@@ -263,12 +263,27 @@ class AuthorityMappingLoader:
             origin = pack_origin_name(pack_dir, manifest)
             if origin.lower() == BASELINE_ORIGIN_CORE:
                 # A pack literally named "core" would impersonate the shipped
-                # baseline and bypass the collision guard — refuse it.
+                # baseline and bypass the collision guard — refuse it, and put
+                # the refusal in the report (keyed by directory name — the
+                # reserved origin itself already keys the real core summary;
+                # setdefault keeps the loaded entry if even the dir is named
+                # "core") so the operator sees it in the command output, same
+                # as every other per-pack failure. load_authority_pack raises
+                # CommandError for the same condition.
                 logger.warning(
                     "Skipping authority pack at %s: pack name %r is reserved "
                     "for the shipped core baseline.",
                     pack_dir,
                     origin,
+                )
+                results.setdefault(
+                    pack_dir.name,
+                    {
+                        "error": (
+                            f"pack name {origin!r} is reserved for the shipped "
+                            "core baseline; rename the pack"
+                        )
+                    },
                 )
                 continue
             if origin in results:

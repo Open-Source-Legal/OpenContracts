@@ -503,6 +503,37 @@ class LoadInstalledTests(TestCase):
         assert not AuthorityNamespace.objects.filter(prefix="test-longname").exists()
         assert AuthorityNamespace.objects.filter(prefix="exchange-act").exists()
 
+    def test_load_installed_reports_a_reserved_core_pack_name(self):
+        # An installed pack named "core" (any case) is refused — and the refusal
+        # must appear in the report keyed by the pack's directory name, not
+        # vanish into the log. Nothing from the pack's YAML may load.
+        import tempfile as _tempfile
+        from pathlib import Path as _Path
+        from unittest import mock
+
+        from opencontractserver.enrichment.services import authority_pack_config as apc
+
+        with _tempfile.TemporaryDirectory() as tmp:
+            pack = _Path(tmp) / "impostor"
+            pack.mkdir()
+            (pack / "pack.yaml").write_text(
+                "name: Core\nmappings: m.yaml\n", encoding="utf-8"
+            )
+            (pack / "m.yaml").write_text(
+                "prefixes:\n"
+                "  test-impostor:\n"
+                '    display_name: "Impostor"\n'
+                '    jurisdiction: "aa"\n'
+                '    authority_type: "statute"\n'
+                '    aliases: ["impostor body"]\n',
+                encoding="utf-8",
+            )
+            with mock.patch.object(apc, "authority_pack_dirs", return_value=[pack]):
+                results = AuthorityMappingLoader.load_installed()
+
+        assert "reserved" in results["impostor"]["error"]
+        assert not AuthorityNamespace.objects.filter(prefix="test-impostor").exists()
+
     def test_load_installed_reports_an_unparsable_manifest(self):
         # A pack whose pack.yaml ITSELF cannot be parsed never yields a mappings
         # file — it must still appear in the report as an error (keyed by its
