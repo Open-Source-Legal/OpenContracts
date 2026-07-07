@@ -131,6 +131,18 @@ filtered querysets full. Rows deleted from Postgres after indexing drop out
 at the same refilter (the index tolerates staleness; Postgres is ground
 truth).
 
+**Storage exposure caveat:** query-time permissions are enforced by that ORM
+re-filter, NOT at the storage layer — the index blobs themselves
+(`wal/*.jsonl`, `segments/*/…`) carry no ACL. The
+`VECTOR_INDEX_STORAGE_PREFIX` **must live in non-publicly-readable storage**:
+a bucket with a public ACL, unsigned URLs, or a CDN custom domain fronting it
+would let anyone with bucket read access enumerate raw vectors + parent ids
+for private documents, entirely outside Django auth (a larger blast radius
+than pgvector, where vectors never leave Postgres). System check
+`opencontracts.W004` warns at boot when the backend is enabled over an AWS
+storage config showing public-read signals (`AWS_DEFAULT_ACL=public-read*`,
+`AWS_QUERYSTRING_AUTH=False`, or `AWS_S3_CUSTOM_DOMAIN`).
+
 ### Fallback semantics
 
 Enabling the flag can never make search worse than pgvector: unsupported
@@ -198,16 +210,25 @@ Parameters*.
   Celery workers is subject to clock skew. Low impact in practice —
   embeddings are regenerated infrequently and deterministically per
   `(parent, embedder)` — and any skew is healed by the next rebuild.
-- **No group commit.** Every `store_embedding` is one WAL PUT (batch
-  producers already batch upstream). turbopuffer batches concurrent writers
-  per namespace; we could buffer through Redis if PUT volume matters.
+- **No group commit.** Every `store_embedding` costs ~3 object-store
+  roundtrips (WAL PUT + the `wal_tail_count` list/manifest reads that decide
+  auto-compaction), fired per Celery task per embedding. Bulk backfills
+  through the normal write path will generate proportionally high request
+  volume — prefer `rebuild_object_vector_index`, which batches hundreds of
+  vectors per PUT. turbopuffer group-commits concurrent writers per
+  namespace; we could buffer through Redis if PUT volume matters.
 - **Sequential WAL-tail GETs.** A query fetches unfolded WAL files one at a
   time (tail is bounded by `OBJECT_INDEX_COMPACT_MIN_WAL_FILES`); fetching
   them concurrently would cut cold/tail latency if p50 matters before
   compaction catches up.
 - **Deletes are lazy.** Parent deletions are not tombstoned automatically;
   stale ids are dropped by the ORM refilter at query time and purged on the
-  next `rebuild_object_vector_index`/compaction cycle.
+  next `rebuild_object_vector_index`/compaction cycle. The refilter only
+  protects against *parent* deletion, though: a future code path that
+  deletes an `Embedding` row independent of its parent must tombstone the
+  namespace entry (`ObjectStorageVectorEngine.delete`) or trigger a rebuild
+  — otherwise the stale vector keeps matching its still-alive parent (see
+  the note on `EmbeddingManager`).
 - **Full recluster per compaction** (k-means from scratch) rather than
   SPFresh-style incremental cluster maintenance — fine up to ~10⁶ vectors
   per namespace, revisit beyond.

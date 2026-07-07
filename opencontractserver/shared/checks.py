@@ -121,3 +121,63 @@ def check_vector_search_cache(app_configs: Any, **kwargs: Any) -> list[Warning]:
             )
         ]
     return []
+
+
+@register("settings")
+def check_vector_index_storage_exposure(
+    app_configs: Any, **kwargs: Any
+) -> list[Warning]:
+    """Warn when the vector index may live in publicly-readable storage.
+
+    The object-storage index stores raw ``(parent_pk, vector)`` blobs with no
+    ACL of their own — query-time permissions are enforced by the ORM
+    re-filter, NOT at the storage layer. If the default storage bucket is
+    independently readable (public ACL, unsigned URLs, or a CDN custom
+    domain fronting the whole bucket), anyone with bucket read access could
+    enumerate vectors for every document/annotation in the system outside
+    Django auth entirely. Warning ``opencontracts.W004``; see the
+    "Permissions" section of
+    ``docs/architecture/object_storage_vector_search.md``.
+    """
+    from django.conf import settings
+
+    from opencontractserver.constants.search import (
+        VECTOR_SEARCH_BACKEND_OBJECT_STORAGE,
+    )
+
+    if (
+        getattr(settings, "VECTOR_SEARCH_BACKEND", None)
+        != VECTOR_SEARCH_BACKEND_OBJECT_STORAGE
+    ):
+        return []
+    if getattr(settings, "STORAGE_BACKEND", "LOCAL") != "AWS":
+        return []
+    public_signals = []
+    if getattr(settings, "AWS_DEFAULT_ACL", None) in (
+        "public-read",
+        "public-read-write",
+    ):
+        public_signals.append(f"AWS_DEFAULT_ACL={settings.AWS_DEFAULT_ACL!r}")
+    if getattr(settings, "AWS_QUERYSTRING_AUTH", True) is False:
+        public_signals.append("AWS_QUERYSTRING_AUTH=False (unsigned URLs)")
+    if getattr(settings, "AWS_S3_CUSTOM_DOMAIN", None):
+        public_signals.append(
+            f"AWS_S3_CUSTOM_DOMAIN={settings.AWS_S3_CUSTOM_DOMAIN!r} "
+            "(CDN fronting the bucket)"
+        )
+    if public_signals:
+        return [
+            Warning(
+                "VECTOR_SEARCH_BACKEND=object_storage but the default storage "
+                "shows public-read signals: " + "; ".join(public_signals) + ". "
+                "The vector index has no ACL of its own — a readable bucket "
+                "leaks raw vectors and parent ids for private documents.",
+                hint=(
+                    "Keep VECTOR_INDEX_STORAGE_PREFIX in a non-public bucket/"
+                    "path (e.g. block public access on the prefix, or use a "
+                    "dedicated private bucket via a custom Storage)."
+                ),
+                id="opencontracts.W004",
+            )
+        ]
+    return []

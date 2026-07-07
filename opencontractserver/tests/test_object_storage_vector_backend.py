@@ -351,6 +351,47 @@ class VectorSearchSystemCheckTests(SimpleTestCase):
         with override_settings(VECTOR_SEARCH_BACKEND="pgvector", CACHES=locmem):
             self.assertEqual(check_vector_search_cache(None), [])
 
+    def test_public_storage_signals_warn_w004(self):
+        from opencontractserver.shared.checks import (
+            check_vector_index_storage_exposure,
+        )
+
+        # Each public-read signal triggers the warning on its own.
+        for public_signal in (
+            {"AWS_DEFAULT_ACL": "public-read"},
+            {"AWS_QUERYSTRING_AUTH": False},
+            {"AWS_S3_CUSTOM_DOMAIN": "cdn.example.com"},
+        ):
+            with override_settings(
+                VECTOR_SEARCH_BACKEND="object_storage",
+                STORAGE_BACKEND="AWS",
+                **public_signal,
+            ):
+                issues = check_vector_index_storage_exposure(None)
+                self.assertEqual(
+                    [issue.id for issue in issues],
+                    ["opencontracts.W004"],
+                    public_signal,
+                )
+        # Private signed-URL config passes; so does any non-AWS backend and
+        # the default pgvector backend.
+        with override_settings(
+            VECTOR_SEARCH_BACKEND="object_storage",
+            STORAGE_BACKEND="AWS",
+            AWS_QUERYSTRING_AUTH=True,
+        ):
+            self.assertEqual(check_vector_index_storage_exposure(None), [])
+        with override_settings(
+            VECTOR_SEARCH_BACKEND="object_storage", STORAGE_BACKEND="LOCAL"
+        ):
+            self.assertEqual(check_vector_index_storage_exposure(None), [])
+        with override_settings(
+            VECTOR_SEARCH_BACKEND="pgvector",
+            STORAGE_BACKEND="AWS",
+            AWS_QUERYSTRING_AUTH=False,
+        ):
+            self.assertEqual(check_vector_index_storage_exposure(None), [])
+
 
 class ObjectStorageBackendIntegrationTests(TestCase):
     """The toggle, write-path fan-out, scoping, fallback, and rebuild."""

@@ -114,11 +114,16 @@ def _kmeans(vectors: np.ndarray, k: int, iterations: int, seed: int) -> np.ndarr
         sims = vectors @ centroids.T  # (n, k)
         assignment = np.argmax(sims, axis=1)
         best_sims = sims[np.arange(n), assignment]
+        # Ascending: worst-fit points first, for empty-cluster reseeding.
+        worst_fit_order = np.argsort(best_sims)
+        reseed_cursor = 0
         for cluster_idx in range(k):
             members = vectors[assignment == cluster_idx]
             if len(members) == 0:
-                # Re-seed from the globally worst-fit point.
-                centroids[cluster_idx] = vectors[np.argmin(best_sims)]
+                # Re-seed from successive worst-fit points so multiple empty
+                # clusters in one iteration don't collapse onto one seed.
+                centroids[cluster_idx] = vectors[worst_fit_order[reseed_cursor]]
+                reseed_cursor += 1
             else:
                 centroids[cluster_idx] = members.mean(axis=0)
         centroids = _normalize(centroids)

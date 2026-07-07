@@ -1335,6 +1335,16 @@ class EmbeddingManager(BaseVisibilityManager):
     Manager for Embedding that can store or update embeddings
     without creating accidental duplicates for the same dimension,
     embedder_path, and parent references (document/annotation/note).
+
+    NOTE for future deletion paths: the object-storage vector index (see
+    ``docs/architecture/object_storage_vector_search.md``) only hears about
+    writes (via ``enqueue_embedding_index_sync`` below). Deleting a parent
+    object is safe — the query-time ORM re-filter drops its id — but any
+    code path that deletes/replaces an ``Embedding`` row *independent of its
+    parent* (e.g. a stale-embedder cleanup command) must also tombstone the
+    corresponding namespace entry (``ObjectStorageVectorEngine.delete``) or
+    run ``rebuild_object_vector_index``, or the stale vector keeps matching
+    its still-alive parent indefinitely.
     """
 
     def _get_vector_field_name(self, dimension: int) -> str:
