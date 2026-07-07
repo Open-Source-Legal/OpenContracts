@@ -209,6 +209,15 @@ Parameters*.
   return the new vector. (pgvector fallback still covers *never-indexed*
   namespaces, not this per-row lag.) turbopuffer's client-synchronous write
   ack does not have this window.
+- **Manifest overwrite is not atomic for readers.** Django's `Storage.save`
+  never overwrites, so the per-compaction manifest commit is a delete + save
+  pair; a reader can catch the sub-second window where the key is missing.
+  Readers of namespaces with a non-empty WAL retry the manifest read once
+  (`engine._load_manifest_expecting_data`) before proceeding, which covers
+  the realistic window; the residual risk (retry also landing inside the
+  window) degrades one query to WAL-tail-only results and self-heals on the
+  next. A backend-native atomic PUT (S3 conditional writes) would remove
+  the window entirely — backend-specific follow-up.
 - **WAL ordering across workers uses wall-clock names** (`time.time_ns()`),
   so last-writer-wins between two re-embeds of the same parent on different
   Celery workers is subject to clock skew. Low impact in practice —

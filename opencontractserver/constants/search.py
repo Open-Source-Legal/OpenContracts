@@ -196,6 +196,12 @@ OBJECT_INDEX_COMPACT_MIN_WAL_FILES = 16
 # put_bytes) — raise this together with any namespace-size increase.
 OBJECT_INDEX_COMPACT_LOCK_TIMEOUT_SECONDS = 600
 
+# Manifest reads that come back missing while the namespace clearly has data
+# (non-empty WAL) are retried once after this delay: put_bytes overwrites the
+# manifest via delete-then-save, so a reader can catch the sub-second window
+# between the two and would otherwise silently serve only the WAL tail.
+OBJECT_INDEX_MANIFEST_RETRY_DELAY_SECONDS = 0.05
+
 # Bounded retries for the delete-then-save overwrite dance in
 # DjangoStorageObjectStore.put_bytes (Django's Storage.save never overwrites;
 # it uniquifies names on collision). Contention on a mutable key means the

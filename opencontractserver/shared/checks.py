@@ -189,7 +189,10 @@ def check_vector_index_storage_exposure(
                 hint=(
                     "Keep VECTOR_INDEX_STORAGE_PREFIX in a non-public bucket/"
                     "path (e.g. block public access on the prefix, or use a "
-                    "dedicated private bucket via a custom Storage)."
+                    "dedicated private bucket via a custom Storage). Note this "
+                    "check is best-effort: it inspects Django settings signals "
+                    "only — bucket policies set outside Django (console/IaC) "
+                    "are invisible here, so a clean check is not a guarantee."
                 ),
                 id="opencontracts.W004",
             )

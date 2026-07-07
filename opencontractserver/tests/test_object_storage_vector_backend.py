@@ -193,6 +193,37 @@ class ObjectStorageVectorEngineTests(SimpleTestCase):
         ns_b = build_namespace("annotation", "acme/embedder v1", DIM)
         self.assertNotEqual(ns_a, ns_b)
 
+    def test_search_retries_manifest_read_hit_mid_overwrite(self):
+        """
+        put_bytes overwrites the manifest via delete-then-save, so a reader
+        can catch the window where the key is briefly missing. With a
+        non-empty WAL, search() must retry the manifest read instead of
+        proceeding manifest-less (which would silently drop all segment data
+        and misreport the namespace as nearly empty).
+        """
+        from opencontractserver.vector_search.object_store import ObjectNotFound
+
+        vectors = clustered_vectors(2, 10)
+        self.engine.upsert(
+            NAMESPACE, [(i, vectors[i].tolist()) for i in range(len(vectors))]
+        )
+        self.engine.compact(NAMESPACE)  # folded WAL lingers (deferred GC)
+
+        real_get = self.store.get_bytes
+        window = {"open": True}
+
+        def mid_overwrite_get(key):
+            if key.endswith("manifest.json") and window["open"]:
+                window["open"] = False  # the retry lands after the save
+                raise ObjectNotFound(key)
+            return real_get(key)
+
+        with mock.patch.object(self.store, "get_bytes", side_effect=mid_overwrite_get):
+            hits = must(self.engine.search(NAMESPACE, vectors[3].tolist(), 3))
+        self.assertEqual(hits[0][0], 3)
+        self.assertAlmostEqual(hits[0][1], 1.0, places=3)
+        self.assertEqual(len(hits), 3)
+
     def test_search_survives_compaction_between_wal_list_and_manifest_read(self):
         """
         Regression for the manifest/WAL read-order race: compaction commits

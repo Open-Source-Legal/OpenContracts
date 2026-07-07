@@ -50,6 +50,7 @@ from opencontractserver.constants.search import (
     OBJECT_INDEX_CACHE_MAX_ENTRIES,
     OBJECT_INDEX_KMEANS_ITERATIONS,
     OBJECT_INDEX_KMEANS_SEED,
+    OBJECT_INDEX_MANIFEST_RETRY_DELAY_SECONDS,
     OBJECT_INDEX_MAX_CENTROIDS,
     OBJECT_INDEX_MIN_VECTORS_FOR_ANN,
     OBJECT_INDEX_NPROBE_MIN,
@@ -212,7 +213,7 @@ class ObjectStorageVectorEngine:
         wal_names = self._list_wal(namespace)
         if not wal_names:
             return 0
-        folded = self._folded_wals(self._load_manifest(namespace))
+        folded = self._folded_wals(self._load_manifest_expecting_data(namespace))
         return len([name for name in wal_names if name not in folded])
 
     def search(
@@ -237,7 +238,14 @@ class ObjectStorageVectorEngine:
         # window where an old manifest is paired with an already-GC'd WAL
         # tail — silently dropping those writes.
         wal_names = self._list_wal(namespace)
-        manifest = self._load_manifest(namespace)
+        if wal_names:
+            # Non-empty WAL: a missing manifest here is either a namespace
+            # awaiting its first compaction or a manifest mid-overwrite, so
+            # read with the retry guard — proceeding with manifest=None
+            # would silently drop all segment data.
+            manifest = self._load_manifest_expecting_data(namespace)
+        else:
+            manifest = self._load_manifest(namespace)
         if manifest is None and not wal_names:
             return None
 
@@ -409,6 +417,22 @@ class ObjectStorageVectorEngine:
         except ObjectNotFound:
             return None
         return json.loads(raw)
+
+    def _load_manifest_expecting_data(self, namespace: str) -> dict | None:
+        """
+        Manifest read for namespaces that demonstrably hold data (non-empty
+        WAL). ``put_bytes`` overwrites the manifest via delete-then-save, so
+        a reader can catch the sub-second window between the two operations
+        and see the key missing even though a generation is committed —
+        structurally indistinguishable from "never compacted." Retry once
+        after a short delay before accepting None; a genuinely
+        pre-first-compaction namespace just pays one extra GET.
+        """
+        manifest = self._load_manifest(namespace)
+        if manifest is None:
+            time.sleep(OBJECT_INDEX_MANIFEST_RETRY_DELAY_SECONDS)
+            manifest = self._load_manifest(namespace)
+        return manifest
 
     @staticmethod
     def _folded_wals(manifest: dict | None) -> set[str]:
