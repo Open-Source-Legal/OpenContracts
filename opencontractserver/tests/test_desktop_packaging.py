@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import unittest
 from pathlib import Path
 from unittest import mock
 
@@ -744,3 +745,42 @@ class LauncherPureHelperTests(SimpleTestCase):
         self.assertEqual(first, again)  # deterministic per data dir
         self.assertNotEqual(first, other)  # scoped per data dir
         self.assertTrue(first.startswith("django-secret-key-"))
+
+
+class PrivateDirPermissionTests(SimpleTestCase):
+    """ensure_private_dir must tighten PRE-EXISTING permissive dirs too.
+
+    Path.mkdir(mode=0o700, exist_ok=True) silently skips the mode when the
+    dir already exists (e.g. `python -m venv` created the app-data root with
+    umask defaults on a first run), which is exactly the gap this guards.
+    """
+
+    @staticmethod
+    def _mode(path):
+        return os.stat(path).st_mode & 0o777
+
+    @unittest.skipIf(os.name == "nt", "POSIX permission bits")
+    def test_tightens_preexisting_permissive_tree(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "appdata"
+            root.mkdir(mode=0o755)
+            (root / "media").mkdir(mode=0o755)
+            with mock.patch.dict(
+                os.environ, {paths.DATA_DIR_ENV: str(root)}, clear=False
+            ):
+                created = paths.subdir("media", create=True)
+            self.assertEqual(self._mode(root), 0o700)
+            self.assertEqual(self._mode(created), 0o700)
+
+    @unittest.skipIf(os.name == "nt", "POSIX permission bits")
+    def test_applies_mode_to_intermediate_parents(self):
+        # parents=True never applies mode= to intermediate levels either.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "appdata"
+            with mock.patch.dict(
+                os.environ, {paths.DATA_DIR_ENV: str(root)}, clear=False
+            ):
+                leaf = paths.subdir("celery-broker", "in", create=True)
+            self.assertEqual(self._mode(root), 0o700)
+            self.assertEqual(self._mode(root / "celery-broker"), 0o700)
+            self.assertEqual(self._mode(leaf), 0o700)

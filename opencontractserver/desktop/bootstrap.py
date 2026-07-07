@@ -183,6 +183,11 @@ def _install_dependencies(root: Path, venv_path: Path) -> None:  # pragma: no co
             f"             {venv_path}\n"
             "             (your system Python is not modified)."
         )
+        # Pre-create the venv dir (and the app-data root) with user-private
+        # permissions BEFORE `python -m venv` runs — venv would otherwise be
+        # the first thing to create the app-data root, with umask defaults
+        # that a later mkdir(mode=..., exist_ok=True) can never tighten.
+        paths.ensure_private_dir(venv_path)
         try:
             subprocess.run(
                 [sys.executable, "-m", "venv", str(venv_path)],

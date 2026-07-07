@@ -9,6 +9,7 @@ Celery filesystem broker) derives from it.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import sys
 from pathlib import Path
@@ -44,17 +45,40 @@ def app_data_dir() -> Path:
     return Path(override) if override else default_app_data_dir()
 
 
-def subdir(*parts: str, create: bool = False) -> Path:
-    """Return ``app_data_dir()/parts``, optionally creating it.
+def ensure_private_dir(path: Path) -> Path:
+    """``mkdir -p`` with ``0o700`` applied to EVERY level under the app-data root.
 
-    Created directories are user-private (``0o700`` before umask on POSIX;
-    ignored on Windows) — the app-data tree holds the full local database and
-    uploaded documents, so other local accounts on a shared machine get no
-    read access. Applies to newly created dirs only, by design.
+    ``Path.mkdir(mode=...)`` silently skips the mode on pre-existing dirs
+    (``exist_ok=True``) and on intermediate parents (``parents=True``), so a
+    tree first touched by something else — e.g. ``python -m venv`` creating
+    the app-data root with umask defaults on a first run — would keep
+    world-listable permissions forever. Chmod explicitly and idempotently
+    instead: the app-data tree holds the full local database and uploaded
+    documents, so other local accounts on a shared machine get no access.
+    Chmod failures are ignored (Windows has no POSIX modes).
+    """
+    root = app_data_dir()
+    path.mkdir(parents=True, exist_ok=True)
+    targets = [root]
+    with contextlib.suppress(ValueError):
+        current = root
+        for part in path.relative_to(root).parts:
+            current = current / part
+            targets.append(current)
+    for target in targets:
+        with contextlib.suppress(OSError):
+            os.chmod(target, 0o700)
+    return path
+
+
+def subdir(*parts: str, create: bool = False) -> Path:
+    """Return ``app_data_dir()/parts``, optionally creating it user-private.
+
+    See :func:`ensure_private_dir` for the permission semantics.
     """
     path = app_data_dir().joinpath(*parts)
     if create:
-        path.mkdir(mode=0o700, parents=True, exist_ok=True)
+        ensure_private_dir(path)
     return path
 
 

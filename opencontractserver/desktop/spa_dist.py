@@ -230,7 +230,8 @@ def download_spa(version: str) -> Path | None:  # pragma: no cover - network
                 return None
             if staging.exists():
                 shutil.rmtree(staging)
-            staging.mkdir(parents=True, exist_ok=True)
+            # Private like the rest of app-data (staging becomes spa/ below).
+            paths.ensure_private_dir(staging)
             with zipfile.ZipFile(zip_path) as archive:
                 safe_extract_zip(archive, staging)
             if not _dist_dir_within(staging):

@@ -161,16 +161,16 @@ def _base_env() -> dict[str, str]:
 
 
 def _ensure_dirs() -> None:
-    # mode=0o700 (before umask; ignored on Windows): the app-data tree holds
-    # the full local database and uploaded documents — keep it user-private on
-    # shared machines. Matches paths.subdir(create=True).
+    # User-private (0o700, chmod'ed even when pre-existing — see
+    # paths.ensure_private_dir): the app-data tree holds the full local
+    # database and uploaded documents.
     for maker in (
         paths.app_data_dir,
         paths.media_dir,
         paths.static_dir,
         paths.logs_dir,
     ):
-        Path(maker()).mkdir(mode=0o700, parents=True, exist_ok=True)
+        paths.ensure_private_dir(Path(maker()))
     for name in ("in", "out", "control"):
         paths.subdir("celery-broker", name, create=True)
 
@@ -226,9 +226,8 @@ def _start_postgres(env: dict[str, str]) -> None:
             "  or export DATABASE_URL pointing at a PostgreSQL 16 + pgvector server."
         )
 
-    pgdata = paths.pg_data_dir()
     # User-private like the rest of app-data — this is the whole database.
-    pgdata.mkdir(mode=0o700, parents=True, exist_ok=True)
+    pgdata = paths.subdir("pgdata", create=True)
     print(f"[oc-desktop] Starting embedded PostgreSQL at {pgdata} …")
     server = pgserver.get_server(str(pgdata))
 

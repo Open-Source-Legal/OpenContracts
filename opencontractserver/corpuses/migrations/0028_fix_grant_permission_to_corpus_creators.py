@@ -87,7 +87,7 @@ def grant_permission_to_creators(apps, schema_editor):
             error_count += 1
             print(f"  Error for corpus {corpus.id}: {e}")
 
-    print(f"\nResults:")
+    print("\nResults:")
     print(f"  Granted new permissions: {granted_count}")
     print(f"  Already had permission: {already_had_count}")
     print(f"  Errors: {error_count}")
