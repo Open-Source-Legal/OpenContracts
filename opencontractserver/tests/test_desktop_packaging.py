@@ -153,10 +153,31 @@ class DesktopBootstrapTests(TestCase):
         self.assertTrue(user.has_usable_password())
         self.assertTrue(user.check_password("s3cret-pw-123"))
 
+    @staticmethod
+    def _no_tty():
+        """Force the non-interactive path (no password prompt) regardless of
+        how the test runner's stdin is wired."""
+        return mock.patch(
+            "opencontractserver.documents.management.commands."
+            "desktop_bootstrap.sys.stdin.isatty",
+            return_value=False,
+        )
+
+    @staticmethod
+    def _tty():
+        return mock.patch(
+            "opencontractserver.documents.management.commands."
+            "desktop_bootstrap.sys.stdin.isatty",
+            return_value=True,
+        )
+
     def test_seed_user_without_password_is_unusable(self):
         cmd, _out, _err = self._command()
-        # Empty OC_DESKTOP_PASSWORD → treated as unset → unusable password.
-        with mock.patch.dict(os.environ, {"OC_DESKTOP_PASSWORD": ""}, clear=False):
+        # Empty OC_DESKTOP_PASSWORD → treated as unset; no terminal → no prompt
+        # → unusable password.
+        with mock.patch.dict(
+            os.environ, {"OC_DESKTOP_PASSWORD": ""}, clear=False
+        ), self._no_tty():
             cmd._seed_user("bob", "bob@localhost")
         user = User.objects.get(username="bob")
         self.assertTrue(user.is_superuser)
@@ -164,10 +185,64 @@ class DesktopBootstrapTests(TestCase):
 
     def test_seed_user_is_idempotent(self):
         cmd, _out, _err = self._command()
-        with mock.patch.dict(os.environ, {"OC_DESKTOP_PASSWORD": ""}, clear=False):
+        with mock.patch.dict(
+            os.environ, {"OC_DESKTOP_PASSWORD": ""}, clear=False
+        ), self._no_tty():
             cmd._seed_user("carol", "carol@localhost")
             cmd._seed_user("carol", "carol@localhost")  # no duplicate / no error
         self.assertEqual(User.objects.filter(username="carol").count(), 1)
+
+    def test_seed_user_prompts_on_tty_and_enforces_min_length(self):
+        cmd, _out, _err = self._command()
+        # First attempt too short, then a valid pair — the prompt loops.
+        answers = iter(["short", "longenough-pw", "longenough-pw"])
+        with mock.patch.dict(
+            os.environ, {"OC_DESKTOP_PASSWORD": ""}, clear=False
+        ), self._tty(), mock.patch(
+            "opencontractserver.documents.management.commands."
+            "desktop_bootstrap.getpass.getpass",
+            side_effect=lambda *_a, **_k: next(answers),
+        ):
+            cmd._seed_user("erin", "erin@localhost")
+        user = User.objects.get(username="erin")
+        self.assertTrue(user.check_password("longenough-pw"))
+
+    def test_seed_user_self_heals_passwordless_account(self):
+        # A user left over from a headless first run (no usable password) gets
+        # one on the next run instead of being stuck.
+        cmd, _out, _err = self._command()
+        with mock.patch.dict(
+            os.environ, {"OC_DESKTOP_PASSWORD": ""}, clear=False
+        ), self._no_tty():
+            cmd._seed_user("frank", "frank@localhost")
+        self.assertFalse(User.objects.get(username="frank").has_usable_password())
+        with mock.patch.dict(
+            os.environ, {"OC_DESKTOP_PASSWORD": "recovered-pw-1"}, clear=False
+        ):
+            cmd._seed_user("frank", "frank@localhost")
+        user = User.objects.get(username="frank")
+        self.assertTrue(user.check_password("recovered-pw-1"))
+        self.assertEqual(User.objects.filter(username="frank").count(), 1)
+
+    def test_seed_user_with_usable_password_never_reprompts(self):
+        cmd, _out, _err = self._command()
+        with mock.patch.dict(
+            os.environ, {"OC_DESKTOP_PASSWORD": "stable-pw-123"}, clear=False
+        ):
+            cmd._seed_user("gina", "gina@localhost")
+        # Second run: env cleared, TTY present — but the account already has a
+        # usable password, so no prompt happens (getpass would explode).
+        with mock.patch.dict(
+            os.environ, {"OC_DESKTOP_PASSWORD": ""}, clear=False
+        ), self._tty(), mock.patch(
+            "opencontractserver.documents.management.commands."
+            "desktop_bootstrap.getpass.getpass",
+            side_effect=AssertionError("must not prompt"),
+        ):
+            cmd._seed_user("gina", "gina@localhost")
+        self.assertTrue(
+            User.objects.get(username="gina").check_password("stable-pw-123")
+        )
 
     def test_seed_pipeline_settings_creates_singleton(self):
         from opencontractserver.documents.models import PipelineSettings
@@ -206,7 +281,9 @@ class DesktopBootstrapTests(TestCase):
             "opencontractserver.documents.management.commands."
             "desktop_bootstrap.call_command",
             side_effect=RuntimeError("boom"),
-        ), mock.patch.dict(os.environ, {"OC_DESKTOP_PASSWORD": ""}, clear=False):
+        ), mock.patch.dict(
+            os.environ, {"OC_DESKTOP_PASSWORD": ""}, clear=False
+        ), self._no_tty():
             with self.assertRaises(CommandError):
                 cmd.handle(username="dave", email="dave@localhost", skip_nltk=True)
         # The idempotent user seed still happened despite the pipeline failure.
@@ -432,3 +509,47 @@ class SpaDistTests(SimpleTestCase):
 
         with mock.patch.object(spa_dist, "_release_asset_url", return_value=None):
             self.assertIsNone(spa_dist.download_spa("0.0.0"))
+
+
+class TrigramMigrationGuardTests(TestCase):
+    """annotations/0074 must skip (not crash) when pg_trgm is unavailable.
+
+    The embedded desktop Postgres (`pgserver`) bundles no contrib extensions;
+    an unconditional TrigramExtension() bricked every desktop install at
+    first migrate. Real deployments (like this test DB) have pg_trgm and get
+    the index as before.
+    """
+
+    @staticmethod
+    def _migration_module():
+        import importlib
+
+        return importlib.import_module(
+            "opencontractserver.annotations.migrations."
+            "0074_annotation_raw_text_trigram_index"
+        )
+
+    def test_pg_trgm_available_on_real_postgres(self):
+        from django.db import connection
+
+        mod = self._migration_module()
+        with connection.schema_editor() as schema_editor:
+            self.assertTrue(mod._pg_trgm_available(schema_editor))
+
+    def test_add_index_skips_without_pg_trgm(self):
+        mod = self._migration_module()
+        schema_editor = mock.Mock()
+        with mock.patch.object(mod, "_pg_trgm_available", return_value=False):
+            mod._add_trigram_index(None, schema_editor)
+        schema_editor.execute.assert_not_called()
+
+    def test_add_index_creates_extension_and_index_when_available(self):
+        mod = self._migration_module()
+        schema_editor = mock.Mock()
+        with mock.patch.object(mod, "_pg_trgm_available", return_value=True):
+            mod._add_trigram_index(None, schema_editor)
+        executed = " ".join(
+            call.args[0] for call in schema_editor.execute.call_args_list
+        )
+        self.assertIn("CREATE EXTENSION IF NOT EXISTS pg_trgm", executed)
+        self.assertIn("annotation_raw_text_trgm_gin", executed)

@@ -39,6 +39,14 @@ _children: list[subprocess.Popen] = []
 # Open log-file handles for the child processes, closed on shutdown.
 _log_handles: list = []
 
+# Stable default port so the app's URL survives restarts (bookmarks, the
+# "where did it go?" problem). Falls back to an OS-assigned ephemeral port
+# when something else already holds it.
+DEFAULT_PORT = 8406
+# Local login account seeded by desktop_bootstrap (its --username default);
+# surfaced in the startup banner so users never have to read source to log in.
+LOCAL_USERNAME = "desktop"
+
 
 _KEYRING_SERVICE = "OpenContracts-Desktop"
 # Hard timeout for the keyring resolution — a locked GNOME Keyring / KWallet can
@@ -157,7 +165,11 @@ def _ensure_dirs() -> None:
 
 
 def _free_port() -> int:
-    """Ask the OS for a free loopback TCP port (bind :0, read, release).
+    """Pick the stable ``DEFAULT_PORT`` when free, else an OS-assigned one.
+
+    A stable port keeps the app's URL identical across restarts (bookmarks
+    keep working); the ephemeral fallback keeps a second instance or a port
+    squatter from blocking launch.
 
     Note: there is a TOCTOU window between releasing the probe socket here and
     Daphne binding the port. The caller reserves the port immediately before
@@ -165,9 +177,14 @@ def _free_port() -> int:
     near-instant. On a single-user loopback app the residual risk of another
     process grabbing it is negligible; a bind-retry loop is a Phase-1 follow-up.
     """
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return int(sock.getsockname()[1])
+    for port in (DEFAULT_PORT, 0):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            try:
+                sock.bind(("127.0.0.1", port))
+            except OSError:
+                continue
+            return int(sock.getsockname()[1])
+    raise RuntimeError("No free loopback port available")  # pragma: no cover
 
 
 # ---------------------------------------------------------------------- postgres
@@ -229,6 +246,10 @@ def _first_run_bootstrap(env: dict[str, str]) -> None:
     if marker.exists():
         return
     print("[oc-desktop] First run: bootstrapping local user + pipeline settings …")
+    # The login password is handled inside ``desktop_bootstrap`` (which owns
+    # the DB): an explicit OC_DESKTOP_PASSWORD wins; otherwise the command
+    # prompts interactively on the inherited terminal — nobody should need to
+    # know what an env var is to log in.
     # Write the first-run marker ONLY on a clean bootstrap (rc == 0). The command
     # exits non-zero if pipeline seeding failed; leaving the marker unwritten lets
     # the next launch retry (every step is idempotent) instead of permanently
@@ -244,13 +265,30 @@ def _first_run_bootstrap(env: dict[str, str]) -> None:
 
 # --------------------------------------------------------------------------- SPA
 def _resolve_spa_dir(env: dict[str, str]) -> str:
-    """Locate the built SPA dist/ dir and export it for settings + WhiteNoise."""
+    """Locate (or acquire) the built SPA dist/ dir and export it for settings.
+
+    An explicit ``OC_DESKTOP_FRONTEND_DIR`` wins; otherwise ``spa_dist``
+    resolves it — repo ``frontend/dist``, a previously downloaded copy in
+    app-data, the GitHub release bundle, or a local yarn build — so end users
+    never need a Node toolchain.
+    """
     # Read from the threaded env (consistent with the rest of the launcher).
     spa = env.get("OC_DESKTOP_FRONTEND_DIR")
     if not spa:
-        candidate = Path(__file__).resolve().parents[2] / "frontend" / "dist"
-        if candidate.is_dir():
-            spa = str(candidate)
+        from opencontractserver import __version__
+        from opencontractserver.desktop import spa_dist
+
+        repo_root = Path(__file__).resolve().parents[2]
+        found = spa_dist.ensure_spa(repo_root, __version__)
+        if found:
+            spa = str(found)
+        else:
+            print(
+                "[oc-desktop] WARNING: no frontend bundle could be found, "
+                "downloaded, or built.\n             The API will run, but "
+                "the app UI will be unavailable. Check your internet\n"
+                "             connection and relaunch to retry the download."
+            )
     if spa:
         env["OC_DESKTOP_FRONTEND_DIR"] = spa
     return spa or ""
@@ -417,6 +455,15 @@ def main() -> None:
             "[oc-desktop] WARNING: server did not answer within 60s; opening the "
             "browser anyway — it may show a connection error until Daphne is up."
         )
+    print(
+        "\n"
+        "  ──────────────────────────────────────────────────────\n"
+        f"   OpenContracts is running:  {url}\n"
+        f"   Log in as user '{LOCAL_USERNAME}' with the password you chose\n"
+        "   on first run.\n"
+        "   To stop the app, press Ctrl+C in this window.\n"
+        "  ──────────────────────────────────────────────────────\n"
+    )
     with contextlib.suppress(Exception):
         webbrowser.open(url)
 

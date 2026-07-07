@@ -46,6 +46,7 @@ nav:
       - About: index.md
       - Philosophy: philosophy.md
       - Quick Start: quick_start.md
+      - Desktop (no Docker): deployment/desktop_packaging.md
       - System Requirements: requirements.md
       - Acknowledgements: acknowledgements.md
   - Releases:

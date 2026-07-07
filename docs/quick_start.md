@@ -6,6 +6,11 @@ This guide is for people who want to quickly get started using the application a
 it online for others to use. You'll get a default, local user with admin access. We recommend you change
 the user password after completing this tutorial.
 
+> **No Docker? There's a simpler path.** If you just want OpenContracts running
+> on your own computer, you can skip Docker entirely: install Python 3.10–3.12
+> and run `python oc-desktop.py` from the repository folder — one command sets
+> everything up. See [Desktop (no Docker)](deployment/desktop_packaging.md).
+
 ## Prerequisites
 
 Before starting, ensure you have:

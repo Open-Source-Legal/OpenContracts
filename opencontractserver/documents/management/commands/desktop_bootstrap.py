@@ -5,8 +5,12 @@ Idempotent. Run once after ``migrate`` on the desktop profile
 launcher invokes it automatically on first boot. It:
 
 1. Creates a single local superuser for the graphql_jwt / session login
-   (Auth0 is off on desktop) from the ``OC_DESKTOP_PASSWORD`` env var; no
-   secret is generated, printed, or written to disk.
+   (Auth0 is off on desktop). The password comes from the
+   ``OC_DESKTOP_PASSWORD`` env var when set, otherwise from an interactive
+   prompt on the attached terminal (the common end-user path); no secret is
+   generated, printed, or written to disk. A user left over from an earlier
+   run *without* a usable password gets one on the next run, so a failed or
+   password-less first boot is self-healing.
 2. Seeds the ``PipelineSettings`` singleton from the desktop Django settings —
    PDF → Warp-Ingest, embeddings → OpenAI-compatible endpoint — via
    ``migrate_pipeline_settings``. That row is written ONCE, so it must be seeded
@@ -17,8 +21,10 @@ launcher invokes it automatically on first boot. It:
 See ``docs/deployment/desktop_packaging.md``.
 """
 
+import getpass
 import logging
 import os
+import sys
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -28,6 +34,10 @@ from django.core.management.base import BaseCommand, CommandError
 from opencontractserver.desktop import paths
 
 logger = logging.getLogger(__name__)
+
+# The desktop profile skips Django's password validators (single-user, local
+# only), so enforce a floor here — this account is a superuser.
+MIN_PASSWORD_LENGTH = 8
 
 
 class Command(BaseCommand):
@@ -68,17 +78,70 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS("Desktop bootstrap complete."))
 
     # ------------------------------------------------------------------ user
+    def _resolve_password(self, username: str) -> str | None:
+        """The login password: ``OC_DESKTOP_PASSWORD`` wins, else prompt.
+
+        Prompting on the attached terminal is the default end-user path — no
+        env-var knowledge required. Returns None when the env var is unset and
+        no interactive terminal is available (CI, a windowed shell); the
+        password is never generated, stored on disk, or printed.
+        """
+        password = os.environ.get("OC_DESKTOP_PASSWORD")
+        if password:
+            return password
+        if not sys.stdin.isatty():
+            return None
+        self.stdout.write(
+            "\nChoose a password for your local OpenContracts login "
+            f"(you will sign in as user '{username}')."
+        )
+        while True:
+            password = getpass.getpass(
+                f"  Password (min {MIN_PASSWORD_LENGTH} characters): "
+            )
+            if len(password) < MIN_PASSWORD_LENGTH:
+                self.stdout.write(
+                    f"  Too short — use at least {MIN_PASSWORD_LENGTH} characters."
+                )
+                continue
+            if password != getpass.getpass("  Repeat password: "):
+                self.stdout.write("  Passwords did not match — try again.")
+                continue
+            return password
+
+    def _no_password_warning(self, username: str) -> str:
+        return (
+            f"Local superuser '{username}' has NO login password. Set "
+            "OC_DESKTOP_PASSWORD (or run from an interactive terminal) on the "
+            f"next launch, or run `python manage.py changepassword {username} "
+            "--settings=config.settings.desktop` to enable login."
+        )
+
     def _seed_user(self, username: str, email: str) -> None:
         User = get_user_model()
-        if User.objects.filter(username=username).exists():
-            self.stdout.write(f"Local user '{username}' already exists; skipping.")
+        existing = User.objects.filter(username=username).first()
+        if existing is not None:
+            if existing.has_usable_password():
+                self.stdout.write(f"Local user '{username}' already exists; skipping.")
+                return
+            # Self-heal a password-less account from an earlier run (e.g. a
+            # first boot with no env var and no terminal).
+            password = self._resolve_password(username)
+            if password:
+                existing.set_password(password)
+                existing.save(update_fields=["password"])
+                self.stdout.write(
+                    self.style.SUCCESS(
+                        f"Set a login password for local user '{username}'."
+                    )
+                )
+            else:
+                self.stdout.write(
+                    self.style.WARNING(self._no_password_warning(username))
+                )
             return
 
-        # The login password comes ONLY from the environment — never generated,
-        # stored on disk, or printed (avoids clear-text secret handling). When
-        # unset, the user is created with an unusable password and the operator
-        # sets one explicitly; the launcher passes OC_DESKTOP_PASSWORD through.
-        password = os.environ.get("OC_DESKTOP_PASSWORD") or None
+        password = self._resolve_password(username)
         # create_superuser(password=None) already stores an unusable password
         # (set_password(None) -> set_unusable_password), so no explicit reset.
         User.objects.create_superuser(username=username, email=email, password=password)
@@ -87,14 +150,7 @@ class Command(BaseCommand):
                 self.style.SUCCESS(f"Created local superuser '{username}'.")
             )
         else:
-            self.stdout.write(
-                self.style.WARNING(
-                    f"Created local superuser '{username}' with NO login "
-                    "password. Set OC_DESKTOP_PASSWORD before first run, or run "
-                    f"`python manage.py changepassword {username} "
-                    "--settings=config.settings.desktop` to enable login."
-                )
-            )
+            self.stdout.write(self.style.WARNING(self._no_password_warning(username)))
 
     # -------------------------------------------------------- pipeline settings
     def _seed_pipeline_settings(self) -> bool:

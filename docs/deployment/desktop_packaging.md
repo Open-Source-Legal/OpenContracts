@@ -67,28 +67,51 @@ desktop profile. The fix (a loop-safe transport, preferably Postgres
 `LISTEN/NOTIFY` since Postgres is already bundled) is the immediate follow-up;
 until then the desktop settings note it inline.
 
-## Running Phase 0
+## Running it — one command
 
 ```bash
-# 1. Build the SPA once (served by Daphne):
-cd frontend && yarn build && cd ..
-
-# 2. Install desktop extras (adds warp-ingest, pgserver, sqlalchemy):
-pip install -r requirements/desktop.txt
-
-# 3. Launch — starts Postgres, migrates, seeds a local user, runs Daphne +
-#    Celery worker/beat, opens the browser. No Docker, no Redis.
-#    Set OC_DESKTOP_PASSWORD to enable login (see below).
-OC_DESKTOP_PASSWORD=change-me python oc-desktop.py
+python oc-desktop.py        # Windows: py oc-desktop.py
 ```
 
+Requirements: **Python 3.10–3.12** (`pgserver` publishes no 3.13 wheels yet)
+and an internet connection for the first run. The first run, in order
+(`opencontractserver/desktop/bootstrap.py` → `launcher.py`):
+
+1. creates a private virtualenv under the per-user app-data dir and installs
+   `requirements/desktop.txt` into it (system Python untouched; re-installs
+   automatically when the requirement files change);
+2. acquires the built SPA (`opencontractserver/desktop/spa_dist.py`): repo
+   `frontend/dist` if present → previously downloaded copy → the
+   `opencontracts-frontend-dist.zip` asset from the GitHub release
+   (version-matched tag, then latest) → `yarn install && yarn build` if a Node
+   toolchain is present;
+3. starts the embedded PostgreSQL, migrates, and prompts you to **choose a
+   password** for the local `desktop` superuser (set `OC_DESKTOP_PASSWORD` to
+   skip the prompt in scripted/headless runs);
+4. seeds pipeline settings + nltk corpora, starts Daphne and the Celery
+   worker/beat, and opens the browser at `http://127.0.0.1:8406/` (falls back
+   to an ephemeral port if 8406 is taken).
+
+Log in as **`desktop`** with the password you chose. **Stop the app with
+Ctrl+C** in the launch terminal — every child (including Postgres) shuts down
+cleanly. Later launches skip setup and start in well under a minute.
+
 Everything is stored under a per-user app-data directory
-(`opencontractserver/desktop/paths.py`): `pgdata/`, `media/`, `staticfiles/`,
-`celery-broker/`, `nltk_data/`, and the first-run `.bootstrapped` marker. Point
-at an existing database instead of the embedded one by exporting `DATABASE_URL`
-before launch. (An external database must already have the `vector` extension
-available — the embedded `pgserver` path runs `CREATE EXTENSION IF NOT EXISTS
-vector` for you; the external path does not.)
+(`opencontractserver/desktop/paths.py`): `venv/`, `pgdata/`, `media/`,
+`staticfiles/`, `celery-broker/`, `nltk_data/`, `spa/`, and the first-run
+`.bootstrapped` marker — delete the directory to reset the app completely.
+Point at an existing database instead of the embedded one by exporting
+`DATABASE_URL` before launch. (An external database must already have the
+`vector` extension available — the embedded `pgserver` path runs `CREATE
+EXTENSION IF NOT EXISTS vector` for you; the external path does not.)
+
+> **pg_trgm.** The embedded `pgserver` binaries bundle only `plpgsql` and
+> `vector` — no contrib extensions. Migration
+> `annotations/0074_annotation_raw_text_trigram_index` therefore probes
+> `pg_available_extensions` and skips the trigram index when `pg_trgm` is
+> absent: annotation substring search still works on desktop, just unindexed
+> (fine at single-user scale; every compose/production deployment still gets
+> the index).
 
 **Secret handling:** the launcher resolves a stable `DJANGO_SECRET_KEY` from the
 **OS keyring** (macOS Keychain / Windows Credential Locker / Linux Secret
