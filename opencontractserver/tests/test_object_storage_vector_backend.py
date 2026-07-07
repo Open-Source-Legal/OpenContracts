@@ -723,6 +723,58 @@ class ObjectStorageBackendIntegrationTests(TestCase):
         )
         self.assertGreater(results[0].similarity_score, 0.99)
 
+    def test_worker_upload_direct_writes_fan_out(self):
+        """
+        The external-worker upload pipeline writes Embedding rows via
+        bulk_create/update_or_create — bypassing store_embedding — so its
+        explicit enqueue_embedding_index_sync calls are what keep those rows
+        from silently never reaching the object index (round 13).
+        """
+        from opencontractserver.annotations.models import Annotation
+        from opencontractserver.worker_uploads.tasks import (
+            _store_embeddings,
+            _store_single_embedding,
+        )
+
+        with self.object_backend_settings():
+            with self.captureOnCommitCallbacks(execute=True):
+                doc = Document.objects.create(title="Worker doc", creator=self.user)
+                anno = Annotation.objects.create(
+                    document=doc, creator=self.user, raw_text="worker annotation"
+                )
+                _store_single_embedding(
+                    vector=sparse_vector((0, 1.0)),
+                    embedder_path=EMBEDDER,
+                    document=doc,
+                    creator=self.user,
+                )
+                _store_embeddings(
+                    embeddings_data={
+                        "embedder_path": EMBEDDER,
+                        "annotation_embeddings": {"1": sparse_vector((1, 1.0))},
+                    },
+                    corpus_doc=doc,
+                    annot_id_map={"1": anno.pk},
+                    user=self.user,
+                )
+            engine = router.get_default_engine()
+            doc_hits = must(
+                engine.search(
+                    build_namespace("document", EMBEDDER, DIM),
+                    sparse_vector((0, 1.0)),
+                    1,
+                )
+            )
+            self.assertEqual(doc_hits[0][0], doc.pk)
+            anno_hits = must(
+                engine.search(
+                    build_namespace("annotation", EMBEDDER, DIM),
+                    sparse_vector((1, 1.0)),
+                    1,
+                )
+            )
+            self.assertEqual(anno_hits[0][0], anno.pk)
+
     def test_non_indexed_parent_kinds_do_not_fan_out(self):
         """
         Read/write symmetry (round 12): conversation embeddings' read path

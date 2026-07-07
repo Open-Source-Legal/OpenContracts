@@ -65,8 +65,9 @@ prior art covers this.)
 ## Architecture
 
 ```
-Embedding.objects.store_embedding()          ← single write chokepoint (all producers)
-        │  on_commit, only when enabled
+Embedding.objects.store_embedding()          ← write chokepoint (in-app pipeline)
+  + worker_uploads/tasks.py bulk writes      ← hooked explicitly (bulk_create
+        │  on_commit, only when enabled         bypasses the manager)
         ▼
 sync_embedding_to_object_index (Celery)      ← WAL append, fire-and-forget
         │                                       auto-compaction at WAL threshold

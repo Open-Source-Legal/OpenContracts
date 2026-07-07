@@ -50,6 +50,7 @@ from opencontractserver.utils.importing import (
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 from opencontractserver.utils.structural_sets import create_structural_annotation_set
 from opencontractserver.utils.subtree_groups import build_subtree_groups_for_document
+from opencontractserver.vector_search.hooks import enqueue_embedding_index_sync
 from opencontractserver.worker_uploads.models import (
     UploadStatus,
     WorkerDocumentUpload,
@@ -529,10 +530,16 @@ def _store_embeddings(
             creator_id=user.id,
         )
         setattr(emb, field_name, vector)
-        embeddings_to_create.append(emb)
+        embeddings_to_create.append((emb, len(vector)))
 
     if embeddings_to_create:
-        Embedding.objects.bulk_create(embeddings_to_create)
+        Embedding.objects.bulk_create([emb for emb, _dim in embeddings_to_create])
+        # bulk_create bypasses EmbeddingManager.store_embedding, so the
+        # object-storage index fan-out must be invoked explicitly here (it is
+        # a no-op unless VECTOR_SEARCH_BACKEND=object_storage). Any new code
+        # path that writes Embedding rows directly must do the same.
+        for emb, dimension in embeddings_to_create:
+            enqueue_embedding_index_sync(emb, dimension)
         logger.info(
             f"Stored {len(embeddings_to_create)} annotation embeddings "
             f"(embedder={embedder_path})"
@@ -563,6 +570,10 @@ def _store_single_embedding(
         annotation=annotation,
         defaults=defaults,
     )
+    # update_or_create bypasses EmbeddingManager.store_embedding, so invoke
+    # the object-storage index fan-out explicitly (no-op unless
+    # VECTOR_SEARCH_BACKEND=object_storage).
+    enqueue_embedding_index_sync(emb, len(vector))
     return emb
 
 

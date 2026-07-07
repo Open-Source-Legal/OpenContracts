@@ -2,9 +2,15 @@
 Write-path fan-out: mirror every stored embedding into the object-storage
 index when the backend is enabled.
 
-``Embedding.objects.store_embedding`` is the single chokepoint through which
-ALL embedding writes flow (Celery embedding tasks, ``HasEmbeddingMixin
-.add_embedding``, backfill commands), so hooking here covers every producer.
+``Embedding.objects.store_embedding`` is the chokepoint through which the
+in-app embedding pipeline flows (Celery embedding tasks,
+``HasEmbeddingMixin.add_embedding``, backfill commands). ONE producer
+bypasses it for performance — ``opencontractserver/worker_uploads/tasks.py``
+writes rows via ``bulk_create``/``update_or_create`` and calls
+``enqueue_embedding_index_sync`` explicitly. Any new code path that writes
+``Embedding`` rows directly must do the same, or its rows silently never
+reach the object index (Postgres stays correct; only the index goes stale
+until the next ``rebuild_object_vector_index``).
 
 The sync is queued on transaction commit so the Celery task can always load
 the committed ``Embedding`` row, and it is fire-and-forget: an object-index
