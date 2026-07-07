@@ -92,16 +92,28 @@ list[Model instance] with .similarity_score  ← identical contract to pgvector
 - **Namespace** = `(parent kind, embedder_path, dimension)` — mirroring the
   filters the pgvector path applies (`embedder_path` + `vector_<dim>`
   column). See `router.build_namespace`.
-- **Consistency**: reads always list the WAL tail and overlay it on segment
-  results (newest upsert/tombstone per id wins), so a write is searchable the
-  moment its WAL PUT returns — same "strongly consistent by default" contract
-  turbopuffer advertises. The manifest GET per query is the equivalent of
-  their consistency roundtrip.
+- **Consistency**: reads list the WAL tail **before** reading the manifest —
+  this ordering is load-bearing. Compaction commits the new manifest strictly
+  before GC'ing folded WAL files, so a WAL-first reader sees either the
+  folded files (served from the overlay) or a manifest that already includes
+  them; a manifest-first reader could pair an old manifest with an
+  already-GC'd tail and silently drop writes. The manifest records the WAL
+  files folded into its generation (`folded_wals`); readers skip those when
+  building the overlay so lingering folded files are never replayed over
+  newer segment state. Net effect: a write is searchable the moment its WAL
+  PUT returns (the same "strongly consistent by default" contract turbopuffer
+  advertises), with the manifest GET per query as the consistency roundtrip.
 - **Compaction** folds segments + WAL into generation N+1; the manifest PUT
-  is the atomic commit point; folded WAL files and the old generation are
-  garbage-collected best-effort afterwards (orphans are harmless: upserts are
-  idempotent and replay order is preserved by time-ordered WAL names).
-  A Django-cache lock serialises compactors per namespace.
+  is the atomic commit point. GC is **deferred by one compaction cycle**:
+  committing generation N+1 deletes the WAL files and segment blobs that
+  generation *N* superseded, never its own — so in-flight readers holding
+  manifest N can still fetch every blob it references instead of hitting
+  `ObjectNotFound` and falling back to pgvector mid-race. Deletion failures
+  are harmless (readers skip folded files via `folded_wals`; dead-generation
+  segment blobs are never referenced again). A Django-cache lock serialises
+  compactors per namespace — which requires a **shared cache backend**
+  (e.g. Redis) in multi-worker deployments; system check `opencontracts.W003`
+  warns when the backend is enabled over `LocMemCache`.
 - **Caching**: centroid and cluster blobs are immutable per generation and
   held in a per-process LRU (`OBJECT_INDEX_CACHE_MAX_ENTRIES`), giving the
   warm-query tier. Cold queries pay object-storage GETs, exactly as designed.
@@ -167,9 +179,26 @@ Parameters*.
   structure; real embedding corpora have it, uniform random data does not
   (recall test in the suite uses clustered fixtures for this reason). Raise
   `OBJECT_INDEX_NPROBE_RATIO` / `OBJECT_INDEX_NPROBE_MIN` for higher recall.
+- **Write visibility lags the Postgres commit.** The WAL PUT happens in a
+  Celery task dispatched on transaction commit, not synchronously inside
+  `store_embedding` — so "searchable the moment the WAL PUT returns" is
+  measured from the task's PUT, and there is a queue-depth-dependent window
+  after the Postgres write during which an already-indexed namespace won't
+  return the new vector. (pgvector fallback still covers *never-indexed*
+  namespaces, not this per-row lag.) turbopuffer's client-synchronous write
+  ack does not have this window.
+- **WAL ordering across workers uses wall-clock names** (`time.time_ns()`),
+  so last-writer-wins between two re-embeds of the same parent on different
+  Celery workers is subject to clock skew. Low impact in practice —
+  embeddings are regenerated infrequently and deterministically per
+  `(parent, embedder)` — and any skew is healed by the next rebuild.
 - **No group commit.** Every `store_embedding` is one WAL PUT (batch
   producers already batch upstream). turbopuffer batches concurrent writers
   per namespace; we could buffer through Redis if PUT volume matters.
+- **Sequential WAL-tail GETs.** A query fetches unfolded WAL files one at a
+  time (tail is bounded by `OBJECT_INDEX_COMPACT_MIN_WAL_FILES`); fetching
+  them concurrently would cut cold/tail latency if p50 matters before
+  compaction catches up.
 - **Deletes are lazy.** Parent deletions are not tombstoned automatically;
   stale ids are dropped by the ORM refilter at query time and purged on the
   next `rebuild_object_vector_index`/compaction cycle.

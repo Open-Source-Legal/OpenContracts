@@ -14,7 +14,7 @@ Wired in by ``opencontractserver.users.apps.UsersConfig.ready`` (the same
 
 from typing import Any
 
-from django.core.checks import Error, register
+from django.core.checks import Error, Warning, register
 
 
 @register("architecture")
@@ -78,6 +78,46 @@ def check_vector_search_backend(app_configs: Any, **kwargs: Any) -> list[Error]:
                 f"search backend.",
                 hint=f"Valid values: {sorted(VALID_VECTOR_SEARCH_BACKENDS)}.",
                 id="opencontracts.E002",
+            )
+        ]
+    return []
+
+
+@register("settings")
+def check_vector_search_cache(app_configs: Any, **kwargs: Any) -> list[Warning]:
+    """Warn when the object-storage backend runs on a process-local cache.
+
+    The per-namespace compaction mutex (``compact_object_vector_namespace``)
+    is a ``cache.add`` lock, so it only serialises compactors if all Celery
+    workers share one cache backend. ``LocMemCache`` is per-process: with it,
+    two workers can compact the same namespace concurrently and clobber each
+    other's manifest (last-writer-wins), losing one compaction's fold.
+    Warning (``opencontracts.W003``), not Error, because single-process
+    deployments (and eager-Celery test runs) are perfectly safe.
+    """
+    from django.conf import settings
+
+    from opencontractserver.constants.search import (
+        VECTOR_SEARCH_BACKEND_OBJECT_STORAGE,
+    )
+
+    if (
+        getattr(settings, "VECTOR_SEARCH_BACKEND", None)
+        != VECTOR_SEARCH_BACKEND_OBJECT_STORAGE
+    ):
+        return []
+    default_cache = settings.CACHES.get("default", {}).get("BACKEND", "")
+    if "locmem" in default_cache.lower() or "dummy" in default_cache.lower():
+        return [
+            Warning(
+                "VECTOR_SEARCH_BACKEND=object_storage with a process-local "
+                f"default cache ({default_cache}): the compaction lock cannot "
+                "serialise compactors across worker processes.",
+                hint=(
+                    "Use a shared cache backend (e.g. django_redis) in any "
+                    "multi-worker deployment, or compactions may race."
+                ),
+                id="opencontracts.W003",
             )
         ]
     return []

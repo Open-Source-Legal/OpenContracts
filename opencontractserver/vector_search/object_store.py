@@ -62,11 +62,16 @@ class DjangoStorageObjectStore:
         if saved_as != name:
             # A concurrent writer raced us between delete() and save() and the
             # backend uniquified our name. Last-writer-wins for mutable keys:
-            # replace the existing blob with ours.
+            # replace the existing blob with ours. If yet another racer
+            # deletes our uniquified blob mid-recovery, fall back to writing
+            # the payload we still hold — same last-writer-wins outcome.
             self._storage.delete(name)
-            with self._storage.open(saved_as, "rb") as fh:
-                payload = fh.read()
-            self._storage.delete(saved_as)
+            try:
+                with self._storage.open(saved_as, "rb") as fh:
+                    payload = fh.read()
+                self._storage.delete(saved_as)
+            except FileNotFoundError:
+                payload = data
             self._storage.save(name, ContentFile(payload))
 
     def get_bytes(self, key: str) -> bytes:

@@ -16,15 +16,17 @@ Design (see ``docs/architecture/object_storage_vector_search.md``):
 
 - **Writes** append a WAL file (one PUT, durable on return). Vectors are
   unit-normalised so cosine similarity is a dot product.
-- **Reads** are strongly consistent: load the manifest (one roundtrip), probe
-  the ``nprobe`` nearest centroid clusters, then exhaustively scan the WAL
-  tail (files not yet folded into segments) as an overlay — newest write or
-  tombstone for an id wins over any segment entry.
+- **Reads** are strongly consistent: list the WAL, then load the manifest
+  (WAL-first ordering is load-bearing — see ``search()``), probe the
+  ``nprobe`` nearest centroid clusters, then exhaustively scan the WAL tail
+  (files not folded into the manifest's generation) as an overlay — newest
+  write or tombstone for an id wins over any segment entry.
 - **Compaction** folds segments + WAL into a new generation: k-means clusters
   the vectors, writes new segment blobs, atomically swaps the manifest (single
-  PUT, last-writer-wins), then deletes the folded WAL files and the previous
-  generation's blobs. Callers must serialise compaction per namespace (the
-  Celery task uses a cache lock).
+  PUT, last-writer-wins). GC is deferred one cycle: committing generation
+  N+1 deletes only what generation N superseded, so readers holding manifest
+  N can still fetch everything it references. Callers must serialise
+  compaction per namespace (the Celery task uses a cache lock).
 
 The engine is deliberately framework-free: it depends only on numpy and the
 blob-store primitives in ``object_store.py``, so it is unit-testable without
@@ -197,7 +199,16 @@ class ObjectStorageVectorEngine:
         )
 
     def wal_tail_count(self, namespace: str) -> int:
-        return len(self._list_wal(namespace))
+        """
+        Number of WAL files NOT yet folded into the current generation.
+        Folded-but-not-yet-GC'd files (GC is deferred one compaction cycle)
+        don't count — they'd otherwise re-trigger auto-compaction forever.
+        """
+        wal_names = self._list_wal(namespace)
+        if not wal_names:
+            return 0
+        folded = self._folded_wals(self._load_manifest(namespace))
+        return len([name for name in wal_names if name not in folded])
 
     def search(
         self, namespace: str, query_vector: list[float], top_k: int
@@ -210,13 +221,25 @@ class ObjectStorageVectorEngine:
         Strong consistency: WAL entries not yet folded into segments are
         scanned exhaustively and override segment data per id.
         """
-        manifest = self._load_manifest(namespace)
+        # ORDERING MATTERS: list the WAL BEFORE reading the manifest.
+        # Compaction commits the new manifest strictly before GC'ing the WAL
+        # files it folded, so a reader that lists the WAL first sees either
+        # (a) the folded files still present (their data is served from the
+        # overlay, and the manifest's folded_wals list prevents replaying
+        # them over the newer segments), or (b) the files already gone, in
+        # which case the manifest it reads next must already include the
+        # generation that folded them. Reading manifest-first would open a
+        # window where an old manifest is paired with an already-GC'd WAL
+        # tail — silently dropping those writes.
         wal_names = self._list_wal(namespace)
+        manifest = self._load_manifest(namespace)
         if manifest is None and not wal_names:
             return None
 
         query = _normalize(np.asarray(query_vector, dtype=np.float32))
-        overlay = self._load_wal_overlay(namespace, wal_names)
+        overlay = self._load_wal_overlay(
+            namespace, wal_names, exclude=self._folded_wals(manifest)
+        )
 
         scored: dict[int, float] = {}
         if manifest is not None and manifest["cluster_count"] > 0:
@@ -256,10 +279,16 @@ class ObjectStorageVectorEngine:
         are safe — WAL files that appear after the listing below simply stay
         in the tail for the next compaction.
         """
-        manifest = self._load_manifest(namespace)
         wal_names = self._list_wal(namespace)
+        manifest = self._load_manifest(namespace)
         if manifest is None and not wal_names:
             return {"namespace": namespace, "skipped": True, "reason": "empty"}
+
+        # WAL files already folded into the current generation but whose GC
+        # failed must NOT be replayed: their entries are older than the
+        # segment state and would roll ids back (or resurrect tombstoned
+        # ones). They are re-listed in the new manifest and re-GC'd below.
+        folded_prior = self._folded_wals(manifest)
 
         # Materialise current state: segments first, then WAL overlay in order.
         state: dict[int, np.ndarray] = {}
@@ -270,7 +299,7 @@ class ObjectStorageVectorEngine:
                 ids, vectors = self._load_cluster(namespace, generation, cluster_idx)
                 for pos, doc_id in enumerate(ids.tolist()):
                     state[doc_id] = vectors[pos]
-        overlay = self._load_wal_overlay(namespace, wal_names)
+        overlay = self._load_wal_overlay(namespace, wal_names, exclude=folded_prior)
         for doc_id, vector in overlay.items():
             if vector is None:
                 state.pop(doc_id, None)
@@ -315,6 +344,21 @@ class ObjectStorageVectorEngine:
             "dimension": dimension,
             "count": count,
             "cluster_count": cluster_count,
+            # Every WAL file whose data is reflected in this generation.
+            # Readers skip these when building the overlay so their stale
+            # entries are never replayed over newer segment state (and racing
+            # readers that listed the WAL just before this commit don't
+            # double-apply them).
+            "folded_wals": wal_names,
+            # Segment blobs superseded by this commit; GC'd one cycle later.
+            "prior_generation": (
+                {
+                    "generation": manifest["generation"],
+                    "cluster_count": manifest["cluster_count"],
+                }
+                if manifest is not None
+                else None
+            ),
         }
         # Single PUT = the atomic commit point of the new generation.
         self.store.put_bytes(
@@ -322,14 +366,22 @@ class ObjectStorageVectorEngine:
             json.dumps(new_manifest).encode("utf-8"),
         )
 
-        # Best-effort garbage collection: folded WAL files + old generation.
-        # Failures leave harmless duplicates (upserts are idempotent; see doc).
-        for name in wal_names:
+        # DEFERRED garbage collection: delete only what the *previous*
+        # manifest superseded (its folded WAL files and its prior
+        # generation's segment blobs), not what this commit just superseded.
+        # In-flight readers holding the previous manifest can therefore still
+        # fetch every blob it references — one full compaction cycle of grace
+        # — instead of hitting ObjectNotFound and burning a pgvector fallback
+        # per racing query. Deletion failures are harmless: folded WAL files
+        # are skipped by readers via folded_wals, and orphaned segment blobs
+        # of dead generations are never referenced again.
+        for name in folded_prior:
             self.store.delete(f"{self._wal_dir(namespace)}/{name}")
-        if manifest is not None:
-            old_prefix = self._segment_prefix(namespace, manifest["generation"])
+        prior_generation = manifest.get("prior_generation") if manifest else None
+        if prior_generation:
+            old_prefix = self._segment_prefix(namespace, prior_generation["generation"])
             self.store.delete(f"{old_prefix}/centroids.npy")
-            for cluster_idx in range(manifest["cluster_count"]):
+            for cluster_idx in range(prior_generation["cluster_count"]):
                 self.store.delete(f"{old_prefix}/cluster_{cluster_idx:05d}.npz")
 
         return {
@@ -337,7 +389,9 @@ class ObjectStorageVectorEngine:
             "generation": new_generation,
             "count": count,
             "cluster_count": cluster_count,
-            "folded_wal_files": len(wal_names),
+            "folded_wal_files": len(
+                [name for name in wal_names if name not in folded_prior]
+            ),
         }
 
     # ---------------------------------------------------------------- loaders
@@ -351,15 +405,29 @@ class ObjectStorageVectorEngine:
             return None
         return json.loads(raw)
 
+    @staticmethod
+    def _folded_wals(manifest: dict | None) -> set[str]:
+        """WAL file names already folded into the manifest's generation."""
+        if manifest is None:
+            return set()
+        return set(manifest.get("folded_wals", []))
+
     def _load_wal_overlay(
-        self, namespace: str, wal_names: list[str]
+        self,
+        namespace: str,
+        wal_names: list[str],
+        exclude: set[str] | None = None,
     ) -> dict[int, np.ndarray | None]:
         """
         Replay WAL files in name (= time) order into ``id -> unit vector`` with
-        ``None`` marking tombstones. Later entries win.
+        ``None`` marking tombstones. Later entries win. Files in ``exclude``
+        (already folded into the current generation) are skipped — replaying
+        them would apply stale entries over newer segment state.
         """
         overlay: dict[int, np.ndarray | None] = {}
         for name in wal_names:
+            if exclude and name in exclude:
+                continue
             try:
                 raw = self.store.get_bytes(f"{self._wal_dir(namespace)}/{name}")
             except ObjectNotFound:

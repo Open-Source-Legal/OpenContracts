@@ -192,6 +192,124 @@ class ObjectStorageVectorEngineTests(SimpleTestCase):
         ns_b = build_namespace("annotation", "acme/embedder v1", DIM)
         self.assertNotEqual(ns_a, ns_b)
 
+    def test_search_survives_compaction_between_wal_list_and_manifest_read(self):
+        """
+        Regression for the manifest/WAL read-order race: compaction commits
+        the manifest before GC'ing folded WAL files, so ``search()`` must
+        list the WAL BEFORE reading the manifest. We interleave two full
+        compaction cycles between those two reads (the second cycle GC's the
+        files the first one folded) — with manifest-first ordering the data
+        written before the query would silently vanish from the results.
+        """
+        vectors = clustered_vectors(2, 10)
+        self.engine.upsert(
+            NAMESPACE, [(i, vectors[i].tolist()) for i in range(len(vectors))]
+        )
+        compactor = ObjectStorageVectorEngine(self.store, min_vectors_for_ann=50)
+        real_list_wal = self.engine._list_wal
+
+        def list_then_compact_twice(namespace):
+            compactor.compact(namespace)  # folds the WAL (GC deferred)
+            compactor.compact(namespace)  # GC's the files folded above
+            return real_list_wal(namespace)
+
+        with mock.patch.object(
+            self.engine, "_list_wal", side_effect=list_then_compact_twice
+        ):
+            hits = must(self.engine.search(NAMESPACE, vectors[3].tolist(), 3))
+        self.assertEqual(hits[0][0], 3)
+        self.assertAlmostEqual(hits[0][1], 1.0, places=3)
+
+    def test_partial_gc_failure_cannot_resurrect_tombstoned_ids(self):
+        """
+        A folded WAL file whose (deferred) GC fails must never be replayed:
+        here the lingering file holds an upsert whose id was tombstoned in a
+        file that WAS GC'd — replaying the survivor would resurrect the id.
+        """
+        wal_upsert = self.engine.upsert(NAMESPACE, [(1, sparse_vector((0, 1.0)))])
+        self.engine.upsert(NAMESPACE, [(2, sparse_vector((1, 1.0)))])
+        self.engine.delete(NAMESPACE, [1])
+        self.engine.compact(NAMESPACE)  # gen1: id 1 dead; GC deferred
+        real_delete = self.store.delete
+        with mock.patch.object(
+            self.store,
+            "delete",
+            side_effect=lambda key: (
+                None if key.endswith(wal_upsert) else real_delete(key)
+            ),
+        ):
+            # gen2's deferred GC deletes gen1's folded files — except the
+            # upsert of id 1, whose deletion "fails" and lingers.
+            self.engine.compact(NAMESPACE)
+        hits = must(self.engine.search(NAMESPACE, sparse_vector((0, 1.0)), 5))
+        self.assertEqual([h[0] for h in hits], [2])
+
+    def test_wal_tail_count_ignores_folded_lingering_files(self):
+        self.engine.upsert(NAMESPACE, [(1, sparse_vector((0, 1.0)))])
+        self.engine.upsert(NAMESPACE, [(2, sparse_vector((1, 1.0)))])
+        self.assertEqual(self.engine.wal_tail_count(NAMESPACE), 2)
+        self.engine.compact(NAMESPACE)
+        # GC is deferred: the two folded files still exist in storage, but
+        # they no longer count toward the tail (else auto-compaction would
+        # re-trigger forever).
+        self.assertEqual(len(self.store.list_keys(f"{NAMESPACE}/wal")), 2)
+        self.assertEqual(self.engine.wal_tail_count(NAMESPACE), 0)
+        self.engine.upsert(NAMESPACE, [(3, sparse_vector((2, 1.0)))])
+        self.assertEqual(self.engine.wal_tail_count(NAMESPACE), 1)
+
+    def test_deferred_gc_reclaims_prior_cycle(self):
+        self.engine.upsert(NAMESPACE, [(1, sparse_vector((0, 1.0)))])
+        self.engine.compact(NAMESPACE)  # gen1: folded WAL + no prior gen yet
+        self.engine.upsert(NAMESPACE, [(2, sparse_vector((1, 1.0)))])
+        self.engine.compact(NAMESPACE)  # gen2: GC's gen1's folded WAL
+        self.engine.compact(NAMESPACE)  # gen3: GC's gen1 segments, gen2 WAL
+        wal_files = self.store.list_keys(f"{NAMESPACE}/wal")
+        self.assertEqual(wal_files, [])
+        # gen1 segment blobs are gone; gen2 blobs (prior generation, one
+        # cycle of grace) and gen3 blobs remain.
+        self.assertFalse(
+            self.store.exists(f"{NAMESPACE}/index/segments/000001/centroids.npy")
+        )
+        self.assertTrue(
+            self.store.exists(f"{NAMESPACE}/index/segments/000002/centroids.npy")
+        )
+        self.assertTrue(
+            self.store.exists(f"{NAMESPACE}/index/segments/000003/centroids.npy")
+        )
+        hits = must(self.engine.search(NAMESPACE, sparse_vector((0, 1.0)), 5))
+        self.assertEqual([h[0] for h in hits], [1, 2])
+
+
+class VectorSearchSystemCheckTests(SimpleTestCase):
+    """The opencontracts.E002/W003 settings checks."""
+
+    def test_invalid_backend_value_raises_e002(self):
+        from opencontractserver.shared.checks import check_vector_search_backend
+
+        with override_settings(VECTOR_SEARCH_BACKEND="bogus"):
+            issues = check_vector_search_backend(None)
+        self.assertEqual([issue.id for issue in issues], ["opencontracts.E002"])
+
+    def test_valid_backend_values_pass_e002(self):
+        from opencontractserver.shared.checks import check_vector_search_backend
+
+        for value in ("pgvector", "object_storage"):
+            with override_settings(VECTOR_SEARCH_BACKEND=value):
+                self.assertEqual(check_vector_search_backend(None), [])
+
+    def test_locmem_cache_with_object_backend_warns_w003(self):
+        from opencontractserver.shared.checks import check_vector_search_cache
+
+        locmem = {
+            "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
+        }
+        with override_settings(VECTOR_SEARCH_BACKEND="object_storage", CACHES=locmem):
+            issues = check_vector_search_cache(None)
+            self.assertEqual([issue.id for issue in issues], ["opencontracts.W003"])
+        # pgvector (default) never warns, whatever the cache backend.
+        with override_settings(VECTOR_SEARCH_BACKEND="pgvector", CACHES=locmem):
+            self.assertEqual(check_vector_search_cache(None), [])
+
 
 class ObjectStorageBackendIntegrationTests(TestCase):
     """The toggle, write-path fan-out, scoping, fallback, and rebuild."""

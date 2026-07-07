@@ -61,6 +61,10 @@ def get_default_engine() -> ObjectStorageVectorEngine:
     Process-wide engine over the default Django storage (lazy proxy, so test
     ``override_settings(STORAGES=...)`` is honoured). Shared so that the
     artifact LRU cache survives across requests.
+
+    Deliberately unlocked lazy init: a racing double-construction just makes
+    one engine's (empty) LRU cache unreachable — the engine holds no other
+    state. Revisit if the engine ever grows stateful fields.
     """
     global _default_engine
     if _default_engine is None:
