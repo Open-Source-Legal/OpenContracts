@@ -53,6 +53,12 @@ SEC_RULE_PREFIX = "sec-rule"
 # prefix another origin owns (see ``AuthorityMappingLoader.load_namespaces``).
 BASELINE_ORIGIN_CORE = "core"
 
+# Column width of ``AuthorityNamespace.baseline_origin`` (migration 0101). A
+# pack's manifest ``name`` becomes the stamp verbatim, so ``load_authority_pack``
+# fail-fasts a longer name up-front rather than surfacing a DB DataError
+# mid-load.
+BASELINE_ORIGIN_MAX_LENGTH = 64
+
 # Document-level relationship type for graph rollups — must match
 # DocumentRelationship.RELATIONSHIP_TYPE_CHOICES.
 DOC_REL_RELATIONSHIP = "RELATIONSHIP"

@@ -384,6 +384,20 @@ class LoadAuthorityPackEdgeCaseTests(TestCase):
             self._run()
         self.assertFalse(AuthorityNamespace.objects.filter(jurisdiction="bo").exists())
 
+    def test_over_length_pack_name_rejected(self):
+        # The manifest name becomes the baseline_origin stamp verbatim; longer
+        # than the column allows must fail fast, not as a DataError mid-load.
+        from opencontractserver.enrichment.constants import (
+            BASELINE_ORIGIN_MAX_LENGTH,
+        )
+
+        self._write_pack(
+            {"name": "x" * (BASELINE_ORIGIN_MAX_LENGTH + 1), "mappings": "m.yaml"},
+            copy_mappings=True,
+        )
+        with self.assertRaisesMessage(CommandError, "exceeds"):
+            self._run()
+
     def test_corpora_null_rejected(self):
         self._write("pack.yaml", "name: p\ncorpora:\n")
         with self.assertRaises(CommandError):

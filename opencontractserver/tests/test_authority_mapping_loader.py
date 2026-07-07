@@ -466,6 +466,43 @@ class LoadInstalledTests(TestCase):
         assert "error" in results["badpack"]
         assert not AuthorityNamespace.objects.filter(prefix="test-atomic").exists()
 
+    def test_load_installed_isolates_a_db_level_failure(self):
+        # An over-length pack name only fails at the DB layer (DataError writing
+        # baseline_origin) — not a ValueError/YAMLError. The per-pack isolation
+        # must still contain it: load_all's transaction rolls the pack back, the
+        # error is reported under its origin, and the core baseline survives.
+        import tempfile as _tempfile
+        from pathlib import Path as _Path
+        from unittest import mock
+
+        from opencontractserver.enrichment.constants import (
+            BASELINE_ORIGIN_MAX_LENGTH,
+        )
+        from opencontractserver.enrichment.services import authority_pack_config as apc
+
+        long_name = "x" * (BASELINE_ORIGIN_MAX_LENGTH + 1)
+        with _tempfile.TemporaryDirectory() as tmp:
+            pack = _Path(tmp) / "longname"
+            pack.mkdir()
+            (pack / "pack.yaml").write_text(
+                f"name: {long_name}\nmappings: m.yaml\n", encoding="utf-8"
+            )
+            (pack / "m.yaml").write_text(
+                "prefixes:\n"
+                "  test-longname:\n"
+                '    display_name: "Long"\n'
+                '    jurisdiction: "aa"\n'
+                '    authority_type: "statute"\n'
+                '    aliases: ["long name body"]\n',
+                encoding="utf-8",
+            )
+            with mock.patch.object(apc, "authority_pack_dirs", return_value=[pack]):
+                results = AuthorityMappingLoader.load_installed()
+
+        assert "error" in results[long_name]
+        assert not AuthorityNamespace.objects.filter(prefix="test-longname").exists()
+        assert AuthorityNamespace.objects.filter(prefix="exchange-act").exists()
+
     def test_load_installed_reports_an_unparsable_manifest(self):
         # A pack whose pack.yaml ITSELF cannot be parsed never yields a mappings
         # file — it must still appear in the report as an error (keyed by its

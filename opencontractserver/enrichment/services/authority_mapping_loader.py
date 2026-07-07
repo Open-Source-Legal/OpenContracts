@@ -24,7 +24,6 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-import yaml
 from django.db import transaction
 
 from opencontractserver.annotations.models import AuthorityNamespace
@@ -286,21 +285,25 @@ class AuthorityMappingLoader:
                 )
             try:
                 results[origin] = cls.load_all(path=mappings_path, origin=origin)
-            except (ValueError, OSError, yaml.YAMLError) as exc:
-                # Per-pack fault isolation, mirroring authority_pack_config's
-                # runtime scans: one malformed pack YAML must not abort the
-                # converge run for every other installed pack. ValueError is the
-                # reader's schema failure; yaml.YAMLError is a genuine parse
-                # failure (NOT a ValueError subclass); OSError an unreadable
-                # file. (A DIRECT ``load_all(path=...)`` on the same file still
-                # raises — the fail-fast path ``load_authority_pack`` relies on.)
+            except Exception as exc:
+                # Per-pack fault isolation, mirroring the registry's in-pack
+                # provider import: one broken pack must not abort the converge
+                # run for every other installed pack. Deliberately broad — a
+                # schema ValueError, a yaml.YAMLError parse failure (NOT a
+                # ValueError subclass), an unreadable file, or a DB-level
+                # DataError (e.g. an over-length name/prefix) all mean the same
+                # thing here: this pack didn't load (load_all's transaction
+                # rolled its writes back), report it and continue. (A DIRECT
+                # ``load_all(path=...)`` on the same file still raises — the
+                # fail-fast path ``load_authority_pack`` relies on.)
                 logger.error(
-                    "Skipping authority pack %r mappings (%s): %s",
+                    "Skipping authority pack %r mappings (%s): %s: %s",
                     origin,
                     mappings_path,
+                    type(exc).__name__,
                     exc,
                 )
-                results[origin] = {"error": str(exc)}
+                results[origin] = {"error": f"{type(exc).__name__}: {exc}"}
         # A pack whose pack.yaml itself failed to parse never reaches the loop
         # above; surface it in the report (keyed by directory name — the
         # manifest name is unreadable) instead of leaving it log-only.

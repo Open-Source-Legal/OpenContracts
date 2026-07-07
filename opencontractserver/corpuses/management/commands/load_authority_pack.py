@@ -49,7 +49,10 @@ from opencontractserver.enrichment.authorities import (
     bootstrap_authority_corpus,
     read_section_spec,
 )
-from opencontractserver.enrichment.constants import BASELINE_ORIGIN_CORE
+from opencontractserver.enrichment.constants import (
+    BASELINE_ORIGIN_CORE,
+    BASELINE_ORIGIN_MAX_LENGTH,
+)
 from opencontractserver.enrichment.services.authority_mapping_loader import (
     AuthorityMappingLoader,
 )
@@ -125,6 +128,14 @@ class Command(BaseCommand):
                 f"Pack name {BASELINE_ORIGIN_CORE!r} is reserved for the shipped "
                 "core baseline (it is the namespace rows' baseline_origin stamp); "
                 "rename the pack."
+            )
+        if len(origin) > BASELINE_ORIGIN_MAX_LENGTH:
+            # The name becomes the baseline_origin stamp verbatim; an over-long
+            # one would only surface as a DB DataError mid-load, breaking the
+            # validate-before-write guarantee.
+            raise CommandError(
+                f"Pack name {origin!r} exceeds {BASELINE_ORIGIN_MAX_LENGTH} "
+                "characters (the baseline_origin column width); shorten it."
             )
 
         self._validate_source_hosts(manifest)

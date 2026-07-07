@@ -2115,7 +2115,11 @@ class AuthorityNamespace(django.db.models.Model):
     # two baseline writers on the same prefix (issue #2057). Null on
     # manual/corpus-linked rows and on legacy baseline rows written before this
     # field existed (those are adopted — stamped — by the next owning load).
-    baseline_origin = django.db.models.CharField(max_length=64, null=True, blank=True)
+    baseline_origin = django.db.models.CharField(
+        max_length=enrichment_constants.BASELINE_ORIGIN_MAX_LENGTH,
+        null=True,
+        blank=True,
+    )
     # Global namespaces always contribute aliases; corpus-linked ones only when
     # the corpus is visible (wired in authority_alias_registry).
     is_global = django.db.models.BooleanField(default=True, db_index=True)
