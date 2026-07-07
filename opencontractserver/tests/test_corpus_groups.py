@@ -229,6 +229,7 @@ class CorpusGroupServiceTests(TestCase):
         )
         self.assertTrue(result.ok)
         group = result.value
+        assert group is not None  # narrow for mypy
         self.assertEqual(
             set(group.corpora.all()), {self.owner_corpus, self.public_corpus}
         )
@@ -236,7 +237,9 @@ class CorpusGroupServiceTests(TestCase):
             self.owner, group, title="Renamed Group"
         )
         self.assertTrue(update.ok)
-        self.assertEqual(update.value.title, "Renamed Group")
+        updated = update.value
+        assert updated is not None  # narrow for mypy
+        self.assertEqual(updated.title, "Renamed Group")
 
     def test_create_group_with_invisible_default_agent_fails(self):
         private_agent = AgentConfiguration.objects.create(
@@ -279,13 +282,17 @@ class CorpusGroupServiceTests(TestCase):
         )
         self.assertTrue(set_result.ok)
         self.assertEqual(set(self.group.corpora.all()), {self.owner_corpus})
-        self.assertEqual(set_result.value.default_agent, agent)
+        set_group = set_result.value
+        assert set_group is not None  # narrow for mypy
+        self.assertEqual(set_group.default_agent, agent)
 
         clear_result = CorpusGroupService.update_group(
             self.owner, self.group, clear_default_agent=True
         )
         self.assertTrue(clear_result.ok)
-        self.assertIsNone(clear_result.value.default_agent)
+        cleared_group = clear_result.value
+        assert cleared_group is not None  # narrow for mypy
+        self.assertIsNone(cleared_group.default_agent)
 
     def test_delete_group_denied_then_allowed(self):
         denied = CorpusGroupService.delete_group(self.stranger, self.group)
@@ -303,7 +310,7 @@ class _FakeVectorStore:
     """Stand-in for ``CoreAnnotationVectorStore`` that records construction
     and returns canned per-corpus results without touching embedders."""
 
-    instances: list["_FakeVectorStore"] = []
+    instances: list[_FakeVectorStore] = []
     results_by_corpus: dict[int, list] = {}
     raise_for_corpus_ids: set[int] = set()
 
@@ -499,7 +506,7 @@ class SearchAcrossCorporaToolTests(TransactionTestCase):
         from opencontractserver.llms.tools.tool_registry import ToolFunctionRegistry
 
         core_tool = ToolFunctionRegistry.get().to_core_tool("search_across_corpora")
-        self.assertIsNotNone(core_tool)
+        assert core_tool is not None  # narrow for mypy
         self.assertEqual(core_tool.name, "search_across_corpora")
 
 

@@ -170,7 +170,7 @@ class CorpusGroupService(BaseService):
             user, corpus_pks or [], request=request
         )
         if not corpora_result.ok:
-            return corpora_result
+            return ServiceResult.failure(corpora_result.error)
 
         default_agent = None
         if default_agent_pk is not None:
@@ -237,7 +237,7 @@ class CorpusGroupService(BaseService):
                 user, corpus_pks, request=request
             )
             if not corpora_result.ok:
-                return corpora_result
+                return ServiceResult.failure(corpora_result.error)
 
         if clear_default_agent:
             group.default_agent = None

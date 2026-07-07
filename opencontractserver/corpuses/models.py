@@ -2759,11 +2759,13 @@ class CorpusGroup(BaseOCModel):
         ),
     )
     description = django.db.models.TextField(blank=True, default="")
-    corpora = django.db.models.ManyToManyField(
-        "Corpus",
-        related_name="corpus_groups",
-        blank=True,
-        help_text="The corpora this group bundles for cross-corpus retrieval",
+    corpora: django.db.models.ManyToManyField[Corpus, Any] = (
+        django.db.models.ManyToManyField(
+            Corpus,
+            related_name="corpus_groups",
+            blank=True,
+            help_text="The corpora this group bundles for cross-corpus retrieval",
+        )
     )
     default_agent = django.db.models.ForeignKey(
         "agents.AgentConfiguration",
