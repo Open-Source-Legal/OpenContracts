@@ -69,6 +69,10 @@ class CorpusGroupModelTests(TestCase):
         )
         self.assertEqual(group.slug, "my-explicit-slug")
 
+    def test_str_shows_title(self):
+        group = CorpusGroup.objects.create(title="Printable", creator=self.user)
+        self.assertEqual(str(group), "CorpusGroup(Printable)")
+
 
 class CorpusGroupServiceTests(TestCase):
     """Service-layer visibility, lookup, and CRUD authorisation."""
@@ -202,6 +206,28 @@ class CorpusGroupServiceTests(TestCase):
         result = CorpusGroupService.create_group(AnonymousUser(), title="Nope")
         self.assertFalse(result.ok)
 
+    def test_create_group_requires_title(self):
+        result = CorpusGroupService.create_group(self.owner, title="   ")
+        self.assertFalse(result.ok)
+        self.assertIn("Title is required", result.error)
+
+    def test_create_group_with_visible_default_agent(self):
+        agent = AgentConfiguration.objects.create(
+            name="Visible Orchestrator",
+            scope="GLOBAL",
+            is_active=True,
+            is_public=True,
+            creator=self.owner,
+            system_instructions="orchestrate",
+        )
+        result = CorpusGroupService.create_group(
+            self.owner, title="With Agent", default_agent_pk=agent.pk
+        )
+        self.assertTrue(result.ok)
+        created = result.value
+        assert created is not None  # narrow for mypy
+        self.assertEqual(created.default_agent, agent)
+
     def test_create_group_rejects_invisible_corpora(self):
         """A corpus the caller cannot READ fails creation with a message
         that does not distinguish missing from forbidden."""
@@ -264,6 +290,32 @@ class CorpusGroupServiceTests(TestCase):
         )
         self.assertFalse(result.ok)
         self.assertEqual(result.error, GROUP_NOT_FOUND_MESSAGE)
+
+    def test_update_group_rejects_invisible_corpus(self):
+        """Membership replacement is gated by per-corpus READ, same as create."""
+        stranger_corpus = Corpus.objects.create(
+            title="Stranger Corpus", creator=self.stranger, is_public=False
+        )
+        result = CorpusGroupService.update_group(
+            self.owner, self.group, corpus_pks=[stranger_corpus.pk]
+        )
+        self.assertFalse(result.ok)
+        self.assertIn("Corpora not found", result.error)
+
+    def test_update_group_rejects_invisible_default_agent(self):
+        invisible_agent = AgentConfiguration.objects.create(
+            name="Invisible Agent",
+            scope="GLOBAL",
+            is_active=False,
+            is_public=False,
+            creator=self.other_owner,
+            system_instructions="hidden",
+        )
+        result = CorpusGroupService.update_group(
+            self.owner, self.group, default_agent_pk=invisible_agent.pk
+        )
+        self.assertFalse(result.ok)
+        self.assertIn("Agent configuration not found", result.error)
 
     def test_update_group_replaces_membership_and_clears_agent(self):
         agent = AgentConfiguration.objects.create(
@@ -483,6 +535,25 @@ class SearchAcrossCorporaToolTests(TransactionTestCase):
         self.assertEqual(by_corpus[late_corpus.id]["results"], [])
         self.assertEqual(len(by_corpus[self.visible_corpus.id]["results"]), 1)
 
+    def test_corpora_beyond_cap_are_truncated_and_reported(self):
+        """Visible members beyond the per-call cap are dropped from the
+        search but surfaced in ``corpora_truncated`` — never silently."""
+        extra_corpus = Corpus.objects.create(
+            title="Extra Corpus", creator=self.user, is_public=False
+        )
+        self.group.corpora.add(extra_corpus)
+        with patch(
+            "opencontractserver.llms.tools.core_tools.multi_corpus"
+            ".MULTI_CORPUS_SEARCH_MAX_CORPORA",
+            1,
+        ):
+            payload = self._run_tool(
+                query="q", corpus_group=self.group.slug, user_id=self.user.id
+            )
+        self.assertEqual(payload["searched_corpora"], 1)
+        self.assertEqual(payload["corpora_truncated"], 1)
+        self.assertEqual(len(payload["results_by_corpus"]), 1)
+
     def test_content_snippet_is_bounded(self):
         self.annotation.raw_text = "x" * (MULTI_CORPUS_SEARCH_SNIPPET_MAX_CHARS * 3)
         self.annotation.save()
@@ -663,3 +734,153 @@ class CorpusGroupGraphQLTests(GraphQLTestCase):
         data = response.json()["data"]["deleteCorpusGroup"]
         self.assertTrue(data["ok"], data["message"])
         self.assertFalse(CorpusGroup.objects.filter(pk=doomed.pk).exists())
+
+    def test_create_corpus_group_malformed_corpus_id(self):
+        self.client.login(username="gql_cg_owner", password="testpass")
+        response = self.query(
+            """
+            mutation($title: String!, $corpusIds: [ID]) {
+                createCorpusGroup(title: $title, corpusIds: $corpusIds) {
+                    ok
+                    message
+                }
+            }
+            """,
+            variables={"title": "Bad Ids", "corpusIds": ["!!not-a-global-id!!"]},
+        )
+        self.assertResponseNoErrors(response)
+        data = response.json()["data"]["createCorpusGroup"]
+        self.assertFalse(data["ok"])
+        self.assertEqual(data["message"], "Malformed id argument")
+
+    def test_update_corpus_group_by_owner_succeeds(self):
+        target = CorpusGroup.objects.create(
+            title="Updatable Group", creator=self.owner, is_public=False
+        )
+        self.client.login(username="gql_cg_owner", password="testpass")
+        response = self.query(
+            """
+            mutation($id: ID!, $title: String, $slug: String,
+                     $description: String, $isPublic: Boolean) {
+                updateCorpusGroup(
+                    corpusGroupId: $id, title: $title, slug: $slug,
+                    description: $description, isPublic: $isPublic
+                ) {
+                    ok
+                    message
+                    corpusGroup { title slug description isPublic }
+                }
+            }
+            """,
+            variables={
+                "id": to_global_id("CorpusGroupType", target.pk),
+                "title": "Updated Title",
+                "slug": "updated-slug",
+                "description": "Updated description",
+                "isPublic": True,
+            },
+        )
+        self.assertResponseNoErrors(response)
+        data = response.json()["data"]["updateCorpusGroup"]
+        self.assertTrue(data["ok"], data["message"])
+        self.assertEqual(data["corpusGroup"]["title"], "Updated Title")
+        self.assertEqual(data["corpusGroup"]["slug"], "updated-slug")
+        self.assertEqual(data["corpusGroup"]["description"], "Updated description")
+        self.assertTrue(data["corpusGroup"]["isPublic"])
+
+    def test_update_corpus_group_malformed_and_missing_ids(self):
+        self.client.login(username="gql_cg_owner", password="testpass")
+        for group_id in ("!!not-a-global-id!!", to_global_id("CorpusGroupType", 0)):
+            response = self.query(
+                """
+                mutation($id: ID!, $title: String) {
+                    updateCorpusGroup(corpusGroupId: $id, title: $title) {
+                        ok
+                        message
+                    }
+                }
+                """,
+                variables={"id": group_id, "title": "Whatever"},
+            )
+            self.assertResponseNoErrors(response)
+            data = response.json()["data"]["updateCorpusGroup"]
+            self.assertFalse(data["ok"])
+            self.assertEqual(data["message"], GROUP_NOT_FOUND_MESSAGE)
+
+    def test_delete_corpus_group_malformed_and_missing_ids(self):
+        self.client.login(username="gql_cg_owner", password="testpass")
+        for group_id in ("!!not-a-global-id!!", to_global_id("CorpusGroupType", 0)):
+            response = self.query(
+                """
+                mutation($id: ID!) {
+                    deleteCorpusGroup(corpusGroupId: $id) {
+                        ok
+                        message
+                    }
+                }
+                """,
+                variables={"id": group_id},
+            )
+            self.assertResponseNoErrors(response)
+            data = response.json()["data"]["deleteCorpusGroup"]
+            self.assertFalse(data["ok"])
+            self.assertEqual(data["message"], GROUP_NOT_FOUND_MESSAGE)
+
+    def test_delete_corpus_group_denied_for_read_only_viewer(self):
+        """READ (via public visibility) lets a viewer SEE the group but not
+        delete it — the CRUD gate returns the uniform not-found message."""
+        self.client.login(username="gql_cg_stranger", password="testpass")
+        response = self.query(
+            """
+            mutation($id: ID!) {
+                deleteCorpusGroup(corpusGroupId: $id) {
+                    ok
+                    message
+                }
+            }
+            """,
+            variables={"id": to_global_id("CorpusGroupType", self.group.pk)},
+        )
+        self.assertResponseNoErrors(response)
+        data = response.json()["data"]["deleteCorpusGroup"]
+        self.assertFalse(data["ok"])
+        self.assertEqual(data["message"], GROUP_NOT_FOUND_MESSAGE)
+        self.assertTrue(CorpusGroup.objects.filter(pk=self.group.pk).exists())
+
+    def test_mutations_surface_unexpected_service_errors(self):
+        """The catch-all handlers log and wrap unexpected exceptions instead
+        of leaking a GraphQL error."""
+        from config.graphql import corpus_group_mutations as mutations_module
+
+        self.client.login(username="gql_cg_owner", password="testpass")
+        gid = to_global_id("CorpusGroupType", self.group.pk)
+        cases = [
+            (
+                "create_group",
+                """mutation { createCorpusGroup(title: "Boom") { ok message } }""",
+                "createCorpusGroup",
+            ),
+            (
+                "update_group",
+                f"""mutation {{ updateCorpusGroup(corpusGroupId: "{gid}",
+                    title: "Boom") {{ ok message }} }}""",
+                "updateCorpusGroup",
+            ),
+            (
+                "delete_group",
+                f"""mutation {{ deleteCorpusGroup(corpusGroupId: "{gid}")
+                    {{ ok message }} }}""",
+                "deleteCorpusGroup",
+            ),
+        ]
+        for method_name, mutation, payload_key in cases:
+            with patch.object(
+                mutations_module.CorpusGroupService,
+                method_name,
+                side_effect=RuntimeError("kaboom"),
+            ):
+                response = self.query(mutation)
+            self.assertResponseNoErrors(response)
+            data = response.json()["data"][payload_key]
+            self.assertFalse(data["ok"])
+            self.assertIn("kaboom", data["message"])

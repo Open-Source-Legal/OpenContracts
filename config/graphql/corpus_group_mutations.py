@@ -26,16 +26,23 @@ def _decode_pks(global_ids: list[str] | None) -> list[str] | None:
     """Decode a list of GraphQL global ids to raw pks (None passes through).
 
     A malformed id raises ``ValueError`` so the caller can surface the
-    unified not-found envelope.
+    unified not-found envelope. ``from_global_id`` never raises on garbage
+    input — it returns an empty pk (``graphql_relay`` decodes with
+    ``partition``, swallowing base64 errors) — so an empty decode is
+    treated as malformed too; otherwise the empty string would leak a raw
+    Django ``Field 'id' expected a number`` error out of the service layer.
     """
     if global_ids is None:
         return None
     pks: list[str] = []
     for gid in global_ids:
         try:
-            pks.append(from_global_id(gid)[1])
+            pk = from_global_id(gid)[1]
         except Exception as exc:
             raise ValueError(f"Malformed id: {gid}") from exc
+        if not pk:
+            raise ValueError(f"Malformed id: {gid}")
+        pks.append(pk)
     return pks
 
 
