@@ -179,11 +179,18 @@ def _reexec_in_venv(
         cwd=str(root),
         env=env,
     )
+    interrupts = 0
     while True:
         try:
             return child.wait()
         except KeyboardInterrupt:
-            # The child received the same Ctrl+C and is tearing down; wait for it.
+            # The child received the same Ctrl+C and is tearing down; wait for
+            # it. Escape hatch: a third Ctrl+C force-kills a hung child so a
+            # user is never stuck with an unstoppable terminal.
+            interrupts += 1
+            if interrupts >= 3:
+                print("[oc-desktop] Force-stopping …")
+                child.kill()
             continue
 
 

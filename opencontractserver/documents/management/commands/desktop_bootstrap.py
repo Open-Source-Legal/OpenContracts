@@ -35,8 +35,9 @@ from opencontractserver.desktop import paths
 
 logger = logging.getLogger(__name__)
 
-# The desktop profile skips Django's password validators (single-user, local
-# only), so enforce a floor here — this account is a superuser.
+# Django's AUTH_PASSWORD_VALIDATORS are form/serializer-level and are never
+# invoked here (`create_superuser`/`set_password` bypass them), so enforce a
+# floor ourselves — this account is a superuser.
 MIN_PASSWORD_LENGTH = 8
 
 

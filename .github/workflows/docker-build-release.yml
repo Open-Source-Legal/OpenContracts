@@ -42,12 +42,18 @@ jobs:
         working-directory: frontend
         run: zip -r ../opencontracts-frontend-dist.zip dist
 
+      # The launcher verifies this checksum before extracting, so a
+      # re-uploaded/tampered release asset is rejected client-side.
+      - name: Checksum
+        run: sha256sum opencontracts-frontend-dist.zip > opencontracts-frontend-dist.zip.sha256
+
       - name: Attach bundle to the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release upload "${{ github.event.release.tag_name }}" \
-            opencontracts-frontend-dist.zip --clobber
+            opencontracts-frontend-dist.zip \
+            opencontracts-frontend-dist.zip.sha256 --clobber
 
   build-and-push:
     runs-on: ubuntu-latest

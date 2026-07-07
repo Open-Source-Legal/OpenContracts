@@ -27,6 +27,13 @@ conditionally via RunPython, using CREATE INDEX CONCURRENTLY to avoid
 locking annotations_annotation on large deployments. Requires
 atomic = False for CONCURRENTLY.
 
+INVARIANT for future changes to ``Annotation.raw_text``: migration state
+always claims ``annotation_raw_text_trgm_gin`` exists, but on databases
+without pg_trgm (the embedded desktop build) it does NOT exist in the DB.
+Any future schema operation Django derives from state that drops or
+recreates this index must stay tolerant of its absence (IF EXISTS /
+conditional RunPython like below), or it will crash desktop upgrades.
+
 Reversal note: the reverse drops only the index and deliberately leaves
 pg_trgm installed. (The previous ``TrigramExtension().reverse`` ran
 ``DROP EXTENSION pg_trgm`` unconditionally, which raises ``cannot drop

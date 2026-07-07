@@ -295,7 +295,13 @@ def _resolve_spa_dir(env: dict[str, str]) -> str:
 
 
 def _write_env_config(spa_dir: str, port: int) -> None:
-    """Point the SPA's runtime config at this Daphne origin (same-origin API)."""
+    """Point the SPA's runtime config at this Daphne origin (same-origin API).
+
+    Deliberate side effect: this rewrites ``env-config.js`` inside whatever
+    dist dir was resolved — including a developer's repo-local
+    ``frontend/dist`` (build output, untracked). The file is runtime config by
+    design (the container deployment regenerates it the same way on boot).
+    """
     if not spa_dir:
         return
     origin = f"http://127.0.0.1:{port}"

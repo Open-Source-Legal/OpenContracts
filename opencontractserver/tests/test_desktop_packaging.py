@@ -550,8 +550,31 @@ class SpaDistTests(SimpleTestCase):
     def test_download_spa_returns_none_without_asset(self):
         from opencontractserver.desktop import spa_dist
 
-        with mock.patch.object(spa_dist, "_release_asset_url", return_value=None):
+        with mock.patch.object(spa_dist, "_release_asset_urls", return_value=None):
             self.assertIsNone(spa_dist.download_spa("0.0.0"))
+
+    def test_verify_checksum(self):
+        import hashlib
+
+        from opencontractserver.desktop import spa_dist
+
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle = Path(tmp) / "bundle.zip"
+            bundle.write_bytes(b"bundle-bytes")
+            good = hashlib.sha256(b"bundle-bytes").hexdigest()
+
+            def fake_urlopen(digest):
+                response = mock.MagicMock()
+                response.read.return_value = f"{digest}  bundle.zip\n".encode()
+                response.__enter__.return_value = response
+                return mock.patch.object(
+                    spa_dist.urllib.request, "urlopen", return_value=response
+                )
+
+            with fake_urlopen(good):
+                self.assertTrue(spa_dist._verify_checksum(bundle, "https://x/sha"))
+            with fake_urlopen("0" * 64):
+                self.assertFalse(spa_dist._verify_checksum(bundle, "https://x/sha"))
 
 
 class TrigramMigrationGuardTests(TestCase):

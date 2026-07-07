@@ -45,10 +45,16 @@ def app_data_dir() -> Path:
 
 
 def subdir(*parts: str, create: bool = False) -> Path:
-    """Return ``app_data_dir()/parts``, optionally creating it."""
+    """Return ``app_data_dir()/parts``, optionally creating it.
+
+    Created directories are user-private (``0o700`` before umask on POSIX;
+    ignored on Windows) — the app-data tree holds the full local database and
+    uploaded documents, so other local accounts on a shared machine get no
+    read access. Applies to newly created dirs only, by design.
+    """
     path = app_data_dir().joinpath(*parts)
     if create:
-        path.mkdir(parents=True, exist_ok=True)
+        path.mkdir(mode=0o700, parents=True, exist_ok=True)
     return path
 
 

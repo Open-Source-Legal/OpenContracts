@@ -88,19 +88,41 @@ def find_asset_url(release: dict, asset_name: str = SPA_ASSET_NAME) -> str | Non
     return None
 
 
-def _release_asset_url(version: str) -> str | None:  # pragma: no cover - network
-    """Find the SPA asset on the version-matched release, then the latest one."""
+def _release_asset_urls(
+    version: str,
+) -> tuple[str, str | None] | None:  # pragma: no cover - network
+    """Find the SPA asset (and its ``.sha256`` sibling, when published).
+
+    Checks the version-matched release first, then the latest one. Returns
+    ``(bundle_url, checksum_url_or_None)``; None when no bundle exists.
+    """
     api_base = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
     urls = [f"{api_base}/tags/{tag}" for tag in release_tag_candidates(version)]
     urls.append(f"{api_base}/latest")
     for url in urls:
         try:
-            asset = find_asset_url(_fetch_json(url))
+            release = _fetch_json(url)
         except (urllib.error.URLError, OSError, ValueError):
             continue
+        asset = find_asset_url(release)
         if asset:
-            return asset
+            return asset, find_asset_url(release, f"{SPA_ASSET_NAME}.sha256")
     return None
+
+
+def _verify_checksum(zip_path: Path, checksum_url: str) -> bool:
+    """Compare the bundle's SHA-256 to the release's published ``.sha256``."""
+    import hashlib
+
+    with urllib.request.urlopen(  # pragma: no cover - network
+        checksum_url, timeout=_HTTP_TIMEOUT_SECONDS, context=_ssl_context()
+    ) as response:
+        expected = response.read().decode("utf-8", "replace").split()[0].lower()
+    digest = hashlib.sha256()
+    with open(zip_path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest() == expected
 
 
 def safe_extract_zip(archive: zipfile.ZipFile, dest: Path) -> None:
@@ -141,13 +163,15 @@ def _cached_version_matches(spa_root: Path, version: str) -> bool:
 
 def download_spa(version: str) -> Path | None:  # pragma: no cover - network
     """Download + extract the release SPA bundle into app-data. None on failure."""
-    asset_url = _release_asset_url(version)
-    if not asset_url:
+    found = _release_asset_urls(version)
+    if not found:
         print(
             "[oc-desktop] No pre-built frontend bundle found on the GitHub "
-            "releases for this version."
+            "releases for this version\n             (or the GitHub API's "
+            "anonymous rate limit was hit — retry in an hour)."
         )
         return None
+    asset_url, checksum_url = found
 
     spa_root = paths.subdir("spa")
     print(f"[oc-desktop] Downloading the frontend bundle …\n             {asset_url}")
@@ -158,6 +182,16 @@ def download_spa(version: str) -> Path | None:  # pragma: no cover - network
                 asset_url, timeout=_HTTP_TIMEOUT_SECONDS, context=_ssl_context()
             ) as response, open(zip_path, "wb") as out:
                 shutil.copyfileobj(response, out)
+            # Integrity gate: releases publish a .sha256 next to the bundle
+            # (see docker-build-release.yml); a mismatch means a corrupted or
+            # tampered asset, so refuse it. Older releases without the sibling
+            # asset fall back to TLS-only trust.
+            if checksum_url and not _verify_checksum(zip_path, checksum_url):
+                print(
+                    "[oc-desktop] Frontend bundle failed its SHA-256 integrity "
+                    "check; refusing to install it."
+                )
+                return None
             # Replace any stale/partial previous extraction wholesale.
             if spa_root.exists():
                 shutil.rmtree(spa_root)
