@@ -205,6 +205,6 @@ def main(argv: list[str] | None = None) -> None:
                 "[oc-desktop] Automatic dependency install failed (see the pip "
                 "output above).\n  Common causes: no internet connection, or a "
                 "proxy blocking https://pypi.org.\n  Fix the connection and run "
-                "`python oc-desktop.py` again — it resumes where it left off."
+                "`python3 oc-desktop.py` again — it resumes where it left off."
             )
     sys.exit(_reexec_in_venv(root, venv_path, argv))

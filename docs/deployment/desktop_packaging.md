@@ -70,7 +70,7 @@ until then the desktop settings note it inline.
 ## Running it — one command
 
 ```bash
-python oc-desktop.py        # Windows: py oc-desktop.py
+python3 oc-desktop.py       # Windows: py oc-desktop.py
 ```
 
 Requirements: **Python 3.10–3.12** (`pgserver` publishes no 3.13 wheels yet)
@@ -121,11 +121,12 @@ survives restarts *and* keeps `PipelineSettings`' encrypted secrets (e.g. your
 permanently unrecoverable. If no keyring backend is available, the launcher
 falls back to an ephemeral key (with a warning) and sessions + stored secrets
 reset on restart; export a stable `DJANGO_SECRET_KEY` yourself in that case. The
-local login password comes only from `OC_DESKTOP_PASSWORD`; without it the user
-is created with no usable password (set one with `manage.py changepassword`).
-Because this account is a superuser, choose a strong `OC_DESKTOP_PASSWORD` (it is
-not strength-validated on the desktop profile). No
-secret is written to a plaintext file.
+local login password comes from `OC_DESKTOP_PASSWORD` when set, otherwise from
+the interactive first-run prompt (min 8 characters, confirmed twice); with
+neither (headless, no env var) the user is created with no usable password and
+the next interactive launch — or `manage.py changepassword` — sets one. Because
+this account is a superuser, choose a strong password (only the length floor is
+validated on the desktop profile). No secret is written to a plaintext file.
 
 To enable embeddings + chat, set `OPENAI_API_KEY` (and optionally
 `OPENAI_API_BASE_URL` for a local OpenAI-compatible server) before first run so

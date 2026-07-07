@@ -229,7 +229,7 @@ The simplest way to try OpenContracts on Windows, macOS, or Linux — one comman
 3. In a terminal, from the unzipped folder, run:
 
 ```bash
-python oc-desktop.py        # Windows: py oc-desktop.py
+python3 oc-desktop.py       # Windows: py oc-desktop.py
 ```
 
 The first run takes several minutes: it installs everything into a private environment (your system Python is untouched), downloads the app UI, starts the built-in database, and asks you to choose a password. Your browser then opens at the app — log in as user **`desktop`** with the password you chose. To stop the app, press `Ctrl+C` in that terminal. Later launches skip setup and start in well under a minute.

@@ -8,7 +8,7 @@ the user password after completing this tutorial.
 
 > **No Docker? There's a simpler path.** If you just want OpenContracts running
 > on your own computer, you can skip Docker entirely: install Python 3.10–3.12
-> and run `python oc-desktop.py` from the repository folder — one command sets
+> and run `python3 oc-desktop.py` (Windows: `py oc-desktop.py`) from the repository folder — one command sets
 > everything up. See [Desktop (no Docker)](deployment/desktop_packaging.md).
 
 ## Prerequisites
