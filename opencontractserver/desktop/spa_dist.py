@@ -20,6 +20,7 @@ importable because python.org macOS builds ship without system root certs.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -120,6 +121,24 @@ def _dist_dir_within(spa_root: Path) -> Path | None:
     return None
 
 
+def _version_stamp(spa_root: Path) -> Path:
+    return spa_root / ".version"
+
+
+def _cached_version_matches(spa_root: Path, version: str) -> bool:
+    """True when the cached bundle was fetched for this checkout's version.
+
+    A cache without a stamp (pre-stamp download, manual copy) counts as a
+    mismatch so it gets refreshed — ``ensure_spa`` still falls back to it when
+    the refresh fails (offline), so nothing is lost.
+    """
+    stamp = _version_stamp(spa_root)
+    try:
+        return stamp.read_text(encoding="utf-8").strip() == version
+    except OSError:
+        return False
+
+
 def download_spa(version: str) -> Path | None:  # pragma: no cover - network
     """Download + extract the release SPA bundle into app-data. None on failure."""
     asset_url = _release_asset_url(version)
@@ -153,6 +172,11 @@ def download_spa(version: str) -> Path | None:  # pragma: no cover - network
     if not dist:
         print("[oc-desktop] Downloaded bundle did not contain an index.html.")
         return None
+    # Stamp the cache with the version it was fetched FOR (not necessarily the
+    # release it came from — the latest-release fallback still satisfies this
+    # checkout), so ensure_spa can detect staleness after an upgrade.
+    with contextlib.suppress(OSError):
+        _version_stamp(spa_root).write_text(f"{version}\n", encoding="utf-8")
     print(f"[oc-desktop] Frontend ready at {dist}.")
     return dist
 
@@ -177,13 +201,32 @@ def build_spa_with_yarn(repo_root: Path) -> Path | None:  # pragma: no cover
 
 
 def ensure_spa(repo_root: Path, version: str) -> Path | None:
-    """Return a directory containing the built SPA, acquiring one if needed."""
+    """Return a directory containing the built SPA, acquiring one if needed.
+
+    A cached download is reused only when its version stamp matches this
+    checkout's ``version`` — otherwise a fresh download is attempted first so a
+    backend upgrade cannot silently keep serving a stale frontend. When the
+    refresh fails (offline), the stale cache is still better than no UI, so it
+    is returned with a warning.
+    """
     repo_dist = repo_root / "frontend" / "dist"
     if (repo_dist / "index.html").is_file():
         return repo_dist
 
-    cached = _dist_dir_within(paths.subdir("spa"))
-    if cached:
+    spa_root = paths.subdir("spa")
+    cached = _dist_dir_within(spa_root)
+    if cached and _cached_version_matches(spa_root, version):
+        print(f"[oc-desktop] Using the downloaded frontend bundle at {cached}.")
         return cached
 
-    return download_spa(version) or build_spa_with_yarn(repo_root)
+    fresh = download_spa(version) or build_spa_with_yarn(repo_root)
+    if fresh:
+        return fresh
+    if cached:
+        print(
+            "[oc-desktop] WARNING: could not refresh the frontend bundle for "
+            f"version {version}; reusing the previously downloaded copy. It may "
+            "be out of date — relaunch with internet access to update it."
+        )
+        return cached
+    return None

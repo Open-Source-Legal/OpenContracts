@@ -206,6 +206,8 @@ class WarpIngestLocalParserTests(TestCase):
             import nltk
 
             nltk.data.find("corpora/stopwords")
+            nltk.data.find("tokenizers/punkt")
+            nltk.data.find("tokenizers/punkt_tab")
         except LookupError:
             self.skipTest("nltk corpora not downloaded")
 

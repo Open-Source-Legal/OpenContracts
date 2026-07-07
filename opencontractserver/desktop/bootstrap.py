@@ -112,15 +112,29 @@ def _install_dependencies(root: Path, venv_path: Path) -> None:  # pragma: no co
             f"             {venv_path}\n"
             "             (your system Python is not modified)."
         )
-        subprocess.run(
-            [sys.executable, "-m", "venv", str(venv_path)],
-            check=True,
-        )
+        try:
+            subprocess.run(
+                [sys.executable, "-m", "venv", str(venv_path)],
+                check=True,
+            )
+        except subprocess.CalledProcessError:
+            # Debian/Ubuntu system Pythons ship without the venv module unless
+            # python3-venv is installed — give the exact fix, not pip guidance.
+            sys.exit(
+                "[oc-desktop] Could not create the private Python environment "
+                "(see the output above).\n  On Ubuntu/Debian this usually means "
+                "the venv module is missing — run\n  `sudo apt install "
+                "python3-venv` (or `python3.12-venv` matching your Python)\n  "
+                "and then run this again."
+            )
     print(
         "[oc-desktop] Installing OpenContracts and its dependencies — this is a "
         "one-time step\n             and can take several minutes on a normal "
         "connection …"
     )
+    # Deliberately NO --upgrade: reinstalls are gated by the requirements
+    # fingerprint below, so already-satisfied range pins (pgserver, warp-ingest)
+    # must not be drive-by upgraded on an unrelated requirements change.
     subprocess.run(
         [
             str(vpy),

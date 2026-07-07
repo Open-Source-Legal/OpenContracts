@@ -489,20 +489,63 @@ class SpaDistTests(SimpleTestCase):
             (dist / "index.html").write_text("<html></html>")
             self.assertEqual(spa_dist.ensure_spa(repo, "0.0.0"), dist)
 
-    def test_ensure_spa_uses_cached_download(self):
+    @staticmethod
+    def _cached_spa(tmp: str) -> tuple[Path, Path, Path]:
+        """A repo without dist and an app-data dir holding a cached SPA."""
+        repo = Path(tmp) / "repo"
+        repo.mkdir()
+        data_dir = Path(tmp) / "appdata"
+        cached = data_dir / "spa" / "dist"
+        cached.mkdir(parents=True)
+        (cached / "index.html").write_text("<html></html>")
+        return repo, data_dir, cached
+
+    def test_ensure_spa_uses_version_matched_cache(self):
         from opencontractserver.desktop import spa_dist
 
         with tempfile.TemporaryDirectory() as tmp:
-            repo = Path(tmp) / "repo"
-            repo.mkdir()
-            data_dir = Path(tmp) / "appdata"
-            cached = data_dir / "spa" / "dist"
-            cached.mkdir(parents=True)
-            (cached / "index.html").write_text("<html></html>")
+            repo, data_dir, cached = self._cached_spa(tmp)
+            (data_dir / "spa" / ".version").write_text("0.0.0\n")
             with mock.patch.dict(
                 os.environ, {paths.DATA_DIR_ENV: str(data_dir)}, clear=False
+            ), mock.patch.object(
+                spa_dist,
+                "download_spa",
+                side_effect=AssertionError("must not re-download"),
             ):
                 self.assertEqual(spa_dist.ensure_spa(repo, "0.0.0"), cached)
+
+    def test_ensure_spa_refreshes_stale_cache(self):
+        # A cache stamped for an older version must trigger a re-download so a
+        # backend upgrade cannot silently keep serving a stale frontend.
+        from opencontractserver.desktop import spa_dist
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, data_dir, _cached = self._cached_spa(tmp)
+            (data_dir / "spa" / ".version").write_text("0.0.1\n")
+            fresh = Path(tmp) / "fresh-dist"
+            with mock.patch.dict(
+                os.environ, {paths.DATA_DIR_ENV: str(data_dir)}, clear=False
+            ), mock.patch.object(
+                spa_dist, "download_spa", return_value=fresh
+            ) as download:
+                self.assertEqual(spa_dist.ensure_spa(repo, "0.0.2"), fresh)
+            download.assert_called_once_with("0.0.2")
+
+    def test_ensure_spa_falls_back_to_stale_cache_offline(self):
+        # Refresh failed (offline): the stale cache is better than no UI.
+        from opencontractserver.desktop import spa_dist
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, data_dir, cached = self._cached_spa(tmp)  # no .version stamp
+            with mock.patch.dict(
+                os.environ, {paths.DATA_DIR_ENV: str(data_dir)}, clear=False
+            ), mock.patch.object(
+                spa_dist, "download_spa", return_value=None
+            ), mock.patch.object(
+                spa_dist, "build_spa_with_yarn", return_value=None
+            ):
+                self.assertEqual(spa_dist.ensure_spa(repo, "0.0.2"), cached)
 
     def test_download_spa_returns_none_without_asset(self):
         from opencontractserver.desktop import spa_dist

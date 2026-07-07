@@ -94,7 +94,10 @@ and an internet connection for the first run. The first run, in order
 
 Log in as **`desktop`** with the password you chose. **Stop the app with
 Ctrl+C** in the launch terminal — every child (including Postgres) shuts down
-cleanly. Later launches skip setup and start in well under a minute.
+cleanly. Later launches skip setup and start in well under a minute. Don't
+start a second copy while the first run is still installing — there is no
+cross-process lock around the environment setup yet (Phase-1 item), and two
+concurrent installs into the same private venv can corrupt it.
 
 Everything is stored under a per-user app-data directory
 (`opencontractserver/desktop/paths.py`): `venv/`, `pgdata/`, `media/`,

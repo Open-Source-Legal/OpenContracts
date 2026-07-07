@@ -54,6 +54,13 @@ logger = logging.getLogger(__name__)
 # TimeoutError, so a flaky first-run OCR model fetch could otherwise be
 # misclassified as permanent. Match those by exception class name across the MRO
 # (without importing the optional libraries) in addition to the builtins.
+#
+# The sibling REST client (warp_ingest_parser.py) classifies transient vs
+# permanent by catching concrete `requests` exception types instead — it owns
+# the HTTP call, so it can. Here the network I/O (if any) happens deep inside
+# the optional warp-ingest/onnxruntime stack, so name-based MRO matching is the
+# only dependency-free option; that is why the same concept is implemented two
+# different ways.
 _TRANSIENT_ERROR_NAMES = frozenset(
     {
         "ConnectionError",
@@ -187,6 +194,15 @@ class WarpIngestLocalParser(BaseParser):
                 "disable_ocr": bool(all_kwargs.get("disable_ocr", False)),
                 "semantic_units": bool(all_kwargs.get("semantic_units", False)),
             }
+            # apply_ocr and disable_ocr are documented as mutually exclusive;
+            # precedence between them is warp-ingest's call, so surface the
+            # misconfiguration rather than silently picking a winner here.
+            if parse_options["apply_ocr"] and parse_options["disable_ocr"]:
+                logger.warning(
+                    "WarpIngestLocalParser: apply_ocr and disable_ocr are both "
+                    "set; they are mutually exclusive and warp-ingest decides "
+                    "which wins. Unset one in the pipeline settings."
+                )
 
             try:
                 export: OpenContractDocExport = pdf_ingestor.parse_to_opencontracts(
