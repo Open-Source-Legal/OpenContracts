@@ -216,6 +216,14 @@ class WarpIngestLocalParser(BaseParser):
                     f"Warp-Ingest failed to parse document {doc_id}: {exc}",
                     is_transient=_is_transient_error(exc),
                 ) from exc
+            if export is None:
+                # Defensive: the library contract returns a dict, but a falsy
+                # return must surface as a classified parse failure, not an
+                # AttributeError on export.get() below.
+                raise DocumentParsingError(
+                    f"Warp-Ingest returned no export for document {doc_id}.",
+                    is_transient=False,
+                )
         finally:
             if tmp_path and os.path.exists(tmp_path):
                 try:

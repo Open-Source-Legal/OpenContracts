@@ -120,7 +120,9 @@ def _verify_checksum(zip_path: Path, checksum_url: str) -> bool:
     with urllib.request.urlopen(  # pragma: no cover - network
         checksum_url, timeout=_HTTP_TIMEOUT_SECONDS, context=_ssl_context()
     ) as response:
-        tokens = response.read().decode("utf-8", "replace").split()
+        # A real sidecar is <200 bytes; cap the read like the bundle download
+        # caps its own, so a misbehaving host can't balloon memory.
+        tokens = response.read(4096).decode("utf-8", "replace").split()
     if not tokens:
         # Empty/mangled sidecar (truncated response, proxy interstitial):
         # ValueError keeps this on download_spa's graceful-degrade path
@@ -238,10 +240,22 @@ def download_spa(version: str) -> Path | None:  # pragma: no cover - network
                 print("[oc-desktop] Downloaded bundle did not contain an index.html.")
                 shutil.rmtree(staging, ignore_errors=True)
                 return None
-            # Success — swap the verified staging dir into place.
+            # Success — swap the verified staging dir into place. The old
+            # cache is moved ASIDE (not deleted) until the swap has succeeded
+            # and restored on failure, so no failure mode — including a rename
+            # blocked by AV/indexer file locks — destroys a working copy.
+            backup = spa_root.with_name(spa_root.name + ".old")
+            if backup.exists():
+                shutil.rmtree(backup, ignore_errors=True)
             if spa_root.exists():
-                shutil.rmtree(spa_root)
-            staging.rename(spa_root)
+                spa_root.rename(backup)
+            try:
+                staging.rename(spa_root)
+            except OSError:
+                if backup.exists():
+                    backup.rename(spa_root)
+                raise
+            shutil.rmtree(backup, ignore_errors=True)
     except (urllib.error.URLError, OSError, ValueError, zipfile.BadZipFile) as exc:
         print(f"[oc-desktop] Frontend bundle download failed: {exc}")
         shutil.rmtree(staging, ignore_errors=True)
@@ -300,6 +314,9 @@ def ensure_spa(repo_root: Path, version: str) -> Path | None:
     fresh = download_spa(version) or build_spa_with_yarn(repo_root)
     if fresh:
         return fresh
+    # Re-resolve rather than trusting the pre-download value: a failed swap
+    # restores the cache, but only a live re-check proves it's still on disk.
+    cached = _dist_dir_within(spa_root)
     if cached:
         print(
             "[oc-desktop] WARNING: could not refresh the frontend bundle for "

@@ -114,6 +114,7 @@ class SpaFallbackTests(SimpleTestCase):
             resp = spa_fallback(self.factory.get("/corpuses/1"), "corpuses/1")
         self.assertEqual(resp.status_code, 200)
         self.assertIn("text/html", resp.headers.get("Content-Type", ""))
+        self.assertIn(b"SPA-INDEX", b"".join(resp.streaming_content))
 
     def test_traversal_is_blocked(self):
         # A ``../`` escape must NOT serve a file outside the SPA root; safe_join
@@ -122,6 +123,10 @@ class SpaFallbackTests(SimpleTestCase):
             resp = spa_fallback(self.factory.get("/x"), "../../../../../../etc/passwd")
         self.assertEqual(resp.status_code, 200)
         self.assertIn("text/html", resp.headers.get("Content-Type", ""))
+        # The body must be the real index.html, not /etc/passwd or empty.
+        body = b"".join(resp.streaming_content)
+        self.assertIn(b"SPA-INDEX", body)
+        self.assertNotIn(b"root:", body)
 
     def test_disabled_when_root_unset(self):
         with override_settings(OC_DESKTOP_SPA_ROOT=""):

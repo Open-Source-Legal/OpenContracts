@@ -17,11 +17,13 @@ are importable. See ``docs/deployment/desktop_packaging.md``.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import importlib.util
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from opencontractserver.desktop import paths
@@ -174,6 +176,68 @@ def _fingerprint_marker(venv_path: Path) -> Path:
     return venv_path / ".requirements-fingerprint"
 
 
+# Install-lock: guards venv creation/dependency install against a
+# double-launched first run corrupting the venv with interleaved writes.
+_LOCK_FILENAME = ".install-lock"
+_LOCK_STALE_SECONDS = 3600
+
+
+def _lock_is_stale(lock_path: Path) -> bool:
+    """True when the lock's recorded holder is provably gone (or too old)."""
+    try:
+        pid = int(lock_path.read_text(encoding="utf-8").strip() or "0")
+    except (OSError, ValueError):
+        pid = 0
+    if pid and os.name == "posix":
+        try:
+            os.kill(pid, 0)  # signal 0: existence probe only
+            return False
+        except ProcessLookupError:
+            return True
+        except OSError:
+            return False
+    # Windows (no cheap liveness probe): fall back to age.
+    with contextlib.suppress(OSError):
+        return (time.time() - lock_path.stat().st_mtime) > _LOCK_STALE_SECONDS
+    return True
+
+
+@contextlib.contextmanager
+def _install_lock(venv_path: Path):
+    """Cross-process mutex around first-run environment setup.
+
+    Two concurrent launches (a double-clicked script — plausible, since the
+    first console output takes a few seconds) would interleave
+    ``python -m venv`` + ``pip install`` into the same directory and corrupt
+    it beyond what a non-technical user can recover from.
+    ``O_CREAT | O_EXCL`` is an atomic create-or-fail on every OS; a stale
+    lock from a crashed holder is reclaimed via PID liveness (POSIX) or age.
+    """
+    paths.ensure_private_dir(venv_path.parent)
+    lock_path = venv_path.parent / _LOCK_FILENAME
+    for attempt in (1, 2):
+        try:
+            fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(f"{os.getpid()}\n")
+            break
+        except FileExistsError:
+            if attempt == 2 or not _lock_is_stale(lock_path):
+                sys.exit(
+                    "[oc-desktop] Another OpenContracts setup appears to be "
+                    "running already.\n  Wait for it to finish. If you are "
+                    "sure none is running, delete\n  "
+                    f"{lock_path}\n  and run this again."
+                )
+            with contextlib.suppress(OSError):
+                lock_path.unlink()
+    try:
+        yield
+    finally:
+        with contextlib.suppress(OSError):
+            lock_path.unlink()
+
+
 def _install_dependencies(root: Path, venv_path: Path) -> None:  # pragma: no cover
     """Create/refresh the private venv and install the desktop requirements."""
     vpy = venv_python(venv_path)
@@ -301,13 +365,18 @@ def main(argv: list[str] | None = None) -> None:  # pragma: no cover
     root = repo_root()
     venv_path = venv_dir()
     if not _venv_is_current(root, venv_path):
-        try:
-            _install_dependencies(root, venv_path)
-        except subprocess.CalledProcessError:
-            sys.exit(
-                "[oc-desktop] Automatic dependency install failed (see the pip "
-                "output above).\n  Common causes: no internet connection, or a "
-                "proxy blocking https://pypi.org.\n  Fix the connection and run "
-                "`python3 oc-desktop.py` again — it resumes where it left off."
-            )
+        with _install_lock(venv_path):
+            # Re-check under the lock: a concurrent launch may have just
+            # finished the install while we waited to acquire it.
+            if not _venv_is_current(root, venv_path):
+                try:
+                    _install_dependencies(root, venv_path)
+                except subprocess.CalledProcessError:
+                    sys.exit(
+                        "[oc-desktop] Automatic dependency install failed (see "
+                        "the pip output above).\n  Common causes: no internet "
+                        "connection, or a proxy blocking https://pypi.org.\n  "
+                        "Fix the connection and run `python3 oc-desktop.py` "
+                        "again — it resumes where it left off."
+                    )
     sys.exit(_reexec_in_venv(root, venv_path, argv))

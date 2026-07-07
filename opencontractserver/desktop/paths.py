@@ -58,7 +58,10 @@ def ensure_private_dir(path: Path) -> Path:
     Chmod failures are ignored (Windows has no POSIX modes).
     """
     root = app_data_dir()
-    path.mkdir(parents=True, exist_ok=True)
+    # mode= narrows the pre-chmod window for the leaf; the chmod loop below is
+    # what actually guarantees the invariant (mode= is skipped for existing
+    # dirs and intermediate parents).
+    path.mkdir(mode=0o700, parents=True, exist_ok=True)
     targets = [root]
     with contextlib.suppress(ValueError):
         current = root

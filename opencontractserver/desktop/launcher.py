@@ -43,6 +43,10 @@ _log_handles: list = []
 # "where did it go?" problem). Falls back to an OS-assigned ephemeral port
 # when something else already holds it.
 DEFAULT_PORT = 8406
+# How long to wait for Daphne to answer /api/health/ before opening the
+# browser anyway, and how long to drain children gracefully on shutdown.
+_HEALTH_TIMEOUT_SECONDS = 60
+_SHUTDOWN_GRACE_SECONDS = 10
 # Local login account seeded by desktop_bootstrap (its --username default);
 # surfaced in the startup banner so users never have to read source to log in.
 LOCAL_USERNAME = "desktop"
@@ -418,7 +422,7 @@ def _shutdown(*_args) -> None:
     # An impatient second Ctrl+C during the drain raises KeyboardInterrupt
     # here; skip straight to the kill phase instead of dying mid-teardown.
     try:
-        deadline = time.time() + 10
+        deadline = time.time() + _SHUTDOWN_GRACE_SECONDS
         for proc in reversed(_children):
             with contextlib.suppress(Exception):
                 proc.wait(timeout=max(0, deadline - time.time()))
@@ -491,9 +495,20 @@ def main() -> None:
     # Health-check the API endpoint, NOT ``/``: when the SPA isn't built, ``/``
     # redirects to the (absent) :3000 dev server and every poll would error,
     # falsely reporting the server as down even though Daphne is up.
-    if not _wait_for_http(f"{base}/api/health/", timeout=60):
+    if not _wait_for_http(f"{base}/api/health/", timeout=_HEALTH_TIMEOUT_SECONDS):
+        if any(proc.poll() is not None for proc in _children):
+            # A child crashed during startup — don't print a success banner
+            # over a corpse; point at the durable logs and tear down.
+            print(
+                "[oc-desktop] ERROR: a component crashed during startup.\n"
+                f"             See the logs in {paths.logs_dir()} — the most "
+                "recently modified file\n             usually names the "
+                "problem. Fix or report it, then relaunch."
+            )
+            return
         print(
-            "[oc-desktop] WARNING: server did not answer within 60s; opening the "
+            "[oc-desktop] WARNING: server did not answer within "
+            f"{_HEALTH_TIMEOUT_SECONDS}s; opening the "
             "browser anyway — it may show a connection error until Daphne is up."
         )
     print(
@@ -517,12 +532,20 @@ def main() -> None:
         time.sleep(1)
 
 
-def _wait_for_http(url: str, timeout: int = 60) -> bool:
+def _wait_for_http(url: str, timeout: int = _HEALTH_TIMEOUT_SECONDS) -> bool:
+    """Poll ``url`` until it answers, a tracked child dies, or ``timeout``.
+
+    The dead-child short-circuit matters on a crash-on-boot (bad SPA dir,
+    ASGI import error): without it the launcher would burn the full timeout
+    and print a success banner over an already-dead Daphne.
+    """
     import urllib.error
     import urllib.request
 
     deadline = time.time() + timeout
     while time.time() < deadline:
+        if any(proc.poll() is not None for proc in _children):
+            return False
         try:
             with urllib.request.urlopen(url, timeout=2):
                 return True
