@@ -30,6 +30,11 @@ def seed(apps, schema_editor):
     # the field's presence (no manual/corpus rows can exist before the console
     # shipped anyway, so seeding unconditionally at those states is correct).
     has_source = any(f.name == "source" for f in AuthorityNamespace._meta.get_fields())
+    # ``baseline_origin`` (migration 0101) partitions baseline rows per WRITER
+    # ("core" vs. a pack's manifest name); guard on presence like ``source``.
+    has_origin = any(
+        f.name == "baseline_origin" for f in AuthorityNamespace._meta.get_fields()
+    )
 
     # Collect aliases per prefix from the reverse of AUTHORITY_PREFIX.
     aliases_by_prefix: dict[str, list[str]] = {}
@@ -47,6 +52,17 @@ def seed(apps, schema_editor):
                 # never clobber it. (authority_corpus predates ``source``, so it
                 # is always present when ``source`` is.)
                 continue
+            if (
+                has_origin
+                and existing is not None
+                and existing.baseline_origin
+                and existing.baseline_origin != C.BASELINE_ORIGIN_CORE
+            ):
+                # Another baseline writer (a pack) claimed this prefix first —
+                # the convergence mirrors AuthorityMappingLoader.load_namespaces'
+                # first-writer-wins guard and never clobbers it back to the
+                # constants baseline.
+                continue
 
         # Graceful fallback so adding a prefix to AUTHORITY_PREFIX without its
         # classification/display-name entry can never crash ``migrate`` on a
@@ -63,6 +79,10 @@ def seed(apps, schema_editor):
             # Stamp ownership explicitly so a re-converged row is unambiguously
             # loader-owned (matches load_namespaces' source="baseline").
             defaults["source"] = "baseline"
+        if has_origin:
+            # The convergence writes from the shipped constants — the same
+            # writer as the core-YAML loader run.
+            defaults["baseline_origin"] = C.BASELINE_ORIGIN_CORE
         AuthorityNamespace.objects.update_or_create(
             prefix=prefix,
             defaults=defaults,

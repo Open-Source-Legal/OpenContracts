@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Any
 from django.conf import settings
 from django.db import transaction
 
+from opencontractserver.constants.document_processing import OCTET_STREAM_MIME_TYPE
 from opencontractserver.pipeline.registry import get_allowed_mime_types
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
@@ -102,33 +103,47 @@ class DocumentService:
     def validate_file_type(
         cls,
         file_bytes: bytes,
+        filename: str = "",
     ) -> tuple[str | None, str]:
         """
         Validate and detect file MIME type.
 
+        When a pre-parse file converter is configured and ``filename`` carries
+        an extension in its enabled set, the upload is accepted for the
+        convert-to-PDF ingest path even though the format has no native
+        parser (see ``resolve_convertible_upload``).
+
         Args:
             file_bytes: Raw file bytes to analyze
+            filename: Original filename (drives converter-extension matching;
+                optional for backwards compatibility)
 
         Returns:
             (mime_type, error_message) - mime_type is None if validation fails
         """
         import filetype
 
+        from opencontractserver.pipeline.utils import resolve_convertible_upload
         from opencontractserver.utils.files import is_plaintext_content
 
         kind = filetype.guess(file_bytes)
-        if kind is None:
-            if is_plaintext_content(file_bytes):
-                mime_type = "text/plain"
-            else:
-                return None, "Unable to determine file type"
-        else:
-            mime_type = kind.mime
+        sniffed_mime = kind.mime if kind is not None else None
+        if sniffed_mime is None and is_plaintext_content(file_bytes):
+            sniffed_mime = "text/plain"
 
-        if mime_type not in get_allowed_mime_types():
-            return None, f"Unallowed filetype: {mime_type}"
+        # Convertible uploads take precedence over the native allow-list —
+        # e.g. RTF sniffs as plain text but must take the conversion path.
+        convertible_type = resolve_convertible_upload(filename, sniffed_mime)
+        if convertible_type is not None:
+            return convertible_type, ""
 
-        return mime_type, ""
+        if sniffed_mime is None:
+            return None, "Unable to determine file type"
+
+        if sniffed_mime not in get_allowed_mime_types():
+            return None, f"Unallowed filetype: {sniffed_mime}"
+
+        return sniffed_mime, ""
 
     @classmethod
     def create_document(
@@ -177,32 +192,21 @@ class DocumentService:
             return None, quota_error
 
         # Validate file type
-        mime_type, type_error = cls.validate_file_type(file_bytes)
+        mime_type, type_error = cls.validate_file_type(file_bytes, filename)
         if not mime_type:
             return None, type_error
 
         try:
             with transaction.atomic():
-                # Create document based on file type
-                if mime_type in [
-                    "application/pdf",
-                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                ]:
-                    pdf_file = ContentFile(file_bytes, name=filename)
-                    document = Document.objects.create(
-                        creator=user,
-                        title=title,
-                        description=description,
-                        custom_meta=custom_meta or {},
-                        pdf_file=pdf_file,
-                        backend_lock=True,
-                        is_public=is_public,
-                        file_type=mime_type,
-                        slug=slug,
-                    )
-                elif mime_type in ["text/plain", "application/txt"]:
+                # Create document based on file type. Text formats go to
+                # txt_extract_file; native binary formats (PDF/Office, in the
+                # allow-list) and convert-to-PDF uploads (recorded as
+                # application/octet-stream by resolve_convertible_upload) go to
+                # pdf_file. Any other MIME is rejected fail-closed — the
+                # backstop that stops an un-vetted type (e.g. one slipped
+                # through a patched validate_file_type) from silently landing
+                # in storage.
+                if mime_type in ["text/plain", "application/txt"]:
                     txt_file = ContentFile(file_bytes, name=filename)
                     document = Document.objects.create(
                         creator=user,
@@ -210,6 +214,22 @@ class DocumentService:
                         description=description,
                         custom_meta=custom_meta or {},
                         txt_extract_file=txt_file,
+                        backend_lock=True,
+                        is_public=is_public,
+                        file_type=mime_type,
+                        slug=slug,
+                    )
+                elif (
+                    mime_type in get_allowed_mime_types()
+                    or mime_type == OCTET_STREAM_MIME_TYPE
+                ):
+                    pdf_file = ContentFile(file_bytes, name=filename)
+                    document = Document.objects.create(
+                        creator=user,
+                        title=title,
+                        description=description,
+                        custom_meta=custom_meta or {},
+                        pdf_file=pdf_file,
                         backend_lock=True,
                         is_public=is_public,
                         file_type=mime_type,

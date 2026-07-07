@@ -41,6 +41,38 @@ class DocumentParsingError(Exception):
         self.is_transient = is_transient
 
 
+class FileConversionError(Exception):
+    """
+    Raised when pre-parse file-to-PDF conversion fails.
+
+    Mirrors :class:`DocumentParsingError`'s transient/permanent contract so the
+    Celery conversion task can reuse the same retry semantics.
+
+    Examples of transient errors:
+        - Network timeouts to the conversion service
+        - 5xx server errors from the conversion service
+
+    Examples of permanent errors:
+        - Corrupt/unconvertible source files (4xx from the service)
+        - A response that is not a PDF (misconfigured service URL)
+
+    Attributes:
+        is_transient: Whether the error might succeed on retry.
+    """
+
+    def __init__(self, message: str, is_transient: bool = True):
+        """
+        Initialize the FileConversionError.
+
+        Args:
+            message: Human-readable error description.
+            is_transient: If True, the error might succeed on retry (default: True).
+                         If False, retrying will not help.
+        """
+        super().__init__(message)
+        self.is_transient = is_transient
+
+
 class DocumentThumbnailError(Exception):
     """
     Raised when thumbnail generation fails.

@@ -19,7 +19,7 @@ any native shell or installer work.
 | `celerybeat` | `celery beat` **subprocess** (Phase 0) → in-process APScheduler (later). The periodic sweeps (`reconcile_stuck_documents`, `recover_stalled_uploads`, …) matter *more* on a force-quit-prone desktop. |
 | `flower` | Deleted. |
 | `frontend` | `yarn build` once → Daphne serves the built `dist/` via the `spa_fallback` catch-all (`config/spa.py`, wired in `config/urls.py` when `OC_DESKTOP_SPA_ROOT` is set) — it serves both the hashed assets and `index.html` for client routes. WhiteNoise still covers only Django's own `STATIC_ROOT` (admin/DRF). No Node at install time. |
-| `docling-parser` | **`WarpIngestParser`** (`opencontractserver/pipeline/parsers/warp_ingest_parser.py`) — in-process, rule-based, no torch/GPU. |
+| `docling-parser` | **`WarpIngestLocalParser`** (`opencontractserver/pipeline/parsers/warp_ingest_local_parser.py`) — in-process, rule-based, no torch/GPU. |
 | `docxodus-parser`, `vector-embedder`, `multimodal-embedder`, `privacy_filter` | Not used. Embeddings come from an OpenAI-compatible endpoint (`OpenAIEmbedder`, cloud key or a local server via `OPENAI_API_BASE_URL`). |
 
 ## Tiers
@@ -41,7 +41,7 @@ pure-Python, rule-based PDF layout engine (built on `pdfplumber`; optional
 CPU-only OCR via `rapidocr-onnxruntime`). Its
 `pdf_ingestor.parse_to_opencontracts(path)` returns an `OpenContractDocExport`
 directly — PAWLS word tokens, one structural annotation per block, and the
-heading hierarchy as `OC_PARENT_CHILD` relationships — so `WarpIngestParser` is a
+heading hierarchy as `OC_PARENT_CHILD` relationships — so `WarpIngestLocalParser` is a
 thin wrapper around `BaseParser`. Verified against real PDFs: born-digital docs
 yield hundreds of structural annotations + relationships with no microservice.
 
@@ -135,7 +135,7 @@ To enable embeddings + chat, set `OPENAI_API_KEY` (and optionally
 ## Phased delivery
 
 - **Phase 0 (this):** `config/settings/desktop.py` + `oc-desktop.py` launcher +
-  `WarpIngestParser` + first-run bootstrap. Runs the whole stack as processes.
+  `WarpIngestLocalParser` + first-run bootstrap. Runs the whole stack as processes.
 - **Phase 1:** package `python-build-standalone` + a relocatable venv + `pgserver`
   + staged `dist/` per-OS; harden embedded-Postgres supervision (stale-lock
   recovery, major-version datadir guard); loop-safe notification transport;

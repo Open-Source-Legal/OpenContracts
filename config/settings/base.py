@@ -13,10 +13,13 @@ from opencontractserver.constants.agent_memory import (
 )
 from opencontractserver.constants.celery import CELERY_REDIS_VISIBILITY_TIMEOUT_SECONDS
 from opencontractserver.constants.document_processing import (
+    DEFAULT_GOTENBERG_SERVICE_URL,
     DEFAULT_MAX_CORPUS_MANIFEST_SIZE_BYTES,
     DEFAULT_MAX_CORPUS_REINGEST_SOURCE_BYTES,
     DOCLING_PARSER_REQUEST_TIMEOUT_SECONDS,
+    GOTENBERG_CONVERTER_REQUEST_TIMEOUT_SECONDS,
     MAX_FILE_UPLOAD_SIZE_BYTES,
+    WARP_INGEST_PARSER_REQUEST_TIMEOUT_SECONDS,
 )
 from opencontractserver.constants.stats import SYSTEM_STATS_REFRESH_INTERVAL_SECONDS
 
@@ -1212,6 +1215,30 @@ DOCLING_PARSER_TIMEOUT = env.int(
 )
 use_cloud_run_iam_auth = True
 
+# Warp-Ingest parser microservice (deterministic, rule-based PDF parser). These
+# seed the WarpIngestParser component settings via ``migrate_pipeline_settings``
+# (PipelineSetting env_var metadata); the DB PipelineSettings singleton is the
+# runtime source of truth. Run the official ``ghcr.io/open-source-legal/warp-ingest``
+# image as the ``warp-ingest`` service — see ``docs/pipelines/warp_ingest_parser.md``.
+WARP_INGEST_PARSER_SERVICE_URL = env(
+    "WARP_INGEST_PARSER_SERVICE_URL", default="http://warp-ingest:5001/api/parse"
+)
+WARP_INGEST_PARSER_TIMEOUT = env.int(
+    "WARP_INGEST_PARSER_TIMEOUT", default=WARP_INGEST_PARSER_REQUEST_TIMEOUT_SECONDS
+)
+WARP_INGEST_API_KEY = env("WARP_INGEST_API_KEY", default="")
+
+# Gotenberg Settings - for the optional pre-parse file-to-PDF converter
+# (GotenbergFileConverter). These seed the converter's component settings via
+# ``migrate_pipeline_settings`` (PipelineSetting env_var metadata); the DB
+# PipelineSettings singleton is the runtime source of truth.
+GOTENBERG_SERVICE_URL = env(
+    "GOTENBERG_SERVICE_URL", default=DEFAULT_GOTENBERG_SERVICE_URL
+)
+GOTENBERG_CONVERTER_TIMEOUT = env.int(
+    "GOTENBERG_CONVERTER_TIMEOUT", default=GOTENBERG_CONVERTER_REQUEST_TIMEOUT_SECONDS
+)
+
 # LlamaParse Settings - for LlamaParse document parser
 # Supports both LLAMAPARSE_API_KEY and LLAMA_CLOUD_API_KEY (LlamaIndex's default env var)
 _llamaparse_key = env.str("LLAMAPARSE_API_KEY", default="")
@@ -1393,15 +1420,6 @@ IMAGE_EXTRACTION_GC_INTERVAL_PAGES = env.int(
     "IMAGE_EXTRACTION_GC_INTERVAL_PAGES", default=1
 )
 
-# Thumbnail extraction tasks
-THUMBNAIL_TASKS = {
-    "application/pdf": "opencontractserver.tasks.doc_tasks.extract_pdf_thumbnail",
-    "application/txt": "opencontractserver.tasks.doc_tasks.extract_txt_thumbnail",
-    "text/plain": "opencontractserver.tasks.doc_tasks.extract_txt_thumbnail",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "opencontractserver.tasks.doc_tasks.extract_docx_thumbnail",  # noqa
-    # Add other MIME types and their thumbnail tasks as needed
-}
-
 # Annotation JSON validation
 # When True, Annotation.clean() validates the structure of annotation JSON
 # on every save. Enabled by default — the validation is a lightweight
@@ -1452,11 +1470,6 @@ DEFAULT_EMBEDDING_DIMENSION = 768
 TEST_RUNNER = "opencontractserver.tests.runner.TerminateConnectionsTestRunner"
 
 PARSER_KWARGS = {
-    "opencontractserver.pipeline.parsers.docling_parser.DoclingParser": {
-        "force_ocr": False,
-        "roll_up_groups": True,
-        "llm_enhanced_hierarchy": False,
-    },
     "opencontractserver.pipeline.parsers.llamaparse_parser.LlamaParseParser": {
         "api_key": LLAMAPARSE_API_KEY,
         "result_type": "json",
@@ -1469,8 +1482,16 @@ PARSER_KWARGS = {
 
 # Enabled pipeline components. An empty list means all registered components are enabled.
 # To restrict to specific components, list their full class paths, e.g.:
-#   ENABLED_COMPONENTS = ["opencontractserver.pipeline.parsers.docling_parser.DoclingParser"]
+#   ENABLED_COMPONENTS = ["opencontractserver.pipeline.parsers.docling_parser_rest.DoclingParser"]
 ENABLED_COMPONENTS: list[str] = []
+
+# Optional pre-parse file converter (BaseFileConverter class path). When set,
+# uploads whose extension is in the converter's enabled set are converted to
+# PDF at the head of the ingest chain and then parsed by the normal PDF
+# pipeline. Empty string (the default) disables the conversion step — enable
+# it here or in the admin System Settings UI, e.g.:
+#   DEFAULT_FILE_CONVERTER=opencontractserver.pipeline.file_converters.gotenberg_converter.GotenbergFileConverter  # noqa: E501
+DEFAULT_FILE_CONVERTER = env.str("DEFAULT_FILE_CONVERTER", default="")
 
 # Analyzers
 # ------------------------------------------------------------------------------

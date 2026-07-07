@@ -574,7 +574,11 @@ class EmbeddingAPI:
         Args:
             text: Text to embed
             corpus_id: Optional corpus ID for context-specific embedding
-            mimetype: Optional mimetype for context
+            mimetype: Currently a no-op, kept for call-site compatibility.
+                Per-MIME embedder resolution was removed (issue #2114): mixing
+                embedder classes/dimensions per MIME type would fragment the
+                single global, cross-corpus vector index. Use ``embedder`` for
+                an explicit override.
             embedder: Optional custom embedder path
 
         Returns:
@@ -588,7 +592,6 @@ class EmbeddingAPI:
             embedder_path, vector = embeddings.generate(
                 "Legal document text",
                 corpus_id=123,
-                mimetype="application/pdf"
             )
         """
         return generate_embeddings_from_text(

@@ -276,6 +276,36 @@ class PipelineSettingsModelTestCase(TestCase):
         # Stored plaintext dict must not be mutated by the merge
         self.assertEqual(instance.component_settings[comp_path]["api_key"], "")
 
+    def test_get_components_with_secrets_excludes_tool_keys(self):
+        """``get_components_with_secrets`` returns only component paths, never
+        ``tool:`` keys.
+
+        Component secrets and agent-tool secrets share the same encrypted store,
+        so building the component-secret list from raw ``get_secrets().keys()``
+        would leak tool keys (e.g. ``tool:web_search``) into the admin Component
+        Library's per-component secret indicators.
+        """
+        PipelineSettings.objects.all().delete()
+        instance = PipelineSettings.get_instance()
+
+        comp_path = (
+            "opencontractserver.pipeline.parsers.llamaparse_parser.LlamaParseParser"
+        )
+        instance.set_secrets(
+            {
+                comp_path: {"api_key": "sk-component"},
+                "tool:web_search": {"api_key": "brave-key"},
+            }
+        )
+        instance.save()
+
+        components = instance.get_components_with_secrets()
+        tools = instance.get_tools_with_secrets()
+
+        self.assertIn(comp_path, components)
+        self.assertNotIn("tool:web_search", components)
+        self.assertEqual(tools, ["tool:web_search"])
+
     def test_get_parser_kwargs_log_redaction_hides_secret(self):
         """The merged dict, after redact_sensitive_kwargs, must not leak the key.
 
@@ -408,6 +438,96 @@ class TestEnabledComponents(TestCase):
         self.assertTrue(instance.is_component_enabled("any.path"))
         self.assertEqual(instance.get_enabled_components(), [])
 
+    def test_disabled_but_assigned_parser_not_returned(self):
+        """Issue #2116: a resolved-but-disabled parser is treated as 'not
+        configured', matching get_preferred_parser's existing None contract,
+        rather than being returned for use at ingest."""
+        instance = PipelineSettings.get_instance()
+        instance.preferred_parsers = {"application/pdf": "comp.DisabledParser"}
+        instance.enabled_components = ["comp.OtherEnabledThing"]
+        instance.save()
+
+        self.assertIsNone(instance.get_preferred_parser("application/pdf"))
+
+        # Enabling it makes it resolve again.
+        instance.enabled_components = ["comp.DisabledParser"]
+        instance.save()
+        self.assertEqual(
+            instance.get_preferred_parser("application/pdf"), "comp.DisabledParser"
+        )
+
+    def test_disabled_but_assigned_embedder_and_thumbnailer_not_returned(self):
+        """Same enforcement as parsers, for embedders and thumbnailers."""
+        instance = PipelineSettings.get_instance()
+        instance.preferred_embedders = {"application/pdf": "comp.DisabledEmbedder"}
+        instance.preferred_thumbnailers = {
+            "application/pdf": "comp.DisabledThumbnailer"
+        }
+        instance.enabled_components = ["comp.SomethingElse"]
+        instance.save()
+
+        self.assertIsNone(instance.get_preferred_embedder("application/pdf"))
+        self.assertIsNone(instance.get_preferred_thumbnailer("application/pdf"))
+
+    def test_disabled_default_embedder_reranker_and_converter_return_empty_string(
+        self,
+    ):
+        """Issue #2116: a disabled default embedder/reranker/file converter
+        returns '' -- the existing 'disabled/unset' contract for each -- so
+        downstream resolution treats it the same as never having been
+        configured, rather than silently using a disabled component."""
+        instance = PipelineSettings.get_instance()
+        instance.default_embedder = "comp.DisabledEmbedder"
+        instance.default_reranker = "comp.DisabledReranker"
+        instance.default_file_converter = "comp.DisabledConverter"
+        instance.enabled_components = ["comp.SomethingElse"]
+        instance.save()
+
+        self.assertEqual(instance.get_default_embedder(), "")
+        self.assertEqual(instance.get_default_reranker(), "")
+        self.assertEqual(instance.get_default_file_converter(), "")
+
+        # Enabling them makes each resolve again.
+        instance.enabled_components = [
+            "comp.DisabledEmbedder",
+            "comp.DisabledReranker",
+            "comp.DisabledConverter",
+        ]
+        instance.save()
+        self.assertEqual(instance.get_default_embedder(), "comp.DisabledEmbedder")
+        self.assertEqual(instance.get_default_reranker(), "comp.DisabledReranker")
+        self.assertEqual(
+            instance.get_default_file_converter(), "comp.DisabledConverter"
+        )
+
+    def test_get_preferred_enrichers_filters_disabled_entries(self):
+        """Issue #2116: get_preferred_enrichers drops disabled entries from
+        the chain (matching run_enrichers' existing best-effort/skip-on-error
+        semantics) while preserving the order of the enabled ones."""
+        instance = PipelineSettings.get_instance()
+        instance.preferred_enrichers = {
+            "application/pdf": [
+                "comp.EnricherOne",
+                "comp.DisabledEnricher",
+                "comp.EnricherTwo",
+            ]
+        }
+        instance.enabled_components = ["comp.EnricherOne", "comp.EnricherTwo"]
+        instance.save()
+
+        self.assertEqual(
+            instance.get_preferred_enrichers("application/pdf"),
+            ["comp.EnricherOne", "comp.EnricherTwo"],
+        )
+
+        # Empty enabled_components ("all enabled") keeps every entry, in order.
+        instance.enabled_components = []
+        instance.save()
+        self.assertEqual(
+            instance.get_preferred_enrichers("application/pdf"),
+            ["comp.EnricherOne", "comp.DisabledEnricher", "comp.EnricherTwo"],
+        )
+
 
 class PipelineSettingsGraphQLTestCase(TestCase):
     """Tests for the PipelineSettings GraphQL endpoints."""
@@ -494,6 +614,366 @@ class PipelineSettingsGraphQLTestCase(TestCase):
                 parser.class_name,
             )
 
+    def test_update_preferred_parsers_merges_and_preserves_siblings(self):
+        """Updating one MIME type's preferred parser must not drop other
+        MIME types' entries. The mutation used to assign the incoming dict
+        wholesale, so setting only "application/pdf" would silently erase
+        an existing "text/plain" mapping.
+        """
+        from opencontractserver.pipeline.registry import get_registry
+
+        registry = get_registry()
+        if not registry.parsers:
+            self.skipTest("No parsers registered to exercise this test.")
+        parser_path = registry.parsers[0].class_name
+
+        mutation = """
+            mutation UpdatePipelineSettings($preferredParsers: GenericScalar) {
+                updatePipelineSettings(preferredParsers: $preferredParsers) {
+                    ok
+                    message
+                    pipelineSettings {
+                        preferredParsers
+                    }
+                }
+            }
+        """
+
+        # First call assigns two MIME types.
+        result = self.superuser_client.execute(
+            mutation,
+            variables={
+                "preferredParsers": {
+                    "application/pdf": parser_path,
+                    "text/plain": parser_path,
+                }
+            },
+        )
+        self.assertTrue(result["data"]["updatePipelineSettings"]["ok"])
+
+        # Second call only touches application/pdf.
+        result = self.superuser_client.execute(
+            mutation,
+            variables={"preferredParsers": {"application/pdf": parser_path}},
+        )
+        self.assertIsNone(result.get("errors"))
+        data = result["data"]["updatePipelineSettings"]
+        self.assertTrue(data["ok"], data.get("message"))
+        preferred_parsers = data["pipelineSettings"]["preferredParsers"]
+        self.assertEqual(preferred_parsers["application/pdf"], parser_path)
+        self.assertEqual(
+            preferred_parsers["text/plain"],
+            parser_path,
+            "Updating application/pdf must not drop the existing text/plain entry.",
+        )
+
+    def test_update_preferred_parsers_null_value_deletes_entry(self):
+        """Sending an explicit `null` for a MIME type removes that entry
+        while preserving siblings — this is how the admin GUI's
+        "-- Unassigned --" option clears a single filetype default without
+        resending the full mapping (SystemSettings.tsx handleAssign)."""
+        from opencontractserver.pipeline.registry import get_registry
+
+        registry = get_registry()
+        if not registry.parsers:
+            self.skipTest("No parsers registered to exercise this test.")
+        parser_path = registry.parsers[0].class_name
+
+        mutation = """
+            mutation UpdatePipelineSettings($preferredParsers: GenericScalar) {
+                updatePipelineSettings(preferredParsers: $preferredParsers) {
+                    ok
+                    message
+                    pipelineSettings {
+                        preferredParsers
+                    }
+                }
+            }
+        """
+
+        # Assign two MIME types.
+        result = self.superuser_client.execute(
+            mutation,
+            variables={
+                "preferredParsers": {
+                    "application/pdf": parser_path,
+                    "text/plain": parser_path,
+                }
+            },
+        )
+        self.assertTrue(result["data"]["updatePipelineSettings"]["ok"])
+
+        # Clear application/pdf via an explicit null, leaving text/plain alone.
+        result = self.superuser_client.execute(
+            mutation,
+            variables={"preferredParsers": {"application/pdf": None}},
+        )
+        self.assertIsNone(result.get("errors"))
+        data = result["data"]["updatePipelineSettings"]
+        self.assertTrue(data["ok"], data.get("message"))
+        preferred_parsers = data["pipelineSettings"]["preferredParsers"]
+        self.assertNotIn("application/pdf", preferred_parsers)
+        self.assertEqual(preferred_parsers["text/plain"], parser_path)
+
+    def test_update_preferred_embedders_merges_and_preserves_siblings(self):
+        """Updating one MIME type's preferred embedder must not drop other
+        MIME types' entries (same class of bug as preferred_parsers)."""
+        from opencontractserver.pipeline.registry import get_registry
+
+        registry = get_registry()
+        if not registry.embedders:
+            self.skipTest("No embedders registered to exercise this test.")
+        embedder_path = registry.embedders[0].class_name
+
+        mutation = """
+            mutation UpdatePipelineSettings($preferredEmbedders: GenericScalar) {
+                updatePipelineSettings(preferredEmbedders: $preferredEmbedders) {
+                    ok
+                    message
+                    pipelineSettings {
+                        preferredEmbedders
+                    }
+                }
+            }
+        """
+
+        # First call assigns two MIME types.
+        result = self.superuser_client.execute(
+            mutation,
+            variables={
+                "preferredEmbedders": {
+                    "application/pdf": embedder_path,
+                    "text/plain": embedder_path,
+                }
+            },
+        )
+        self.assertTrue(result["data"]["updatePipelineSettings"]["ok"])
+
+        # Second call only touches application/pdf.
+        result = self.superuser_client.execute(
+            mutation,
+            variables={"preferredEmbedders": {"application/pdf": embedder_path}},
+        )
+        self.assertIsNone(result.get("errors"))
+        data = result["data"]["updatePipelineSettings"]
+        self.assertTrue(data["ok"], data.get("message"))
+        preferred_embedders = data["pipelineSettings"]["preferredEmbedders"]
+        self.assertEqual(preferred_embedders["application/pdf"], embedder_path)
+        self.assertEqual(
+            preferred_embedders["text/plain"],
+            embedder_path,
+            "Updating application/pdf must not drop the existing text/plain entry.",
+        )
+
+    def test_update_preferred_thumbnailers_merges_and_preserves_siblings(self):
+        """Updating one MIME type's preferred thumbnailer must not drop other
+        MIME types' entries (same class of bug as preferred_parsers)."""
+        from opencontractserver.pipeline.registry import get_registry
+
+        registry = get_registry()
+        if not registry.thumbnailers:
+            self.skipTest("No thumbnailers registered to exercise this test.")
+        thumbnailer_path = registry.thumbnailers[0].class_name
+
+        mutation = """
+            mutation UpdatePipelineSettings($preferredThumbnailers: GenericScalar) {
+                updatePipelineSettings(preferredThumbnailers: $preferredThumbnailers) {
+                    ok
+                    message
+                    pipelineSettings {
+                        preferredThumbnailers
+                    }
+                }
+            }
+        """
+
+        # First call assigns two MIME types.
+        result = self.superuser_client.execute(
+            mutation,
+            variables={
+                "preferredThumbnailers": {
+                    "application/pdf": thumbnailer_path,
+                    "text/plain": thumbnailer_path,
+                }
+            },
+        )
+        self.assertTrue(result["data"]["updatePipelineSettings"]["ok"])
+
+        # Second call only touches application/pdf.
+        result = self.superuser_client.execute(
+            mutation,
+            variables={"preferredThumbnailers": {"application/pdf": thumbnailer_path}},
+        )
+        self.assertIsNone(result.get("errors"))
+        data = result["data"]["updatePipelineSettings"]
+        self.assertTrue(data["ok"], data.get("message"))
+        preferred_thumbnailers = data["pipelineSettings"]["preferredThumbnailers"]
+        self.assertEqual(preferred_thumbnailers["application/pdf"], thumbnailer_path)
+        self.assertEqual(
+            preferred_thumbnailers["text/plain"],
+            thumbnailer_path,
+            "Updating application/pdf must not drop the existing text/plain entry.",
+        )
+
+    def test_update_parser_kwargs_merges_and_preserves_siblings(self):
+        """Updating one parser's kwargs must not drop another parser's kwargs."""
+        mutation = """
+            mutation UpdatePipelineSettings($parserKwargs: GenericScalar) {
+                updatePipelineSettings(parserKwargs: $parserKwargs) {
+                    ok
+                    message
+                    pipelineSettings {
+                        parserKwargs
+                    }
+                }
+            }
+        """
+
+        result = self.superuser_client.execute(
+            mutation,
+            variables={
+                "parserKwargs": {
+                    "some.parser.TestParserA": {"force_ocr": True},
+                    "some.parser.TestParserB": {"timeout": 60},
+                }
+            },
+        )
+        self.assertTrue(result["data"]["updatePipelineSettings"]["ok"])
+
+        result = self.superuser_client.execute(
+            mutation,
+            variables={
+                "parserKwargs": {"some.parser.TestParserA": {"force_ocr": False}}
+            },
+        )
+        self.assertIsNone(result.get("errors"))
+        data = result["data"]["updatePipelineSettings"]
+        self.assertTrue(data["ok"], data.get("message"))
+        parser_kwargs = data["pipelineSettings"]["parserKwargs"]
+        self.assertEqual(parser_kwargs["some.parser.TestParserA"]["force_ocr"], False)
+        self.assertEqual(
+            parser_kwargs["some.parser.TestParserB"]["timeout"],
+            60,
+            "Updating TestParserA's kwargs must not drop TestParserB's kwargs.",
+        )
+
+    def test_update_parser_kwargs_null_value_deletes_entry(self):
+        """Sending an explicit `null` for a parser class path removes that
+        entry entirely while preserving siblings."""
+        mutation = """
+            mutation UpdatePipelineSettings($parserKwargs: GenericScalar) {
+                updatePipelineSettings(parserKwargs: $parserKwargs) {
+                    ok
+                    message
+                    pipelineSettings {
+                        parserKwargs
+                    }
+                }
+            }
+        """
+
+        result = self.superuser_client.execute(
+            mutation,
+            variables={
+                "parserKwargs": {
+                    "some.parser.TestParserA": {"force_ocr": True},
+                    "some.parser.TestParserB": {"timeout": 60},
+                }
+            },
+        )
+        self.assertTrue(result["data"]["updatePipelineSettings"]["ok"])
+
+        result = self.superuser_client.execute(
+            mutation,
+            variables={"parserKwargs": {"some.parser.TestParserA": None}},
+        )
+        self.assertIsNone(result.get("errors"))
+        data = result["data"]["updatePipelineSettings"]
+        self.assertTrue(data["ok"], data.get("message"))
+        parser_kwargs = data["pipelineSettings"]["parserKwargs"]
+        self.assertNotIn("some.parser.TestParserA", parser_kwargs)
+        self.assertEqual(parser_kwargs["some.parser.TestParserB"]["timeout"], 60)
+
+    def test_update_component_settings_merges_and_preserves_siblings(self):
+        """Updating one component's settings must not drop another
+        component's settings."""
+        mutation = """
+            mutation UpdatePipelineSettings($componentSettings: GenericScalar) {
+                updatePipelineSettings(componentSettings: $componentSettings) {
+                    ok
+                    message
+                    pipelineSettings {
+                        componentSettings
+                    }
+                }
+            }
+        """
+
+        result = self.superuser_client.execute(
+            mutation,
+            variables={
+                "componentSettings": {
+                    "some.component.ParserA": {"timeout": 30},
+                    "some.component.ParserB": {"timeout": 60},
+                }
+            },
+        )
+        self.assertTrue(result["data"]["updatePipelineSettings"]["ok"])
+
+        result = self.superuser_client.execute(
+            mutation,
+            variables={
+                "componentSettings": {"some.component.ParserA": {"timeout": 99}}
+            },
+        )
+        self.assertIsNone(result.get("errors"))
+        data = result["data"]["updatePipelineSettings"]
+        self.assertTrue(data["ok"], data.get("message"))
+        component_settings = data["pipelineSettings"]["componentSettings"]
+        self.assertEqual(component_settings["some.component.ParserA"]["timeout"], 99)
+        self.assertEqual(
+            component_settings["some.component.ParserB"]["timeout"],
+            60,
+            "Updating ParserA's settings must not drop ParserB's settings.",
+        )
+
+    def test_update_component_settings_null_value_deletes_entry(self):
+        """Sending an explicit `null` for a component class path removes that
+        entry entirely while preserving siblings."""
+        mutation = """
+            mutation UpdatePipelineSettings($componentSettings: GenericScalar) {
+                updatePipelineSettings(componentSettings: $componentSettings) {
+                    ok
+                    message
+                    pipelineSettings {
+                        componentSettings
+                    }
+                }
+            }
+        """
+
+        result = self.superuser_client.execute(
+            mutation,
+            variables={
+                "componentSettings": {
+                    "some.component.ParserA": {"timeout": 30},
+                    "some.component.ParserB": {"timeout": 60},
+                }
+            },
+        )
+        self.assertTrue(result["data"]["updatePipelineSettings"]["ok"])
+
+        result = self.superuser_client.execute(
+            mutation,
+            variables={"componentSettings": {"some.component.ParserA": None}},
+        )
+        self.assertIsNone(result.get("errors"))
+        data = result["data"]["updatePipelineSettings"]
+        self.assertTrue(data["ok"], data.get("message"))
+        component_settings = data["pipelineSettings"]["componentSettings"]
+        self.assertNotIn("some.component.ParserA", component_settings)
+        self.assertEqual(component_settings["some.component.ParserB"]["timeout"], 60)
+
     def test_update_pipeline_settings_as_regular_user_fails(self):
         """Test that regular users cannot update pipeline settings."""
         mutation = """
@@ -551,6 +1031,288 @@ class PipelineSettingsGraphQLTestCase(TestCase):
             "not found",
             result["data"]["updatePipelineSettings"]["message"].lower(),
         )
+
+    def test_update_preferred_thumbnailer_rejects_wrong_component_type(self):
+        """Assigning a registered PARSER class as a thumbnailer is rejected.
+
+        Registry membership alone is not enough: a parser passes the existence
+        check but has no ``generate_thumbnail`` and would fail every affected
+        document at ingest. ``validate_component_mapping`` must reject the
+        cross-type assignment (which the GUI dropdown can never produce, but a
+        raw GraphQL call can).
+        """
+        from opencontractserver.pipeline.registry import get_registry
+
+        registry = get_registry()
+        if not registry.parsers:
+            self.skipTest("No parsers registered to exercise the type guard.")
+        parser_path = registry.parsers[0].class_name
+
+        mutation = """
+            mutation UpdatePipelineSettings($preferredThumbnailers: GenericScalar) {
+                updatePipelineSettings(preferredThumbnailers: $preferredThumbnailers) {
+                    ok
+                    message
+                }
+            }
+        """
+        variables = {"preferredThumbnailers": {"application/pdf": parser_path}}
+
+        result = self.superuser_client.execute(mutation, variables=variables)
+        self.assertIsNone(result.get("errors"))
+        self.assertFalse(result["data"]["updatePipelineSettings"]["ok"])
+        self.assertIn(
+            "not a thumbnailer",
+            result["data"]["updatePipelineSettings"]["message"].lower(),
+        )
+
+    def test_update_preferred_enrichers_as_superuser(self):
+        """A valid preferred_enrichers mapping is accepted and round-trips."""
+        from opencontractserver.pipeline.registry import get_registry
+
+        registry = get_registry()
+        if not registry.enrichers:
+            self.skipTest("No enrichers registered to exercise this test.")
+        enricher_path = registry.enrichers[0].class_name
+
+        mutation = """
+            mutation UpdatePipelineSettings($preferredEnrichers: GenericScalar) {
+                updatePipelineSettings(preferredEnrichers: $preferredEnrichers) {
+                    ok
+                    message
+                    pipelineSettings {
+                        preferredEnrichers
+                    }
+                }
+            }
+        """
+        variables = {"preferredEnrichers": {"application/pdf": [enricher_path]}}
+
+        result = self.superuser_client.execute(mutation, variables=variables)
+        self.assertIsNone(result.get("errors"))
+        data = result["data"]["updatePipelineSettings"]
+        self.assertTrue(data["ok"], data.get("message"))
+        self.assertEqual(
+            data["pipelineSettings"]["preferredEnrichers"]["application/pdf"],
+            [enricher_path],
+        )
+
+        # Confirm it round-trips through a fresh query too.
+        query = """
+            query {
+                pipelineSettings {
+                    preferredEnrichers
+                }
+            }
+        """
+        query_result = self.superuser_client.execute(query)
+        self.assertIsNone(query_result.get("errors"))
+        self.assertEqual(
+            query_result["data"]["pipelineSettings"]["preferredEnrichers"][
+                "application/pdf"
+            ],
+            [enricher_path],
+        )
+
+    def test_update_preferred_enrichers_merges_and_preserves_siblings(self):
+        """Updating one MIME type's enricher chain must not drop other MIME
+        types' chains (same class of bug as the preferred_parsers case)."""
+        from opencontractserver.pipeline.registry import get_registry
+
+        registry = get_registry()
+        if not registry.enrichers:
+            self.skipTest("No enrichers registered to exercise this test.")
+        enricher_path = registry.enrichers[0].class_name
+
+        mutation = """
+            mutation UpdatePipelineSettings($preferredEnrichers: GenericScalar) {
+                updatePipelineSettings(preferredEnrichers: $preferredEnrichers) {
+                    ok
+                    message
+                    pipelineSettings {
+                        preferredEnrichers
+                    }
+                }
+            }
+        """
+
+        # First call assigns two MIME types.
+        result = self.superuser_client.execute(
+            mutation,
+            variables={
+                "preferredEnrichers": {
+                    "application/pdf": [enricher_path],
+                    "text/plain": [enricher_path],
+                }
+            },
+        )
+        self.assertTrue(result["data"]["updatePipelineSettings"]["ok"])
+
+        # Second call only touches application/pdf.
+        result = self.superuser_client.execute(
+            mutation,
+            variables={"preferredEnrichers": {"application/pdf": [enricher_path]}},
+        )
+        self.assertIsNone(result.get("errors"))
+        data = result["data"]["updatePipelineSettings"]
+        self.assertTrue(data["ok"], data.get("message"))
+        preferred_enrichers = data["pipelineSettings"]["preferredEnrichers"]
+        self.assertEqual(preferred_enrichers["application/pdf"], [enricher_path])
+        self.assertEqual(
+            preferred_enrichers["text/plain"],
+            [enricher_path],
+            "Updating application/pdf must not drop the existing text/plain entry.",
+        )
+
+    def test_update_preferred_enrichers_null_value_deletes_entry(self):
+        """Sending an explicit `null` for a MIME type removes its enricher
+        chain entirely while preserving siblings — this is how the admin
+        GUI clears the last enricher for a MIME type (SystemSettings.tsx
+        handleAssignEnrichers)."""
+        from opencontractserver.pipeline.registry import get_registry
+
+        registry = get_registry()
+        if not registry.enrichers:
+            self.skipTest("No enrichers registered to exercise this test.")
+        enricher_path = registry.enrichers[0].class_name
+
+        mutation = """
+            mutation UpdatePipelineSettings($preferredEnrichers: GenericScalar) {
+                updatePipelineSettings(preferredEnrichers: $preferredEnrichers) {
+                    ok
+                    message
+                    pipelineSettings {
+                        preferredEnrichers
+                    }
+                }
+            }
+        """
+
+        # Assign two MIME types.
+        result = self.superuser_client.execute(
+            mutation,
+            variables={
+                "preferredEnrichers": {
+                    "application/pdf": [enricher_path],
+                    "text/plain": [enricher_path],
+                }
+            },
+        )
+        self.assertTrue(result["data"]["updatePipelineSettings"]["ok"])
+
+        # Clear application/pdf via an explicit null, leaving text/plain alone.
+        result = self.superuser_client.execute(
+            mutation,
+            variables={"preferredEnrichers": {"application/pdf": None}},
+        )
+        self.assertIsNone(result.get("errors"))
+        data = result["data"]["updatePipelineSettings"]
+        self.assertTrue(data["ok"], data.get("message"))
+        preferred_enrichers = data["pipelineSettings"]["preferredEnrichers"]
+        self.assertNotIn("application/pdf", preferred_enrichers)
+        self.assertEqual(preferred_enrichers["text/plain"], [enricher_path])
+
+    def test_update_preferred_enrichers_rejects_non_enricher_component(self):
+        """Assigning a non-enricher component path (e.g. a parser) is rejected."""
+        from opencontractserver.pipeline.registry import get_registry
+
+        registry = get_registry()
+        if not registry.parsers:
+            self.skipTest("No parsers registered to exercise the type guard.")
+        parser_path = registry.parsers[0].class_name
+
+        mutation = """
+            mutation UpdatePipelineSettings($preferredEnrichers: GenericScalar) {
+                updatePipelineSettings(preferredEnrichers: $preferredEnrichers) {
+                    ok
+                    message
+                }
+            }
+        """
+        variables = {"preferredEnrichers": {"application/pdf": [parser_path]}}
+
+        result = self.superuser_client.execute(mutation, variables=variables)
+        self.assertIsNone(result.get("errors"))
+        data = result["data"]["updatePipelineSettings"]
+        self.assertFalse(data["ok"])
+        self.assertIn("not an enricher", data["message"].lower())
+
+    def test_update_preferred_enrichers_rejects_non_list_value(self):
+        """A MIME type mapped to a string instead of a list is rejected."""
+        from opencontractserver.pipeline.registry import get_registry
+
+        registry = get_registry()
+        if not registry.enrichers:
+            self.skipTest("No enrichers registered to exercise this test.")
+        enricher_path = registry.enrichers[0].class_name
+
+        mutation = """
+            mutation UpdatePipelineSettings($preferredEnrichers: GenericScalar) {
+                updatePipelineSettings(preferredEnrichers: $preferredEnrichers) {
+                    ok
+                    message
+                }
+            }
+        """
+        # Malformed: value is a bare string, not a list.
+        variables = {"preferredEnrichers": {"application/pdf": enricher_path}}
+
+        result = self.superuser_client.execute(mutation, variables=variables)
+        self.assertIsNone(result.get("errors"))
+        data = result["data"]["updatePipelineSettings"]
+        self.assertFalse(data["ok"])
+        self.assertIn("must be a list", data["message"].lower())
+
+    def test_pipeline_components_query_includes_enrichers(self):
+        """The pipelineComponents query now surfaces registered enrichers."""
+        from opencontractserver.pipeline.registry import get_registry
+
+        registry = get_registry()
+        if not registry.enrichers:
+            self.skipTest("No enrichers registered to exercise this test.")
+
+        query = """
+            query {
+                pipelineComponents {
+                    enrichers { className enabled }
+                }
+            }
+        """
+        result = self.superuser_client.execute(query)
+        self.assertIsNone(result.get("errors"))
+        enricher_paths = {
+            c["className"] for c in result["data"]["pipelineComponents"]["enrichers"]
+        }
+        self.assertIn(registry.enrichers[0].class_name, enricher_paths)
+
+    def test_pipeline_settings_query_excludes_tool_secret_keys(self):
+        """The ``componentsWithSecrets`` field must not surface ``tool:`` keys."""
+        instance = PipelineSettings.get_instance()
+        comp_path = (
+            "opencontractserver.pipeline.parsers.llamaparse_parser.LlamaParseParser"
+        )
+        instance.set_secrets(
+            {
+                comp_path: {"api_key": "sk-component"},
+                "tool:web_search": {"api_key": "brave-key"},
+            }
+        )
+        instance.save()
+
+        query = """
+            query {
+                pipelineSettings {
+                    componentsWithSecrets
+                    toolsWithSecrets
+                }
+            }
+        """
+        result = self.superuser_client.execute(query)
+        self.assertIsNone(result.get("errors"))
+        data = result["data"]["pipelineSettings"]
+        self.assertIn(comp_path, data["componentsWithSecrets"])
+        self.assertNotIn("tool:web_search", data["componentsWithSecrets"])
+        self.assertIn("tool:web_search", data["toolsWithSecrets"])
 
     def test_reset_pipeline_settings_as_superuser(self):
         """Test that superusers can reset pipeline settings to defaults."""
@@ -1029,6 +1791,8 @@ class EnabledComponentsMutationTestCase(TestCase):
             result["embedder"] = registry.embedders[0].class_name
         if registry.thumbnailers:
             result["thumbnailer"] = registry.thumbnailers[0].class_name
+        if registry.rerankers:
+            result["reranker"] = registry.rerankers[0].class_name
         return result
 
     def test_set_enabled_components(self):
@@ -1137,6 +1901,235 @@ class EnabledComponentsMutationTestCase(TestCase):
         self.assertFalse(data["ok"])
         self.assertIn("Cannot disable", data["message"])
         self.assertIn(parser_path, data["message"])
+
+    def test_assign_disabled_component_without_touching_enabled_components_rejected(
+        self,
+    ):
+        """Issue #2116 validation-gap fix: assigning a component that is NOT
+        in a pre-existing, non-empty enabled_components list must be rejected
+        even when the mutation call doesn't also touch enabled_components.
+
+        Previously the "assigned components must be a subset of
+        enabled_components" check only ran inside the `if enabled_components
+        is not None:` branch, so a call that only sent preferredParsers
+        skipped it entirely.
+        """
+        components = self._get_real_component_paths()
+        if "parser" not in components:
+            self.skipTest("Need at least 1 registered parser for this test")
+        parser_path = components["parser"]
+
+        from opencontractserver.pipeline.registry import get_registry
+
+        registry = get_registry()
+        all_paths = [
+            c.class_name
+            for c in registry.parsers + registry.embedders + registry.thumbnailers
+        ]
+        enabled_without_parser = [p for p in all_paths if p != parser_path]
+        if not enabled_without_parser:
+            self.skipTest("Need at least 2 registered components for this test")
+
+        # First, save a non-empty enabled_components list that legitimately
+        # excludes the parser (no filetype defaults are assigned yet, so this
+        # call succeeds on its own).
+        enable_mutation = """
+            mutation UpdatePipelineSettings($enabledComponents: [String]) {
+                updatePipelineSettings(enabledComponents: $enabledComponents) {
+                    ok
+                    message
+                }
+            }
+        """
+        result = self.superuser_client.execute(
+            enable_mutation,
+            variables={"enabledComponents": enabled_without_parser},
+        )
+        self.assertTrue(
+            result["data"]["updatePipelineSettings"]["ok"],
+            result["data"]["updatePipelineSettings"].get("message"),
+        )
+
+        # Now, WITHOUT sending enabledComponents, try to assign the disabled
+        # parser as a filetype default.
+        assign_mutation = """
+            mutation UpdatePipelineSettings($preferredParsers: GenericScalar) {
+                updatePipelineSettings(preferredParsers: $preferredParsers) {
+                    ok
+                    message
+                }
+            }
+        """
+        result = self.superuser_client.execute(
+            assign_mutation,
+            variables={"preferredParsers": {"application/pdf": parser_path}},
+        )
+        self.assertIsNone(result.get("errors"))
+        data = result["data"]["updatePipelineSettings"]
+        self.assertFalse(data["ok"])
+        self.assertIn("Cannot disable", data["message"])
+        self.assertIn(parser_path, data["message"])
+
+        # Confirm nothing was persisted (the mutation returned before .save()).
+        instance = PipelineSettings.get_instance(use_cache=False)
+        self.assertEqual(
+            (instance.preferred_parsers or {}).get("application/pdf"), None
+        )
+
+    def test_cannot_assign_disabled_component_as_default_reranker(self):
+        """A disabled component cannot be assigned as default_reranker.
+
+        Mirrors the parser-assignment rejection above: default_reranker was
+        missing from the enabled_components consistency guard, so a superuser
+        could successfully assign a disabled component as defaultReranker
+        with no validation error, silently turning off reranking at the next
+        retrieval (get_default_reranker returns "" for a disabled path).
+        """
+        components = self._get_real_component_paths()
+        if "reranker" not in components:
+            self.skipTest("Need at least 1 registered reranker for this test")
+        reranker_path = components["reranker"]
+
+        from opencontractserver.pipeline.registry import get_registry
+
+        registry = get_registry()
+        all_paths = [
+            c.class_name
+            for c in registry.parsers
+            + registry.embedders
+            + registry.thumbnailers
+            + registry.rerankers
+        ]
+        enabled_without_reranker = [p for p in all_paths if p != reranker_path]
+        if not enabled_without_reranker:
+            self.skipTest("Need at least 2 registered components for this test")
+
+        # First, save a non-empty enabled_components list that legitimately
+        # excludes the reranker (nothing is assigned to it yet, so this call
+        # succeeds on its own).
+        enable_mutation = """
+            mutation UpdatePipelineSettings($enabledComponents: [String]) {
+                updatePipelineSettings(enabledComponents: $enabledComponents) {
+                    ok
+                    message
+                }
+            }
+        """
+        result = self.superuser_client.execute(
+            enable_mutation,
+            variables={"enabledComponents": enabled_without_reranker},
+        )
+        self.assertTrue(
+            result["data"]["updatePipelineSettings"]["ok"],
+            result["data"]["updatePipelineSettings"].get("message"),
+        )
+
+        # Now, WITHOUT touching enabledComponents, try to assign the disabled
+        # reranker as defaultReranker.
+        assign_mutation = """
+            mutation UpdatePipelineSettings($defaultReranker: String) {
+                updatePipelineSettings(defaultReranker: $defaultReranker) {
+                    ok
+                    message
+                }
+            }
+        """
+        result = self.superuser_client.execute(
+            assign_mutation,
+            variables={"defaultReranker": reranker_path},
+        )
+        self.assertIsNone(result.get("errors"))
+        data = result["data"]["updatePipelineSettings"]
+        self.assertFalse(data["ok"])
+        self.assertIn("Cannot disable", data["message"])
+        self.assertIn(reranker_path, data["message"])
+
+        # Confirm nothing was persisted (the mutation returned before .save()).
+        instance = PipelineSettings.get_instance(use_cache=False)
+        self.assertNotEqual(instance.default_reranker, reranker_path)
+
+    def test_widen_enabled_components_and_assign_in_same_call_succeeds(self):
+        """Finding 3 (audit follow-up): widening enabled_components to
+        include a previously-disabled component AND assigning that same
+        component as a filetype default in the SAME mutation call must
+        succeed.
+
+        Guards against a future refactor that accidentally computes
+        enabled_set from the stale pre-call enabled_components value instead
+        of the in-call one -- which would make this legitimate, single-call
+        "enable and use" pattern spuriously fail.
+        """
+        components = self._get_real_component_paths()
+        if "parser" not in components:
+            self.skipTest("Need at least 1 registered parser for this test")
+        parser_path = components["parser"]
+
+        # Start with the parser disabled (a non-empty enabled_components list
+        # that excludes it).
+        from opencontractserver.pipeline.registry import get_registry
+
+        registry = get_registry()
+        all_paths = [
+            c.class_name
+            for c in registry.parsers + registry.embedders + registry.thumbnailers
+        ]
+        enabled_without_parser = [p for p in all_paths if p != parser_path]
+        if not enabled_without_parser:
+            self.skipTest("Need at least 2 registered components for this test")
+
+        enable_mutation = """
+            mutation UpdatePipelineSettings($enabledComponents: [String]) {
+                updatePipelineSettings(enabledComponents: $enabledComponents) {
+                    ok
+                    message
+                }
+            }
+        """
+        result = self.superuser_client.execute(
+            enable_mutation,
+            variables={"enabledComponents": enabled_without_parser},
+        )
+        self.assertTrue(
+            result["data"]["updatePipelineSettings"]["ok"],
+            result["data"]["updatePipelineSettings"].get("message"),
+        )
+
+        # Now, in a SINGLE call, widen enabled_components to include the
+        # parser AND assign it as the preferred parser for application/pdf.
+        widen_and_assign_mutation = """
+            mutation UpdatePipelineSettings(
+                $enabledComponents: [String]
+                $preferredParsers: GenericScalar
+            ) {
+                updatePipelineSettings(
+                    enabledComponents: $enabledComponents
+                    preferredParsers: $preferredParsers
+                ) {
+                    ok
+                    message
+                    pipelineSettings {
+                        enabledComponents
+                    }
+                }
+            }
+        """
+        result = self.superuser_client.execute(
+            widen_and_assign_mutation,
+            variables={
+                "enabledComponents": all_paths,
+                "preferredParsers": {"application/pdf": parser_path},
+            },
+        )
+        self.assertIsNone(result.get("errors"))
+        data = result["data"]["updatePipelineSettings"]
+        self.assertTrue(data["ok"], data.get("message"))
+        self.assertIn(parser_path, data["pipelineSettings"]["enabledComponents"])
+
+        instance = PipelineSettings.get_instance(use_cache=False)
+        self.assertEqual(
+            (instance.preferred_parsers or {}).get("application/pdf"), parser_path
+        )
+        self.assertIn(parser_path, instance.enabled_components)
 
     def test_invalid_component_path_rejected(self):
         """Nonexistent component paths in enabled_components should be rejected."""
@@ -1914,6 +2907,55 @@ class PipelineSettingsIntegrationTestCase(TestCase):
         self.assertEqual(
             instance.get_preferred_parser("application/pdf"),
             expected,
+        )
+
+    @override_settings(
+        PREFERRED_ENRICHERS={
+            "application/pdf": [
+                "opencontractserver.pipeline.enrichers.pdf_outline_enricher.PdfOutlineEnricher"
+            ]
+        }
+    )
+    def test_reset_restores_preferred_enrichers_django_default(self):
+        """Reset mutation restores PREFERRED_ENRICHERS from Django settings.
+
+        Unlike the other legacy defaults, preferred_enrichers was historically
+        EXCLUDED from Reset-to-Defaults even though PipelineSettings.get_instance()
+        seeds it from Django settings at first creation (issue #2118). This
+        confirms the mutation now includes it.
+        """
+        instance = PipelineSettings.get_instance()
+        instance.preferred_enrichers = {"application/pdf": ["custom.Enricher"]}
+        instance.save()
+        PipelineSettings.clear_cache()
+
+        self.assertEqual(
+            PipelineSettings.get_instance(use_cache=False).get_preferred_enrichers(
+                "application/pdf"
+            ),
+            ["custom.Enricher"],
+        )
+
+        mutation = """
+            mutation {
+                resetPipelineSettings {
+                    ok
+                    message
+                    pipelineSettings {
+                        preferredEnrichers
+                    }
+                }
+            }
+        """
+        result = self.superuser_client.execute(mutation)
+        self.assertIsNone(result.get("errors"))
+        data = result["data"]["resetPipelineSettings"]
+        self.assertTrue(data["ok"], data.get("message"))
+        self.assertEqual(
+            data["pipelineSettings"]["preferredEnrichers"]["application/pdf"],
+            [
+                "opencontractserver.pipeline.enrichers.pdf_outline_enricher.PdfOutlineEnricher"
+            ],
         )
 
 

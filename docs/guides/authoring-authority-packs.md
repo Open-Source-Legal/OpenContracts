@@ -157,6 +157,39 @@ already-loaded taxonomy/content rows persist (the loader upserts, it does not
 delete prefixes dropped from a YAML); remove them deliberately via the Authority
 Console if you want them gone.
 
+## Prefix ownership (what a re-load can and cannot clobber)
+
+Namespace rows are ownership-partitioned so no writer silently overwrites
+another (issue #2057):
+
+- A **curator edit** through the console stamps `source="manual"` — no loader
+  run ever touches the row again.
+- A **corpus-linked** namespace (`is_global=False`) is bootstrap-owned — same.
+- A **baseline** row is stamped with the writer that loaded it
+  (`AuthorityNamespace.baseline_origin`: the pack's manifest `name`, or `"core"`
+  for the shipped `authority_mappings.yaml`). Re-loading the same pack updates
+  its own rows (its YAML stays authoritative); a load that hits a prefix a
+  *different* origin owns **skips it with a warning** (counted as
+  `skipped_foreign_baseline` in the command output) — first writer wins. Resolve
+  a genuine collision by dropping the prefix from one YAML, or by curating the
+  row through the console (making it manual-owned). The pack name `core` is
+  reserved for the shipped baseline, and a pack's `name:` must be **unique
+  across every installed pack directory** (in-tree + `AUTHORITY_PACK_PATHS`):
+  two directories declaring the same name are treated as the same pack — they
+  co-own their prefixes with no collision guard between them.
+
+To converge the whole installed taxonomy — the shipped baseline plus every
+installed pack's mappings — in one idempotent run (e.g. after editing several
+packs' YAMLs):
+
+```bash
+docker compose -f local.yml run --rm django python manage.py load_authority_mappings --include-packs
+```
+
+`load_authority_pack` stays the full per-pack loader (taxonomy **+ content +
+personas**); `load_authority_mappings --include-packs` re-converges taxonomy
+only, across every installed pack at once.
+
 ## Carrying a jurisdiction's citation vocabulary in the pack
 
 Beyond `prefixes`/`equivalences`/`rewrite_rules`, a pack's mappings YAML may carry

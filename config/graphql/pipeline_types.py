@@ -65,6 +65,13 @@ class PipelineComponentType(graphene.ObjectType):
     supported_file_types = graphene.List(
         FileTypeEnum, description="List of supported file types."
     )
+    supported_extensions = graphene.List(
+        graphene.String,
+        description="File converters: source-file extensions the converter "
+        "can turn into PDF (plain strings, since converters target formats "
+        "with no FileTypeEnum member). Empty for other component types.",
+        required=False,
+    )
     component_type = graphene.String(
         description="Type of the component (parser, embedder, or thumbnailer)."
     )
@@ -125,11 +132,20 @@ class PipelineComponentsType(graphene.ObjectType):
         PipelineComponentType,
         description="List of available post-retrieval rerankers.",
     )
+    enrichers = graphene.List(
+        PipelineComponentType,
+        description="List of available document enrichers (run between parsing and persistence).",
+    )
     llm_providers = graphene.List(
         PipelineComponentType,
         description="List of available LLM providers (pydantic-ai model "
         "families) that can be set as Corpus.preferred_llm or "
         "AgentConfiguration.preferred_llm.",
+    )
+    file_converters = graphene.List(
+        PipelineComponentType,
+        description="List of available pre-parse file converters (convert "
+        "non-native upload formats to PDF before parsing).",
     )
 
 
@@ -202,10 +218,17 @@ class PipelineSettingsType(graphene.ObjectType):
         description="Mapping of MIME types to preferred parser class paths"
     )
     preferred_embedders = GenericScalar(
-        description="Mapping of MIME types to preferred embedder class paths"
+        description="Mapping of MIME types to preferred embedder class paths. "
+        "API-only (issue #2114): has no effect at ingest, which always "
+        "resolves the single global default_embedder to keep the "
+        "cross-corpus vector index on one embedding space."
     )
     preferred_thumbnailers = GenericScalar(
         description="Mapping of MIME types to preferred thumbnailer class paths"
+    )
+    preferred_enrichers = GenericScalar(
+        description="Mapping of MIME types to ORDERED LISTS of preferred enricher "
+        "class paths (the enrichment chain run between parsing and persistence)."
     )
 
     # Component configuration
@@ -218,7 +241,8 @@ class PipelineSettingsType(graphene.ObjectType):
 
     # Default embedder
     default_embedder = graphene.String(
-        description="Default embedder class path when no MIME-specific embedder is found"
+        description="Default embedder class path used for all ingest embedding. "
+        "There is no MIME-specific override; see preferred_embedders."
     )
 
     # Default reranker (post-retrieval). Empty string means reranking disabled.
@@ -226,6 +250,14 @@ class PipelineSettingsType(graphene.ObjectType):
         description="Default post-retrieval reranker class path. Empty string "
         "means reranking is disabled and first-stage retrieval "
         "results are returned as-is.",
+        required=False,
+    )
+
+    # Pre-parse file converter. Empty string means conversion disabled.
+    default_file_converter = graphene.String(
+        description="File converter class path used to convert non-native "
+        "upload formats to PDF before parsing. Empty string "
+        "disables the conversion step.",
         required=False,
     )
 

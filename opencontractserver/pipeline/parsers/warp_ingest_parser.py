@@ -1,39 +1,38 @@
-"""Warp-Ingest parser: a pure-Python, in-process PDF parser.
+"""Warp-Ingest PDF parser (REST client).
 
-`Warp-Ingest <https://github.com/Open-Source-Legal/Warp-Ingest>`_ is a
-rule-based (non-ML, no-GPU) PDF layout engine built on ``pdfplumber``. It turns
-a PDF into layout-aware structure — word/block bounding boxes, structural labels
-(section header, paragraph, list item, table row) and the parent ↔ child heading
-hierarchy — and renders it directly as an OpenContracts structural export
-(``pdf_ingestor.parse_to_opencontracts``): PAWLS word tokens, one structural
-annotation per block, and the heading hierarchy as ``OC_PARENT_CHILD``
-relationships.
+Delegates PDF parsing to a `Warp-Ingest <https://github.com/Open-Source-Legal/Warp-Ingest>`_
+microservice via its REST API. Warp-Ingest is a deterministic, rule-based PDF
+parser (pdfplumber word boxes + font/graphics heuristics, optional RapidOCR for
+scanned pages) that renders directly to the OpenContracts structural export
+format — PAWLS word tokens, per-block structural annotations, and a heading
+hierarchy expressed as ``parent_id`` links + explicit relationships.
 
-Because it runs entirely in-process (optional CPU-only OCR via
-``rapidocr-onnxruntime`` for scanned pages) with no microservice and no torch,
-it is the parser used by the single-user *desktop* build to replace the
-Docling parsing microservice. It is registered here for any deployment, but is
-only selected when ``PREFERRED_PARSERS`` / ``PipelineSettings`` point at it (the
-docker-compose default remains Docling).
+This mirrors the :class:`~opencontractserver.pipeline.parsers.docling_parser_rest.DoclingParser`
+pattern: the heavy parsing dependencies live in an isolated container (run the
+official ``ghcr.io/open-source-legal/warp-ingest`` image, see
+``docs/pipelines/warp_ingest_parser.md``) and OpenContracts talks to it over
+HTTP, so the Django image stays slim.
 
-``warp-ingest`` is an OPTIONAL dependency — it is imported lazily inside
-:meth:`WarpIngestParser._parse_document_impl` so pipeline auto-discovery keeps
-working when the package is not installed. Install it (and its OCR extra for
-scanned PDFs) with ``pip install "warp-ingest[ocr]"``. The ``nltk`` ``stopwords``
-and ``punkt`` corpora must be available (Warp-Ingest imports them at module
-load); the desktop bootstrap downloads them on first run.
+Unlike Docling, Warp-Ingest is **not** chunked here: it is CPU-only (no per-page
+GPU layout model) and its native API accepts a whole PDF, and it performs
+cross-page structure joining (heading hierarchies, tables and lists that span
+page boundaries) that page-range chunking would fragment. The whole document is
+sent in a single request, matching :class:`DocxodusServiceParser`'s non-chunked
+REST shape.
 """
 
 import logging
-import os
-import shutil
-import tempfile
+import re
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Optional, cast
 
+import requests
 from django.core.files.storage import default_storage
+from requests.exceptions import ConnectionError, RequestException, Timeout
 
-from opencontractserver.documents.models import Document
+from opencontractserver.constants.document_processing import (
+    WARP_INGEST_PARSER_REQUEST_TIMEOUT_SECONDS,
+)
 from opencontractserver.pipeline.base.exceptions import DocumentParsingError
 from opencontractserver.pipeline.base.file_types import FileTypeEnum
 from opencontractserver.pipeline.base.parser import BaseParser
@@ -42,63 +41,96 @@ from opencontractserver.pipeline.base.settings_schema import (
     SettingType,
 )
 from opencontractserver.types.dicts import OpenContractDocExport
+from opencontractserver.utils.cloud import maybe_add_cloud_run_auth
 
 logger = logging.getLogger(__name__)
 
-# requests/httpx network errors do NOT subclass the builtin ConnectionError/
-# TimeoutError, so a flaky first-run OCR model fetch could otherwise be
-# misclassified as permanent. Match those by exception class name across the MRO
-# (without importing the optional libraries) in addition to the builtins.
-_TRANSIENT_ERROR_NAMES = frozenset(
-    {
-        "ConnectionError",
-        "Timeout",
-        "ConnectTimeout",
-        "ReadTimeout",
-        "ConnectError",
-        "ReadError",
-        "TimeoutException",
-        "PoolTimeout",
-    }
-)
+# Header Warp-Ingest reads the API key from. We send the key here (rather than
+# ``Authorization: Bearer <key>``, which Warp-Ingest also accepts) so the
+# ``Authorization`` header stays free for a Google Cloud Run IAM id_token when
+# the service runs behind Cloud Run IAM (see ``maybe_add_cloud_run_auth``).
+WARP_INGEST_API_KEY_HEADER = "X-API-Key"
 
-
-def _is_transient_error(exc: BaseException) -> bool:
-    """True if ``exc`` looks like a retryable network/timeout failure."""
-    if isinstance(exc, (ConnectionError, TimeoutError)):
-        return True
-    return any(cls.__name__ in _TRANSIENT_ERROR_NAMES for cls in type(exc).__mro__)
+# render_format the client requests: Warp-Ingest emits an OpenContractDocExport
+# directly under the ``result`` key for this value.
+WARP_INGEST_RENDER_FORMAT = "opencontracts"
 
 
 class WarpIngestParser(BaseParser):
-    """Parse PDFs to an ``OpenContractDocExport`` with the Warp-Ingest engine."""
+    """Parse PDFs via a Warp-Ingest microservice and return an OpenContractDocExport.
 
-    title = "Warp-Ingest Parser"
+    Settings are loaded from the ``PipelineSettings`` database singleton (seeded
+    from environment via the ``migrate_pipeline_settings`` management command);
+    the dataclass defaults are the runtime fallback when nothing is stored.
+    """
+
+    title = "Warp-Ingest Parser (REST)"
     description = (
-        "Rule-based, in-process PDF parser (Warp-Ingest). Emits PAWLS tokens, "
-        "structural annotations and the heading hierarchy with no ML model, no "
-        "GPU and no external microservice."
+        "Parses PDF documents using a Warp-Ingest microservice — a deterministic, "
+        "rule-based parser that renders directly to the OpenContracts format."
     )
-    author = "Open Source Legal"
-    # Optional dependency: imported lazily so pipeline discovery does not require
-    # it. Declared here for documentation / the migrate_pipeline_settings audit.
-    dependencies = ["warp-ingest"]
+    author = "OpenContracts Team"
+    dependencies = ["requests"]
     supported_file_types = [FileTypeEnum.PDF]
 
     @dataclass
     class Settings:
-        """Configuration schema for :class:`WarpIngestParser`."""
+        """Configuration schema for WarpIngestParser."""
 
+        service_url: str = field(
+            default="http://warp-ingest:5001/api/parse",
+            metadata={
+                "pipeline_setting": PipelineSetting(
+                    setting_type=SettingType.REQUIRED,
+                    required=True,
+                    description="URL of the Warp-Ingest /api/parse endpoint",
+                    env_var="WARP_INGEST_PARSER_SERVICE_URL",
+                )
+            },
+        )
+        api_key: str = field(
+            default="",
+            metadata={
+                "pipeline_setting": PipelineSetting(
+                    setting_type=SettingType.SECRET,
+                    description=(
+                        "API key sent in the X-API-Key header; must match the "
+                        "Warp-Ingest service's WARP_API_KEY (which itself defaults "
+                        "to 'abc123'). Warp-Ingest always requires a key, so a "
+                        "blank value here yields a 401 from the service."
+                    ),
+                    env_var="WARP_INGEST_API_KEY",
+                )
+            },
+        )
+        request_timeout: int = field(
+            default=WARP_INGEST_PARSER_REQUEST_TIMEOUT_SECONDS,
+            metadata={
+                "pipeline_setting": PipelineSetting(
+                    setting_type=SettingType.OPTIONAL,
+                    description="Request timeout in seconds",
+                    env_var="WARP_INGEST_PARSER_TIMEOUT",
+                )
+            },
+        )
+        use_cloud_run_iam_auth: bool = field(
+            default=False,
+            metadata={
+                "pipeline_setting": PipelineSetting(
+                    setting_type=SettingType.OPTIONAL,
+                    description="Force Google Cloud Run IAM authentication",
+                    env_var="WARP_INGEST_USE_CLOUD_RUN_IAM_AUTH",
+                )
+            },
+        )
         apply_ocr: bool = field(
             default=False,
             metadata={
                 "pipeline_setting": PipelineSetting(
                     setting_type=SettingType.OPTIONAL,
                     description=(
-                        "Force OCR on every page. When False (default), "
-                        "Warp-Ingest auto-routes only scanned/sparse pages to "
-                        "OCR and keeps born-digital pages on their text layer. "
-                        "Requires the 'ocr' extra (rapidocr-onnxruntime)."
+                        "Force OCR on every page. Leave False to let Warp-Ingest "
+                        "auto-detect pages that lack an embedded text layer."
                     ),
                     env_var="WARP_INGEST_APPLY_OCR",
                 )
@@ -109,11 +141,7 @@ class WarpIngestParser(BaseParser):
             metadata={
                 "pipeline_setting": PipelineSetting(
                     setting_type=SettingType.OPTIONAL,
-                    description=(
-                        "Never OCR: keep every page on its embedded text layer "
-                        "even when it looks scanned. Mutually exclusive with "
-                        "apply_ocr; avoids pulling the OCR extra."
-                    ),
+                    description="Disable OCR entirely (mutually exclusive with apply_ocr)",
                     env_var="WARP_INGEST_DISABLE_OCR",
                 )
             },
@@ -123,96 +151,277 @@ class WarpIngestParser(BaseParser):
             metadata={
                 "pipeline_setting": PipelineSetting(
                     setting_type=SettingType.OPTIONAL,
-                    description=(
-                        "Append Warp-Ingest's additive Semantic-Unit clause "
-                        "layer to the structural annotations."
-                    ),
+                    description="Append Warp-Ingest's Semantic-Unit clause annotation layer",
                     env_var="WARP_INGEST_SEMANTIC_UNITS",
                 )
             },
+        )
+        include_images: bool = field(
+            default=False,
+            metadata={
+                "pipeline_setting": PipelineSetting(
+                    setting_type=SettingType.OPTIONAL,
+                    description=(
+                        "Embed extracted images in the export for multimodal "
+                        "processing (increases payload size)."
+                    ),
+                    env_var="WARP_INGEST_INCLUDE_IMAGES",
+                )
+            },
+        )
+        max_file_size_mb: int = field(
+            default=200,
+            metadata={
+                "pipeline_setting": PipelineSetting(
+                    setting_type=SettingType.OPTIONAL,
+                    description=(
+                        "Maximum PDF size in MB. The whole file is buffered in "
+                        "memory and POSTed in one request (this parser does not "
+                        "chunk), so this caps a worker's peak memory per parse."
+                    ),
+                    env_var="WARP_INGEST_MAX_FILE_SIZE_MB",
+                )
+            },
+        )
+
+    def __init__(self):
+        """Initialize the Warp-Ingest REST parser with settings from PipelineSettings."""
+        super().__init__()  # Loads settings via PipelineComponentBase
+        s = self.settings if self.settings is not None else self.Settings()
+
+        self.service_url = s.service_url
+        self.api_key = s.api_key
+        self.request_timeout = s.request_timeout
+        self.use_cloud_run_iam_auth = s.use_cloud_run_iam_auth
+        self.apply_ocr = s.apply_ocr
+        self.disable_ocr = s.disable_ocr
+        self.semantic_units = s.semantic_units
+        self.include_images = s.include_images
+        self.max_file_size_mb = s.max_file_size_mb
+
+        logger.info(
+            f"WarpIngestParser initialized with service URL: {self.service_url}, "
+            f"apply_ocr={self.apply_ocr}, disable_ocr={self.disable_ocr}, "
+            f"semantic_units={self.semantic_units}, include_images={self.include_images}, "
+            f"max_file_size_mb={self.max_file_size_mb}"
         )
 
     def _parse_document_impl(
         self, user_id: int, doc_id: int, **all_kwargs
     ) -> Optional[OpenContractDocExport]:
-        """Parse ``doc_id``'s PDF into an ``OpenContractDocExport``.
+        """Send a PDF to the Warp-Ingest microservice and return the parsed export.
 
-        Reads the document's stored PDF, hands it to Warp-Ingest and returns the
-        structural export ready for :meth:`BaseParser.save_parsed_data`.
-        Returns ``None`` when the document has no PDF file. Raises
-        :class:`DocumentParsingError` (permanent) on a genuine parse failure or a
-        missing ``warp-ingest`` install — Warp-Ingest is deterministic and local,
-        so a failure will not succeed on retry.
+        Args:
+            user_id: The ID of the user parsing the document.
+            doc_id: The ID of the target Document in the database.
+            **all_kwargs: Effective settings + call-time overrides
+                (``apply_ocr``, ``disable_ocr``, ``semantic_units``,
+                ``include_images``).
+
+        Returns:
+            OpenContractDocExport with structural annotations, relationships and
+            PAWLS tokens produced by Warp-Ingest.
         """
-        logger.info(
-            f"WarpIngestParser - parsing doc {doc_id} for user {user_id} "
-            f"with effective kwargs: {all_kwargs}"
-        )
+        from opencontractserver.documents.models import Document
+
+        logger.info(f"WarpIngestParser - Parsing doc {doc_id} for user {user_id}")
 
         document = Document.objects.get(pk=doc_id)
 
-        if not document.pdf_file or not document.pdf_file.name:
-            logger.error(f"No pdf_file found for document {doc_id}")
-            return None
+        # ``pdf_file`` is the generic storage field for every uploaded document
+        # (the name is historical, not format-specific).
+        if not document.pdf_file.name:
+            raise DocumentParsingError(
+                f"Document {doc_id} has no PDF file associated",
+                is_transient=False,
+            )
 
-        # Warp-Ingest's front-end consumes a filesystem path, so stream the
-        # stored PDF (which may live in object storage) to a temp file. Stream
-        # via copyfileobj rather than read()-into-memory so a very large PDF does
-        # not briefly double memory usage.
-        tmp_path: Optional[str] = None
-        try:
-            with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_pdf:
-                tmp_path = tmp_pdf.name
-                with default_storage.open(
-                    document.pdf_file.name, mode="rb"
-                ) as pdf_file:
-                    shutil.copyfileobj(pdf_file, tmp_pdf)
+        # Resolve per-call overrides on top of the component settings.
+        apply_ocr = all_kwargs.get("apply_ocr", self.apply_ocr)
+        disable_ocr = all_kwargs.get("disable_ocr", self.disable_ocr)
+        semantic_units = all_kwargs.get("semantic_units", self.semantic_units)
+        include_images = all_kwargs.get("include_images", self.include_images)
 
-            try:
-                from warp_ingest.ingestor import pdf_ingestor
-            except ImportError as exc:  # pragma: no cover - env-dependent
-                raise DocumentParsingError(
-                    "warp-ingest is not installed. Install it with "
-                    "'pip install \"warp-ingest[ocr]\"' to use WarpIngestParser.",
-                    is_transient=False,
-                ) from exc
+        # Warp-Ingest returns 422 when both are set; fail fast with a clear,
+        # non-transient message instead of round-tripping to the service.
+        if apply_ocr and disable_ocr:
+            raise DocumentParsingError(
+                f"WarpIngestParser misconfigured for document {doc_id}: "
+                "apply_ocr and disable_ocr are mutually exclusive.",
+                is_transient=False,
+            )
 
-            parse_options = {
-                "apply_ocr": bool(all_kwargs.get("apply_ocr", False)),
-                "disable_ocr": bool(all_kwargs.get("disable_ocr", False)),
-                "semantic_units": bool(all_kwargs.get("semantic_units", False)),
-            }
+        # Guard peak worker memory: the whole PDF is buffered in memory and
+        # POSTed in one request (no chunking), so reject oversized files using
+        # the storage size metadata *before* reading the bytes in — an
+        # over-limit file is never buffered at all. Fails permanently (no retry).
+        file_size_mb = default_storage.size(document.pdf_file.name) / (1024 * 1024)
+        if file_size_mb > self.max_file_size_mb:
+            raise DocumentParsingError(
+                f"PDF for document {doc_id} is {file_size_mb:.1f} MB, exceeding "
+                f"the {self.max_file_size_mb} MB Warp-Ingest limit. Adjust "
+                f"WARP_INGEST_MAX_FILE_SIZE_MB to raise it.",
+                is_transient=False,
+            )
 
-            try:
-                export: OpenContractDocExport = pdf_ingestor.parse_to_opencontracts(
-                    tmp_path, parse_options
-                )
-            except Exception as exc:
-                # A network/timeout hiccup (e.g. a first-run OCR model fetch) is
-                # retryable; a deterministic local parse of a bad/unsupported
-                # PDF is permanent.
-                raise DocumentParsingError(
-                    f"Warp-Ingest failed to parse document {doc_id}: {exc}",
-                    is_transient=_is_transient_error(exc),
-                ) from exc
-        finally:
-            if tmp_path and os.path.exists(tmp_path):
-                try:
-                    os.unlink(tmp_path)
-                except OSError:  # pragma: no cover - best-effort cleanup
-                    logger.warning(f"Could not remove temp PDF {tmp_path}")
+        with default_storage.open(document.pdf_file.name, "rb") as f:
+            pdf_bytes = f.read()
 
-        # Warp-Ingest derives the title from the PDF metadata; fall back to the
-        # document's own title/description when it comes back empty.
-        if not export.get("title"):
-            export["title"] = document.title or ""
-        if not export.get("description"):
-            export["description"] = document.description or ""
+        # A ``.pdf`` filename + explicit content type satisfy Warp-Ingest's
+        # media-type check (it returns 415 for non-PDF uploads).
+        filename = self._safe_pdf_filename(document.title, doc_id)
+
+        params = {
+            "render_format": WARP_INGEST_RENDER_FORMAT,
+            # Serialize as lowercase strings so FastAPI's bool coercion is
+            # unambiguous ("true"/"false").
+            "apply_ocr": str(apply_ocr).lower(),
+            "disable_ocr": str(disable_ocr).lower(),
+            "semantic_units": str(semantic_units).lower(),
+            "include_images": str(include_images).lower(),
+        }
+
+        headers: dict[str, str | bytes] = {}
+        if self.api_key:
+            headers[WARP_INGEST_API_KEY_HEADER] = self.api_key
+        # Attach a Cloud Run IAM id_token when the service runs behind Cloud Run
+        # IAM (or when forced). This sets ``Authorization``; the API key rides on
+        # its own ``X-API-Key`` header so the two never collide.
+        headers = maybe_add_cloud_run_auth(
+            self.service_url, headers, force=self.use_cloud_run_iam_auth
+        )
 
         logger.info(
-            f"WarpIngestParser - doc {doc_id}: "
-            f"{len(export.get('labelled_text', []))} structural annotation(s), "
-            f"{len(export.get('relationships', []))} relationship(s), "
-            f"{export.get('page_count')} page(s)."
+            f"Sending PDF (doc {doc_id}) to Warp-Ingest parser service: "
+            f"{self.service_url}"
+        )
+        try:
+            response = requests.post(
+                self.service_url,
+                params=params,
+                files={"file": (filename, pdf_bytes, "application/pdf")},
+                # ``requests`` types headers as MutableMapping[str, str | bytes];
+                # cast widens our narrower dict for the call (see docling parser).
+                headers=cast(Any, headers),
+                timeout=self.request_timeout,
+            )
+            response.raise_for_status()
+        except Timeout:
+            msg = (
+                f"Request to Warp-Ingest parser service timed out after "
+                f"{self.request_timeout}s for document {doc_id}"
+            )
+            logger.error(msg)
+            raise DocumentParsingError(msg, is_transient=True)
+        except ConnectionError:
+            msg = (
+                f"Failed to connect to Warp-Ingest parser service at "
+                f"{self.service_url} for document {doc_id}"
+            )
+            logger.error(msg)
+            raise DocumentParsingError(msg, is_transient=True)
+        except RequestException as e:
+            # 4xx (bad request, unsupported media type, auth) are permanent;
+            # 5xx (server error, unavailable) are transient and worth retrying.
+            is_transient = True
+            status_code = None
+            response_text = ""
+            if hasattr(e, "response") and e.response is not None:
+                status_code = e.response.status_code
+                response_text = e.response.text[:500]
+                if 400 <= status_code < 500:
+                    is_transient = False
+
+            msg = f"Request to Warp-Ingest parser service failed for document {doc_id}: {e}"
+            if status_code:
+                msg += f" (status={status_code})"
+            if response_text:
+                msg += f" - Response: {response_text}"
+
+            logger.error(msg)
+            raise DocumentParsingError(msg, is_transient=is_transient)
+
+        # A 200 with a truncated/corrupt body would otherwise raise a raw,
+        # unclassified JSONDecodeError; wrap it so the failure is a classified
+        # (transient) DocumentParsingError like every other error path here.
+        try:
+            payload = response.json()
+        except ValueError as e:
+            msg = (
+                f"Warp-Ingest returned a malformed (non-JSON) response for "
+                f"document {doc_id}: {e}"
+            )
+            logger.error(msg)
+            raise DocumentParsingError(msg, is_transient=True)
+
+        export = self._extract_export(payload, doc_id)
+
+        logger.info(
+            f"Successfully processed document {doc_id} through Warp-Ingest service "
+            f"({export.get('page_count')} pages, "
+            f"{len(export.get('labelled_text', []))} annotations, "
+            f"{len(export.get('relationships', []))} relationships)"
         )
         return export
+
+    @staticmethod
+    def _safe_pdf_filename(title: Optional[str], doc_id: int) -> str:
+        """Build a safe multipart filename ending in ``.pdf``.
+
+        ``document.title`` is user-controlled and flows into the multipart
+        part's ``Content-Disposition`` header, so strip CR/LF, other control
+        characters, quotes and path separators that could smuggle header-like
+        content into that MIME part (defense-in-depth; modern urllib3 also
+        guards this). Falls back to ``doc_{id}.pdf`` when the title is empty or
+        sanitizes to nothing.
+        """
+        raw = (title or "").strip()
+        # Replace control chars (incl. CR/LF via \x00-\x1f), DEL, quotes and
+        # path separators — anything that could break out of the header value.
+        cleaned = re.sub(r'[\x00-\x1f\x7f"\\/]+', "_", raw).strip("_ ").strip()
+        if not cleaned:
+            cleaned = f"doc_{doc_id}"
+        if not cleaned.lower().endswith(".pdf"):
+            cleaned = f"{cleaned}.pdf"
+        return cleaned
+
+    @staticmethod
+    def _extract_export(response_data: Any, doc_id: int) -> OpenContractDocExport:
+        """Pull the OpenContractDocExport out of a Warp-Ingest response.
+
+        Warp-Ingest wraps the export as ``{"page_dim": ..., "num_pages": ...,
+        "result": <OpenContractDocExport>}`` for ``render_format=opencontracts``.
+        We read ``result`` but fall back to the top-level body if a future API
+        revision returns the export unwrapped. Either way we run a lightweight
+        sanity check that the payload *resembles* an export — i.e. carries at
+        least one recognized export key (``content`` / ``pawls_file_content`` /
+        ``labelled_text``) — so an obviously-wrong body (e.g. an error envelope
+        with only ``page_dim``/``num_pages``) surfaces as a clear parse error
+        instead of a silently empty document. It is deliberately shallow:
+        ``save_parsed_data`` reads every field via ``.get()`` with defaults, so
+        it tolerates a partial export; this guard only distinguishes "an export"
+        from "not an export at all".
+
+        The export already uses the OpenContracts field names (snake_case
+        top-level keys, camelCase ``annotationLabel``/``rawText`` within
+        annotations), so no key normalization is required.
+        """
+        if not isinstance(response_data, dict):
+            raise DocumentParsingError(
+                f"Warp-Ingest returned a non-object response for document {doc_id}",
+                is_transient=False,
+            )
+
+        export = response_data.get("result", response_data)
+
+        if not isinstance(export, dict) or not any(
+            key in export for key in ("content", "pawls_file_content", "labelled_text")
+        ):
+            snippet = str(response_data)[:500]
+            raise DocumentParsingError(
+                f"Warp-Ingest response for document {doc_id} is missing the "
+                f"OpenContracts export payload. Response: {snippet}",
+                is_transient=False,
+            )
+
+        return cast(OpenContractDocExport, export)

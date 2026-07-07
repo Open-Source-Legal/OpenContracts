@@ -1609,6 +1609,12 @@ export type AgentConfigurationType = Node & {
   isActive: Scalars["Boolean"];
   creator: UserType;
   isPublic?: Scalars["Boolean"];
+  /**
+   * Optional per-agent pydantic-ai model spec override
+   * (e.g. "anthropic:claude-haiku-4-5"). Empty/null falls back to the
+   * corpus default, then the install-wide system default.
+   */
+  preferredLlm?: Maybe<Scalars["String"]>;
   created: Scalars["DateTime"];
   modified: Scalars["DateTime"];
   myPermissions?: PermissionTypes[];
@@ -1880,7 +1886,9 @@ export type PipelineComponentType = {
   moduleName?: string;
   /** List of supported file types. */
   supportedFileTypes?: FileTypeEnum[];
-  /** Type of the component (parser, embedder, thumbnailer, or llm_provider). */
+  /** File converters: source-file extensions convertible to PDF. Empty for other component types. */
+  supportedExtensions?: Maybe<Array<Maybe<Scalars["String"]>>>;
+  /** Type of the component (parser, embedder, thumbnailer, llm_provider, or file_converter). */
   componentType?: string;
   /** JSONSchema schema for inputs supported from user (experimental - not fully implemented). */
   inputSchema?: Record<any, any>;
@@ -1951,6 +1959,12 @@ export type PipelineComponentsType = {
   thumbnailers?: Maybe<Array<Maybe<PipelineComponentType>>>;
   /** List of available LLM providers (pydantic-ai model families). */
   llmProviders?: Maybe<Array<Maybe<PipelineComponentType>>>;
+  /** List of available pre-parse file converters (convert non-native formats to PDF). */
+  fileConverters?: Maybe<Array<Maybe<PipelineComponentType>>>;
+  /** List of available post-retrieval rerankers. */
+  rerankers?: Maybe<Array<Maybe<PipelineComponentType>>>;
+  /** List of available document enrichers (run between parsing and persistence). */
+  enrichers?: Maybe<Array<Maybe<PipelineComponentType>>>;
 };
 
 /** Enum for file types. */
@@ -2001,16 +2015,24 @@ export type PipelineSettingsType = {
   preferredEmbedders?: Maybe<Scalars["GenericScalar"]>;
   /** Mapping of MIME types to thumbnailer class paths. */
   preferredThumbnailers?: Maybe<Scalars["GenericScalar"]>;
+  /** Mapping of MIME types to ORDERED LISTS of preferred enricher class paths. */
+  preferredEnrichers?: Maybe<Scalars["GenericScalar"]>;
   /** Mapping of parser class paths to configuration kwargs. */
   parserKwargs?: Maybe<Scalars["GenericScalar"]>;
   /** Mapping of component class paths to settings overrides. */
   componentSettings?: Maybe<Scalars["GenericScalar"]>;
   /** Default embedder class path. */
   defaultEmbedder?: Maybe<Scalars["String"]>;
+  /** Pre-parse file converter class path. Empty string disables the convert-to-PDF ingest step. */
+  defaultFileConverter?: Maybe<Scalars["String"]>;
   /** Install-wide default LLM model spec for agents (e.g. 'anthropic:claude-opus-4-6'). Empty falls back to the Django settings default. */
   defaultLlm?: Maybe<Scalars["String"]>;
+  /** Default post-retrieval reranker class path. Empty string disables reranking (first-stage retrieval only). */
+  defaultReranker?: Maybe<Scalars["String"]>;
   /** List of components with encrypted secrets configured (actual secrets never exposed). */
   componentsWithSecrets?: Maybe<Array<Maybe<Scalars["String"]>>>;
+  /** List of tool keys (e.g. 'tool:web_search') with encrypted secrets configured (actual secrets never exposed). */
+  toolsWithSecrets?: Maybe<Array<Maybe<Scalars["String"]>>>;
   /** List of enabled component class paths. */
   enabledComponents?: Maybe<Array<Maybe<Scalars["String"]>>>;
   /** When settings were last modified. */
@@ -2057,6 +2079,26 @@ export type DeleteComponentSecretsResponse = {
   ok?: Maybe<Scalars["Boolean"]>;
   message?: Maybe<Scalars["String"]>;
   componentsWithSecrets?: Maybe<Array<Maybe<Scalars["String"]>>>;
+};
+
+/**
+ * Mutation response for updating agent tool secrets (e.g. 'tool:web_search').
+ */
+export type UpdateToolSecretsResponse = {
+  __typename?: "UpdateToolSecretsMutation";
+  ok?: Maybe<Scalars["Boolean"]>;
+  message?: Maybe<Scalars["String"]>;
+  toolsWithSecrets?: Maybe<Array<Maybe<Scalars["String"]>>>;
+};
+
+/**
+ * Mutation response for deleting agent tool secrets.
+ */
+export type DeleteToolSecretsResponse = {
+  __typename?: "DeleteToolSecretsMutation";
+  ok?: Maybe<Scalars["Boolean"]>;
+  message?: Maybe<Scalars["String"]>;
+  toolsWithSecrets?: Maybe<Array<Maybe<Scalars["String"]>>>;
 };
 
 /* ------------------------------------------------------------------ *

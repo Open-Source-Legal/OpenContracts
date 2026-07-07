@@ -143,6 +143,12 @@ Superusers can configure the pipeline at runtime through the Admin UI:
 1. Navigate to **Admin → Pipeline Configuration**
 2. Configure preferred components per MIME type
 3. Add API keys via the **Component Secrets** section
+4. Configure the per-MIME-type enrichment chain (ordered list of enrichers —
+   see [Enrichers](pipeline_overview.md#enrichers)) via the **Enrichment
+   Chains** editor
+5. Configure agent tool credentials (e.g. the web search tool) via the
+   **Agent Tools** panel — see
+   `frontend/src/components/admin/system_settings/ToolSecretsPanel.tsx`
 
 ### UI Overview
 
@@ -264,13 +270,22 @@ python manage.py migrate_pipeline_settings --verify
 
 ### Reset to Defaults
 
-To reset all pipeline settings to Django defaults:
+To reset pipeline component assignments and settings to Django defaults:
 
 1. Via Admin UI: Click "Reset to Defaults" button
 2. Via management command:
    ```bash
    python manage.py migrate_pipeline_settings --sync-preferences --force
    ```
+
+Reset restores `preferred_parsers`/`preferred_embedders`/`preferred_thumbnailers`/
+`preferred_enrichers`/`parser_kwargs`/`component_settings`/the `default_*`
+fields/`enabled_components` from their Django settings counterparts (see
+`ResetPipelineSettingsMutation` in `config/graphql/pipeline_settings_mutations.py`).
+**Stored secrets are never touched by Reset** — component secrets and agent
+tool secrets (e.g. the web search tool's API key, see
+`UpdateToolSecretsMutation`/`DeleteToolSecretsMutation`) must be cleared
+separately via their own delete mutations if desired.
 
 ## See Also
 

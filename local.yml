@@ -40,6 +40,12 @@ services:
       privacy_filter:
         condition: service_started
         required: false
+      gotenberg:
+        condition: service_started
+        required: false
+      warp-ingest:
+        condition: service_started
+        required: false
     volumes:
       - .:/app:z
     env_file:
@@ -112,6 +118,38 @@ services:
     image: ghcr.io/open-source-legal/docxodus-service:1.1.0-docxodus5.4.2
     container_name: docxodus-parser
 
+  # Optional alternative PDF parser (deterministic, rule-based; renders straight
+  # to the OpenContracts format). Opt-in via the "warp-ingest" compose profile:
+  #   docker compose -f local.yml --profile warp-ingest up
+  # Then select "Warp-Ingest Parser (REST)" for PDFs in the admin System Settings
+  # UI. WARP_API_KEY is shared with the WARP_INGEST_API_KEY the django client
+  # sends (set it in your env so both sides agree; defaults to warp-ingest's own
+  # "abc123" fallback). The ~2.5 GB image is why this is behind a profile.
+  warp-ingest:
+    # Pinned (not :latest): Warp-Ingest's value proposition is *deterministic*
+    # output, so a floating tag could silently change parse results without an
+    # OpenContracts version bump. Mirrors docxodus-parser's exact-version pin.
+    image: ghcr.io/open-source-legal/warp-ingest:1.0.0
+    container_name: warp-ingest
+    profiles:
+      - warp-ingest
+    ports:
+      - "5001:5001"
+    environment:
+      - WARP_API_KEY=${WARP_INGEST_API_KEY:-abc123}
+
+  # Powers the optional pre-parse file-to-PDF converter
+  # (GotenbergFileConverter). Enable it by setting the converter in the admin
+  # System Settings UI (or DEFAULT_FILE_CONVERTER env var). No host port
+  # mapping: gotenberg listens on 3000 internally (would collide with the
+  # frontend dev server's 3000), and django/celeryworker reach it over the
+  # docker bridge at http://gotenberg:3000. No healthcheck: the stock image
+  # ships neither curl nor python (matching docling/docxodus, dependents use
+  # condition: service_started).
+  gotenberg:
+    image: gotenberg/gotenberg:8
+    container_name: gotenberg
+
   # The embedder images read VECTOR_EMBEDDER_API_KEY (compose/accelerated/
   # embedder/main.py), NOT API_KEY — the old ``API_KEY`` key was silently ignored
   # (the image fell back to its built-in "abc123" default, which happened to
@@ -182,6 +220,12 @@ services:
         condition: service_started
         required: false
       privacy_filter:
+        condition: service_started
+        required: false
+      gotenberg:
+        condition: service_started
+        required: false
+      warp-ingest:
         condition: service_started
         required: false
     volumes:

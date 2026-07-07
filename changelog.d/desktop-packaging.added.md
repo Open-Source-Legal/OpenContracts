@@ -13,8 +13,8 @@
   WhiteNoise + a catch-all (`config/spa.py`, wired into `config/urls.py` only
   when `OC_DESKTOP_SPA_ROOT` is set; the `:3000` dev redirect is skipped there).
   See `docs/deployment/desktop_packaging.md`.
-- **`WarpIngestParser`
-  (`opencontractserver/pipeline/parsers/warp_ingest_parser.py`)** — an
+- **`WarpIngestLocalParser`
+  (`opencontractserver/pipeline/parsers/warp_ingest_local_parser.py`)** — an
   in-process, rule-based PDF parser (pure-Python, no torch/GPU) wrapping
   [Warp-Ingest](https://github.com/Open-Source-Legal/Warp-Ingest)'s
   `pdf_ingestor.parse_to_opencontracts`, which emits PAWLS tokens, structural

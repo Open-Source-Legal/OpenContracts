@@ -170,6 +170,8 @@ def check_configured_components_secrets(app_configs, **kwargs):
                 active_paths.update(mapping.values())
         if instance.default_embedder:
             active_paths.add(instance.default_embedder)
+        if instance.default_file_converter:
+            active_paths.add(instance.default_file_converter)
 
         # Get stored secrets
         stored_secrets = instance.get_secrets()

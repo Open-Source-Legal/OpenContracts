@@ -29,6 +29,31 @@ DOCX_MIME_TYPE = (
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 )
 
+# MIME type for PDF documents.
+PDF_MIME_TYPE = "application/pdf"
+
+# Fallback MIME type recorded for convertible uploads whose format cannot be
+# sniffed or guessed from the filename (e.g. exotic legacy word-processor
+# formats). The pre-parse converter step keys off the file EXTENSION, not this
+# value, so an octet-stream file_type is only ever transient — it flips to
+# application/pdf once conversion succeeds.
+OCTET_STREAM_MIME_TYPE = "application/octet-stream"
+
+# HTTP request timeout (seconds) for the Gotenberg file-conversion service.
+# LibreOffice conversion of a large legacy office document can take minutes;
+# single source of truth for the Django setting default
+# (``GOTENBERG_CONVERTER_TIMEOUT`` in ``config/settings/base.py``) and the
+# ``GotenbergFileConverter`` dataclass field default.
+GOTENBERG_CONVERTER_REQUEST_TIMEOUT_SECONDS = 300
+
+# Default docker-bridge URL of the Gotenberg conversion service. Single source
+# of truth for the Django setting default (``GOTENBERG_SERVICE_URL`` in
+# ``config/settings/base.py``) and the ``GotenbergFileConverter`` dataclass
+# field default. Gotenberg listens on port 3000 inside the compose network;
+# it is intentionally NOT published to the host (would collide with the
+# frontend dev server's 3000 mapping).
+DEFAULT_GOTENBERG_SERVICE_URL = "http://gotenberg:3000"
+
 # File types that are stored as txt_extract_file (plain text, no parsing needed).
 # Shared between versioning.py and corpus models.py — single source of truth.
 TEXT_MIMETYPES = {"text/plain", MARKDOWN_MIME_TYPE, "application/txt"}
@@ -118,6 +143,18 @@ RERANKER_REQUEST_TIMEOUT_SECONDS = 30
 # per-deployment via the ``DOCLING_PARSER_TIMEOUT`` env var.
 DOCLING_PARSER_REQUEST_TIMEOUT_SECONDS = 600
 
+# HTTP request timeout (seconds) for the Warp-Ingest document-parser microservice
+# (rule-based, deterministic PDF parser — see
+# ``opencontractserver/pipeline/parsers/warp_ingest_parser.py``). Warp-Ingest is
+# CPU-only (no GPU layout model), so a typical parse is faster than Docling, but
+# OCR of a large scanned document can still take minutes; the generous ceiling
+# mirrors Docling so big scanned uploads don't fail with ``Timeout``. Single
+# source of truth for both the Django setting default (``WARP_INGEST_PARSER_TIMEOUT``
+# in ``config/settings/base.py``, used to seed the DB pipeline settings) and the
+# ``WarpIngestParser`` dataclass field default (the runtime fallback). Still
+# overridable per-deployment via the ``WARP_INGEST_PARSER_TIMEOUT`` env var.
+WARP_INGEST_PARSER_REQUEST_TIMEOUT_SECONDS = 600
+
 # Maximum number of embedding batch tasks to queue in a single reembed_corpus run.
 # For very large corpuses (millions of annotations), this prevents flooding the
 # Celery queue. Remaining annotations will be logged but not queued; re-running
@@ -126,6 +163,13 @@ MAX_REEMBED_TASKS_PER_RUN = 500
 
 # Maximum length for filename/title truncation when generating document paths
 MAX_FILENAME_LENGTH = 100
+
+# Maximum length of the extension segment preserved by sanitize_corpus_filename
+# when truncating an over-long filename. Bounds a pathological "extension"
+# (e.g. a filename that is one long dotted token) so it can't consume the whole
+# MAX_FILENAME_LENGTH budget and starve the stem. Comfortably covers real
+# extensions (.pptx, .markdown, .xhtml) plus the leading dot.
+MAX_FILENAME_EXTENSION_LENGTH = 16
 
 # Personal corpus defaults
 PERSONAL_CORPUS_TITLE = "My Documents"

@@ -2106,6 +2106,20 @@ class AuthorityNamespace(django.db.models.Model):
         default="baseline",
         db_index=True,
     )
+    # Provenance "which baseline writer": for a ``source="baseline"`` row, the
+    # loader origin that owns the prefix — ``BASELINE_ORIGIN_CORE`` ("core") for
+    # the shipped authority_mappings.yaml / post_migrate seed, or a pack's
+    # manifest ``name`` for that pack's mappings YAML. The loader never
+    # overwrites a baseline row stamped with a DIFFERENT origin (first writer
+    # wins; the collision is logged), closing the last-write-wins hole between
+    # two baseline writers on the same prefix (issue #2057). Null on
+    # manual/corpus-linked rows and on legacy baseline rows written before this
+    # field existed (those are adopted — stamped — by the next owning load).
+    baseline_origin = django.db.models.CharField(
+        max_length=enrichment_constants.BASELINE_ORIGIN_MAX_LENGTH,
+        null=True,
+        blank=True,
+    )
     # Global namespaces always contribute aliases; corpus-linked ones only when
     # the corpus is visible (wired in authority_alias_registry).
     is_global = django.db.models.BooleanField(default=True, db_index=True)

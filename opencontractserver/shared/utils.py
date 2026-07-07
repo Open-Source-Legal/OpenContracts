@@ -1,6 +1,10 @@
+import os
 from typing import Any
 
-from opencontractserver.constants.document_processing import MAX_FILENAME_LENGTH
+from opencontractserver.constants.document_processing import (
+    MAX_FILENAME_EXTENSION_LENGTH,
+    MAX_FILENAME_LENGTH,
+)
 
 
 # This was originally more complex, but I'm keeping it as a standalone, centralized function to be able to update
@@ -20,6 +24,17 @@ def sanitize_corpus_filename(name: str, *, fallback: str = "untitled") -> str:
     :data:`MAX_FILENAME_LENGTH`. If nothing survives, fall back to
     ``fallback`` so the path stays valid.
 
+    Truncation preserves the **extension**: the stem is trimmed so that
+    ``stem + extension`` fits within :data:`MAX_FILENAME_LENGTH`, rather than
+    hard-slicing the whole string (which would drop the extension off a long
+    filename). This matters for the pre-parse file converter, whose
+    convert-vs-skip decision keys off the stored file's extension — a
+    130-char ``…annual_report.pages`` upload must not be stored as
+    ``…annual_repo`` (extension lost) or it would be accepted at upload but
+    silently never converted. The extension itself is capped at
+    :data:`MAX_FILENAME_EXTENSION_LENGTH` so a pathological "extension" can't
+    consume the whole budget.
+
     Note: because distinct inputs can collapse to the same output
     (``"My Doc"`` and ``"My_Doc"`` both become ``"My_Doc"``), callers that
     derive a path from this must still disambiguate against existing paths.
@@ -28,6 +43,11 @@ def sanitize_corpus_filename(name: str, *, fallback: str = "untitled") -> str:
     mapping stays char-for-char reversible-ish and predictable; do not expect
     a single separator out of multiple.
     """
-    truncated = (name or "")[:MAX_FILENAME_LENGTH]
-    safe = "".join(c if c.isalnum() or c in "-_." else "_" for c in truncated)
+    stem, ext = os.path.splitext(name or "")
+    # Bound the extension first so a pathological "extension" (e.g. a filename
+    # that is one long dotted token) can't eat the entire length budget and
+    # starve the stem.
+    ext = ext[:MAX_FILENAME_EXTENSION_LENGTH]
+    stem = stem[: max(0, MAX_FILENAME_LENGTH - len(ext))]
+    safe = "".join(c if c.isalnum() or c in "-_." else "_" for c in (stem + ext))
     return safe or fallback

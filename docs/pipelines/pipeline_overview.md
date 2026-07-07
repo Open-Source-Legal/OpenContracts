@@ -25,6 +25,7 @@ graph TD
         B --> B1[DoclingParser REST]
         B --> B2[TxtParser]
         B --> B3[LlamaParseParser]
+        B --> B4[WarpIngestParser REST]
 
         C --> C1[PdfThumbnailGenerator]
         C --> C2[TextThumbnailGenerator]
@@ -46,18 +47,16 @@ graph TD
 
 ### Component Registration
 
-Components are registered in `settings/base.py` through configuration dictionaries:
+Components are seeded once from `settings/base.py` configuration dictionaries
+(`PREFERRED_PARSERS`, `PREFERRED_EMBEDDERS`) into the `PipelineSettings`
+database singleton on first creation; at runtime the database is the single
+source of truth, editable via the admin System Settings UI or GraphQL
+mutations (see `opencontractserver/documents/models.py::PipelineSettings`):
 
 ```python
 PREFERRED_PARSERS = {
     "application/pdf": "opencontractserver.pipeline.parsers.docling_parser_rest.DoclingParser",
     "text/plain": "opencontractserver.pipeline.parsers.oc_text_parser.TxtParser",
-    # ... other mime types
-}
-
-THUMBNAIL_TASKS = {
-    "application/pdf": "opencontractserver.tasks.doc_tasks.extract_pdf_thumbnail",
-    "text/plain": "opencontractserver.tasks.doc_tasks.extract_txt_thumbnail",
     # ... other mime types
 }
 
@@ -67,7 +66,36 @@ PREFERRED_EMBEDDERS = {
 }
 ```
 
+Note: `preferred_embedders` is API-only — the ingest-time dual-embedding
+strategy always resolves the single global `default_embedder`, never a
+per-MIME embedder, to avoid fragmenting the shared cross-corpus vector index
+(issue #2114). Thumbnailers are resolved via
+`PipelineSettings.preferred_thumbnailers` (also DB-backed); the legacy
+`THUMBNAIL_TASKS` Django setting some older docs referenced named Celery
+tasks that never existed and was removed.
+
 ## Component Types
+
+### File Converters
+
+File converters inherit from [`BaseFileConverter`](../../opencontractserver/pipeline/base/file_converter.py) and implement `_convert_to_pdf_impl`. A converter is an **optional pre-parse step**: when one is selected in `PipelineSettings.default_file_converter` (admin System Settings UI, or the `DEFAULT_FILE_CONVERTER` env var for seeding), uploads whose file **extension** is in the converter's enabled set are converted to PDF at the head of the ingest chain (`convert_document_to_pdf` in [`doc_tasks.py`](../../opencontractserver/tasks/doc_tasks.py), before thumbnailing and parsing), then flow through the normal PDF pipeline. The original upload is preserved on `Document.original_file` / `original_file_type`.
+
+Key points:
+
+- **Extension-keyed, not MIME-keyed.** Converters exist for formats the pipeline has no native support for, so eligibility is decided from the filename extension (`supported_extensions` on the class, optionally narrowed by the `convert_extensions` component setting — a comma-separated list; empty means all supported). Upload acceptance is converter-aware via `resolve_convertible_upload` in [`pipeline/utils.py`](../../opencontractserver/pipeline/utils.py).
+- **Natively parsed formats never convert.** `NATIVE_PIPELINE_EXTENSIONS` (pdf, txt, docx, md variants — see [`file_types.py`](../../opencontractserver/pipeline/base/file_types.py)) is always subtracted from a converter's enabled set, so `.doc` converts but `.docx` keeps its native parser path.
+- **Failure semantics.** Converters raise `FileConversionError` with the same transient/permanent contract as `DocumentParsingError`; a failed conversion marks the document FAILED and halts the ingest chain.
+
+**Security considerations** (a converter is opt-in and superuser-configured):
+
+- **Inert stored MIME type.** Convertible uploads are recorded with `file_type = application/octet-stream` (`resolve_convertible_upload`), never a browser-renderable type, so an `.html`/`.svg`/`.xml` upload can't be served as active content in the window before conversion completes. The value is transient — it flips to `application/pdf` once conversion succeeds — and the source blob is kept on `Document.original_file`, which has no download resolver and is excluded from `DocumentType`.
+- **Conversion-service egress (SSRF surface).** Gotenberg drives LibreOffice, which can attempt to fetch remote resources referenced by some documents (linked images, XML entities). The compose service is bridge-only (no host port) and needs **no** outbound access for self-contained conversions, so restrict its egress in sensitive deployments (drop outbound network / metadata-endpoint access on the `gotenberg` container). This is inherent to any LibreOffice-based conversion, not specific to this integration.
+
+Current implementations:
+
+| Class | Description | Source |
+|-------|-------------|--------|
+| **GotenbergFileConverter** | Converts office / legacy word-processor / web / image formats to PDF via a [Gotenberg](https://github.com/gotenberg/gotenberg) service's LibreOffice route. The `gotenberg` compose service (local.yml / production.yml) is reachable at `http://gotenberg:3000` on the docker bridge. | [`gotenberg_converter.py`](../../opencontractserver/pipeline/file_converters/gotenberg_converter.py) |
 
 ### Parsers
 
@@ -75,6 +103,7 @@ Parsers inherit from [`BaseParser`](../../opencontractserver/pipeline/base/parse
 
 Current implementations:
 - **DoclingParser**: Advanced PDF parser using machine learning (REST microservice)
+- **[WarpIngestParser](warp_ingest_parser.md)**: Deterministic, rule-based PDF parser that renders straight to the OpenContracts format (REST microservice)
 - **LlamaParseParser**: Cloud-based parser using LlamaParse API with layout extraction
 - **TxtParser**: Simple text file parser
 

@@ -144,6 +144,7 @@ nav:
       - Pipeline Overview: pipelines/pipeline_overview.md
       - Pipeline Configuration: pipelines/pipeline_configuration.md
       - Docling Parser: pipelines/docling_parser.md
+      - Warp-Ingest Parser: pipelines/warp_ingest_parser.md
       - LlamaParse Parser: pipelines/llamaparse_parser.md
       - Multimodal Embedder: pipelines/multimodal_embedder.md
   - Extract & Retrieval:

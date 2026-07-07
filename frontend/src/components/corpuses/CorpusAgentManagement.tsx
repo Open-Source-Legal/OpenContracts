@@ -19,8 +19,14 @@ import { BadgeConfigurator, BadgeConfig } from "../agents/BadgeConfigurator";
 import { ErrorMessage, InfoMessage, LoadingState } from "../widgets/feedback";
 import { StatusBadge, ToolBadge, ToolsList } from "../agents/AgentBadges";
 import { StyledTextArea } from "../widgets/modals/styled";
+import { LlmModelPicker } from "../common/LlmModelPicker";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
-import { GET_CORPUS_AGENTS, GET_AVAILABLE_TOOLS } from "../../graphql/queries";
+import {
+  GET_CORPUS_AGENTS,
+  GET_AVAILABLE_TOOLS,
+  GET_LLM_PROVIDERS,
+  LlmProvidersQueryResult,
+} from "../../graphql/queries";
 import {
   CREATE_AGENT_CONFIGURATION,
   UPDATE_AGENT_CONFIGURATION,
@@ -241,6 +247,15 @@ const ToolHelpText = styled.small`
 interface CorpusAgentManagementProps {
   corpusId: string;
   canUpdate: boolean;
+  /**
+   * The corpus's own Corpus.preferredLlm, when the caller already has it on
+   * hand (e.g. CorpusSettings, which loads it for CorpusLanguageModelCard).
+   * Powers the LlmModelPicker's "inherited" hint — an agent's own override
+   * falls back to this corpus default (which itself falls back to the
+   * install-wide system default) when left blank. Optional: omitting it just
+   * means the picker shows no inherited-value hint.
+   */
+  corpusPreferredLlm?: string | null;
 }
 
 interface AvailableTool {
@@ -264,6 +279,7 @@ interface AgentNode {
   scope: string;
   isActive: boolean;
   isPublic?: boolean;
+  preferredLlm?: string | null;
   creator: { id: string; username: string };
   created: string;
   modified: string;
@@ -280,6 +296,8 @@ interface FormState {
   avatarUrl: string;
   isPublic: boolean;
   isActive: boolean;
+  /** Per-agent LLM override ("provider:model"); "" = inherit. */
+  preferredLlm: string;
 }
 
 const defaultBadgeConfig: BadgeConfig = {
@@ -299,11 +317,13 @@ const initialFormState: FormState = {
   avatarUrl: "",
   isPublic: false,
   isActive: true,
+  preferredLlm: "",
 };
 
 export const CorpusAgentManagement: React.FC<CorpusAgentManagementProps> = ({
   corpusId,
   canUpdate,
+  corpusPreferredLlm,
 }) => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -319,6 +339,17 @@ export const CorpusAgentManagement: React.FC<CorpusAgentManagementProps> = ({
   // Fetch available tools for the selection UI
   const { data: toolsData, loading: toolsLoading } =
     useQuery(GET_AVAILABLE_TOOLS);
+
+  // Powers the LlmModelPicker's chip list. Skipped for read-only viewers, same
+  // as CorpusLanguageModelCard — the picker itself only renders inside the
+  // create/edit modals, which `canUpdate` already gates.
+  const { data: llmProvidersData } = useQuery<LlmProvidersQueryResult>(
+    GET_LLM_PROVIDERS,
+    { skip: !canUpdate }
+  );
+  const llmProviders = (
+    llmProvidersData?.pipelineComponents?.llmProviders ?? []
+  ).filter((p) => p.enabled !== false);
 
   const [createAgent, { loading: creating }] = useMutation(
     CREATE_AGENT_CONFIGURATION,
@@ -389,12 +420,26 @@ export const CorpusAgentManagement: React.FC<CorpusAgentManagementProps> = ({
         scope: "CORPUS",
         corpusId: corpusId,
         isPublic: formState.isPublic,
+        // Create has no clear-flag: None/omitted means "no override" per
+        // AgentConfigurationService.create_agent (preferred_llm=preferred_llm
+        // or None), so an explicit null is equivalent to leaving it unset.
+        preferredLlm: formState.preferredLlm.trim() || null,
       },
     });
   };
 
   const handleUpdate = () => {
     if (!agentToEdit) return;
+
+    // AgentConfigurationService.update_agent's contract (config/graphql/
+    // agent_mutations.py): preferred_llm=None means "leave unchanged";
+    // clear_preferred_llm=True is the only way to reset the override back to
+    // the corpus/system default (an empty string would fail the model's
+    // validation). So we only ever send a non-empty preferredLlm or the
+    // clear flag — never both, and never an empty-string preferredLlm.
+    const trimmedLlm = formState.preferredLlm.trim();
+    const hadPreferredLlm = Boolean(agentToEdit.preferredLlm?.trim());
+    const clearPreferredLlm = trimmedLlm === "" && hadPreferredLlm;
 
     updateAgent({
       variables: {
@@ -409,6 +454,8 @@ export const CorpusAgentManagement: React.FC<CorpusAgentManagementProps> = ({
         avatarUrl: formState.avatarUrl || null,
         isActive: formState.isActive,
         isPublic: formState.isPublic,
+        preferredLlm: trimmedLlm || undefined,
+        clearPreferredLlm,
       },
     });
   };
@@ -469,6 +516,7 @@ export const CorpusAgentManagement: React.FC<CorpusAgentManagementProps> = ({
       avatarUrl: agent.avatarUrl || "",
       isPublic: agent.isPublic ?? false,
       isActive: agent.isActive,
+      preferredLlm: agent.preferredLlm ?? "",
     });
     setShowEditModal(true);
   };
@@ -902,6 +950,22 @@ export const CorpusAgentManagement: React.FC<CorpusAgentManagementProps> = ({
               />
             </div>
             <div style={{ marginBottom: "1rem" }}>
+              <LlmModelPicker
+                id={`corpus-agent-create-llm-${corpusId}`}
+                label="Preferred LLM (optional)"
+                value={formState.preferredLlm}
+                onChange={(spec) =>
+                  setFormState({ ...formState, preferredLlm: spec })
+                }
+                providers={llmProviders}
+                showApiKeyBadge
+                inheritedSpec={corpusPreferredLlm ?? null}
+                inheritedLabel="Inherited corpus default"
+                placeholder="e.g., anthropic:claude-opus-4-6"
+                helperText='Per-agent LLM override, in "provider:model" form. Leave empty to use the corpus/system default.'
+              />
+            </div>
+            <div style={{ marginBottom: "1rem" }}>
               <label
                 style={{
                   display: "flex",
@@ -1169,6 +1233,22 @@ export const CorpusAgentManagement: React.FC<CorpusAgentManagementProps> = ({
                   setFormState({ ...formState, avatarUrl: e.target.value })
                 }
                 helperText="Custom avatar image URL. If not provided, the badge icon will be used."
+              />
+            </div>
+            <div style={{ marginBottom: "1rem" }}>
+              <LlmModelPicker
+                id={`corpus-agent-edit-llm-${corpusId}`}
+                label="Preferred LLM (optional)"
+                value={formState.preferredLlm}
+                onChange={(spec) =>
+                  setFormState({ ...formState, preferredLlm: spec })
+                }
+                providers={llmProviders}
+                showApiKeyBadge
+                inheritedSpec={corpusPreferredLlm ?? null}
+                inheritedLabel="Inherited corpus default"
+                placeholder="e.g., anthropic:claude-opus-4-6"
+                helperText='Per-agent LLM override, in "provider:model" form. Leave empty to use the corpus/system default.'
               />
             </div>
             <div

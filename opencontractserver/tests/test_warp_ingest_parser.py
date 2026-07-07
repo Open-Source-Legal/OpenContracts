@@ -1,4 +1,4 @@
-"""Tests for :class:`WarpIngestParser`.
+"""Tests for :class:`WarpIngestLocalParser`.
 
 Warp-Ingest is an optional dependency, so the core tests inject a fake
 ``warp_ingest.ingestor.pdf_ingestor`` module (the parser imports it lazily) and
@@ -20,7 +20,9 @@ from django.test import TestCase
 
 from opencontractserver.documents.models import Document
 from opencontractserver.pipeline.base.exceptions import DocumentParsingError
-from opencontractserver.pipeline.parsers.warp_ingest_parser import WarpIngestParser
+from opencontractserver.pipeline.parsers.warp_ingest_local_parser import (
+    WarpIngestLocalParser,
+)
 
 User = get_user_model()
 
@@ -108,7 +110,7 @@ class _FakeWarpIngest:
                 sys.modules[name] = prev
 
 
-class WarpIngestParserTests(TestCase):
+class WarpIngestLocalParserTests(TestCase):
     def setUp(self):
         with transaction.atomic():
             self.user = User.objects.create_user(username="warp", password="12345678")
@@ -119,7 +121,7 @@ class WarpIngestParserTests(TestCase):
             creator=self.user,
         )
         self.doc.pdf_file.save("test.pdf", ContentFile(_PDF_BYTES))
-        self.parser = WarpIngestParser()
+        self.parser = WarpIngestLocalParser()
 
     def test_parses_pdf_to_export(self):
         with _FakeWarpIngest() as mock:

@@ -380,11 +380,33 @@ class TestSanitizeCorpusFilename(TestCase):
         self.assertEqual(result, "a" * MAX_FILENAME_LENGTH)
 
     def test_truncation_happens_before_sanitisation(self):
-        # The raw input is sliced to MAX_FILENAME_LENGTH first, then each
-        # surviving char is mapped — so an over-long all-special string yields
-        # exactly MAX_FILENAME_LENGTH underscores, not more.
+        # An over-long all-special string has no extension, so the whole thing
+        # is the stem: it is capped to MAX_FILENAME_LENGTH then each surviving
+        # char is mapped — yielding exactly MAX_FILENAME_LENGTH underscores.
         result = sanitize_corpus_filename("*" * (MAX_FILENAME_LENGTH + 10))
         self.assertEqual(result, "_" * MAX_FILENAME_LENGTH)
+
+    def test_truncation_preserves_extension(self):
+        # A long filename must keep its extension (the pre-parse file converter
+        # keys its convert-vs-skip decision off the stored file's extension).
+        # The stem is trimmed so stem+ext fits MAX_FILENAME_LENGTH.
+        long_stem = "a" * (MAX_FILENAME_LENGTH + 50)
+        result = sanitize_corpus_filename(f"{long_stem}.pages")
+        self.assertEqual(len(result), MAX_FILENAME_LENGTH)
+        self.assertTrue(result.endswith(".pages"), result)
+
+    def test_pathological_extension_is_bounded(self):
+        # A pathologically long "extension" must not eat the whole budget: it
+        # is capped to MAX_FILENAME_EXTENSION_LENGTH so the stem still survives.
+        from opencontractserver.constants.document_processing import (
+            MAX_FILENAME_EXTENSION_LENGTH,
+        )
+
+        result = sanitize_corpus_filename("report." + "x" * 200)
+        self.assertLessEqual(len(result), MAX_FILENAME_LENGTH)
+        self.assertTrue(result.startswith("report."), result)
+        # stem ("report") + capped extension (".xxx…", MAX_FILENAME_EXTENSION_LENGTH)
+        self.assertEqual(len(result), len("report") + MAX_FILENAME_EXTENSION_LENGTH)
 
 
 class TestVectorSearchMixinDimensionMapping(TestCase):

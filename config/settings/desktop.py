@@ -113,7 +113,10 @@ SERVE_MEDIA_WITHOUT_DEBUG = True
 # These become the seed defaults for the PipelineSettings singleton on first
 # boot (see the ``desktop_bootstrap`` management command). DOCX/PPTX/XLSX still
 # route to the (absent) Docling parser and are a follow-up for the desktop build.
-_WARP_PARSER = "opencontractserver.pipeline.parsers.warp_ingest_parser.WarpIngestParser"
+_WARP_PARSER = (
+    "opencontractserver.pipeline.parsers.warp_ingest_local_parser."
+    "WarpIngestLocalParser"
+)
 _TXT_PARSER = "opencontractserver.pipeline.parsers.oc_text_parser.TxtParser"
 _MD_PARSER = "opencontractserver.pipeline.parsers.oc_markdown_parser.MarkdownParser"
 _OPENAI_EMBEDDER = (

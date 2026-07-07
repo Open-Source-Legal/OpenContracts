@@ -375,6 +375,41 @@ class TestPostProcessor(BasePostProcessor):
         thumbnailer_names = [t["name"] for t in data["thumbnailers"]]
         self.assertIn("TestThumbnailer", thumbnailer_names)
 
+    def test_pipeline_components_query_tolerates_malformed_preferred_enrichers(
+        self,
+    ):
+        """A malformed ``preferred_enrichers`` value must not crash the query.
+
+        ``PipelineSettings.preferred_enrichers`` is normally kept list-shaped
+        by ``UpdatePipelineSettingsMutation``'s ``validate_enricher_mapping``,
+        but nothing stops a direct DB/shell edit or a settings-seeded
+        migration from writing a non-list value (e.g. ``None`` or a bare
+        class-path string). ``resolve_pipeline_components``'s non-superuser
+        visibility-filtering loop must degrade gracefully -- mirroring
+        ``PipelineSettings.get_preferred_enrichers()`` -- rather than raising
+        (``None`` is not iterable) or character-splitting a string via
+        ``set.update()``.
+        """
+        settings_instance = PipelineSettings.get_instance(use_cache=False)
+        settings_instance.preferred_enrichers = {
+            "application/pdf": None,
+            "text/plain": "some.dotted.Enricher",
+        }
+        settings_instance.save()
+
+        query = """
+        query {
+            pipelineComponents {
+                parsers { name }
+                embedders { name }
+                thumbnailers { name }
+            }
+        }
+        """
+        result = self.graphene_client.execute(query)
+        self.assertIsNone(result.get("errors"))
+        self.assertIsNotNone(result.get("data"))
+
     def test_llm_providers_visible_to_non_superuser_without_secret_leak(self):
         """Non-superusers see the FULL llmProviders list but no credentials.
 

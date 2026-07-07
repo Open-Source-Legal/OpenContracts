@@ -25,6 +25,17 @@ LEGACY_MIME_ALIASES: dict[str, str] = {
     "application/txt": "text/plain",
 }
 
+# File extensions the pipeline handles natively (parsed or rendered as-is)
+# that must NEVER be routed through a pre-parse PDF converter, regardless of
+# what a converter implementation claims to support. ``BaseFileConverter``
+# subtracts these from every converter's enabled-extension set, so e.g. .doc
+# converts to PDF but .docx (natively parsed) never does. Markdown/CAML
+# variants are included because they are rendered client-side and skip the
+# ingest pipeline entirely.
+NATIVE_PIPELINE_EXTENSIONS: frozenset[str] = frozenset(
+    {"pdf", "txt", "docx", "md", "markdown", "caml"}
+)
+
 
 if len(FILE_TYPE_TO_MIME) != len(MIME_TO_FILE_TYPE):
     raise ValueError(

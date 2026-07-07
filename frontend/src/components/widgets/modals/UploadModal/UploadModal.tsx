@@ -56,7 +56,9 @@ import {
   DOCUMENT_METADATA,
 } from "../../../../assets/configurations/constants";
 import {
+  GET_CONVERTIBLE_EXTENSIONS,
   GET_SUPPORTED_MIME_TYPES,
+  ConvertibleExtensionsQueryResult,
   SupportedMimeTypesQueryResult,
 } from "../../../admin/system_settings/graphql";
 
@@ -137,6 +139,13 @@ export const UploadModal: React.FC<UploadModalProps> = ({
     { fetchPolicy: "cache-first" }
   );
 
+  // Extensions the configured pre-parse file converter turns into PDF
+  // (empty when no converter is configured server-side)
+  const { data: convertibleData } = useQuery<ConvertibleExtensionsQueryResult>(
+    GET_CONVERTIBLE_EXTENSIONS,
+    { fetchPolicy: "cache-first" }
+  );
+
   // Derive accepted file types (only fully supported ones) and MIME set for filtering
   const acceptedFileTypes: AcceptedFileType[] = useMemo(() => {
     if (!mimeTypesData?.supportedMimeTypes) return [];
@@ -149,20 +158,37 @@ export const UploadModal: React.FC<UploadModalProps> = ({
       }));
   }, [mimeTypesData]);
 
+  const convertibleExtensions = useMemo(
+    () =>
+      (convertibleData?.convertibleExtensions ?? []).filter(
+        (ext): ext is string => Boolean(ext)
+      ),
+    [convertibleData]
+  );
+
   const acceptedMimeSet = useMemo(
     () => new Set(acceptedFileTypes.map((ft) => ft.mimetype)),
     [acceptedFileTypes]
   );
 
   const acceptedExtensions = useMemo(
-    () => new Set(acceptedFileTypes.map((ft) => `.${ft.extension}`)),
-    [acceptedFileTypes]
+    () =>
+      new Set([
+        ...acceptedFileTypes.map((ft) => `.${ft.extension}`),
+        ...convertibleExtensions.map((ext) => `.${ext}`),
+      ]),
+    [acceptedFileTypes, convertibleExtensions]
   );
 
   const acceptedLabels = useMemo(() => {
     if (acceptedFileTypes.length === 0) return "PDF";
-    return acceptedFileTypes.map((ft) => ft.label).join(", ");
-  }, [acceptedFileTypes]);
+    const labels = acceptedFileTypes.map((ft) => ft.label).join(", ");
+    // Convertible formats are summarized rather than enumerated — Gotenberg
+    // alone supports ~100 extensions.
+    return convertibleExtensions.length > 0
+      ? `${labels} + ${convertibleExtensions.length} convertible formats`
+      : labels;
+  }, [acceptedFileTypes, convertibleExtensions]);
 
   // Upload mutations
   const uploadMutations = useUploadMutations({
@@ -542,6 +568,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                       mode="single"
                       hasFiles={uploadState.hasFiles}
                       acceptedFileTypes={acceptedFileTypes}
+                      convertibleExtensions={convertibleExtensions}
                       onFilesSelected={handleFilesSelected}
                       onFileRejected={handleFileRejected}
                     />

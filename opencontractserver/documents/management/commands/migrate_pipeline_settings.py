@@ -148,6 +148,7 @@ class Command(BaseCommand):
         all_components.extend(registry.thumbnailers)
         all_components.extend(registry.post_processors)
         all_components.extend(registry.enrichers)
+        all_components.extend(registry.file_converters)
 
         # Filter to specific component if requested
         if specific_component:
@@ -357,6 +358,7 @@ class Command(BaseCommand):
         all_components.extend(registry.thumbnailers)
         all_components.extend(registry.post_processors)
         all_components.extend(registry.enrichers)
+        all_components.extend(registry.file_converters)
 
         all_valid = True
         missing_by_component: dict[str, list[str]] = {}
@@ -495,6 +497,7 @@ class Command(BaseCommand):
             ("preferred_enrichers", "PREFERRED_ENRICHERS", {}),
             ("parser_kwargs", "PARSER_KWARGS", {}),
             ("default_embedder", "DEFAULT_EMBEDDER", ""),
+            ("default_file_converter", "DEFAULT_FILE_CONVERTER", ""),
             ("enabled_components", "ENABLED_COMPONENTS", []),
         ]
 

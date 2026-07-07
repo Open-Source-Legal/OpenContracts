@@ -1,6 +1,14 @@
 import React, { memo, useMemo, useCallback } from "react";
 import { Button, Spinner } from "@os-legal/ui";
-import { AlertTriangle, FileText, Cpu, Settings, Bot } from "lucide-react";
+import {
+  AlertTriangle,
+  FileText,
+  Cpu,
+  Settings,
+  Bot,
+  FileOutput,
+  ListOrdered,
+} from "lucide-react";
 import {
   PipelineComponentType,
   SupportedMimeTypeType,
@@ -33,34 +41,42 @@ import {
 interface FiletypeDefaultsProps {
   components: {
     parsers: (PipelineComponentType & { className: string })[];
-    embedders: (PipelineComponentType & { className: string })[];
     thumbnailers: (PipelineComponentType & { className: string })[];
   };
   supportedMimeTypes: SupportedMimeTypeType[];
   mimeTypesLoading?: boolean;
   enabledComponents: string[];
   preferredParsers: Record<string, string>;
-  preferredEmbedders: Record<string, string>;
   preferredThumbnailers: Record<string, string>;
   defaultEmbedder: string;
+  defaultFileConverter: string;
   defaultLlm: string;
+  defaultReranker: string;
   updating: boolean;
   onAssign: (
-    stage: "parsers" | "embedders" | "thumbnailers",
+    stage: "parsers" | "thumbnailers",
     mimeType: string,
     className: string
   ) => void;
   onEditDefaultEmbedder: () => void;
+  onEditDefaultFileConverter: () => void;
   onEditDefaultLlm: () => void;
+  onEditDefaultReranker: () => void;
 }
 
 // ============================================================================
 // Helpers
 // ============================================================================
 
+// The per-MIME "Embedder" column was removed (issue #2114): preferred_embedders
+// has no effect at ingest (the dual-embedding strategy always resolves the
+// single global default_embedder), and wiring per-MIME embedder resolution
+// into the real ingest path would risk mixed embedder classes/dimensions in
+// the shared cross-corpus vector index. Only Parser and Thumbnailer remain
+// per-MIME assignable here; embedders are still configured globally via the
+// "Default Embedder" row below and remain manageable in the Component Library.
 const STAGES: { key: StageType; label: string }[] = [
   { key: "parsers", label: "Parser" },
-  { key: "embedders", label: "Embedder" },
   { key: "thumbnailers", label: "Thumbnailer" },
 ];
 
@@ -75,23 +91,25 @@ export const FiletypeDefaults = memo<FiletypeDefaultsProps>(
     mimeTypesLoading,
     enabledComponents,
     preferredParsers,
-    preferredEmbedders,
     preferredThumbnailers,
     defaultEmbedder,
+    defaultFileConverter,
     defaultLlm,
+    defaultReranker,
     updating,
     onAssign,
     onEditDefaultEmbedder,
+    onEditDefaultFileConverter,
     onEditDefaultLlm,
+    onEditDefaultReranker,
   }) => {
     // Build a lookup from stage key to its preferred mapping
     const preferredByStage = useMemo(
       () => ({
         parsers: preferredParsers,
-        embedders: preferredEmbedders,
         thumbnailers: preferredThumbnailers,
       }),
-      [preferredParsers, preferredEmbedders, preferredThumbnailers]
+      [preferredParsers, preferredThumbnailers]
     );
 
     // Pre-compute available components per stage per MIME type
@@ -101,7 +119,6 @@ export const FiletypeDefaults = memo<FiletypeDefaultsProps>(
         Record<string, (PipelineComponentType & { className: string })[]>
       > = {
         parsers: {},
-        embedders: {},
         thumbnailers: {},
       };
 
@@ -138,7 +155,6 @@ export const FiletypeDefaults = memo<FiletypeDefaultsProps>(
           <DefaultsHeaderRow>
             <span>File Type</span>
             <span>Parser</span>
-            <span>Embedder</span>
             <span>Thumbnailer</span>
           </DefaultsHeaderRow>
 
@@ -252,6 +268,41 @@ export const FiletypeDefaults = memo<FiletypeDefaultsProps>(
             </div>
           </FiletypeRow>
 
+          {/* File Converter row. Not file-type-scoped: the converter is
+              keyed by source-file EXTENSION (configured on the component's
+              convert_extensions setting) and there is one install-wide
+              converter selection. Empty = conversion disabled. */}
+          <FiletypeRow>
+            <FiletypeLabel>
+              <FileOutput />
+              File Converter
+            </FiletypeLabel>
+            <div style={{ gridColumn: "2 / -1" }}>
+              <DefaultEmbedderDisplay>
+                {defaultFileConverter ? (
+                  <DefaultEmbedderInfo>
+                    <ComponentName>
+                      {getComponentDisplayName(defaultFileConverter)}
+                    </ComponentName>
+                    <DefaultEmbedderPath>
+                      {defaultFileConverter}
+                    </DefaultEmbedderPath>
+                  </DefaultEmbedderInfo>
+                ) : (
+                  <EmptyValue>Disabled (no pre-parse conversion)</EmptyValue>
+                )}
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  data-testid="edit-default-file-converter"
+                  onClick={onEditDefaultFileConverter}
+                >
+                  Edit
+                </Button>
+              </DefaultEmbedderDisplay>
+            </div>
+          </FiletypeRow>
+
           {/* Default LLM row. Not file-type-scoped: this is the install-wide
               fallback model for agents/chat when no per-corpus or per-agent
               override is set. */}
@@ -274,6 +325,39 @@ export const FiletypeDefaults = memo<FiletypeDefaultsProps>(
                   size="sm"
                   data-testid="edit-default-llm"
                   onClick={onEditDefaultLlm}
+                >
+                  Edit
+                </Button>
+              </DefaultEmbedderDisplay>
+            </div>
+          </FiletypeRow>
+
+          {/* Default Reranker row. Not file-type-scoped: a single install-wide
+              post-retrieval reranker applied to vector / hybrid search results
+              across corpora. Empty = reranking disabled (first-stage retrieval
+              results are returned as-is). */}
+          <FiletypeRow>
+            <FiletypeLabel>
+              <ListOrdered />
+              Default Reranker
+            </FiletypeLabel>
+            <div style={{ gridColumn: "2 / -1" }}>
+              <DefaultEmbedderDisplay>
+                {defaultReranker ? (
+                  <DefaultEmbedderInfo>
+                    <ComponentName>
+                      {getComponentDisplayName(defaultReranker)}
+                    </ComponentName>
+                    <DefaultEmbedderPath>{defaultReranker}</DefaultEmbedderPath>
+                  </DefaultEmbedderInfo>
+                ) : (
+                  <EmptyValue>Disabled (no reranking)</EmptyValue>
+                )}
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  data-testid="edit-default-reranker"
+                  onClick={onEditDefaultReranker}
                 >
                   Edit
                 </Button>

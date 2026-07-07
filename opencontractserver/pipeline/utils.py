@@ -8,7 +8,14 @@ from typing import Any, Optional, Union
 from opencontractserver.pipeline.base.base_component import PipelineComponentBase
 from opencontractserver.pipeline.base.embedder import BaseEmbedder
 from opencontractserver.pipeline.base.enricher import BaseEnricher
-from opencontractserver.pipeline.base.file_types import FILE_TYPE_TO_MIME, FileTypeEnum
+from opencontractserver.pipeline.base.file_converter import (
+    BaseFileConverter,
+    extension_for_filename,
+)
+from opencontractserver.pipeline.base.file_types import (
+    NATIVE_PIPELINE_EXTENSIONS,
+    FileTypeEnum,
+)
 from opencontractserver.pipeline.base.parser import BaseParser
 from opencontractserver.pipeline.base.post_processor import BasePostProcessor
 from opencontractserver.pipeline.base.reranker import BaseReranker
@@ -97,6 +104,18 @@ def get_all_rerankers() -> list[type[BaseReranker]]:
         List[Type[BaseReranker]]: List of reranker classes.
     """
     return get_all_subclasses("opencontractserver.pipeline.rerankers", BaseReranker)
+
+
+def get_all_file_converters() -> list[type[BaseFileConverter]]:
+    """
+    Get all file converter classes.
+
+    Returns:
+        List[Type[BaseFileConverter]]: List of file converter classes.
+    """
+    return get_all_subclasses(
+        "opencontractserver.pipeline.file_converters", BaseFileConverter
+    )
 
 
 def get_components_by_mimetype(
@@ -288,6 +307,7 @@ def get_component_by_name(component_name: str) -> type[PipelineComponentBase]:
                     or issubclass(obj, BasePostProcessor)
                     or issubclass(obj, BaseEnricher)
                     or issubclass(obj, BaseReranker)
+                    or issubclass(obj, BaseFileConverter)
                 ):
                     return obj
         except (ModuleNotFoundError, AttributeError):
@@ -301,6 +321,7 @@ def get_component_by_name(component_name: str) -> type[PipelineComponentBase]:
         "opencontractserver.pipeline.post_processors",
         "opencontractserver.pipeline.enrichers",
         "opencontractserver.pipeline.rerankers",
+        "opencontractserver.pipeline.file_converters",
     ]
 
     for base_path in base_paths:
@@ -317,44 +338,13 @@ def get_component_by_name(component_name: str) -> type[PipelineComponentBase]:
                     or (issubclass(obj, BasePostProcessor) and obj != BasePostProcessor)
                     or (issubclass(obj, BaseEnricher) and obj != BaseEnricher)
                     or (issubclass(obj, BaseReranker) and obj != BaseReranker)
+                    or (issubclass(obj, BaseFileConverter) and obj != BaseFileConverter)
                 ):
                     return obj
         except ModuleNotFoundError:
             continue
 
     raise ValueError(f"Component '{component_name}' not found.")
-
-
-def get_preferred_embedder(mimetype: str) -> Optional[type[BaseEmbedder]]:
-    """
-    Get the preferred embedder class for a given mimetype.
-
-    Reads from the database PipelineSettings singleton.
-
-    Args:
-        mimetype (str): The mimetype of the file.
-
-    Returns:
-        Optional[Type[BaseEmbedder]]: The preferred embedder class, or None if not found.
-    """
-    # Import here to avoid circular imports
-    from opencontractserver.documents.models import PipelineSettings
-
-    pipeline_settings = PipelineSettings.get_instance()
-    embedder_path = pipeline_settings.get_preferred_embedder(mimetype)
-
-    if embedder_path:
-        try:
-            module_path, class_name = embedder_path.rsplit(".", 1)
-            module = importlib.import_module(module_path)
-            embedder_class = getattr(module, class_name)
-            return embedder_class
-        except (ModuleNotFoundError, AttributeError) as e:
-            logger.error(f"Error loading embedder '{embedder_path}': {e}")
-            return None
-    else:
-        logger.warning(f"No preferred embedder set for mimetype: {mimetype}")
-        return None
 
 
 def get_default_embedder_path() -> str:
@@ -419,27 +409,6 @@ def get_default_embedder() -> Optional[type[BaseEmbedder]]:
         return None
 
 
-def get_default_embedder_for_filetype(mimetype: str) -> Optional[type[BaseEmbedder]]:
-    """
-    Get the default embedder for a specific filetype.
-
-    Reads from the database PipelineSettings singleton's preferred_embedders,
-    falling back to the global default embedder if no MIME-specific embedder
-    is configured.
-
-    Args:
-        mimetype: The MIME type of the file
-
-    Returns:
-        Optional[Type[BaseEmbedder]]: The default embedder for the specified filetype,
-        or None if not found
-    """
-    embedder = get_preferred_embedder(mimetype)
-    if embedder is not None:
-        return embedder
-    return get_default_embedder()
-
-
 def get_dimension_from_embedder(
     embedder_class_or_path: Union[type[BaseEmbedder], str],
 ) -> int:
@@ -469,36 +438,6 @@ def get_dimension_from_embedder(
         return embedder_class.vector_size
 
     return default_dim
-
-
-def find_embedder_for_filetype(
-    mimetype_or_enum: Union[str, FileTypeEnum],
-) -> Optional[type[BaseEmbedder]]:
-    """
-    Find an appropriate embedder for a specific file type and dimension.
-
-    Args:
-        mimetype_or_enum: The MIME type of the file or a FileTypeEnum
-        dimension: The desired embedding dimension (optional)
-
-    Returns:
-        Optional[Type[BaseEmbedder]]: An appropriate embedder class, or None if not found
-    """
-    # Ensure we're working with a mimetype string, not a FileTypeEnum
-    if isinstance(mimetype_or_enum, FileTypeEnum):
-        mimetype = FILE_TYPE_TO_MIME.get(mimetype_or_enum.value)
-        if not mimetype:
-            logger.warning(
-                f"Could not convert FileTypeEnum {mimetype_or_enum} to mimetype"
-            )
-            return get_default_embedder()
-    else:
-        mimetype = mimetype_or_enum
-
-    embedder = get_preferred_embedder(mimetype)
-    if embedder is not None:
-        return embedder
-    return get_default_embedder()
 
 
 def run_post_processors(
@@ -929,3 +868,132 @@ def invalidate_embedder_cache() -> None:
     """
     with _EMBEDDER_CACHE_LOCK:
         _EMBEDDER_INSTANCE_CACHE.clear()
+
+
+# --------------------------------------------------------------------------- #
+# File converter helpers
+# --------------------------------------------------------------------------- #
+# Converters run at most once per document ingest (never on a query hot path),
+# so — unlike rerankers/embedders — instances are NOT process-cached:
+# construction is a cheap cached-PipelineSettings read, and skipping the cache
+# means settings edits apply on the very next conversion.
+
+
+def get_default_file_converter_path() -> str:
+    """
+    Get the configured file converter class path from the PipelineSettings
+    singleton. Empty string means pre-parse conversion is disabled.
+    """
+    from opencontractserver.documents.models import PipelineSettings
+
+    return PipelineSettings.get_instance().get_default_file_converter()
+
+
+def get_default_file_converter_class() -> Optional[type[BaseFileConverter]]:
+    """
+    Resolve the configured file converter class path to an actual class.
+
+    Returns ``None`` when no converter is configured, or when the configured
+    class path cannot be imported / is not a ``BaseFileConverter`` subclass.
+    Callers treat ``None`` as "conversion disabled".
+    """
+    class_path = get_default_file_converter_path()
+    if not class_path:
+        return None
+    try:
+        module_path, class_name = class_path.rsplit(".", 1)
+        module = importlib.import_module(module_path)
+        converter_class = getattr(module, class_name)
+    except (ModuleNotFoundError, AttributeError, ValueError) as e:
+        logger.warning(f"Error loading file converter '{class_path}': {e}")
+        return None
+
+    if not isinstance(converter_class, type) or not issubclass(
+        converter_class, BaseFileConverter
+    ):
+        logger.warning(
+            f"Configured file converter '{class_path}' is not a "
+            "BaseFileConverter subclass"
+        )
+        return None
+    return converter_class
+
+
+def get_default_file_converter_instance() -> Optional[BaseFileConverter]:
+    """
+    Instantiate the configured file converter.
+
+    Returns ``None`` when unconfigured or when the class cannot be loaded or
+    constructed — the caller skips conversion in that case.
+    """
+    converter_class = get_default_file_converter_class()
+    if converter_class is None:
+        return None
+    try:
+        return converter_class()
+    except Exception as e:
+        logger.warning(
+            f"Failed to instantiate file converter "
+            f"'{converter_class.__name__}': {e}"
+        )
+        return None
+
+
+def get_convertible_extensions() -> frozenset[str]:
+    """
+    Extensions the configured file converter will convert to PDF.
+
+    Empty when no converter is configured (conversion disabled). Never raises;
+    resolution failures are logged and yield the empty set so upload paths
+    degrade to native-format acceptance only.
+    """
+    converter = get_default_file_converter_instance()
+    if converter is None:
+        return frozenset()
+    return converter.get_enabled_extensions()
+
+
+def resolve_convertible_upload(
+    filename: str, sniffed_mime: Optional[str] = None
+) -> Optional[str]:
+    """
+    Decide whether an upload should take the convert-to-PDF ingest path.
+
+    The decision is keyed on the FILENAME EXTENSION (matching the admin's
+    configured extension list), never on the sniffed MIME type — many
+    convertible formats (RTF, LaTeX, HTML) sniff as plain text, and legacy
+    binary formats often don't sniff at all.
+
+    Args:
+        filename: Original upload filename.
+        sniffed_mime: MIME type detected from the file bytes, if any
+            (accepted for call-site symmetry; not used in the decision).
+
+    Returns:
+        ``application/octet-stream`` when the upload is convertible, else
+        ``None`` (follow the normal native-format path).
+
+    Why always octet-stream (not the guessed MIME): the returned value becomes
+    ``Document.file_type`` and can surface as a stored/served Content-Type.
+    Several convertible formats (``.html``, ``.svg``, ``.xhtml``, ``.xml``)
+    would otherwise be recorded as browser-renderable types, opening a
+    stored-XSS window between upload and conversion for a shared/public
+    document. octet-stream is inert (downloaded, never rendered). The value is
+    transient anyway — it flips to ``application/pdf`` once conversion
+    succeeds — and the converter keys off the stored file's EXTENSION, not
+    ``file_type``, so nothing downstream depends on a "true" MIME here. It also
+    guarantees the upload lands in ``pdf_file`` (not ``txt_extract_file``,
+    which ``documents/versioning.py::_is_text_file`` routes text MIMEs to) so
+    the converter step can find it.
+    """
+    from opencontractserver.constants.document_processing import (
+        OCTET_STREAM_MIME_TYPE,
+    )
+
+    extension = extension_for_filename(filename)
+    if not extension or extension in NATIVE_PIPELINE_EXTENSIONS:
+        return None
+    if extension not in get_convertible_extensions():
+        return None
+
+    return OCTET_STREAM_MIME_TYPE

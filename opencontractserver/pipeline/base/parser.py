@@ -18,6 +18,7 @@ from opencontractserver.utils.importing import (
     import_relationships,
     load_or_create_labels,
 )
+from opencontractserver.utils.logging import redact_sensitive_kwargs
 from opencontractserver.utils.structural_sets import create_structural_annotation_set
 from opencontractserver.utils.subtree_groups import build_subtree_groups_for_document
 
@@ -77,15 +78,49 @@ class BaseParser(PipelineComponentBase, ABC):
             doc_id (int): ID of the document to parse.
             **direct_kwargs: Arbitrary keyword arguments that may be provided
                              for specific parser functionalities at call time.
-                             These will override settings from PIPELINE_SETTINGS.
+                             At the one production call site
+                             (``doc_tasks._resolve_parser_for_ingest``), this is
+                             always ``PipelineSettings.get_parser_kwargs(...)``
+                             — the legacy, seed-only ``parser_kwargs`` channel
+                             with no admin GUI editor today (see issue #2120).
 
         Returns:
             Optional[OpenContractDocExport]: The parsed document data, or None if parsing failed.
         """
-        # Merge component settings with direct kwargs, direct_kwargs take precedence
-        merged_kwargs = {**self.get_component_settings(), **direct_kwargs}
+        # Merge component settings with direct kwargs. ``get_component_settings()``
+        # (the schema-validated, superuser-GUI-editable "Advanced Settings" /
+        # component-config channel) WINS on key collisions — not
+        # ``direct_kwargs``/legacy ``parser_kwargs``. This is intentional
+        # (issue #2115): several parsers (e.g. LlamaParseParser's
+        # result_type/extract_layout/num_workers/language/verbose) seed the
+        # same field names into both the component's Settings dataclass
+        # defaults and the legacy Django-settings PARSER_KWARGS seed, so the
+        # old direct_kwargs-wins order made GUI edits to component_settings
+        # silently invisible at parse time. Keys unique to parser_kwargs (e.g.
+        # LlamaParse's api_key, a SECRET-type setting the mutation layer
+        # refuses to accept as plaintext in component_settings) never collide
+        # and pass through unchanged.
+        #
+        # EXCEPTION: a falsy value (``None`` or ``""``) in component_settings
+        # never overrides a truthy value already present in direct_kwargs.
+        # Empty-string is the established "not set" / placeholder convention
+        # throughout this codebase (``default_reranker``, ``default_llm``,
+        # ``default_file_converter``, and the secret-placeholder validation
+        # in the pipeline settings mutation layer all treat "" as unset). A
+        # SECRET-type field like LlamaParse's ``api_key`` is deliberately
+        # excluded from component_settings' required-ness validation and may
+        # be schema-seeded as ``""`` there while the real, env-seeded value
+        # lives only in legacy ``parser_kwargs``/``direct_kwargs``; without
+        # this guard that empty placeholder would silently clobber the real
+        # secret on every parse.
+        component_settings = self.get_component_settings()
+        merged_kwargs = {
+            **direct_kwargs,
+            **{k: v for k, v in component_settings.items() if v not in (None, "")},
+        }
         logger.info(
-            f"Calling _parse_document_impl for doc_id {doc_id} with merged kwargs: {merged_kwargs}"
+            f"Calling _parse_document_impl for doc_id {doc_id} with merged kwargs: "
+            f"{redact_sensitive_kwargs(merged_kwargs)}"
         )
         return self._parse_document_impl(user_id, doc_id, **merged_kwargs)
 
@@ -383,7 +418,8 @@ class BaseParser(PipelineComponentBase, ABC):
         corpus_id = kwargs.pop("corpus_id", None)
 
         logger.info(
-            f"Processing document {doc_id} with possible parser kwargs: {kwargs}"
+            f"Processing document {doc_id} with possible parser kwargs: "
+            f"{redact_sensitive_kwargs(kwargs)}"
             + (f" (corpus_id={corpus_id})" if corpus_id else "")
         )
 
