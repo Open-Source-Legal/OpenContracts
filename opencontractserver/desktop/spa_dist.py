@@ -38,8 +38,8 @@ from opencontractserver.desktop import paths
 GITHUB_REPO = "Open-Source-Legal/OpenContracts"
 SPA_ASSET_NAME = "opencontracts-frontend-dist.zip"
 _HTTP_TIMEOUT_SECONDS = 30
-# Defense-in-depth cap on the bundle download (the real dist is ~15 MB; a
-# release asset an order of magnitude past this ceiling is wrong, full stop).
+# Defense-in-depth cap on the bundle download — the real dist is ~15 MB, so
+# anything approaching this deliberately generous ceiling is wrong, full stop.
 MAX_BUNDLE_BYTES = 500 * 1024 * 1024
 
 

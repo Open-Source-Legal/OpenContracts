@@ -859,3 +859,29 @@ class StableSecretKeyFallbackTests(SimpleTestCase):
             launcher, "_keyring_get_or_create", return_value="stable-key-123"
         ):
             self.assertEqual(launcher._stable_secret_key(), "stable-key-123")
+
+
+class ReexecPasswordScrubTests(SimpleTestCase):
+    """The first-run password must cross the process boundary exactly once.
+
+    The venv child gets it (to hand to desktop_bootstrap); the outer wrapper
+    process — which lives until Ctrl+C — must scrub it from its own
+    environment block immediately.
+    """
+
+    def test_reexec_scrubs_password_from_wrapper_env(self):
+        from opencontractserver.desktop import bootstrap
+
+        fake_child = mock.MagicMock()
+        fake_child.wait.return_value = 0
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
+            os.environ, {"OC_DESKTOP_PASSWORD": "pw-123456"}, clear=False
+        ), mock.patch.object(
+            bootstrap.subprocess, "Popen", return_value=fake_child
+        ) as popen:
+            rc = bootstrap._reexec_in_venv(Path(tmp), Path(tmp) / "venv", [])
+            self.assertEqual(rc, 0)
+            # Wrapper env scrubbed; the child env copy still carries it.
+            self.assertNotIn("OC_DESKTOP_PASSWORD", os.environ)
+            child_env = popen.call_args.kwargs["env"]
+            self.assertEqual(child_env["OC_DESKTOP_PASSWORD"], "pw-123456")

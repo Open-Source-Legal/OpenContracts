@@ -322,6 +322,11 @@ def _reexec_in_venv(
     """
     env = os.environ.copy()
     env[_REEXEC_GUARD_ENV] = "1"
+    # The venv child needs the first-run password (it hands it to
+    # desktop_bootstrap, which scrubs its own tree after use); THIS wrapper
+    # process doesn't, and it lives until Ctrl+C — its environment block must
+    # not hold the password for the whole session either.
+    os.environ.pop("OC_DESKTOP_PASSWORD", None)
     child = subprocess.Popen(
         [str(venv_python(venv_path)), str(root / "oc-desktop.py"), *argv],
         cwd=str(root),
