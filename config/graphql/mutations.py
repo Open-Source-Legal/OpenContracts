@@ -100,6 +100,13 @@ from config.graphql.corpus_folder_mutations import (
     UpdateCorpusFolderMutation,
 )
 
+# Import corpus group mutations (issue #2056)
+from config.graphql.corpus_group_mutations import (
+    CreateCorpusGroupMutation,
+    DeleteCorpusGroupMutation,
+    UpdateCorpusGroupMutation,
+)
+
 # Import corpus mutations
 from config.graphql.corpus_mutations import (
     AddDocumentsToCorpus,
@@ -380,6 +387,11 @@ class Mutation(graphene.ObjectType):
     delete_corpus_category = DeleteCorpusCategory.Field()
 
     # CORPUS FOLDER MUTATIONS ##################################################
+    # Corpus groups (multi-corpus retrieval, issue #2056)
+    create_corpus_group = CreateCorpusGroupMutation.Field()
+    update_corpus_group = UpdateCorpusGroupMutation.Field()
+    delete_corpus_group = DeleteCorpusGroupMutation.Field()
+
     create_corpus_folder = CreateCorpusFolderMutation.Field()
     update_corpus_folder = UpdateCorpusFolderMutation.Field()
     move_corpus_folder = MoveCorpusFolderMutation.Field()

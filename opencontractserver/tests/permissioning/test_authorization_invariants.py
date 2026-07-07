@@ -2061,3 +2061,58 @@ class UserFeedbackAuthorizationInvariantsTestCase(_UserCanInvariantsMixin, TestC
                 public_fb.user_can(self.stranger, perm),
                 f"stranger gained {perm} on public feedback via is_public — leak!",
             )
+
+
+class CorpusGroupAuthorizationInvariantsTestCase(_UserCanInvariantsMixin, TestCase):
+    """Pin filter/check equivalence for ``CorpusGroup`` (issue #2056).
+
+    ``CorpusGroup`` uses the plain ``BaseOCModel`` visibility surface
+    (creator | is_public | guardian object permissions). Member-corpus
+    filtering is a *separate* gate applied at read time by
+    ``CorpusGroupService.get_group_corpora_visible_to_user`` and is pinned
+    in ``opencontractserver/tests/test_corpus_groups.py``; this class pins
+    only the group row's own visibility invariants.
+    """
+
+    def setUp(self):
+        from opencontractserver.corpuses.models import CorpusGroup
+
+        self.model_cls = CorpusGroup
+
+        self.creator = User.objects.create_user(
+            username="cg_creator", email="cgc@inv.test", password="x"
+        )
+        self.shared_reader = User.objects.create_user(
+            username="cg_reader", email="cgr@inv.test", password="x"
+        )
+        self.stranger = User.objects.create_user(
+            username="cg_stranger", email="cgs@inv.test", password="x"
+        )
+        self._superuser = User.objects.create_superuser(
+            username="cg_admin", email="cga@inv.test", password="x"
+        )
+
+        self.private_group = CorpusGroup.objects.create(
+            title="Private Group", creator=self.creator, is_public=False
+        )
+        self.public_group = CorpusGroup.objects.create(
+            title="Public Group", creator=self.creator, is_public=True
+        )
+        set_permissions_for_obj_to_user(
+            self.shared_reader, self.private_group, [PermissionTypes.READ]
+        )
+
+        self._matrix_users = [
+            self.creator,
+            self.shared_reader,
+            self.stranger,
+            self._superuser,
+            AnonymousUser(),
+        ]
+        self._matrix_instances = [self.private_group, self.public_group]
+
+    def test_is_public_grants_only_read(self):
+        """``is_public=True`` grants READ but not UPDATE/DELETE."""
+        self.assertTrue(self.public_group.user_can(self.stranger, PermissionTypes.READ))
+        for perm in (PermissionTypes.UPDATE, PermissionTypes.DELETE):
+            self.assertFalse(self.public_group.user_can(self.stranger, perm))

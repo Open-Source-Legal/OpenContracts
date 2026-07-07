@@ -24,6 +24,7 @@ from opencontractserver.corpuses.models import (
     CorpusCategory,
     CorpusEngagementMetrics,
     CorpusFolder,
+    CorpusGroup,
     CorpusVote,
 )
 from opencontractserver.shared.services.base import BaseService
@@ -751,6 +752,53 @@ class CorpusType(AnnotatePermissionsForReadMixin, DjangoObjectType):
         if cache is not None:
             cache[pk] = corpus
         return corpus
+
+
+# ---------------- Corpus Group Types (issue #2056) ----------------
+class CorpusGroupType(AnnotatePermissionsForReadMixin, DjangoObjectType):
+    """GraphQL type for :class:`CorpusGroup` — a bundle of corpora for
+    multi-corpus retrieval.
+
+    ``corpora`` is resolved through ``CorpusGroupService`` so members the
+    viewer cannot READ are never listed (MIN(corpus_permission,
+    group_membership) — the same call-time semantics the
+    ``search_across_corpora`` agent tool uses).
+    """
+
+    class Meta:
+        model = CorpusGroup
+        interfaces = [relay.Node]
+        connection_class = CountableConnection
+        fields = (
+            "id",
+            "title",
+            "slug",
+            "description",
+            "corpora",
+            "default_agent",
+            "creator",
+            "is_public",
+            "created",
+            "modified",
+        )
+        filter_fields = {
+            "title": ["exact", "icontains"],
+            "slug": ["exact"],
+        }
+
+    def resolve_corpora(self, info) -> Any:
+        """Return only the member corpora the viewer can READ."""
+        from opencontractserver.corpuses.services import CorpusGroupService
+
+        user = getattr(info.context, "user", None)
+        return CorpusGroupService.get_group_corpora_visible_to_user(
+            user, self, request=info.context
+        )
+
+    @classmethod
+    def get_queryset(cls, queryset, info) -> Any:
+        user = getattr(info.context, "user", None)
+        return BaseService.filter_visible_qs(queryset, user, request=info.context)
 
 
 class CorpusStatsType(graphene.ObjectType):

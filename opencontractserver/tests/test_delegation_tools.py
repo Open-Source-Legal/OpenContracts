@@ -435,6 +435,32 @@ class BuildDelegationToolBodyTests(TransactionTestCase):
         # persist=False is unconditional, though.
         self.assertIs(call_kwargs.get("persist"), False)
 
+    async def test_body_passes_available_tools(self):
+        """Sub-agent factory must receive the agent's ``available_tools`` so a
+        configured tool (e.g. ``search_across_corpora`` on a multi-corpus
+        orchestrator, issue #2056) is actually available to the sub-agent."""
+        self.agent.available_tools = ["search_across_corpora"]
+        await self.agent.asave()
+        events = [
+            _make_stub_event(type="final", content="ok", accumulated_content="ok"),
+        ]
+        _, mock_factory, _ = await self._build_tool_and_invoke(events=events, pin=False)
+
+        mock_factory.assert_awaited_once()
+        call_kwargs = mock_factory.call_args.kwargs
+        self.assertEqual(call_kwargs.get("tools"), ["search_across_corpora"])
+
+    async def test_body_omits_tools_when_available_tools_empty(self):
+        """An empty ``available_tools`` list must not forward ``tools=[]`` —
+        the kwarg is omitted so the factory default tool set applies."""
+        events = [
+            _make_stub_event(type="final", content="ok", accumulated_content="ok"),
+        ]
+        _, mock_factory, _ = await self._build_tool_and_invoke(events=events, pin=False)
+
+        mock_factory.assert_awaited_once()
+        self.assertNotIn("tools", mock_factory.call_args.kwargs)
+
     async def test_body_pin_true_invokes_relay_callbacks(self):
         """pin=True: relay.on_token captures tokens and relay.on_finish gets final text."""
         from opencontractserver.llms.tools.delegation_tools import StreamRelay
