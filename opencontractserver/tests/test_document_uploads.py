@@ -181,6 +181,59 @@ class UploadDocumentMutationTestCase(TestCase):
                         f"Document data should be null for failed upload of {mime_type}",
                     )
 
+    def test_upload_document_without_custom_meta_argument(self):
+        """A caller that omits customMeta entirely must not crash the resolver.
+
+        customMeta is declared ``required=False`` in the GraphQL schema, but
+        the resolver's ``custom_meta`` parameter previously had no Python
+        default — graphene only passes an argument when the client's query
+        includes it, so omitting it raised "missing 1 required positional
+        argument: 'custom_meta'" instead of a clean GraphQL response.
+        """
+        mutation_without_custom_meta = """
+            mutation UploadDocument(
+                $file: String!,
+                $filename: String!,
+                $title: String!,
+                $description: String!,
+                $makePublic: Boolean!
+            ) {
+                uploadDocument(
+                    base64FileString: $file,
+                    filename: $filename,
+                    title: $title,
+                    description: $description,
+                    makePublic: $makePublic
+                ) {
+                    ok
+                    message
+                    document {
+                        id
+                        title
+                    }
+                }
+            }
+        """
+
+        file_content = self.generate_file_content("txt")
+        base64_content = base_64_encode_bytes(file_content)
+
+        result = self.graphene_client.execute(
+            mutation_without_custom_meta,
+            variables={
+                "file": base64_content,
+                "filename": "test.txt",
+                "title": "No Custom Meta",
+                "description": "Uploaded without a customMeta argument",
+                "makePublic": True,
+            },
+        )
+
+        self.assertIsNone(result.get("errors"))
+        upload_result = result["data"]["uploadDocument"]
+        self.assertTrue(upload_result["ok"], upload_result.get("message"))
+        self.assertEqual(upload_result["document"]["title"], "No Custom Meta")
+
     def test_upload_document_to_corpus_requires_edit_permission(self):
         """
         Test that uploading a document to a corpus requires EDIT permission.

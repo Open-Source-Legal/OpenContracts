@@ -25,10 +25,17 @@ export default defineConfig({
   /* Reporter to use. See https://playwright.dev/docs/test-reporters */
   reporter: "html",
   /* Global timeout for the entire test run.
-   * Coverage instrumentation adds overhead, so allow 30 minutes;
-   * normal runs use 15 minutes. */
+   * Coverage instrumentation adds overhead, so allow 45 minutes;
+   * normal runs use 15 minutes.
+   *
+   * The coverage ceiling was 30 minutes until PR #2129: the suite had grown
+   * to where a clean CI run already took ~29.4m, leaving under a minute of
+   * margin, and ordinary runner variance (no new tests) pushed one run to
+   * 30.0m — killing it mid-suite with 74 tests never run and the coverage
+   * report reflecting an incomplete pass. Bumped to give real headroom
+   * instead of merely deferring the next flake to the next few PRs. */
   globalTimeout: process.env.CI
-    ? (process.env.COVERAGE ? 30 : 15) * 60 * 1000
+    ? (process.env.COVERAGE ? 45 : 15) * 60 * 1000
     : undefined,
   /* Expect timeout - give assertions more time on CI */
   expect: {

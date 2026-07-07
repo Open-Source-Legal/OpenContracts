@@ -92,6 +92,10 @@ def validate_component_mapping(
             on ``.generate_thumbnail`` and marks every affected document FAILED.
             Mirrors the stricter guard already applied to ``default_file_converter``.
 
+    A ``None`` value for a MIME type is a delete marker (see
+    ``merge_mapping_field``) — its MIME type key is still format-checked, but
+    the value itself is not resolved against the registry.
+
     Returns:
         Error message if invalid, None if valid
     """
@@ -103,6 +107,11 @@ def validate_component_mapping(
         error = validate_mime_type(mime_type)
         if error:
             return error
+
+        # None is a delete marker (merge_mapping_field drops this key from
+        # the stored mapping) — nothing further to validate for this entry.
+        if component_path is None:
+            continue
 
         # Validate component path format
         error = validate_component_path(component_path)
@@ -139,6 +148,10 @@ def validate_enricher_mapping(mapping: dict, registry) -> Optional[str]:
         mapping: Dict mapping MIME types to lists of enricher class paths
         registry: Pipeline component registry for validation
 
+    A ``None`` value for a MIME type is a delete marker (see
+    ``merge_mapping_field``) — its MIME type key is still format-checked, but
+    the value itself is not required to be a list.
+
     Returns:
         Error message if invalid, None if valid
     """
@@ -152,6 +165,11 @@ def validate_enricher_mapping(mapping: dict, registry) -> Optional[str]:
         error = validate_mime_type(mime_type)
         if error:
             return error
+
+        # None is a delete marker (merge_mapping_field drops this key from
+        # the stored mapping) — nothing further to validate for this entry.
+        if path_list is None:
+            continue
 
         # preferred_enrichers is a mime -> ORDERED LIST mapping, not mime -> path
         if not isinstance(path_list, list):
@@ -263,6 +281,37 @@ def validate_json_field_size(value: dict, field_name: str) -> Optional[str]:
             f"maximum size of {MAX_JSON_FIELD_SIZE_BYTES} bytes"
         )
     return None
+
+
+def merge_mapping_field(existing: Optional[dict], incoming: dict) -> dict:
+    """
+    Shallow-merge ``incoming`` over ``existing`` (top-level keys only).
+
+    The mapping fields on ``PipelineSettings`` (preferred_parsers,
+    preferred_embedders, preferred_thumbnailers, preferred_enrichers,
+    parser_kwargs, component_settings) are keyed per MIME-type or
+    per-component, and each key is independently owned by whichever admin
+    action last touched it. A caller updating one key (e.g. the PDF parser)
+    must not silently drop sibling keys it never mentioned (e.g. the DOCX
+    parser) — that previously happened because the mutation assigned the
+    incoming dict wholesale.
+
+    A ``None`` value for a key is a delete marker: that key is dropped from
+    the merged result instead of being kept or overwritten. This is required
+    by the admin GUI's "-- Unassigned --" / remove-enricher actions
+    (``SystemSettings.tsx`` ``handleAssign`` / ``handleAssignEnrichers``),
+    which send only the single changed MIME type with ``null`` to clear it —
+    a plain ``{**existing, **incoming}`` merge would silently resurrect the
+    "removed" key from ``existing`` since the client never re-sends the
+    other keys to omit it by.
+    """
+    merged = {**(existing or {})}
+    for key, value in incoming.items():
+        if value is None:
+            merged.pop(key, None)
+        else:
+            merged[key] = value
+    return merged
 
 
 class UpdatePipelineSettingsMutation(graphene.Mutation):
@@ -399,60 +448,76 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
             settings_instance = PipelineSettings.get_instance()
             registry = get_registry()
 
-            # Validate and apply preferred_parsers
+            # Validate and merge preferred_parsers. Only the incoming (changed)
+            # entries are validated — previously-stored entries were already
+            # validated when they were set — but the size cap is checked
+            # against the merged result so repeated small updates can't
+            # accumulate past the limit.
             if preferred_parsers is not None:
+                merged_parsers = merge_mapping_field(
+                    settings_instance.preferred_parsers, preferred_parsers
+                )
                 error = validate_component_mapping(
                     preferred_parsers, registry, "Parser", ComponentType.PARSER
-                ) or validate_json_field_size(preferred_parsers, "preferred_parsers")
+                ) or validate_json_field_size(merged_parsers, "preferred_parsers")
                 if error:
                     return UpdatePipelineSettingsMutation(
                         ok=False, message=error, pipeline_settings=None
                     )
-                settings_instance.preferred_parsers = preferred_parsers
+                settings_instance.preferred_parsers = merged_parsers
 
-            # Validate and apply preferred_embedders
+            # Validate and merge preferred_embedders
             if preferred_embedders is not None:
+                merged_embedders = merge_mapping_field(
+                    settings_instance.preferred_embedders, preferred_embedders
+                )
                 error = validate_component_mapping(
                     preferred_embedders, registry, "Embedder", ComponentType.EMBEDDER
-                ) or validate_json_field_size(
-                    preferred_embedders, "preferred_embedders"
-                )
+                ) or validate_json_field_size(merged_embedders, "preferred_embedders")
                 if error:
                     return UpdatePipelineSettingsMutation(
                         ok=False, message=error, pipeline_settings=None
                     )
-                settings_instance.preferred_embedders = preferred_embedders
+                settings_instance.preferred_embedders = merged_embedders
 
-            # Validate and apply preferred_thumbnailers
+            # Validate and merge preferred_thumbnailers
             if preferred_thumbnailers is not None:
+                merged_thumbnailers = merge_mapping_field(
+                    settings_instance.preferred_thumbnailers, preferred_thumbnailers
+                )
                 error = validate_component_mapping(
                     preferred_thumbnailers,
                     registry,
                     "Thumbnailer",
                     ComponentType.THUMBNAILER,
                 ) or validate_json_field_size(
-                    preferred_thumbnailers, "preferred_thumbnailers"
+                    merged_thumbnailers, "preferred_thumbnailers"
                 )
                 if error:
                     return UpdatePipelineSettingsMutation(
                         ok=False, message=error, pipeline_settings=None
                     )
-                settings_instance.preferred_thumbnailers = preferred_thumbnailers
+                settings_instance.preferred_thumbnailers = merged_thumbnailers
 
-            # Validate and apply preferred_enrichers
+            # Validate and merge preferred_enrichers (per MIME type — each
+            # entry is an ordered enricher-chain list, atomically replaced
+            # for the MIME types the caller names; sibling MIME types keep
+            # their existing chains).
             if preferred_enrichers is not None:
+                merged_enrichers = merge_mapping_field(
+                    settings_instance.preferred_enrichers, preferred_enrichers
+                )
                 error = validate_enricher_mapping(
                     preferred_enrichers, registry
-                ) or validate_json_field_size(
-                    preferred_enrichers, "preferred_enrichers"
-                )
+                ) or validate_json_field_size(merged_enrichers, "preferred_enrichers")
                 if error:
                     return UpdatePipelineSettingsMutation(
                         ok=False, message=error, pipeline_settings=None
                     )
-                settings_instance.preferred_enrichers = preferred_enrichers
+                settings_instance.preferred_enrichers = merged_enrichers
 
-            # Validate parser_kwargs
+            # Validate and merge parser_kwargs (per parser class path — setting
+            # one parser's kwargs must not drop another parser's kwargs).
             if parser_kwargs is not None:
                 if not isinstance(parser_kwargs, dict):
                     return UpdatePipelineSettingsMutation(
@@ -460,7 +525,10 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
                         message="parser_kwargs must be a dictionary.",
                         pipeline_settings=None,
                     )
-                error = validate_json_field_size(parser_kwargs, "parser_kwargs")
+                merged_parser_kwargs = merge_mapping_field(
+                    settings_instance.parser_kwargs, parser_kwargs
+                )
+                error = validate_json_field_size(merged_parser_kwargs, "parser_kwargs")
                 if error:
                     return UpdatePipelineSettingsMutation(
                         ok=False, message=error, pipeline_settings=None
@@ -471,6 +539,10 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
                 # so they are encrypted at rest. Empty placeholders are allowed
                 # as schema markers.
                 for parser_path, kwargs in parser_kwargs.items():
+                    # None is a delete marker (merge_mapping_field drops this
+                    # parser's kwargs entirely) — nothing to validate.
+                    if kwargs is None:
+                        continue
                     if not isinstance(kwargs, dict):
                         return UpdatePipelineSettingsMutation(
                             ok=False,
@@ -495,9 +567,11 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
                             ),
                             pipeline_settings=None,
                         )
-                settings_instance.parser_kwargs = parser_kwargs
+                settings_instance.parser_kwargs = merged_parser_kwargs
 
-            # Validate component_settings
+            # Validate and merge component_settings (per component class path —
+            # setting one component's settings must not drop another
+            # component's settings).
             if component_settings is not None:
                 if not isinstance(component_settings, dict):
                     return UpdatePipelineSettingsMutation(
@@ -505,8 +579,11 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
                         message="component_settings must be a dictionary.",
                         pipeline_settings=None,
                     )
+                merged_component_settings = merge_mapping_field(
+                    settings_instance.component_settings, component_settings
+                )
                 error = validate_json_field_size(
-                    component_settings, "component_settings"
+                    merged_component_settings, "component_settings"
                 )
                 if error:
                     return UpdatePipelineSettingsMutation(
@@ -523,6 +600,11 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
                             message=f"Invalid component path in component_settings: {error}",
                             pipeline_settings=None,
                         )
+
+                    # None is a delete marker (merge_mapping_field drops this
+                    # component's settings entirely) — nothing to validate.
+                    if comp_settings is None:
+                        continue
 
                     if not isinstance(comp_settings, dict):
                         return UpdatePipelineSettingsMutation(
@@ -578,7 +660,7 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
                                 pipeline_settings=None,
                             )
 
-                settings_instance.component_settings = component_settings
+                settings_instance.component_settings = merged_component_settings
 
             # Validate default_embedder
             if default_embedder is not None:
@@ -721,6 +803,12 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
                             pipeline_settings=None,
                         )
 
+                # The "assigned components must stay enabled" check used to
+                # live here, scoped to only this branch. It's now handled
+                # uniformly below by `_find_disabled_but_assigned`, which
+                # covers this same case (enabled_components touched) plus
+                # every other field whose assignment can conflict with it —
+                # see the "Consistency check (issue #2116)" comment below.
                 settings_instance.enabled_components = list(
                     dict.fromkeys(enabled_components)
                 )
@@ -751,21 +839,16 @@ class UpdatePipelineSettingsMutation(graphene.Mutation):
                 if not enabled_set:
                     return None
 
-                assigned_parsers = (
-                    preferred_parsers
-                    if preferred_parsers is not None
-                    else settings_instance.preferred_parsers or {}
-                )
-                assigned_embedders = (
-                    preferred_embedders
-                    if preferred_embedders is not None
-                    else settings_instance.preferred_embedders or {}
-                )
-                assigned_thumbnailers = (
-                    preferred_thumbnailers
-                    if preferred_thumbnailers is not None
-                    else settings_instance.preferred_thumbnailers or {}
-                )
+                # preferred_parsers/embedders/thumbnailers are read straight
+                # off settings_instance (not the raw request args) because
+                # the blocks above already merged any incoming update into
+                # it — settings_instance reflects the full post-merge state
+                # whether or not this call touched each field. Using the raw
+                # arg here would only see this call's partial delta and miss
+                # pre-existing sibling assignments the merge preserved.
+                assigned_parsers = settings_instance.preferred_parsers or {}
+                assigned_embedders = settings_instance.preferred_embedders or {}
+                assigned_thumbnailers = settings_instance.preferred_thumbnailers or {}
                 assigned_default = (
                     default_embedder
                     if default_embedder is not None

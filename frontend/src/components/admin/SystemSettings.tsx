@@ -456,6 +456,12 @@ export const SystemSettings: React.FC = () => {
   // Assign a component to a filetype default. "embedders" is intentionally
   // excluded (issue #2114): preferred_embedders has no effect on ingest — see
   // the STAGES comment in FiletypeDefaults.tsx.
+  //
+  // Sends only the single changed MIME type (not the full current mapping):
+  // the server merges this into the stored mapping per-key, preserving
+  // sibling MIME types automatically. Picking "-- Unassigned --" sends
+  // `null` for the key, which the server treats as a delete marker (removes
+  // the key entirely) rather than a value to store.
   const handleAssign = useCallback(
     (
       stage: "parsers" | "thumbnailers",
@@ -463,45 +469,33 @@ export const SystemSettings: React.FC = () => {
       className: string
     ) => {
       const settingsKey = STAGE_CONFIG[stage].settingsKey;
-      const currentMapping =
-        (settings?.[settingsKey] as Record<string, string> | undefined) ?? {};
-      const newMapping = { ...currentMapping };
-
-      if (className) {
-        newMapping[mimeType] = className;
-      } else {
-        delete newMapping[mimeType];
-      }
-
       updateSettings({
-        variables: { [settingsKey]: newMapping },
+        variables: { [settingsKey]: { [mimeType]: className || null } },
       });
     },
-    [settings, updateSettings]
+    [updateSettings]
   );
 
   // Assign the FULL ordered enricher chain for a MIME type. Unlike
   // `handleAssign` (single class path per MIME type), `preferred_enrichers`
   // is a per-MIME ORDERED LIST, so this takes the whole recomputed list
   // (after an add/remove/reorder) rather than a single value.
+  //
+  // Like `handleAssign`, only the single changed MIME type is sent; the
+  // server merges it into the stored mapping. An empty resulting chain
+  // sends `null` (delete marker) so the entry is removed rather than
+  // persisted as `[]`.
   const handleAssignEnrichers = useCallback(
     (mimeType: string, enricherPaths: string[]) => {
-      const currentMapping =
-        (settings?.preferredEnrichers as PreferredEnrichersMap | undefined) ??
-        {};
-      const newMapping: PreferredEnrichersMap = { ...currentMapping };
-
-      if (enricherPaths.length > 0) {
-        newMapping[mimeType] = enricherPaths;
-      } else {
-        delete newMapping[mimeType];
-      }
-
       updateSettings({
-        variables: { preferredEnrichers: newMapping },
+        variables: {
+          preferredEnrichers: {
+            [mimeType]: enricherPaths.length > 0 ? enricherPaths : null,
+          },
+        },
       });
     },
-    [settings, updateSettings]
+    [updateSettings]
   );
 
   // Handle secrets modal

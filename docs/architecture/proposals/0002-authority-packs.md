@@ -83,6 +83,22 @@ rather than against a `scraping/` app that was never built.
 > `test_discover_authority_candidates_command.py`, plus the pack-discovery
 > additions in `test_authority_pack_providers.py`.
 
+> **Update — gap 7 closed (issue #2057).** The mappings loader now guards
+> baseline-vs-baseline collisions and merge-loads multiple YAMLs. Every
+> `source="baseline"` `AuthorityNamespace` row is stamped with its writer origin
+> (`baseline_origin`: `"core"` for the shipped YAML, else the pack's manifest
+> `name`), and a load **skips + warns instead of clobbering** a prefix a
+> different origin owns — first writer wins; curator `manual` rows still trump
+> everything (`AuthorityMappingLoader.load_namespaces`; the `post_migrate`
+> convergence in `enrichment/_namespace_seed.py` honours the same guard). So
+> re-loading two packs that touch distinct prefixes can never clobber each
+> other, and a same-prefix collision is loud instead of silent.
+> `manage.py load_authority_mappings --include-packs` converges the core
+> baseline plus every installed pack's mappings in one idempotent run
+> (`AuthorityMappingLoader.load_installed`). Tests:
+> `test_authority_mapping_loader.py::BaselineOriginGuardTests` /
+> `LoadInstalledTests`.
+
 > **Update — Phase 4 (multi-corpus orchestration, gap 4) shipped, issue #2056.**
 > `CorpusGroup` (`opencontractserver/corpuses/models.py`) bundles N corpora
 > (M2M + unique slug + optional `default_agent` FK binding an orchestrator
@@ -250,13 +266,13 @@ co-author.
 
 | # | Gap | Severity | Needed for Bolivia? | Phase |
 |---|---|---|---|---|
-| 1 | Host allowlist is a hardcoded frozenset — a pack cannot open a new fetch host as data | **Blocker** (trivial fix) | Only with a live provider | Phase 2 (one-line edit) / #2057 makes it declarative |
+| 1 | Host allowlist is a hardcoded frozenset — a pack cannot open a new fetch host as data | **Blocker** (trivial fix) | Only with a live provider | **Shipped** — `pack.yaml` `source_hosts` (see update callout) |
 | 2 | No scheduled/recurring scraping (`CELERY_BEAT_SCHEDULE` has no crawl entries) | Major | If continuous ingestion is in scope | Phase 3 (= #1444 Phase A) |
 | 3 | Provider rail is citation-keyed; no listing-page bulk-discovery shape | Major | If publisher-crawl is in scope | **Phase 2 — shipped, issue #2054** |
 | 4 | No multi-corpus orchestration (`CorpusGroup` / cross-corpus retrieval) | Major | No (per-area corpora work independently) | **Phase 4 — shipped, issue #2056** |
 | 5 | Spanish / sala-aware classification has no core primitive | Minor | Spanish: no (data); sala-aware: with provider | Phase 1 handles Spanish via aliases/persona; sala-aware → Phase 2 provider code |
-| 6 | Provider discovery scans one hardcoded package — no out-of-tree isolation | Minor | No | Future (enables entry-point packs + DB-driven allowlist) |
-| 7 | Loader reads one default path; no multi-YAML merge; two baseline writers can collide on a prefix | Minor | No | Future |
+| 6 | Provider discovery scans one hardcoded package — no out-of-tree isolation | Minor | No | **Shipped** — in-pack providers + `AUTHORITY_PACK_PATHS` (see update callout) |
+| 7 | Loader reads one default path; no multi-YAML merge; two baseline writers can collide on a prefix | Minor | No | **Shipped** — issue #2057 (see update callout) |
 
 **Recommended phasing.** The pack's *core job* — taxonomy + provider + ingestion
 of cited/known authorities — binds cleanly today. Everything beyond that is the

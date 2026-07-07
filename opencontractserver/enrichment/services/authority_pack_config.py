@@ -54,9 +54,31 @@ ShapeRule = tuple[re.Pattern, "str | None", "str | None"]
 AbbrevEntry = tuple[str, str, str]
 
 
-def _iter_pack_mapping_files():
-    """Yield ``(pack_dir, mappings_yaml_path)`` for every installed pack that
-    declares a ``mappings:`` file that exists on disk."""
+def pack_origin_name(pack_dir: Path, manifest: dict) -> str:
+    """A pack's identity string (its ``baseline_origin`` stamp / registry key):
+    the manifest ``name:``, falling back to the pack directory's name. Shared by
+    the mapping loader and ``load_authority_pack`` so the two can never derive
+    different origins for the same pack."""
+    return str((manifest or {}).get("name") or pack_dir.name)
+
+
+def iter_pack_mapping_files(errors: list | None = None):
+    """Yield ``(pack_dir, mappings_yaml_path, manifest)`` for every installed pack
+    that declares a ``mappings:`` file that exists on disk.
+
+    ``manifest`` is the parsed ``pack.yaml`` dict — yielded so callers that need
+    manifest metadata (e.g. ``AuthorityMappingLoader.load_installed`` deriving the
+    pack's baseline origin from ``name:``) don't re-read/re-parse the file.
+
+    ``errors``: optional list to which ``(pack_dir, message)`` is appended for a
+    pack that is broken rather than merely mappings-less — an unparsable
+    ``pack.yaml``, or a declared ``mappings:`` file missing on disk (the classic
+    typo) — so a reporting caller (``load_installed``) can surface the skip to
+    the operator instead of it living only in the log. The runtime vocab scans
+    omit it (log-and-skip is their whole contract). A manifest with no
+    ``mappings:`` key is a content-only pack — skipped by design, never an
+    error.
+    """
     for pack_dir in authority_pack_dirs():
         manifest = pack_dir / "pack.yaml"
         if not manifest.is_file():
@@ -65,13 +87,27 @@ def _iter_pack_mapping_files():
             data = yaml.safe_load(manifest.read_text(encoding="utf-8")) or {}
         except yaml.YAMLError as exc:
             logger.warning("Could not parse %s: %s", manifest, exc)
+            if errors is not None:
+                errors.append((pack_dir, f"could not parse pack.yaml: {exc}"))
             continue
         rel = data.get("mappings")
         if not rel:
             continue
         path = pack_dir / rel
-        if path.is_file():
-            yield pack_dir, path
+        if not path.is_file():
+            # Declared but absent — a typo'd path would otherwise make the
+            # pack's taxonomy silently never load (load_authority_pack raises
+            # CommandError for this same condition).
+            logger.warning(
+                "Pack %s declares mappings %r but %s does not exist",
+                pack_dir.name,
+                rel,
+                path,
+            )
+            if errors is not None:
+                errors.append((pack_dir, f"declared mappings file not found: {path}"))
+            continue
+        yield pack_dir, path, data
 
 
 def _load_yaml(path: Path) -> dict:
@@ -170,7 +206,7 @@ def validate_pack_taxonomy_extensions(mappings_path: Path) -> None:
 def pack_declared_shape_rules() -> tuple[ShapeRule, ...]:
     """Compiled shape rules contributed by every installed pack (cached)."""
     rules: list[ShapeRule] = []
-    for pack_dir, mappings_path in _iter_pack_mapping_files():
+    for pack_dir, mappings_path, _manifest in iter_pack_mapping_files():
         data = _load_yaml(mappings_path)
         try:
             parsed = iter_shape_rules(data, label=str(mappings_path))
@@ -203,7 +239,7 @@ def pack_declared_abbreviations() -> (
     """
     state: dict[str, AbbrevEntry] = {}
     municipal: dict[str, AbbrevEntry] = {}
-    for pack_dir, mappings_path in _iter_pack_mapping_files():
+    for pack_dir, mappings_path, _manifest in iter_pack_mapping_files():
         data = _load_yaml(mappings_path)
         try:
             parsed = iter_abbreviations(data, label=str(mappings_path))
