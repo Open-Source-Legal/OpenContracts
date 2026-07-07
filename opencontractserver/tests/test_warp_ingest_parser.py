@@ -199,6 +199,16 @@ class WarpIngestLocalParserTests(TestCase):
         """Real end-to-end parse when Warp-Ingest is actually installed."""
         import os
 
+        # Warp-Ingest needs the nltk corpora at parse time; on a dev machine
+        # they arrive via the desktop first-run bootstrap, so skip (not fail)
+        # when they haven't been downloaded here.
+        try:
+            import nltk
+
+            nltk.data.find("corpora/stopwords")
+        except LookupError:
+            self.skipTest("nltk corpora not downloaded")
+
         fixture = os.path.join(
             os.path.dirname(__file__), "fixtures", "files", "doc_1_pdf_file.pdf"
         )

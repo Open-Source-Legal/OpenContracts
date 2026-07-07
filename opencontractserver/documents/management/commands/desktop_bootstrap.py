@@ -96,17 +96,23 @@ class Command(BaseCommand):
             f"(you will sign in as user '{username}')."
         )
         while True:
-            password = getpass.getpass(
-                f"  Password (min {MIN_PASSWORD_LENGTH} characters): "
-            )
-            if len(password) < MIN_PASSWORD_LENGTH:
-                self.stdout.write(
-                    f"  Too short — use at least {MIN_PASSWORD_LENGTH} characters."
+            # Ctrl+D / a closed stdin mid-prompt must not crash first-run
+            # bootstrap — fall back to the no-password path (self-heals on the
+            # next interactive launch).
+            try:
+                password = getpass.getpass(
+                    f"  Password (min {MIN_PASSWORD_LENGTH} characters): "
                 )
-                continue
-            if password != getpass.getpass("  Repeat password: "):
-                self.stdout.write("  Passwords did not match — try again.")
-                continue
+                if len(password) < MIN_PASSWORD_LENGTH:
+                    self.stdout.write(
+                        f"  Too short — use at least {MIN_PASSWORD_LENGTH} characters."
+                    )
+                    continue
+                if password != getpass.getpass("  Repeat password: "):
+                    self.stdout.write("  Passwords did not match — try again.")
+                    continue
+            except EOFError:
+                return None
             return password
 
     def _no_password_warning(self, username: str) -> str:
