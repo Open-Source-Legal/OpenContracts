@@ -503,6 +503,51 @@ class LoadInstalledTests(TestCase):
         assert not AuthorityNamespace.objects.filter(prefix="test-longname").exists()
         assert AuthorityNamespace.objects.filter(prefix="exchange-act").exists()
 
+    def test_load_installed_warns_on_case_different_duplicate_names(self):
+        # "Bolivia" vs "bolivia" is almost certainly an authoring typo: the two
+        # load as distinct origins (the collision guard keeps them from
+        # clobbering each other) but the duplicate-name warning must fire,
+        # case-insensitively — matching the reserved-name check.
+        import tempfile as _tempfile
+        from pathlib import Path as _Path
+        from unittest import mock
+
+        from opencontractserver.enrichment.services import authority_pack_config as apc
+
+        def _mk(root: _Path, dirname: str, name: str, prefix: str) -> _Path:
+            pack = root / dirname
+            pack.mkdir()
+            (pack / "pack.yaml").write_text(
+                f"name: {name}\nmappings: m.yaml\n", encoding="utf-8"
+            )
+            (pack / "m.yaml").write_text(
+                f"prefixes:\n"
+                f"  {prefix}:\n"
+                f'    display_name: "{name}"\n'
+                f'    jurisdiction: "aa"\n'
+                f'    authority_type: "statute"\n'
+                f'    aliases: ["{prefix} body"]\n',
+                encoding="utf-8",
+            )
+            return pack
+
+        with _tempfile.TemporaryDirectory() as tmp:
+            root = _Path(tmp)
+            packs = [
+                _mk(root, "dup-a", "DupPack", "test-dup-a"),
+                _mk(root, "dup-b", "duppack", "test-dup-b"),
+            ]
+            with mock.patch.object(apc, "authority_pack_dirs", return_value=packs):
+                with self.assertLogs(self._LOADER_LOGGER, level="WARNING") as logs:
+                    results = AuthorityMappingLoader.load_installed()
+
+        assert any("Duplicate authority pack name" in line for line in logs.output)
+        # Both still load, as distinct origins the guard keeps apart.
+        assert results["DupPack"]["namespaces"]["created"] == 1
+        assert results["duppack"]["namespaces"]["created"] == 1
+
+    _LOADER_LOGGER = "opencontractserver.enrichment.services.authority_mapping_loader"
+
     def test_load_installed_reports_a_reserved_core_pack_name(self):
         # An installed pack named "core" (any case) is refused — and the refusal
         # must appear in the report keyed by the pack's directory name, not

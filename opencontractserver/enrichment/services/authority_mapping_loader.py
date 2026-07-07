@@ -286,15 +286,20 @@ class AuthorityMappingLoader:
                     },
                 )
                 continue
-            if origin in results:
-                # Two installed pack dirs declaring the same manifest name are,
-                # by declaration, the same pack (e.g. an in-tree copy + an
-                # AUTHORITY_PACK_PATHS copy): they co-own their prefixes and the
-                # load stays idempotent, but flag it — the later summary
-                # replaces the earlier one in the report.
+            if any(origin.lower() == seen.lower() for seen in results):
+                # Case-insensitive, matching the reserved-name check. Two
+                # installed pack dirs declaring the SAME manifest name are, by
+                # declaration, the same pack (e.g. an in-tree copy + an
+                # AUTHORITY_PACK_PATHS copy): they co-own their prefixes, the
+                # load stays idempotent, and the later summary replaces the
+                # earlier one in the report. A case-DIFFERENT name ("Bolivia"
+                # vs "bolivia") loads as a distinct origin — the collision
+                # guard keeps the two from clobbering each other — but is
+                # almost certainly an authoring typo, so flag it either way.
                 logger.warning(
-                    "Duplicate authority pack name %r (dir %s); loading anyway "
-                    "under the same baseline origin.",
+                    "Duplicate authority pack name %r (dir %s); pack names "
+                    "must be unique (case-insensitively) across installed "
+                    "packs.",
                     origin,
                     pack_dir,
                 )
