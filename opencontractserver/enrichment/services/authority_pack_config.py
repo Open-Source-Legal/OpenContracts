@@ -62,7 +62,7 @@ def pack_origin_name(pack_dir: Path, manifest: dict) -> str:
     return str((manifest or {}).get("name") or pack_dir.name)
 
 
-def iter_pack_mapping_files(errors: "list | None" = None):
+def iter_pack_mapping_files(errors: list | None = None):
     """Yield ``(pack_dir, mappings_yaml_path, manifest)`` for every installed pack
     that declares a ``mappings:`` file that exists on disk.
 
