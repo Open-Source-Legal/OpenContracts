@@ -135,9 +135,15 @@ truth).
 
 Enabling the flag can never make search worse than pgvector: unsupported
 models, never-indexed namespaces, and any engine exception all fall back to
-the pgvector path inside `search_by_embedding` (logged). An invalid
-`VECTOR_SEARCH_BACKEND` value fails startup via system check
-`opencontracts.E002` (`opencontractserver/shared/checks.py`).
+the pgvector path inside `search_by_embedding` (logged). So does a **filter
+shortfall**: post-ANN filtering has a recall cliff when the caller's queryset
+is very selective, so if re-filtering consumes a *truncated* candidate set
+(engine returned a full `fetch_n`) without filling `top_k`, the router falls
+back to pgvector rather than under-filling; a short result from an
+*exhausted* namespace is genuinely complete and is returned as-is
+(`router.search_via_object_index`). An invalid `VECTOR_SEARCH_BACKEND` value
+fails startup via system check `opencontracts.E002`
+(`opencontractserver/shared/checks.py`).
 
 ## Storage backends
 

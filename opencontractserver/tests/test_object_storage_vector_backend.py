@@ -280,6 +280,47 @@ class ObjectStorageVectorEngineTests(SimpleTestCase):
         self.assertEqual([h[0] for h in hits], [1, 2])
 
 
+class DjangoStorageObjectStoreTests(SimpleTestCase):
+    """The overwrite semantics of the blob-store adapter."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmpdir, ignore_errors=True)
+        self.storage = FileSystemStorage(location=self.tmpdir)
+        self.store = DjangoStorageObjectStore(self.storage, prefix="vector-index")
+
+    def test_put_bytes_overwrites_existing_blob(self):
+        self.store.put_bytes("ns/manifest.json", b"one")
+        self.store.put_bytes("ns/manifest.json", b"two")
+        self.assertEqual(self.store.get_bytes("ns/manifest.json"), b"two")
+        self.assertEqual(self.store.list_keys("ns"), ["manifest.json"])
+
+    def test_put_bytes_retries_when_racing_writer_uniquifies_save(self):
+        """
+        Last-writer-wins under contention: a racer re-creates the key between
+        our delete and save, so Django uniquifies our name. put_bytes must
+        discard the stray blob, retry, and leave exactly one blob — ours.
+        """
+        from django.core.files.base import ContentFile
+
+        real_save = self.storage.save
+        calls = {"count": 0}
+
+        def racing_save(name, content, *args, **kwargs):
+            calls["count"] += 1
+            if calls["count"] == 1:
+                # Simulate a concurrent writer landing first: the key exists
+                # again by the time our save runs, forcing uniquification.
+                real_save(name, ContentFile(b"racer"))
+            return real_save(name, content)
+
+        with mock.patch.object(self.storage, "save", side_effect=racing_save):
+            self.store.put_bytes("ns/manifest.json", b"ours")
+        self.assertEqual(self.store.get_bytes("ns/manifest.json"), b"ours")
+        # No stray uniquified blobs left behind.
+        self.assertEqual(self.store.list_keys("ns"), ["manifest.json"])
+
+
 class VectorSearchSystemCheckTests(SimpleTestCase):
     """The opencontracts.E002/W003 settings checks."""
 
@@ -461,3 +502,40 @@ class ObjectStorageBackendIntegrationTests(TestCase):
             manifest = must(engine._load_manifest(namespace))
             self.assertGreaterEqual(manifest["count"], 2)
             self.assertLessEqual(engine.wal_tail_count(namespace), 1)
+
+    def test_filter_shortfall_falls_back_to_pgvector(self):
+        """
+        A heavily-filtered queryset can exhaust the oversampled candidate set
+        without filling top_k (post-ANN filtering's recall cliff). The router
+        must detect the truncated-candidates shortfall and fall back to
+        pgvector, which fills top_k via SQL — keeping "enabling the backend
+        never returns worse results than pgvector" true.
+        """
+        with self.object_backend_settings():
+            with self.captureOnCommitCallbacks(execute=True):
+                # 10 high-similarity docs owned by the OTHER user swamp the
+                # candidate set (fetch_n = top_k 2 * oversample 4 = 8 < 10).
+                for i in range(10):
+                    noise = Document.objects.create(
+                        title=f"Noise {i}", creator=self.other_user
+                    )
+                    noise.add_embedding(
+                        EMBEDDER, sparse_vector((0, 1.0), (i + 2, 0.01))
+                    )
+                # The caller's two docs rank far below all of them.
+                mine_close = Document.objects.create(
+                    title="Mine close", creator=self.user
+                )
+                mine_close.add_embedding(EMBEDDER, sparse_vector((0, 0.3), (1, 0.9)))
+                mine_far = Document.objects.create(title="Mine far", creator=self.user)
+                mine_far.add_embedding(EMBEDDER, sparse_vector((1, 1.0)))
+
+            results = Document.objects.filter(
+                creator=self.user
+                # DocumentQuerySet carries the vector-search mixin at runtime.
+            ).search_by_embedding(  # type: ignore[attr-defined]
+                sparse_vector((0, 1.0)), EMBEDDER, top_k=2
+            )
+        # Without the shortfall rule the object path would return [] here
+        # (all 8 fetched candidates belong to other_user and are filtered).
+        self.assertEqual([doc.pk for doc in results], [mine_close.pk, mine_far.pk])

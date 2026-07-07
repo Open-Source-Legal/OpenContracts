@@ -115,14 +115,16 @@ def search_via_object_index(
 
     Because permission filtering happens *after* ANN retrieval here (post-ANN
     filtering), the engine is asked for ``top_k * OBJECT_INDEX_FILTER_OVERSAMPLE``
-    candidates so heavily-filtered querysets still fill ``top_k`` results.
+    candidates so heavily-filtered querysets still fill ``top_k`` results —
+    and if even that is not enough (see the shortfall rule below), the caller
+    falls back to pgvector rather than under-filling.
     """
     namespace = namespace_for_queryset(queryset, embedder_path, len(query_vector))
     if namespace is None:
         return None
     try:
         engine = get_default_engine()
-        fetch_n = max(top_k, top_k * OBJECT_INDEX_FILTER_OVERSAMPLE)
+        fetch_n = top_k * OBJECT_INDEX_FILTER_OVERSAMPLE
         hits = engine.search(namespace, query_vector, fetch_n)
     except Exception:
         logger.exception(
@@ -153,4 +155,21 @@ def search_via_object_index(
         results.append(instance)
         if len(results) >= top_k:
             break
+
+    # Shortfall rule: if filtering consumed a TRUNCATED candidate set without
+    # filling top_k, deeper matches may exist beyond fetch_n — fall back to
+    # pgvector, whose SQL filter+limit has no such recall cliff. If the
+    # engine returned fewer than fetch_n hits it exhausted the namespace, so
+    # a short result list is genuinely complete and is returned as-is. This
+    # keeps "enabling the backend never returns worse results than pgvector"
+    # true even for heavily-filtered querysets.
+    if len(results) < top_k and len(hits) >= fetch_n:
+        logger.info(
+            "Object-storage candidates for namespace %s were exhausted by "
+            "filtering (%d/%d after re-filter); falling back to pgvector.",
+            namespace,
+            len(results),
+            top_k,
+        )
+        return None
     return results

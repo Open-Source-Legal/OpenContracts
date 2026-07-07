@@ -14,11 +14,18 @@ All keys are namespaced under ``settings.VECTOR_INDEX_STORAGE_PREFIX``.
 
 from __future__ import annotations
 
+import logging
 import posixpath
 
 from django.conf import settings
 from django.core.files.base import ContentFile
 from django.core.files.storage import Storage, default_storage
+
+from opencontractserver.constants.search import (
+    OBJECT_STORE_PUT_OVERWRITE_MAX_ATTEMPTS,
+)
+
+logger = logging.getLogger(__name__)
 
 
 class ObjectNotFound(Exception):
@@ -52,27 +59,30 @@ class DjangoStorageObjectStore:
         Write ``data`` at ``key``, overwriting any existing blob.
 
         Django's ``Storage.save`` never overwrites (it uniquifies the name),
-        so delete-then-save is required for mutable keys (the manifest). WAL
-        and segment keys are unique by construction, making the pattern safe.
+        so overwrite = delete-then-save. If a concurrent writer re-creates
+        ``key`` between our delete and save, our blob lands under a
+        uniquified stray name: discard the stray and retry the overwrite, so
+        the terminal state is always exactly one blob at ``key``. Retries are
+        bounded — the only mutable key is the manifest, whose writers are
+        serialised by the compaction cache-lock, so contention here means
+        that lock was breached (e.g. it expired mid-compaction); after the
+        bound we concede last-writer-wins to the racing writer and log,
+        leaving a valid (their) manifest in place.
         """
         name = self._full(key)
-        if self._storage.exists(name):
-            self._storage.delete(name)
-        saved_as = self._storage.save(name, ContentFile(data))
-        if saved_as != name:
-            # A concurrent writer raced us between delete() and save() and the
-            # backend uniquified our name. Last-writer-wins for mutable keys:
-            # replace the existing blob with ours. If yet another racer
-            # deletes our uniquified blob mid-recovery, fall back to writing
-            # the payload we still hold — same last-writer-wins outcome.
-            self._storage.delete(name)
-            try:
-                with self._storage.open(saved_as, "rb") as fh:
-                    payload = fh.read()
-                self._storage.delete(saved_as)
-            except FileNotFoundError:
-                payload = data
-            self._storage.save(name, ContentFile(payload))
+        for _ in range(OBJECT_STORE_PUT_OVERWRITE_MAX_ATTEMPTS):
+            if self._storage.exists(name):
+                self._storage.delete(name)
+            saved_as = self._storage.save(name, ContentFile(data))
+            if saved_as == name:
+                return
+            self._storage.delete(saved_as)
+        logger.warning(
+            "put_bytes lost the overwrite race for %s after %d attempts; "
+            "keeping the racing writer's blob.",
+            name,
+            OBJECT_STORE_PUT_OVERWRITE_MAX_ATTEMPTS,
+        )
 
     def get_bytes(self, key: str) -> bytes:
         name = self._full(key)

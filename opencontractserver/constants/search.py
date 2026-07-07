@@ -188,8 +188,20 @@ OBJECT_INDEX_FILTER_OVERSAMPLE = 4
 OBJECT_INDEX_COMPACT_MIN_WAL_FILES = 16
 
 # Cache-lock TTL for the per-namespace compaction mutex (seconds). Must exceed
-# the slowest realistic compaction so a crashed worker's lock expires.
+# the slowest realistic compaction so a crashed worker's lock expires. This
+# bound is coupled to the "full recluster per compaction is fine up to ~1M
+# vectors per namespace" scaling note in the design doc: if compactions ever
+# approach this ceiling, a second compactor can start while the first is
+# still running (racing manifest writes, resolved last-writer-wins by
+# put_bytes) — raise this together with any namespace-size increase.
 OBJECT_INDEX_COMPACT_LOCK_TIMEOUT_SECONDS = 600
+
+# Bounded retries for the delete-then-save overwrite dance in
+# DjangoStorageObjectStore.put_bytes (Django's Storage.save never overwrites;
+# it uniquifies names on collision). Contention on a mutable key means the
+# compaction lock was breached, so after this many attempts we concede
+# last-writer-wins to the racing writer instead of looping.
+OBJECT_STORE_PUT_OVERWRITE_MAX_ATTEMPTS = 3
 
 # Max entries in the per-process LRU for immutable index artifacts
 # (centroids + cluster blobs, keyed by generation).
