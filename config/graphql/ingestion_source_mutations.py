@@ -28,7 +28,6 @@ from config.graphql._util import coerce_enum, coerce_str, strip_unset
 from config.graphql import enums
 
 import logging
-from typing import Any
 
 from django.db import IntegrityError
 from graphql_relay import from_global_id

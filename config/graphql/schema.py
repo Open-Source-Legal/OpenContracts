@@ -190,3 +190,11 @@ schema = strawberry.Schema(
     types=_extra_types,
     extensions=_extensions,
 )
+
+# Backwards-compatibility accessor: graphene's ``Schema`` exposed the
+# underlying graphql-core schema as ``.graphql_schema``. A few call sites
+# (frontend-document validation in ``scripts/validate_frontend_graphql.py``
+# and ``test_security_hardening``/``test_authority_mapping_loader``) reach
+# for it directly. Strawberry stores it on the private ``_schema``; alias it
+# so those references keep working across the migration without a rename.
+schema.graphql_schema = schema._schema
