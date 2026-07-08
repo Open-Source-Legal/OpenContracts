@@ -110,6 +110,7 @@ from .md_summaries import (  # noqa: F401
     load_document_md_summary,
 )
 from .memory import aget_corpus_memory, asuggest_memory_update  # noqa: F401
+from .multi_corpus import asearch_across_corpora  # noqa: F401
 from .notes import (  # noqa: F401
     aadd_document_note,
     add_document_note,
@@ -231,6 +232,7 @@ __all__ = [
     "acreate_document_index",
     "create_document_index",
     # Search
+    "asearch_across_corpora",
     "asearch_exact_text_as_sources",
     "search_exact_text_as_sources",
     # Page images

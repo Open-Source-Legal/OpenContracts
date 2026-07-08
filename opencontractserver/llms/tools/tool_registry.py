@@ -108,6 +108,27 @@ AVAILABLE_TOOLS: tuple[ToolDefinition, ...] = (
         ),
     ),
     ToolDefinition(
+        name="search_across_corpora",
+        description=(
+            "Semantic search across every corpus in a named corpus group. "
+            "Results are grouped per corpus (with corpus IDs and titles) so "
+            "answers can cite each source corpus explicitly. Only corpora "
+            "the current user can read are searched; group membership is "
+            "resolved fresh on every call."
+        ),
+        category=ToolCategory.SEARCH,
+        parameters=(
+            ("query", "The semantic search query text", True),
+            (
+                "corpus_group",
+                "Slug or numeric ID of the corpus group to search "
+                "(e.g. 'bolivian-laws')",
+                True,
+            ),
+            ("k", "Max results per corpus (default 5, capped at 25)", False),
+        ),
+    ),
+    ToolDefinition(
         name="search_exact_text",
         description=(
             "Find exact text matches in a document and return them as source nodes "
@@ -1476,6 +1497,7 @@ class ToolFunctionRegistry:
             arename_document,
             ascan_and_annotate_pii,
             ascan_corpus_references,
+            asearch_across_corpora,
             asearch_corpus_documents,
             asearch_document_notes,
             asearch_exact_text_as_sources,
@@ -1539,6 +1561,10 @@ class ToolFunctionRegistry:
             "search_exact_text": (
                 asearch_exact_text_as_sources,
                 ("search_exact_text_as_sources",),
+            ),
+            "search_across_corpora": (
+                asearch_across_corpora,
+                ("asearch_across_corpora",),
             ),
             "get_page_image": (aget_page_image, ()),
             "duplicate_annotations_with_label": (aduplicate_annotations_with_label, ()),

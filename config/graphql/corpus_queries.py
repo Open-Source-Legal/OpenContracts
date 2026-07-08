@@ -29,6 +29,7 @@ from config.graphql.graphene_types import (
     CorpusCategoryType,
     CorpusFilterCountsType,
     CorpusFolderType,
+    CorpusGroupType,
     CorpusStatsType,
     CorpusType,
     DocumentPathType,
@@ -207,6 +208,25 @@ class CorpusQueryMixin:
             "shared": counts.get("shared", 0),
             "public": counts["public"],
         }
+
+    # CORPUS GROUP RESOLVERS (issue #2056) ##########################
+    corpus_groups = DjangoFilterConnectionField(
+        CorpusGroupType,
+        description=(
+            "Corpus groups visible to the viewer (creator, public, or "
+            "explicitly shared). Member corpora are filtered per-viewer."
+        ),
+    )
+
+    @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
+    def resolve_corpus_groups(self, info, **kwargs) -> Any:
+        from opencontractserver.corpuses.services import CorpusGroupService
+
+        return CorpusGroupService.list_visible_groups(
+            info.context.user, request=info.context
+        )
+
+    corpus_group = OpenContractsNode.Field(CorpusGroupType)
 
     # CORPUS CATEGORY RESOLVERS #####################################
     corpus_categories = DjangoFilterConnectionField(
