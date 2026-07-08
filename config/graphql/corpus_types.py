@@ -51,6 +51,28 @@ User = get_user_model()
 logger = logging.getLogger(__name__)
 
 
+def _resolve_CorpusType_md_description(root, info):
+    """Resolve to the URL of the Readme.CAML Document's body file.
+
+    Ported from the graphene ``CorpusType.resolve_md_description``. This was
+    an orphaned resolver in graphene (no ``md_description`` field was ever
+    declared, so it never appeared in the schema) but is exercised directly
+    by ``test_corpus_description_cache``. Kept as a module function — NOT a
+    GraphQL field — so schema parity is preserved.
+
+    Returns ``None`` when no CAML doc exists for the corpus.
+    """
+    doc = root.readme_caml_document
+    if doc is None:
+        return None
+    file_field = doc.txt_extract_file
+    if not file_field or not file_field.name:
+        return None
+    if info is None or getattr(info, "context", None) is None:
+        return file_field.url
+    return info.context.build_absolute_uri(file_field.url)
+
+
 def _resolve_CorpusType_readme_caml_document(root, info):
     """Optional rich-object access to the canonical Readme.CAML doc.
 

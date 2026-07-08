@@ -463,13 +463,13 @@ class VersionResolverTests(TestCase):
         owner_history = DocumentType.resolve_version_history(
             self.doc_v2, _fake_info(self.user)
         )
-        self.assertEqual(len(owner_history["versions"]), 2)
+        self.assertEqual(len(owner_history.versions), 2)
 
         other_history = DocumentType.resolve_version_history(
             self.doc_v2, _fake_info(self.other)
         )
         self.assertEqual(
-            len(other_history["versions"]),
+            len(other_history.versions),
             0,
             "Version metadata must not leak to a user who cannot see the docs.",
         )
