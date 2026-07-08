@@ -27,6 +27,10 @@ from config.graphql.core.scalars import BigInt, GenericScalar, JSONString
 from config.graphql._util import coerce_enum, coerce_str, strip_unset
 from config.graphql import enums
 
+import logging
+
+from graphql_relay import to_global_id
+
 from config.graphql.filters import AnnotationFilter
 from opencontractserver.agents.models import AgentActionResult
 from opencontractserver.agents.models import AgentConfiguration
@@ -35,6 +39,319 @@ from opencontractserver.conversations.models import Conversation
 from opencontractserver.conversations.models import ModerationAction
 from opencontractserver.corpuses.models import CorpusActionExecution
 from opencontractserver.notifications.models import Notification
+from opencontractserver.llms.agents.mention_extractor import (
+    ExtractedMention,
+    extract_mentions,
+)
+from opencontractserver.shared.services.base import BaseService
+
+logger = logging.getLogger(__name__)
+
+
+def resolve_mentions_for_user(
+    mentions: list[ExtractedMention],
+    user: Any,
+) -> list["MentionedResourceType"]:
+    """Permission-gated resolver for a parsed list of mentions.
+
+    Single chokepoint for both ``MessageType`` (threads) and
+    ``ChatMessageType`` (chat). For every mention type it uses the model's
+    ``visible_to_user()`` manager. Silent omission for inaccessible
+    resources — never raises, never leaks existence.
+
+    URLs are recomputed from the resolved DB objects so legacy text-pattern
+    mentions (e.g. ``@corpus:slug``) get real ``/c/{creator}/{slug}`` URLs
+    rather than the synthetic ``/c/_/{slug}`` placeholders the extractor
+    emits for those patterns. For annotations the original markdown-link
+    URL (``m.url``) is preserved since it already encodes the navigation
+    target including the ``?ann=...`` query.
+
+    Query plan: ``mentions`` is scanned once to collect the distinct
+    (type, slug/id) keys, then a single batched ``slug__in=`` / ``id__in=``
+    query per type pulls every needed row in one round-trip. The per-mention
+    loop below performs lookup-only operations against the pre-fetched
+    dicts — no further DB hits in the common case. ``DocumentPath`` lookups
+    (corpus-scope verification + best-effort corpus context for standalone
+    document mentions) are likewise pre-fetched in two batched queries.
+    Replaces the previous N+1 implementation where every mention drove its
+    own ``visible_to_user().filter(...).first()`` call.
+    """
+    from opencontractserver.agents.services import AgentConfigurationService
+    from opencontractserver.annotations.models import Annotation
+    from opencontractserver.corpuses.models import Corpus
+    from opencontractserver.documents.models import Document, DocumentPath
+
+    # ------------------------------------------------------------------
+    # 1. Collect the keys we need to fetch.
+    # ------------------------------------------------------------------
+    corpus_slugs: set[str] = set()
+    document_slugs: set[str] = set()
+    annotation_ids: set[int] = set()
+    agent_slugs: set[str] = set()
+
+    for m in mentions:
+        if m.type == "corpus" and m.slug:
+            corpus_slugs.add(m.slug)
+        elif m.type == "document":
+            if m.slug:
+                document_slugs.add(m.slug)
+            if m.corpus_slug:
+                corpus_slugs.add(m.corpus_slug)
+        elif m.type == "annotation" and m.id is not None:
+            annotation_ids.add(m.id)
+        elif m.type == "agent":
+            if m.slug:
+                agent_slugs.add(m.slug)
+            if m.corpus_slug:
+                corpus_slugs.add(m.corpus_slug)
+
+    # ------------------------------------------------------------------
+    # 2. Batch-fetch (one query per type at most).
+    # ------------------------------------------------------------------
+    corpus_by_slug: dict[str, Any] = (
+        {
+            c.slug: c
+            for c in BaseService.filter_visible(Corpus, user)
+            .filter(slug__in=corpus_slugs)
+            .select_related("creator")
+        }
+        if corpus_slugs
+        else {}
+    )
+
+    document_by_slug: dict[str, Any] = (
+        {
+            d.slug: d
+            for d in BaseService.filter_visible(Document, user)
+            .filter(slug__in=document_slugs)
+            .select_related("creator")
+        }
+        if document_slugs
+        else {}
+    )
+
+    annotation_by_id: dict[int, Any] = (
+        {
+            a.id: a
+            for a in BaseService.filter_visible(Annotation, user)
+            .filter(id__in=annotation_ids)
+            .select_related(
+                "document",
+                "document__creator",
+                "annotation_label",
+            )
+        }
+        if annotation_ids
+        else {}
+    )
+
+    # Agents: a slug can resolve to either a GLOBAL row or a CORPUS-scoped
+    # row; the per-mention disambiguation happens below.  Group results by
+    # slug so each mention picks the right one in O(1).
+    agents_by_slug: dict[str, list[Any]] = {}
+    if agent_slugs:
+        for a in AgentConfigurationService.get_active_agents_by_slugs(
+            user, list(agent_slugs)
+        ):
+            agents_by_slug.setdefault(a.slug, []).append(a)
+
+    # ``DocumentPath`` (corpus-scope confirmation for ``@corpus/doc`` mentions
+    # plus best-effort context for standalone ``@document`` mentions): pull
+    # both sets in one query each, keyed by (document_id, corpus_id) for the
+    # confirmation map and (document_id,) for the standalone fallback.
+    doc_corpus_pairs: set[tuple[int, int]] = set()
+    standalone_doc_ids: set[int] = set()
+    for m in mentions:
+        if m.type != "document" or not m.slug:
+            continue
+        document = document_by_slug.get(m.slug)
+        if document is None:
+            continue
+        if m.corpus_slug:
+            corpus_obj = corpus_by_slug.get(m.corpus_slug)
+            if corpus_obj is not None:
+                doc_corpus_pairs.add((document.id, corpus_obj.id))
+        else:
+            standalone_doc_ids.add(document.id)
+
+    valid_doc_corpus_pairs: set[tuple[int, int]] = set()
+    if doc_corpus_pairs:
+        doc_ids = {pair[0] for pair in doc_corpus_pairs}
+        corpus_ids = {pair[1] for pair in doc_corpus_pairs}
+        for doc_id, corpus_id in DocumentPath.objects.filter(
+            document_id__in=doc_ids, corpus_id__in=corpus_ids
+        ).values_list("document_id", "corpus_id"):
+            valid_doc_corpus_pairs.add((doc_id, corpus_id))
+
+    standalone_corpus_id_by_doc: dict[int, int] = {}
+    if standalone_doc_ids:
+        # Pick any DocumentPath per doc for the best-effort context lookup;
+        # ``first()`` semantics from the original implementation is preserved
+        # by iterating the queryset in id order and keeping the first hit.
+        for doc_id, corpus_id in (
+            DocumentPath.objects.filter(document_id__in=standalone_doc_ids)
+            .order_by("document_id", "id")
+            .values_list("document_id", "corpus_id")
+        ):
+            standalone_corpus_id_by_doc.setdefault(doc_id, corpus_id)
+
+    # Materialise any corpus ids surfaced only via DocumentPath (i.e. ones
+    # the user might not have visibility on directly). We honour that
+    # visibility filter — ``BaseService.filter_visible`` is the gate that
+    # decides whether a corpus is surfaced as a parent.
+    standalone_corpus_ids = set(standalone_corpus_id_by_doc.values())
+    extra_corpus_ids = standalone_corpus_ids - {c.id for c in corpus_by_slug.values()}
+    corpus_by_id: dict[int, Any] = {c.id: c for c in corpus_by_slug.values()}
+    if extra_corpus_ids:
+        for c in (
+            BaseService.filter_visible(Corpus, user)
+            .filter(id__in=extra_corpus_ids)
+            .select_related("creator")
+        ):
+            corpus_by_id[c.id] = c
+
+    # ------------------------------------------------------------------
+    # 3. Build the resolved list using only dict lookups.
+    # ------------------------------------------------------------------
+    resolved: list["MentionedResourceType"] = []
+
+    for mention in mentions:
+        try:
+            if mention.type == "corpus":
+                if not mention.slug:
+                    continue
+                corpus = corpus_by_slug.get(mention.slug)
+                if corpus is None:
+                    continue
+                resolved.append(
+                    MentionedResourceType(
+                        type="corpus",
+                        id=corpus.id,
+                        slug=corpus.slug,
+                        title=corpus.title,
+                        url=f"/c/{corpus.creator.slug}/{corpus.slug}",
+                    )
+                )
+
+            elif mention.type == "document":
+                if not mention.slug:
+                    continue
+                document = document_by_slug.get(mention.slug)
+                if document is None:
+                    continue
+
+                corpus = None
+                if mention.corpus_slug:
+                    # Corpus-scoped mention: confirm the doc lives in that
+                    # corpus via the prebuilt ``valid_doc_corpus_pairs``
+                    # set, and that the corpus itself is visible to the
+                    # user.  If either check fails, silently drop.
+                    corpus = corpus_by_slug.get(mention.corpus_slug)
+                    if corpus is None:
+                        continue
+                    if (document.id, corpus.id) not in valid_doc_corpus_pairs:
+                        continue
+                else:
+                    # Standalone @document:slug mention — best-effort lookup
+                    # of any corpus context the document lives in (via the
+                    # prebuilt ``standalone_corpus_id_by_doc`` map, then
+                    # ``corpus_by_id`` for the visible-to-user instance).
+                    standalone_cid = standalone_corpus_id_by_doc.get(document.id)
+                    corpus = (
+                        corpus_by_id.get(standalone_cid)
+                        if standalone_cid is not None
+                        else None
+                    )
+
+                if corpus is not None:
+                    url = f"/d/{corpus.creator.slug}/{corpus.slug}/{document.slug}"
+                    corpus_resource = MentionedResourceType(
+                        type="corpus",
+                        id=corpus.id,
+                        slug=corpus.slug,
+                        title=corpus.title,
+                        url=f"/c/{corpus.creator.slug}/{corpus.slug}",
+                    )
+                else:
+                    url = f"/d/{document.creator.slug}/{document.slug}"
+                    corpus_resource = None
+
+                resolved.append(
+                    MentionedResourceType(
+                        type="document",
+                        id=document.id,
+                        slug=document.slug,
+                        title=document.title,
+                        url=url,
+                        corpus=corpus_resource,
+                    )
+                )
+
+            elif mention.type == "annotation":
+                if mention.id is None:
+                    continue
+                annotation = annotation_by_id.get(mention.id)
+                if annotation is None:
+                    continue
+                doc = annotation.document
+                label = annotation.annotation_label
+                resolved.append(
+                    MentionedResourceType(
+                        type="annotation",
+                        id=annotation.id,
+                        slug=None,  # Annotations don't have slugs
+                        title=label.text if label else "Annotation",
+                        url=mention.url,  # Preserve original URL for navigation
+                        raw_text=annotation.raw_text,
+                        annotation_label=label.text if label else None,
+                        document=MentionedResourceType(
+                            type="document",
+                            id=doc.id,
+                            slug=doc.slug,
+                            title=doc.title,
+                            url=f"/d/{doc.creator.slug}/{doc.slug}",
+                        ),
+                    )
+                )
+
+            elif mention.type == "agent":
+                if not mention.slug:
+                    continue
+                candidates = agents_by_slug.get(mention.slug, [])
+                if mention.corpus_slug:
+                    # The URL was a corpus-scoped agent path
+                    # (/c/.../agents/{slug}). Require the agent to actually
+                    # live inside that corpus, otherwise silently drop.
+                    candidates = [
+                        a
+                        for a in candidates
+                        if a.corpus is not None and a.corpus.slug == mention.corpus_slug
+                    ]
+                if not candidates:
+                    continue
+                agent = candidates[0]
+                resolved.append(
+                    MentionedResourceType(
+                        type="agent",
+                        id=agent.id,
+                        slug=agent.slug,
+                        title=agent.name,
+                        # Preserve original URL so the frontend can match it
+                        # against the same link emitted by the popover.
+                        url=mention.url,
+                    )
+                )
+
+            # NOTE: user mentions are parsed by the extractor but are not
+            # (yet) surfaced through ``MentionedResourceType``. They will be
+            # wired up in a follow-up task; for now they're silently ignored
+            # here so the resolver shape stays unchanged.
+        except Exception:
+            # Silent omission: never leak existence via error.
+            logger.exception("Mention resolution failed for url=%s", mention.url)
+            continue
+
+    return resolved
 
 
 def _resolve_ConversationType_conversation_type(root, info, **kwargs):
@@ -42,7 +359,10 @@ def _resolve_ConversationType_conversation_type(root, info, **kwargs):
 
     Port of ConversationType.resolve_conversation_type
     """
-    raise NotImplementedError("_resolve_ConversationType_conversation_type not yet ported — see manifest")
+    # Convert string conversation_type from model to enum.
+    if root.conversation_type:
+        return coerce_enum(enums.ConversationTypeEnum, root.conversation_type)
+    return None
 
 
 def _resolve_ConversationType_all_messages(root, info, **kwargs):
@@ -50,7 +370,7 @@ def _resolve_ConversationType_all_messages(root, info, **kwargs):
 
     Port of ConversationType.resolve_all_messages
     """
-    raise NotImplementedError("_resolve_ConversationType_all_messages not yet ported — see manifest")
+    return root.chat_messages.all()
 
 
 def _resolve_ConversationType_user_vote(root, info, **kwargs):
@@ -58,7 +378,16 @@ def _resolve_ConversationType_user_vote(root, info, **kwargs):
 
     Port of ConversationType.resolve_user_vote
     """
-    raise NotImplementedError("_resolve_ConversationType_user_vote not yet ported — see manifest")
+    user = info.context.user
+    if not user or not user.is_authenticated:
+        return None
+
+    from opencontractserver.conversations.models import ConversationVote
+
+    vote = ConversationVote.objects.filter(conversation=root, creator=user).first()
+    if vote:
+        return vote.vote_type.upper()  # Return 'UPVOTE' or 'DOWNVOTE'
+    return None
 
 
 @strawberry.type(name="ConversationType")
@@ -156,7 +485,12 @@ def _get_queryset_ConversationType(queryset, info):
 
     Port of ConversationType.get_queryset
     """
-    raise NotImplementedError("_get_queryset_ConversationType not yet ported — see manifest")
+    # Chain ``visible_to_user`` on the incoming queryset/manager so the
+    # filter is a single ``WHERE`` expression tree (no ``pk__in``
+    # subquery over the full table).
+    return BaseService.filter_visible_qs(
+        queryset, info.context.user, request=info.context
+    )
 
 
 def _get_node_ConversationType(info, pk):
@@ -164,7 +498,19 @@ def _get_node_ConversationType(info, pk):
 
     Port of ConversationType.get_node
     """
-    raise NotImplementedError("_get_node_ConversationType not yet ported — see manifest")
+    # Override the default node resolution to apply permission checks.
+    # Anonymous users can only see public conversations.
+    # Authenticated users can see public, their own, or explicitly shared.
+    if pk is None:
+        return None
+
+    try:
+        queryset = BaseService.filter_visible(
+            Conversation, info.context.user, request=info.context
+        )
+        return queryset.get(pk=pk)
+    except Conversation.DoesNotExist:
+        return None
 
 
 register_type("ConversationType", ConversationType, model=Conversation, get_queryset=_get_queryset_ConversationType, get_node=_get_node_ConversationType)
@@ -181,7 +527,13 @@ def _resolve_MessageType_msg_type(root, info, **kwargs):
 
     Port of MessageType.resolve_msg_type
     """
-    raise NotImplementedError("_resolve_MessageType_msg_type not yet ported — see manifest")
+    # Convert msg_type to string for GraphQL enum compatibility.
+    if root.msg_type:
+        # Handle both string values and enum members
+        if hasattr(root.msg_type, "value"):
+            return root.msg_type.value
+        return root.msg_type
+    return None
 
 
 def _resolve_MessageType_agent_type(root, info, **kwargs):
@@ -189,7 +541,10 @@ def _resolve_MessageType_agent_type(root, info, **kwargs):
 
     Port of MessageType.resolve_agent_type
     """
-    raise NotImplementedError("_resolve_MessageType_agent_type not yet ported — see manifest")
+    # Convert string agent_type from model to enum.
+    if root.agent_type:
+        return coerce_enum(enums.AgentTypeEnum, root.agent_type)
+    return None
 
 
 def _resolve_MessageType_agent_configuration(root, info, **kwargs):
@@ -197,7 +552,8 @@ def _resolve_MessageType_agent_configuration(root, info, **kwargs):
 
     Port of MessageType.resolve_agent_configuration
     """
-    raise NotImplementedError("_resolve_MessageType_agent_configuration not yet ported — see manifest")
+    # Resolve agent_configuration field.
+    return root.agent_configuration
 
 
 def _resolve_MessageType_mentioned_resources(root, info, **kwargs):
@@ -205,7 +561,8 @@ def _resolve_MessageType_mentioned_resources(root, info, **kwargs):
 
     Port of MessageType.resolve_mentioned_resources
     """
-    raise NotImplementedError("_resolve_MessageType_mentioned_resources not yet ported — see manifest")
+    mentions = extract_mentions(root.content or "")
+    return resolve_mentions_for_user(mentions, info.context.user)
 
 
 def _resolve_MessageType_user_vote(root, info, **kwargs):
@@ -213,7 +570,16 @@ def _resolve_MessageType_user_vote(root, info, **kwargs):
 
     Port of MessageType.resolve_user_vote
     """
-    raise NotImplementedError("_resolve_MessageType_user_vote not yet ported — see manifest")
+    user = info.context.user
+    if not user or not user.is_authenticated:
+        return None
+
+    from opencontractserver.conversations.models import MessageVote
+
+    vote = MessageVote.objects.filter(message=root, creator=user).first()
+    if vote:
+        return vote.vote_type.upper()  # Return 'UPVOTE' or 'DOWNVOTE'
+    return None
 
 
 @strawberry.type(name="MessageType")
@@ -325,7 +691,10 @@ def _resolve_ModerationActionType_corpus_id(root, info, **kwargs):
 
     Port of ModerationActionType.resolve_corpus_id
     """
-    raise NotImplementedError("_resolve_ModerationActionType_corpus_id not yet ported — see manifest")
+    # Get corpus ID from conversation if linked.
+    if root.conversation and root.conversation.chat_with_corpus:
+        return to_global_id("CorpusType", root.conversation.chat_with_corpus.pk)
+    return None
 
 
 def _resolve_ModerationActionType_is_automated(root, info, **kwargs):
@@ -333,7 +702,8 @@ def _resolve_ModerationActionType_is_automated(root, info, **kwargs):
 
     Port of ModerationActionType.resolve_is_automated
     """
-    raise NotImplementedError("_resolve_ModerationActionType_is_automated not yet ported — see manifest")
+    # Check if this was an automated (agent) action - no human moderator.
+    return root.moderator is None
 
 
 def _resolve_ModerationActionType_can_rollback(root, info, **kwargs):
@@ -341,7 +711,14 @@ def _resolve_ModerationActionType_can_rollback(root, info, **kwargs):
 
     Port of ModerationActionType.resolve_can_rollback
     """
-    raise NotImplementedError("_resolve_ModerationActionType_can_rollback not yet ported — see manifest")
+    # Check if this action can be rolled back.
+    rollback_types = {
+        "delete_message",
+        "delete_thread",
+        "lock_thread",
+        "pin_thread",
+    }
+    return root.action_type in rollback_types
 
 
 @strawberry.type(name="ModerationActionType", description='GraphQL type for ModerationAction audit records.')

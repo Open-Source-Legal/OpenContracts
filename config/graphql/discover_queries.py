@@ -252,12 +252,37 @@ def _clamp_limit(limit: Optional[int]) -> int:
     return min(limit, SEMANTIC_SEARCH_MAX_RESULTS)
 
 
-def _resolve_Query_discover_annotations(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/ratelimit/decorators.py:303
+@graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
+def _resolve_Query_discover_annotations(root, info, text_search, limit=DISCOVER_DEFAULT_LIMIT):
+    """Port of DiscoverSearchQueryMixin.resolve_discover_annotations."""
+    text = _normalise_text_search(text_search)
+    if not text:
+        return []
+    limit = _clamp_limit(limit)
+    fetch_k = limit * DISCOVER_OVERSAMPLE
+    user = info.context.user
 
-    Port of DiscoverSearchQueryMixin.resolve_discover_annotations
-    """
-    raise NotImplementedError("_resolve_Query_discover_annotations not yet ported — see manifest")
+    visible = BaseService.filter_visible(Annotation, user, request=info.context)
+    # Substring (label + raw_text) catches prefixes/fragments; search_vector
+    # adds stemmed full-text matching. See resolve_search_annotations_for_mention.
+    text_q = (
+        Q(annotation_label__text__icontains=text)
+        | Q(raw_text__icontains=text)
+        | Q(search_vector=SearchQuery(text, config=FTS_CONFIG))
+    )
+    text_ids = _text_ids(visible, text_q, "created", fetch_k)
+    semantic_ids = _semantic_ids(visible, text, _default_embedder_path(), fetch_k)
+    ids = _rrf([text_ids, semantic_ids], limit)
+
+    # ``_order_by_ids`` applies the ``id__in=ids`` filter itself.
+    qs = visible.select_related(
+        "annotation_label",
+        "document",
+        "document__creator",
+        "corpus",
+        "corpus__creator",
+    )
+    return _order_by_ids(qs, ids)
 
 
 def q_discover_annotations(info: strawberry.Info, text_search: Annotated[str, strawberry.argument(name="textSearch")] = strawberry.UNSET, limit: Annotated[Optional[int], strawberry.argument(name="limit")] = 25) -> Optional[list[Optional[Annotated["AnnotationType", strawberry.lazy("config.graphql.annotation_types")]]]]:
@@ -265,12 +290,25 @@ def q_discover_annotations(info: strawberry.Info, text_search: Annotated[str, st
     return _resolve_Query_discover_annotations(None, info, **kwargs)
 
 
-def _resolve_Query_discover_documents(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/ratelimit/decorators.py:339
+@graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
+def _resolve_Query_discover_documents(root, info, text_search, limit=DISCOVER_DEFAULT_LIMIT):
+    """Port of DiscoverSearchQueryMixin.resolve_discover_documents."""
+    text = _normalise_text_search(text_search)
+    if not text:
+        return []
+    limit = _clamp_limit(limit)
+    fetch_k = limit * DISCOVER_OVERSAMPLE
+    user = info.context.user
 
-    Port of DiscoverSearchQueryMixin.resolve_discover_documents
-    """
-    raise NotImplementedError("_resolve_Query_discover_documents not yet ported — see manifest")
+    visible = BaseService.filter_visible(Document, user, request=info.context)
+    text_q = Q(title__icontains=text) | Q(description__icontains=text)
+    text_ids = _text_ids(visible, text_q, "modified", fetch_k)
+    semantic_ids = _semantic_ids(visible, text, _default_embedder_path(), fetch_k)
+    ids = _rrf([text_ids, semantic_ids], limit)
+
+    # ``_order_by_ids`` applies the ``id__in=ids`` filter itself.
+    qs = visible.select_related("creator")
+    return _order_by_ids(qs, ids)
 
 
 def q_discover_documents(info: strawberry.Info, text_search: Annotated[str, strawberry.argument(name="textSearch")] = strawberry.UNSET, limit: Annotated[Optional[int], strawberry.argument(name="limit")] = 25) -> Optional[list[Optional[Annotated["DocumentType", strawberry.lazy("config.graphql.document_types")]]]]:
@@ -278,12 +316,33 @@ def q_discover_documents(info: strawberry.Info, text_search: Annotated[str, stra
     return _resolve_Query_discover_documents(None, info, **kwargs)
 
 
-def _resolve_Query_discover_notes(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/ratelimit/decorators.py:363
+@graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
+def _resolve_Query_discover_notes(root, info, text_search, limit=DISCOVER_DEFAULT_LIMIT):
+    """Port of DiscoverSearchQueryMixin.resolve_discover_notes."""
+    text = _normalise_text_search(text_search)
+    if not text:
+        return []
+    limit = _clamp_limit(limit)
+    fetch_k = limit * DISCOVER_OVERSAMPLE
+    user = info.context.user
 
-    Port of DiscoverSearchQueryMixin.resolve_discover_notes
-    """
-    raise NotImplementedError("_resolve_Query_discover_notes not yet ported — see manifest")
+    visible = BaseService.filter_visible(Note, user, request=info.context)
+    # Note now has a trigger-maintained search_vector (migration 0076), so
+    # full-text (stemmed) matching joins the substring fallback.
+    text_q = (
+        Q(title__icontains=text)
+        | Q(content__icontains=text)
+        | Q(search_vector=SearchQuery(text, config=FTS_CONFIG))
+    )
+    text_ids = _text_ids(visible, text_q, "modified", fetch_k)
+    semantic_ids = _semantic_ids(visible, text, _default_embedder_path(), fetch_k)
+    ids = _rrf([text_ids, semantic_ids], limit)
+
+    # ``_order_by_ids`` applies the ``id__in=ids`` filter itself.
+    qs = visible.select_related(
+        "document", "document__creator", "corpus", "creator"
+    ).annotate(content_preview=Left("content", 400))
+    return _order_by_ids(qs, ids)
 
 
 def q_discover_notes(info: strawberry.Info, text_search: Annotated[str, strawberry.argument(name="textSearch")] = strawberry.UNSET, limit: Annotated[Optional[int], strawberry.argument(name="limit")] = 25) -> Optional[list[Optional[Annotated["NoteType", strawberry.lazy("config.graphql.annotation_types")]]]]:
@@ -291,12 +350,77 @@ def q_discover_notes(info: strawberry.Info, text_search: Annotated[str, strawber
     return _resolve_Query_discover_notes(None, info, **kwargs)
 
 
-def _resolve_Query_discover_corpuses(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/ratelimit/decorators.py:395
+@graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
+def _resolve_Query_discover_corpuses(root, info, text_search, limit=DISCOVER_DEFAULT_LIMIT):
+    """Port of DiscoverSearchQueryMixin.resolve_discover_corpuses."""
+    text = _normalise_text_search(text_search)
+    if not text:
+        return []
+    limit = _clamp_limit(limit)
+    fetch_k = limit * DISCOVER_OVERSAMPLE
+    user = info.context.user
 
-    Port of DiscoverSearchQueryMixin.resolve_discover_corpuses
-    """
-    raise NotImplementedError("_resolve_Query_discover_corpuses not yet ported — see manifest")
+    visible = BaseService.filter_visible(Corpus, user, request=info.context)
+
+    # NOTE: this resolver is intentionally heavier than the others (≈4–5
+    # queries vs 2). A corpus is discoverable not just by its own
+    # title/description (Arm 1) but by the documents and annotations it
+    # contains (Arm 2), and each contained model carries its own
+    # permission scope — hence the separate ``filter_visible`` calls for
+    # Corpus, Document and Annotation plus the DocumentPath join. The
+    # annotation arm in particular surfaces collections that the document
+    # arm would miss (a query matching only annotation text), which is the
+    # whole point of "search inside collections", so its cost is deliberate.
+
+    # Arm 1: corpus metadata (title/description) match.
+    meta_q = Q(title__icontains=text) | Q(description__icontains=text)
+    meta_ids = _text_ids(visible, meta_q, "modified", fetch_k)
+
+    # Arm 2: collections whose *contents* match — documents (title/desc) or
+    # annotations (raw_text / FTS) the user can read. Corpus has no
+    # embeddings of its own, so "semantic" coverage for a collection comes
+    # transitively from its annotations matching the query.
+    # ``.order_by()`` clears each model's default ``Meta.ordering`` before
+    # the ``DISTINCT`` ``values_list`` so PostgreSQL doesn't reject an
+    # ORDER BY column that isn't in the (distinct) select list.
+    matching_doc_ids = (
+        BaseService.filter_visible(Document, user, request=info.context)
+        .filter(Q(title__icontains=text) | Q(description__icontains=text))
+        .order_by()
+        .values_list("id", flat=True)[
+            : fetch_k * DISCOVER_CORPUS_CONTENT_OVERSAMPLE
+        ]
+    )
+    corpus_ids_from_docs = DocumentPath.objects.filter(
+        document_id__in=list(matching_doc_ids),
+        is_current=True,
+        is_deleted=False,
+    ).values_list("corpus_id", flat=True)
+    corpus_ids_from_annots = (
+        BaseService.filter_visible(Annotation, user, request=info.context)
+        .filter(
+            Q(raw_text__icontains=text)
+            | Q(search_vector=SearchQuery(text, config=FTS_CONFIG))
+        )
+        .order_by()
+        .values_list("corpus_id", flat=True)[
+            : fetch_k * DISCOVER_CORPUS_CONTENT_OVERSAMPLE
+        ]
+    )
+    # Collapse the two content-match id streams to a distinct corpus set.
+    content_corpus_ids = {
+        cid
+        for cid in list(corpus_ids_from_docs) + list(corpus_ids_from_annots)
+        if cid is not None
+    }
+    content_ids = _text_ids(
+        visible, Q(id__in=content_corpus_ids), "modified", fetch_k
+    )
+
+    ids = _rrf([meta_ids, content_ids], limit)
+    # ``_order_by_ids`` applies the ``id__in=ids`` filter itself.
+    qs = visible.select_related("creator")
+    return _order_by_ids(qs, ids)
 
 
 def q_discover_corpuses(info: strawberry.Info, text_search: Annotated[str, strawberry.argument(name="textSearch")] = strawberry.UNSET, limit: Annotated[Optional[int], strawberry.argument(name="limit")] = 25) -> Optional[list[Optional[Annotated["CorpusType", strawberry.lazy("config.graphql.corpus_types")]]]]:
@@ -304,12 +428,39 @@ def q_discover_corpuses(info: strawberry.Info, text_search: Annotated[str, straw
     return _resolve_Query_discover_corpuses(None, info, **kwargs)
 
 
-def _resolve_Query_discover_discussions(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/ratelimit/decorators.py:478
+@graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
+def _resolve_Query_discover_discussions(root, info, text_search, limit=DISCOVER_DEFAULT_LIMIT):
+    """Port of DiscoverSearchQueryMixin.resolve_discover_discussions."""
+    text = _normalise_text_search(text_search)
+    if not text:
+        return []
+    limit = _clamp_limit(limit)
+    fetch_k = limit * DISCOVER_OVERSAMPLE
+    user = info.context.user
 
-    Port of DiscoverSearchQueryMixin.resolve_discover_discussions
-    """
-    raise NotImplementedError("_resolve_Query_discover_discussions not yet ported — see manifest")
+    # Discover "Discussions" == collaborative THREADs (never personal CHATs).
+    visible = BaseService.filter_visible(
+        Conversation, user, request=info.context
+    ).filter(
+        conversation_type=ConversationTypeChoices.THREAD,
+        deleted_at__isnull=True,
+    )
+
+    text_q = Q(title__icontains=text) | Q(chat_messages__content__icontains=text)
+    text_ids = _text_ids(visible, text_q, "created", fetch_k)
+    semantic_ids = _semantic_ids(visible, text, _default_embedder_path(), fetch_k)
+    ids = _rrf([text_ids, semantic_ids], limit)
+
+    # ``_order_by_ids`` applies the ``id__in=ids`` filter itself.
+    qs = visible.select_related(
+        "creator",
+        "chat_with_corpus",
+        "chat_with_corpus__creator",
+        "chat_with_document",
+        "locked_by",
+        "pinned_by",
+    )
+    return _order_by_ids(qs, ids)
 
 
 def q_discover_discussions(info: strawberry.Info, text_search: Annotated[str, strawberry.argument(name="textSearch")] = strawberry.UNSET, limit: Annotated[Optional[int], strawberry.argument(name="limit")] = 25) -> Optional[list[Optional[Annotated["ConversationType", strawberry.lazy("config.graphql.conversation_types")]]]]:

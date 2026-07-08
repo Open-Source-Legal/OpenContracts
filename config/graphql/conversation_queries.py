@@ -27,10 +27,26 @@ from config.graphql.core.scalars import BigInt, GenericScalar, JSONString
 from config.graphql._util import coerce_enum, coerce_str, strip_unset
 from config.graphql import enums
 
+import logging
+from datetime import timedelta
+
+from django.db.models import Count, Prefetch, Q
+from django.utils import timezone
+from graphql_relay import from_global_id
+
+from config.graphql.core.auth import login_required
 from config.graphql.filters import ConversationFilter
 from config.graphql.filters import ModerationActionFilter
-from opencontractserver.conversations.models import Conversation
-from opencontractserver.conversations.models import ModerationAction
+from opencontractserver.conversations.models import (
+    ChatMessage,
+    Conversation,
+    MessageTypeChoices,
+    ModerationAction,
+)
+from opencontractserver.corpuses.models import Corpus
+from opencontractserver.shared.services.base import BaseService
+
+logger = logging.getLogger(__name__)
 
 
 def _resolve_Query_conversations(root, info, **kwargs):
@@ -38,7 +54,19 @@ def _resolve_Query_conversations(root, info, **kwargs):
 
     Port of ConversationQueryMixin.resolve_conversations
     """
-    raise NotImplementedError("_resolve_Query_conversations not yet ported — see manifest")
+    return (
+        BaseService.filter_visible(
+            Conversation, info.context.user, request=info.context
+        )
+        .select_related("creator", "chat_with_corpus", "chat_with_corpus__creator")
+        .prefetch_related(
+            Prefetch(
+                "chat_messages",
+                queryset=ChatMessage.objects.order_by("created_at"),
+            )
+        )
+        .order_by("-created")
+    )
 
 
 def q_conversations(info: strawberry.Info, offset: Annotated[Optional[int], strawberry.argument(name="offset")] = strawberry.UNSET, before: Annotated[Optional[str], strawberry.argument(name="before")] = strawberry.UNSET, after: Annotated[Optional[str], strawberry.argument(name="after")] = strawberry.UNSET, first: Annotated[Optional[int], strawberry.argument(name="first")] = strawberry.UNSET, last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET, created_at__gte: Annotated[Optional[datetime.datetime], strawberry.argument(name="createdAt_Gte")] = strawberry.UNSET, created_at__lte: Annotated[Optional[datetime.datetime], strawberry.argument(name="createdAt_Lte")] = strawberry.UNSET, conversation_type: Annotated[Optional[enums.ConversationTypeEnum], strawberry.argument(name="conversationType")] = strawberry.UNSET, document_id: Annotated[Optional[str], strawberry.argument(name="documentId")] = strawberry.UNSET, corpus_id: Annotated[Optional[str], strawberry.argument(name="corpusId")] = strawberry.UNSET, has_corpus: Annotated[Optional[bool], strawberry.argument(name="hasCorpus")] = strawberry.UNSET, has_document: Annotated[Optional[bool], strawberry.argument(name="hasDocument")] = strawberry.UNSET, title__contains: Annotated[Optional[str], strawberry.argument(name="title_Contains")] = strawberry.UNSET) -> Optional[Annotated["ConversationTypeConnection", strawberry.lazy("config.graphql.conversation_types")]]:
@@ -47,12 +75,71 @@ def q_conversations(info: strawberry.Info, offset: Annotated[Optional[int], stra
     return resolve_django_connection(resolved=resolved, info=info, args=kwargs, node_type_name="ConversationType", default_manager=Conversation._default_manager, filterset_class=setup_filterset(ConversationFilter), filter_args={"created_at__gte": "created_at__gte", "created_at__lte": "created_at__lte", "conversation_type": "conversation_type", "document_id": "document_id", "corpus_id": "corpus_id", "has_corpus": "has_corpus", "has_document": "has_document", "title__contains": "title__contains"}, )
 
 
-def _resolve_Query_search_conversations(root, info, **kwargs):
+def _resolve_Query_search_conversations(
+    root,
+    info,
+    query,
+    corpus_id=None,
+    document_id=None,
+    conversation_type=None,
+    top_k=100,
+    **kwargs,
+):
     """PORT: /home/user/oc-graphene-ref/config/graphql/conversation_queries.py:96
 
     Port of ConversationQueryMixin.resolve_search_conversations
     """
-    raise NotImplementedError("_resolve_Query_search_conversations not yet ported — see manifest")
+    from opencontractserver.llms.vector_stores.core_conversation_vector_stores import (
+        CoreConversationVectorStore,
+        VectorSearchQuery,
+    )
+
+    # Convert global IDs to database IDs
+    corpus_pk = from_global_id(corpus_id)[1] if corpus_id else None
+    document_pk = from_global_id(document_id)[1] if document_id else None
+
+    # Get embedder path from settings if no corpus specified
+    embedder_path = None
+    if not corpus_pk and not document_id:
+        # Use default embedder from settings
+        from django.conf import settings
+
+        embedder_path = getattr(settings, "DEFAULT_EMBEDDER_PATH", None)
+        if not embedder_path:
+            # If still no embedder available, raise clear error
+            raise ValueError(
+                "Either corpus_id, document_id, or DEFAULT_EMBEDDER_PATH setting is required"
+            )
+
+    # Handle anonymous users
+    user_id = (
+        None
+        if not info.context.user or info.context.user.is_anonymous
+        else info.context.user.id
+    )
+
+    # Create vector store
+    vector_store = CoreConversationVectorStore(
+        user_id=user_id,
+        corpus_id=corpus_pk,
+        document_id=document_pk,
+        conversation_type=conversation_type,
+        embedder_path=embedder_path,
+    )
+
+    # Create search query
+    search_query = VectorSearchQuery(
+        query_text=query,
+        similarity_top_k=top_k,
+    )
+
+    # Perform search (sync in GraphQL context)
+    results = vector_store.search(search_query)
+
+    # Extract conversations from results and return as queryset-like list
+    # ConnectionField will handle pagination automatically
+    conversations = [result.conversation for result in results]
+    return conversations
 
 
 def q_search_conversations(info: strawberry.Info, query: Annotated[str, strawberry.argument(name="query", description='Search query text')] = strawberry.UNSET, corpus_id: Annotated[Optional[strawberry.ID], strawberry.argument(name="corpusId", description='Filter by corpus ID')] = strawberry.UNSET, document_id: Annotated[Optional[strawberry.ID], strawberry.argument(name="documentId", description='Filter by document ID')] = strawberry.UNSET, conversation_type: Annotated[Optional[str], strawberry.argument(name="conversationType", description='Filter by conversation type (chat/thread)')] = strawberry.UNSET, top_k: Annotated[Optional[int], strawberry.argument(name="topK", description='Maximum number of results to fetch from vector store')] = 100, before: Annotated[Optional[str], strawberry.argument(name="before")] = strawberry.UNSET, after: Annotated[Optional[str], strawberry.argument(name="after")] = strawberry.UNSET, first: Annotated[Optional[int], strawberry.argument(name="first")] = strawberry.UNSET, last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET) -> Optional[Annotated["ConversationConnection", strawberry.lazy("config.graphql.conversation_types")]]:
@@ -61,12 +148,58 @@ def q_search_conversations(info: strawberry.Info, query: Annotated[str, strawber
     return resolve_django_connection(resolved=resolved, info=info, args=kwargs, node_type_name="ConversationType", default_manager=Conversation._default_manager, )
 
 
-def _resolve_Query_search_messages(root, info, **kwargs):
+@login_required
+def _resolve_Query_search_messages(
+    root, info, query, corpus_id=None, conversation_id=None, msg_type=None, top_k=10
+):
     """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:190
 
     Port of ConversationQueryMixin.resolve_search_messages
     """
-    raise NotImplementedError("_resolve_Query_search_messages not yet ported — see manifest")
+    from opencontractserver.llms.vector_stores.core_conversation_vector_stores import (
+        CoreChatMessageVectorStore,
+        VectorSearchQuery,
+    )
+
+    # Convert global IDs to database IDs
+    corpus_pk = from_global_id(corpus_id)[1] if corpus_id else None
+    conversation_pk = (
+        from_global_id(conversation_id)[1] if conversation_id else None
+    )
+
+    # Get embedder path from settings if no corpus specified
+    embedder_path = None
+    if not corpus_pk and not conversation_pk:
+        # Use default embedder from settings
+        from django.conf import settings
+
+        embedder_path = getattr(settings, "DEFAULT_EMBEDDER_PATH", None)
+        if not embedder_path:
+            # If still no embedder available, raise clear error
+            raise ValueError(
+                "Either corpus_id, conversation_id, or DEFAULT_EMBEDDER_PATH setting is required"
+            )
+
+    # Create vector store
+    vector_store = CoreChatMessageVectorStore(
+        user_id=info.context.user.id,
+        corpus_id=corpus_pk,
+        conversation_id=conversation_pk,
+        msg_type=msg_type,
+        embedder_path=embedder_path,
+    )
+
+    # Create search query
+    search_query = VectorSearchQuery(
+        query_text=query,
+        similarity_top_k=top_k,
+    )
+
+    # Perform search (sync in GraphQL context)
+    results = vector_store.search(search_query)
+
+    # Extract messages from results
+    return [result.message for result in results]
 
 
 def q_search_messages(info: strawberry.Info, query: Annotated[str, strawberry.argument(name="query", description='Search query text')] = strawberry.UNSET, corpus_id: Annotated[Optional[strawberry.ID], strawberry.argument(name="corpusId", description='Filter by corpus ID')] = strawberry.UNSET, conversation_id: Annotated[Optional[strawberry.ID], strawberry.argument(name="conversationId", description='Filter by conversation ID')] = strawberry.UNSET, msg_type: Annotated[Optional[str], strawberry.argument(name="msgType", description='Filter by message type (HUMAN/LLM/SYSTEM)')] = strawberry.UNSET, top_k: Annotated[Optional[int], strawberry.argument(name="topK", description='Number of results to return')] = 10) -> Optional[list[Optional[Annotated["MessageType", strawberry.lazy("config.graphql.conversation_types")]]]]:
@@ -74,12 +207,36 @@ def q_search_messages(info: strawberry.Info, query: Annotated[str, strawberry.ar
     return _resolve_Query_search_messages(None, info, **kwargs)
 
 
-def _resolve_Query_chat_messages(root, info, **kwargs):
+@login_required
+def _resolve_Query_chat_messages(
+    root, info, conversation_id, order_by=None, **kwargs
+):
     """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:260
 
     Port of ConversationQueryMixin.resolve_chat_messages
     """
-    raise NotImplementedError("_resolve_Query_chat_messages not yet ported — see manifest")
+    queryset = BaseService.filter_visible(
+        ChatMessage, info.context.user, request=info.context
+    )
+
+    # Apply conversation filter if provided
+    conversation_pk = from_global_id(conversation_id)[1]
+    queryset = queryset.filter(conversation_id=conversation_pk)
+
+    # Apply ordering
+    valid_order_fields = {
+        "created_at",
+        "-created_at",
+        "msg_type",
+        "-msg_type",
+        "modified",
+        "-modified",
+    }
+
+    order_field = order_by if order_by in valid_order_fields else "created_at"
+    queryset = queryset.order_by(order_field)
+
+    return queryset
 
 
 def q_chat_messages(info: strawberry.Info, conversation_id: Annotated[strawberry.ID, strawberry.argument(name="conversationId")] = strawberry.UNSET, order_by: Annotated[Optional[str], strawberry.argument(name="orderBy")] = strawberry.UNSET) -> Optional[list[Optional[Annotated["MessageType", strawberry.lazy("config.graphql.conversation_types")]]]]:
@@ -91,12 +248,46 @@ def q_chat_message(info: strawberry.Info, id: Annotated[strawberry.ID, strawberr
     return get_node_from_global_id(info, id, only_type_name="MessageType")
 
 
-def _resolve_Query_user_messages(root, info, **kwargs):
+@login_required
+def _resolve_Query_user_messages(
+    root, info, creator_id, first=10, msg_type=None, order_by=None, **kwargs
+):
     """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:317
 
     Port of ConversationQueryMixin.resolve_user_messages
     """
-    raise NotImplementedError("_resolve_Query_user_messages not yet ported — see manifest")
+    queryset = (
+        BaseService.filter_visible(
+            ChatMessage, info.context.user, request=info.context
+        )
+        .select_related("conversation", "creator")
+        .prefetch_related("votes")
+    )
+
+    # Apply creator filter
+    creator_pk = from_global_id(creator_id)[1]
+    queryset = queryset.filter(creator_id=creator_pk)
+
+    # Apply msg_type filter if provided
+    if msg_type:
+        # Validate msg_type against MessageTypeChoices
+        valid_types = [choice.value for choice in MessageTypeChoices]
+        if msg_type in valid_types:
+            queryset = queryset.filter(msg_type=msg_type)
+
+    # Apply ordering
+    valid_order_fields = {
+        "created",
+        "-created",
+        "modified",
+        "-modified",
+    }
+
+    order_field = order_by if order_by in valid_order_fields else "-created"
+    queryset = queryset.order_by(order_field)
+
+    # Limit results
+    return queryset[:first]
 
 
 def q_user_messages(info: strawberry.Info, creator_id: Annotated[strawberry.ID, strawberry.argument(name="creatorId")] = strawberry.UNSET, first: Annotated[Optional[int], strawberry.argument(name="first")] = 10, msg_type: Annotated[Optional[str], strawberry.argument(name="msgType")] = strawberry.UNSET, order_by: Annotated[Optional[str], strawberry.argument(name="orderBy")] = strawberry.UNSET) -> Optional[list[Optional[Annotated["MessageType", strawberry.lazy("config.graphql.conversation_types")]]]]:
@@ -104,12 +295,58 @@ def q_user_messages(info: strawberry.Info, creator_id: Annotated[strawberry.ID, 
     return _resolve_Query_user_messages(None, info, **kwargs)
 
 
-def _resolve_Query_moderation_actions(root, info, **kwargs):
+@login_required
+def _resolve_Query_moderation_actions(
+    root,
+    info,
+    corpus_id=None,
+    thread_id=None,
+    moderator_id=None,
+    action_types=None,
+    automated_only=None,
+    **kwargs,
+):
     """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:408
 
     Port of ConversationQueryMixin.resolve_moderation_actions
     """
-    raise NotImplementedError("_resolve_Query_moderation_actions not yet ported — see manifest")
+    user = info.context.user
+
+    # Start with base queryset
+    qs = ModerationAction.objects.select_related(
+        "conversation",
+        "conversation__chat_with_corpus",
+        "message",
+        "moderator",
+    )
+
+    # Filter by corpus ownership or moderator status (unless superuser)
+    if not user.is_superuser:
+        qs = qs.filter(
+            Q(conversation__chat_with_corpus__creator=user)
+            | Q(conversation__chat_with_corpus__moderators__user=user)
+        ).distinct()
+
+    # Apply optional filters
+    if corpus_id:
+        corpus_pk = int(from_global_id(corpus_id)[1])
+        qs = qs.filter(conversation__chat_with_corpus_id=corpus_pk)
+
+    if thread_id:
+        thread_pk = from_global_id(thread_id)[1]
+        qs = qs.filter(conversation_id=thread_pk)
+
+    if moderator_id:
+        moderator_pk = int(from_global_id(moderator_id)[1])
+        qs = qs.filter(moderator_id=moderator_pk)
+
+    if action_types:
+        qs = qs.filter(action_type__in=action_types)
+
+    if automated_only:
+        qs = qs.filter(moderator__isnull=True)
+
+    return qs.order_by("-created")
 
 
 def q_moderation_actions(info: strawberry.Info, corpus_id: Annotated[Optional[strawberry.ID], strawberry.argument(name="corpusId")] = strawberry.UNSET, thread_id: Annotated[Optional[strawberry.ID], strawberry.argument(name="threadId")] = strawberry.UNSET, moderator_id: Annotated[Optional[strawberry.ID], strawberry.argument(name="moderatorId")] = strawberry.UNSET, action_types: Annotated[Optional[list[Optional[str]]], strawberry.argument(name="actionTypes")] = strawberry.UNSET, automated_only: Annotated[Optional[bool], strawberry.argument(name="automatedOnly")] = strawberry.UNSET, offset: Annotated[Optional[int], strawberry.argument(name="offset")] = strawberry.UNSET, before: Annotated[Optional[str], strawberry.argument(name="before")] = strawberry.UNSET, after: Annotated[Optional[str], strawberry.argument(name="after")] = strawberry.UNSET, first: Annotated[Optional[int], strawberry.argument(name="first")] = strawberry.UNSET, last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET, action_type: Annotated[Optional[enums.ConversationsModerationActionActionTypeChoices], strawberry.argument(name="actionType")] = strawberry.UNSET, action_type__in: Annotated[Optional[list[Optional[enums.ConversationsModerationActionActionTypeChoices]]], strawberry.argument(name="actionType_In")] = strawberry.UNSET, created__gte: Annotated[Optional[datetime.datetime], strawberry.argument(name="created_Gte")] = strawberry.UNSET, created__lte: Annotated[Optional[datetime.datetime], strawberry.argument(name="created_Lte")] = strawberry.UNSET) -> Optional[Annotated["ModerationActionTypeConnection", strawberry.lazy("config.graphql.conversation_types")]]:
@@ -118,12 +355,42 @@ def q_moderation_actions(info: strawberry.Info, corpus_id: Annotated[Optional[st
     return resolve_django_connection(resolved=resolved, info=info, args=kwargs, node_type_name="ModerationActionType", default_manager=ModerationAction._default_manager, filterset_class=setup_filterset(ModerationActionFilter), filter_args={"action_type": "action_type", "action_type__in": "action_type__in", "created__gte": "created__gte", "created__lte": "created__lte"}, )
 
 
-def _resolve_Query_moderation_action(root, info, **kwargs):
+@login_required
+def _resolve_Query_moderation_action(root, info, id, **kwargs):
     """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:482
 
     Port of ConversationQueryMixin.resolve_moderation_action
     """
-    raise NotImplementedError("_resolve_Query_moderation_action not yet ported — see manifest")
+    user = info.context.user
+    pk = from_global_id(id)[1]
+
+    try:
+        action = ModerationAction.objects.select_related(
+            "conversation",
+            "conversation__chat_with_corpus",
+            "conversation__chat_with_document",
+            "message",
+            "moderator",
+        ).get(pk=pk)
+    except ModerationAction.DoesNotExist:
+        return None
+
+    # Superusers always see every action, including the rare orphan
+    # rows where ``conversation`` itself is NULL (the FK is nullable for
+    # historical reasons; in practice every real action has one).
+    if user.is_superuser:
+        return action
+
+    if action.conversation is None:
+        # No conversation context → no per-action gate to evaluate
+        # safely. Fail closed to mirror the list resolver, which never
+        # surfaces these to non-superusers either.
+        return None
+
+    if not action.conversation.can_moderate(user):
+        return None
+
+    return action
 
 
 def q_moderation_action(info: strawberry.Info, id: Annotated[strawberry.ID, strawberry.argument(name="id")] = strawberry.UNSET) -> Optional[Annotated["ModerationActionType", strawberry.lazy("config.graphql.conversation_types")]]:
@@ -131,12 +398,71 @@ def q_moderation_action(info: strawberry.Info, id: Annotated[strawberry.ID, stra
     return _resolve_Query_moderation_action(None, info, **kwargs)
 
 
-def _resolve_Query_moderation_metrics(root, info, **kwargs):
+@login_required
+def _resolve_Query_moderation_metrics(root, info, corpus_id, time_range_hours=24, **kwargs):
     """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:542
 
     Port of ConversationQueryMixin.resolve_moderation_metrics
     """
-    raise NotImplementedError("_resolve_Query_moderation_metrics not yet ported — see manifest")
+    user = info.context.user
+    corpus_pk = from_global_id(corpus_id)[1]
+
+    try:
+        corpus = Corpus.objects.get(pk=corpus_pk)
+    except Corpus.DoesNotExist:
+        return None
+
+    # Check permission via the canonical Corpus.user_can_moderate helper
+    if not corpus.user_can_moderate(user):
+        return None
+
+    end_time = timezone.now()
+    start_time = end_time - timedelta(hours=time_range_hours)
+
+    # Get actions in time range
+    actions = ModerationAction.objects.filter(
+        conversation__chat_with_corpus=corpus,
+        created__gte=start_time,
+        created__lte=end_time,
+    )
+
+    total = actions.count()
+    automated = actions.filter(moderator__isnull=True).count()
+    manual = total - automated
+
+    # Actions by type
+    by_type = dict(
+        actions.values("action_type")
+        .annotate(count=Count("id"))
+        .values_list("action_type", "count")
+    )
+
+    # Hourly rate
+    hourly_rate = total / time_range_hours if time_range_hours > 0 else 0
+
+    # Threshold check for high activity warning
+    from opencontractserver.constants.moderation import (
+        MODERATION_HOURLY_RATE_THRESHOLD,
+    )
+
+    exceeded_types = [
+        action_type
+        for action_type, count in by_type.items()
+        if count / time_range_hours > MODERATION_HOURLY_RATE_THRESHOLD
+    ]
+
+    return {
+        "total_actions": total,
+        "automated_actions": automated,
+        "manual_actions": manual,
+        "actions_by_type": by_type,
+        "hourly_action_rate": round(hourly_rate, 2),
+        "is_above_threshold": len(exceeded_types) > 0,
+        "threshold_exceeded_types": exceeded_types,
+        "time_range_hours": time_range_hours,
+        "start_time": start_time,
+        "end_time": end_time,
+    }
 
 
 def q_moderation_metrics(info: strawberry.Info, corpus_id: Annotated[strawberry.ID, strawberry.argument(name="corpusId")] = strawberry.UNSET, time_range_hours: Annotated[Optional[int], strawberry.argument(name="timeRangeHours")] = 24) -> Optional[Annotated["ModerationMetricsType", strawberry.lazy("config.graphql.conversation_types")]]:
