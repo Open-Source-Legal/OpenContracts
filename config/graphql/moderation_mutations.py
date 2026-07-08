@@ -27,7 +27,57 @@ from config.graphql.core.scalars import BigInt, GenericScalar, JSONString
 from config.graphql._util import coerce_enum, coerce_str, strip_unset
 from config.graphql import enums
 
+import logging
 
+from graphql_relay import from_global_id
+
+from config.graphql.core.auth import PermissionDenied
+from config.graphql.ratelimits import graphql_ratelimit
+from opencontractserver.conversations.models import (
+    ChatMessage,
+    Conversation,
+    CorpusModerator,
+)
+from opencontractserver.corpuses.models import Corpus
+
+logger = logging.getLogger(__name__)
+
+# NOTE on decorators: the graphene mutations were decorated with
+# ``@login_required`` + ``@graphql_ratelimit(...)`` on ``mutate(root, info, …)``.
+# Mutate stubs here take ``payload_cls`` as their first positional argument,
+# which does not match those decorators' ``(root, info, ...)`` calling
+# convention — so ``login_required`` is inlined (see user_mutations.py) and
+# ``graphql_ratelimit`` is applied to an inner function named ``mutate`` so
+# the rate-limit cache group (defaults to the decorated function's
+# ``__name__``) stays "mutate", exactly as in the graphene layer.
+
+
+def get_conversation_with_moderation_check(conversation_id, user):
+    """
+    Get conversation with moderation verification (IDOR-safe).
+
+    Returns the same error message whether the conversation doesn't exist
+    or the user lacks permission, preventing enumeration of valid conversation IDs.
+
+    Args:
+        conversation_id: Global relay ID of the conversation
+        user: User requesting access
+
+    Returns:
+        tuple: (conversation_object, error_message)
+            - On success: (Conversation, None)
+            - On failure: (None, "Conversation not found")
+    """
+    try:
+        pk = from_global_id(conversation_id)[1]
+        conversation = Conversation.objects.get(pk=pk)
+        if not conversation.can_moderate(user):
+            # User doesn't have permission - same message as DoesNotExist
+            return None, "Conversation not found"
+        return conversation, None
+    except Conversation.DoesNotExist:
+        # Conversation doesn't exist - same message as permission denied
+        return None, "Conversation not found"
 
 
 @strawberry.type(name="LockThreadMutation", description='Lock a conversation/thread to prevent new messages.\nOnly corpus owners or moderators with lock_threads permission can lock threads.')
@@ -127,12 +177,48 @@ class RollbackModerationActionMutation:
 register_type("RollbackModerationActionMutation", RollbackModerationActionMutation, model=None)
 
 
-def _mutate_LockThreadMutation(payload_cls, root, info, **kwargs):
-    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:83
+def _mutate_LockThreadMutation(payload_cls, root, info, conversation_id, reason=""):
+    """PORT: /home/user/oc-graphene-ref/config/graphql/moderation_mutations.py:83
 
     Port of LockThreadMutation.mutate
     """
-    raise NotImplementedError("_mutate_LockThreadMutation not yet ported — see manifest")
+    # @login_required — inlined (see module NOTE above).
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+
+    @graphql_ratelimit(rate="20/m")
+    def mutate(root, info, conversation_id, reason=""):
+        ok = False
+        obj = None
+        message_text = ""
+
+        try:
+            user = info.context.user
+
+            # Get conversation with IDOR-safe permission check
+            conversation, error = get_conversation_with_moderation_check(
+                conversation_id, user
+            )
+            if error:
+                # Either not found or no permission - same message
+                return LockThreadMutation(ok=False, message=error, obj=None)
+
+            # Lock the conversation
+            conversation.lock(user, reason)
+
+            ok = True
+            obj = conversation
+            message_text = "Conversation locked successfully"
+
+        except PermissionError as e:
+            message_text = str(e)
+        except Exception as e:
+            logger.error(f"Error locking conversation: {e}", exc_info=True)
+            message_text = f"Failed to lock conversation: {str(e)}"
+
+        return LockThreadMutation(ok=ok, message=message_text, obj=obj)
+
+    return mutate(root, info, conversation_id, reason=reason)
 
 
 def m_lock_thread(info: strawberry.Info, conversation_id: Annotated[str, strawberry.argument(name="conversationId", description='ID of the conversation to lock')] = strawberry.UNSET, reason: Annotated[Optional[str], strawberry.argument(name="reason", description='Optional reason for locking')] = strawberry.UNSET) -> Optional["LockThreadMutation"]:
@@ -140,12 +226,48 @@ def m_lock_thread(info: strawberry.Info, conversation_id: Annotated[str, strawbe
     return _mutate_LockThreadMutation(LockThreadMutation, None, info, **kwargs)
 
 
-def _mutate_UnlockThreadMutation(payload_cls, root, info, **kwargs):
-    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:135
+def _mutate_UnlockThreadMutation(payload_cls, root, info, conversation_id, reason=""):
+    """PORT: /home/user/oc-graphene-ref/config/graphql/moderation_mutations.py:135
 
     Port of UnlockThreadMutation.mutate
     """
-    raise NotImplementedError("_mutate_UnlockThreadMutation not yet ported — see manifest")
+    # @login_required — inlined (see module NOTE above).
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+
+    @graphql_ratelimit(rate="20/m")
+    def mutate(root, info, conversation_id, reason=""):
+        ok = False
+        obj = None
+        message_text = ""
+
+        try:
+            user = info.context.user
+
+            # Get conversation with IDOR-safe permission check
+            conversation, error = get_conversation_with_moderation_check(
+                conversation_id, user
+            )
+            if error:
+                # Either not found or no permission - same message
+                return UnlockThreadMutation(ok=False, message=error, obj=None)
+
+            # Unlock the conversation
+            conversation.unlock(user, reason)
+
+            ok = True
+            obj = conversation
+            message_text = "Conversation unlocked successfully"
+
+        except PermissionError as e:
+            message_text = str(e)
+        except Exception as e:
+            logger.error(f"Error unlocking conversation: {e}", exc_info=True)
+            message_text = f"Failed to unlock conversation: {str(e)}"
+
+        return UnlockThreadMutation(ok=ok, message=message_text, obj=obj)
+
+    return mutate(root, info, conversation_id, reason=reason)
 
 
 def m_unlock_thread(info: strawberry.Info, conversation_id: Annotated[str, strawberry.argument(name="conversationId", description='ID of the conversation to unlock')] = strawberry.UNSET, reason: Annotated[Optional[str], strawberry.argument(name="reason", description='Optional reason for unlocking')] = strawberry.UNSET) -> Optional["UnlockThreadMutation"]:
@@ -153,12 +275,48 @@ def m_unlock_thread(info: strawberry.Info, conversation_id: Annotated[str, straw
     return _mutate_UnlockThreadMutation(UnlockThreadMutation, None, info, **kwargs)
 
 
-def _mutate_PinThreadMutation(payload_cls, root, info, **kwargs):
-    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:187
+def _mutate_PinThreadMutation(payload_cls, root, info, conversation_id, reason=""):
+    """PORT: /home/user/oc-graphene-ref/config/graphql/moderation_mutations.py:187
 
     Port of PinThreadMutation.mutate
     """
-    raise NotImplementedError("_mutate_PinThreadMutation not yet ported — see manifest")
+    # @login_required — inlined (see module NOTE above).
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+
+    @graphql_ratelimit(rate="20/m")
+    def mutate(root, info, conversation_id, reason=""):
+        ok = False
+        obj = None
+        message_text = ""
+
+        try:
+            user = info.context.user
+
+            # Get conversation with IDOR-safe permission check
+            conversation, error = get_conversation_with_moderation_check(
+                conversation_id, user
+            )
+            if error:
+                # Either not found or no permission - same message
+                return PinThreadMutation(ok=False, message=error, obj=None)
+
+            # Pin the conversation
+            conversation.pin(user, reason)
+
+            ok = True
+            obj = conversation
+            message_text = "Conversation pinned successfully"
+
+        except PermissionError as e:
+            message_text = str(e)
+        except Exception as e:
+            logger.error(f"Error pinning conversation: {e}", exc_info=True)
+            message_text = f"Failed to pin conversation: {str(e)}"
+
+        return PinThreadMutation(ok=ok, message=message_text, obj=obj)
+
+    return mutate(root, info, conversation_id, reason=reason)
 
 
 def m_pin_thread(info: strawberry.Info, conversation_id: Annotated[str, strawberry.argument(name="conversationId", description='ID of the conversation to pin')] = strawberry.UNSET, reason: Annotated[Optional[str], strawberry.argument(name="reason", description='Optional reason for pinning')] = strawberry.UNSET) -> Optional["PinThreadMutation"]:
@@ -166,12 +324,48 @@ def m_pin_thread(info: strawberry.Info, conversation_id: Annotated[str, strawber
     return _mutate_PinThreadMutation(PinThreadMutation, None, info, **kwargs)
 
 
-def _mutate_UnpinThreadMutation(payload_cls, root, info, **kwargs):
-    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:239
+def _mutate_UnpinThreadMutation(payload_cls, root, info, conversation_id, reason=""):
+    """PORT: /home/user/oc-graphene-ref/config/graphql/moderation_mutations.py:239
 
     Port of UnpinThreadMutation.mutate
     """
-    raise NotImplementedError("_mutate_UnpinThreadMutation not yet ported — see manifest")
+    # @login_required — inlined (see module NOTE above).
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+
+    @graphql_ratelimit(rate="20/m")
+    def mutate(root, info, conversation_id, reason=""):
+        ok = False
+        obj = None
+        message_text = ""
+
+        try:
+            user = info.context.user
+
+            # Get conversation with IDOR-safe permission check
+            conversation, error = get_conversation_with_moderation_check(
+                conversation_id, user
+            )
+            if error:
+                # Either not found or no permission - same message
+                return UnpinThreadMutation(ok=False, message=error, obj=None)
+
+            # Unpin the conversation
+            conversation.unpin(user, reason)
+
+            ok = True
+            obj = conversation
+            message_text = "Conversation unpinned successfully"
+
+        except PermissionError as e:
+            message_text = str(e)
+        except Exception as e:
+            logger.error(f"Error unpinning conversation: {e}", exc_info=True)
+            message_text = f"Failed to unpin conversation: {str(e)}"
+
+        return UnpinThreadMutation(ok=ok, message=message_text, obj=obj)
+
+    return mutate(root, info, conversation_id, reason=reason)
 
 
 def m_unpin_thread(info: strawberry.Info, conversation_id: Annotated[str, strawberry.argument(name="conversationId", description='ID of the conversation to unpin')] = strawberry.UNSET, reason: Annotated[Optional[str], strawberry.argument(name="reason", description='Optional reason for unpinning')] = strawberry.UNSET) -> Optional["UnpinThreadMutation"]:
@@ -179,12 +373,51 @@ def m_unpin_thread(info: strawberry.Info, conversation_id: Annotated[str, strawb
     return _mutate_UnpinThreadMutation(UnpinThreadMutation, None, info, **kwargs)
 
 
-def _mutate_DeleteThreadMutation(payload_cls, root, info, **kwargs):
-    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:289
+def _mutate_DeleteThreadMutation(payload_cls, root, info, conversation_id, reason=None):
+    """PORT: /home/user/oc-graphene-ref/config/graphql/moderation_mutations.py:289
 
     Port of DeleteThreadMutation.mutate
     """
-    raise NotImplementedError("_mutate_DeleteThreadMutation not yet ported — see manifest")
+    # @login_required — inlined (see module NOTE above).
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+
+    @graphql_ratelimit(rate="10/m")
+    def mutate(root, info, conversation_id, reason=None):
+        user = info.context.user
+        ok = False
+        message_text = ""
+        conversation_obj = None
+
+        try:
+            thread_pk = from_global_id(conversation_id)[1]
+            conversation = Conversation.objects.get(pk=thread_pk)
+
+            # IDOR-safe: same error for not found and no permission
+            if not conversation.can_moderate(user):
+                return DeleteThreadMutation(
+                    ok=False,
+                    message="Thread not found or access denied",
+                    conversation=None,
+                )
+
+            conversation.soft_delete_thread(moderator=user, reason=reason)
+            ok = True
+            message_text = "Thread deleted successfully"
+            conversation_obj = conversation
+
+        except Conversation.DoesNotExist:
+            message_text = "Thread not found or access denied"
+
+        except Exception as e:
+            logger.error(f"Error deleting thread: {e}", exc_info=True)
+            message_text = f"Failed to delete thread: {str(e)}"
+
+        return DeleteThreadMutation(
+            ok=ok, message=message_text, conversation=conversation_obj
+        )
+
+    return mutate(root, info, conversation_id, reason=reason)
 
 
 def m_delete_thread(info: strawberry.Info, conversation_id: Annotated[strawberry.ID, strawberry.argument(name="conversationId", description='ID of thread to delete')] = strawberry.UNSET, reason: Annotated[Optional[str], strawberry.argument(name="reason", description='Reason for deletion')] = strawberry.UNSET) -> Optional["DeleteThreadMutation"]:
@@ -192,12 +425,52 @@ def m_delete_thread(info: strawberry.Info, conversation_id: Annotated[strawberry
     return _mutate_DeleteThreadMutation(DeleteThreadMutation, None, info, **kwargs)
 
 
-def _mutate_RestoreThreadMutation(payload_cls, root, info, **kwargs):
-    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:342
+def _mutate_RestoreThreadMutation(payload_cls, root, info, conversation_id, reason=None):
+    """PORT: /home/user/oc-graphene-ref/config/graphql/moderation_mutations.py:342
 
     Port of RestoreThreadMutation.mutate
     """
-    raise NotImplementedError("_mutate_RestoreThreadMutation not yet ported — see manifest")
+    # @login_required — inlined (see module NOTE above).
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+
+    @graphql_ratelimit(rate="10/m")
+    def mutate(root, info, conversation_id, reason=None):
+        user = info.context.user
+        ok = False
+        message_text = ""
+        conversation_obj = None
+
+        try:
+            thread_pk = from_global_id(conversation_id)[1]
+            # Use all_objects to include deleted threads
+            conversation = Conversation.all_objects.get(pk=thread_pk)
+
+            # IDOR-safe: same error for not found and no permission
+            if not conversation.can_moderate(user):
+                return RestoreThreadMutation(
+                    ok=False,
+                    message="Thread not found or access denied",
+                    conversation=None,
+                )
+
+            conversation.restore_thread(moderator=user, reason=reason)
+            ok = True
+            message_text = "Thread restored successfully"
+            conversation_obj = conversation
+
+        except Conversation.DoesNotExist:
+            message_text = "Thread not found or access denied"
+
+        except Exception as e:
+            logger.error(f"Error restoring thread: {e}", exc_info=True)
+            message_text = f"Failed to restore thread: {str(e)}"
+
+        return RestoreThreadMutation(
+            ok=ok, message=message_text, conversation=conversation_obj
+        )
+
+    return mutate(root, info, conversation_id, reason=reason)
 
 
 def m_restore_thread(info: strawberry.Info, conversation_id: Annotated[strawberry.ID, strawberry.argument(name="conversationId", description='ID of thread to restore')] = strawberry.UNSET, reason: Annotated[Optional[str], strawberry.argument(name="reason", description='Reason for restoration')] = strawberry.UNSET) -> Optional["RestoreThreadMutation"]:
@@ -205,12 +478,78 @@ def m_restore_thread(info: strawberry.Info, conversation_id: Annotated[strawberr
     return _mutate_RestoreThreadMutation(RestoreThreadMutation, None, info, **kwargs)
 
 
-def _mutate_AddModeratorMutation(payload_cls, root, info, **kwargs):
-    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:400
+def _mutate_AddModeratorMutation(payload_cls, root, info, corpus_id, user_id, permissions):
+    """PORT: /home/user/oc-graphene-ref/config/graphql/moderation_mutations.py:400
 
     Port of AddModeratorMutation.mutate
     """
-    raise NotImplementedError("_mutate_AddModeratorMutation not yet ported — see manifest")
+    # @login_required — inlined (see module NOTE above).
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+
+    @graphql_ratelimit(rate="20/m")
+    def mutate(root, info, corpus_id, user_id, permissions):
+        ok = False
+        message_text = ""
+
+        try:
+            user = info.context.user
+
+            # Get corpus - use creator check to prevent IDOR
+            # This returns same error whether corpus doesn't exist or user isn't owner
+            corpus_pk = from_global_id(corpus_id)[1]
+            try:
+                corpus = Corpus.objects.get(pk=corpus_pk, creator=user)
+            except Corpus.DoesNotExist:
+                return AddModeratorMutation(ok=False, message="Corpus not found")
+
+            # Get target user
+            try:
+                from django.contrib.auth import get_user_model
+
+                User = get_user_model()
+                target_user_pk = from_global_id(user_id)[1]
+                target_user = User.objects.get(pk=target_user_pk)
+            except User.DoesNotExist:
+                return AddModeratorMutation(ok=False, message="User not found")
+
+            # Validate permissions
+            valid_permissions = [
+                "lock_threads",
+                "pin_threads",
+                "delete_messages",
+                "delete_threads",
+            ]
+            for perm in permissions:
+                if perm not in valid_permissions:
+                    return AddModeratorMutation(
+                        ok=False,
+                        message=f"Invalid permission: {perm}. Valid options: {', '.join(valid_permissions)}",
+                    )
+
+            # Create or update moderator
+            moderator, created = CorpusModerator.objects.update_or_create(
+                corpus=corpus,
+                user=target_user,
+                defaults={
+                    "permissions": list(
+                        permissions
+                    ),  # Store as list for has_permission() checks
+                    "assigned_by": user,  # Correct field name per CorpusModerator model
+                    "creator": user,
+                },
+            )
+
+            ok = True
+            message_text = f"Moderator {'added' if created else 'updated'} successfully"
+
+        except Exception as e:
+            logger.error(f"Error adding moderator: {e}", exc_info=True)
+            message_text = f"Failed to add moderator: {str(e)}"
+
+        return AddModeratorMutation(ok=ok, message=message_text)
+
+    return mutate(root, info, corpus_id, user_id, permissions)
 
 
 def m_add_moderator(info: strawberry.Info, corpus_id: Annotated[str, strawberry.argument(name="corpusId", description='ID of the corpus')] = strawberry.UNSET, permissions: Annotated[list[Optional[str]], strawberry.argument(name="permissions", description='List of permissions: lock_threads, pin_threads, delete_messages, delete_threads')] = strawberry.UNSET, user_id: Annotated[str, strawberry.argument(name="userId", description='ID of the user to add as moderator')] = strawberry.UNSET) -> Optional["AddModeratorMutation"]:
@@ -218,12 +557,58 @@ def m_add_moderator(info: strawberry.Info, corpus_id: Annotated[str, strawberry.
     return _mutate_AddModeratorMutation(AddModeratorMutation, None, info, **kwargs)
 
 
-def _mutate_RemoveModeratorMutation(payload_cls, root, info, **kwargs):
-    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:479
+def _mutate_RemoveModeratorMutation(payload_cls, root, info, corpus_id, user_id):
+    """PORT: /home/user/oc-graphene-ref/config/graphql/moderation_mutations.py:479
 
     Port of RemoveModeratorMutation.mutate
     """
-    raise NotImplementedError("_mutate_RemoveModeratorMutation not yet ported — see manifest")
+    # @login_required — inlined (see module NOTE above).
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+
+    @graphql_ratelimit(rate="20/m")
+    def mutate(root, info, corpus_id, user_id):
+        ok = False
+        message_text = ""
+
+        try:
+            user = info.context.user
+
+            # Get corpus - use creator check to prevent IDOR
+            # This returns same error whether corpus doesn't exist or user isn't owner
+            corpus_pk = from_global_id(corpus_id)[1]
+            try:
+                corpus = Corpus.objects.get(pk=corpus_pk, creator=user)
+            except Corpus.DoesNotExist:
+                return RemoveModeratorMutation(ok=False, message="Corpus not found")
+
+            # Get target user
+            try:
+                from django.contrib.auth import get_user_model
+
+                User = get_user_model()
+                target_user_pk = from_global_id(user_id)[1]
+                target_user = User.objects.get(pk=target_user_pk)
+            except User.DoesNotExist:
+                return RemoveModeratorMutation(ok=False, message="User not found")
+
+            # Remove moderator
+            try:
+                moderator = CorpusModerator.objects.get(corpus=corpus, user=target_user)
+                moderator.delete()
+                ok = True
+                message_text = "Moderator removed successfully"
+            except CorpusModerator.DoesNotExist:
+                message_text = "User is not a moderator of this corpus"
+                ok = True  # Not an error, just already not a moderator
+
+        except Exception as e:
+            logger.error(f"Error removing moderator: {e}", exc_info=True)
+            message_text = f"Failed to remove moderator: {str(e)}"
+
+        return RemoveModeratorMutation(ok=ok, message=message_text)
+
+    return mutate(root, info, corpus_id, user_id)
 
 
 def m_remove_moderator(info: strawberry.Info, corpus_id: Annotated[str, strawberry.argument(name="corpusId", description='ID of the corpus')] = strawberry.UNSET, user_id: Annotated[str, strawberry.argument(name="userId", description='ID of the user to remove as moderator')] = strawberry.UNSET) -> Optional["RemoveModeratorMutation"]:
@@ -231,12 +616,81 @@ def m_remove_moderator(info: strawberry.Info, corpus_id: Annotated[str, strawber
     return _mutate_RemoveModeratorMutation(RemoveModeratorMutation, None, info, **kwargs)
 
 
-def _mutate_UpdateModeratorPermissionsMutation(payload_cls, root, info, **kwargs):
-    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:541
+def _mutate_UpdateModeratorPermissionsMutation(payload_cls, root, info, corpus_id, user_id, permissions):
+    """PORT: /home/user/oc-graphene-ref/config/graphql/moderation_mutations.py:541
 
     Port of UpdateModeratorPermissionsMutation.mutate
     """
-    raise NotImplementedError("_mutate_UpdateModeratorPermissionsMutation not yet ported — see manifest")
+    # @login_required — inlined (see module NOTE above).
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+
+    @graphql_ratelimit(rate="20/m")
+    def mutate(root, info, corpus_id, user_id, permissions):
+        ok = False
+        message_text = ""
+
+        try:
+            user = info.context.user
+
+            # Get corpus - use creator check to prevent IDOR
+            # This returns same error whether corpus doesn't exist or user isn't owner
+            corpus_pk = from_global_id(corpus_id)[1]
+            try:
+                corpus = Corpus.objects.get(pk=corpus_pk, creator=user)
+            except Corpus.DoesNotExist:
+                return UpdateModeratorPermissionsMutation(
+                    ok=False, message="Corpus not found"
+                )
+
+            # Get target user
+            try:
+                from django.contrib.auth import get_user_model
+
+                User = get_user_model()
+                target_user_pk = from_global_id(user_id)[1]
+                target_user = User.objects.get(pk=target_user_pk)
+            except User.DoesNotExist:
+                return UpdateModeratorPermissionsMutation(
+                    ok=False, message="User not found"
+                )
+
+            # Validate permissions
+            valid_permissions = [
+                "lock_threads",
+                "pin_threads",
+                "delete_messages",
+                "delete_threads",
+            ]
+            for perm in permissions:
+                if perm not in valid_permissions:
+                    return UpdateModeratorPermissionsMutation(
+                        ok=False,
+                        message=f"Invalid permission: {perm}. Valid options: {', '.join(valid_permissions)}",
+                    )
+
+            # Update moderator permissions
+            try:
+                moderator = CorpusModerator.objects.get(corpus=corpus, user=target_user)
+                moderator.permissions = list(
+                    permissions
+                )  # Store as list for has_permission() checks
+                moderator.save(update_fields=["permissions"])
+                ok = True
+                message_text = "Moderator permissions updated successfully"
+            except CorpusModerator.DoesNotExist:
+                return UpdateModeratorPermissionsMutation(
+                    ok=False,
+                    message="User is not a moderator of this corpus",
+                )
+
+        except Exception as e:
+            logger.error(f"Error updating moderator permissions: {e}", exc_info=True)
+            message_text = f"Failed to update moderator permissions: {str(e)}"
+
+        return UpdateModeratorPermissionsMutation(ok=ok, message=message_text)
+
+    return mutate(root, info, corpus_id, user_id, permissions)
 
 
 def m_update_moderator_permissions(info: strawberry.Info, corpus_id: Annotated[str, strawberry.argument(name="corpusId", description='ID of the corpus')] = strawberry.UNSET, permissions: Annotated[list[Optional[str]], strawberry.argument(name="permissions", description='List of permissions: lock_threads, pin_threads, delete_messages, delete_threads')] = strawberry.UNSET, user_id: Annotated[str, strawberry.argument(name="userId", description='ID of the moderator user')] = strawberry.UNSET) -> Optional["UpdateModeratorPermissionsMutation"]:
@@ -244,12 +698,133 @@ def m_update_moderator_permissions(info: strawberry.Info, corpus_id: Annotated[s
     return _mutate_UpdateModeratorPermissionsMutation(UpdateModeratorPermissionsMutation, None, info, **kwargs)
 
 
-def _mutate_RollbackModerationActionMutation(payload_cls, root, info, **kwargs):
-    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:632
+def _mutate_RollbackModerationActionMutation(payload_cls, root, info, action_id, reason=None):
+    """PORT: /home/user/oc-graphene-ref/config/graphql/moderation_mutations.py:632
 
     Port of RollbackModerationActionMutation.mutate
     """
-    raise NotImplementedError("_mutate_RollbackModerationActionMutation not yet ported — see manifest")
+    # @login_required — inlined (see module NOTE above).
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+
+    @graphql_ratelimit(rate="10/m")
+    def mutate(root, info, action_id, reason=None):
+        from opencontractserver.conversations.models import (
+            ModerationAction,
+        )
+        from opencontractserver.conversations.models import (
+            ModerationActionType as ModerationActionTypeEnum,
+        )
+
+        user = info.context.user
+
+        try:
+            action_pk = from_global_id(action_id)[1]
+            original_action = ModerationAction.objects.select_related(
+                "conversation", "conversation__chat_with_corpus", "message"
+            ).get(pk=action_pk)
+        except ModerationAction.DoesNotExist:
+            return RollbackModerationActionMutation(
+                ok=False,
+                message="Moderation action not found",
+                rollback_action=None,
+            )
+
+        # Define rollback mappings: action_type -> (rollback_action_type, method_name, target_attr)
+        # - rollback_action_type: The action type for the new audit log entry
+        # - method_name: The model method to call for the rollback operation
+        # - target_attr: Which object the action operates on ('message' or 'conversation'),
+        #   used for permission checking (message actions need message's conversation)
+        #   and for invoking the correct method on the target object
+        # Use string values for comparison since DB stores strings
+        rollback_map = {
+            ModerationActionTypeEnum.DELETE_MESSAGE.value: (
+                ModerationActionTypeEnum.RESTORE_MESSAGE.value,
+                "restore_message",
+                "message",
+            ),
+            ModerationActionTypeEnum.DELETE_THREAD.value: (
+                ModerationActionTypeEnum.RESTORE_THREAD.value,
+                "restore_thread",
+                "conversation",
+            ),
+            ModerationActionTypeEnum.LOCK_THREAD.value: (
+                ModerationActionTypeEnum.UNLOCK_THREAD.value,
+                "unlock",
+                "conversation",
+            ),
+            ModerationActionTypeEnum.PIN_THREAD.value: (
+                ModerationActionTypeEnum.UNPIN_THREAD.value,
+                "unpin",
+                "conversation",
+            ),
+        }
+
+        if original_action.action_type not in rollback_map:
+            return RollbackModerationActionMutation(
+                ok=False,
+                message=f"Action type '{original_action.action_type}' cannot be rolled back",
+                rollback_action=None,
+            )
+
+        _rollback_action_type, method_name, target_attr = rollback_map[
+            original_action.action_type
+        ]
+
+        # Determine the target for rollback and the conversation for permission check
+        target: ChatMessage | Conversation | None
+        if target_attr == "message":
+            target = original_action.message
+            # For message actions, use message's conversation for permission check
+            permission_conversation = target.conversation if target else None
+        else:
+            target = original_action.conversation
+            permission_conversation = target
+
+        # Check if target exists
+        if target is None:
+            return RollbackModerationActionMutation(
+                ok=False,
+                message=f"Cannot rollback: target {target_attr} no longer exists",
+                rollback_action=None,
+            )
+
+        # Check permissions - user must be able to moderate
+        if permission_conversation is None:
+            return RollbackModerationActionMutation(
+                ok=False,
+                message="Cannot rollback: conversation not found",
+                rollback_action=None,
+            )
+
+        if not permission_conversation.can_moderate(user):
+            return RollbackModerationActionMutation(
+                ok=False,
+                message="You don't have permission to rollback this action",
+                rollback_action=None,
+            )
+
+        # Execute the rollback - methods now return the created ModerationAction
+        try:
+            rollback_action = getattr(target, method_name)(
+                moderator=user, reason=reason or "Rollback"
+            )
+
+            return RollbackModerationActionMutation(
+                ok=True,
+                message=f"Successfully rolled back {original_action.action_type}",
+                rollback_action=rollback_action,
+            )
+
+        except Exception as e:
+            logger.error(f"Error rolling back moderation action: {e}", exc_info=True)
+            return RollbackModerationActionMutation(
+                ok=False,
+                message=f"Failed to rollback: {str(e)}",
+                rollback_action=None,
+            )
+
+    return mutate(root, info, action_id, reason=reason)
 
 
 def m_rollback_moderation_action(info: strawberry.Info, action_id: Annotated[strawberry.ID, strawberry.argument(name="actionId", description='ID of action to rollback')] = strawberry.UNSET, reason: Annotated[Optional[str], strawberry.argument(name="reason", description='Reason for rollback')] = strawberry.UNSET) -> Optional["RollbackModerationActionMutation"]:

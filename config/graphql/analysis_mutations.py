@@ -27,6 +27,17 @@ from config.graphql.core.scalars import BigInt, GenericScalar, JSONString
 from config.graphql._util import coerce_enum, coerce_str, strip_unset
 from config.graphql import enums
 
+import logging
+
+from django.conf import settings
+from graphql_relay import from_global_id
+
+from config.graphql.core.auth import PermissionDenied, user_passes_test
+from config.graphql.ratelimits import RateLimits, graphql_ratelimit
+from config.telemetry import record_event
+from opencontractserver.analyzer.services import AnalysisLifecycleService
+
+logger = logging.getLogger(__name__)
 
 
 
@@ -59,12 +70,67 @@ class MakeAnalysisPublic:
 register_type("MakeAnalysisPublic", MakeAnalysisPublic, model=None)
 
 
-def _mutate_StartDocumentAnalysisMutation(payload_cls, root, info, **kwargs):
+def _mutate_StartDocumentAnalysisMutation(
+    payload_cls,
+    root,
+    info,
+    analyzer_id,
+    document_id=None,
+    corpus_id=None,
+    analysis_input_data=None,
+):
     """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:79
 
     Port of StartDocumentAnalysisMutation.mutate
+
+    Starts a document or corpus analysis using the specified analyzer.
+    Accepts optional analysis_input_data for analyzers that need
+    user-provided parameters.
     """
-    raise NotImplementedError("_mutate_StartDocumentAnalysisMutation not yet ported — see manifest")
+    # @login_required (graphql_jwt) — inlined because mutate stubs take
+    # ``payload_cls`` as their first positional argument, which does not
+    # match core.auth's ``(root, info, ...)`` calling convention.
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+
+    user = info.context.user
+    logger.info(f"StartDocumentAnalysisMutation called by user {user.id}")
+
+    document_pk = from_global_id(document_id)[1] if document_id else None
+    analyzer_pk = from_global_id(analyzer_id)[1]
+    corpus_pk = from_global_id(corpus_id)[1] if corpus_id else None
+
+    logger.info(
+        f"Parsed IDs - document_pk: {document_pk}, analyzer_pk: {analyzer_pk}, "
+        f"corpus_pk: {corpus_pk}"
+    )
+    logger.info(f"Analysis input data: {analysis_input_data}")
+
+    try:
+        result = AnalysisLifecycleService.start_document_analysis(
+            user,
+            analyzer_pk=analyzer_pk,
+            document_pk=document_pk,
+            corpus_pk=corpus_pk,
+            analysis_input_data=analysis_input_data,
+            request=info.context,
+        )
+    except Exception as e:
+        logger.error(f"StartDocumentAnalysisMutation error: {e}", exc_info=True)
+        return payload_cls(ok=False, message=f"Error: {str(e)}")
+
+    if not result.ok:
+        return payload_cls(ok=False, message=result.error, obj=None)
+
+    record_event(
+        "analysis_started",
+        {
+            "env": settings.MODE,
+            "user_id": info.context.user.id,
+        },
+    )
+
+    return payload_cls(ok=True, message="SUCCESS", obj=result.value)
 
 
 def m_start_analysis_on_doc(info: strawberry.Info, analysis_input_data: Annotated[Optional[GenericScalar], strawberry.argument(name="analysisInputData", description='Optional arguments to be passed to the analyzer.')] = strawberry.UNSET, analyzer_id: Annotated[strawberry.ID, strawberry.argument(name="analyzerId", description='Id of the analyzer to use.')] = strawberry.UNSET, corpus_id: Annotated[Optional[strawberry.ID], strawberry.argument(name="corpusId", description='Optional Id of the corpus to associate with the analysis.')] = strawberry.UNSET, document_id: Annotated[Optional[strawberry.ID], strawberry.argument(name="documentId", description='Id of the document to be analyzed.')] = strawberry.UNSET) -> Optional["StartDocumentAnalysisMutation"]:
@@ -72,12 +138,31 @@ def m_start_analysis_on_doc(info: strawberry.Info, analysis_input_data: Annotate
     return _mutate_StartDocumentAnalysisMutation(StartDocumentAnalysisMutation, None, info, **kwargs)
 
 
-def _mutate_DeleteAnalysisMutation(payload_cls, root, info, **kwargs):
+def _mutate_DeleteAnalysisMutation(payload_cls, root, info, id):
     """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:145
 
     Port of DeleteAnalysisMutation.mutate
     """
-    raise NotImplementedError("_mutate_DeleteAnalysisMutation not yet ported — see manifest")
+    # @login_required (graphql_jwt) — inlined; see
+    # _mutate_StartDocumentAnalysisMutation.
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+
+    # Unified message blocks IDOR enumeration. Bad global-id, missing
+    # analysis, and "exists but forbidden" all surface the same string.
+    not_found_msg = "Analysis not found or you don't have permission to delete it."
+
+    try:
+        analysis_pk = from_global_id(id)[1]
+    except Exception:
+        return payload_cls(ok=False, message=not_found_msg)
+
+    result = AnalysisLifecycleService.delete_analysis(
+        info.context.user, analysis_pk, request=info.context
+    )
+    if not result.ok:
+        return payload_cls(ok=False, message=result.error)
+    return payload_cls(ok=True, message="SUCCESS")
 
 
 def m_delete_analysis(info: strawberry.Info, id: Annotated[str, strawberry.argument(name="id")] = strawberry.UNSET) -> Optional["DeleteAnalysisMutation"]:
@@ -85,12 +170,41 @@ def m_delete_analysis(info: strawberry.Info, id: Annotated[str, strawberry.argum
     return _mutate_DeleteAnalysisMutation(DeleteAnalysisMutation, None, info, **kwargs)
 
 
-def _mutate_MakeAnalysisPublic(payload_cls, root, info, **kwargs):
+def _mutate_MakeAnalysisPublic(payload_cls, root, info, analysis_id):
     """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:35
 
     Port of MakeAnalysisPublic.mutate
     """
-    raise NotImplementedError("_mutate_MakeAnalysisPublic not yet ported — see manifest")
+
+    # The graphene decorator stack is applied to an inner ``mutate`` (the
+    # stub itself takes ``payload_cls`` first, which does not match the
+    # decorators' ``(root, info, ...)`` calling convention). Naming the
+    # inner function ``mutate`` also keeps the rate limiter's default
+    # cache group ("mutate", the decorated function's name) identical to
+    # the graphene deployment.
+    @user_passes_test(lambda user: user.is_superuser)
+    @graphql_ratelimit(rate=RateLimits.ADMIN_OPERATION)
+    def mutate(root, info, analysis_id):
+
+        try:
+            analysis_pk = from_global_id(analysis_id)[1]
+            result = AnalysisLifecycleService.make_public(
+                info.context.user, analysis_pk, request=info.context
+            )
+            return payload_cls(
+                ok=result.ok,
+                message=result.value if result.ok else result.error,
+            )
+
+        except Exception as e:
+            return payload_cls(
+                ok=False,
+                message=(
+                    f"ERROR - Could not make analysis public due to unexpected error: {e}"
+                ),
+            )
+
+    return mutate(root, info, analysis_id=analysis_id)
 
 
 def m_make_analysis_public(info: strawberry.Info, analysis_id: Annotated[str, strawberry.argument(name="analysisId", description='Analysis id to make public (superuser only)')] = strawberry.UNSET) -> Optional["MakeAnalysisPublic"]:

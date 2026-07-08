@@ -29,31 +29,76 @@ from config.graphql import enums
 
 from opencontractserver.badges.models import Badge
 from opencontractserver.badges.models import UserBadge
+from opencontractserver.conversations.models import ChatMessage, Conversation
 from opencontractserver.notifications.models import Notification
+from opencontractserver.shared.services.base import BaseService
 
 
 def _resolve_NotificationType_message(root, info, **kwargs):
     """PORT: /home/user/oc-graphene-ref/config/graphql/social_types.py:149
 
     Port of NotificationType.resolve_message
+
+    Resolve message field with permission check.
+    Returns None if user doesn't have permission to view the message.
     """
-    raise NotImplementedError("_resolve_NotificationType_message not yet ported — see manifest")
+    if not root.message:
+        return None
+
+    user = info.context.user if hasattr(info.context, "user") else None
+    if not user or not user.is_authenticated:
+        return None
+
+    # Check via the service layer whether this user can see the message.
+    accessible_messages = BaseService.filter_visible(
+        ChatMessage, user, request=info.context
+    ).filter(id=root.message.id)
+
+    if accessible_messages.exists():
+        return root.message
+    return None
 
 
 def _resolve_NotificationType_conversation(root, info, **kwargs):
     """PORT: /home/user/oc-graphene-ref/config/graphql/social_types.py:170
 
     Port of NotificationType.resolve_conversation
+
+    Resolve conversation field with permission check.
+    Returns None if user doesn't have permission to view the conversation.
     """
-    raise NotImplementedError("_resolve_NotificationType_conversation not yet ported — see manifest")
+    if not root.conversation:
+        return None
+
+    user = info.context.user if hasattr(info.context, "user") else None
+    if not user or not user.is_authenticated:
+        return None
+
+    # Check via the service layer whether this user can see the conversation.
+    accessible_conversations = BaseService.filter_visible(
+        Conversation, user, request=info.context
+    ).filter(id=root.conversation.id)
+
+    if accessible_conversations.exists():
+        return root.conversation
+    return None
 
 
 def _resolve_NotificationType_data(root, info, **kwargs):
     """PORT: /home/user/oc-graphene-ref/config/graphql/social_types.py:191
 
     Port of NotificationType.resolve_data
+
+    Resolve data field. The data is stored as JSON and returned as-is.
+    Frontend must handle HTML escaping to prevent XSS.
+
+    Note: Content previews in data field come from message.content which is
+    user-generated. Frontend MUST escape this content before rendering.
     """
-    raise NotImplementedError("_resolve_NotificationType_data not yet ported — see manifest")
+    # Data field is already JSON - no server-side sanitization needed
+    # as GraphQL's GenericScalar handles JSON serialization safely.
+    # XSS protection must be handled on frontend via proper escaping.
+    return root.data
 
 
 @strawberry.type(name="NotificationType", description='GraphQL type for notifications.')
@@ -239,16 +284,35 @@ def _resolve_SemanticSearchResultType_document(root, info, **kwargs):
     """PORT: /home/user/oc-graphene-ref/config/graphql/social_types.py:419
 
     Port of SemanticSearchResultType.resolve_document
+
+    Resolve the document from the annotation.
+
+    Delegates to ``AnnotationType.resolve_document`` (the ported
+    ``_resolve_AnnotationType_document``) so this convenience field shares
+    the annotation resolver's visibility gate (it must not leak a private
+    document via a raw FK) AND resolves structural annotations
+    (``document_id=NULL``) through their shared structural set, exactly
+    like the nested ``annotation { document }`` field.
     """
-    raise NotImplementedError("_resolve_SemanticSearchResultType_document not yet ported — see manifest")
+    # Deferred import mirrors the reference's late binding through the
+    # AnnotationType class and avoids a module-level import cycle.
+    from config.graphql.annotation_types import _resolve_AnnotationType_document
+
+    if root.annotation is None:
+        return None
+    return _resolve_AnnotationType_document(root.annotation, info)
 
 
 def _resolve_SemanticSearchResultType_corpus(root, info, **kwargs):
     """PORT: /home/user/oc-graphene-ref/config/graphql/social_types.py:432
 
     Port of SemanticSearchResultType.resolve_corpus
+
+    Resolve the corpus from the annotation.
     """
-    raise NotImplementedError("_resolve_SemanticSearchResultType_corpus not yet ported — see manifest")
+    if root.annotation:
+        return root.annotation.corpus
+    return None
 
 
 @strawberry.type(name="SemanticSearchResultType", description='Result type for semantic (vector) search across annotations.\n\nReturns annotation matches with their similarity scores, enabling\nrelevance-ranked search results from the global embeddings.\n\nPERMISSION MODEL:\n- Filters documents through the service layer (BaseService.filter_visible)\n- Structural annotations visible if document is accessible\n- Non-structural annotations visible if public OR owned by user')

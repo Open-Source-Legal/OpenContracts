@@ -27,7 +27,26 @@ from config.graphql.core.scalars import BigInt, GenericScalar, JSONString
 from config.graphql._util import coerce_enum, coerce_str, strip_unset
 from config.graphql import enums
 
+import logging
 
+from django.contrib.auth import get_user_model
+from graphql_relay import from_global_id
+
+from config.graphql.core.auth import PermissionDenied
+from config.graphql.ratelimits import RateLimits, graphql_ratelimit
+from opencontractserver.corpuses.models import (
+    Corpus,
+    CorpusFolder,
+)
+from opencontractserver.corpuses.services import (
+    FolderCRUDService,
+    FolderDocumentService,
+)
+from opencontractserver.documents.models import Document
+from opencontractserver.shared.services.base import BaseService
+
+User = get_user_model()
+logger = logging.getLogger(__name__)
 
 
 @strawberry.type(name="CreateCorpusFolderMutation", description='Create a new folder in a corpus.\n\nDelegates to FolderCRUDService.create_folder() for:\n- Permission checking (corpus UPDATE permission)\n- Validation (unique name, parent in same corpus)\n- Folder creation')
@@ -89,12 +108,100 @@ class MoveDocumentsToFolderMutation:
 register_type("MoveDocumentsToFolderMutation", MoveDocumentsToFolderMutation, model=None)
 
 
-def _mutate_CreateCorpusFolderMutation(payload_cls, root, info, **kwargs):
-    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:65
+def _mutate_CreateCorpusFolderMutation(
+    payload_cls,
+    root,
+    info,
+    corpus_id,
+    name,
+    parent_id=None,
+    description="",
+    color="#05313d",
+    icon="folder",
+    tags=None,
+):
+    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_folder_mutations.py:67
 
     Port of CreateCorpusFolderMutation.mutate
     """
-    raise NotImplementedError("_mutate_CreateCorpusFolderMutation not yet ported — see manifest")
+    # @login_required (graphql_jwt) — inlined because mutate stubs take
+    # ``payload_cls`` as their first positional argument, which does not
+    # match core.auth's ``(root, info, ...)`` calling convention.
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+
+    # @graphql_ratelimit is applied to an inner ``mutate`` so the calling
+    # convention (root, info, ...) and the rate-limit cache group ("mutate")
+    # match the graphene original.
+    @graphql_ratelimit(rate=RateLimits.WRITE_LIGHT)
+    def mutate(root, info, corpus_id, name, parent_id=None, description="", color="#05313d", icon="folder", tags=None):
+        user = info.context.user
+
+        try:
+            corpus_pk = from_global_id(corpus_id)[1]
+            corpus = BaseService.get_or_none(
+                Corpus, corpus_pk, user, request=info.context
+            )
+            if corpus is None:
+                raise Corpus.DoesNotExist
+
+            # Get parent folder if provided (scoped to corpus)
+            parent = None
+            if parent_id:
+                parent_pk = from_global_id(parent_id)[1]
+                parent = CorpusFolder.objects.get(pk=parent_pk, corpus=corpus)
+
+            # Delegate to service - handles permission checks, validation, creation
+            folder, error = FolderCRUDService.create_folder(
+                user=user,
+                corpus=corpus,
+                name=name,
+                parent=parent,
+                description=description,
+                color=color,
+                icon=icon,
+                tags=tags,
+                request=info.context,
+            )
+
+            if error:
+                return payload_cls(
+                    ok=False,
+                    message=error,
+                    folder=None,
+                )
+
+            return payload_cls(
+                ok=True,
+                message="Folder created successfully",
+                folder=folder,
+            )
+
+        except (Corpus.DoesNotExist, CorpusFolder.DoesNotExist):
+            return payload_cls(
+                ok=False,
+                message="Resource not found",
+                folder=None,
+            )
+        except Exception as e:
+            logger.exception("Error creating folder")
+            return payload_cls(
+                ok=False,
+                message=f"Failed to create folder: {str(e)}",
+                folder=None,
+            )
+
+    return mutate(
+        root,
+        info,
+        corpus_id=corpus_id,
+        name=name,
+        parent_id=parent_id,
+        description=description,
+        color=color,
+        icon=icon,
+        tags=tags,
+    )
 
 
 def m_create_corpus_folder(info: strawberry.Info, color: Annotated[Optional[str], strawberry.argument(name="color", description='Folder color (hex code)')] = strawberry.UNSET, corpus_id: Annotated[strawberry.ID, strawberry.argument(name="corpusId", description='Corpus ID to create the folder in')] = strawberry.UNSET, description: Annotated[Optional[str], strawberry.argument(name="description", description='Folder description')] = strawberry.UNSET, icon: Annotated[Optional[str], strawberry.argument(name="icon", description='Folder icon identifier')] = strawberry.UNSET, name: Annotated[str, strawberry.argument(name="name", description='Folder name')] = strawberry.UNSET, parent_id: Annotated[Optional[strawberry.ID], strawberry.argument(name="parentId", description='Parent folder ID (omit for root-level folder)')] = strawberry.UNSET, tags: Annotated[Optional[list[Optional[str]]], strawberry.argument(name="tags", description='List of tags')] = strawberry.UNSET) -> Optional["CreateCorpusFolderMutation"]:
@@ -102,12 +209,93 @@ def m_create_corpus_folder(info: strawberry.Info, color: Annotated[Optional[str]
     return _mutate_CreateCorpusFolderMutation(CreateCorpusFolderMutation, None, info, **kwargs)
 
 
-def _mutate_UpdateCorpusFolderMutation(payload_cls, root, info, **kwargs):
-    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:156
+def _mutate_UpdateCorpusFolderMutation(
+    payload_cls,
+    root,
+    info,
+    folder_id,
+    name=None,
+    description=None,
+    color=None,
+    icon=None,
+    tags=None,
+):
+    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_folder_mutations.py:158
 
     Port of UpdateCorpusFolderMutation.mutate
     """
-    raise NotImplementedError("_mutate_UpdateCorpusFolderMutation not yet ported — see manifest")
+    # @login_required (graphql_jwt) — inlined; see _mutate_CreateCorpusFolderMutation.
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+
+    # @graphql_ratelimit on an inner ``mutate`` — see _mutate_CreateCorpusFolderMutation.
+    @graphql_ratelimit(rate=RateLimits.WRITE_LIGHT)
+    def mutate(root, info, folder_id, name=None, description=None, color=None, icon=None, tags=None):
+        user = info.context.user
+
+        try:
+            folder_pk = from_global_id(folder_id)[1]
+            folder = CorpusFolder.objects.select_related("corpus").get(pk=folder_pk)
+            # Verify user can see the parent corpus to prevent IDOR
+            if (
+                not BaseService.filter_visible(Corpus, user, request=info.context)
+                .filter(pk=folder.corpus_id)
+                .exists()
+            ):
+                raise CorpusFolder.DoesNotExist
+
+            # Delegate to service - handles permission checks, validation, update
+            success, error = FolderCRUDService.update_folder(
+                user=user,
+                folder=folder,
+                name=name,
+                description=description,
+                color=color,
+                icon=icon,
+                tags=tags,
+                request=info.context,
+            )
+
+            if not success:
+                return payload_cls(
+                    ok=False,
+                    message=error,
+                    folder=None,
+                )
+
+            # Refresh folder from DB to get updated values
+            folder.refresh_from_db()
+
+            return payload_cls(
+                ok=True,
+                message="Folder updated successfully",
+                folder=folder,
+            )
+
+        except CorpusFolder.DoesNotExist:
+            return payload_cls(
+                ok=False,
+                message="Folder not found",
+                folder=None,
+            )
+        except Exception as e:
+            logger.exception("Error updating folder")
+            return payload_cls(
+                ok=False,
+                message=f"Failed to update folder: {str(e)}",
+                folder=None,
+            )
+
+    return mutate(
+        root,
+        info,
+        folder_id=folder_id,
+        name=name,
+        description=description,
+        color=color,
+        icon=icon,
+        tags=tags,
+    )
 
 
 def m_update_corpus_folder(info: strawberry.Info, color: Annotated[Optional[str], strawberry.argument(name="color", description='New color (hex code)')] = strawberry.UNSET, description: Annotated[Optional[str], strawberry.argument(name="description", description='New description')] = strawberry.UNSET, folder_id: Annotated[strawberry.ID, strawberry.argument(name="folderId", description='Folder ID to update')] = strawberry.UNSET, icon: Annotated[Optional[str], strawberry.argument(name="icon", description='New icon identifier')] = strawberry.UNSET, name: Annotated[Optional[str], strawberry.argument(name="name", description='New folder name')] = strawberry.UNSET, tags: Annotated[Optional[list[Optional[str]]], strawberry.argument(name="tags", description='New list of tags')] = strawberry.UNSET) -> Optional["UpdateCorpusFolderMutation"]:
@@ -115,12 +303,78 @@ def m_update_corpus_folder(info: strawberry.Info, color: Annotated[Optional[str]
     return _mutate_UpdateCorpusFolderMutation(UpdateCorpusFolderMutation, None, info, **kwargs)
 
 
-def _mutate_MoveCorpusFolderMutation(payload_cls, root, info, **kwargs):
-    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:244
+def _mutate_MoveCorpusFolderMutation(payload_cls, root, info, folder_id, new_parent_id=None):
+    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_folder_mutations.py:246
 
     Port of MoveCorpusFolderMutation.mutate
     """
-    raise NotImplementedError("_mutate_MoveCorpusFolderMutation not yet ported — see manifest")
+    # @login_required (graphql_jwt) — inlined; see _mutate_CreateCorpusFolderMutation.
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+
+    # @graphql_ratelimit on an inner ``mutate`` — see _mutate_CreateCorpusFolderMutation.
+    @graphql_ratelimit(rate=RateLimits.WRITE_LIGHT)
+    def mutate(root, info, folder_id, new_parent_id=None):
+        user = info.context.user
+
+        try:
+            folder_pk = from_global_id(folder_id)[1]
+            folder = CorpusFolder.objects.select_related("corpus").get(pk=folder_pk)
+            # Verify user can see the parent corpus
+            if (
+                not BaseService.filter_visible(Corpus, user, request=info.context)
+                .filter(pk=folder.corpus_id)
+                .exists()
+            ):
+                raise CorpusFolder.DoesNotExist
+
+            # Get new parent if provided (scoped to same corpus)
+            new_parent = None
+            if new_parent_id:
+                new_parent_pk = from_global_id(new_parent_id)[1]
+                new_parent = CorpusFolder.objects.get(
+                    pk=new_parent_pk, corpus=folder.corpus
+                )
+
+            # Delegate to service - handles permission checks, validation, move
+            success, error = FolderCRUDService.move_folder(
+                user=user,
+                folder=folder,
+                new_parent=new_parent,
+                request=info.context,
+            )
+
+            if not success:
+                return payload_cls(
+                    ok=False,
+                    message=error,
+                    folder=None,
+                )
+
+            # Refresh folder from DB to get updated parent
+            folder.refresh_from_db()
+
+            return payload_cls(
+                ok=True,
+                message="Folder moved successfully",
+                folder=folder,
+            )
+
+        except CorpusFolder.DoesNotExist:
+            return payload_cls(
+                ok=False,
+                message="Folder not found",
+                folder=None,
+            )
+        except Exception as e:
+            logger.exception("Error moving folder")
+            return payload_cls(
+                ok=False,
+                message=f"Failed to move folder: {str(e)}",
+                folder=None,
+            )
+
+    return mutate(root, info, folder_id=folder_id, new_parent_id=new_parent_id)
 
 
 def m_move_corpus_folder(info: strawberry.Info, folder_id: Annotated[strawberry.ID, strawberry.argument(name="folderId", description='Folder ID to move')] = strawberry.UNSET, new_parent_id: Annotated[Optional[strawberry.ID], strawberry.argument(name="newParentId", description='New parent folder ID (null to move to root)')] = strawberry.UNSET) -> Optional["MoveCorpusFolderMutation"]:
@@ -128,12 +382,63 @@ def m_move_corpus_folder(info: strawberry.Info, folder_id: Annotated[strawberry.
     return _mutate_MoveCorpusFolderMutation(MoveCorpusFolderMutation, None, info, **kwargs)
 
 
-def _mutate_DeleteCorpusFolderMutation(payload_cls, root, info, **kwargs):
-    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:327
+def _mutate_DeleteCorpusFolderMutation(payload_cls, root, info, folder_id, delete_contents=False):
+    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_folder_mutations.py:329
 
     Port of DeleteCorpusFolderMutation.mutate
     """
-    raise NotImplementedError("_mutate_DeleteCorpusFolderMutation not yet ported — see manifest")
+    # @login_required (graphql_jwt) — inlined; see _mutate_CreateCorpusFolderMutation.
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+
+    # @graphql_ratelimit on an inner ``mutate`` — see _mutate_CreateCorpusFolderMutation.
+    @graphql_ratelimit(rate=RateLimits.WRITE_LIGHT)
+    def mutate(root, info, folder_id, delete_contents=False):
+        user = info.context.user
+
+        try:
+            folder_pk = from_global_id(folder_id)[1]
+            folder = CorpusFolder.objects.select_related("corpus").get(pk=folder_pk)
+            # Verify user can see the parent corpus
+            if (
+                not BaseService.filter_visible(Corpus, user, request=info.context)
+                .filter(pk=folder.corpus_id)
+                .exists()
+            ):
+                raise CorpusFolder.DoesNotExist
+
+            # Delegate to service - handles permission checks, cleanup, deletion
+            success, error = FolderCRUDService.delete_folder(
+                user=user,
+                folder=folder,
+                move_children_to_parent=not delete_contents,
+                request=info.context,
+            )
+
+            if not success:
+                return payload_cls(
+                    ok=False,
+                    message=error,
+                )
+
+            return payload_cls(
+                ok=True,
+                message="Folder deleted successfully",
+            )
+
+        except CorpusFolder.DoesNotExist:
+            return payload_cls(
+                ok=False,
+                message="Folder not found",
+            )
+        except Exception as e:
+            logger.exception("Error deleting folder")
+            return payload_cls(
+                ok=False,
+                message=f"Failed to delete folder: {str(e)}",
+            )
+
+    return mutate(root, info, folder_id=folder_id, delete_contents=delete_contents)
 
 
 def m_delete_corpus_folder(info: strawberry.Info, delete_contents: Annotated[Optional[bool], strawberry.argument(name="deleteContents", description='If true, delete subfolders; if false, move to parent')] = False, folder_id: Annotated[strawberry.ID, strawberry.argument(name="folderId", description='Folder ID to delete')] = strawberry.UNSET) -> Optional["DeleteCorpusFolderMutation"]:
@@ -141,12 +446,93 @@ def m_delete_corpus_folder(info: strawberry.Info, delete_contents: Annotated[Opt
     return _mutate_DeleteCorpusFolderMutation(DeleteCorpusFolderMutation, None, info, **kwargs)
 
 
-def _mutate_MoveDocumentToFolderMutation(payload_cls, root, info, **kwargs):
-    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:400
+def _mutate_MoveDocumentToFolderMutation(payload_cls, root, info, document_id, corpus_id, folder_id=None):
+    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_folder_mutations.py:402
 
     Port of MoveDocumentToFolderMutation.mutate
     """
-    raise NotImplementedError("_mutate_MoveDocumentToFolderMutation not yet ported — see manifest")
+    # @login_required (graphql_jwt) — inlined; see _mutate_CreateCorpusFolderMutation.
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+
+    # @graphql_ratelimit on an inner ``mutate`` — see _mutate_CreateCorpusFolderMutation.
+    @graphql_ratelimit(rate=RateLimits.WRITE_LIGHT)
+    def mutate(root, info, document_id, corpus_id, folder_id=None):
+        user = info.context.user
+
+        try:
+            document_pk = from_global_id(document_id)[1]
+            corpus_pk = from_global_id(corpus_id)[1]
+
+            # Get objects with visibility filtering
+            document = BaseService.get_or_none(
+                Document, document_pk, user, request=info.context
+            )
+            if document is None:
+                raise Document.DoesNotExist
+            corpus = BaseService.get_or_none(
+                Corpus, corpus_pk, user, request=info.context
+            )
+            if corpus is None:
+                raise Corpus.DoesNotExist
+
+            # Get folder if provided
+            folder = None
+            if folder_id:
+                folder_pk = from_global_id(folder_id)[1]
+                folder = CorpusFolder.objects.get(pk=folder_pk)
+
+            # Delegate to service - handles permission checks, validation, dual-system update
+            success, error = FolderDocumentService.move_document_to_folder(
+                user=user,
+                document=document,
+                corpus=corpus,
+                folder=folder,
+                request=info.context,
+            )
+
+            if not success:
+                return payload_cls(
+                    ok=False,
+                    message=error,
+                    document=None,
+                )
+
+            return payload_cls(
+                ok=True,
+                message="Document moved successfully",
+                document=document,
+            )
+
+        except Document.DoesNotExist:
+            return payload_cls(
+                ok=False,
+                message="Document not found",
+                document=None,
+            )
+        except Corpus.DoesNotExist:
+            return payload_cls(
+                ok=False,
+                message="Corpus not found",
+                document=None,
+            )
+        except CorpusFolder.DoesNotExist:
+            return payload_cls(
+                ok=False,
+                message="Folder not found",
+                document=None,
+            )
+        except Exception as e:
+            logger.exception("Error moving document")
+            return payload_cls(
+                ok=False,
+                message=f"Failed to move document: {str(e)}",
+                document=None,
+            )
+
+    return mutate(
+        root, info, document_id=document_id, corpus_id=corpus_id, folder_id=folder_id
+    )
 
 
 def m_move_document_to_folder(info: strawberry.Info, corpus_id: Annotated[strawberry.ID, strawberry.argument(name="corpusId", description='Corpus ID where the document is located')] = strawberry.UNSET, document_id: Annotated[strawberry.ID, strawberry.argument(name="documentId", description='Document ID to move')] = strawberry.UNSET, folder_id: Annotated[Optional[strawberry.ID], strawberry.argument(name="folderId", description='Folder ID to move to (null for corpus root)')] = strawberry.UNSET) -> Optional["MoveDocumentToFolderMutation"]:
@@ -154,12 +540,82 @@ def m_move_document_to_folder(info: strawberry.Info, corpus_id: Annotated[strawb
     return _mutate_MoveDocumentToFolderMutation(MoveDocumentToFolderMutation, None, info, **kwargs)
 
 
-def _mutate_MoveDocumentsToFolderMutation(payload_cls, root, info, **kwargs):
-    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:503
+def _mutate_MoveDocumentsToFolderMutation(payload_cls, root, info, document_ids, corpus_id, folder_id=None):
+    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_folder_mutations.py:505
 
     Port of MoveDocumentsToFolderMutation.mutate
     """
-    raise NotImplementedError("_mutate_MoveDocumentsToFolderMutation not yet ported — see manifest")
+    # @login_required (graphql_jwt) — inlined; see _mutate_CreateCorpusFolderMutation.
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+
+    # @graphql_ratelimit on an inner ``mutate`` — see _mutate_CreateCorpusFolderMutation.
+    @graphql_ratelimit(rate=RateLimits.WRITE_HEAVY)
+    def mutate(root, info, document_ids, corpus_id, folder_id=None):
+        user = info.context.user
+
+        try:
+            corpus_pk = from_global_id(corpus_id)[1]
+            corpus = BaseService.get_or_none(
+                Corpus, corpus_pk, user, request=info.context
+            )
+            if corpus is None:
+                raise Corpus.DoesNotExist
+
+            # Get folder if provided
+            folder = None
+            if folder_id:
+                folder_pk = from_global_id(folder_id)[1]
+                folder = CorpusFolder.objects.get(pk=folder_pk)
+
+            # Convert document IDs from global IDs to integer PKs
+            doc_pks = [int(from_global_id(doc_id)[1]) for doc_id in document_ids]
+
+            # Delegate to service - handles permission checks, validation, bulk update
+            moved_count, error = FolderDocumentService.move_documents_to_folder(
+                user=user,
+                document_ids=doc_pks,
+                corpus=corpus,
+                folder=folder,
+                request=info.context,
+            )
+
+            if error:
+                return payload_cls(
+                    ok=False,
+                    message=error,
+                    moved_count=0,
+                )
+
+            return payload_cls(
+                ok=True,
+                message=f"Successfully moved {moved_count} document(s)",
+                moved_count=moved_count,
+            )
+
+        except Corpus.DoesNotExist:
+            return payload_cls(
+                ok=False,
+                message="Corpus not found",
+                moved_count=0,
+            )
+        except CorpusFolder.DoesNotExist:
+            return payload_cls(
+                ok=False,
+                message="Folder not found",
+                moved_count=0,
+            )
+        except Exception as e:
+            logger.exception("Error moving documents")
+            return payload_cls(
+                ok=False,
+                message=f"Failed to move documents: {str(e)}",
+                moved_count=0,
+            )
+
+    return mutate(
+        root, info, document_ids=document_ids, corpus_id=corpus_id, folder_id=folder_id
+    )
 
 
 def m_move_documents_to_folder(info: strawberry.Info, corpus_id: Annotated[strawberry.ID, strawberry.argument(name="corpusId", description='Corpus ID where the documents are located')] = strawberry.UNSET, document_ids: Annotated[list[Optional[strawberry.ID]], strawberry.argument(name="documentIds", description='List of document IDs to move')] = strawberry.UNSET, folder_id: Annotated[Optional[strawberry.ID], strawberry.argument(name="folderId", description='Folder ID to move to (null for corpus root)')] = strawberry.UNSET) -> Optional["MoveDocumentsToFolderMutation"]:

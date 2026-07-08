@@ -89,6 +89,26 @@ def register_type(
     if model is not None and primary and model not in _MODEL_PRIMARY_TYPE:
         _MODEL_PRIMARY_TYPE[model] = type_name
 
+    # Port of ``DjangoObjectType.is_type_of`` (graphene-django): resolvers
+    # return Django MODEL INSTANCES for model-backed types, but strawberry
+    # auto-generates an ``isinstance``-against-the-strawberry-class
+    # ``is_type_of`` for every type that implements an interface (``Node``),
+    # which rejects ORM objects with "Expected value of type 'XType' but
+    # got: <X instance>". Install the graphene-django semantics instead:
+    # a model instance (or an actual strawberry-type instance) satisfies
+    # the type. Only set when strawberry hasn't been given an explicit
+    # hook already.
+    if model is not None:
+        definition = getattr(strawberry_type, "__strawberry_definition__", None)
+        if definition is not None and definition.is_type_of is None:
+
+            def _is_type_of(
+                obj: Any, _info: Any, _types: tuple = (strawberry_type, model)
+            ) -> bool:
+                return isinstance(obj, _types)
+
+            definition.is_type_of = _is_type_of
+
 
 def get_registry_entry(type_name: str) -> TypeRegistryEntry | None:
     return _TYPE_REGISTRY.get(type_name)

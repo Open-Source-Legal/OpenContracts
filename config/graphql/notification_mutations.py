@@ -27,7 +27,24 @@ from config.graphql.core.scalars import BigInt, GenericScalar, JSONString
 from config.graphql._util import coerce_enum, coerce_str, strip_unset
 from config.graphql import enums
 
+import logging
 
+from graphql_relay import from_global_id
+
+from config.graphql.core.auth import PermissionDenied
+from config.graphql.ratelimits import RateLimits, graphql_ratelimit
+from opencontractserver.notifications.services import NotificationService
+
+logger = logging.getLogger(__name__)
+
+# NOTE on decorators: the graphene mutations were decorated with
+# ``@login_required`` + ``@graphql_ratelimit(...)`` on ``mutate(root, info, …)``.
+# Mutate stubs here take ``payload_cls`` as their first positional argument,
+# which does not match those decorators' ``(root, info, ...)`` calling
+# convention — so ``login_required`` is inlined (see user_mutations.py) and
+# ``graphql_ratelimit`` is applied to an inner function named ``mutate`` so
+# the rate-limit cache group (defaults to the decorated function's
+# ``__name__``) stays "mutate", exactly as in the graphene layer.
 
 
 @strawberry.type(name="MarkNotificationReadMutation", description='Mark a single notification as read.')
@@ -69,12 +86,46 @@ class DeleteNotificationMutation:
 register_type("DeleteNotificationMutation", DeleteNotificationMutation, model=None)
 
 
-def _mutate_MarkNotificationReadMutation(payload_cls, root, info, **kwargs):
-    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:39
+def _mutate_MarkNotificationReadMutation(payload_cls, root, info, notification_id):
+    """PORT: /home/user/oc-graphene-ref/config/graphql/notification_mutations.py:39
 
     Port of MarkNotificationReadMutation.mutate
     """
-    raise NotImplementedError("_mutate_MarkNotificationReadMutation not yet ported — see manifest")
+    # @login_required — inlined (see module NOTE above).
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+
+    @graphql_ratelimit(rate=RateLimits.WRITE_LIGHT)
+    def mutate(root, info, notification_id):
+        user = info.context.user
+
+        try:
+            notification_pk = from_global_id(notification_id)[1]
+            result = NotificationService.mark_read(
+                user, notification_pk, request=info.context
+            )
+            if not result.ok:
+                return MarkNotificationReadMutation(
+                    ok=False,
+                    message=result.error,
+                    notification=None,
+                )
+
+            return MarkNotificationReadMutation(
+                ok=True,
+                message="Notification marked as read",
+                notification=result.value,
+            )
+
+        except Exception as e:
+            logger.exception("Error marking notification as read")
+            return MarkNotificationReadMutation(
+                ok=False,
+                message=f"Failed to mark notification as read: {str(e)}",
+                notification=None,
+            )
+
+    return mutate(root, info, notification_id)
 
 
 def m_mark_notification_read(info: strawberry.Info, notification_id: Annotated[strawberry.ID, strawberry.argument(name="notificationId", description='Notification ID to mark as read')] = strawberry.UNSET) -> Optional["MarkNotificationReadMutation"]:
@@ -82,12 +133,46 @@ def m_mark_notification_read(info: strawberry.Info, notification_id: Annotated[s
     return _mutate_MarkNotificationReadMutation(MarkNotificationReadMutation, None, info, **kwargs)
 
 
-def _mutate_MarkNotificationUnreadMutation(payload_cls, root, info, **kwargs):
-    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:83
+def _mutate_MarkNotificationUnreadMutation(payload_cls, root, info, notification_id):
+    """PORT: /home/user/oc-graphene-ref/config/graphql/notification_mutations.py:83
 
     Port of MarkNotificationUnreadMutation.mutate
     """
-    raise NotImplementedError("_mutate_MarkNotificationUnreadMutation not yet ported — see manifest")
+    # @login_required — inlined (see module NOTE above).
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+
+    @graphql_ratelimit(rate=RateLimits.WRITE_LIGHT)
+    def mutate(root, info, notification_id):
+        user = info.context.user
+
+        try:
+            notification_pk = from_global_id(notification_id)[1]
+            result = NotificationService.mark_unread(
+                user, notification_pk, request=info.context
+            )
+            if not result.ok:
+                return MarkNotificationUnreadMutation(
+                    ok=False,
+                    message=result.error,
+                    notification=None,
+                )
+
+            return MarkNotificationUnreadMutation(
+                ok=True,
+                message="Notification marked as unread",
+                notification=result.value,
+            )
+
+        except Exception as e:
+            logger.exception("Error marking notification as unread")
+            return MarkNotificationUnreadMutation(
+                ok=False,
+                message=f"Failed to mark notification as unread: {str(e)}",
+                notification=None,
+            )
+
+    return mutate(root, info, notification_id)
 
 
 def m_mark_notification_unread(info: strawberry.Info, notification_id: Annotated[strawberry.ID, strawberry.argument(name="notificationId", description='Notification ID to mark as unread')] = strawberry.UNSET) -> Optional["MarkNotificationUnreadMutation"]:
@@ -95,12 +180,43 @@ def m_mark_notification_unread(info: strawberry.Info, notification_id: Annotated
     return _mutate_MarkNotificationUnreadMutation(MarkNotificationUnreadMutation, None, info, **kwargs)
 
 
-def _mutate_MarkAllNotificationsReadMutation(payload_cls, root, info, **kwargs):
-    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:122
+def _mutate_MarkAllNotificationsReadMutation(payload_cls, root, info):
+    """PORT: /home/user/oc-graphene-ref/config/graphql/notification_mutations.py:122
 
     Port of MarkAllNotificationsReadMutation.mutate
     """
-    raise NotImplementedError("_mutate_MarkAllNotificationsReadMutation not yet ported — see manifest")
+    # @login_required — inlined (see module NOTE above).
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+
+    @graphql_ratelimit(rate=RateLimits.WRITE_LIGHT)
+    def mutate(root, info):
+        user = info.context.user
+
+        try:
+            result = NotificationService.mark_all_read(user, request=info.context)
+            if not result.ok:
+                return MarkAllNotificationsReadMutation(
+                    ok=False,
+                    message=result.error,
+                    count=0,
+                )
+            count = result.value
+            return MarkAllNotificationsReadMutation(
+                ok=True,
+                message=f"Marked {count} notification(s) as read",
+                count=count,
+            )
+
+        except Exception as e:
+            logger.exception("Error marking all notifications as read")
+            return MarkAllNotificationsReadMutation(
+                ok=False,
+                message=f"Failed to mark all notifications as read: {str(e)}",
+                count=0,
+            )
+
+    return mutate(root, info)
 
 
 def m_mark_all_notifications_read(info: strawberry.Info) -> Optional["MarkAllNotificationsReadMutation"]:
@@ -108,12 +224,39 @@ def m_mark_all_notifications_read(info: strawberry.Info) -> Optional["MarkAllNot
     return _mutate_MarkAllNotificationsReadMutation(MarkAllNotificationsReadMutation, None, info, **kwargs)
 
 
-def _mutate_DeleteNotificationMutation(payload_cls, root, info, **kwargs):
-    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:162
+def _mutate_DeleteNotificationMutation(payload_cls, root, info, notification_id):
+    """PORT: /home/user/oc-graphene-ref/config/graphql/notification_mutations.py:162
 
     Port of DeleteNotificationMutation.mutate
     """
-    raise NotImplementedError("_mutate_DeleteNotificationMutation not yet ported — see manifest")
+    # @login_required — inlined (see module NOTE above).
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+
+    @graphql_ratelimit(rate=RateLimits.WRITE_LIGHT)
+    def mutate(root, info, notification_id):
+        user = info.context.user
+
+        try:
+            notification_pk = from_global_id(notification_id)[1]
+            result = NotificationService.delete_for_user(
+                user, notification_pk, request=info.context
+            )
+            if not result.ok:
+                return DeleteNotificationMutation(ok=False, message=result.error)
+            return DeleteNotificationMutation(
+                ok=True,
+                message="Notification deleted successfully",
+            )
+
+        except Exception as e:
+            logger.exception("Error deleting notification")
+            return DeleteNotificationMutation(
+                ok=False,
+                message=f"Failed to delete notification: {str(e)}",
+            )
+
+    return mutate(root, info, notification_id)
 
 
 def m_delete_notification(info: strawberry.Info, notification_id: Annotated[strawberry.ID, strawberry.argument(name="notificationId", description='Notification ID to delete')] = strawberry.UNSET) -> Optional["DeleteNotificationMutation"]:
