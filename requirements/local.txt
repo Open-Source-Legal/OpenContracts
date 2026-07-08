@@ -13,7 +13,7 @@ pytest-cov==7.1.0  # https://github.com/pytest-dev/pytest-cov
 pytest-xdist==3.8.0  # https://github.com/pytest-dev/pytest-xdist (parallel test execution)
 pytest-timeout==2.4.0  # https://github.com/pytest-dev/pytest-timeout (per-test hang guard in CI)
 djangorestframework-stubs==3.17.0  # https://github.com/typeddjango/djangorestframework-stubs
-responses==0.26.1  # https://github.com/getsentry/responses
+responses==0.26.2  # https://github.com/getsentry/responses
 # vcrpy 8.1.1 is the latest release and is NOT yet compatible with aiohttp
 # >=3.14: its aiohttp stub subclasses aiohttp.streams.AsyncStreamReaderMixin at
 # import time, a symbol aiohttp 3.14 removed (kevin1024/vcrpy#995; fix proposed
