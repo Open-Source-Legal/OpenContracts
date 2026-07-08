@@ -175,6 +175,12 @@ _custom_rules: list = [DepthLimitValidationRule]
 if not settings.DEBUG:
     _custom_rules.append(DisableIntrospection)
 
+_extensions: list = [AddValidationRules(_custom_rules)]
+if getattr(settings, "FILE_URL_SHARED_CACHE_TTL", 0):
+    from config.graphql.file_url_prewarm import FileUrlPrewarmExtension
+
+    _extensions.append(FileUrlPrewarmExtension)
+
 # Full effective rule set served on the endpoint (spec rules + hardening).
 validation_rules: list = [*specified_rules, *_custom_rules]
 
@@ -182,5 +188,5 @@ schema = strawberry.Schema(
     query=Query,
     mutation=Mutation,
     types=_extra_types,
-    extensions=[AddValidationRules(_custom_rules)],
+    extensions=_extensions,
 )

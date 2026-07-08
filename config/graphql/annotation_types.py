@@ -11,8 +11,11 @@ import uuid
 from typing import Annotated, Any, Optional
 
 import strawberry
+from django.db.models import Q, QuerySet
 
+from config.graphql.base_types import build_flat_tree
 from config.graphql.core import permissions as core_permissions
+from config.graphql.core.permissions import get_anonymous_user_id
 from config.graphql.core.filtering import filterset_factory, setup_filterset
 from config.graphql.core.mutations import drf_deletion, drf_mutation
 from config.graphql.core.relay import (
@@ -42,6 +45,14 @@ from opencontractserver.annotations.models import LabelSet
 from opencontractserver.annotations.models import Note
 from opencontractserver.annotations.models import NoteRevision
 from opencontractserver.annotations.models import Relationship
+from opencontractserver.enrichment.services.authority_mapping_service import (
+    MANUAL as MANUAL_SOURCE,
+)
+from opencontractserver.enrichment.services.authority_permissions import (
+    is_authority_admin,
+)
+from opencontractserver.shared.services.base import BaseService
+from opencontractserver.utils.permissioning import get_users_permissions_for_obj
 
 
 @strawberry.input(name="RelationInputType")
