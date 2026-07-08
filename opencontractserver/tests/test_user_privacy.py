@@ -480,7 +480,7 @@ class ObjectSharedWithPrivacyTestCase(TestCase):
         assign_perm(self.read_perm, self.collaborator, self.corpus)
 
     def _resolve_shared_with(self) -> list[dict]:
-        from config.graphql.graphene_types import CorpusType
+        from config.graphql.core.permissions import resolve_object_shared_with
 
         # Production middleware populates ``permission_annotations`` with
         # an entry mapping the GraphQL type's full name to its permission
@@ -497,7 +497,7 @@ class ObjectSharedWithPrivacyTestCase(TestCase):
             def __init__(self, context):
                 self.context = context
 
-        return CorpusType.resolve_object_shared_with(self.corpus, _Info(ctx))
+        return resolve_object_shared_with(self.corpus, _Info(ctx))
 
     def test_shared_with_returns_slug_only(self) -> None:
         shared = self._resolve_shared_with()
