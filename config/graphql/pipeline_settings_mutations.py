@@ -16,7 +16,7 @@ import strawberry
 from django.core.exceptions import ValidationError
 
 from config.graphql.core import permissions as core_permissions
-from config.graphql.core.auth import login_required
+from config.graphql.core.auth import PermissionDenied
 from config.graphql.core.filtering import filterset_factory, setup_filterset
 from config.graphql.core.mutations import drf_deletion, drf_mutation
 from config.graphql.core.relay import (
@@ -52,6 +52,22 @@ VALID_COMPONENT_PATH_PATTERN = re.compile(
 VALID_MIME_TYPE_PATTERN = re.compile(
     r"^[a-zA-Z0-9][a-zA-Z0-9!#$&\-^_.+]*\/[a-zA-Z0-9][a-zA-Z0-9!#$&\-^_.+]*$"
 )
+
+
+@graphql_ratelimit(rate=RateLimits.WRITE_LIGHT, group="mutate")
+def _write_light_rate_gate(root, info, **kwargs):
+    """Rate-limit gate with the ``(root, info)`` shape core decorators expect.
+
+    graphene applied ``@graphql_ratelimit(rate=RateLimits.WRITE_LIGHT)``
+    directly to each ``mutate(root, info, ...)`` classmethod; the strawberry
+    mutate stubs take ``payload_cls`` as their first positional argument, which
+    does not match that calling convention, so the decorator is hoisted onto
+    this no-op and invoked at the top of each rate-limited stub.
+    ``group="mutate"`` preserves the shared graphene bucket (every graphene
+    mutation's func was literally named ``mutate``, so they all shared one
+    rate group).
+    """
+    return None
 
 
 def validate_component_path(path: str) -> Optional[str]:
@@ -391,8 +407,6 @@ class DeleteToolSecretsMutation:
 register_type("DeleteToolSecretsMutation", DeleteToolSecretsMutation, model=None)
 
 
-@login_required
-@graphql_ratelimit(rate=RateLimits.WRITE_LIGHT)
 def _mutate_UpdatePipelineSettingsMutation(
     payload_cls,
     root,
@@ -417,6 +431,13 @@ def _mutate_UpdatePipelineSettingsMutation(
 
     Security: Only superusers can update these settings.
     """
+    # @login_required + @graphql_ratelimit(WRITE_LIGHT) — inlined because the
+    # mutate stub takes ``payload_cls`` first, breaking the ``(root, info)``
+    # calling convention the core decorators expect.
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+    _write_light_rate_gate(root, info)
+
     from opencontractserver.documents.models import PipelineSettings
     from opencontractserver.pipeline.registry import ComponentType, get_registry
 
@@ -973,12 +994,111 @@ def m_update_pipeline_settings(info: strawberry.Info, component_settings: Annota
     return _mutate_UpdatePipelineSettingsMutation(UpdatePipelineSettingsMutation, None, info, **kwargs)
 
 
-def _mutate_ResetPipelineSettingsMutation(payload_cls, root, info, **kwargs):
-    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:999
+def _mutate_ResetPipelineSettingsMutation(payload_cls, root, info):
+    """PORT: /home/user/oc-graphene-ref/config/graphql/pipeline_settings_mutations.py:1001
 
     Port of ResetPipelineSettingsMutation.mutate
+
+    Reset pipeline settings to Django settings defaults.
     """
-    raise NotImplementedError("_mutate_ResetPipelineSettingsMutation not yet ported — see manifest")
+    # @login_required + @graphql_ratelimit(WRITE_LIGHT) — inlined (see
+    # _mutate_UpdatePipelineSettingsMutation).
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+    _write_light_rate_gate(root, info)
+
+    from django.conf import settings as django_settings
+
+    from opencontractserver.documents.models import PipelineSettings
+
+    user = info.context.user
+
+    # SECURITY: Only superusers can reset pipeline settings
+    if not user.is_superuser:
+        return payload_cls(
+            ok=False,
+            message="Only superusers can reset pipeline settings.",
+            pipeline_settings=None,
+        )
+
+    try:
+        settings_instance = PipelineSettings.get_instance()
+
+        # Reset to Django settings defaults
+        settings_instance.preferred_parsers = getattr(
+            django_settings, "PREFERRED_PARSERS", {}
+        )
+        settings_instance.preferred_embedders = getattr(
+            django_settings, "PREFERRED_EMBEDDERS", {}
+        )
+        settings_instance.preferred_thumbnailers = {}
+        settings_instance.preferred_enrichers = getattr(
+            django_settings, "PREFERRED_ENRICHERS", {}
+        )
+        settings_instance.parser_kwargs = getattr(
+            django_settings, "PARSER_KWARGS", {}
+        )
+        settings_instance.component_settings = getattr(
+            django_settings, "PIPELINE_SETTINGS", {}
+        )
+        settings_instance.default_embedder = (
+            getattr(django_settings, "DEFAULT_EMBEDDER", "") or ""
+        )
+        settings_instance.default_reranker = (
+            getattr(django_settings, "DEFAULT_RERANKER", "") or ""
+        )
+        settings_instance.default_file_converter = (
+            getattr(django_settings, "DEFAULT_FILE_CONVERTER", "") or ""
+        )
+        # ``DEFAULT_LLM`` may be explicitly None; coerce to "" so the NOT NULL
+        # default_llm column is never assigned a null value.
+        settings_instance.default_llm = (
+            getattr(django_settings, "DEFAULT_LLM", "") or ""
+        )
+        settings_instance.enabled_components = []
+        settings_instance.modified_by = user
+        settings_instance.save()
+
+        logger.info(f"Pipeline settings reset to defaults by {user.username}")
+
+        return payload_cls(
+            ok=True,
+            message="Pipeline settings reset to defaults successfully.",
+            pipeline_settings=PipelineSettingsType(
+                preferred_parsers=settings_instance.preferred_parsers or {},
+                preferred_embedders=settings_instance.preferred_embedders or {},
+                preferred_thumbnailers=settings_instance.preferred_thumbnailers
+                or {},
+                preferred_enrichers=settings_instance.preferred_enrichers or {},
+                parser_kwargs=settings_instance.parser_kwargs or {},
+                component_settings=settings_instance.component_settings or {},
+                default_embedder=settings_instance.default_embedder or "",
+                default_reranker=settings_instance.default_reranker or "",
+                default_file_converter=settings_instance.default_file_converter
+                or "",
+                default_llm=settings_instance.default_llm or "",
+                enabled_components=[],
+                components_with_secrets=(
+                    settings_instance.get_components_with_secrets()
+                ),
+                modified=settings_instance.modified,
+                modified_by=settings_instance.modified_by,
+            ),
+        )
+
+    except (ValidationError, ValueError) as e:
+        return payload_cls(
+            ok=False,
+            message=f"Failed to reset pipeline settings: {e}",
+            pipeline_settings=None,
+        )
+    except Exception:
+        logger.exception("Unexpected error resetting pipeline settings")
+        return payload_cls(
+            ok=False,
+            message="An unexpected error occurred while resetting pipeline settings.",
+            pipeline_settings=None,
+        )
 
 
 def m_reset_pipeline_settings(info: strawberry.Info) -> Optional["ResetPipelineSettingsMutation"]:
@@ -986,12 +1106,96 @@ def m_reset_pipeline_settings(info: strawberry.Info) -> Optional["ResetPipelineS
     return _mutate_ResetPipelineSettingsMutation(ResetPipelineSettingsMutation, None, info, **kwargs)
 
 
-def _mutate_UpdateComponentSecretsMutation(payload_cls, root, info, **kwargs):
-    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:1144
+def _mutate_UpdateComponentSecretsMutation(
+    payload_cls, root, info, component_path, secrets, merge=True
+):
+    """PORT: /home/user/oc-graphene-ref/config/graphql/pipeline_settings_mutations.py:1146
 
     Port of UpdateComponentSecretsMutation.mutate
+
+    Update encrypted secrets for a component.
     """
-    raise NotImplementedError("_mutate_UpdateComponentSecretsMutation not yet ported — see manifest")
+    # @login_required + @graphql_ratelimit(WRITE_LIGHT) — inlined (see
+    # _mutate_UpdatePipelineSettingsMutation).
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+    _write_light_rate_gate(root, info)
+
+    from opencontractserver.documents.models import PipelineSettings
+
+    user = info.context.user
+
+    # SECURITY: Only superusers can update secrets
+    if not user.is_superuser:
+        return payload_cls(
+            ok=False,
+            message="Only superusers can update component secrets.",
+            components_with_secrets=None,
+        )
+
+    # Validate component path
+    error = validate_component_path(component_path)
+    if error:
+        return payload_cls(
+            ok=False, message=error, components_with_secrets=None
+        )
+
+    # Validate secrets structure
+    error = validate_secrets_input(secrets)
+    if error:
+        return payload_cls(
+            ok=False, message=error, components_with_secrets=None
+        )
+
+    try:
+        settings_instance = PipelineSettings.get_instance()
+
+        if merge:
+            # Merge with existing secrets
+            settings_instance.update_secrets(component_path, secrets)
+        else:
+            # Replace all secrets for this component
+            all_secrets = settings_instance.get_secrets()
+            all_secrets[component_path] = secrets
+            settings_instance.set_secrets(all_secrets)
+
+        settings_instance.modified_by = user
+        settings_instance.save()
+
+        # Return list of components that have secrets (don't return actual
+        # secrets). Excludes tool: keys, which are tracked separately.
+        components_with_secrets = settings_instance.get_components_with_secrets()
+
+        logger.info(
+            "Secrets updated for component '%s' by %s (keys=%s, merge=%s)",
+            component_path,
+            user.username,
+            ", ".join(secrets.keys()),
+            merge,
+        )
+
+        return payload_cls(
+            ok=True,
+            message=f"Secrets updated successfully for '{component_path}'.",
+            components_with_secrets=components_with_secrets,
+        )
+
+    except ValueError as e:
+        return payload_cls(
+            ok=False,
+            message=f"Failed to update secrets for '{component_path}': {e}",
+            components_with_secrets=None,
+        )
+    except Exception:
+        logger.exception(
+            "Unexpected error updating secrets for component '%s'",
+            component_path,
+        )
+        return payload_cls(
+            ok=False,
+            message=f"An unexpected error occurred while updating secrets for '{component_path}'.",
+            components_with_secrets=None,
+        )
 
 
 def m_update_component_secrets(info: strawberry.Info, component_path: Annotated[str, strawberry.argument(name="componentPath", description='Full class path of the component.')] = strawberry.UNSET, merge: Annotated[Optional[bool], strawberry.argument(name="merge", description='If True, merge with existing secrets. If False, replace all secrets for this component.')] = True, secrets: Annotated[GenericScalar, strawberry.argument(name="secrets", description="Dict of secret key-value pairs to store. Example: {'api_key': 'sk-...', 'secret_token': '...'}")] = strawberry.UNSET) -> Optional["UpdateComponentSecretsMutation"]:
@@ -999,12 +1203,60 @@ def m_update_component_secrets(info: strawberry.Info, component_path: Annotated[
     return _mutate_UpdateComponentSecretsMutation(UpdateComponentSecretsMutation, None, info, **kwargs)
 
 
-def _mutate_DeleteComponentSecretsMutation(payload_cls, root, info, **kwargs):
-    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:1487
+def _mutate_DeleteComponentSecretsMutation(payload_cls, root, info, component_path):
+    """PORT: /home/user/oc-graphene-ref/config/graphql/pipeline_settings_mutations.py:1489
 
     Port of DeleteComponentSecretsMutation.mutate
+
+    Delete all secrets for a component.
     """
-    raise NotImplementedError("_mutate_DeleteComponentSecretsMutation not yet ported — see manifest")
+    # @login_required + @graphql_ratelimit(WRITE_LIGHT) — inlined (see
+    # _mutate_UpdatePipelineSettingsMutation).
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+    _write_light_rate_gate(root, info)
+
+    from opencontractserver.documents.models import PipelineSettings
+
+    user = info.context.user
+
+    # SECURITY: Only superusers can delete secrets
+    if not user.is_superuser:
+        return payload_cls(
+            ok=False,
+            message="Only superusers can delete component secrets.",
+            components_with_secrets=None,
+        )
+
+    try:
+        settings_instance = PipelineSettings.get_instance()
+        settings_instance.delete_component_secrets(component_path)
+        settings_instance.modified_by = user
+        settings_instance.save()
+
+        # Return updated list of components with secrets (excludes tool: keys).
+        components_with_secrets = settings_instance.get_components_with_secrets()
+
+        logger.info(
+            f"Secrets deleted for component '{component_path}' by {user.username}"
+        )
+
+        return payload_cls(
+            ok=True,
+            message=f"Secrets deleted for '{component_path}'.",
+            components_with_secrets=components_with_secrets,
+        )
+
+    except Exception:
+        logger.exception(
+            "Unexpected error deleting secrets for component '%s'",
+            component_path,
+        )
+        return payload_cls(
+            ok=False,
+            message=f"An unexpected error occurred while deleting secrets for '{component_path}'.",
+            components_with_secrets=None,
+        )
 
 
 def m_delete_component_secrets(info: strawberry.Info, component_path: Annotated[str, strawberry.argument(name="componentPath", description='Full class path of the component.')] = strawberry.UNSET) -> Optional["DeleteComponentSecretsMutation"]:
@@ -1012,12 +1264,141 @@ def m_delete_component_secrets(info: strawberry.Info, component_path: Annotated[
     return _mutate_DeleteComponentSecretsMutation(DeleteComponentSecretsMutation, None, info, **kwargs)
 
 
-def _mutate_UpdateToolSecretsMutation(payload_cls, root, info, **kwargs):
-    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:1269
+def _mutate_UpdateToolSecretsMutation(
+    payload_cls, root, info, tool_key, secrets=None, settings=None, merge=True
+):
+    """PORT: /home/user/oc-graphene-ref/config/graphql/pipeline_settings_mutations.py:1271
 
     Port of UpdateToolSecretsMutation.mutate
+
+    Update secrets and/or settings for an agent tool.
     """
-    raise NotImplementedError("_mutate_UpdateToolSecretsMutation not yet ported — see manifest")
+    # @login_required + @graphql_ratelimit(WRITE_LIGHT) — inlined (see
+    # _mutate_UpdatePipelineSettingsMutation).
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+    _write_light_rate_gate(root, info)
+
+    from opencontractserver.constants.tools import TOOL_SETTINGS_PREFIX
+    from opencontractserver.documents.models import PipelineSettings
+
+    user = info.context.user
+
+    if not user.is_superuser:
+        return payload_cls(
+            ok=False,
+            message="Only superusers can update tool secrets.",
+            tools_with_secrets=None,
+        )
+
+    # Validate tool key format
+    if not tool_key or not tool_key.startswith(TOOL_SETTINGS_PREFIX):
+        return payload_cls(
+            ok=False,
+            message=f"Tool key must start with '{TOOL_SETTINGS_PREFIX}'.",
+            tools_with_secrets=None,
+        )
+
+    # Validate key length and characters
+    if len(tool_key) > MAX_COMPONENT_PATH_LENGTH:
+        return payload_cls(
+            ok=False,
+            message=f"Tool key exceeds maximum length of {MAX_COMPONENT_PATH_LENGTH}.",
+            tools_with_secrets=None,
+        )
+
+    if not secrets and not settings:
+        return payload_cls(
+            ok=False,
+            message="At least one of 'secrets' or 'settings' must be provided.",
+            tools_with_secrets=None,
+        )
+
+    # Validate secrets structure
+    if secrets is not None:
+        error = validate_secrets_input(secrets)
+        if error:
+            return payload_cls(
+                ok=False, message=error, tools_with_secrets=None
+            )
+
+    # Validate settings structure
+    if settings is not None and not isinstance(settings, dict):
+        return payload_cls(
+            ok=False,
+            message="settings must be a dictionary.",
+            tools_with_secrets=None,
+        )
+
+    # Validate provider value for web_search tool
+    if settings and "provider" in settings:
+        from opencontractserver.constants.web_search import (
+            SUPPORTED_PROVIDERS,
+            WEB_SEARCH_SETTINGS_KEY,
+        )
+
+        if (
+            tool_key == WEB_SEARCH_SETTINGS_KEY
+            and settings["provider"] not in SUPPORTED_PROVIDERS
+        ):
+            return payload_cls(
+                ok=False,
+                message=(
+                    f"Unsupported provider '{settings['provider']}'. "
+                    f"Supported: {', '.join(sorted(SUPPORTED_PROVIDERS))}."
+                ),
+                tools_with_secrets=None,
+            )
+
+    try:
+        ps = PipelineSettings.get_instance()
+
+        if not merge:
+            # Replace mode: wipe all existing secrets AND settings for this
+            # tool key before writing the new values.  This guarantees that
+            # stale keys from a previous provider configuration do not
+            # linger in the encrypted store.
+            ps.delete_tool_settings(tool_key)
+
+        # Apply settings and secrets
+        ps.update_tool_settings(
+            tool_key,
+            settings=settings or {},
+            secrets=secrets,
+        )
+        ps.modified_by = user
+        ps.save()
+
+        logger.info(
+            "Tool settings updated for '%s' by %s (has_secrets=%s, has_settings=%s, merge=%s)",
+            tool_key,
+            user.username,
+            secrets is not None,
+            settings is not None,
+            merge,
+        )
+
+        return payload_cls(
+            ok=True,
+            message=f"Tool settings updated for '{tool_key}'.",
+            tools_with_secrets=ps.get_tools_with_secrets(),
+        )
+
+    except ValueError as e:
+        return payload_cls(
+            ok=False,
+            message=f"Failed to update tool settings: {e}",
+            tools_with_secrets=None,
+        )
+    except Exception:
+        logger.exception(
+            "Unexpected error updating tool settings for '%s'", tool_key
+        )
+        return payload_cls(
+            ok=False,
+            message="An unexpected error occurred.",
+            tools_with_secrets=None,
+        )
 
 
 def m_update_tool_secrets(info: strawberry.Info, merge: Annotated[Optional[bool], strawberry.argument(name="merge", description='If True, merge with existing. If False, replace.')] = True, secrets: Annotated[Optional[GenericScalar], strawberry.argument(name="secrets", description='Dict of secret values to encrypt (e.g. api_key).')] = None, settings: Annotated[Optional[GenericScalar], strawberry.argument(name="settings", description='Dict of non-sensitive settings (e.g. provider).')] = None, tool_key: Annotated[str, strawberry.argument(name="toolKey", description='Tool identifier, e.g. "tool:web_search".')] = strawberry.UNSET) -> Optional["UpdateToolSecretsMutation"]:
@@ -1025,12 +1406,61 @@ def m_update_tool_secrets(info: strawberry.Info, merge: Annotated[Optional[bool]
     return _mutate_UpdateToolSecretsMutation(UpdateToolSecretsMutation, None, info, **kwargs)
 
 
-def _mutate_DeleteToolSecretsMutation(payload_cls, root, info, **kwargs):
-    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:1414
+def _mutate_DeleteToolSecretsMutation(payload_cls, root, info, tool_key):
+    """PORT: /home/user/oc-graphene-ref/config/graphql/pipeline_settings_mutations.py:1416
 
     Port of DeleteToolSecretsMutation.mutate
+
+    Delete all settings and secrets for a tool.
     """
-    raise NotImplementedError("_mutate_DeleteToolSecretsMutation not yet ported — see manifest")
+    # @login_required + @graphql_ratelimit(WRITE_LIGHT) — inlined (see
+    # _mutate_UpdatePipelineSettingsMutation).
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+    _write_light_rate_gate(root, info)
+
+    from opencontractserver.constants.tools import TOOL_SETTINGS_PREFIX
+    from opencontractserver.documents.models import PipelineSettings
+
+    user = info.context.user
+
+    if not user.is_superuser:
+        return payload_cls(
+            ok=False,
+            message="Only superusers can delete tool secrets.",
+            tools_with_secrets=None,
+        )
+
+    if not tool_key or not tool_key.startswith(TOOL_SETTINGS_PREFIX):
+        return payload_cls(
+            ok=False,
+            message=f"Tool key must start with '{TOOL_SETTINGS_PREFIX}'.",
+            tools_with_secrets=None,
+        )
+
+    try:
+        ps = PipelineSettings.get_instance()
+        ps.delete_tool_settings(tool_key)
+        ps.modified_by = user
+        ps.save()
+
+        logger.info("Tool settings deleted for '%s' by %s", tool_key, user.username)
+
+        return payload_cls(
+            ok=True,
+            message=f"Tool settings deleted for '{tool_key}'.",
+            tools_with_secrets=ps.get_tools_with_secrets(),
+        )
+
+    except Exception:
+        logger.exception(
+            "Unexpected error deleting tool settings for '%s'", tool_key
+        )
+        return payload_cls(
+            ok=False,
+            message="An unexpected error occurred.",
+            tools_with_secrets=None,
+        )
 
 
 def m_delete_tool_secrets(info: strawberry.Info, tool_key: Annotated[str, strawberry.argument(name="toolKey", description='Tool identifier, e.g. "tool:web_search".')] = strawberry.UNSET) -> Optional["DeleteToolSecretsMutation"]:

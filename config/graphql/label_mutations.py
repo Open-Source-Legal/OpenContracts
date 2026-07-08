@@ -27,10 +27,41 @@ from config.graphql.core.scalars import BigInt, GenericScalar, JSONString
 from config.graphql._util import coerce_enum, coerce_str, strip_unset
 from config.graphql import enums
 
+import base64
+import logging
+
+from django.conf import settings
+from django.core.files.base import ContentFile
+from graphql_relay import from_global_id, to_global_id
+
+from config.graphql.core.auth import PermissionDenied
+from config.graphql.ratelimits import RateLimits, graphql_ratelimit
+from config.graphql.validation_utils import validate_color
 from config.graphql.annotation_serializers import AnnotationLabelSerializer
 from config.graphql.serializers import LabelsetSerializer
 from opencontractserver.annotations.models import AnnotationLabel
 from opencontractserver.annotations.models import LabelSet
+from opencontractserver.shared.services.base import BaseService
+from opencontractserver.types.enums import PermissionTypes
+from opencontractserver.utils.permissioning import (
+    get_for_user_or_none,
+    set_permissions_for_obj_to_user,
+)
+
+logger = logging.getLogger(__name__)
+
+
+@graphql_ratelimit(rate=RateLimits.WRITE_MEDIUM, group="mutate")
+def _write_medium_rate_gate(root, info, **kwargs):
+    """Rate-limit gate with the ``(root, info)`` shape core decorators expect.
+
+    graphene applied ``@graphql_ratelimit(rate=RateLimits.WRITE_MEDIUM)``
+    directly to the ``mutate`` classmethod; the strawberry mutate stubs take
+    ``payload_cls`` first, so the decorator is hoisted onto this no-op and
+    invoked at the top of the rate-limited stub. ``group="mutate"`` preserves
+    the shared graphene bucket.
+    """
+    return None
 
 
 @strawberry.type(name="CreateLabelset")
@@ -120,12 +151,53 @@ class RemoveLabelsFromLabelsetMutation:
 register_type("RemoveLabelsFromLabelsetMutation", RemoveLabelsFromLabelsetMutation, model=None)
 
 
-def _mutate_CreateLabelset(payload_cls, root, info, **kwargs):
-    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:49
+def _mutate_CreateLabelset(
+    payload_cls, root, info, title, description, filename=None, base64_icon_string=None
+):
+    """PORT: /home/user/oc-graphene-ref/config/graphql/label_mutations.py:51
 
     Port of CreateLabelset.mutate
     """
-    raise NotImplementedError("_mutate_CreateLabelset not yet ported — see manifest")
+    # @login_required + @graphql_ratelimit(WRITE_MEDIUM) — inlined because the
+    # mutate stub takes ``payload_cls`` first, breaking the ``(root, info)``
+    # calling convention the core decorators expect.
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+    _write_medium_rate_gate(root, info)
+
+    if base64_icon_string is None:
+        base64_icon_string = settings.DEFAULT_IMAGE
+
+    ok = False
+    obj = None
+
+    try:
+        user = info.context.user
+        icon = ContentFile(
+            base64.b64decode(
+                base64_icon_string.split(",")[1]
+                if "," in base64_icon_string[:32]
+                else base64_icon_string
+            ),
+            name=filename if filename is not None else "icon.png",
+        )
+        obj = LabelSet(
+            creator=user, title=title, description=description, icon=icon
+        )
+        obj.save()
+
+        # Assign permissions for user to obj so it can be retrieved
+        set_permissions_for_obj_to_user(
+            user, obj, [PermissionTypes.CRUD], is_new=True, request=info.context
+        )
+
+        ok = True
+        message = "Success"
+
+    except Exception as e:
+        message = f"Error creating labelset: {e}"
+
+    return payload_cls(message=message, ok=ok, obj=obj)
 
 
 def m_create_labelset(info: strawberry.Info, base64_icon_string: Annotated[Optional[str], strawberry.argument(name="base64IconString", description='Base64-encoded file string for the Labelset icon (optional).')] = strawberry.UNSET, description: Annotated[Optional[str], strawberry.argument(name="description", description='Description of the Labelset.')] = strawberry.UNSET, filename: Annotated[Optional[str], strawberry.argument(name="filename", description='Filename of the document.')] = strawberry.UNSET, title: Annotated[str, strawberry.argument(name="title", description='Title of the Labelset.')] = strawberry.UNSET) -> Optional["CreateLabelset"]:
@@ -158,12 +230,60 @@ def m_delete_annotation_label(info: strawberry.Info, id: Annotated[str, strawber
     return drf_deletion(payload_cls=DeleteLabelMutation, model=AnnotationLabel, lookup_field="id", root=None, info=info, kwargs=kwargs)
 
 
-def _mutate_DeleteMultipleLabelMutation(payload_cls, root, info, **kwargs):
-    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:169
+def _mutate_DeleteMultipleLabelMutation(
+    payload_cls, root, info, annotation_label_ids_to_delete
+):
+    """PORT: /home/user/oc-graphene-ref/config/graphql/label_mutations.py:170
 
     Port of DeleteMultipleLabelMutation.mutate
     """
-    raise NotImplementedError("_mutate_DeleteMultipleLabelMutation not yet ported — see manifest")
+    # @login_required — inlined (mutate stub takes ``payload_cls`` first).
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+    user = info.context.user
+    try:
+        label_pks = list(
+            map(
+                lambda label_id: from_global_id(label_id)[1],
+                annotation_label_ids_to_delete,
+            )
+        )
+        for label_pk in label_pks:
+            # IDOR protection: collapse "label doesn't exist", "hidden
+            # from caller", and "caller can READ but is not the creator"
+            # into the same response. AnnotationLabel uses creator-based
+            # permissions (no guardian tables); the service-layer
+            # IDOR-safe lookup enforces creator/public (superusers are
+            # computed like a normal user — scoped admin access, 2026-05).
+            label = get_for_user_or_none(AnnotationLabel, label_pk, user)
+            if label is None:
+                return payload_cls(
+                    ok=False, message="Label not found"
+                )
+            # Run the creator gate BEFORE the ``read_only`` check so a
+            # non-creator who happens to be able to READ a public
+            # built-in label gets the unified "Label not found" response
+            # — surfacing "Cannot delete read-only labels" would reveal
+            # the label's existence + read-only flag to anyone with a
+            # guessable pk.
+            if label.creator_id != user.id:
+                return payload_cls(
+                    ok=False, message="Label not found"
+                )
+            # read_only labels cannot be deleted (built-in system labels)
+            if label.read_only:
+                return payload_cls(
+                    ok=False, message="Cannot delete read-only labels"
+                )
+            label.delete()
+        ok = True
+        message = "Success"
+
+    except Exception as e:
+        ok = False
+        message = f"Delete failed due to error: {e}"
+
+    return payload_cls(ok=ok, message=message)
 
 
 def m_delete_multiple_annotation_labels(info: strawberry.Info, annotation_label_ids_to_delete: Annotated[list[Optional[str]], strawberry.argument(name="annotationLabelIdsToDelete", description='List of ids of the labels to delete')] = strawberry.UNSET) -> Optional["DeleteMultipleLabelMutation"]:
@@ -171,12 +291,130 @@ def m_delete_multiple_annotation_labels(info: strawberry.Info, annotation_label_
     return _mutate_DeleteMultipleLabelMutation(DeleteMultipleLabelMutation, None, info, **kwargs)
 
 
-def _mutate_CreateLabelForLabelsetMutation(payload_cls, root, info, **kwargs):
-    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:235
+def _mutate_CreateLabelForLabelsetMutation(
+    payload_cls,
+    root,
+    info,
+    labelset_id,
+    text=None,
+    description=None,
+    color=None,
+    icon=None,
+    label_type=None,
+):
+    """PORT: /home/user/oc-graphene-ref/config/graphql/label_mutations.py:236
 
     Port of CreateLabelForLabelsetMutation.mutate
     """
-    raise NotImplementedError("_mutate_CreateLabelForLabelsetMutation not yet ported — see manifest")
+    # @login_required — inlined (mutate stub takes ``payload_cls`` first).
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+    ok = False
+    obj = None
+    obj_id = None
+
+    # Unified IDOR-safe message: missing pk, malformed pk, no READ, and
+    # no UPDATE all collapse to a single response so the caller cannot
+    # enumerate which labelsets exist.
+    not_found_msg = (
+        "Failed to create label for labelset due to error: "
+        "LabelSet matching query does not exist."
+    )
+
+    try:
+        labelset_pk = from_global_id(labelset_id)[1]
+    except Exception:
+        logger.warning(
+            "CreateLabelForLabelsetMutation: malformed labelset_id=%s",
+            labelset_id,
+        )
+        return payload_cls(
+            obj=None, obj_id=None, message=not_found_msg, ok=False
+        )
+
+    # Permission check runs before validation so a non-owner cannot
+    # distinguish "reached validation" from "denied" via different
+    # error messages (IDOR mitigation — see
+    # docs/permissioning/consolidated_permissioning_guide.md).
+    # Phase D rule (#1658): READ is a precondition for UPDATE — the
+    # IDOR-safe lookup helper enforces it; the explicit UPDATE check
+    # below layers the write permission on top via the service layer.
+    labelset = get_for_user_or_none(LabelSet, labelset_pk, info.context.user)
+    if labelset is None or BaseService.require_permission(
+        labelset, info.context.user, PermissionTypes.UPDATE, request=info.context
+    ):
+        logger.warning(
+            "CreateLabelForLabelsetMutation: labelset not found or "
+            "permission denied (labelset_id=%s)",
+            labelset_id,
+        )
+        return payload_cls(
+            obj=None, obj_id=None, message=not_found_msg, ok=False
+        )
+
+    try:
+        # Reject blank text explicitly: Django's ``blank=False`` is
+        # form-only and ``objects.create()`` would silently apply the
+        # "Text Label" model default.
+        if not (text and text.strip()):
+            return payload_cls(
+                obj=None,
+                obj_id=None,
+                message="Label text is required and cannot be blank.",
+                ok=False,
+            )
+
+        if color == "":
+            color = None
+        is_valid_color, color_error = validate_color(color)
+        if not is_valid_color:
+            return payload_cls(
+                obj=None, obj_id=None, message=color_error, ok=False
+            )
+
+        logger.debug("CreateLabelForLabelsetMutation - mutate / Labelset", labelset)
+        # Drop None/"" so model field defaults apply rather than
+        # writing blank values at the DB level.
+        create_kwargs = {
+            k: v
+            for k, v in {
+                "text": text,
+                "description": description,
+                "color": color,
+                "icon": icon,
+                "label_type": label_type,
+            }.items()
+            if v is not None and v != ""
+        }
+        obj = AnnotationLabel.objects.create(
+            creator=info.context.user, **create_kwargs
+        )
+        obj_id = to_global_id("AnnotationLabelType", obj.id)
+        logger.debug("CreateLabelForLabelsetMutation - mutate / Created label", obj)
+
+        set_permissions_for_obj_to_user(
+            info.context.user,
+            obj,
+            [PermissionTypes.CRUD],
+            is_new=True,
+            request=info.context,
+        )
+        logger.debug(
+            "CreateLabelForLabelsetMutation - permissioned for creating user"
+        )
+
+        labelset.annotation_labels.add(obj)
+        ok = True
+        message = "SUCCESS"
+        logger.debug("Done")
+
+    except Exception as e:
+        logger.exception("CreateLabelForLabelsetMutation failed")
+        message = f"Failed to create label for labelset due to error: {e}"
+
+    return payload_cls(
+        obj=obj, obj_id=obj_id, message=message, ok=ok
+    )
 
 
 def m_create_annotation_label_for_labelset(info: strawberry.Info, color: Annotated[Optional[str], strawberry.argument(name="color")] = strawberry.UNSET, description: Annotated[Optional[str], strawberry.argument(name="description")] = strawberry.UNSET, icon: Annotated[Optional[str], strawberry.argument(name="icon")] = strawberry.UNSET, label_type: Annotated[Optional[str], strawberry.argument(name="labelType")] = strawberry.UNSET, labelset_id: Annotated[str, strawberry.argument(name="labelsetId", description='Id of the label that is to be updated.')] = strawberry.UNSET, text: Annotated[Optional[str], strawberry.argument(name="text")] = strawberry.UNSET) -> Optional["CreateLabelForLabelsetMutation"]:
@@ -184,12 +422,58 @@ def m_create_annotation_label_for_labelset(info: strawberry.Info, color: Annotat
     return _mutate_CreateLabelForLabelsetMutation(CreateLabelForLabelsetMutation, None, info, **kwargs)
 
 
-def _mutate_RemoveLabelsFromLabelsetMutation(payload_cls, root, info, **kwargs):
-    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:369
+def _mutate_RemoveLabelsFromLabelsetMutation(
+    payload_cls, root, info, label_ids, labelset_id
+):
+    """PORT: /home/user/oc-graphene-ref/config/graphql/label_mutations.py:370
 
     Port of RemoveLabelsFromLabelsetMutation.mutate
     """
-    raise NotImplementedError("_mutate_RemoveLabelsFromLabelsetMutation not yet ported — see manifest")
+    # @login_required — inlined (mutate stub takes ``payload_cls`` first).
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+    ok = False
+
+    # Unified IDOR-safe message — see CreateLabelForLabelsetMutation.
+    not_found_msg = (
+        "Error removing label(s) from labelset: "
+        "LabelSet matching query does not exist."
+    )
+
+    try:
+        labelset_pk = from_global_id(labelset_id)[1]
+        label_pks = [int(from_global_id(gid)[1]) for gid in label_ids]
+    except Exception:
+        logger.warning(
+            "RemoveLabelsFromLabelsetMutation: malformed id "
+            "(labelset_id=%s, label_ids=%r)",
+            labelset_id,
+            label_ids,
+        )
+        return payload_cls(message=not_found_msg, ok=False)
+
+    user = info.context.user
+    # Phase D rule (#1658): READ is a precondition for UPDATE.
+    labelset = get_for_user_or_none(LabelSet, labelset_pk, user)
+    if labelset is None or BaseService.require_permission(
+        labelset, user, PermissionTypes.UPDATE, request=info.context
+    ):
+        logger.warning(
+            "RemoveLabelsFromLabelsetMutation: labelset not found or "
+            "permission denied (labelset_id=%s)",
+            labelset_id,
+        )
+        return payload_cls(message=not_found_msg, ok=False)
+
+    try:
+        labelset.annotation_labels.remove(*label_pks)
+        ok = True
+        message = "Success"
+    except Exception as e:
+        logger.exception("RemoveLabelsFromLabelsetMutation failed")
+        message = f"Error removing label(s) from labelset: {e}"
+
+    return payload_cls(message=message, ok=ok)
 
 
 def m_remove_annotation_labels_from_labelset(info: strawberry.Info, label_ids: Annotated[list[Optional[str]], strawberry.argument(name="labelIds", description='List of Ids of the labels to be deleted.')] = strawberry.UNSET, labelset_id: Annotated[str, strawberry.argument(name="labelsetId")] = 'Id of the labelset to delete the labels from') -> Optional["RemoveLabelsFromLabelsetMutation"]:

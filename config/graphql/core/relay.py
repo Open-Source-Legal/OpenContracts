@@ -157,16 +157,32 @@ class Node:
 def get_node_from_global_id(
     info: Any, global_id: str, only_type_name: str | None = None
 ) -> Any:
-    """Port of ``config.graphql.base.OpenContractsNode.get_node_from_global_id``.
+    """Relay node fetch matching graphene-django's ``relay.Node.Field``.
 
-    Permission-aware relay node fetch routed through the service layer
-    (``BaseService.get_or_none``). Returns the model instance or raises the
-    model's ``DoesNotExist`` with a unified (IDOR-safe) message. If the
-    registered type declares a custom ``get_node`` hook, that hook is used
-    instead (mirrors ``DjangoObjectType.get_node`` overrides).
+    Mirrors ``graphene_django.types.DjangoObjectType.get_node`` semantics —
+    the resolver graphene used for every ``relay.Node.Field(XType)`` in the
+    old schema:
+
+    * A type with a **custom ``get_node`` hook** (registered from a graphene
+      ``get_node`` override — e.g. ``CorpusType`` which ported
+      ``OpenContractsNode``'s permission-aware fetch, or ``ExtractType`` /
+      ``AnalysisType`` / ``ConversationType``) uses that hook.
+    * Otherwise the DEFAULT path applies the type's registered
+      ``get_queryset`` (the permission filter for types that define one; the
+      identity manager for types that don't) and fetches by pk — **exactly**
+      graphene-django's ``cls.get_queryset(model._default_manager, info)
+      .get(pk=id)``. This is deliberately NOT ``BaseService.get_or_none``:
+      graphene left types without a ``get_queryset`` (e.g. ``MessageType``)
+      resolving unfiltered by pk, with per-field resolvers enforcing
+      visibility (e.g. ``mentionedResources``). Over-filtering here silently
+      changed that contract (issue surfaced by
+      ``test_mentions.test_permission_enforcement_corpus``).
+
+    Returns the instance, or raises the model's ``DoesNotExist`` with a
+    unified (IDOR-safe) message. Malformed pks (a global id passed where a
+    raw pk is expected, or an out-of-range value) also raise ``DoesNotExist``
+    rather than a 500.
     """
-    from opencontractserver.shared.services.base import BaseService
-
     _type, _pk = from_global_id(global_id)
     entry = _TYPE_REGISTRY.get(_type)
     if entry is None or entry.model is None:
@@ -183,22 +199,27 @@ def get_node_from_global_id(
         # Frozen/immutable context — hint is best-effort only.
         pass
 
+    not_found = entry.model.DoesNotExist(
+        f"{entry.model.__name__} matching query does not exist."
+    )
+
     if entry.get_node is not None:
         node = entry.get_node(info, _pk)
         if node is None:
-            raise entry.model.DoesNotExist(
-                f"{entry.model.__name__} matching query does not exist."
-            )
+            raise not_found
         return node
 
-    obj = BaseService.get_or_none(
-        entry.model, _pk, info.context.user, request=info.context
+    queryset = apply_type_get_queryset(
+        _type, entry.model._default_manager.get_queryset(), info
     )
-    if obj is None:
-        raise entry.model.DoesNotExist(
-            f"{entry.model.__name__} matching query does not exist."
-        )
-    return obj
+    try:
+        return queryset.get(pk=_pk)
+    except entry.model.DoesNotExist:
+        raise not_found
+    except (ValueError, TypeError, OverflowError):
+        # Malformed / out-of-range pk from untrusted input — treat as
+        # not-found (graphene-django never surfaced a 500 here).
+        raise not_found
 
 
 # --------------------------------------------------------------------------- #
