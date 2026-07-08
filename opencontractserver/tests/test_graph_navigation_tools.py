@@ -233,6 +233,22 @@ class GraphNavigationToolTests(TestCase):
         res = find_documents_citing(corpus_id=self.corpus.id, user_id=self.user.id)
         self.assertIn("error", res)
 
+    def test_find_documents_citing_unresolvable_document_id_errors(self):
+        """A document_id anchor that doesn't resolve must error, not false-empty.
+
+        Mirrors get_document_references: an agent passing a corpus_id (or any
+        bad/invisible pk) where a document_id belongs must be told the id is
+        unknown, not handed a well-formed 'nobody cites this' result.
+        """
+        res = find_documents_citing(
+            corpus_id=self.corpus.id,
+            user_id=self.user.id,
+            document_id=999999999,
+        )
+        self.assertIn("error", res)
+        self.assertEqual(res["citing_documents"], [])
+        self.assertEqual(res["citing_document_count"], 0)
+
     # ---- get_reference_neighborhood ----------------------------------- #
     def test_neighborhood_whole_corpus(self):
         res = get_reference_neighborhood(corpus_id=self.corpus.id, user_id=self.user.id)

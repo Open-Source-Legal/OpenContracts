@@ -737,6 +737,36 @@ class TestPydanticAIAgents(TransactionTestCase):
             f"Expected a tool_call entry naming get_document_summary; got: {tool_call_entries}",
         )
 
+    def test_extract_tool_call_timeline_excludes_prior_turn_history(self) -> None:
+        """The timeline reflects only THIS run's tool calls, not prior turns.
+
+        Regression: ``_extract_tool_call_timeline`` read
+        ``run_result.all_messages()``, which includes the ``message_history``
+        ``_chat_raw`` forwards, so a multi-turn ``chat()`` re-counted every
+        earlier turn's ``ToolCallPart`` (turn N reporting turns 1..N). It now
+        reads ``new_messages()`` — only the current run's messages. With the
+        old code this timeline would be ``["old_tool", "new_tool"]``.
+        """
+        from pydantic_ai.messages import ToolCallPart
+
+        class _Msg:
+            def __init__(self, parts):
+                self.parts = parts
+
+        prior = _Msg([ToolCallPart(tool_name="old_tool", args={})])
+        current = _Msg([ToolCallPart(tool_name="new_tool", args={})])
+
+        class _Run:
+            def new_messages(self):
+                return [current]
+
+            def all_messages(self):
+                return [prior, current]
+
+        timeline = pa_mod._extract_tool_call_timeline(_Run())
+        tools = [e["tool"] for e in timeline if e.get("type") == "tool_call"]
+        self.assertEqual(tools, ["new_tool"])
+
     async def test_structured_response_usage_limit_logs_actual_limit(self) -> None:
         """Tripping the request budget logs the ACTUAL limit, not the default.
 

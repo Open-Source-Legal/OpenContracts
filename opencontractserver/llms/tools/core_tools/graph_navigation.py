@@ -308,6 +308,8 @@ def find_documents_citing(
     if not canonical_key and document_id is None:
         return {
             "error": "Provide either canonical_key or document_id.",
+            "anchor": {"canonical_key": None, "document_id": None},
+            "citing_document_count": 0,
             "citing_documents": [],
         }
 
@@ -318,6 +320,26 @@ def find_documents_citing(
 
     from opencontractserver.enrichment.authorities import candidate_keys
     from opencontractserver.shared.services.base import BaseService
+
+    # Same IDOR-safe existence check get_document_references applies: a
+    # document_id anchor that doesn't resolve to a visible document must error,
+    # not return a false-empty "nobody cites this" envelope (an agent passing a
+    # corpus_id where a document_id belongs would otherwise be misled). Only
+    # guards the document_id anchor; a canonical_key anchor is validated by
+    # candidate_keys resolution below.
+    if (
+        not canonical_key
+        and BaseService.get_or_none(Document, document_id, user) is None
+    ):
+        return {
+            "error": (
+                f"document_id {document_id} was not found (or is not visible to "
+                "you). Use similarity_search to find a valid document_id first."
+            ),
+            "anchor": {"canonical_key": None, "document_id": document_id},
+            "citing_document_count": 0,
+            "citing_documents": [],
+        }
 
     base = CorpusReferenceService.visible_to_user(user)
     # canonical_key wins when both are supplied (the more specific anchor).
