@@ -21,7 +21,6 @@ from config.graphql.core.auth import (  # noqa: F401
     superuser_required,
     user_passes_test,
 )
-from config.graphql.core.ids import from_global_id, to_global_id  # noqa: F401
 from config.graphql.core.scalars import (  # noqa: F401
     BigInt,
     GenericScalar,

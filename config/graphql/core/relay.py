@@ -349,8 +349,6 @@ def make_connection_types(
     connection output exactly (see the golden SDL). Returns the connection
     class; the edge class is attached as ``.Edge``.
     """
-    node_doc = node_type.__strawberry_definition__.name  # noqa: F841
-
     connection_name = type_name
     assert connection_name.endswith("Connection"), connection_name
     edge_name = connection_name[: -len("Connection")] + "Edge"
@@ -458,6 +456,11 @@ def resolve_connection_from_iterable(
         slice_start=slice_start,
         array_length=array_length,
         array_slice_length=array_slice_length,
+        # ``connection_from_array_slice`` invokes this as
+        # ``connection_type(edges=..., pageInfo=...)`` (graphql-relay's camelCase
+        # kwarg); the lambda adapts the ``pageInfo`` kwarg onto
+        # ``ConnectionValue``'s ``page_info`` positional — passing
+        # ``ConnectionValue`` directly would raise on the unexpected kwarg.
         connection_type=lambda edges, pageInfo: ConnectionValue(edges, pageInfo),
         edge_type=EdgeValue,
         page_info_type=lambda startCursor, endCursor, hasPreviousPage, hasNextPage: (
