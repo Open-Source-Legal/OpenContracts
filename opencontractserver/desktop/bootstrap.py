@@ -65,6 +65,18 @@ def repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
+def _scrubbed_env() -> dict[str, str]:
+    """A copy of the environment with the first-run password removed.
+
+    Only ``desktop_bootstrap`` (reached via the venv re-exec) needs
+    ``OC_DESKTOP_PASSWORD``; the multi-minute venv/pip install subprocesses do
+    not, and must not carry it in their environment blocks for that window.
+    """
+    env = os.environ.copy()
+    env.pop("OC_DESKTOP_PASSWORD", None)
+    return env
+
+
 def prompt_for_password(username: str = LOCAL_USERNAME) -> str | None:
     """Interactively choose the local login password on the attached terminal.
 
@@ -109,7 +121,14 @@ def maybe_prompt_first_run_password() -> None:
     answer travels to ``desktop_bootstrap`` via the process env; the launcher
     drops it from the long-lived children's env after bootstrap.
     """
-    if os.environ.get("OC_DESKTOP_PASSWORD") or paths.first_run_marker().exists():
+    if (
+        os.environ.get("OC_DESKTOP_PASSWORD")
+        or paths.first_run_marker().exists()
+        # A retried first run (marker unwritten because a LATER bootstrap step
+        # failed) must not re-ask: the account already has a usable password,
+        # recorded by desktop_bootstrap via this dedicated marker.
+        or paths.password_marker().exists()
+    ):
         return
     password = prompt_for_password()
     if password:
@@ -188,6 +207,16 @@ def _fingerprint_marker(venv_path: Path) -> Path:
 # double-launched first run corrupting the venv with interleaved writes.
 _LOCK_FILENAME = ".install-lock"
 _LOCK_STALE_SECONDS = 3600
+# Age past which even a "live" PID no longer holds the lock: a crashed
+# holder's PID can be reused by an unrelated process, and no real install
+# runs anywhere near this long.
+_LOCK_MAX_AGE_SECONDS = 6 * 3600
+
+
+def _lock_age_exceeds(lock_path: Path, ceiling: float) -> bool:
+    with contextlib.suppress(OSError):
+        return (time.time() - lock_path.stat().st_mtime) > ceiling
+    return True
 
 
 def _lock_is_stale(lock_path: Path) -> bool:
@@ -199,15 +228,15 @@ def _lock_is_stale(lock_path: Path) -> bool:
     if pid and os.name == "posix":
         try:
             os.kill(pid, 0)  # signal 0: existence probe only
-            return False
         except ProcessLookupError:
             return True
         except OSError:
             return False
+        # Alive — but guard against PID reuse after a crash with a generous
+        # age ceiling no genuine install approaches.
+        return _lock_age_exceeds(lock_path, _LOCK_MAX_AGE_SECONDS)
     # Windows (no cheap liveness probe): fall back to age.
-    with contextlib.suppress(OSError):
-        return (time.time() - lock_path.stat().st_mtime) > _LOCK_STALE_SECONDS
-    return True
+    return _lock_age_exceeds(lock_path, _LOCK_STALE_SECONDS)
 
 
 @contextlib.contextmanager
@@ -264,6 +293,7 @@ def _install_dependencies(root: Path, venv_path: Path) -> None:  # pragma: no co
             subprocess.run(
                 [sys.executable, "-m", "venv", str(venv_path)],
                 check=True,
+                env=_scrubbed_env(),
             )
         except subprocess.CalledProcessError:
             # Debian/Ubuntu system Pythons ship without the venv module unless
@@ -295,6 +325,7 @@ def _install_dependencies(root: Path, venv_path: Path) -> None:  # pragma: no co
         ],
         check=True,
         cwd=str(root),
+        env=_scrubbed_env(),
     )
     _fingerprint_marker(venv_path).write_text(
         requirements_fingerprint(requirement_files(root)), encoding="utf-8"
@@ -305,9 +336,15 @@ def _venv_is_current(root: Path, venv_path: Path) -> bool:
     marker = _fingerprint_marker(venv_path)
     if not venv_python(venv_path).exists() or not marker.exists():
         return False
-    return marker.read_text(encoding="utf-8").strip() == requirements_fingerprint(
-        requirement_files(root)
-    )
+    try:
+        return marker.read_text(encoding="utf-8").strip() == requirements_fingerprint(
+            requirement_files(root)
+        )
+    except OSError:
+        # Unreadable/missing requirements files (corrupted checkout): treat as
+        # stale — the install path then surfaces its own actionable error
+        # instead of this raising a raw traceback.
+        return False
 
 
 def _reexec_in_venv(

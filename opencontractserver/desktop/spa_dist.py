@@ -79,7 +79,10 @@ def _fetch_json(url: str) -> dict:  # pragma: no cover - network
     with urllib.request.urlopen(
         request, timeout=_HTTP_TIMEOUT_SECONDS, context=_ssl_context()
     ) as response:
-        return json.load(response)
+        # Release payloads are tens of KB; cap the read like every other
+        # network path in this module (truncation surfaces as a JSON error,
+        # which callers already treat as "no asset found").
+        return json.loads(response.read(4 << 20))
 
 
 def find_asset_url(release: dict, asset_name: str = SPA_ASSET_NAME) -> str | None:
@@ -149,7 +152,6 @@ def safe_extract_zip(archive: zipfile.ZipFile, dest: Path) -> None:
     import stat
 
     dest = dest.resolve()
-    total_uncompressed = 0
     for info in archive.infolist():
         target = (dest / info.filename).resolve()
         if not target.is_relative_to(dest):
@@ -160,13 +162,29 @@ def safe_extract_zip(archive: zipfile.ZipFile, dest: Path) -> None:
             raise ValueError(
                 f"Refusing to extract symlink zip member: {info.filename!r}"
             )
-        total_uncompressed += info.file_size
-        if total_uncompressed > MAX_BUNDLE_BYTES:
-            raise ValueError(
-                "Refusing to extract zip: uncompressed size exceeds the "
-                f"{MAX_BUNDLE_BYTES // (1024 * 1024)} MB safety cap"
-            )
-    archive.extractall(dest)
+    # Stream every member with a running byte budget instead of extractall():
+    # a zip's declared file_size is attacker-controlled central-directory
+    # metadata, so summing it is NOT a decompression-bomb guard — only
+    # counting the bytes actually decompressed is. This is the last line of
+    # defense on the TLS-only-trust path (releases without a .sha256 sidecar).
+    remaining = MAX_BUNDLE_BYTES
+    for info in archive.infolist():
+        target = dest / info.filename
+        if info.is_dir():
+            target.mkdir(parents=True, exist_ok=True)
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with archive.open(info) as src, open(target, "wb") as out:
+            while chunk := src.read(1 << 20):
+                remaining -= len(chunk)
+                if remaining < 0:
+                    out.close()
+                    target.unlink(missing_ok=True)
+                    raise ValueError(
+                        "Refusing to extract zip: decompressed size exceeds "
+                        f"the {MAX_BUNDLE_BYTES // (1024 * 1024)} MB safety cap"
+                    )
+                out.write(chunk)
 
 
 def _dist_dir_within(spa_root: Path) -> Path | None:
@@ -301,6 +319,23 @@ def build_spa_with_yarn(repo_root: Path) -> Path | None:  # pragma: no cover
     return dist if (dist / "index.html").is_file() else None
 
 
+def _recover_interrupted_swap(spa_root: Path) -> None:
+    """Self-heal a hard kill between download_spa's two swap renames.
+
+    That window leaves ``spa/`` absent with a verified copy at ``spa.new``
+    (preferred — it passed every check) or the previous copy at ``spa.old``;
+    promote whichever exists so the next launch doesn't silently re-download.
+    """
+    if spa_root.exists():
+        return
+    for suffix in (".new", ".old"):
+        candidate = spa_root.with_name(spa_root.name + suffix)
+        if _dist_dir_within(candidate) is not None:
+            with contextlib.suppress(OSError):
+                candidate.rename(spa_root)
+            return
+
+
 def ensure_spa(repo_root: Path, version: str) -> Path | None:
     """Return a directory containing the built SPA, acquiring one if needed.
 
@@ -315,6 +350,7 @@ def ensure_spa(repo_root: Path, version: str) -> Path | None:
         return repo_dist
 
     spa_root = paths.subdir("spa")
+    _recover_interrupted_swap(spa_root)
     cached = _dist_dir_within(spa_root)
     if cached and _cached_version_matches(spa_root, version):
         print(f"[oc-desktop] Using the downloaded frontend bundle at {cached}.")

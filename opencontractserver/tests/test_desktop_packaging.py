@@ -137,6 +137,17 @@ class SpaFallbackTests(SimpleTestCase):
 class DesktopBootstrapTests(TestCase):
     """Tests for the ``desktop_bootstrap`` command's user + pipeline seeding."""
 
+    def setUp(self):
+        # _seed_user touches the password marker under the app-data dir;
+        # isolate it so tests never write into the real per-user location.
+        self._data_tmp = tempfile.TemporaryDirectory()
+        self._env_patch = mock.patch.dict(
+            os.environ, {paths.DATA_DIR_ENV: self._data_tmp.name}, clear=False
+        )
+        self._env_patch.start()
+        self.addCleanup(self._env_patch.stop)
+        self.addCleanup(self._data_tmp.cleanup)
+
     @staticmethod
     def _command():
         """Build the command with real StringIO streams (mypy-clean, readable)."""
@@ -697,6 +708,15 @@ class EarlyPasswordPromptTests(SimpleTestCase):
 class EnvPasswordFloorTests(TestCase):
     """OC_DESKTOP_PASSWORD must not bypass the minimum-length floor."""
 
+    def setUp(self):
+        self._data_tmp = tempfile.TemporaryDirectory()
+        self._env_patch = mock.patch.dict(
+            os.environ, {paths.DATA_DIR_ENV: self._data_tmp.name}, clear=False
+        )
+        self._env_patch.start()
+        self.addCleanup(self._env_patch.stop)
+        self.addCleanup(self._data_tmp.cleanup)
+
     def test_short_env_password_is_ignored(self):
         from opencontractserver.documents.management.commands.desktop_bootstrap import (
             Command,
@@ -904,7 +924,8 @@ class ZipBombGuardTests(SimpleTestCase):
                 with zipfile.ZipFile(archive_path) as archive:
                     with self.assertRaises(ValueError):
                         spa_dist.safe_extract_zip(archive, dest)
-            self.assertFalse((dest / "dist").exists())
+            # The partially-written member is removed (the empty dir may stay).
+            self.assertFalse((dest / "dist" / "index.html").exists())
 
 
 class InstallLockTests(SimpleTestCase):
@@ -1093,3 +1114,115 @@ class DesktopBootstrapCommandInvocationTests(TestCase):
         inner.assert_called_once_with("migrate_pipeline_settings")
         user = User.objects.get(username="cliuser")
         self.assertTrue(user.check_password("cli-password-1"))
+
+
+class PasswordWindowHardeningTests(TestCase):
+    """Review round: the password must not reach install/migrate subprocesses,
+    and a retried first run must not re-prompt for an already-set password."""
+
+    def test_scrubbed_env_drops_password_only(self):
+        from opencontractserver.desktop import bootstrap
+
+        with mock.patch.dict(
+            os.environ, {"OC_DESKTOP_PASSWORD": "pw-123456", "KEEP": "1"}, clear=False
+        ):
+            env = bootstrap._scrubbed_env()
+        self.assertNotIn("OC_DESKTOP_PASSWORD", env)
+        self.assertEqual(env.get("KEEP"), "1")
+
+    def test_early_prompt_skipped_when_password_marker_exists(self):
+        from opencontractserver.desktop import bootstrap
+
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
+            os.environ, {paths.DATA_DIR_ENV: tmp}, clear=False
+        ), mock.patch.object(
+            bootstrap,
+            "prompt_for_password",
+            side_effect=AssertionError("must not prompt"),
+        ):
+            os.environ.pop("OC_DESKTOP_PASSWORD", None)
+            paths.password_marker().touch()
+            bootstrap.maybe_prompt_first_run_password()
+            self.assertIsNone(os.environ.get("OC_DESKTOP_PASSWORD"))
+
+    def test_seed_user_writes_password_marker(self):
+        from opencontractserver.documents.management.commands.desktop_bootstrap import (
+            Command,
+        )
+
+        out, err = io.StringIO(), io.StringIO()
+        cmd = Command(stdout=out, stderr=err)
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
+            os.environ,
+            {paths.DATA_DIR_ENV: tmp, "OC_DESKTOP_PASSWORD": "marker-pw-1"},
+            clear=False,
+        ):
+            cmd._seed_user("ivy", "ivy@localhost")
+            self.assertTrue(paths.password_marker().exists())
+
+
+class SwapRecoveryTests(SimpleTestCase):
+    """A hard kill between the two swap renames must self-heal on next launch."""
+
+    def test_promotes_verified_staging_dir(self):
+        from opencontractserver.desktop import spa_dist
+
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
+            os.environ, {paths.DATA_DIR_ENV: tmp}, clear=False
+        ):
+            spa_root = paths.subdir("spa")
+            staged = spa_root.with_name(spa_root.name + ".new") / "dist"
+            staged.mkdir(parents=True)
+            (staged / "index.html").write_text("<html></html>")
+            spa_dist._recover_interrupted_swap(spa_root)
+            self.assertTrue((spa_root / "dist" / "index.html").is_file())
+
+    def test_restores_backup_when_no_staging(self):
+        from opencontractserver.desktop import spa_dist
+
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
+            os.environ, {paths.DATA_DIR_ENV: tmp}, clear=False
+        ):
+            spa_root = paths.subdir("spa")
+            backup = spa_root.with_name(spa_root.name + ".old") / "dist"
+            backup.mkdir(parents=True)
+            (backup / "index.html").write_text("<html></html>")
+            spa_dist._recover_interrupted_swap(spa_root)
+            self.assertTrue((spa_root / "dist" / "index.html").is_file())
+
+    def test_noop_when_spa_root_exists(self):
+        from opencontractserver.desktop import spa_dist
+
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
+            os.environ, {paths.DATA_DIR_ENV: tmp}, clear=False
+        ):
+            spa_root = paths.subdir("spa", create=True)
+            spa_dist._recover_interrupted_swap(spa_root)
+            self.assertTrue(spa_root.exists())
+
+
+class LockAgeCeilingTests(SimpleTestCase):
+    def test_live_pid_with_ancient_lock_is_stale(self):
+        from opencontractserver.desktop import bootstrap
+
+        with tempfile.TemporaryDirectory() as tmp:
+            lock = Path(tmp) / "lock"
+            lock.write_text(f"{os.getpid()}\n")  # alive (this process)
+            ancient = 1_000_000
+            os.utime(lock, (ancient, ancient))
+            self.assertTrue(bootstrap._lock_is_stale(lock))
+
+
+class VenvCurrentRobustnessTests(SimpleTestCase):
+    def test_missing_requirements_files_read_as_stale(self):
+        from opencontractserver.desktop import bootstrap
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "repo"  # no requirements/ at all
+            root.mkdir()
+            venv_path = Path(tmp) / "venv"
+            vpy = bootstrap.venv_python(venv_path)
+            vpy.parent.mkdir(parents=True)
+            vpy.write_text("")
+            bootstrap._fingerprint_marker(venv_path).write_text("whatever")
+            self.assertFalse(bootstrap._venv_is_current(root, venv_path))

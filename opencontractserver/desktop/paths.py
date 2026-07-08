@@ -110,3 +110,13 @@ def logs_dir() -> Path:
 
 def first_run_marker() -> Path:
     return app_data_dir() / ".bootstrapped"
+
+
+def password_marker() -> Path:
+    """Marker (no secret content) that the local login has a usable password.
+
+    Written by ``desktop_bootstrap`` so a retried first run — where a LATER
+    bootstrap step failed and ``first_run_marker`` stayed unwritten — does not
+    re-prompt for a password the account already has.
+    """
+    return app_data_dir() / ".password-set"

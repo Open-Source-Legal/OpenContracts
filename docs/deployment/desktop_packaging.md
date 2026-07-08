@@ -94,10 +94,11 @@ and an internet connection for the first run. The first run, in order
 
 Log in as **`desktop`** with the password you chose. **Stop the app with
 Ctrl+C** in the launch terminal — every child (including Postgres) shuts down
-cleanly. Later launches skip setup and start in well under a minute. Don't
-start a second copy while the first run is still installing — there is no
-cross-process lock around the environment setup yet (Phase-1 item), and two
-concurrent installs into the same private venv can corrupt it.
+cleanly. Later launches skip setup and start in well under a minute. A
+cross-process install lock (`opencontractserver/desktop/bootstrap.py::
+_install_lock`) guards the first-run environment setup: a second copy
+launched mid-install exits with a clear message instead of corrupting the
+shared venv, and a lock left by a crashed run is reclaimed automatically.
 
 Everything is stored under a per-user app-data directory
 (`opencontractserver/desktop/paths.py`): `venv/`, `pgdata/`, `media/`,

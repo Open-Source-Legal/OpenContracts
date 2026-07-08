@@ -108,12 +108,27 @@ class Command(BaseCommand):
             "--settings=config.settings.desktop` to enable login."
         )
 
+    @staticmethod
+    def _record_password_set() -> None:
+        """Touch the (secret-free) marker gating the launcher's early prompt.
+
+        Without it, a first run where a LATER bootstrap step failed (so the
+        first-run marker stayed unwritten for retry) would re-prompt for a
+        password the account already has — and silently discard the answer.
+        """
+        import contextlib
+
+        with contextlib.suppress(OSError):
+            paths.ensure_private_dir(paths.app_data_dir())
+            paths.password_marker().touch()
+
     def _seed_user(self, username: str, email: str) -> None:
         User = get_user_model()
         existing = User.objects.filter(username=username).first()
         if existing is not None:
             if existing.has_usable_password():
                 self.stdout.write(f"Local user '{username}' already exists; skipping.")
+                self._record_password_set()
                 return
             # Self-heal a password-less account from an earlier run (e.g. a
             # first boot with no env var and no terminal).
@@ -121,6 +136,7 @@ class Command(BaseCommand):
             if password:
                 existing.set_password(password)
                 existing.save(update_fields=["password"])
+                self._record_password_set()
                 self.stdout.write(
                     self.style.SUCCESS(
                         f"Set a login password for local user '{username}'."
@@ -137,6 +153,7 @@ class Command(BaseCommand):
         # (set_password(None) -> set_unusable_password), so no explicit reset.
         User.objects.create_superuser(username=username, email=email, password=password)
         if password:
+            self._record_password_set()
             self.stdout.write(
                 self.style.SUCCESS(f"Created local superuser '{username}'.")
             )

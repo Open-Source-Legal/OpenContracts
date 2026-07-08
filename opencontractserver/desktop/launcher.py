@@ -473,7 +473,12 @@ def main() -> None:
         )
 
     _start_postgres(env)
-    _manage(env, "migrate", "--noinput")
+    # Only desktop_bootstrap (inside _first_run_bootstrap) may see the
+    # first-run password; every other subprocess gets the scrubbed copy so the
+    # password never sits in migrate/collectstatic environment blocks.
+    safe_env = dict(env)
+    safe_env.pop("OC_DESKTOP_PASSWORD", None)
+    _manage(safe_env, "migrate", "--noinput")
     _first_run_bootstrap(env)
     # The first-run password (possibly injected by bootstrap's early prompt) is
     # only needed by desktop_bootstrap — never expose it to the long-lived

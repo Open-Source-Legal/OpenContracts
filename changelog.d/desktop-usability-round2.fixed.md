@@ -5,7 +5,7 @@
     the single interactive question used to land 15+ minutes in, mid-install,
     after users had walked away. The prompt helper is shared with
     `desktop_bootstrap` (which keeps it as a fallback and now also enforces
-    the `MIN_PASSWORD_LENGTH` floor on the `OC_DESKTOP_PASSWORD` env var —
+    the `LOGIN_MIN_LENGTH` floor on the `OC_DESKTOP_PASSWORD` env var —
     previously the env path bypassed the only validation this superuser
     account gets). The launcher drops the env var before spawning the
     long-lived children.
