@@ -28,15 +28,18 @@ class Client:
         variables: dict | None = None,
         variable_values: dict | None = None,
         context_value: Any = None,
+        context: Any = None,
         operation_name: str | None = None,
         **kwargs: Any,
     ) -> dict:
+        # ``context`` is graphene's alias for ``context_value`` — accept both
+        # so existing tests written against ``graphene.test.Client`` keep
+        # working unchanged.
+        ctx = context_value if context_value is not None else context
         result = self.schema.execute_sync(
             query,
             variable_values=variables if variables is not None else variable_values,
-            context_value=(
-                context_value if context_value is not None else self.context_value
-            ),
+            context_value=(ctx if ctx is not None else self.context_value),
             operation_name=operation_name,
         )
         formatted: dict = {}
