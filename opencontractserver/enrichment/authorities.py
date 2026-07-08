@@ -125,11 +125,31 @@ def read_section_spec(
 
 
 def candidate_keys(canonical_key: str) -> list[str]:
-    """Keys to try when resolving a citation: exact first, then section root."""
+    """Keys to try when resolving a citation.
+
+    Order: the exact key first; then — if the key contains an underscore —
+    the same key with every ``_`` replaced by ``-``. Real canonical keys use
+    hyphens exclusively in their namespace prefix (``exchange-act:16``,
+    ``sec-rule:144``) and never an underscore, but an LLM occasionally emits
+    an underscore-separated variant anyway, pattern-matching Python-identifier
+    conventions instead of the real hyphenated key grammar — so we try the
+    normalized form as a fallback rather than silently returning nothing.
+    Finally, the section-root fallback (trailing parenthetical subsection
+    groups stripped) is applied to BOTH the exact key and the
+    normalized-underscore variant, so a subsection citation with an
+    underscore typo still rolls up to its section root. Order is preserved
+    (exact key first) and no duplicate entries are returned.
+    """
     keys = [canonical_key]
-    root = _SUBSECTION_SUFFIX_RE.sub("", canonical_key)
-    if root and root != canonical_key:
-        keys.append(root)
+    normalized = canonical_key.replace("_", "-")
+    if normalized != canonical_key:
+        keys.append(normalized)
+
+    for base in (canonical_key, normalized):
+        root = _SUBSECTION_SUFFIX_RE.sub("", base)
+        if root and root != base and root not in keys:
+            keys.append(root)
+
     return keys
 
 

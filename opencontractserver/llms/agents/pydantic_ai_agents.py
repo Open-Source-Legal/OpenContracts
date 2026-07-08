@@ -834,11 +834,16 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
             self._normalise_source(s) for s in getattr(run_result, "sources", [])
         ]
         usage_data = _usage_to_dict(run_result.usage())
+        timeline = _extract_tool_call_timeline(run_result)
 
         return (
             llm_response_content,
             sources,
-            {"usage": usage_data, "framework": "pydantic_ai"},
+            {
+                "usage": usage_data,
+                "framework": "pydantic_ai",
+                "timeline": timeline,
+            },
         )
 
     # NOTE: This method was previously called ``stream``.  It is now renamed
@@ -3630,6 +3635,55 @@ def _event_to_text_and_meta(event: Any) -> tuple[str, bool, dict[str, Any]]:
         text = ""
 
     return text, is_answer, meta
+
+
+def _extract_tool_call_timeline(run_result: Any) -> list[dict[str, Any]]:
+    """Derive a ``timeline`` list of ``tool_call`` entries from a pydantic-ai
+    ``AgentRunResult``.
+
+    The non-streaming ``_chat_raw`` path has no access to the incremental
+    ``TimelineBuilder`` the streaming path (``_stream_core`` /
+    ``TimelineStreamMixin``) uses, but ``run_result.all_messages()`` retains
+    every ``ToolCallPart`` the model emitted during the run. This walks that
+    message history and reconstructs the same ``{"type": "tool_call", "tool":
+    ..., "args": ...}`` shape the streaming path already emits (see
+    ``TimelineBuilder.add`` in ``timeline_utils.py``) so both chat paths
+    populate ``metadata["timeline"]`` consistently.
+
+    Defensive by design: uses ``getattr`` throughout so an unexpected message
+    or part shape (e.g. a future pydantic-ai release) is skipped rather than
+    raising and breaking the chat response.
+    """
+
+    timeline: list[dict[str, Any]] = []
+
+    all_messages = getattr(run_result, "all_messages", None)
+    if not callable(all_messages):
+        return timeline
+
+    try:
+        messages = all_messages()
+    except Exception:
+        logger.warning(
+            "[_extract_tool_call_timeline] Failed to call run_result.all_messages()",
+            exc_info=True,
+        )
+        return timeline
+
+    for message in messages or []:
+        parts = getattr(message, "parts", None) or []
+        for part in parts:
+            if not isinstance(part, ToolCallPart):
+                continue
+            timeline.append(
+                {
+                    "type": "tool_call",
+                    "tool": getattr(part, "tool_name", None),
+                    "args": getattr(part, "args", None),
+                }
+            )
+
+    return timeline
 
 
 def _usage_to_dict(usage: Any) -> Optional[dict[str, Any]]:

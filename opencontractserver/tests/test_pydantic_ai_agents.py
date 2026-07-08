@@ -672,6 +672,71 @@ class TestPydanticAIAgents(TransactionTestCase):
         self.assertIsInstance(resp, UnifiedChatResponse)
         self.assertIn("PydanticAI Placeholder", resp.content)
 
+    async def test_chat_metadata_includes_tool_call_timeline(self) -> None:
+        """Non-streaming ``agent.chat()`` must populate ``metadata["timeline"]``.
+
+        Regression test: ``_chat_raw`` used to return
+        ``{"usage": ..., "framework": "pydantic_ai"}`` with no ``"timeline"``
+        key at all, even when the run actually invoked tools. Consumers that
+        only call ``agent.chat()`` (e.g.
+        ``opencontractserver.benchmarks.traversal_benchmark.run_one``, which
+        reads ``metadata.get("timeline")`` and filters for
+        ``type == "tool_call"``) silently saw zero tool calls. The streaming
+        path (``_stream_core`` / ``TimelineStreamMixin``) already got this
+        right; this test locks in the same behaviour for ``.chat()``.
+        """
+        config = AgentConfig(
+            user_id=self.user.id,
+            model_name="openai:gpt-4o-mini",
+            store_user_messages=False,
+            store_llm_messages=False,
+        )
+
+        # Build a REAL document agent (real tool registration) with a dummy
+        # API key so construction succeeds without a network call — the
+        # model is swapped for TestModel below before any request is made.
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "test-key-unused"}):
+            agent = await PydanticAIDocumentAgent.create(
+                document=self.doc1, corpus=self.corpus, config=config
+            )
+        agent.conversation_manager.get_conversation_messages = AsyncMock(
+            return_value=[]
+        )
+
+        # Force TestModel to call exactly one real registered tool
+        # (`get_document_summary`) so the timeline extraction has something
+        # deterministic to find.
+        test_model = TestModel(
+            call_tools=["get_document_summary"],
+            custom_output_text="Here is a summary of the document.",
+        )
+
+        with agent.pydantic_ai_agent.override(model=test_model):
+            resp = await agent.chat("Please summarize this document.")
+
+        self.assertIsInstance(resp, UnifiedChatResponse)
+        timeline = resp.metadata.get("timeline")
+        self.assertIsInstance(timeline, list)
+        self.assertGreater(
+            len(timeline), 0, "Expected a non-empty timeline from agent.chat()"
+        )
+
+        tool_call_entries = [
+            entry for entry in timeline if entry.get("type") == "tool_call"
+        ]
+        self.assertGreater(
+            len(tool_call_entries),
+            0,
+            "Expected at least one tool_call entry in the chat() timeline",
+        )
+        self.assertTrue(
+            any(
+                entry.get("tool") == "get_document_summary"
+                for entry in tool_call_entries
+            ),
+            f"Expected a tool_call entry naming get_document_summary; got: {tool_call_entries}",
+        )
+
     async def test_structured_response_usage_limit_logs_actual_limit(self) -> None:
         """Tripping the request budget logs the ACTUAL limit, not the default.
 
