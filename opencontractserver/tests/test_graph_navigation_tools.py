@@ -12,6 +12,8 @@ and a *private* target inside a *public* corpus must not leak through the
 reference edge.
 """
 
+from unittest import mock
+
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.test import TestCase
@@ -249,6 +251,27 @@ class GraphNavigationToolTests(TestCase):
         self.assertEqual(res["citing_documents"], [])
         self.assertEqual(res["citing_document_count"], 0)
 
+    def test_find_documents_citing_corpus_id_survives_sample_truncation(self):
+        """corpus_id comes from the ranked aggregate, not the capped sample scan.
+
+        Regression: corpus_id was populated in the bounded citing-clause sample
+        scan (capped at NAV_CITING_SAMPLE_SCAN, ordered by document_id), so a
+        top-ranked document whose id sorted past the budget got a null
+        corpus_id. With the scan budget forced to 0 the snippets are empty but
+        corpus_id (a DB aggregate on the ranked query) must still be populated.
+        """
+        with mock.patch.object(C, "NAV_CITING_SAMPLE_SCAN", 0):
+            res = find_documents_citing(
+                corpus_id=self.corpus.id,
+                user_id=self.user.id,
+                canonical_key="dgcl:145",
+            )
+        doc = next(
+            d for d in res["citing_documents"] if d["document_id"] == self.primary_id
+        )
+        self.assertIsNotNone(doc["corpus_id"])
+        self.assertEqual(doc["sample_citations"], [])
+
     # ---- get_reference_neighborhood ----------------------------------- #
     def test_neighborhood_whole_corpus(self):
         res = get_reference_neighborhood(corpus_id=self.corpus.id, user_id=self.user.id)
@@ -347,6 +370,18 @@ class GraphNavigationToolTests(TestCase):
         # Error envelope carries the same context keys the happy path returns.
         for key in ("corpus_id", "direction", "outbound", "inbound"):
             self.assertIn(key, res)
+
+    def test_error_envelope_reports_normalized_direction(self):
+        # A bad direction on an error path reports the normalized "both", not
+        # the raw LLM-supplied value — matching the happy-path envelope.
+        res = get_document_references(
+            corpus_id=self.corpus.id,
+            user_id=self.user.id,
+            document_id=999999999,
+            direction="sideways",
+        )
+        self.assertIn("error", res)
+        self.assertEqual(res["direction"], "both")
 
     # ---- abuse-resistance clamps -------------------------------------- #
     def test_reference_limit_is_clamped(self):

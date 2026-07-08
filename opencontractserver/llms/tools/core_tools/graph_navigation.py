@@ -125,6 +125,11 @@ def get_document_references(
     from opencontractserver.enrichment.services import CorpusReferenceService
     from opencontractserver.shared.services.base import BaseService
 
+    # Normalize direction up front so every return (error and happy path alike)
+    # reports the same value the query actually uses.
+    if direction not in ("outbound", "inbound", "both"):
+        direction = "both"
+
     if document_id is None:
         return {
             "error": (
@@ -165,8 +170,6 @@ def get_document_references(
         }
 
     limit = clamp_limit(limit, C.NAV_DEFAULT_MAX_REFERENCES, C.NAV_MAX_REFERENCES)
-    if direction not in ("outbound", "inbound", "both"):
-        direction = "both"
 
     base = CorpusReferenceService.visible_to_user(user)
     result: dict = {
@@ -316,7 +319,7 @@ def find_documents_citing(
     user = get_user_or_none(user_id)
     limit = clamp_limit(limit, C.NAV_DEFAULT_MAX_CITING, C.NAV_MAX_CITING)
 
-    from django.db.models import Count
+    from django.db.models import Count, Min
 
     from opencontractserver.enrichment.authorities import candidate_keys
     from opencontractserver.shared.services.base import BaseService
@@ -361,9 +364,13 @@ def find_documents_citing(
 
     # Rank citing documents by mention volume IN THE DB, bounded to `limit` — a
     # widely-cited authority must not pull its whole reference set into memory.
+    # corpus_id is derived in the SAME bounded aggregate (Min over the citing
+    # reference rows, deterministic), so it never depends on the separate,
+    # capped sample scan below — a top-ranked document can't end up with a
+    # null corpus_id just because its id sorts past the sample budget.
     ranked = list(
         anchored.values("source_annotation__document_id")
-        .annotate(mention_count=Count("id"))
+        .annotate(mention_count=Count("id"), corpus_id=Min("corpus"))
         .order_by("-mention_count", "source_annotation__document_id")[:limit]
     )
     doc_ids = [r["source_annotation__document_id"] for r in ranked]
@@ -383,10 +390,10 @@ def find_documents_citing(
     # this is a per-document-fairness trade-off, not just a volume bound: rows
     # are ordered by (document_id, id), so if the lowest-pk ranked document
     # alone has more mentions than the budget, later ranked documents can get
-    # empty ``sample_citations``. Their ``mention_count`` stays exact — that is
-    # a separate DB aggregate above — only the illustrative snippet is dropped.
+    # empty ``sample_citations``. This ONLY affects the illustrative snippet —
+    # ``mention_count`` and ``corpus_id`` are exact DB aggregates on the ranked
+    # query above and are unaffected by this scan's budget.
     samples: dict[int, list] = {}
-    corpus_by_doc: dict[int, int] = {}
     for ref in (
         anchored.filter(source_annotation__document_id__in=doc_ids)
         .select_related("source_annotation")
@@ -394,10 +401,6 @@ def find_documents_citing(
     ):
         src = ref.source_annotation
         did = src.document_id
-        # Deterministic (not "first scanned"): the order_by above sorts rows by
-        # (document_id, id), so a document reachable via several corpus-forked
-        # reference rows always reports its LOWEST-id reference's corpus.
-        corpus_by_doc.setdefault(did, ref.corpus_id)
         bucket = samples.setdefault(did, [])
         if len(bucket) < C.NAV_MAX_SAMPLE_CITATIONS:
             bucket.append(
@@ -412,7 +415,7 @@ def find_documents_citing(
         {
             "document_id": r["source_annotation__document_id"],
             "document_title": titles.get(r["source_annotation__document_id"]),
-            "corpus_id": corpus_by_doc.get(r["source_annotation__document_id"]),
+            "corpus_id": r["corpus_id"],
             "mention_count": r["mention_count"],
             "sample_citations": samples.get(r["source_annotation__document_id"], []),
         }
