@@ -1,5 +1,16 @@
 """GraphQL enum types (generated to match the golden SDL)."""
 
+# mypy: disable-error-code="name-defined, valid-type, arg-type"
+#   Code-generation artifacts of the strawberry schema bindings that
+#   mypy's static pass cannot resolve, NOT real typing defects:
+#     name-defined / valid-type — ``Annotated["XType", strawberry.lazy(...)]``
+#       forward-reference strings + the runtime-generated ``*Connection``
+#       types (``make_connection_types``).
+#     arg-type — resolvers construct result types with ``to_global_id()``
+#       (``str``) for ``strawberry.ID`` fields and return Django MODEL
+#       instances where the field annotation names the strawberry type
+#       (the graphene-django resolver contract). Both are correct at
+#       runtime. Hand-written config/graphql/core/* stays fully checked.
 # flake8: noqa: E501 — generated enum descriptions (long value docstrings).
 
 from enum import Enum

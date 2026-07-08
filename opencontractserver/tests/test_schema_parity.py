@@ -15,6 +15,7 @@ If you intentionally change the API surface, regenerate the golden file:
 """
 
 from pathlib import Path
+from typing import cast
 
 from django.test import SimpleTestCase
 from graphql import (
@@ -81,17 +82,27 @@ class SchemaParityTestCase(SimpleTestCase):
                 problems.append(f"kind mismatch {n}: {_kind(gt)} vs {_kind(st)}")
                 continue
 
+            # ``_kind(gt) == _kind(st)`` above guarantees the parallel ``st``
+            # is the same GraphQL kind as ``gt``; cast so mypy sees the
+            # kind-specific attributes (``values`` / ``fields`` / ``interfaces``)
+            # it can only narrow on ``gt`` via ``isinstance``.
             if isinstance(gt, GraphQLEnumType):
-                if set(gt.values) != set(st.values):
+                st_enum = cast(GraphQLEnumType, st)
+                if set(gt.values) != set(st_enum.values):
                     problems.append(
-                        f"enum {n}: members differ {sorted(set(gt.values) ^ set(st.values))}"
+                        f"enum {n}: members differ "
+                        f"{sorted(set(gt.values) ^ set(st_enum.values))}"
                     )
                 continue
 
             if isinstance(
                 gt, (GraphQLObjectType, GraphQLInterfaceType, GraphQLInputObjectType)
             ):
-                gf, sf = gt.fields, st.fields
+                st_fielded = cast(
+                    "GraphQLObjectType | GraphQLInterfaceType | GraphQLInputObjectType",
+                    st,
+                )
+                gf, sf = gt.fields, st_fielded.fields
                 for fn in sorted(set(gf) - set(sf)):
                     problems.append(f"{n}: missing field {fn}")
                 for fn in sorted(set(sf) - set(gf)):
@@ -119,7 +130,7 @@ class SchemaParityTestCase(SimpleTestCase):
 
                 if isinstance(gt, GraphQLObjectType):
                     gi = {i.name for i in gt.interfaces}
-                    si = {i.name for i in st.interfaces}
+                    si = {i.name for i in cast(GraphQLObjectType, st).interfaces}
                     if gi != si:
                         problems.append(f"{n}: interfaces {gi} vs {si}")
 

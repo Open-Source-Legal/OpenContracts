@@ -112,7 +112,7 @@ def _drf_mutation_body(
                 model, lookup_pk, info.context.user, request=info.context
             )
             if obj is None:
-                raise model.DoesNotExist(
+                raise model.DoesNotExist(  # type: ignore[attr-defined]
                     f"{model.__name__} matching query does not exist."
                 )
 
@@ -213,7 +213,9 @@ def _drf_deletion_body(
     pk = from_global_id(lookup_value)[1]
     obj = BaseService.get_or_none(model, pk, info.context.user, request=info.context)
     if obj is None:
-        raise model.DoesNotExist(f"{model.__name__} matching query does not exist.")
+        raise model.DoesNotExist(  # type: ignore[attr-defined]
+            f"{model.__name__} matching query does not exist."
+        )
 
     if hasattr(obj, "user_lock") and obj.user_lock is not None:
         if info.context.user.id != obj.user_lock_id:

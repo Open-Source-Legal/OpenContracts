@@ -37,7 +37,10 @@ def to_camel_case(snake_str: str) -> str:
 @lru_cache(maxsize=None)
 def filterset_arg_names(filterset_class: type) -> tuple[tuple[str, str], ...]:
     """(filter_name, graphql_arg_name) pairs for a FilterSet class."""
-    return tuple((name, to_camel_case(name)) for name in filterset_class.base_filters)
+    return tuple(
+        (name, to_camel_case(name))
+        for name in filterset_class.base_filters  # type: ignore[attr-defined]
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -134,7 +137,7 @@ def filterset_factory(model: type, fields: dict) -> type:
     ``filter_fields`` mapping (port of ``custom_filterset_factory``)."""
     meta_class = type("Meta", (object,), {"model": model, "fields": fields})
     return type(
-        f"{model._meta.object_name}FilterSet",
+        f"{model._meta.object_name}FilterSet",  # type: ignore[attr-defined]
         (FilterSet, GrapheneFilterSetMixin),
         {"Meta": meta_class},
     )

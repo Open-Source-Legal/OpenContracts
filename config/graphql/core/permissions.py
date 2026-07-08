@@ -280,5 +280,9 @@ def resolve_is_published(instance: Any, info: Any) -> bool:
     """Port of ``AnnotatePermissionsForReadMixin.resolve_is_published``."""
     from guardian.shortcuts import get_groups_with_perms
 
+    # ``attach_perms=False`` (the default) always returns a ``QuerySet[Group]``,
+    # but the stub's return type is the ``attach_perms=True`` ``dict`` union too.
     groups = get_groups_with_perms(instance, attach_perms=False)
-    return groups.filter(name=settings.DEFAULT_PERMISSIONS_GROUP).count() == 1
+    return (
+        groups.filter(name=settings.DEFAULT_PERMISSIONS_GROUP).count() == 1  # type: ignore[union-attr]
+    )

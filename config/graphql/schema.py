@@ -13,6 +13,8 @@ validation stays active on the served endpoint. ``validation_rules`` keeps
 the full effective list exported for tests/tooling.
 """
 
+from typing import Any
+
 import strawberry
 from django.conf import settings
 from graphql.validation import specified_rules
@@ -81,7 +83,7 @@ from config.graphql import worker_queries as _worker_queries
 from config.graphql import worker_types as _worker_types
 from config.graphql.security import DepthLimitValidationRule, DisableIntrospection
 
-_query_ns = {}
+_query_ns: dict[str, Any] = {}
 _query_ns.update(_action_queries.QUERY_FIELDS)
 _query_ns.update(_annotation_queries.QUERY_FIELDS)
 _query_ns.update(_annotation_types.QUERY_FIELDS)
@@ -102,7 +104,7 @@ _query_ns.update(_social_queries.QUERY_FIELDS)
 _query_ns.update(_stats_queries.QUERY_FIELDS)
 _query_ns.update(_user_queries.QUERY_FIELDS)
 _query_ns.update(_worker_queries.QUERY_FIELDS)
-_mutation_ns = {}
+_mutation_ns: dict[str, Any] = {}
 _mutation_ns.update(_agent_mutations.MUTATION_FIELDS)
 _mutation_ns.update(_analysis_mutations.MUTATION_FIELDS)
 _mutation_ns.update(_annotation_mutations.MUTATION_FIELDS)
@@ -131,7 +133,7 @@ _mutation_ns.update(_voting_mutations.MUTATION_FIELDS)
 _mutation_ns.update(_worker_mutations.MUTATION_FIELDS)
 Query = strawberry.type(type("Query", (), dict(_query_ns)), name="Query")
 Mutation = strawberry.type(type("Mutation", (), dict(_mutation_ns)), name="Mutation")
-_extra_types = []
+_extra_types: list[Any] = []
 _extra_types += [
     v
     for v in vars(_agent_mutations).values()
@@ -347,4 +349,4 @@ schema = strawberry.Schema(
 # and ``test_security_hardening``/``test_authority_mapping_loader``) reach
 # for it directly. Strawberry stores it on the private ``_schema``; alias it
 # so those references keep working across the migration without a rename.
-schema.graphql_schema = schema._schema
+schema.graphql_schema = schema._schema  # type: ignore[attr-defined]

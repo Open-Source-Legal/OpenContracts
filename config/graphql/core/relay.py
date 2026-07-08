@@ -246,7 +246,7 @@ def get_node_from_global_id(
         # Frozen/immutable context — hint is best-effort only.
         pass
 
-    not_found = entry.model.DoesNotExist(
+    not_found = entry.model.DoesNotExist(  # type: ignore[attr-defined]
         f"{entry.model.__name__} matching query does not exist."
     )
 
@@ -261,7 +261,7 @@ def get_node_from_global_id(
     )
     try:
         return queryset.get(pk=_pk)
-    except entry.model.DoesNotExist:
+    except entry.model.DoesNotExist:  # type: ignore[attr-defined]
         raise not_found
     except (ValueError, TypeError, OverflowError):
         # Malformed / out-of-range pk from untrusted input — treat as
@@ -339,7 +339,9 @@ def _resolve_current_page(root: ConnectionValue, info: strawberry.Info) -> int:
 
 def _resolve_page_count(root: ConnectionValue, info: strawberry.Info) -> int:
     """Port of ``PdfPageAwareConnection.resolve_page_count``."""
-    return max(list(root.iterable.values_list("page", flat=True).distinct()))
+    return max(
+        list(root.iterable.values_list("page", flat=True).distinct())  # type: ignore[attr-defined]
+    )
 
 
 def make_connection_types(
@@ -383,7 +385,7 @@ def make_connection_types(
     namespace: dict[str, Any] = {
         "__annotations__": {
             "page_info": PageInfo,
-            "edges": list[Optional[edge_cls]],
+            "edges": list[Optional[edge_cls]],  # type: ignore[valid-type]
         },
         "page_info": strawberry.field(
             description="Pagination data for this connection."
@@ -404,7 +406,7 @@ def make_connection_types(
 
     connection_cls = type(connection_name, (), namespace)
     connection_cls = strawberry.type(connection_cls, name=connection_name)
-    connection_cls.Edge = edge_cls
+    connection_cls.Edge = edge_cls  # type: ignore[attr-defined]
     return connection_cls
 
 
@@ -433,7 +435,7 @@ def resolve_connection_from_iterable(
     after = args.get("after")
     if offset:
         if after:
-            offset += cursor_to_offset(after) + 1
+            offset += cursor_to_offset(after) + 1  # type: ignore[operator]
         args["after"] = offset_to_cursor(offset - 1)
 
     iterable = maybe_queryset(iterable)
@@ -467,9 +469,11 @@ def resolve_connection_from_iterable(
         # kwarg); the lambda adapts the ``pageInfo`` kwarg onto
         # ``ConnectionValue``'s ``page_info`` positional — passing
         # ``ConnectionValue`` directly would raise on the unexpected kwarg.
-        connection_type=lambda edges, pageInfo: ConnectionValue(edges, pageInfo),
+        connection_type=lambda edges, pageInfo: ConnectionValue(  # type: ignore[arg-type]
+            edges, pageInfo
+        ),
         edge_type=EdgeValue,
-        page_info_type=lambda startCursor, endCursor, hasPreviousPage, hasNextPage: (
+        page_info_type=lambda startCursor, endCursor, hasPreviousPage, hasNextPage: (  # type: ignore[arg-type]
             PageInfo(
                 has_next_page=hasNextPage,
                 has_previous_page=hasPreviousPage,
@@ -478,9 +482,9 @@ def resolve_connection_from_iterable(
             )
         ),
     )
-    connection.iterable = iterable
-    connection.length = array_length
-    return connection
+    connection.iterable = iterable  # type: ignore[attr-defined]
+    connection.length = array_length  # type: ignore[attr-defined]
+    return connection  # type: ignore[return-value]
 
 
 def resolve_django_connection(

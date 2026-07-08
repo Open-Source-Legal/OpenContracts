@@ -77,7 +77,7 @@ def _is_document_connection(info: Any) -> bool:
 
     return_type = getattr(info, "return_type", None)
     while getattr(return_type, "of_type", None) is not None:  # unwrap NonNull
-        return_type = return_type.of_type
+        return_type = return_type.of_type  # type: ignore[union-attr]
     name = getattr(return_type, "name", None)
     if not name or not name.endswith("Connection"):
         return False
