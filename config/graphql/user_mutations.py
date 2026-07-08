@@ -56,9 +56,9 @@ from config.graphql.core.scalars import GenericScalar
 class ObtainJSONWebTokenWithUser:
     payload: GenericScalar = strawberry.field(name="payload", default=None)
     refresh_expires_in: int = strawberry.field(name="refreshExpiresIn", default=None)
-    user: Optional[
-        Annotated["UserType", strawberry.lazy("config.graphql.user_types")]
-    ] = strawberry.field(name="user", default=None)
+    user: None | (Annotated[UserType, strawberry.lazy("config.graphql.user_types")]) = (
+        strawberry.field(name="user", default=None)
+    )
     token: str = strawberry.field(name="token", default=None)
     refresh_token: str = strawberry.field(name="refreshToken", default=None)
 
@@ -71,11 +71,11 @@ register_type("ObtainJSONWebTokenWithUser", ObtainJSONWebTokenWithUser, model=No
     description="Update basic profile fields for the current user, including slug.",
 )
 class UpdateMe:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    user: Optional[
-        Annotated["UserType", strawberry.lazy("config.graphql.user_types")]
-    ] = strawberry.field(name="user", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    user: None | (Annotated[UserType, strawberry.lazy("config.graphql.user_types")]) = (
+        strawberry.field(name="user", default=None)
+    )
 
 
 register_type("UpdateMe", UpdateMe, model=None)
@@ -83,7 +83,7 @@ register_type("UpdateMe", UpdateMe, model=None)
 
 @strawberry.type(name="AcceptCookieConsent")
 class AcceptCookieConsent:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
 
 
 register_type("AcceptCookieConsent", AcceptCookieConsent, model=None)
@@ -94,8 +94,8 @@ register_type("AcceptCookieConsent", AcceptCookieConsent, model=None)
     description="Mutation to dismiss the getting-started guide for the current user.",
 )
 class DismissGettingStarted:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
 
 
 register_type("DismissGettingStarted", DismissGettingStarted, model=None)
@@ -165,7 +165,7 @@ def m_token_auth(
     info: strawberry.Info,
     username: Annotated[str, strawberry.argument(name="username")] = strawberry.UNSET,
     password: Annotated[str, strawberry.argument(name="password")] = strawberry.UNSET,
-) -> Optional["ObtainJSONWebTokenWithUser"]:
+) -> ObtainJSONWebTokenWithUser | None:
     kwargs = strip_unset({"username": username, "password": password})
     return _mutate_ObtainJSONWebTokenWithUser(
         ObtainJSONWebTokenWithUser, None, info, **kwargs
@@ -200,29 +200,27 @@ def _mutate_UpdateMe(payload_cls, root, info, **kwargs):
 def m_update_me(
     info: strawberry.Info,
     first_name: Annotated[
-        Optional[str], strawberry.argument(name="firstName")
+        str | None, strawberry.argument(name="firstName")
     ] = strawberry.UNSET,
     is_profile_public: Annotated[
-        Optional[bool], strawberry.argument(name="isProfilePublic")
+        bool | None, strawberry.argument(name="isProfilePublic")
     ] = strawberry.UNSET,
     last_name: Annotated[
-        Optional[str], strawberry.argument(name="lastName")
+        str | None, strawberry.argument(name="lastName")
     ] = strawberry.UNSET,
-    name: Annotated[Optional[str], strawberry.argument(name="name")] = strawberry.UNSET,
-    phone: Annotated[
-        Optional[str], strawberry.argument(name="phone")
-    ] = strawberry.UNSET,
+    name: Annotated[str | None, strawberry.argument(name="name")] = strawberry.UNSET,
+    phone: Annotated[str | None, strawberry.argument(name="phone")] = strawberry.UNSET,
     profile_about_markdown: Annotated[
-        Optional[str], strawberry.argument(name="profileAboutMarkdown")
+        str | None, strawberry.argument(name="profileAboutMarkdown")
     ] = strawberry.UNSET,
     profile_headline: Annotated[
-        Optional[str], strawberry.argument(name="profileHeadline")
+        str | None, strawberry.argument(name="profileHeadline")
     ] = strawberry.UNSET,
     profile_links_markdown: Annotated[
-        Optional[str], strawberry.argument(name="profileLinksMarkdown")
+        str | None, strawberry.argument(name="profileLinksMarkdown")
     ] = strawberry.UNSET,
-    slug: Annotated[Optional[str], strawberry.argument(name="slug")] = strawberry.UNSET,
-) -> Optional["UpdateMe"]:
+    slug: Annotated[str | None, strawberry.argument(name="slug")] = strawberry.UNSET,
+) -> UpdateMe | None:
     kwargs = strip_unset(
         {
             "first_name": first_name,
@@ -254,7 +252,7 @@ def _mutate_AcceptCookieConsent(payload_cls, root, info, **kwargs):
     return payload_cls(ok=True)
 
 
-def m_accept_cookie_consent(info: strawberry.Info) -> Optional["AcceptCookieConsent"]:
+def m_accept_cookie_consent(info: strawberry.Info) -> AcceptCookieConsent | None:
     kwargs = strip_unset({})
     return _mutate_AcceptCookieConsent(AcceptCookieConsent, None, info, **kwargs)
 
@@ -276,7 +274,7 @@ def _mutate_DismissGettingStarted(payload_cls, root, info, **kwargs):
 
 def m_dismiss_getting_started(
     info: strawberry.Info,
-) -> Optional["DismissGettingStarted"]:
+) -> DismissGettingStarted | None:
     kwargs = strip_unset({})
     return _mutate_DismissGettingStarted(DismissGettingStarted, None, info, **kwargs)
 

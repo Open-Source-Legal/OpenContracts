@@ -64,16 +64,16 @@ logger = logging.getLogger(__name__)
 
 @strawberry.type(name="ExtractDiffType")
 class ExtractDiffType:
-    extract_a: Optional[
-        Annotated["ExtractType", strawberry.lazy("config.graphql.extract_types")]
-    ] = strawberry.field(name="extractA", default=None)
-    extract_b: Optional[
-        Annotated["ExtractType", strawberry.lazy("config.graphql.extract_types")]
-    ] = strawberry.field(name="extractB", default=None)
-    cells: list[Optional["ExtractCellDiffType"]] = strawberry.field(
+    extract_a: None | (
+        Annotated[ExtractType, strawberry.lazy("config.graphql.extract_types")]
+    ) = strawberry.field(name="extractA", default=None)
+    extract_b: None | (
+        Annotated[ExtractType, strawberry.lazy("config.graphql.extract_types")]
+    ) = strawberry.field(name="extractB", default=None)
+    cells: list[ExtractCellDiffType | None] = strawberry.field(
         name="cells", default=None
     )
-    summary: "ExtractDiffSummaryType" = strawberry.field(name="summary", default=None)
+    summary: ExtractDiffSummaryType = strawberry.field(name="summary", default=None)
 
 
 register_type("ExtractDiffType", ExtractDiffType, model=None)
@@ -86,27 +86,27 @@ register_type("ExtractDiffType", ExtractDiffType, model=None)
 class ExtractCellDiffType:
     row_key: str = strawberry.field(name="rowKey", default=None)
     column_key: str = strawberry.field(name="columnKey", default=None)
-    document: Optional[
-        Annotated["DocumentType", strawberry.lazy("config.graphql.document_types")]
-    ] = strawberry.field(
+    document: None | (
+        Annotated[DocumentType, strawberry.lazy("config.graphql.document_types")]
+    ) = strawberry.field(
         name="document",
         description="Representative Document (B side preferred). For DOCUMENT_VERSIONS-axis diffs use documentA / documentB to see the actual version on each side.",
         default=None,
     )
-    document_a: Optional[
-        Annotated["DocumentType", strawberry.lazy("config.graphql.document_types")]
-    ] = strawberry.field(name="documentA", default=None)
-    document_b: Optional[
-        Annotated["DocumentType", strawberry.lazy("config.graphql.document_types")]
-    ] = strawberry.field(name="documentB", default=None)
-    cell_a: Optional[
-        Annotated["DatacellType", strawberry.lazy("config.graphql.extract_types")]
-    ] = strawberry.field(name="cellA", default=None)
-    cell_b: Optional[
-        Annotated["DatacellType", strawberry.lazy("config.graphql.extract_types")]
-    ] = strawberry.field(name="cellB", default=None)
+    document_a: None | (
+        Annotated[DocumentType, strawberry.lazy("config.graphql.document_types")]
+    ) = strawberry.field(name="documentA", default=None)
+    document_b: None | (
+        Annotated[DocumentType, strawberry.lazy("config.graphql.document_types")]
+    ) = strawberry.field(name="documentB", default=None)
+    cell_a: None | (
+        Annotated[DatacellType, strawberry.lazy("config.graphql.extract_types")]
+    ) = strawberry.field(name="cellA", default=None)
+    cell_b: None | (
+        Annotated[DatacellType, strawberry.lazy("config.graphql.extract_types")]
+    ) = strawberry.field(name="cellB", default=None)
     status: enums.ExtractDiffStatus = strawberry.field(name="status", default=None)
-    column_config_changed: Optional[bool] = strawberry.field(
+    column_config_changed: bool | None = strawberry.field(
         name="columnConfigChanged",
         description="True when the column on B has a different prompt / instructions / output_type from the column on A (FIELDSET axis).",
         default=None,
@@ -136,11 +136,11 @@ register_type("ExtractDiffSummaryType", ExtractDiffSummaryType, model=None)
     description="Type for metadata completion status information.",
 )
 class MetadataCompletionStatusType:
-    total_fields: Optional[int] = strawberry.field(name="totalFields", default=None)
-    filled_fields: Optional[int] = strawberry.field(name="filledFields", default=None)
-    missing_fields: Optional[int] = strawberry.field(name="missingFields", default=None)
-    percentage: Optional[float] = strawberry.field(name="percentage", default=None)
-    missing_required: Optional[list[Optional[str]]] = strawberry.field(
+    total_fields: int | None = strawberry.field(name="totalFields", default=None)
+    filled_fields: int | None = strawberry.field(name="filledFields", default=None)
+    missing_fields: int | None = strawberry.field(name="missingFields", default=None)
+    percentage: float | None = strawberry.field(name="percentage", default=None)
+    missing_required: list[str | None] | None = strawberry.field(
         name="missingRequired", default=None
     )
 
@@ -153,18 +153,15 @@ register_type("MetadataCompletionStatusType", MetadataCompletionStatusType, mode
     description="Type for batch metadata query results - groups datacells by document.",
 )
 class DocumentMetadataResultType:
-    document_id: Optional[strawberry.ID] = strawberry.field(
+    document_id: strawberry.ID | None = strawberry.field(
         name="documentId", description="The document's global ID", default=None
     )
-    datacells: Optional[
+    datacells: None | (
         list[
-            Optional[
-                Annotated[
-                    "DatacellType", strawberry.lazy("config.graphql.extract_types")
-                ]
-            ]
+            None
+            | (Annotated[DatacellType, strawberry.lazy("config.graphql.extract_types")])
         ]
-    ] = strawberry.field(
+    ) = strawberry.field(
         name="datacells",
         description="Metadata datacells for this document",
         default=None,
@@ -180,9 +177,7 @@ def q_fieldset(
         strawberry.ID,
         strawberry.argument(name="id", description="The ID of the object"),
     ] = strawberry.UNSET,
-) -> Optional[
-    Annotated["FieldsetType", strawberry.lazy("config.graphql.extract_types")]
-]:
+) -> None | (Annotated[FieldsetType, strawberry.lazy("config.graphql.extract_types")]):
     return get_node_from_global_id(info, id, only_type_name="FieldsetType")
 
 
@@ -197,28 +192,24 @@ def _resolve_Query_fieldsets(root, info, **kwargs):
 def q_fieldsets(
     info: strawberry.Info,
     offset: Annotated[
-        Optional[int], strawberry.argument(name="offset")
+        int | None, strawberry.argument(name="offset")
     ] = strawberry.UNSET,
     before: Annotated[
-        Optional[str], strawberry.argument(name="before")
+        str | None, strawberry.argument(name="before")
     ] = strawberry.UNSET,
-    after: Annotated[
-        Optional[str], strawberry.argument(name="after")
-    ] = strawberry.UNSET,
-    first: Annotated[
-        Optional[int], strawberry.argument(name="first")
-    ] = strawberry.UNSET,
-    last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET,
-    name: Annotated[Optional[str], strawberry.argument(name="name")] = strawberry.UNSET,
+    after: Annotated[str | None, strawberry.argument(name="after")] = strawberry.UNSET,
+    first: Annotated[int | None, strawberry.argument(name="first")] = strawberry.UNSET,
+    last: Annotated[int | None, strawberry.argument(name="last")] = strawberry.UNSET,
+    name: Annotated[str | None, strawberry.argument(name="name")] = strawberry.UNSET,
     name__contains: Annotated[
-        Optional[str], strawberry.argument(name="name_Contains")
+        str | None, strawberry.argument(name="name_Contains")
     ] = strawberry.UNSET,
     description__contains: Annotated[
-        Optional[str], strawberry.argument(name="description_Contains")
+        str | None, strawberry.argument(name="description_Contains")
     ] = strawberry.UNSET,
-) -> Optional[
-    Annotated["FieldsetTypeConnection", strawberry.lazy("config.graphql.extract_types")]
-]:
+) -> None | (
+    Annotated[FieldsetTypeConnection, strawberry.lazy("config.graphql.extract_types")]
+):
     kwargs = strip_unset(
         {
             "offset": offset,
@@ -253,7 +244,7 @@ def q_column(
         strawberry.ID,
         strawberry.argument(name="id", description="The ID of the object"),
     ] = strawberry.UNSET,
-) -> Optional[Annotated["ColumnType", strawberry.lazy("config.graphql.extract_types")]]:
+) -> Annotated[ColumnType, strawberry.lazy("config.graphql.extract_types")] | None:
     return get_node_from_global_id(info, id, only_type_name="ColumnType")
 
 
@@ -268,33 +259,29 @@ def _resolve_Query_columns(root, info, **kwargs):
 def q_columns(
     info: strawberry.Info,
     offset: Annotated[
-        Optional[int], strawberry.argument(name="offset")
+        int | None, strawberry.argument(name="offset")
     ] = strawberry.UNSET,
     before: Annotated[
-        Optional[str], strawberry.argument(name="before")
+        str | None, strawberry.argument(name="before")
     ] = strawberry.UNSET,
-    after: Annotated[
-        Optional[str], strawberry.argument(name="after")
-    ] = strawberry.UNSET,
-    first: Annotated[
-        Optional[int], strawberry.argument(name="first")
-    ] = strawberry.UNSET,
-    last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET,
+    after: Annotated[str | None, strawberry.argument(name="after")] = strawberry.UNSET,
+    first: Annotated[int | None, strawberry.argument(name="first")] = strawberry.UNSET,
+    last: Annotated[int | None, strawberry.argument(name="last")] = strawberry.UNSET,
     query__contains: Annotated[
-        Optional[str], strawberry.argument(name="query_Contains")
+        str | None, strawberry.argument(name="query_Contains")
     ] = strawberry.UNSET,
     match_text__contains: Annotated[
-        Optional[str], strawberry.argument(name="matchText_Contains")
+        str | None, strawberry.argument(name="matchText_Contains")
     ] = strawberry.UNSET,
     output_type: Annotated[
-        Optional[str], strawberry.argument(name="outputType")
+        str | None, strawberry.argument(name="outputType")
     ] = strawberry.UNSET,
     limit_to_label: Annotated[
-        Optional[str], strawberry.argument(name="limitToLabel")
+        str | None, strawberry.argument(name="limitToLabel")
     ] = strawberry.UNSET,
-) -> Optional[
-    Annotated["ColumnTypeConnection", strawberry.lazy("config.graphql.extract_types")]
-]:
+) -> None | (
+    Annotated[ColumnTypeConnection, strawberry.lazy("config.graphql.extract_types")]
+):
     kwargs = strip_unset(
         {
             "offset": offset,
@@ -331,9 +318,7 @@ def q_extract(
         strawberry.ID,
         strawberry.argument(name="id", description="The ID of the object"),
     ] = strawberry.UNSET,
-) -> Optional[
-    Annotated["ExtractType", strawberry.lazy("config.graphql.extract_types")]
-]:
+) -> None | (Annotated[ExtractType, strawberry.lazy("config.graphql.extract_types")]):
     return get_node_from_global_id(info, id, only_type_name="ExtractType")
 
 
@@ -358,49 +343,45 @@ def _resolve_Query_extracts(root, info, **kwargs):
 def q_extracts(
     info: strawberry.Info,
     offset: Annotated[
-        Optional[int], strawberry.argument(name="offset")
+        int | None, strawberry.argument(name="offset")
     ] = strawberry.UNSET,
     before: Annotated[
-        Optional[str], strawberry.argument(name="before")
+        str | None, strawberry.argument(name="before")
     ] = strawberry.UNSET,
-    after: Annotated[
-        Optional[str], strawberry.argument(name="after")
-    ] = strawberry.UNSET,
-    first: Annotated[
-        Optional[int], strawberry.argument(name="first")
-    ] = strawberry.UNSET,
-    last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET,
+    after: Annotated[str | None, strawberry.argument(name="after")] = strawberry.UNSET,
+    first: Annotated[int | None, strawberry.argument(name="first")] = strawberry.UNSET,
+    last: Annotated[int | None, strawberry.argument(name="last")] = strawberry.UNSET,
     corpus_action__isnull: Annotated[
-        Optional[bool], strawberry.argument(name="corpusAction_Isnull")
+        bool | None, strawberry.argument(name="corpusAction_Isnull")
     ] = strawberry.UNSET,
-    name: Annotated[Optional[str], strawberry.argument(name="name")] = strawberry.UNSET,
+    name: Annotated[str | None, strawberry.argument(name="name")] = strawberry.UNSET,
     name__contains: Annotated[
-        Optional[str], strawberry.argument(name="name_Contains")
+        str | None, strawberry.argument(name="name_Contains")
     ] = strawberry.UNSET,
     created__lte: Annotated[
-        Optional[datetime.datetime], strawberry.argument(name="created_Lte")
+        datetime.datetime | None, strawberry.argument(name="created_Lte")
     ] = strawberry.UNSET,
     created__gte: Annotated[
-        Optional[datetime.datetime], strawberry.argument(name="created_Gte")
+        datetime.datetime | None, strawberry.argument(name="created_Gte")
     ] = strawberry.UNSET,
     started__lte: Annotated[
-        Optional[datetime.datetime], strawberry.argument(name="started_Lte")
+        datetime.datetime | None, strawberry.argument(name="started_Lte")
     ] = strawberry.UNSET,
     started__gte: Annotated[
-        Optional[datetime.datetime], strawberry.argument(name="started_Gte")
+        datetime.datetime | None, strawberry.argument(name="started_Gte")
     ] = strawberry.UNSET,
     finished__lte: Annotated[
-        Optional[datetime.datetime], strawberry.argument(name="finished_Lte")
+        datetime.datetime | None, strawberry.argument(name="finished_Lte")
     ] = strawberry.UNSET,
     finished__gte: Annotated[
-        Optional[datetime.datetime], strawberry.argument(name="finished_Gte")
+        datetime.datetime | None, strawberry.argument(name="finished_Gte")
     ] = strawberry.UNSET,
     corpus: Annotated[
-        Optional[strawberry.ID], strawberry.argument(name="corpus")
+        strawberry.ID | None, strawberry.argument(name="corpus")
     ] = strawberry.UNSET,
-) -> Optional[
-    Annotated["ExtractTypeConnection", strawberry.lazy("config.graphql.extract_types")]
-]:
+) -> None | (
+    Annotated[ExtractTypeConnection, strawberry.lazy("config.graphql.extract_types")]
+):
     kwargs = strip_unset(
         {
             "offset": offset,
@@ -503,7 +484,7 @@ def q_compare_extracts(
     extract_b_id: Annotated[
         strawberry.ID, strawberry.argument(name="extractBId")
     ] = strawberry.UNSET,
-) -> Optional["ExtractDiffType"]:
+) -> ExtractDiffType | None:
     kwargs = strip_unset({"extract_a_id": extract_a_id, "extract_b_id": extract_b_id})
     return _resolve_Query_compare_extracts(None, info, **kwargs)
 
@@ -514,9 +495,7 @@ def q_datacell(
         strawberry.ID,
         strawberry.argument(name="id", description="The ID of the object"),
     ] = strawberry.UNSET,
-) -> Optional[
-    Annotated["DatacellType", strawberry.lazy("config.graphql.extract_types")]
-]:
+) -> None | (Annotated[DatacellType, strawberry.lazy("config.graphql.extract_types")]):
     return get_node_from_global_id(info, id, only_type_name="DatacellType")
 
 
@@ -531,48 +510,44 @@ def _resolve_Query_datacells(root, info, **kwargs):
 def q_datacells(
     info: strawberry.Info,
     offset: Annotated[
-        Optional[int], strawberry.argument(name="offset")
+        int | None, strawberry.argument(name="offset")
     ] = strawberry.UNSET,
     before: Annotated[
-        Optional[str], strawberry.argument(name="before")
+        str | None, strawberry.argument(name="before")
     ] = strawberry.UNSET,
-    after: Annotated[
-        Optional[str], strawberry.argument(name="after")
-    ] = strawberry.UNSET,
-    first: Annotated[
-        Optional[int], strawberry.argument(name="first")
-    ] = strawberry.UNSET,
-    last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET,
+    after: Annotated[str | None, strawberry.argument(name="after")] = strawberry.UNSET,
+    first: Annotated[int | None, strawberry.argument(name="first")] = strawberry.UNSET,
+    last: Annotated[int | None, strawberry.argument(name="last")] = strawberry.UNSET,
     data_definition: Annotated[
-        Optional[str], strawberry.argument(name="dataDefinition")
+        str | None, strawberry.argument(name="dataDefinition")
     ] = strawberry.UNSET,
     started__lte: Annotated[
-        Optional[datetime.datetime], strawberry.argument(name="started_Lte")
+        datetime.datetime | None, strawberry.argument(name="started_Lte")
     ] = strawberry.UNSET,
     started__gte: Annotated[
-        Optional[datetime.datetime], strawberry.argument(name="started_Gte")
+        datetime.datetime | None, strawberry.argument(name="started_Gte")
     ] = strawberry.UNSET,
     completed__lte: Annotated[
-        Optional[datetime.datetime], strawberry.argument(name="completed_Lte")
+        datetime.datetime | None, strawberry.argument(name="completed_Lte")
     ] = strawberry.UNSET,
     completed__gte: Annotated[
-        Optional[datetime.datetime], strawberry.argument(name="completed_Gte")
+        datetime.datetime | None, strawberry.argument(name="completed_Gte")
     ] = strawberry.UNSET,
     failed__lte: Annotated[
-        Optional[datetime.datetime], strawberry.argument(name="failed_Lte")
+        datetime.datetime | None, strawberry.argument(name="failed_Lte")
     ] = strawberry.UNSET,
     failed__gte: Annotated[
-        Optional[datetime.datetime], strawberry.argument(name="failed_Gte")
+        datetime.datetime | None, strawberry.argument(name="failed_Gte")
     ] = strawberry.UNSET,
     in_corpus_with_id: Annotated[
-        Optional[str], strawberry.argument(name="inCorpusWithId")
+        str | None, strawberry.argument(name="inCorpusWithId")
     ] = strawberry.UNSET,
     for_document_with_id: Annotated[
-        Optional[str], strawberry.argument(name="forDocumentWithId")
+        str | None, strawberry.argument(name="forDocumentWithId")
     ] = strawberry.UNSET,
-) -> Optional[
-    Annotated["DatacellTypeConnection", strawberry.lazy("config.graphql.extract_types")]
-]:
+) -> None | (
+    Annotated[DatacellTypeConnection, strawberry.lazy("config.graphql.extract_types")]
+):
     kwargs = strip_unset(
         {
             "offset": offset,
@@ -642,7 +617,7 @@ def _resolve_Query_registered_extract_tasks(root, info, **kwargs):
     }
 
 
-def q_registered_extract_tasks(info: strawberry.Info) -> Optional[GenericScalar]:
+def q_registered_extract_tasks(info: strawberry.Info) -> GenericScalar | None:
     kwargs = strip_unset({})
     return _resolve_Query_registered_extract_tasks(None, info, **kwargs)
 
@@ -671,13 +646,12 @@ def q_document_metadata_datacells(
     corpus_id: Annotated[
         strawberry.ID, strawberry.argument(name="corpusId")
     ] = strawberry.UNSET,
-) -> Optional[
+) -> None | (
     list[
-        Optional[
-            Annotated["DatacellType", strawberry.lazy("config.graphql.extract_types")]
-        ]
+        None
+        | (Annotated[DatacellType, strawberry.lazy("config.graphql.extract_types")])
     ]
-]:
+):
     kwargs = strip_unset({"document_id": document_id, "corpus_id": corpus_id})
     return _resolve_Query_document_metadata_datacells(None, info, **kwargs)
 
@@ -711,7 +685,7 @@ def q_metadata_completion_status_v2(
     corpus_id: Annotated[
         strawberry.ID, strawberry.argument(name="corpusId")
     ] = strawberry.UNSET,
-) -> Optional["MetadataCompletionStatusType"]:
+) -> MetadataCompletionStatusType | None:
     kwargs = strip_unset({"document_id": document_id, "corpus_id": corpus_id})
     return _resolve_Query_metadata_completion_status_v2(None, info, **kwargs)
 
@@ -771,12 +745,12 @@ def _resolve_Query_documents_metadata_datacells_batch(
 def q_documents_metadata_datacells_batch(
     info: strawberry.Info,
     document_ids: Annotated[
-        list[Optional[strawberry.ID]], strawberry.argument(name="documentIds")
+        list[strawberry.ID | None], strawberry.argument(name="documentIds")
     ] = strawberry.UNSET,
     corpus_id: Annotated[
         strawberry.ID, strawberry.argument(name="corpusId")
     ] = strawberry.UNSET,
-) -> Optional[list[Optional["DocumentMetadataResultType"]]]:
+) -> list[DocumentMetadataResultType | None] | None:
     kwargs = strip_unset({"document_ids": document_ids, "corpus_id": corpus_id})
     return _resolve_Query_documents_metadata_datacells_batch(None, info, **kwargs)
 
@@ -787,9 +761,9 @@ def q_gremlin_engine(
         strawberry.ID,
         strawberry.argument(name="id", description="The ID of the object"),
     ] = strawberry.UNSET,
-) -> Optional[
-    Annotated["GremlinEngineType_READ", strawberry.lazy("config.graphql.extract_types")]
-]:
+) -> None | (
+    Annotated[GremlinEngineType_READ, strawberry.lazy("config.graphql.extract_types")]
+):
     return get_node_from_global_id(info, id, only_type_name="GremlinEngineType_READ")
 
 
@@ -806,25 +780,21 @@ def _resolve_Query_gremlin_engines(root, info, **kwargs):
 def q_gremlin_engines(
     info: strawberry.Info,
     offset: Annotated[
-        Optional[int], strawberry.argument(name="offset")
+        int | None, strawberry.argument(name="offset")
     ] = strawberry.UNSET,
     before: Annotated[
-        Optional[str], strawberry.argument(name="before")
+        str | None, strawberry.argument(name="before")
     ] = strawberry.UNSET,
-    after: Annotated[
-        Optional[str], strawberry.argument(name="after")
-    ] = strawberry.UNSET,
-    first: Annotated[
-        Optional[int], strawberry.argument(name="first")
-    ] = strawberry.UNSET,
-    last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET,
-    url: Annotated[Optional[str], strawberry.argument(name="url")] = strawberry.UNSET,
-) -> Optional[
+    after: Annotated[str | None, strawberry.argument(name="after")] = strawberry.UNSET,
+    first: Annotated[int | None, strawberry.argument(name="first")] = strawberry.UNSET,
+    last: Annotated[int | None, strawberry.argument(name="last")] = strawberry.UNSET,
+    url: Annotated[str | None, strawberry.argument(name="url")] = strawberry.UNSET,
+) -> None | (
     Annotated[
-        "GremlinEngineType_READConnection",
+        GremlinEngineType_READConnection,
         strawberry.lazy("config.graphql.extract_types"),
     ]
-]:
+):
     kwargs = strip_unset(
         {
             "offset": offset,
@@ -853,9 +823,7 @@ def q_analyzer(
         strawberry.ID,
         strawberry.argument(name="id", description="The ID of the object"),
     ] = strawberry.UNSET,
-) -> Optional[
-    Annotated["AnalyzerType", strawberry.lazy("config.graphql.extract_types")]
-]:
+) -> None | (Annotated[AnalyzerType, strawberry.lazy("config.graphql.extract_types")]):
     return get_node_from_global_id(info, id, only_type_name="AnalyzerType")
 
 
@@ -870,42 +838,38 @@ def _resolve_Query_analyzers(root, info, **kwargs):
 def q_analyzers(
     info: strawberry.Info,
     offset: Annotated[
-        Optional[int], strawberry.argument(name="offset")
+        int | None, strawberry.argument(name="offset")
     ] = strawberry.UNSET,
     before: Annotated[
-        Optional[str], strawberry.argument(name="before")
+        str | None, strawberry.argument(name="before")
     ] = strawberry.UNSET,
-    after: Annotated[
-        Optional[str], strawberry.argument(name="after")
-    ] = strawberry.UNSET,
-    first: Annotated[
-        Optional[int], strawberry.argument(name="first")
-    ] = strawberry.UNSET,
-    last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET,
+    after: Annotated[str | None, strawberry.argument(name="after")] = strawberry.UNSET,
+    first: Annotated[int | None, strawberry.argument(name="first")] = strawberry.UNSET,
+    last: Annotated[int | None, strawberry.argument(name="last")] = strawberry.UNSET,
     id__contains: Annotated[
-        Optional[strawberry.ID], strawberry.argument(name="id_Contains")
+        strawberry.ID | None, strawberry.argument(name="id_Contains")
     ] = strawberry.UNSET,
     id: Annotated[
-        Optional[strawberry.ID], strawberry.argument(name="id")
+        strawberry.ID | None, strawberry.argument(name="id")
     ] = strawberry.UNSET,
     description__contains: Annotated[
-        Optional[str], strawberry.argument(name="description_Contains")
+        str | None, strawberry.argument(name="description_Contains")
     ] = strawberry.UNSET,
     disabled: Annotated[
-        Optional[bool], strawberry.argument(name="disabled")
+        bool | None, strawberry.argument(name="disabled")
     ] = strawberry.UNSET,
     analyzer_id: Annotated[
-        Optional[str], strawberry.argument(name="analyzerId")
+        str | None, strawberry.argument(name="analyzerId")
     ] = strawberry.UNSET,
     hosted_by_gremlin_engine_id: Annotated[
-        Optional[str], strawberry.argument(name="hostedByGremlinEngineId")
+        str | None, strawberry.argument(name="hostedByGremlinEngineId")
     ] = strawberry.UNSET,
     used_in_analysis_ids: Annotated[
-        Optional[str], strawberry.argument(name="usedInAnalysisIds")
+        str | None, strawberry.argument(name="usedInAnalysisIds")
     ] = strawberry.UNSET,
-) -> Optional[
-    Annotated["AnalyzerTypeConnection", strawberry.lazy("config.graphql.extract_types")]
-]:
+) -> None | (
+    Annotated[AnalyzerTypeConnection, strawberry.lazy("config.graphql.extract_types")]
+):
     kwargs = strip_unset(
         {
             "offset": offset,
@@ -948,9 +912,7 @@ def q_analysis(
         strawberry.ID,
         strawberry.argument(name="id", description="The ID of the object"),
     ] = strawberry.UNSET,
-) -> Optional[
-    Annotated["AnalysisType", strawberry.lazy("config.graphql.extract_types")]
-]:
+) -> None | (Annotated[AnalysisType, strawberry.lazy("config.graphql.extract_types")]):
     return get_node_from_global_id(info, id, only_type_name="AnalysisType")
 
 
@@ -976,55 +938,51 @@ def _resolve_Query_analyses(root, info, **kwargs):
 def q_analyses(
     info: strawberry.Info,
     offset: Annotated[
-        Optional[int], strawberry.argument(name="offset")
+        int | None, strawberry.argument(name="offset")
     ] = strawberry.UNSET,
     before: Annotated[
-        Optional[str], strawberry.argument(name="before")
+        str | None, strawberry.argument(name="before")
     ] = strawberry.UNSET,
-    after: Annotated[
-        Optional[str], strawberry.argument(name="after")
-    ] = strawberry.UNSET,
-    first: Annotated[
-        Optional[int], strawberry.argument(name="first")
-    ] = strawberry.UNSET,
-    last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET,
+    after: Annotated[str | None, strawberry.argument(name="after")] = strawberry.UNSET,
+    first: Annotated[int | None, strawberry.argument(name="first")] = strawberry.UNSET,
+    last: Annotated[int | None, strawberry.argument(name="last")] = strawberry.UNSET,
     analyzed_corpus__isnull: Annotated[
-        Optional[bool], strawberry.argument(name="analyzedCorpus_Isnull")
+        bool | None, strawberry.argument(name="analyzedCorpus_Isnull")
     ] = strawberry.UNSET,
     analysis_started__gte: Annotated[
-        Optional[datetime.datetime], strawberry.argument(name="analysisStarted_Gte")
+        datetime.datetime | None, strawberry.argument(name="analysisStarted_Gte")
     ] = strawberry.UNSET,
     analysis_started__lte: Annotated[
-        Optional[datetime.datetime], strawberry.argument(name="analysisStarted_Lte")
+        datetime.datetime | None, strawberry.argument(name="analysisStarted_Lte")
     ] = strawberry.UNSET,
     analysis_completed__gte: Annotated[
-        Optional[datetime.datetime], strawberry.argument(name="analysisCompleted_Gte")
+        datetime.datetime | None, strawberry.argument(name="analysisCompleted_Gte")
     ] = strawberry.UNSET,
     analysis_completed__lte: Annotated[
-        Optional[datetime.datetime], strawberry.argument(name="analysisCompleted_Lte")
+        datetime.datetime | None, strawberry.argument(name="analysisCompleted_Lte")
     ] = strawberry.UNSET,
     status: Annotated[
-        Optional[enums.AnalyzerAnalysisStatusChoices],
+        enums.AnalyzerAnalysisStatusChoices | None,
         strawberry.argument(name="status"),
     ] = strawberry.UNSET,
     analyzer__task_name__in: Annotated[
-        Optional[list[Optional[str]]], strawberry.argument(name="analyzer_TaskName_In")
+        list[str | None] | None, strawberry.argument(name="analyzer_TaskName_In")
     ] = strawberry.UNSET,
     received_callback_results: Annotated[
-        Optional[bool], strawberry.argument(name="receivedCallbackResults")
+        bool | None, strawberry.argument(name="receivedCallbackResults")
     ] = strawberry.UNSET,
     analyzed_corpus_id: Annotated[
-        Optional[str], strawberry.argument(name="analyzedCorpusId")
+        str | None, strawberry.argument(name="analyzedCorpusId")
     ] = strawberry.UNSET,
     analyzed_document_id: Annotated[
-        Optional[str], strawberry.argument(name="analyzedDocumentId")
+        str | None, strawberry.argument(name="analyzedDocumentId")
     ] = strawberry.UNSET,
     search_text: Annotated[
-        Optional[str], strawberry.argument(name="searchText")
+        str | None, strawberry.argument(name="searchText")
     ] = strawberry.UNSET,
-) -> Optional[
-    Annotated["AnalysisTypeConnection", strawberry.lazy("config.graphql.extract_types")]
-]:
+) -> None | (
+    Annotated[AnalysisTypeConnection, strawberry.lazy("config.graphql.extract_types")]
+):
     kwargs = strip_unset(
         {
             "offset": offset,

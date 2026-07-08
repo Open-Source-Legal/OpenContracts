@@ -76,11 +76,11 @@ logger = logging.getLogger(__name__)
 
 @strawberry.type(name="StartCorpusFork")
 class StartCorpusFork:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    new_corpus: Optional[
-        Annotated["CorpusType", strawberry.lazy("config.graphql.corpus_types")]
-    ] = strawberry.field(name="newCorpus", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    new_corpus: None | (
+        Annotated[CorpusType, strawberry.lazy("config.graphql.corpus_types")]
+    ) = strawberry.field(name="newCorpus", default=None)
 
 
 register_type("StartCorpusFork", StartCorpusFork, model=None)
@@ -91,8 +91,8 @@ register_type("StartCorpusFork", StartCorpusFork, model=None)
     description="Re-embed all annotations in a corpus with a different embedder (Issue #437).\n\nThis is the controlled migration path for changing a corpus's embedder\nafter documents have been added. It:\n1. Validates the new embedder exists in the registry\n2. Locks the corpus (backend_lock=True)\n3. Queues a background task that updates preferred_embedder and\n   generates new embeddings for all annotations\n4. The corpus unlocks automatically when re-embedding completes\n\nOnly the corpus creator can trigger re-embedding.",
 )
 class ReEmbedCorpus:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
 
 
 register_type("ReEmbedCorpus", ReEmbedCorpus, model=None)
@@ -103,8 +103,8 @@ register_type("ReEmbedCorpus", ReEmbedCorpus, model=None)
     description="Set corpus visibility (public/private).\n\nRequires one of:\n- User is the corpus creator (owner), OR\n- User has PERMISSION permission on the corpus, OR\n- User is superuser\n\nSecurity notes:\n- Permission check prevents users from escalating access\n- Uses existing make_corpus_public_task for cascading public visibility\n- Making private only affects the corpus flag (child objects remain public)",
 )
 class SetCorpusVisibility:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
 
 
 register_type("SetCorpusVisibility", SetCorpusVisibility, model=None)
@@ -112,9 +112,9 @@ register_type("SetCorpusVisibility", SetCorpusVisibility, model=None)
 
 @strawberry.type(name="CreateCorpusMutation")
 class CreateCorpusMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    obj_id: Optional[strawberry.ID] = strawberry.field(name="objId", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj_id: strawberry.ID | None = strawberry.field(name="objId", default=None)
 
 
 register_type("CreateCorpusMutation", CreateCorpusMutation, model=None)
@@ -122,9 +122,9 @@ register_type("CreateCorpusMutation", CreateCorpusMutation, model=None)
 
 @strawberry.type(name="UpdateCorpusMutation")
 class UpdateCorpusMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    obj_id: Optional[strawberry.ID] = strawberry.field(name="objId", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj_id: strawberry.ID | None = strawberry.field(name="objId", default=None)
 
 
 register_type("UpdateCorpusMutation", UpdateCorpusMutation, model=None)
@@ -135,12 +135,12 @@ register_type("UpdateCorpusMutation", UpdateCorpusMutation, model=None)
     description="Mutation to update a corpus's markdown description, creating a new version in the process.\nOnly the corpus creator can update the description.",
 )
 class UpdateCorpusDescription:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[
-        Annotated["CorpusType", strawberry.lazy("config.graphql.corpus_types")]
-    ] = strawberry.field(name="obj", default=None)
-    version: Optional[int] = strawberry.field(
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
+        Annotated[CorpusType, strawberry.lazy("config.graphql.corpus_types")]
+    ) = strawberry.field(name="obj", default=None)
+    version: int | None = strawberry.field(
         name="version", description="The new version number after update", default=None
     )
 
@@ -150,8 +150,8 @@ register_type("UpdateCorpusDescription", UpdateCorpusDescription, model=None)
 
 @strawberry.type(name="DeleteCorpusMutation")
 class DeleteCorpusMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
 
 
 register_type("DeleteCorpusMutation", DeleteCorpusMutation, model=None)
@@ -162,8 +162,8 @@ register_type("DeleteCorpusMutation", DeleteCorpusMutation, model=None)
     description="Add existing documents to a corpus.\n\nDelegates to CorpusDocumentService.add_documents_to_corpus() for:\n- Permission checking (corpus UPDATE permission)\n- Document validation (user owns or public)\n- Dual-system update (DocumentPath + corpus.add_document)",
 )
 class AddDocumentsToCorpus:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
 
 
 register_type("AddDocumentsToCorpus", AddDocumentsToCorpus, model=None)
@@ -174,8 +174,8 @@ register_type("AddDocumentsToCorpus", AddDocumentsToCorpus, model=None)
     description="Remove documents from a corpus (soft-delete).\n\nDelegates to CorpusDocumentService.remove_documents_from_corpus() for:\n- Permission checking (corpus UPDATE permission)\n- Soft-delete via DocumentPath (creates is_deleted=True record)\n- Audit trail",
 )
 class RemoveDocumentsFromCorpus:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
 
 
 register_type("RemoveDocumentsFromCorpus", RemoveDocumentsFromCorpus, model=None)
@@ -186,11 +186,11 @@ register_type("RemoveDocumentsFromCorpus", RemoveDocumentsFromCorpus, model=None
     description="Create a new CorpusAction that will be triggered when events occur in a corpus.\n\nAction types:\n- **Fieldset**: Run data extraction (fieldset_id)\n- **Analyzer**: Run classification/annotation (analyzer_id)\n- **Agent**: Execute an AI agent task. Provide task_instructions describing what the\n  agent should do. Optionally link an agent_config_id for custom persona/tool defaults,\n  or use create_agent_inline=True for thread/message moderation.\n- **Lightweight agent**: Just provide task_instructions (no agent_config needed).\n  The system auto-selects tools based on the trigger type.\n\nRequires UPDATE permission on the corpus.",
 )
 class CreateCorpusAction:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[
-        Annotated["CorpusActionType", strawberry.lazy("config.graphql.agent_types")]
-    ] = strawberry.field(name="obj", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
+        Annotated[CorpusActionType, strawberry.lazy("config.graphql.agent_types")]
+    ) = strawberry.field(name="obj", default=None)
 
 
 register_type("CreateCorpusAction", CreateCorpusAction, model=None)
@@ -201,11 +201,11 @@ register_type("CreateCorpusAction", CreateCorpusAction, model=None)
     description="Update an existing CorpusAction.\nAllows updating name, trigger, action type (fieldset/analyzer/agent), disabled state,\nand agent-specific settings.\nRequires the user to be the creator of the action.",
 )
 class UpdateCorpusAction:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[
-        Annotated["CorpusActionType", strawberry.lazy("config.graphql.agent_types")]
-    ] = strawberry.field(name="obj", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
+        Annotated[CorpusActionType, strawberry.lazy("config.graphql.agent_types")]
+    ) = strawberry.field(name="obj", default=None)
 
 
 register_type("UpdateCorpusAction", UpdateCorpusAction, model=None)
@@ -216,8 +216,8 @@ register_type("UpdateCorpusAction", UpdateCorpusAction, model=None)
     description="Mutation to delete a CorpusAction.\nRequires the user to be the creator of the action or have appropriate permissions.",
 )
 class DeleteCorpusAction:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
 
 
 register_type("DeleteCorpusAction", DeleteCorpusAction, model=None)
@@ -228,13 +228,13 @@ register_type("DeleteCorpusAction", DeleteCorpusAction, model=None)
     description="Manually trigger a specific agent-based corpus action on a document.\n\nSuperuser-only. Creates a CorpusActionExecution record and dispatches\nthe run_agent_corpus_action Celery task.",
 )
 class RunCorpusAction:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
         Annotated[
-            "CorpusActionExecutionType", strawberry.lazy("config.graphql.agent_types")
+            CorpusActionExecutionType, strawberry.lazy("config.graphql.agent_types")
         ]
-    ] = strawberry.field(name="obj", default=None)
+    ) = strawberry.field(name="obj", default=None)
 
 
 register_type("RunCorpusAction", RunCorpusAction, model=None)
@@ -245,33 +245,34 @@ register_type("RunCorpusAction", RunCorpusAction, model=None)
     description="Run an agent-based corpus action against every eligible document in the corpus.",
 )
 class StartCorpusActionBatchRun:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    queued_count: Optional[int] = strawberry.field(
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    queued_count: int | None = strawberry.field(
         name="queuedCount",
         description="Number of new CorpusActionExecution rows created.",
         default=None,
     )
-    skipped_already_run_count: Optional[int] = strawberry.field(
+    skipped_already_run_count: int | None = strawberry.field(
         name="skippedAlreadyRunCount",
         description="Active documents skipped because they already have a queued, running, or completed execution for this action.",
         default=None,
     )
-    total_active_documents: Optional[int] = strawberry.field(
+    total_active_documents: int | None = strawberry.field(
         name="totalActiveDocuments",
         description="Total active documents in the corpus at evaluation time.",
         default=None,
     )
-    executions: Optional[
+    executions: None | (
         list[
-            Optional[
+            None
+            | (
                 Annotated[
-                    "CorpusActionExecutionType",
+                    CorpusActionExecutionType,
                     strawberry.lazy("config.graphql.agent_types"),
                 ]
-            ]
+            )
         ]
-    ] = strawberry.field(
+    ) = strawberry.field(
         name="executions",
         description="The freshly created execution rows (status=QUEUED).",
         default=None,
@@ -286,11 +287,11 @@ register_type("StartCorpusActionBatchRun", StartCorpusActionBatchRun, model=None
     description="Add an action template to a corpus by cloning it into a CorpusAction.\n\nThis is the core of the Action Library feature: users browse available\ntemplates and opt-in per corpus. Once cloned, the action is a regular\nCorpusAction that can be edited/toggled/deleted like any other.\n\nPrevents duplicates: the same template cannot be added twice to the same\ncorpus (checked via source_template FK).\n\nRequires the user to be the corpus creator or have CRUD permission.",
 )
 class AddTemplateToCorpus:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[
-        Annotated["CorpusActionType", strawberry.lazy("config.graphql.agent_types")]
-    ] = strawberry.field(name="obj", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
+        Annotated[CorpusActionType, strawberry.lazy("config.graphql.agent_types")]
+    ) = strawberry.field(name="obj", default=None)
 
 
 register_type("AddTemplateToCorpus", AddTemplateToCorpus, model=None)
@@ -301,14 +302,14 @@ register_type("AddTemplateToCorpus", AddTemplateToCorpus, model=None)
     description="One-click collection-intelligence setup.\n\nComposes the default enrichment bundle in a single idempotent call:\ninstalls the reference-enrichment analyzer as an ``add_document`` action\nand starts the first weave (deterministic), then clones the description +\nsummary action templates and batch-runs each over every document already\nin the corpus (LLM). Safe to repeat — every step skips work that already\nexists. Requires CRUD permission on the corpus — the tier\nAddTemplateToCorpus and CreateCorpusAction gate the identical writes at.",
 )
 class SetupCorpusIntelligence:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    summary: Optional[
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    summary: None | (
         Annotated[
-            "CorpusIntelligenceSetupSummaryType",
+            CorpusIntelligenceSetupSummaryType,
             strawberry.lazy("config.graphql.corpus_types"),
         ]
-    ] = strawberry.field(name="summary", default=None)
+    ) = strawberry.field(name="summary", default=None)
 
 
 register_type("SetupCorpusIntelligence", SetupCorpusIntelligence, model=None)
@@ -319,11 +320,11 @@ register_type("SetupCorpusIntelligence", SetupCorpusIntelligence, model=None)
     description="Toggle the agent memory system on/off for a corpus.\n\nWhen enabled, agents accumulate reusable insights from conversations\ninto a memory document. The memory document is a first-class Document\nin the corpus, visible and editable by users.\n\nIMPORTANT: When memory is enabled, conversation patterns (NOT specific\ncontent) may be distilled into the memory document. Users should be\naware of this when discussing sensitive topics.\n\nRequires CRUD permission on the corpus.",
 )
 class ToggleCorpusMemory:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    corpus: Optional[
-        Annotated["CorpusType", strawberry.lazy("config.graphql.corpus_types")]
-    ] = strawberry.field(name="corpus", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    corpus: None | (
+        Annotated[CorpusType, strawberry.lazy("config.graphql.corpus_types")]
+    ) = strawberry.field(name="corpus", default=None)
 
 
 register_type("ToggleCorpusMemory", ToggleCorpusMemory, model=None)
@@ -334,11 +335,11 @@ register_type("ToggleCorpusMemory", ToggleCorpusMemory, model=None)
     description="Create a shareable poster (Artifact) of a corpus from a template.\n\nREAD-gated on the corpus (you can make a poster of any collection you can\nsee): its ``/a/<slug>`` link is shareable to anyone who can read the\nsource corpus (corpus-as-gate ONLY — there is no per-artifact visibility\noverride), and its data still only renders to viewers who can read the\ncorpus. ``template`` is validated against the service's registry.",
 )
 class CreateArtifact:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    artifact: Optional[
-        Annotated["ArtifactType", strawberry.lazy("config.graphql.corpus_types")]
-    ] = strawberry.field(name="artifact", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    artifact: None | (
+        Annotated[ArtifactType, strawberry.lazy("config.graphql.corpus_types")]
+    ) = strawberry.field(name="artifact", default=None)
 
 
 register_type("CreateArtifact", CreateArtifact, model=None)
@@ -349,11 +350,11 @@ register_type("CreateArtifact", CreateArtifact, model=None)
     description="Edit an artifact's configurable captions — creator only.",
 )
 class UpdateArtifact:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    artifact: Optional[
-        Annotated["ArtifactType", strawberry.lazy("config.graphql.corpus_types")]
-    ] = strawberry.field(name="artifact", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    artifact: None | (
+        Annotated[ArtifactType, strawberry.lazy("config.graphql.corpus_types")]
+    ) = strawberry.field(name="artifact", default=None)
 
 
 register_type("UpdateArtifact", UpdateArtifact, model=None)
@@ -364,9 +365,9 @@ register_type("UpdateArtifact", UpdateArtifact, model=None)
     description="Persist the rendered poster PNG so ``/a/<slug>`` has a stable og:image.\n\nThe poster is an SVG rendered client-side; the editor rasterises it and\nuploads the bytes here on save. (A production deploy can swap in a headless\nserver render behind the same field without changing the contract.)\nCreator-only.",
 )
 class SetArtifactImage:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    image_url: Optional[str] = strawberry.field(name="imageUrl", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    image_url: str | None = strawberry.field(name="imageUrl", default=None)
 
 
 register_type("SetArtifactImage", SetArtifactImage, model=None)
@@ -501,13 +502,13 @@ def m_fork_corpus(
         ),
     ] = strawberry.UNSET,
     preferred_embedder: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="preferredEmbedder",
             description="Override the embedder for the forked corpus. If provided and different from the source corpus, the fork will generate new embeddings using this embedder. If not provided, inherits the source corpus's preferred_embedder.",
         ),
     ] = strawberry.UNSET,
-) -> Optional["StartCorpusFork"]:
+) -> StartCorpusFork | None:
     kwargs = strip_unset(
         {"corpus_id": corpus_id, "preferred_embedder": preferred_embedder}
     )
@@ -608,7 +609,7 @@ def m_re_embed_corpus(
             description="Fully qualified Python path to the new embedder class (e.g., 'opencontractserver.pipeline.embedders.sent_transformer_microservice.MicroserviceEmbedder')",
         ),
     ] = strawberry.UNSET,
-) -> Optional["ReEmbedCorpus"]:
+) -> ReEmbedCorpus | None:
     kwargs = strip_unset({"corpus_id": corpus_id, "new_embedder": new_embedder})
     return _mutate_ReEmbedCorpus(ReEmbedCorpus, None, info, **kwargs)
 
@@ -669,7 +670,7 @@ def m_set_corpus_visibility(
             name="isPublic", description="True to make public, False to make private"
         ),
     ] = strawberry.UNSET,
-) -> Optional["SetCorpusVisibility"]:
+) -> SetCorpusVisibility | None:
     kwargs = strip_unset({"corpus_id": corpus_id, "is_public": is_public})
     return _mutate_SetCorpusVisibility(SetCorpusVisibility, None, info, **kwargs)
 
@@ -740,44 +741,42 @@ def _mutate_CreateCorpusMutation(payload_cls, root, info, **kwargs):
 def m_create_corpus(
     info: strawberry.Info,
     categories: Annotated[
-        Optional[list[Optional[strawberry.ID]]],
+        list[strawberry.ID | None] | None,
         strawberry.argument(name="categories", description="Category IDs to assign"),
     ] = strawberry.UNSET,
     description: Annotated[
-        Optional[str], strawberry.argument(name="description")
+        str | None, strawberry.argument(name="description")
     ] = strawberry.UNSET,
-    icon: Annotated[Optional[str], strawberry.argument(name="icon")] = strawberry.UNSET,
+    icon: Annotated[str | None, strawberry.argument(name="icon")] = strawberry.UNSET,
     label_set: Annotated[
-        Optional[str], strawberry.argument(name="labelSet")
+        str | None, strawberry.argument(name="labelSet")
     ] = strawberry.UNSET,
     license: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="license", description="SPDX license identifier (e.g. CC-BY-4.0)"
         ),
     ] = strawberry.UNSET,
     license_link: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="licenseLink",
             description="URL to full license text (required for CUSTOM license)",
         ),
     ] = strawberry.UNSET,
     preferred_embedder: Annotated[
-        Optional[str], strawberry.argument(name="preferredEmbedder")
+        str | None, strawberry.argument(name="preferredEmbedder")
     ] = strawberry.UNSET,
     preferred_llm: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="preferredLlm",
             description="Optional pydantic-ai model spec for this corpus's agents (e.g. 'anthropic:claude-opus-4-6'). When unset, agents fall back to settings.DEFAULT_LLM / settings.OPENAI_MODEL.",
         ),
     ] = strawberry.UNSET,
-    slug: Annotated[Optional[str], strawberry.argument(name="slug")] = strawberry.UNSET,
-    title: Annotated[
-        Optional[str], strawberry.argument(name="title")
-    ] = strawberry.UNSET,
-) -> Optional["CreateCorpusMutation"]:
+    slug: Annotated[str | None, strawberry.argument(name="slug")] = strawberry.UNSET,
+    title: Annotated[str | None, strawberry.argument(name="title")] = strawberry.UNSET,
+) -> CreateCorpusMutation | None:
     kwargs = strip_unset(
         {
             "categories": categories,
@@ -847,53 +846,51 @@ def _mutate_UpdateCorpusMutation(payload_cls, root, info, **kwargs):
 def m_update_corpus(
     info: strawberry.Info,
     categories: Annotated[
-        Optional[list[Optional[strawberry.ID]]],
+        list[strawberry.ID | None] | None,
         strawberry.argument(
             name="categories", description="Category IDs to assign (replaces existing)"
         ),
     ] = strawberry.UNSET,
     corpus_agent_instructions: Annotated[
-        Optional[str], strawberry.argument(name="corpusAgentInstructions")
+        str | None, strawberry.argument(name="corpusAgentInstructions")
     ] = strawberry.UNSET,
     description: Annotated[
-        Optional[str], strawberry.argument(name="description")
+        str | None, strawberry.argument(name="description")
     ] = strawberry.UNSET,
     document_agent_instructions: Annotated[
-        Optional[str], strawberry.argument(name="documentAgentInstructions")
+        str | None, strawberry.argument(name="documentAgentInstructions")
     ] = strawberry.UNSET,
-    icon: Annotated[Optional[str], strawberry.argument(name="icon")] = strawberry.UNSET,
+    icon: Annotated[str | None, strawberry.argument(name="icon")] = strawberry.UNSET,
     id: Annotated[str, strawberry.argument(name="id")] = strawberry.UNSET,
     label_set: Annotated[
-        Optional[str], strawberry.argument(name="labelSet")
+        str | None, strawberry.argument(name="labelSet")
     ] = strawberry.UNSET,
     license: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="license", description="SPDX license identifier (e.g. CC-BY-4.0)"
         ),
     ] = strawberry.UNSET,
     license_link: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="licenseLink",
             description="URL to full license text (required for CUSTOM license)",
         ),
     ] = strawberry.UNSET,
     preferred_embedder: Annotated[
-        Optional[str], strawberry.argument(name="preferredEmbedder")
+        str | None, strawberry.argument(name="preferredEmbedder")
     ] = strawberry.UNSET,
     preferred_llm: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="preferredLlm",
             description="Optional pydantic-ai model spec for this corpus's agents (e.g. 'anthropic:claude-opus-4-6'). Pass empty string to clear and fall back to settings.DEFAULT_LLM / settings.OPENAI_MODEL.",
         ),
     ] = strawberry.UNSET,
-    slug: Annotated[Optional[str], strawberry.argument(name="slug")] = strawberry.UNSET,
-    title: Annotated[
-        Optional[str], strawberry.argument(name="title")
-    ] = strawberry.UNSET,
-) -> Optional["UpdateCorpusMutation"]:
+    slug: Annotated[str | None, strawberry.argument(name="slug")] = strawberry.UNSET,
+    title: Annotated[str | None, strawberry.argument(name="title")] = strawberry.UNSET,
+) -> UpdateCorpusMutation | None:
     kwargs = strip_unset(
         {
             "categories": categories,
@@ -1000,7 +997,7 @@ def m_update_corpus_description(
             description="New markdown content for the corpus description",
         ),
     ] = strawberry.UNSET,
-) -> Optional["UpdateCorpusDescription"]:
+) -> UpdateCorpusDescription | None:
     kwargs = strip_unset({"corpus_id": corpus_id, "new_content": new_content})
     return _mutate_UpdateCorpusDescription(
         UpdateCorpusDescription, None, info, **kwargs
@@ -1052,7 +1049,7 @@ def _mutate_DeleteCorpusMutation(payload_cls, root, info, id):
 def m_delete_corpus(
     info: strawberry.Info,
     id: Annotated[str, strawberry.argument(name="id")] = strawberry.UNSET,
-) -> Optional["DeleteCorpusMutation"]:
+) -> DeleteCorpusMutation | None:
     kwargs = strip_unset({"id": id})
     return _mutate_DeleteCorpusMutation(DeleteCorpusMutation, None, info, **kwargs)
 
@@ -1121,12 +1118,12 @@ def m_link_documents_to_corpus(
         ),
     ] = strawberry.UNSET,
     document_ids: Annotated[
-        list[Optional[str]],
+        list[str | None],
         strawberry.argument(
             name="documentIds", description="List of ids of the docs to add to corpus."
         ),
     ] = strawberry.UNSET,
-) -> Optional["AddDocumentsToCorpus"]:
+) -> AddDocumentsToCorpus | None:
     kwargs = strip_unset({"corpus_id": corpus_id, "document_ids": document_ids})
     return _mutate_AddDocumentsToCorpus(AddDocumentsToCorpus, None, info, **kwargs)
 
@@ -1196,13 +1193,13 @@ def m_remove_documents_from_corpus(
         ),
     ] = strawberry.UNSET,
     document_ids_to_remove: Annotated[
-        list[Optional[str]],
+        list[str | None],
         strawberry.argument(
             name="documentIdsToRemove",
             description="List of ids of the docs to remove from corpus.",
         ),
     ] = strawberry.UNSET,
-) -> Optional["RemoveDocumentsFromCorpus"]:
+) -> RemoveDocumentsFromCorpus | None:
     kwargs = strip_unset(
         {"corpus_id": corpus_id, "document_ids_to_remove": document_ids_to_remove}
     )
@@ -1513,14 +1510,14 @@ def _mutate_CreateCorpusAction(
 def m_create_corpus_action(
     info: strawberry.Info,
     agent_config_id: Annotated[
-        Optional[strawberry.ID],
+        strawberry.ID | None,
         strawberry.argument(
             name="agentConfigId",
             description="Optional agent configuration for persona/tool defaults. Not required — task_instructions alone is sufficient for agent actions.",
         ),
     ] = strawberry.UNSET,
     analyzer_id: Annotated[
-        Optional[strawberry.ID],
+        strawberry.ID | None,
         strawberry.argument(name="analyzerId", description="ID of the analyzer to run"),
     ] = strawberry.UNSET,
     corpus_id: Annotated[
@@ -1530,70 +1527,70 @@ def m_create_corpus_action(
         ),
     ] = strawberry.UNSET,
     create_agent_inline: Annotated[
-        Optional[bool],
+        bool | None,
         strawberry.argument(
             name="createAgentInline",
             description="Create a new agent inline instead of using existing agent_config_id",
         ),
     ] = strawberry.UNSET,
     disabled: Annotated[
-        Optional[bool],
+        bool | None,
         strawberry.argument(
             name="disabled", description="Whether the action is disabled"
         ),
     ] = strawberry.UNSET,
     fieldset_id: Annotated[
-        Optional[strawberry.ID],
+        strawberry.ID | None,
         strawberry.argument(name="fieldsetId", description="ID of the fieldset to run"),
     ] = strawberry.UNSET,
     inline_agent_description: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="inlineAgentDescription",
             description="Description for the new inline agent",
         ),
     ] = strawberry.UNSET,
     inline_agent_instructions: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="inlineAgentInstructions",
             description="System instructions for the new inline agent (required if create_agent_inline=True)",
         ),
     ] = strawberry.UNSET,
     inline_agent_name: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="inlineAgentName",
             description="Name for the new inline agent (required if create_agent_inline=True)",
         ),
     ] = strawberry.UNSET,
     inline_agent_tools: Annotated[
-        Optional[list[Optional[str]]],
+        list[str | None] | None,
         strawberry.argument(
             name="inlineAgentTools",
             description="Tools available to the new inline agent",
         ),
     ] = strawberry.UNSET,
     name: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(name="name", description="Name of the action"),
     ] = strawberry.UNSET,
     pre_authorized_tools: Annotated[
-        Optional[list[Optional[str]]],
+        list[str | None] | None,
         strawberry.argument(
             name="preAuthorizedTools",
             description="Tools pre-authorized to run without approval. If empty, uses agent_config tools or trigger-appropriate defaults.",
         ),
     ] = strawberry.UNSET,
     run_on_all_corpuses: Annotated[
-        Optional[bool],
+        bool | None,
         strawberry.argument(
             name="runOnAllCorpuses",
             description="Whether to run this action on all corpuses",
         ),
     ] = strawberry.UNSET,
     task_instructions: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="taskInstructions",
             description="What the agent should do. This is the single required field for agent actions (e.g., 'Read this document and update its description with a one-paragraph summary').",
@@ -1606,7 +1603,7 @@ def m_create_corpus_action(
             description="When to trigger: add_document, edit_document, new_thread, new_message",
         ),
     ] = strawberry.UNSET,
-) -> Optional["CreateCorpusAction"]:
+) -> CreateCorpusAction | None:
     kwargs = strip_unset(
         {
             "agent_config_id": agent_config_id,
@@ -1794,27 +1791,27 @@ def _mutate_UpdateCorpusAction(
 def m_update_corpus_action(
     info: strawberry.Info,
     agent_config_id: Annotated[
-        Optional[strawberry.ID],
+        strawberry.ID | None,
         strawberry.argument(
             name="agentConfigId",
             description="ID of the agent configuration (clears other action types)",
         ),
     ] = strawberry.UNSET,
     analyzer_id: Annotated[
-        Optional[strawberry.ID],
+        strawberry.ID | None,
         strawberry.argument(
             name="analyzerId",
             description="ID of the analyzer to run (clears other action types)",
         ),
     ] = strawberry.UNSET,
     disabled: Annotated[
-        Optional[bool],
+        bool | None,
         strawberry.argument(
             name="disabled", description="Whether the action is disabled"
         ),
     ] = strawberry.UNSET,
     fieldset_id: Annotated[
-        Optional[strawberry.ID],
+        strawberry.ID | None,
         strawberry.argument(
             name="fieldsetId",
             description="ID of the fieldset to run (clears other action types)",
@@ -1825,37 +1822,37 @@ def m_update_corpus_action(
         strawberry.argument(name="id", description="ID of the corpus action to update"),
     ] = strawberry.UNSET,
     name: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(name="name", description="Updated name of the action"),
     ] = strawberry.UNSET,
     pre_authorized_tools: Annotated[
-        Optional[list[Optional[str]]],
+        list[str | None] | None,
         strawberry.argument(
             name="preAuthorizedTools",
             description="Tools pre-authorized to run without approval",
         ),
     ] = strawberry.UNSET,
     run_on_all_corpuses: Annotated[
-        Optional[bool],
+        bool | None,
         strawberry.argument(
             name="runOnAllCorpuses",
             description="Whether to run this action on all corpuses",
         ),
     ] = strawberry.UNSET,
     task_instructions: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="taskInstructions", description="What the agent should do"
         ),
     ] = strawberry.UNSET,
     trigger: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="trigger",
             description="Updated trigger (add_document, edit_document, new_thread, new_message)",
         ),
     ] = strawberry.UNSET,
-) -> Optional["UpdateCorpusAction"]:
+) -> UpdateCorpusAction | None:
     kwargs = strip_unset(
         {
             "agent_config_id": agent_config_id,
@@ -1879,7 +1876,7 @@ def m_delete_corpus_action(
         str,
         strawberry.argument(name="id", description="ID of the corpus action to delete"),
     ] = strawberry.UNSET,
-) -> Optional["DeleteCorpusAction"]:
+) -> DeleteCorpusAction | None:
     kwargs = strip_unset({"id": id})
     return drf_deletion(
         payload_cls=DeleteCorpusAction,
@@ -2012,7 +2009,7 @@ def m_run_corpus_action(
             description="ID of the Document to run the action against",
         ),
     ] = strawberry.UNSET,
-) -> Optional["RunCorpusAction"]:
+) -> RunCorpusAction | None:
     kwargs = strip_unset(
         {"corpus_action_id": corpus_action_id, "document_id": document_id}
     )
@@ -2083,7 +2080,7 @@ def m_start_corpus_action_batch_run(
             description="ID of the agent-based CorpusAction to batch-run",
         ),
     ] = strawberry.UNSET,
-) -> Optional["StartCorpusActionBatchRun"]:
+) -> StartCorpusActionBatchRun | None:
     kwargs = strip_unset({"corpus_action_id": corpus_action_id})
     return _mutate_StartCorpusActionBatchRun(
         StartCorpusActionBatchRun, None, info, **kwargs
@@ -2176,7 +2173,7 @@ def m_add_template_to_corpus(
             name="templateId", description="ID of the CorpusActionTemplate to clone"
         ),
     ] = strawberry.UNSET,
-) -> Optional["AddTemplateToCorpus"]:
+) -> AddTemplateToCorpus | None:
     kwargs = strip_unset({"corpus_id": corpus_id, "template_id": template_id})
     return _mutate_AddTemplateToCorpus(AddTemplateToCorpus, None, info, **kwargs)
 
@@ -2223,7 +2220,7 @@ def m_setup_corpus_intelligence(
         strawberry.ID,
         strawberry.argument(name="corpusId", description="ID of the corpus to set up."),
     ] = strawberry.UNSET,
-) -> Optional["SetupCorpusIntelligence"]:
+) -> SetupCorpusIntelligence | None:
     kwargs = strip_unset({"corpus_id": corpus_id})
     return _mutate_SetupCorpusIntelligence(
         SetupCorpusIntelligence, None, info, **kwargs
@@ -2292,7 +2289,7 @@ def m_toggle_corpus_memory(
             description="Whether to enable (true) or disable (false) memory",
         ),
     ] = strawberry.UNSET,
-) -> Optional["ToggleCorpusMemory"]:
+) -> ToggleCorpusMemory | None:
     kwargs = strip_unset({"corpus_id": corpus_id, "enabled": enabled})
     return _mutate_ToggleCorpusMemory(ToggleCorpusMemory, None, info, **kwargs)
 
@@ -2369,22 +2366,20 @@ def _mutate_CreateArtifact(
 def m_create_artifact(
     info: strawberry.Info,
     byline: Annotated[
-        Optional[str], strawberry.argument(name="byline")
+        str | None, strawberry.argument(name="byline")
     ] = strawberry.UNSET,
     config: Annotated[
-        Optional[GenericScalar], strawberry.argument(name="config")
+        GenericScalar | None, strawberry.argument(name="config")
     ] = strawberry.UNSET,
     corpus_id: Annotated[
         strawberry.ID, strawberry.argument(name="corpusId")
     ] = strawberry.UNSET,
     subtitle: Annotated[
-        Optional[str], strawberry.argument(name="subtitle")
+        str | None, strawberry.argument(name="subtitle")
     ] = strawberry.UNSET,
     template: Annotated[str, strawberry.argument(name="template")] = strawberry.UNSET,
-    title: Annotated[
-        Optional[str], strawberry.argument(name="title")
-    ] = strawberry.UNSET,
-) -> Optional["CreateArtifact"]:
+    title: Annotated[str | None, strawberry.argument(name="title")] = strawberry.UNSET,
+) -> CreateArtifact | None:
     kwargs = strip_unset(
         {
             "byline": byline,
@@ -2457,19 +2452,17 @@ def _mutate_UpdateArtifact(
 def m_update_artifact(
     info: strawberry.Info,
     byline: Annotated[
-        Optional[str], strawberry.argument(name="byline")
+        str | None, strawberry.argument(name="byline")
     ] = strawberry.UNSET,
     config: Annotated[
-        Optional[GenericScalar], strawberry.argument(name="config")
+        GenericScalar | None, strawberry.argument(name="config")
     ] = strawberry.UNSET,
     slug: Annotated[str, strawberry.argument(name="slug")] = strawberry.UNSET,
     subtitle: Annotated[
-        Optional[str], strawberry.argument(name="subtitle")
+        str | None, strawberry.argument(name="subtitle")
     ] = strawberry.UNSET,
-    title: Annotated[
-        Optional[str], strawberry.argument(name="title")
-    ] = strawberry.UNSET,
-) -> Optional["UpdateArtifact"]:
+    title: Annotated[str | None, strawberry.argument(name="title")] = strawberry.UNSET,
+) -> UpdateArtifact | None:
     kwargs = strip_unset(
         {
             "byline": byline,
@@ -2540,7 +2533,7 @@ def m_set_artifact_image(
         ),
     ] = strawberry.UNSET,
     slug: Annotated[str, strawberry.argument(name="slug")] = strawberry.UNSET,
-) -> Optional["SetArtifactImage"]:
+) -> SetArtifactImage | None:
     kwargs = strip_unset({"base64_png": base64_png, "slug": slug})
     return _mutate_SetArtifactImage(SetArtifactImage, None, info, **kwargs)
 

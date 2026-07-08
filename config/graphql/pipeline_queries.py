@@ -246,13 +246,11 @@ def _resolve_Query_pipeline_components(root, info, mimetype=None):
 def q_pipeline_components(
     info: strawberry.Info,
     mimetype: Annotated[
-        Optional[enums.FileTypeEnum], strawberry.argument(name="mimetype")
+        enums.FileTypeEnum | None, strawberry.argument(name="mimetype")
     ] = strawberry.UNSET,
-) -> Optional[
-    Annotated[
-        "PipelineComponentsType", strawberry.lazy("config.graphql.pipeline_types")
-    ]
-]:
+) -> None | (
+    Annotated[PipelineComponentsType, strawberry.lazy("config.graphql.pipeline_types")]
+):
     kwargs = strip_unset({"mimetype": mimetype})
     return _resolve_Query_pipeline_components(None, info, **kwargs)
 
@@ -286,16 +284,17 @@ def _resolve_Query_supported_mime_types(root, info):
 
 def q_supported_mime_types(
     info: strawberry.Info,
-) -> Optional[
+) -> None | (
     list[
-        Optional[
+        None
+        | (
             Annotated[
-                "SupportedMimeTypeType",
+                SupportedMimeTypeType,
                 strawberry.lazy("config.graphql.pipeline_types"),
             ]
-        ]
+        )
     ]
-]:
+):
     kwargs = strip_unset({})
     return _resolve_Query_supported_mime_types(None, info, **kwargs)
 
@@ -313,7 +312,7 @@ def _resolve_Query_convertible_extensions(root, info):
     return sorted(get_convertible_extensions())
 
 
-def q_convertible_extensions(info: strawberry.Info) -> Optional[list[Optional[str]]]:
+def q_convertible_extensions(info: strawberry.Info) -> list[str | None] | None:
     kwargs = strip_unset({})
     return _resolve_Query_convertible_extensions(None, info, **kwargs)
 
@@ -358,9 +357,9 @@ def _resolve_Query_pipeline_settings(root, info):
 
 def q_pipeline_settings(
     info: strawberry.Info,
-) -> Optional[
-    Annotated["PipelineSettingsType", strawberry.lazy("config.graphql.pipeline_types")]
-]:
+) -> None | (
+    Annotated[PipelineSettingsType, strawberry.lazy("config.graphql.pipeline_types")]
+):
     kwargs = strip_unset({})
     return _resolve_Query_pipeline_settings(None, info, **kwargs)
 

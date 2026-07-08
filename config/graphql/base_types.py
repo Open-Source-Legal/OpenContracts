@@ -43,13 +43,13 @@ from config.graphql.core.scalars import GenericScalar
     name="VersionHistoryType", description="Complete version history for a document."
 )
 class VersionHistoryType:
-    versions: list["DocumentVersionType"] = strawberry.field(
+    versions: list[DocumentVersionType] = strawberry.field(
         name="versions", description="All versions of this document", default=None
     )
-    current_version: "DocumentVersionType" = strawberry.field(
+    current_version: DocumentVersionType = strawberry.field(
         name="currentVersion", description="The current active version", default=None
     )
-    version_tree: Optional[GenericScalar] = strawberry.field(
+    version_tree: GenericScalar | None = strawberry.field(
         name="versionTree",
         description="Tree structure of version relationships",
         default=None,
@@ -76,12 +76,12 @@ class DocumentVersionType:
     created_at: datetime.datetime = strawberry.field(
         name="createdAt", description="When version was created", default=None
     )
-    created_by: Annotated["UserType", strawberry.lazy("config.graphql.user_types")] = (
+    created_by: Annotated[UserType, strawberry.lazy("config.graphql.user_types")] = (
         strawberry.field(
             name="createdBy", description="User who created this version", default=None
         )
     )
-    size_bytes: Optional[int] = strawberry.field(
+    size_bytes: int | None = strawberry.field(
         name="sizeBytes", description="File size in bytes", default=None
     )
     change_type: enums.VersionChangeTypeEnum = strawberry.field(
@@ -89,7 +89,7 @@ class DocumentVersionType:
         description="Type of change from previous version",
         default=None,
     )
-    parent_version: Optional["DocumentVersionType"] = strawberry.field(
+    parent_version: DocumentVersionType | None = strawberry.field(
         name="parentVersion",
         description="Previous version in content tree",
         default=None,
@@ -104,7 +104,7 @@ register_type("DocumentVersionType", DocumentVersionType, model=None)
     description="Complete path history for a document in a corpus.",
 )
 class PathHistoryType:
-    events: list["PathEventType"] = strawberry.field(
+    events: list[PathEventType] = strawberry.field(
         name="events",
         description="All path events in chronological order",
         default=None,
@@ -136,9 +136,9 @@ class PathEventType:
     path: str = strawberry.field(
         name="path", description="Path at time of event", default=None
     )
-    folder: Optional[
-        Annotated["CorpusFolderType", strawberry.lazy("config.graphql.corpus_types")]
-    ] = strawberry.field(
+    folder: None | (
+        Annotated[CorpusFolderType, strawberry.lazy("config.graphql.corpus_types")]
+    ) = strawberry.field(
         name="folder",
         description="Folder at time of event (null if at root)",
         default=None,
@@ -146,7 +146,7 @@ class PathEventType:
     timestamp: datetime.datetime = strawberry.field(
         name="timestamp", description="When this event occurred", default=None
     )
-    user: Annotated["UserType", strawberry.lazy("config.graphql.user_types")] = (
+    user: Annotated[UserType, strawberry.lazy("config.graphql.user_types")] = (
         strawberry.field(
             name="user", description="User who performed the action", default=None
         )
@@ -174,7 +174,7 @@ class CorpusVersionInfoType:
         description="Global ID of the Document at this version",
         default=None,
     )
-    document_slug: Optional[str] = strawberry.field(
+    document_slug: str | None = strawberry.field(
         name="documentSlug",
         description="Slug of the Document at this version (for URL building)",
         default=None,
@@ -194,18 +194,19 @@ register_type("CorpusVersionInfoType", CorpusVersionInfoType, model=None)
 
 @strawberry.type(name="PageAwareAnnotationType")
 class PageAwareAnnotationType:
-    pdf_page_info: Optional["PdfPageInfoType"] = strawberry.field(
+    pdf_page_info: PdfPageInfoType | None = strawberry.field(
         name="pdfPageInfo", default=None
     )
-    page_annotations: Optional[
+    page_annotations: None | (
         list[
-            Optional[
+            None
+            | (
                 Annotated[
-                    "AnnotationType", strawberry.lazy("config.graphql.annotation_types")
+                    AnnotationType, strawberry.lazy("config.graphql.annotation_types")
                 ]
-            ]
+            )
         ]
-    ] = strawberry.field(name="pageAnnotations", default=None)
+    ) = strawberry.field(name="pageAnnotations", default=None)
 
 
 register_type("PageAwareAnnotationType", PageAwareAnnotationType, model=None)
@@ -213,20 +214,18 @@ register_type("PageAwareAnnotationType", PageAwareAnnotationType, model=None)
 
 @strawberry.type(name="PdfPageInfoType")
 class PdfPageInfoType:
-    page_count: Optional[int] = strawberry.field(name="pageCount", default=None)
-    current_page: Optional[int] = strawberry.field(name="currentPage", default=None)
-    has_next_page: Optional[bool] = strawberry.field(name="hasNextPage", default=None)
-    has_previous_page: Optional[bool] = strawberry.field(
+    page_count: int | None = strawberry.field(name="pageCount", default=None)
+    current_page: int | None = strawberry.field(name="currentPage", default=None)
+    has_next_page: bool | None = strawberry.field(name="hasNextPage", default=None)
+    has_previous_page: bool | None = strawberry.field(
         name="hasPreviousPage", default=None
     )
-    corpus_id: Optional[strawberry.ID] = strawberry.field(name="corpusId", default=None)
-    document_id: Optional[strawberry.ID] = strawberry.field(
+    corpus_id: strawberry.ID | None = strawberry.field(name="corpusId", default=None)
+    document_id: strawberry.ID | None = strawberry.field(
         name="documentId", default=None
     )
-    for_analysis_ids: Optional[str] = strawberry.field(
-        name="forAnalysisIds", default=None
-    )
-    label_type: Optional[str] = strawberry.field(name="labelType", default=None)
+    for_analysis_ids: str | None = strawberry.field(name="forAnalysisIds", default=None)
+    label_type: str | None = strawberry.field(name="labelType", default=None)
 
 
 register_type("PdfPageInfoType", PdfPageInfoType, model=None)

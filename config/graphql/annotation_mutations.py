@@ -117,7 +117,7 @@ def _resolve_annotation_parents(
     document_pk: int | str,
     *,
     request=None,
-) -> tuple["Document", "Corpus"] | None:
+) -> tuple[Document, Corpus] | None:
     """Resolve and validate the (document, corpus) parents for a new annotation.
 
     Returns the (document, corpus) tuple when:
@@ -207,7 +207,7 @@ def _create_geographic_annotation(
     geocode_label_type: Literal["country", "state", "city"],
     country_hint: str | None,
     state_hint: str | None,
-) -> tuple[bool, str, "Annotation | None"]:
+) -> tuple[bool, str, Annotation | None]:
     """Shared body for the three Add*Annotation mutations.
 
     Returns ``(ok, message, annotation)`` so each mutation class is a thin
@@ -301,11 +301,11 @@ def _create_geographic_annotation(
 
 @strawberry.type(name="AddAnnotation")
 class AddAnnotation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    annotation: Optional[
-        Annotated["AnnotationType", strawberry.lazy("config.graphql.annotation_types")]
-    ] = strawberry.field(name="annotation", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    annotation: None | (
+        Annotated[AnnotationType, strawberry.lazy("config.graphql.annotation_types")]
+    ) = strawberry.field(name="annotation", default=None)
 
 
 register_type("AddAnnotation", AddAnnotation, model=None)
@@ -316,11 +316,11 @@ register_type("AddAnnotation", AddAnnotation, model=None)
     description="Create an annotation labelled ``OC_URL`` with a click-through URL.\n\nConvenience wrapper over ``AddAnnotation``: ensures the corpus has an\n``OC_URL`` label (creating it if absent) and stamps ``link_url`` on the\nresulting annotation so the frontend renders the highlighted text as a\nclickable hyperlink.",
 )
 class AddUrlAnnotation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    annotation: Optional[
-        Annotated["AnnotationType", strawberry.lazy("config.graphql.annotation_types")]
-    ] = strawberry.field(name="annotation", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    annotation: None | (
+        Annotated[AnnotationType, strawberry.lazy("config.graphql.annotation_types")]
+    ) = strawberry.field(name="annotation", default=None)
 
 
 register_type("AddUrlAnnotation", AddUrlAnnotation, model=None)
@@ -331,12 +331,12 @@ register_type("AddUrlAnnotation", AddUrlAnnotation, model=None)
     description="Create an annotation labelled ``OC_COUNTRY`` with offline-geocoded data.\n\nMirrors :class:`AddUrlAnnotation` but routes through the bundled\ngeocoding service (see :mod:`opencontractserver.utils.geocoding`).\n``country_hint`` is intentionally absent — the country lookup is\nself-disambiguating.",
 )
 class AddCountryAnnotation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    annotation: Optional[
-        Annotated["AnnotationType", strawberry.lazy("config.graphql.annotation_types")]
-    ] = strawberry.field(name="annotation", default=None)
-    geocoded: Optional[bool] = strawberry.field(
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    annotation: None | (
+        Annotated[AnnotationType, strawberry.lazy("config.graphql.annotation_types")]
+    ) = strawberry.field(name="annotation", default=None)
+    geocoded: bool | None = strawberry.field(
         name="geocoded",
         description="True if the offline geocoder resolved the span; False when the annotation was created but no map pin was generated.",
         default=None,
@@ -351,12 +351,12 @@ register_type("AddCountryAnnotation", AddCountryAnnotation, model=None)
     description="Create an annotation labelled ``OC_STATE`` with offline-geocoded data.\n\n``country_hint`` narrows the candidate pool to a single country; today\nthe bundled state dataset is US-only, so the hint mostly exists as a\nforward-compatibility hook for when non-US first-level admin\ndivisions are added.",
 )
 class AddStateAnnotation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    annotation: Optional[
-        Annotated["AnnotationType", strawberry.lazy("config.graphql.annotation_types")]
-    ] = strawberry.field(name="annotation", default=None)
-    geocoded: Optional[bool] = strawberry.field(
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    annotation: None | (
+        Annotated[AnnotationType, strawberry.lazy("config.graphql.annotation_types")]
+    ) = strawberry.field(name="annotation", default=None)
+    geocoded: bool | None = strawberry.field(
         name="geocoded",
         description="True if the offline geocoder resolved the span; False when the annotation was created but no map pin was generated.",
         default=None,
@@ -371,12 +371,12 @@ register_type("AddStateAnnotation", AddStateAnnotation, model=None)
     description='Create an annotation labelled ``OC_CITY`` with offline-geocoded data.\n\n``country_hint`` / ``state_hint`` resolve via the same indexes the\nmain lookup uses, so any recognised form ("France" / "FR" / "Texas"\n/ "TX") works. Hints narrow the candidate pool BEFORE the\nexact / alias / fuzzy chain runs, so a hinted ambiguous string\n(e.g. "Paris" + state_hint="TX") prefers the right row even when\nmultiple rows are exact name matches.',
 )
 class AddCityAnnotation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    annotation: Optional[
-        Annotated["AnnotationType", strawberry.lazy("config.graphql.annotation_types")]
-    ] = strawberry.field(name="annotation", default=None)
-    geocoded: Optional[bool] = strawberry.field(
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    annotation: None | (
+        Annotated[AnnotationType, strawberry.lazy("config.graphql.annotation_types")]
+    ) = strawberry.field(name="annotation", default=None)
+    geocoded: bool | None = strawberry.field(
         name="geocoded",
         description="True if the offline geocoder resolved the span; False when the annotation was created but no map pin was generated.",
         default=None,
@@ -388,8 +388,8 @@ register_type("AddCityAnnotation", AddCityAnnotation, model=None)
 
 @strawberry.type(name="RemoveAnnotation")
 class RemoveAnnotation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
 
 
 register_type("RemoveAnnotation", RemoveAnnotation, model=None)
@@ -397,9 +397,9 @@ register_type("RemoveAnnotation", RemoveAnnotation, model=None)
 
 @strawberry.type(name="UpdateAnnotation")
 class UpdateAnnotation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    obj_id: Optional[strawberry.ID] = strawberry.field(name="objId", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj_id: strawberry.ID | None = strawberry.field(name="objId", default=None)
 
 
 register_type("UpdateAnnotation", UpdateAnnotation, model=None)
@@ -407,11 +407,11 @@ register_type("UpdateAnnotation", UpdateAnnotation, model=None)
 
 @strawberry.type(name="AddDocTypeAnnotation")
 class AddDocTypeAnnotation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    annotation: Optional[
-        Annotated["AnnotationType", strawberry.lazy("config.graphql.annotation_types")]
-    ] = strawberry.field(name="annotation", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    annotation: None | (
+        Annotated[AnnotationType, strawberry.lazy("config.graphql.annotation_types")]
+    ) = strawberry.field(name="annotation", default=None)
 
 
 register_type("AddDocTypeAnnotation", AddDocTypeAnnotation, model=None)
@@ -419,11 +419,11 @@ register_type("AddDocTypeAnnotation", AddDocTypeAnnotation, model=None)
 
 @strawberry.type(name="ApproveAnnotation")
 class ApproveAnnotation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    user_feedback: Optional[
-        Annotated["UserFeedbackType", strawberry.lazy("config.graphql.user_types")]
-    ] = strawberry.field(name="userFeedback", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    user_feedback: None | (
+        Annotated[UserFeedbackType, strawberry.lazy("config.graphql.user_types")]
+    ) = strawberry.field(name="userFeedback", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
 
 
 register_type("ApproveAnnotation", ApproveAnnotation, model=None)
@@ -431,11 +431,11 @@ register_type("ApproveAnnotation", ApproveAnnotation, model=None)
 
 @strawberry.type(name="RejectAnnotation")
 class RejectAnnotation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    user_feedback: Optional[
-        Annotated["UserFeedbackType", strawberry.lazy("config.graphql.user_types")]
-    ] = strawberry.field(name="userFeedback", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    user_feedback: None | (
+        Annotated[UserFeedbackType, strawberry.lazy("config.graphql.user_types")]
+    ) = strawberry.field(name="userFeedback", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
 
 
 register_type("RejectAnnotation", RejectAnnotation, model=None)
@@ -443,13 +443,11 @@ register_type("RejectAnnotation", RejectAnnotation, model=None)
 
 @strawberry.type(name="AddRelationship")
 class AddRelationship:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    relationship: Optional[
-        Annotated[
-            "RelationshipType", strawberry.lazy("config.graphql.annotation_types")
-        ]
-    ] = strawberry.field(name="relationship", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    relationship: None | (
+        Annotated[RelationshipType, strawberry.lazy("config.graphql.annotation_types")]
+    ) = strawberry.field(name="relationship", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
 
 
 register_type("AddRelationship", AddRelationship, model=None)
@@ -457,8 +455,8 @@ register_type("AddRelationship", AddRelationship, model=None)
 
 @strawberry.type(name="RemoveRelationship")
 class RemoveRelationship:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
 
 
 register_type("RemoveRelationship", RemoveRelationship, model=None)
@@ -466,8 +464,8 @@ register_type("RemoveRelationship", RemoveRelationship, model=None)
 
 @strawberry.type(name="RemoveRelationships")
 class RemoveRelationships:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
 
 
 register_type("RemoveRelationships", RemoveRelationships, model=None)
@@ -478,13 +476,11 @@ register_type("RemoveRelationships", RemoveRelationships, model=None)
     description="Update an existing relationship by adding or removing annotations\nfrom source or target sets.",
 )
 class UpdateRelationship:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    relationship: Optional[
-        Annotated[
-            "RelationshipType", strawberry.lazy("config.graphql.annotation_types")
-        ]
-    ] = strawberry.field(name="relationship", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    relationship: None | (
+        Annotated[RelationshipType, strawberry.lazy("config.graphql.annotation_types")]
+    ) = strawberry.field(name="relationship", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
 
 
 register_type("UpdateRelationship", UpdateRelationship, model=None)
@@ -492,8 +488,8 @@ register_type("UpdateRelationship", UpdateRelationship, model=None)
 
 @strawberry.type(name="UpdateRelations")
 class UpdateRelations:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
 
 
 register_type("UpdateRelations", UpdateRelations, model=None)
@@ -504,12 +500,12 @@ register_type("UpdateRelations", UpdateRelations, model=None)
     description="Mutation to update a note's content, creating a new version in the process.\nOnly the note creator can update their notes.",
 )
 class UpdateNote:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[
-        Annotated["NoteType", strawberry.lazy("config.graphql.annotation_types")]
-    ] = strawberry.field(name="obj", default=None)
-    version: Optional[int] = strawberry.field(
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
+        Annotated[NoteType, strawberry.lazy("config.graphql.annotation_types")]
+    ) = strawberry.field(name="obj", default=None)
+    version: int | None = strawberry.field(
         name="version", description="The new version number after update", default=None
     )
 
@@ -522,8 +518,8 @@ register_type("UpdateNote", UpdateNote, model=None)
     description="Mutation to delete a note. Only the creator can delete their notes.",
 )
 class DeleteNote:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
 
 
 register_type("DeleteNote", DeleteNote, model=None)
@@ -533,11 +529,11 @@ register_type("DeleteNote", DeleteNote, model=None)
     name="CreateNote", description="Mutation to create a new note for a document."
 )
 class CreateNote:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[
-        Annotated["NoteType", strawberry.lazy("config.graphql.annotation_types")]
-    ] = strawberry.field(name="obj", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
+        Annotated[NoteType, strawberry.lazy("config.graphql.annotation_types")]
+    ) = strawberry.field(name="obj", default=None)
 
 
 register_type("CreateNote", CreateNote, model=None)
@@ -657,14 +653,14 @@ def m_add_annotation(
         ),
     ] = strawberry.UNSET,
     link_url: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="linkUrl",
             description="Optional URL opened on click. Restricted to http(s):// or site-relative paths; intended for OC_URL annotations.",
         ),
     ] = strawberry.UNSET,
     long_description: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="longDescription",
             description="Optional markdown description for this annotation.",
@@ -682,7 +678,7 @@ def m_add_annotation(
             name="rawText", description="What is the raw text of the annotation?"
         ),
     ] = strawberry.UNSET,
-) -> Optional["AddAnnotation"]:
+) -> AddAnnotation | None:
     kwargs = strip_unset(
         {
             "annotation_label_id": annotation_label_id,
@@ -827,7 +823,7 @@ def m_add_url_annotation(
         str,
         strawberry.argument(name="rawText", description="The raw text being linked."),
     ] = strawberry.UNSET,
-) -> Optional["AddUrlAnnotation"]:
+) -> AddUrlAnnotation | None:
     kwargs = strip_unset(
         {
             "annotation_type": annotation_type,
@@ -932,7 +928,7 @@ def m_add_country_annotation(
             description="The raw text identifying the country (e.g. 'France', 'FR').",
         ),
     ] = strawberry.UNSET,
-) -> Optional["AddCountryAnnotation"]:
+) -> AddCountryAnnotation | None:
     kwargs = strip_unset(
         {
             "annotation_type": annotation_type,
@@ -1004,7 +1000,7 @@ def m_add_state_annotation(
     ] = strawberry.UNSET,
     corpus_id: Annotated[str, strawberry.argument(name="corpusId")] = strawberry.UNSET,
     country_hint: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="countryHint",
             description="Optional country to disambiguate the state (default: United States, the only first-level admin set bundled today).",
@@ -1022,7 +1018,7 @@ def m_add_state_annotation(
             description="The raw text identifying the state (e.g. 'Texas', 'TX').",
         ),
     ] = strawberry.UNSET,
-) -> Optional["AddStateAnnotation"]:
+) -> AddStateAnnotation | None:
     kwargs = strip_unset(
         {
             "annotation_type": annotation_type,
@@ -1096,7 +1092,7 @@ def m_add_city_annotation(
     ] = strawberry.UNSET,
     corpus_id: Annotated[str, strawberry.argument(name="corpusId")] = strawberry.UNSET,
     country_hint: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="countryHint",
             description="Optional country to narrow candidate cities.",
@@ -1115,13 +1111,13 @@ def m_add_city_annotation(
         ),
     ] = strawberry.UNSET,
     state_hint: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="stateHint",
             description="Optional state / first-level admin division (only applied when the country is the US in the bundled dataset).",
         ),
     ] = strawberry.UNSET,
-) -> Optional["AddCityAnnotation"]:
+) -> AddCityAnnotation | None:
     kwargs = strip_unset(
         {
             "annotation_type": annotation_type,
@@ -1193,7 +1189,7 @@ def m_remove_annotation(
             description="Id of the annotation that is to be deleted.",
         ),
     ] = strawberry.UNSET,
-) -> Optional["RemoveAnnotation"]:
+) -> RemoveAnnotation | None:
     kwargs = strip_unset({"annotation_id": annotation_id})
     return _mutate_RemoveAnnotation(RemoveAnnotation, None, info, **kwargs)
 
@@ -1201,27 +1197,27 @@ def m_remove_annotation(
 def m_update_annotation(
     info: strawberry.Info,
     annotation_label: Annotated[
-        Optional[str], strawberry.argument(name="annotationLabel")
+        str | None, strawberry.argument(name="annotationLabel")
     ] = strawberry.UNSET,
     id: Annotated[str, strawberry.argument(name="id")] = strawberry.UNSET,
     json: Annotated[
-        Optional[GenericScalar], strawberry.argument(name="json")
+        GenericScalar | None, strawberry.argument(name="json")
     ] = strawberry.UNSET,
     link_url: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="linkUrl",
             description="Optional click-through URL for OC_URL annotations. Pass an empty string to clear an existing URL. Restricted to http(s):// or site-relative paths.",
         ),
     ] = strawberry.UNSET,
     long_description: Annotated[
-        Optional[str], strawberry.argument(name="longDescription")
+        str | None, strawberry.argument(name="longDescription")
     ] = strawberry.UNSET,
-    page: Annotated[Optional[int], strawberry.argument(name="page")] = strawberry.UNSET,
+    page: Annotated[int | None, strawberry.argument(name="page")] = strawberry.UNSET,
     raw_text: Annotated[
-        Optional[str], strawberry.argument(name="rawText")
+        str | None, strawberry.argument(name="rawText")
     ] = strawberry.UNSET,
-) -> Optional["UpdateAnnotation"]:
+) -> UpdateAnnotation | None:
     kwargs = strip_unset(
         {
             "annotation_label": annotation_label,
@@ -1312,7 +1308,7 @@ def m_add_doc_type_annotation(
             name="documentId", description="Id of the document this annotation is on."
         ),
     ] = strawberry.UNSET,
-) -> Optional["AddDocTypeAnnotation"]:
+) -> AddDocTypeAnnotation | None:
     kwargs = strip_unset(
         {
             "annotation_label_id": annotation_label_id,
@@ -1332,7 +1328,7 @@ def m_remove_doc_type_annotation(
             description="Id of the annotation that is to be deleted.",
         ),
     ] = strawberry.UNSET,
-) -> Optional["RemoveAnnotation"]:
+) -> RemoveAnnotation | None:
     kwargs = strip_unset({"annotation_id": annotation_id})
     return _mutate_RemoveAnnotation(RemoveAnnotation, None, info, **kwargs)
 
@@ -1371,12 +1367,12 @@ def m_approve_annotation(
         ),
     ] = strawberry.UNSET,
     comment: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="comment", description="Optional comment for the approval"
         ),
     ] = strawberry.UNSET,
-) -> Optional["ApproveAnnotation"]:
+) -> ApproveAnnotation | None:
     kwargs = strip_unset({"annotation_id": annotation_id, "comment": comment})
     return _mutate_ApproveAnnotation(ApproveAnnotation, None, info, **kwargs)
 
@@ -1415,12 +1411,12 @@ def m_reject_annotation(
         ),
     ] = strawberry.UNSET,
     comment: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="comment", description="Optional comment for the rejection"
         ),
     ] = strawberry.UNSET,
-) -> Optional["RejectAnnotation"]:
+) -> RejectAnnotation | None:
     kwargs = strip_unset({"annotation_id": annotation_id, "comment": comment})
     return _mutate_RejectAnnotation(RejectAnnotation, None, info, **kwargs)
 
@@ -1572,20 +1568,20 @@ def m_add_relationship(
         ),
     ] = strawberry.UNSET,
     source_ids: Annotated[
-        list[Optional[str]],
+        list[str | None],
         strawberry.argument(
             name="sourceIds",
             description="List of ids of the tokens in the source annotation",
         ),
     ] = strawberry.UNSET,
     target_ids: Annotated[
-        list[Optional[str]],
+        list[str | None],
         strawberry.argument(
             name="targetIds",
             description="List of ids of the target tokens in the label",
         ),
     ] = strawberry.UNSET,
-) -> Optional["AddRelationship"]:
+) -> AddRelationship | None:
     kwargs = strip_unset(
         {
             "corpus_id": corpus_id,
@@ -1649,7 +1645,7 @@ def m_remove_relationship(
             description="Id of the relationship that is to be deleted.",
         ),
     ] = strawberry.UNSET,
-) -> Optional["RemoveRelationship"]:
+) -> RemoveRelationship | None:
     kwargs = strip_unset({"relationship_id": relationship_id})
     return _mutate_RemoveRelationship(RemoveRelationship, None, info, **kwargs)
 
@@ -1682,9 +1678,9 @@ def _mutate_RemoveRelationships(payload_cls, root, info, relationship_ids):
 def m_remove_relationships(
     info: strawberry.Info,
     relationship_ids: Annotated[
-        Optional[list[Optional[str]]], strawberry.argument(name="relationshipIds")
+        list[str | None] | None, strawberry.argument(name="relationshipIds")
     ] = strawberry.UNSET,
-) -> Optional["RemoveRelationships"]:
+) -> RemoveRelationships | None:
     kwargs = strip_unset({"relationship_ids": relationship_ids})
     return _mutate_RemoveRelationships(RemoveRelationships, None, info, **kwargs)
 
@@ -1800,13 +1796,13 @@ def _mutate_UpdateRelationship(
 def m_update_relationship(
     info: strawberry.Info,
     add_source_ids: Annotated[
-        Optional[list[Optional[str]]],
+        list[str | None] | None,
         strawberry.argument(
             name="addSourceIds", description="List of annotation IDs to add as sources"
         ),
     ] = strawberry.UNSET,
     add_target_ids: Annotated[
-        Optional[list[Optional[str]]],
+        list[str | None] | None,
         strawberry.argument(
             name="addTargetIds", description="List of annotation IDs to add as targets"
         ),
@@ -1818,20 +1814,20 @@ def m_update_relationship(
         ),
     ] = strawberry.UNSET,
     remove_source_ids: Annotated[
-        Optional[list[Optional[str]]],
+        list[str | None] | None,
         strawberry.argument(
             name="removeSourceIds",
             description="List of annotation IDs to remove from sources",
         ),
     ] = strawberry.UNSET,
     remove_target_ids: Annotated[
-        Optional[list[Optional[str]]],
+        list[str | None] | None,
         strawberry.argument(
             name="removeTargetIds",
             description="List of annotation IDs to remove from targets",
         ),
     ] = strawberry.UNSET,
-) -> Optional["UpdateRelationship"]:
+) -> UpdateRelationship | None:
     kwargs = strip_unset(
         {
             "add_source_ids": add_source_ids,
@@ -1900,19 +1896,21 @@ def _mutate_UpdateRelations(payload_cls, root, info, relationships):
 def m_update_relationships(
     info: strawberry.Info,
     relationships: Annotated[
-        Optional[
+        None
+        | (
             list[
-                Optional[
+                None
+                | (
                     Annotated[
-                        "RelationInputType",
+                        RelationInputType,
                         strawberry.lazy("config.graphql.annotation_types"),
                     ]
-                ]
+                )
             ]
-        ],
+        ),
         strawberry.argument(name="relationships"),
     ] = strawberry.UNSET,
-) -> Optional["UpdateRelations"]:
+) -> UpdateRelations | None:
     kwargs = strip_unset({"relationships": relationships})
     return _mutate_UpdateRelations(UpdateRelations, None, info, **kwargs)
 
@@ -1999,12 +1997,12 @@ def m_update_note(
         strawberry.argument(name="noteId", description="ID of the note to update"),
     ] = strawberry.UNSET,
     title: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="title", description="Optional new title for the note"
         ),
     ] = strawberry.UNSET,
-) -> Optional["UpdateNote"]:
+) -> UpdateNote | None:
     kwargs = strip_unset(
         {"new_content": new_content, "note_id": note_id, "title": title}
     )
@@ -2014,7 +2012,7 @@ def m_update_note(
 def m_delete_note(
     info: strawberry.Info,
     id: Annotated[str, strawberry.argument(name="id")] = strawberry.UNSET,
-) -> Optional["DeleteNote"]:
+) -> DeleteNote | None:
     kwargs = strip_unset({"id": id})
     return drf_deletion(
         payload_cls=DeleteNote,
@@ -2114,7 +2112,7 @@ def m_create_note(
         strawberry.argument(name="content", description="Markdown content of the note"),
     ] = strawberry.UNSET,
     corpus_id: Annotated[
-        Optional[strawberry.ID],
+        strawberry.ID | None,
         strawberry.argument(
             name="corpusId",
             description="Optional ID of the corpus this note is associated with",
@@ -2127,7 +2125,7 @@ def m_create_note(
         ),
     ] = strawberry.UNSET,
     parent_id: Annotated[
-        Optional[strawberry.ID],
+        strawberry.ID | None,
         strawberry.argument(
             name="parentId",
             description="Optional ID of parent note for hierarchical notes",
@@ -2136,7 +2134,7 @@ def m_create_note(
     title: Annotated[
         str, strawberry.argument(name="title", description="Title of the note")
     ] = strawberry.UNSET,
-) -> Optional["CreateNote"]:
+) -> CreateNote | None:
     kwargs = strip_unset(
         {
             "content": content,

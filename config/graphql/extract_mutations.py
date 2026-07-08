@@ -63,7 +63,7 @@ logger = logging.getLogger(__name__)
 
 def _get_metadata_column_with_corpus(
     column_id: str, user, request
-) -> tuple[Optional[Column], Optional[Corpus]]:
+) -> tuple[Column | None, Corpus | None]:
     """READ-gated lookup of a metadata ``Column`` plus its parent ``Corpus``.
 
     Metadata columns are corpus-scoped objects (reached via
@@ -107,7 +107,7 @@ EXTRACT_ITERATION_AXES = ("MODEL", "DOCUMENT_VERSIONS", "FIELDSET")
 def _clone_fieldset_for_iteration(
     source_fieldset: Fieldset,
     user,
-    column_overrides: Optional[dict] = None,
+    column_overrides: dict | None = None,
     *,
     request=None,
 ) -> Fieldset:
@@ -191,11 +191,11 @@ def _resolve_iteration_documents(source_extract: Extract, axis: str):
 
 @strawberry.type(name="CreateFieldset")
 class CreateFieldset:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[
-        Annotated["FieldsetType", strawberry.lazy("config.graphql.extract_types")]
-    ] = strawberry.field(name="obj", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
+        Annotated[FieldsetType, strawberry.lazy("config.graphql.extract_types")]
+    ) = strawberry.field(name="obj", default=None)
 
 
 register_type("CreateFieldset", CreateFieldset, model=None)
@@ -206,11 +206,11 @@ register_type("CreateFieldset", CreateFieldset, model=None)
     description="Rename / re-describe a fieldset the caller may UPDATE.",
 )
 class UpdateFieldset:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[
-        Annotated["FieldsetType", strawberry.lazy("config.graphql.extract_types")]
-    ] = strawberry.field(name="obj", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
+        Annotated[FieldsetType, strawberry.lazy("config.graphql.extract_types")]
+    ) = strawberry.field(name="obj", default=None)
 
 
 register_type("UpdateFieldset", UpdateFieldset, model=None)
@@ -218,11 +218,11 @@ register_type("UpdateFieldset", UpdateFieldset, model=None)
 
 @strawberry.type(name="CreateColumn")
 class CreateColumn:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[
-        Annotated["ColumnType", strawberry.lazy("config.graphql.extract_types")]
-    ] = strawberry.field(name="obj", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
+        Annotated[ColumnType, strawberry.lazy("config.graphql.extract_types")]
+    ) = strawberry.field(name="obj", default=None)
 
 
 register_type("CreateColumn", CreateColumn, model=None)
@@ -230,12 +230,12 @@ register_type("CreateColumn", CreateColumn, model=None)
 
 @strawberry.type(name="UpdateColumnMutation")
 class UpdateColumnMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    obj_id: Optional[strawberry.ID] = strawberry.field(name="objId", default=None)
-    obj: Optional[
-        Annotated["ColumnType", strawberry.lazy("config.graphql.extract_types")]
-    ] = strawberry.field(name="obj", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj_id: strawberry.ID | None = strawberry.field(name="objId", default=None)
+    obj: None | (
+        Annotated[ColumnType, strawberry.lazy("config.graphql.extract_types")]
+    ) = strawberry.field(name="obj", default=None)
 
 
 register_type("UpdateColumnMutation", UpdateColumnMutation, model=None)
@@ -243,9 +243,9 @@ register_type("UpdateColumnMutation", UpdateColumnMutation, model=None)
 
 @strawberry.type(name="DeleteColumn")
 class DeleteColumn:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    deleted_id: Optional[str] = strawberry.field(name="deletedId", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    deleted_id: str | None = strawberry.field(name="deletedId", default=None)
 
 
 register_type("DeleteColumn", DeleteColumn, model=None)
@@ -256,11 +256,11 @@ register_type("DeleteColumn", DeleteColumn, model=None)
     description='Create a new extract. If fieldset_id is provided, attach existing fieldset.\nOtherwise, a new fieldset is created. If no name is provided, fieldset name has\nform "[Extract name] Fieldset"',
 )
 class CreateExtract:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    msg: Optional[str] = strawberry.field(name="msg", default=None)
-    obj: Optional[
-        Annotated["ExtractType", strawberry.lazy("config.graphql.extract_types")]
-    ] = strawberry.field(name="obj", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    msg: str | None = strawberry.field(name="msg", default=None)
+    obj: None | (
+        Annotated[ExtractType, strawberry.lazy("config.graphql.extract_types")]
+    ) = strawberry.field(name="obj", default=None)
 
 
 register_type("CreateExtract", CreateExtract, model=None)
@@ -271,11 +271,11 @@ register_type("CreateExtract", CreateExtract, model=None)
     description="Fork an existing Extract into a new iteration along a single axis.\n\nThree axes are supported, mirroring the three eval workflows:\n  * ``MODEL`` — same fieldset + same documents, new model_config.\n  * ``DOCUMENT_VERSIONS`` — same fieldset + same model_config, but each\n    document is replaced by the current row in its version tree.\n  * ``FIELDSET`` — clone the fieldset (with optional per-column\n    overrides), keep documents + model_config.\n\nThe new extract has ``parent_extract`` set to the source so the UI can\nwalk the iteration series. If ``auto_start`` is true the standard\n``run_extract`` task is queued exactly as ``StartExtract`` would.",
 )
 class CreateExtractIteration:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[
-        Annotated["ExtractType", strawberry.lazy("config.graphql.extract_types")]
-    ] = strawberry.field(name="obj", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
+        Annotated[ExtractType, strawberry.lazy("config.graphql.extract_types")]
+    ) = strawberry.field(name="obj", default=None)
 
 
 register_type("CreateExtractIteration", CreateExtractIteration, model=None)
@@ -283,11 +283,11 @@ register_type("CreateExtractIteration", CreateExtractIteration, model=None)
 
 @strawberry.type(name="StartExtract")
 class StartExtract:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[
-        Annotated["ExtractType", strawberry.lazy("config.graphql.extract_types")]
-    ] = strawberry.field(name="obj", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
+        Annotated[ExtractType, strawberry.lazy("config.graphql.extract_types")]
+    ) = strawberry.field(name="obj", default=None)
 
 
 register_type("StartExtract", StartExtract, model=None)
@@ -295,8 +295,8 @@ register_type("StartExtract", StartExtract, model=None)
 
 @strawberry.type(name="DeleteExtract")
 class DeleteExtract:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
 
 
 register_type("DeleteExtract", DeleteExtract, model=None)
@@ -307,11 +307,11 @@ register_type("DeleteExtract", DeleteExtract, model=None)
     description="Mutation to update an existing Extract object.\n\nSupports updating the name (title), corpus, fieldset, and error fields.\nEnsures proper permission checks are applied.",
 )
 class UpdateExtractMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[
-        Annotated["ExtractType", strawberry.lazy("config.graphql.extract_types")]
-    ] = strawberry.field(name="obj", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
+        Annotated[ExtractType, strawberry.lazy("config.graphql.extract_types")]
+    ) = strawberry.field(name="obj", default=None)
 
 
 register_type("UpdateExtractMutation", UpdateExtractMutation, model=None)
@@ -319,18 +319,19 @@ register_type("UpdateExtractMutation", UpdateExtractMutation, model=None)
 
 @strawberry.type(name="AddDocumentsToExtract")
 class AddDocumentsToExtract:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    obj_id: Optional[strawberry.ID] = strawberry.field(name="objId", default=None)
-    objs: Optional[
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj_id: strawberry.ID | None = strawberry.field(name="objId", default=None)
+    objs: None | (
         list[
-            Optional[
+            None
+            | (
                 Annotated[
-                    "DocumentType", strawberry.lazy("config.graphql.document_types")
+                    DocumentType, strawberry.lazy("config.graphql.document_types")
                 ]
-            ]
+            )
         ]
-    ] = strawberry.field(name="objs", default=None)
+    ) = strawberry.field(name="objs", default=None)
 
 
 register_type("AddDocumentsToExtract", AddDocumentsToExtract, model=None)
@@ -338,9 +339,9 @@ register_type("AddDocumentsToExtract", AddDocumentsToExtract, model=None)
 
 @strawberry.type(name="RemoveDocumentsFromExtract")
 class RemoveDocumentsFromExtract:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    ids_removed: Optional[list[Optional[str]]] = strawberry.field(
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    ids_removed: list[str | None] | None = strawberry.field(
         name="idsRemoved", default=None
     )
 
@@ -350,11 +351,11 @@ register_type("RemoveDocumentsFromExtract", RemoveDocumentsFromExtract, model=No
 
 @strawberry.type(name="ApproveDatacell")
 class ApproveDatacell:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[
-        Annotated["DatacellType", strawberry.lazy("config.graphql.extract_types")]
-    ] = strawberry.field(name="obj", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
+        Annotated[DatacellType, strawberry.lazy("config.graphql.extract_types")]
+    ) = strawberry.field(name="obj", default=None)
 
 
 register_type("ApproveDatacell", ApproveDatacell, model=None)
@@ -362,11 +363,11 @@ register_type("ApproveDatacell", ApproveDatacell, model=None)
 
 @strawberry.type(name="RejectDatacell")
 class RejectDatacell:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[
-        Annotated["DatacellType", strawberry.lazy("config.graphql.extract_types")]
-    ] = strawberry.field(name="obj", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
+        Annotated[DatacellType, strawberry.lazy("config.graphql.extract_types")]
+    ) = strawberry.field(name="obj", default=None)
 
 
 register_type("RejectDatacell", RejectDatacell, model=None)
@@ -374,11 +375,11 @@ register_type("RejectDatacell", RejectDatacell, model=None)
 
 @strawberry.type(name="EditDatacell")
 class EditDatacell:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[
-        Annotated["DatacellType", strawberry.lazy("config.graphql.extract_types")]
-    ] = strawberry.field(name="obj", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
+        Annotated[DatacellType, strawberry.lazy("config.graphql.extract_types")]
+    ) = strawberry.field(name="obj", default=None)
 
 
 register_type("EditDatacell", EditDatacell, model=None)
@@ -386,11 +387,11 @@ register_type("EditDatacell", EditDatacell, model=None)
 
 @strawberry.type(name="StartDocumentExtract")
 class StartDocumentExtract:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[
-        Annotated["ExtractType", strawberry.lazy("config.graphql.extract_types")]
-    ] = strawberry.field(name="obj", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
+        Annotated[ExtractType, strawberry.lazy("config.graphql.extract_types")]
+    ) = strawberry.field(name="obj", default=None)
 
 
 register_type("StartDocumentExtract", StartDocumentExtract, model=None)
@@ -400,11 +401,11 @@ register_type("StartDocumentExtract", StartDocumentExtract, model=None)
     name="CreateMetadataColumn", description="Create a metadata column for a corpus."
 )
 class CreateMetadataColumn:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[
-        Annotated["ColumnType", strawberry.lazy("config.graphql.extract_types")]
-    ] = strawberry.field(name="obj", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
+        Annotated[ColumnType, strawberry.lazy("config.graphql.extract_types")]
+    ) = strawberry.field(name="obj", default=None)
 
 
 register_type("CreateMetadataColumn", CreateMetadataColumn, model=None)
@@ -412,11 +413,11 @@ register_type("CreateMetadataColumn", CreateMetadataColumn, model=None)
 
 @strawberry.type(name="UpdateMetadataColumn", description="Update a metadata column.")
 class UpdateMetadataColumn:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[
-        Annotated["ColumnType", strawberry.lazy("config.graphql.extract_types")]
-    ] = strawberry.field(name="obj", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
+        Annotated[ColumnType, strawberry.lazy("config.graphql.extract_types")]
+    ) = strawberry.field(name="obj", default=None)
 
 
 register_type("UpdateMetadataColumn", UpdateMetadataColumn, model=None)
@@ -427,8 +428,8 @@ register_type("UpdateMetadataColumn", UpdateMetadataColumn, model=None)
     description="Delete a manual-entry metadata column definition (values cascade).",
 )
 class DeleteMetadataColumn:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
 
 
 register_type("DeleteMetadataColumn", DeleteMetadataColumn, model=None)
@@ -439,11 +440,11 @@ register_type("DeleteMetadataColumn", DeleteMetadataColumn, model=None)
     description="Set a metadata value for a document.\n\nPermission model:\n- Requires Corpus UPDATE permission + Document READ permission\n- Metadata is a corpus-level feature, so corpus permission controls editing\n- Uses MetadataService for consistent permission checking",
 )
 class SetMetadataValue:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[
-        Annotated["DatacellType", strawberry.lazy("config.graphql.extract_types")]
-    ] = strawberry.field(name="obj", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
+        Annotated[DatacellType, strawberry.lazy("config.graphql.extract_types")]
+    ) = strawberry.field(name="obj", default=None)
 
 
 register_type("SetMetadataValue", SetMetadataValue, model=None)
@@ -454,8 +455,8 @@ register_type("SetMetadataValue", SetMetadataValue, model=None)
     description="Delete a metadata value for a document.\n\nPermission model:\n- Requires Corpus DELETE permission + Document READ permission\n- Metadata is a corpus-level feature, so corpus permission controls deletion\n- Uses MetadataService for consistent permission checking",
 )
 class DeleteMetadataValue:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
 
 
 register_type("DeleteMetadataValue", DeleteMetadataValue, model=None)
@@ -503,7 +504,7 @@ def m_create_fieldset(
         str, strawberry.argument(name="description")
     ] = strawberry.UNSET,
     name: Annotated[str, strawberry.argument(name="name")] = strawberry.UNSET,
-) -> Optional["CreateFieldset"]:
+) -> CreateFieldset | None:
     kwargs = strip_unset({"description": description, "name": name})
     return _mutate_CreateFieldset(CreateFieldset, None, info, **kwargs)
 
@@ -553,11 +554,11 @@ def _mutate_UpdateFieldset(payload_cls, root, info, id, name=None, description=N
 def m_update_fieldset(
     info: strawberry.Info,
     description: Annotated[
-        Optional[str], strawberry.argument(name="description")
+        str | None, strawberry.argument(name="description")
     ] = strawberry.UNSET,
     id: Annotated[strawberry.ID, strawberry.argument(name="id")] = strawberry.UNSET,
-    name: Annotated[Optional[str], strawberry.argument(name="name")] = strawberry.UNSET,
-) -> Optional["UpdateFieldset"]:
+    name: Annotated[str | None, strawberry.argument(name="name")] = strawberry.UNSET,
+) -> UpdateFieldset | None:
     kwargs = strip_unset({"description": description, "id": id, "name": name})
     return _mutate_UpdateFieldset(UpdateFieldset, None, info, **kwargs)
 
@@ -623,34 +624,32 @@ def _mutate_CreateColumn(
 def m_create_column(
     info: strawberry.Info,
     extract_is_list: Annotated[
-        Optional[bool], strawberry.argument(name="extractIsList")
+        bool | None, strawberry.argument(name="extractIsList")
     ] = strawberry.UNSET,
     fieldset_id: Annotated[
         strawberry.ID, strawberry.argument(name="fieldsetId")
     ] = strawberry.UNSET,
     instructions: Annotated[
-        Optional[str], strawberry.argument(name="instructions")
+        str | None, strawberry.argument(name="instructions")
     ] = strawberry.UNSET,
     limit_to_label: Annotated[
-        Optional[str], strawberry.argument(name="limitToLabel")
+        str | None, strawberry.argument(name="limitToLabel")
     ] = strawberry.UNSET,
     match_text: Annotated[
-        Optional[str], strawberry.argument(name="matchText")
+        str | None, strawberry.argument(name="matchText")
     ] = strawberry.UNSET,
     must_contain_text: Annotated[
-        Optional[str], strawberry.argument(name="mustContainText")
+        str | None, strawberry.argument(name="mustContainText")
     ] = strawberry.UNSET,
     name: Annotated[str, strawberry.argument(name="name")] = strawberry.UNSET,
     output_type: Annotated[
         str, strawberry.argument(name="outputType")
     ] = strawberry.UNSET,
-    query: Annotated[
-        Optional[str], strawberry.argument(name="query")
-    ] = strawberry.UNSET,
+    query: Annotated[str | None, strawberry.argument(name="query")] = strawberry.UNSET,
     task_name: Annotated[
-        Optional[str], strawberry.argument(name="taskName")
+        str | None, strawberry.argument(name="taskName")
     ] = strawberry.UNSET,
-) -> Optional["CreateColumn"]:
+) -> CreateColumn | None:
     kwargs = strip_unset(
         {
             "extract_is_list": extract_is_list,
@@ -740,35 +739,33 @@ def _mutate_UpdateColumnMutation(
 def m_update_column(
     info: strawberry.Info,
     extract_is_list: Annotated[
-        Optional[bool], strawberry.argument(name="extractIsList")
+        bool | None, strawberry.argument(name="extractIsList")
     ] = strawberry.UNSET,
     fieldset_id: Annotated[
-        Optional[strawberry.ID], strawberry.argument(name="fieldsetId")
+        strawberry.ID | None, strawberry.argument(name="fieldsetId")
     ] = strawberry.UNSET,
     id: Annotated[strawberry.ID, strawberry.argument(name="id")] = strawberry.UNSET,
     instructions: Annotated[
-        Optional[str], strawberry.argument(name="instructions")
+        str | None, strawberry.argument(name="instructions")
     ] = strawberry.UNSET,
     limit_to_label: Annotated[
-        Optional[str], strawberry.argument(name="limitToLabel")
+        str | None, strawberry.argument(name="limitToLabel")
     ] = strawberry.UNSET,
     match_text: Annotated[
-        Optional[str], strawberry.argument(name="matchText")
+        str | None, strawberry.argument(name="matchText")
     ] = strawberry.UNSET,
     must_contain_text: Annotated[
-        Optional[str], strawberry.argument(name="mustContainText")
+        str | None, strawberry.argument(name="mustContainText")
     ] = strawberry.UNSET,
-    name: Annotated[Optional[str], strawberry.argument(name="name")] = strawberry.UNSET,
+    name: Annotated[str | None, strawberry.argument(name="name")] = strawberry.UNSET,
     output_type: Annotated[
-        Optional[str], strawberry.argument(name="outputType")
+        str | None, strawberry.argument(name="outputType")
     ] = strawberry.UNSET,
-    query: Annotated[
-        Optional[str], strawberry.argument(name="query")
-    ] = strawberry.UNSET,
+    query: Annotated[str | None, strawberry.argument(name="query")] = strawberry.UNSET,
     task_name: Annotated[
-        Optional[str], strawberry.argument(name="taskName")
+        str | None, strawberry.argument(name="taskName")
     ] = strawberry.UNSET,
-) -> Optional["UpdateColumnMutation"]:
+) -> UpdateColumnMutation | None:
     kwargs = strip_unset(
         {
             "extract_is_list": extract_is_list,
@@ -803,7 +800,7 @@ def _mutate_DeleteColumn(payload_cls, root, info, id):
 def m_delete_column(
     info: strawberry.Info,
     id: Annotated[strawberry.ID, strawberry.argument(name="id")] = strawberry.UNSET,
-) -> Optional["DeleteColumn"]:
+) -> DeleteColumn | None:
     kwargs = strip_unset({"id": id})
     return _mutate_DeleteColumn(DeleteColumn, None, info, **kwargs)
 
@@ -904,19 +901,19 @@ def _mutate_CreateExtract(
 def m_create_extract(
     info: strawberry.Info,
     corpus_id: Annotated[
-        Optional[strawberry.ID], strawberry.argument(name="corpusId")
+        strawberry.ID | None, strawberry.argument(name="corpusId")
     ] = strawberry.UNSET,
     fieldset_description: Annotated[
-        Optional[str], strawberry.argument(name="fieldsetDescription")
+        str | None, strawberry.argument(name="fieldsetDescription")
     ] = strawberry.UNSET,
     fieldset_id: Annotated[
-        Optional[strawberry.ID], strawberry.argument(name="fieldsetId")
+        strawberry.ID | None, strawberry.argument(name="fieldsetId")
     ] = strawberry.UNSET,
     fieldset_name: Annotated[
-        Optional[str], strawberry.argument(name="fieldsetName")
+        str | None, strawberry.argument(name="fieldsetName")
     ] = strawberry.UNSET,
     name: Annotated[str, strawberry.argument(name="name")] = strawberry.UNSET,
-) -> Optional["CreateExtract"]:
+) -> CreateExtract | None:
     kwargs = strip_unset(
         {
             "corpus_id": corpus_id,
@@ -1040,7 +1037,7 @@ def _mutate_CreateExtractIteration(
 def m_create_extract_iteration(
     info: strawberry.Info,
     auto_start: Annotated[
-        Optional[bool],
+        bool | None,
         strawberry.argument(
             name="autoStart",
             description="If true, queue run_extract for the new iteration.",
@@ -1053,21 +1050,21 @@ def m_create_extract_iteration(
         ),
     ] = strawberry.UNSET,
     column_overrides: Annotated[
-        Optional[GenericScalar],
+        GenericScalar | None,
         strawberry.argument(
             name="columnOverrides",
             description="FIELDSET-axis only: { '<column global id>': { 'query': '...', 'instructions': '...', ... } }.",
         ),
     ] = strawberry.UNSET,
     model_config: Annotated[
-        Optional[GenericScalar],
+        GenericScalar | None,
         strawberry.argument(
             name="modelConfig",
             description="Run-time model config to capture on the new iteration. If omitted, parent's config is reused.",
         ),
     ] = strawberry.UNSET,
     name: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="name",
             description="Optional name for the new iteration; defaults to '<source name> (iteration N)'.",
@@ -1076,7 +1073,7 @@ def m_create_extract_iteration(
     source_extract_id: Annotated[
         strawberry.ID, strawberry.argument(name="sourceExtractId")
     ] = strawberry.UNSET,
-) -> Optional["CreateExtractIteration"]:
+) -> CreateExtractIteration | None:
     kwargs = strip_unset(
         {
             "auto_start": auto_start,
@@ -1122,7 +1119,7 @@ def m_start_extract(
     extract_id: Annotated[
         strawberry.ID, strawberry.argument(name="extractId")
     ] = strawberry.UNSET,
-) -> Optional["StartExtract"]:
+) -> StartExtract | None:
     kwargs = strip_unset({"extract_id": extract_id})
     return _mutate_StartExtract(StartExtract, None, info, **kwargs)
 
@@ -1130,7 +1127,7 @@ def m_start_extract(
 def m_delete_extract(
     info: strawberry.Info,
     id: Annotated[str, strawberry.argument(name="id")] = strawberry.UNSET,
-) -> Optional["DeleteExtract"]:
+) -> DeleteExtract | None:
     kwargs = strip_unset({"id": id})
     return drf_deletion(
         payload_cls=DeleteExtract,
@@ -1231,20 +1228,20 @@ def _mutate_UpdateExtractMutation(
 def m_update_extract(
     info: strawberry.Info,
     corpus_id: Annotated[
-        Optional[strawberry.ID],
+        strawberry.ID | None,
         strawberry.argument(
             name="corpusId",
             description="ID of the Corpus to associate with the Extract.",
         ),
     ] = strawberry.UNSET,
     error: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="error", description="Error message to update on the Extract."
         ),
     ] = strawberry.UNSET,
     fieldset_id: Annotated[
-        Optional[strawberry.ID],
+        strawberry.ID | None,
         strawberry.argument(
             name="fieldsetId",
             description="ID of the Fieldset to associate with the Extract.",
@@ -1255,10 +1252,10 @@ def m_update_extract(
         strawberry.argument(name="id", description="ID of the Extract to update."),
     ] = strawberry.UNSET,
     title: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(name="title", description="New title for the Extract."),
     ] = strawberry.UNSET,
-) -> Optional["UpdateExtractMutation"]:
+) -> UpdateExtractMutation | None:
     kwargs = strip_unset(
         {
             "corpus_id": corpus_id,
@@ -1318,7 +1315,7 @@ def _mutate_AddDocumentsToExtract(payload_cls, root, info, extract_id, document_
 def m_add_docs_to_extract(
     info: strawberry.Info,
     document_ids: Annotated[
-        list[Optional[strawberry.ID]],
+        list[strawberry.ID | None],
         strawberry.argument(
             name="documentIds",
             description="List of ids of the documents to add to extract.",
@@ -1330,7 +1327,7 @@ def m_add_docs_to_extract(
             name="extractId", description="Id of corpus to add docs to."
         ),
     ] = strawberry.UNSET,
-) -> Optional["AddDocumentsToExtract"]:
+) -> AddDocumentsToExtract | None:
     kwargs = strip_unset({"document_ids": document_ids, "extract_id": extract_id})
     return _mutate_AddDocumentsToExtract(AddDocumentsToExtract, None, info, **kwargs)
 
@@ -1380,7 +1377,7 @@ def _mutate_RemoveDocumentsFromExtract(
 def m_remove_docs_from_extract(
     info: strawberry.Info,
     document_ids_to_remove: Annotated[
-        list[Optional[strawberry.ID]],
+        list[strawberry.ID | None],
         strawberry.argument(
             name="documentIdsToRemove",
             description="List of ids of the docs to remove from extract.",
@@ -1392,7 +1389,7 @@ def m_remove_docs_from_extract(
             name="extractId", description="ID of extract to remove documents from."
         ),
     ] = strawberry.UNSET,
-) -> Optional["RemoveDocumentsFromExtract"]:
+) -> RemoveDocumentsFromExtract | None:
     kwargs = strip_unset(
         {"document_ids_to_remove": document_ids_to_remove, "extract_id": extract_id}
     )
@@ -1441,7 +1438,7 @@ def m_approve_datacell(
     datacell_id: Annotated[
         str, strawberry.argument(name="datacellId")
     ] = strawberry.UNSET,
-) -> Optional["ApproveDatacell"]:
+) -> ApproveDatacell | None:
     kwargs = strip_unset({"datacell_id": datacell_id})
     return _mutate_ApproveDatacell(ApproveDatacell, None, info, **kwargs)
 
@@ -1484,7 +1481,7 @@ def m_reject_datacell(
     datacell_id: Annotated[
         str, strawberry.argument(name="datacellId")
     ] = strawberry.UNSET,
-) -> Optional["RejectDatacell"]:
+) -> RejectDatacell | None:
     kwargs = strip_unset({"datacell_id": datacell_id})
     return _mutate_RejectDatacell(RejectDatacell, None, info, **kwargs)
 
@@ -1529,7 +1526,7 @@ def m_edit_datacell(
     edited_data: Annotated[
         GenericScalar, strawberry.argument(name="editedData")
     ] = strawberry.UNSET,
-) -> Optional["EditDatacell"]:
+) -> EditDatacell | None:
     kwargs = strip_unset({"datacell_id": datacell_id, "edited_data": edited_data})
     return _mutate_EditDatacell(EditDatacell, None, info, **kwargs)
 
@@ -1589,7 +1586,7 @@ def _mutate_StartDocumentExtract(
 def m_start_extract_for_doc(
     info: strawberry.Info,
     corpus_id: Annotated[
-        Optional[strawberry.ID], strawberry.argument(name="corpusId")
+        strawberry.ID | None, strawberry.argument(name="corpusId")
     ] = strawberry.UNSET,
     document_id: Annotated[
         strawberry.ID, strawberry.argument(name="documentId")
@@ -1597,7 +1594,7 @@ def m_start_extract_for_doc(
     fieldset_id: Annotated[
         strawberry.ID, strawberry.argument(name="fieldsetId")
     ] = strawberry.UNSET,
-) -> Optional["StartDocumentExtract"]:
+) -> StartDocumentExtract | None:
     kwargs = strip_unset(
         {"corpus_id": corpus_id, "document_id": document_id, "fieldset_id": fieldset_id}
     )
@@ -1729,27 +1726,27 @@ def m_create_metadata_column(
         str, strawberry.argument(name="dataType", description="Data type of the field")
     ] = strawberry.UNSET,
     default_value: Annotated[
-        Optional[GenericScalar],
+        GenericScalar | None,
         strawberry.argument(name="defaultValue", description="Default value"),
     ] = strawberry.UNSET,
     display_order: Annotated[
-        Optional[int],
+        int | None,
         strawberry.argument(name="displayOrder", description="Display order"),
     ] = strawberry.UNSET,
     help_text: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(name="helpText", description="Help text for the field"),
     ] = strawberry.UNSET,
     name: Annotated[
         str, strawberry.argument(name="name", description="Name of the metadata field")
     ] = strawberry.UNSET,
     validation_config: Annotated[
-        Optional[GenericScalar],
+        GenericScalar | None,
         strawberry.argument(
             name="validationConfig", description="Validation configuration"
         ),
     ] = strawberry.UNSET,
-) -> Optional["CreateMetadataColumn"]:
+) -> CreateMetadataColumn | None:
     kwargs = strip_unset(
         {
             "corpus_id": corpus_id,
@@ -1835,19 +1832,19 @@ def m_update_metadata_column(
         strawberry.ID, strawberry.argument(name="columnId")
     ] = strawberry.UNSET,
     default_value: Annotated[
-        Optional[GenericScalar], strawberry.argument(name="defaultValue")
+        GenericScalar | None, strawberry.argument(name="defaultValue")
     ] = strawberry.UNSET,
     display_order: Annotated[
-        Optional[int], strawberry.argument(name="displayOrder")
+        int | None, strawberry.argument(name="displayOrder")
     ] = strawberry.UNSET,
     help_text: Annotated[
-        Optional[str], strawberry.argument(name="helpText")
+        str | None, strawberry.argument(name="helpText")
     ] = strawberry.UNSET,
-    name: Annotated[Optional[str], strawberry.argument(name="name")] = strawberry.UNSET,
+    name: Annotated[str | None, strawberry.argument(name="name")] = strawberry.UNSET,
     validation_config: Annotated[
-        Optional[GenericScalar], strawberry.argument(name="validationConfig")
+        GenericScalar | None, strawberry.argument(name="validationConfig")
     ] = strawberry.UNSET,
-) -> Optional["UpdateMetadataColumn"]:
+) -> UpdateMetadataColumn | None:
     kwargs = strip_unset(
         {
             "column_id": column_id,
@@ -1914,7 +1911,7 @@ def m_delete_metadata_column(
     column_id: Annotated[
         strawberry.ID, strawberry.argument(name="columnId")
     ] = strawberry.UNSET,
-) -> Optional["DeleteMetadataColumn"]:
+) -> DeleteMetadataColumn | None:
     kwargs = strip_unset({"column_id": column_id})
     return _mutate_DeleteMetadataColumn(DeleteMetadataColumn, None, info, **kwargs)
 
@@ -2000,7 +1997,7 @@ def m_set_metadata_value(
     value: Annotated[
         GenericScalar, strawberry.argument(name="value")
     ] = strawberry.UNSET,
-) -> Optional["SetMetadataValue"]:
+) -> SetMetadataValue | None:
     kwargs = strip_unset(
         {
             "column_id": column_id,
@@ -2073,7 +2070,7 @@ def m_delete_metadata_value(
     document_id: Annotated[
         strawberry.ID, strawberry.argument(name="documentId")
     ] = strawberry.UNSET,
-) -> Optional["DeleteMetadataValue"]:
+) -> DeleteMetadataValue | None:
     kwargs = strip_unset(
         {"column_id": column_id, "corpus_id": corpus_id, "document_id": document_id}
     )

@@ -98,17 +98,17 @@ def _resolve_ResearchReportType_full_source_document_list(root, info, **kwargs):
     description="Deep-research job + final report.\n\nPermissions are intentionally **creator-only** in v1 — there is no\nsharing surface (no `is_public`, no `object_shared_with`), so we\nskip `AnnotatePermissionsForReadMixin` (which assumes guardian\npermission tables that ``ResearchReport`` does not allocate, and\nwould silently swallow the resulting AttributeError as ``[]``).\nThe custom ``my_permissions`` resolver below mirrors what the mixin\nwould return for the creator's own row.",
 )
 class ResearchReportType(Node):
-    user_lock: Optional[
-        Annotated["UserType", strawberry.lazy("config.graphql.user_types")]
-    ] = strawberry.field(name="userLock", default=None)
+    user_lock: None | (
+        Annotated[UserType, strawberry.lazy("config.graphql.user_types")]
+    ) = strawberry.field(name="userLock", default=None)
     backend_lock: bool = strawberry.field(name="backendLock", default=None)
     is_public: bool = strawberry.field(name="isPublic", default=None)
-    creator: Annotated["UserType", strawberry.lazy("config.graphql.user_types")] = (
+    creator: Annotated[UserType, strawberry.lazy("config.graphql.user_types")] = (
         strawberry.field(name="creator", default=None)
     )
     created: datetime.datetime = strawberry.field(name="created", default=None)
     modified: datetime.datetime = strawberry.field(name="modified", default=None)
-    corpus: Annotated["CorpusType", strawberry.lazy("config.graphql.corpus_types")] = (
+    corpus: Annotated[CorpusType, strawberry.lazy("config.graphql.corpus_types")] = (
         strawberry.field(name="corpus", default=None)
     )
 
@@ -132,13 +132,13 @@ class ResearchReportType(Node):
             enums.ResearchResearchReportStatusChoices, getattr(self, "status", None)
         )
 
-    started_at: Optional[datetime.datetime] = strawberry.field(
+    started_at: datetime.datetime | None = strawberry.field(
         name="startedAt", default=None
     )
-    completed_at: Optional[datetime.datetime] = strawberry.field(
+    completed_at: datetime.datetime | None = strawberry.field(
         name="completedAt", default=None
     )
-    last_progress_at: Optional[datetime.datetime] = strawberry.field(
+    last_progress_at: datetime.datetime | None = strawberry.field(
         name="lastProgressAt", default=None
     )
 
@@ -169,17 +169,15 @@ class ResearchReportType(Node):
         description="Durable key->entry memory store the agent writes to offload content beyond the context window. Each entry is {content, updated_at}. Survives compaction and worker restarts.",
         default=None,
     )
-    findings: Optional[GenericScalar] = strawberry.field(name="findings", default=None)
-    citations: Optional[GenericScalar] = strawberry.field(
-        name="citations", default=None
-    )
-    tool_call_log: Optional[GenericScalar] = strawberry.field(
+    findings: GenericScalar | None = strawberry.field(name="findings", default=None)
+    citations: GenericScalar | None = strawberry.field(name="citations", default=None)
+    tool_call_log: GenericScalar | None = strawberry.field(
         name="toolCallLog", default=None
     )
-    model_usage: Optional[GenericScalar] = strawberry.field(
+    model_usage: GenericScalar | None = strawberry.field(
         name="modelUsage", default=None
     )
-    warnings: Optional[GenericScalar] = strawberry.field(name="warnings", default=None)
+    warnings: GenericScalar | None = strawberry.field(name="warnings", default=None)
 
     @strawberry.field(
         name="sourceAnnotations", description="Annotations cited in the final report"
@@ -188,66 +186,66 @@ class ResearchReportType(Node):
         self,
         info: strawberry.Info,
         offset: Annotated[
-            Optional[int], strawberry.argument(name="offset")
+            int | None, strawberry.argument(name="offset")
         ] = strawberry.UNSET,
         before: Annotated[
-            Optional[str], strawberry.argument(name="before")
+            str | None, strawberry.argument(name="before")
         ] = strawberry.UNSET,
         after: Annotated[
-            Optional[str], strawberry.argument(name="after")
+            str | None, strawberry.argument(name="after")
         ] = strawberry.UNSET,
         first: Annotated[
-            Optional[int], strawberry.argument(name="first")
+            int | None, strawberry.argument(name="first")
         ] = strawberry.UNSET,
         last: Annotated[
-            Optional[int], strawberry.argument(name="last")
+            int | None, strawberry.argument(name="last")
         ] = strawberry.UNSET,
         raw_text__contains: Annotated[
-            Optional[str], strawberry.argument(name="rawText_Contains")
+            str | None, strawberry.argument(name="rawText_Contains")
         ] = strawberry.UNSET,
         annotation_label_id: Annotated[
-            Optional[strawberry.ID], strawberry.argument(name="annotationLabelId")
+            strawberry.ID | None, strawberry.argument(name="annotationLabelId")
         ] = strawberry.UNSET,
         annotation_label__text: Annotated[
-            Optional[str], strawberry.argument(name="annotationLabel_Text")
+            str | None, strawberry.argument(name="annotationLabel_Text")
         ] = strawberry.UNSET,
         annotation_label__text__contains: Annotated[
-            Optional[str], strawberry.argument(name="annotationLabel_Text_Contains")
+            str | None, strawberry.argument(name="annotationLabel_Text_Contains")
         ] = strawberry.UNSET,
         annotation_label__description__contains: Annotated[
-            Optional[str],
+            str | None,
             strawberry.argument(name="annotationLabel_Description_Contains"),
         ] = strawberry.UNSET,
         annotation_label__label_type: Annotated[
-            Optional[enums.AnnotationsAnnotationLabelLabelTypeChoices],
+            enums.AnnotationsAnnotationLabelLabelTypeChoices | None,
             strawberry.argument(name="annotationLabel_LabelType"),
         ] = strawberry.UNSET,
         analysis__isnull: Annotated[
-            Optional[bool], strawberry.argument(name="analysis_Isnull")
+            bool | None, strawberry.argument(name="analysis_Isnull")
         ] = strawberry.UNSET,
         document_id: Annotated[
-            Optional[strawberry.ID], strawberry.argument(name="documentId")
+            strawberry.ID | None, strawberry.argument(name="documentId")
         ] = strawberry.UNSET,
         corpus_id: Annotated[
-            Optional[strawberry.ID], strawberry.argument(name="corpusId")
+            strawberry.ID | None, strawberry.argument(name="corpusId")
         ] = strawberry.UNSET,
         structural: Annotated[
-            Optional[bool], strawberry.argument(name="structural")
+            bool | None, strawberry.argument(name="structural")
         ] = strawberry.UNSET,
         uses_label_from_labelset_id: Annotated[
-            Optional[str], strawberry.argument(name="usesLabelFromLabelsetId")
+            str | None, strawberry.argument(name="usesLabelFromLabelsetId")
         ] = strawberry.UNSET,
         created_by_analysis_ids: Annotated[
-            Optional[str], strawberry.argument(name="createdByAnalysisIds")
+            str | None, strawberry.argument(name="createdByAnalysisIds")
         ] = strawberry.UNSET,
         created_with_analyzer_id: Annotated[
-            Optional[str], strawberry.argument(name="createdWithAnalyzerId")
+            str | None, strawberry.argument(name="createdWithAnalyzerId")
         ] = strawberry.UNSET,
         order_by: Annotated[
-            Optional[str], strawberry.argument(name="orderBy", description="Ordering")
+            str | None, strawberry.argument(name="orderBy", description="Ordering")
         ] = strawberry.UNSET,
     ) -> Annotated[
-        "AnnotationTypeConnection", strawberry.lazy("config.graphql.annotation_types")
+        AnnotationTypeConnection, strawberry.lazy("config.graphql.annotation_types")
     ]:
         kwargs = strip_unset(
             {
@@ -305,22 +303,22 @@ class ResearchReportType(Node):
         self,
         info: strawberry.Info,
         offset: Annotated[
-            Optional[int], strawberry.argument(name="offset")
+            int | None, strawberry.argument(name="offset")
         ] = strawberry.UNSET,
         before: Annotated[
-            Optional[str], strawberry.argument(name="before")
+            str | None, strawberry.argument(name="before")
         ] = strawberry.UNSET,
         after: Annotated[
-            Optional[str], strawberry.argument(name="after")
+            str | None, strawberry.argument(name="after")
         ] = strawberry.UNSET,
         first: Annotated[
-            Optional[int], strawberry.argument(name="first")
+            int | None, strawberry.argument(name="first")
         ] = strawberry.UNSET,
         last: Annotated[
-            Optional[int], strawberry.argument(name="last")
+            int | None, strawberry.argument(name="last")
         ] = strawberry.UNSET,
     ) -> Annotated[
-        "DocumentTypeConnection", strawberry.lazy("config.graphql.document_types")
+        DocumentTypeConnection, strawberry.lazy("config.graphql.document_types")
     ]:
         kwargs = strip_unset(
             {
@@ -339,18 +337,18 @@ class ResearchReportType(Node):
             node_type_name="DocumentType",
         )
 
-    conversation: Optional[
+    conversation: None | (
         Annotated[
-            "ConversationType", strawberry.lazy("config.graphql.conversation_types")
+            ConversationType, strawberry.lazy("config.graphql.conversation_types")
         ]
-    ] = strawberry.field(
+    ) = strawberry.field(
         name="conversation",
         description="Chat conversation that kicked this off, if any",
         default=None,
     )
-    originating_message: Optional[
-        Annotated["MessageType", strawberry.lazy("config.graphql.conversation_types")]
-    ] = strawberry.field(
+    originating_message: None | (
+        Annotated[MessageType, strawberry.lazy("config.graphql.conversation_types")]
+    ) = strawberry.field(
         name="originatingMessage",
         description="User chat message that triggered this run, if any",
         default=None,
@@ -360,7 +358,7 @@ class ResearchReportType(Node):
         name="durationSeconds",
         description="Seconds between start and completion (null if not finished).",
     )
-    def duration_seconds(self, info: strawberry.Info) -> Optional[float]:
+    def duration_seconds(self, info: strawberry.Info) -> float | None:
         kwargs = strip_unset({})
         return _resolve_ResearchReportType_duration_seconds(self, info, **kwargs)
 
@@ -368,7 +366,7 @@ class ResearchReportType(Node):
         name="myPermissions",
         description="Action verbs the calling user is allowed on this report.",
     )
-    def my_permissions(self, info: strawberry.Info) -> Optional[list[Optional[str]]]:
+    def my_permissions(self, info: strawberry.Info) -> list[str | None] | None:
         kwargs = strip_unset({})
         return _resolve_ResearchReportType_my_permissions(self, info, **kwargs)
 
@@ -378,15 +376,16 @@ class ResearchReportType(Node):
     )
     def full_source_annotation_list(
         self, info: strawberry.Info
-    ) -> Optional[
+    ) -> None | (
         list[
-            Optional[
+            None
+            | (
                 Annotated[
-                    "AnnotationType", strawberry.lazy("config.graphql.annotation_types")
+                    AnnotationType, strawberry.lazy("config.graphql.annotation_types")
                 ]
-            ]
+            )
         ]
-    ]:
+    ):
         kwargs = strip_unset({})
         return _resolve_ResearchReportType_full_source_annotation_list(
             self, info, **kwargs
@@ -398,15 +397,16 @@ class ResearchReportType(Node):
     )
     def full_source_document_list(
         self, info: strawberry.Info
-    ) -> Optional[
+    ) -> None | (
         list[
-            Optional[
+            None
+            | (
                 Annotated[
-                    "DocumentType", strawberry.lazy("config.graphql.document_types")
+                    DocumentType, strawberry.lazy("config.graphql.document_types")
                 ]
-            ]
+            )
         ]
-    ]:
+    ):
         kwargs = strip_unset({})
         return _resolve_ResearchReportType_full_source_document_list(
             self, info, **kwargs

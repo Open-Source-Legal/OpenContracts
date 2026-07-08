@@ -6,6 +6,7 @@ from django.contrib import admin
 from django.http import HttpResponseRedirect, JsonResponse
 from django.urls import include, path
 from django.views import defaults as default_views
+
 from config.admin_auth.views import Auth0AdminLoginView, Auth0AdminLogoutView
 from config.graphql.schema import schema
 from config.graphql.security import conditional_csrf_exempt

@@ -113,65 +113,57 @@ def _resolve_Query_documents(root, info, **kwargs):
 def q_documents(
     info: strawberry.Info,
     offset: Annotated[
-        Optional[int], strawberry.argument(name="offset")
+        int | None, strawberry.argument(name="offset")
     ] = strawberry.UNSET,
     before: Annotated[
-        Optional[str], strawberry.argument(name="before")
+        str | None, strawberry.argument(name="before")
     ] = strawberry.UNSET,
-    after: Annotated[
-        Optional[str], strawberry.argument(name="after")
-    ] = strawberry.UNSET,
-    first: Annotated[
-        Optional[int], strawberry.argument(name="first")
-    ] = strawberry.UNSET,
-    last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET,
+    after: Annotated[str | None, strawberry.argument(name="after")] = strawberry.UNSET,
+    first: Annotated[int | None, strawberry.argument(name="first")] = strawberry.UNSET,
+    last: Annotated[int | None, strawberry.argument(name="last")] = strawberry.UNSET,
     description: Annotated[
-        Optional[str], strawberry.argument(name="description")
+        str | None, strawberry.argument(name="description")
     ] = strawberry.UNSET,
     description__contains: Annotated[
-        Optional[str], strawberry.argument(name="description_Contains")
+        str | None, strawberry.argument(name="description_Contains")
     ] = strawberry.UNSET,
     id: Annotated[
-        Optional[strawberry.ID], strawberry.argument(name="id")
+        strawberry.ID | None, strawberry.argument(name="id")
     ] = strawberry.UNSET,
-    title: Annotated[
-        Optional[str], strawberry.argument(name="title")
-    ] = strawberry.UNSET,
+    title: Annotated[str | None, strawberry.argument(name="title")] = strawberry.UNSET,
     title__contains: Annotated[
-        Optional[str], strawberry.argument(name="title_Contains")
+        str | None, strawberry.argument(name="title_Contains")
     ] = strawberry.UNSET,
     company_search: Annotated[
-        Optional[str], strawberry.argument(name="companySearch")
+        str | None, strawberry.argument(name="companySearch")
     ] = strawberry.UNSET,
     has_pdf: Annotated[
-        Optional[bool], strawberry.argument(name="hasPdf")
+        bool | None, strawberry.argument(name="hasPdf")
     ] = strawberry.UNSET,
     has_annotations_with_ids: Annotated[
-        Optional[str], strawberry.argument(name="hasAnnotationsWithIds")
+        str | None, strawberry.argument(name="hasAnnotationsWithIds")
     ] = strawberry.UNSET,
     in_corpus_with_id: Annotated[
-        Optional[str], strawberry.argument(name="inCorpusWithId")
+        str | None, strawberry.argument(name="inCorpusWithId")
     ] = strawberry.UNSET,
     in_folder_id: Annotated[
-        Optional[str], strawberry.argument(name="inFolderId")
+        str | None, strawberry.argument(name="inFolderId")
     ] = strawberry.UNSET,
     has_label_with_title: Annotated[
-        Optional[str], strawberry.argument(name="hasLabelWithTitle")
+        str | None, strawberry.argument(name="hasLabelWithTitle")
     ] = strawberry.UNSET,
     has_label_with_id: Annotated[
-        Optional[str], strawberry.argument(name="hasLabelWithId")
+        str | None, strawberry.argument(name="hasLabelWithId")
     ] = strawberry.UNSET,
     text_search: Annotated[
-        Optional[str], strawberry.argument(name="textSearch")
+        str | None, strawberry.argument(name="textSearch")
     ] = strawberry.UNSET,
     include_caml: Annotated[
-        Optional[bool], strawberry.argument(name="includeCaml")
+        bool | None, strawberry.argument(name="includeCaml")
     ] = strawberry.UNSET,
-) -> Optional[
-    Annotated[
-        "DocumentTypeConnection", strawberry.lazy("config.graphql.document_types")
-    ]
-]:
+) -> None | (
+    Annotated[DocumentTypeConnection, strawberry.lazy("config.graphql.document_types")]
+):
     kwargs = strip_unset(
         {
             "offset": offset,
@@ -256,11 +248,9 @@ def _resolve_Query_document(root, info, **kwargs):
 def q_document(
     info: strawberry.Info,
     id: Annotated[
-        Optional[strawberry.ID], strawberry.argument(name="id")
+        strawberry.ID | None, strawberry.argument(name="id")
     ] = strawberry.UNSET,
-) -> Optional[
-    Annotated["DocumentType", strawberry.lazy("config.graphql.document_types")]
-]:
+) -> None | (Annotated[DocumentType, strawberry.lazy("config.graphql.document_types")]):
     kwargs = strip_unset({"id": id})
     return _resolve_Query_document(None, info, **kwargs)
 
@@ -325,21 +315,21 @@ def q_corpus_document_ids(
         str, strawberry.argument(name="inCorpusWithId")
     ] = strawberry.UNSET,
     in_folder_id: Annotated[
-        Optional[str], strawberry.argument(name="inFolderId")
+        str | None, strawberry.argument(name="inFolderId")
     ] = strawberry.UNSET,
     text_search: Annotated[
-        Optional[str], strawberry.argument(name="textSearch")
+        str | None, strawberry.argument(name="textSearch")
     ] = strawberry.UNSET,
     has_label_with_id: Annotated[
-        Optional[str], strawberry.argument(name="hasLabelWithId")
+        str | None, strawberry.argument(name="hasLabelWithId")
     ] = strawberry.UNSET,
     has_annotations_with_ids: Annotated[
-        Optional[str], strawberry.argument(name="hasAnnotationsWithIds")
+        str | None, strawberry.argument(name="hasAnnotationsWithIds")
     ] = strawberry.UNSET,
     include_caml: Annotated[
-        Optional[bool], strawberry.argument(name="includeCaml")
+        bool | None, strawberry.argument(name="includeCaml")
     ] = strawberry.UNSET,
-) -> Optional[list[strawberry.ID]]:
+) -> list[strawberry.ID] | None:
     kwargs = strip_unset(
         {
             "in_corpus_with_id": in_corpus_with_id,
@@ -400,20 +390,20 @@ def _resolve_Query_document_stats(root, info, **kwargs):
 def q_document_stats(
     info: strawberry.Info,
     in_corpus_with_id: Annotated[
-        Optional[str], strawberry.argument(name="inCorpusWithId")
+        str | None, strawberry.argument(name="inCorpusWithId")
     ] = strawberry.UNSET,
     has_label_with_id: Annotated[
-        Optional[str], strawberry.argument(name="hasLabelWithId")
+        str | None, strawberry.argument(name="hasLabelWithId")
     ] = strawberry.UNSET,
     text_search: Annotated[
-        Optional[str], strawberry.argument(name="textSearch")
+        str | None, strawberry.argument(name="textSearch")
     ] = strawberry.UNSET,
     include_caml: Annotated[
-        Optional[bool], strawberry.argument(name="includeCaml")
+        bool | None, strawberry.argument(name="includeCaml")
     ] = strawberry.UNSET,
-) -> Optional[
-    Annotated["DocumentStatsType", strawberry.lazy("config.graphql.document_types")]
-]:
+) -> None | (
+    Annotated[DocumentStatsType, strawberry.lazy("config.graphql.document_types")]
+):
     kwargs = strip_unset(
         {
             "in_corpus_with_id": in_corpus_with_id,
@@ -467,52 +457,48 @@ def _resolve_Query_document_relationships(root, info, **kwargs):
 def q_document_relationships(
     info: strawberry.Info,
     corpus_id: Annotated[
-        Optional[strawberry.ID], strawberry.argument(name="corpusId")
+        strawberry.ID | None, strawberry.argument(name="corpusId")
     ] = strawberry.UNSET,
     document_id: Annotated[
-        Optional[strawberry.ID], strawberry.argument(name="documentId")
+        strawberry.ID | None, strawberry.argument(name="documentId")
     ] = strawberry.UNSET,
     offset: Annotated[
-        Optional[int], strawberry.argument(name="offset")
+        int | None, strawberry.argument(name="offset")
     ] = strawberry.UNSET,
     before: Annotated[
-        Optional[str], strawberry.argument(name="before")
+        str | None, strawberry.argument(name="before")
     ] = strawberry.UNSET,
-    after: Annotated[
-        Optional[str], strawberry.argument(name="after")
-    ] = strawberry.UNSET,
-    first: Annotated[
-        Optional[int], strawberry.argument(name="first")
-    ] = strawberry.UNSET,
-    last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET,
+    after: Annotated[str | None, strawberry.argument(name="after")] = strawberry.UNSET,
+    first: Annotated[int | None, strawberry.argument(name="first")] = strawberry.UNSET,
+    last: Annotated[int | None, strawberry.argument(name="last")] = strawberry.UNSET,
     relationship_type: Annotated[
-        Optional[enums.DocumentsDocumentRelationshipRelationshipTypeChoices],
+        enums.DocumentsDocumentRelationshipRelationshipTypeChoices | None,
         strawberry.argument(name="relationshipType"),
     ] = strawberry.UNSET,
     source_document: Annotated[
-        Optional[strawberry.ID], strawberry.argument(name="sourceDocument")
+        strawberry.ID | None, strawberry.argument(name="sourceDocument")
     ] = strawberry.UNSET,
     target_document: Annotated[
-        Optional[strawberry.ID], strawberry.argument(name="targetDocument")
+        strawberry.ID | None, strawberry.argument(name="targetDocument")
     ] = strawberry.UNSET,
     annotation_label: Annotated[
-        Optional[strawberry.ID], strawberry.argument(name="annotationLabel")
+        strawberry.ID | None, strawberry.argument(name="annotationLabel")
     ] = strawberry.UNSET,
     creator: Annotated[
-        Optional[strawberry.ID], strawberry.argument(name="creator")
+        strawberry.ID | None, strawberry.argument(name="creator")
     ] = strawberry.UNSET,
     is_public: Annotated[
-        Optional[bool], strawberry.argument(name="isPublic")
+        bool | None, strawberry.argument(name="isPublic")
     ] = strawberry.UNSET,
     annotation_label_text: Annotated[
-        Optional[str], strawberry.argument(name="annotationLabelText")
+        str | None, strawberry.argument(name="annotationLabelText")
     ] = strawberry.UNSET,
-) -> Optional[
+) -> None | (
     Annotated[
-        "DocumentRelationshipTypeConnection",
+        DocumentRelationshipTypeConnection,
         strawberry.lazy("config.graphql.document_types"),
     ]
-]:
+):
     kwargs = strip_unset(
         {
             "corpus_id": corpus_id,
@@ -557,11 +543,11 @@ def q_document_relationship(
         strawberry.ID,
         strawberry.argument(name="id", description="The ID of the object"),
     ] = strawberry.UNSET,
-) -> Optional[
+) -> None | (
     Annotated[
-        "DocumentRelationshipType", strawberry.lazy("config.graphql.document_types")
+        DocumentRelationshipType, strawberry.lazy("config.graphql.document_types")
     ]
-]:
+):
     return get_node_from_global_id(info, id, only_type_name="DocumentRelationshipType")
 
 
@@ -602,24 +588,25 @@ def _resolve_Query_bulk_doc_relationships(root, info, document_id, **kwargs):
 def q_bulk_doc_relationships(
     info: strawberry.Info,
     corpus_id: Annotated[
-        Optional[strawberry.ID], strawberry.argument(name="corpusId")
+        strawberry.ID | None, strawberry.argument(name="corpusId")
     ] = strawberry.UNSET,
     document_id: Annotated[
         strawberry.ID, strawberry.argument(name="documentId")
     ] = strawberry.UNSET,
     relationship_type: Annotated[
-        Optional[str], strawberry.argument(name="relationshipType")
+        str | None, strawberry.argument(name="relationshipType")
     ] = strawberry.UNSET,
-) -> Optional[
+) -> None | (
     list[
-        Optional[
+        None
+        | (
             Annotated[
-                "DocumentRelationshipType",
+                DocumentRelationshipType,
                 strawberry.lazy("config.graphql.document_types"),
             ]
-        ]
+        )
     ]
-]:
+):
     kwargs = strip_unset(
         {
             "corpus_id": corpus_id,
@@ -750,11 +737,11 @@ def _resolve_Query_bulk_document_upload_status(root, info, job_id):
 def q_bulk_document_upload_status(
     info: strawberry.Info,
     job_id: Annotated[str, strawberry.argument(name="jobId")] = strawberry.UNSET,
-) -> Optional[
+) -> None | (
     Annotated[
-        "BulkDocumentUploadStatusType", strawberry.lazy("config.graphql.user_types")
+        BulkDocumentUploadStatusType, strawberry.lazy("config.graphql.user_types")
     ]
-]:
+):
     kwargs = strip_unset({"job_id": job_id})
     return _resolve_Query_bulk_document_upload_status(None, info, **kwargs)
 
@@ -777,20 +764,21 @@ def _resolve_Query_ingestion_sources(root, info, active_only=False, **kwargs):
 def q_ingestion_sources(
     info: strawberry.Info,
     active_only: Annotated[
-        Optional[bool],
+        bool | None,
         strawberry.argument(
             name="activeOnly", description="If true, only return active sources"
         ),
     ] = False,
-) -> Optional[
+) -> None | (
     list[
-        Optional[
+        None
+        | (
             Annotated[
-                "IngestionSourceType", strawberry.lazy("config.graphql.document_types")
+                IngestionSourceType, strawberry.lazy("config.graphql.document_types")
             ]
-        ]
+        )
     ]
-]:
+):
     kwargs = strip_unset({"active_only": active_only})
     return _resolve_Query_ingestion_sources(None, info, **kwargs)
 
@@ -816,9 +804,9 @@ def _resolve_Query_ingestion_source(root, info, id, **kwargs):
 def q_ingestion_source(
     info: strawberry.Info,
     id: Annotated[strawberry.ID, strawberry.argument(name="id")] = strawberry.UNSET,
-) -> Optional[
-    Annotated["IngestionSourceType", strawberry.lazy("config.graphql.document_types")]
-]:
+) -> None | (
+    Annotated[IngestionSourceType, strawberry.lazy("config.graphql.document_types")]
+):
     kwargs = strip_unset({"id": id})
     return _resolve_Query_ingestion_source(None, info, **kwargs)
 

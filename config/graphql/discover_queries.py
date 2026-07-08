@@ -101,7 +101,7 @@ def _rrf(rankings: list[list[Any]], limit: int) -> list[Any]:
     return ordered[:limit]
 
 
-def _default_embedder_path() -> Optional[str]:
+def _default_embedder_path() -> str | None:
     """Resolve the install-wide default embedder path.
 
     The import is deferred to module-call time to avoid a circular import at
@@ -114,7 +114,7 @@ def _default_embedder_path() -> Optional[str]:
     return get_default_embedder_path()
 
 
-def _normalise_text_search(text_search: Optional[str]) -> Optional[str]:
+def _normalise_text_search(text_search: str | None) -> str | None:
     """Strip and validate a Discover search string before any search arm runs."""
     text = (text_search or "").strip()
     if not text or len(text) > DISCOVER_TEXT_SEARCH_MAX_LENGTH:
@@ -126,7 +126,7 @@ class _UncacheableQueryVector(Exception):
     """Raised inside the LRU wrapper so failed embeddings are not cached."""
 
 
-def _query_vector(query_text: str, embedder_path: Optional[str]) -> Optional[list]:
+def _query_vector(query_text: str, embedder_path: str | None) -> list | None:
     """Embed ``query_text`` with the default embedder, or ``None`` on failure.
 
     ``generate_embeddings_from_text`` already swallows embedder errors and
@@ -144,7 +144,7 @@ def _query_vector(query_text: str, embedder_path: Optional[str]) -> Optional[lis
 
 
 @functools.lru_cache(maxsize=DISCOVER_QUERY_VECTOR_CACHE_SIZE)
-def _cached_query_vector(query_text: str, embedder_path: str) -> Optional[list]:
+def _cached_query_vector(query_text: str, embedder_path: str) -> list | None:
     """Per-process memoised wrapper around :func:`_query_vector`.
 
     Discover's "All" tab fires all five category resolvers as five independent
@@ -201,7 +201,7 @@ def _text_ids(
 def _semantic_ids(
     visible_qs: QuerySet,
     query_text: str,
-    embedder_path: Optional[str],
+    embedder_path: str | None,
     fetch_k: int,
 ) -> list[Any]:
     """Materialise the semantic arm via ``QuerySet.search_by_embedding``.
@@ -249,7 +249,7 @@ def _order_by_ids(qs: QuerySet, ids: list[Any]) -> list[Any]:
     return [by_id[i] for i in ids if i in by_id]
 
 
-def _clamp_limit(limit: Optional[int]) -> int:
+def _clamp_limit(limit: int | None) -> int:
     if not limit or limit < 1:
         return DISCOVER_DEFAULT_LIMIT
     return min(limit, SEMANTIC_SEARCH_MAX_RESULTS)
@@ -295,16 +295,17 @@ def q_discover_annotations(
     text_search: Annotated[
         str, strawberry.argument(name="textSearch")
     ] = strawberry.UNSET,
-    limit: Annotated[Optional[int], strawberry.argument(name="limit")] = 25,
-) -> Optional[
+    limit: Annotated[int | None, strawberry.argument(name="limit")] = 25,
+) -> None | (
     list[
-        Optional[
+        None
+        | (
             Annotated[
-                "AnnotationType", strawberry.lazy("config.graphql.annotation_types")
+                AnnotationType, strawberry.lazy("config.graphql.annotation_types")
             ]
-        ]
+        )
     ]
-]:
+):
     kwargs = strip_unset({"text_search": text_search, "limit": limit})
     return _resolve_Query_discover_annotations(None, info, **kwargs)
 
@@ -337,14 +338,13 @@ def q_discover_documents(
     text_search: Annotated[
         str, strawberry.argument(name="textSearch")
     ] = strawberry.UNSET,
-    limit: Annotated[Optional[int], strawberry.argument(name="limit")] = 25,
-) -> Optional[
+    limit: Annotated[int | None, strawberry.argument(name="limit")] = 25,
+) -> None | (
     list[
-        Optional[
-            Annotated["DocumentType", strawberry.lazy("config.graphql.document_types")]
-        ]
+        None
+        | (Annotated[DocumentType, strawberry.lazy("config.graphql.document_types")])
     ]
-]:
+):
     kwargs = strip_unset({"text_search": text_search, "limit": limit})
     return _resolve_Query_discover_documents(None, info, **kwargs)
 
@@ -385,14 +385,12 @@ def q_discover_notes(
     text_search: Annotated[
         str, strawberry.argument(name="textSearch")
     ] = strawberry.UNSET,
-    limit: Annotated[Optional[int], strawberry.argument(name="limit")] = 25,
-) -> Optional[
+    limit: Annotated[int | None, strawberry.argument(name="limit")] = 25,
+) -> None | (
     list[
-        Optional[
-            Annotated["NoteType", strawberry.lazy("config.graphql.annotation_types")]
-        ]
+        None | (Annotated[NoteType, strawberry.lazy("config.graphql.annotation_types")])
     ]
-]:
+):
     kwargs = strip_unset({"text_search": text_search, "limit": limit})
     return _resolve_Query_discover_notes(None, info, **kwargs)
 
@@ -473,14 +471,10 @@ def q_discover_corpuses(
     text_search: Annotated[
         str, strawberry.argument(name="textSearch")
     ] = strawberry.UNSET,
-    limit: Annotated[Optional[int], strawberry.argument(name="limit")] = 25,
-) -> Optional[
-    list[
-        Optional[
-            Annotated["CorpusType", strawberry.lazy("config.graphql.corpus_types")]
-        ]
-    ]
-]:
+    limit: Annotated[int | None, strawberry.argument(name="limit")] = 25,
+) -> None | (
+    list[None | (Annotated[CorpusType, strawberry.lazy("config.graphql.corpus_types")])]
+):
     kwargs = strip_unset({"text_search": text_search, "limit": limit})
     return _resolve_Query_discover_corpuses(None, info, **kwargs)
 
@@ -527,16 +521,17 @@ def q_discover_discussions(
     text_search: Annotated[
         str, strawberry.argument(name="textSearch")
     ] = strawberry.UNSET,
-    limit: Annotated[Optional[int], strawberry.argument(name="limit")] = 25,
-) -> Optional[
+    limit: Annotated[int | None, strawberry.argument(name="limit")] = 25,
+) -> None | (
     list[
-        Optional[
+        None
+        | (
             Annotated[
-                "ConversationType", strawberry.lazy("config.graphql.conversation_types")
+                ConversationType, strawberry.lazy("config.graphql.conversation_types")
             ]
-        ]
+        )
     ]
-]:
+):
     kwargs = strip_unset({"text_search": text_search, "limit": limit})
     return _resolve_Query_discover_discussions(None, info, **kwargs)
 

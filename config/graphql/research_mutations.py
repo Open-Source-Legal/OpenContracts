@@ -50,7 +50,7 @@ from opencontractserver.shared.services.base import BaseService
 logger = logging.getLogger(__name__)
 
 
-def _decode_global_pk(global_id: str) -> "int | None":
+def _decode_global_pk(global_id: str) -> int | None:
     """Decode a relay global id to its integer pk, or ``None`` if malformed."""
     try:
         return int(from_global_id(global_id)[1])
@@ -63,13 +63,11 @@ def _decode_global_pk(global_id: str) -> "int | None":
     description="Kick off a deep-research job over a corpus (explicit, non-chat path).",
 )
 class StartResearchReport:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[
-        Annotated[
-            "ResearchReportType", strawberry.lazy("config.graphql.research_types")
-        ]
-    ] = strawberry.field(name="obj", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
+        Annotated[ResearchReportType, strawberry.lazy("config.graphql.research_types")]
+    ) = strawberry.field(name="obj", default=None)
 
 
 register_type("StartResearchReport", StartResearchReport, model=None)
@@ -80,13 +78,11 @@ register_type("StartResearchReport", StartResearchReport, model=None)
     description="Request cooperative cancellation of an in-flight research job.",
 )
 class CancelResearchReport:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[
-        Annotated[
-            "ResearchReportType", strawberry.lazy("config.graphql.research_types")
-        ]
-    ] = strawberry.field(name="obj", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
+        Annotated[ResearchReportType, strawberry.lazy("config.graphql.research_types")]
+    ) = strawberry.field(name="obj", default=None)
 
 
 register_type("CancelResearchReport", CancelResearchReport, model=None)
@@ -150,13 +146,11 @@ def m_start_research_report(
         strawberry.ID, strawberry.argument(name="corpusId")
     ] = strawberry.UNSET,
     max_steps: Annotated[
-        Optional[int], strawberry.argument(name="maxSteps")
+        int | None, strawberry.argument(name="maxSteps")
     ] = strawberry.UNSET,
     prompt: Annotated[str, strawberry.argument(name="prompt")] = strawberry.UNSET,
-    title: Annotated[
-        Optional[str], strawberry.argument(name="title")
-    ] = strawberry.UNSET,
-) -> Optional["StartResearchReport"]:
+    title: Annotated[str | None, strawberry.argument(name="title")] = strawberry.UNSET,
+) -> StartResearchReport | None:
     kwargs = strip_unset(
         {
             "corpus_id": corpus_id,
@@ -195,7 +189,7 @@ def _mutate_CancelResearchReport(payload_cls, root, info, id):
 def m_cancel_research_report(
     info: strawberry.Info,
     id: Annotated[strawberry.ID, strawberry.argument(name="id")] = strawberry.UNSET,
-) -> Optional["CancelResearchReport"]:
+) -> CancelResearchReport | None:
     kwargs = strip_unset({"id": id})
     return _mutate_CancelResearchReport(CancelResearchReport, None, info, **kwargs)
 

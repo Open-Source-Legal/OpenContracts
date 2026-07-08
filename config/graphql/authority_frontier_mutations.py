@@ -68,13 +68,13 @@ def _run_verb(make_payload, verb: str, info, id, **extra):
     description="Re-queue a row (clears document + error) — un-sticks deferred_cap/failed.",
 )
 class RequeueAuthorityFrontierMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
         Annotated[
-            "AuthorityFrontierNode", strawberry.lazy("config.graphql.annotation_types")
+            AuthorityFrontierNode, strawberry.lazy("config.graphql.annotation_types")
         ]
-    ] = strawberry.field(name="obj", default=None)
+    ) = strawberry.field(name="obj", default=None)
 
 
 register_type(
@@ -87,13 +87,13 @@ register_type(
     description="Hard reset (clears document + provider + error) and re-queue.",
 )
 class ResetAuthorityFrontierMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
         Annotated[
-            "AuthorityFrontierNode", strawberry.lazy("config.graphql.annotation_types")
+            AuthorityFrontierNode, strawberry.lazy("config.graphql.annotation_types")
         ]
-    ] = strawberry.field(name="obj", default=None)
+    ) = strawberry.field(name="obj", default=None)
 
 
 register_type(
@@ -106,13 +106,13 @@ register_type(
     description="Re-assign the provider (validated against the registry) and re-queue.",
 )
 class RerouteAuthorityFrontierMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
         Annotated[
-            "AuthorityFrontierNode", strawberry.lazy("config.graphql.annotation_types")
+            AuthorityFrontierNode, strawberry.lazy("config.graphql.annotation_types")
         ]
-    ] = strawberry.field(name="obj", default=None)
+    ) = strawberry.field(name="obj", default=None)
 
 
 register_type(
@@ -125,13 +125,13 @@ register_type(
     description="Approve a pending_approval candidate so it re-enters the queue.",
 )
 class ApproveAuthorityFrontierMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
         Annotated[
-            "AuthorityFrontierNode", strawberry.lazy("config.graphql.annotation_types")
+            AuthorityFrontierNode, strawberry.lazy("config.graphql.annotation_types")
         ]
-    ] = strawberry.field(name="obj", default=None)
+    ) = strawberry.field(name="obj", default=None)
 
 
 register_type(
@@ -144,9 +144,9 @@ register_type(
     description="Delete one or more frontier rows (superuser-only bulk action).",
 )
 class DeleteAuthorityFrontierMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    count: Optional[int] = strawberry.field(name="count", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    count: int | None = strawberry.field(name="count", default=None)
 
 
 register_type(
@@ -170,7 +170,7 @@ def _mutate_RequeueAuthorityFrontierMutation(payload_cls, root, info, id):
 def m_requeue_authority_frontier(
     info: strawberry.Info,
     id: Annotated[strawberry.ID, strawberry.argument(name="id")] = strawberry.UNSET,
-) -> Optional["RequeueAuthorityFrontierMutation"]:
+) -> RequeueAuthorityFrontierMutation | None:
     kwargs = strip_unset({"id": id})
     return _mutate_RequeueAuthorityFrontierMutation(
         RequeueAuthorityFrontierMutation, None, info, **kwargs
@@ -191,7 +191,7 @@ def _mutate_ResetAuthorityFrontierMutation(payload_cls, root, info, id):
 def m_reset_authority_frontier(
     info: strawberry.Info,
     id: Annotated[strawberry.ID, strawberry.argument(name="id")] = strawberry.UNSET,
-) -> Optional["ResetAuthorityFrontierMutation"]:
+) -> ResetAuthorityFrontierMutation | None:
     kwargs = strip_unset({"id": id})
     return _mutate_ResetAuthorityFrontierMutation(
         ResetAuthorityFrontierMutation, None, info, **kwargs
@@ -218,7 +218,7 @@ def m_reroute_authority_frontier(
             name="provider", description="Registry provider class name to route to."
         ),
     ] = strawberry.UNSET,
-) -> Optional["RerouteAuthorityFrontierMutation"]:
+) -> RerouteAuthorityFrontierMutation | None:
     kwargs = strip_unset({"id": id, "provider": provider})
     return _mutate_RerouteAuthorityFrontierMutation(
         RerouteAuthorityFrontierMutation, None, info, **kwargs
@@ -239,7 +239,7 @@ def _mutate_ApproveAuthorityFrontierMutation(payload_cls, root, info, id):
 def m_approve_authority_frontier(
     info: strawberry.Info,
     id: Annotated[strawberry.ID, strawberry.argument(name="id")] = strawberry.UNSET,
-) -> Optional["ApproveAuthorityFrontierMutation"]:
+) -> ApproveAuthorityFrontierMutation | None:
     kwargs = strip_unset({"id": id})
     return _mutate_ApproveAuthorityFrontierMutation(
         ApproveAuthorityFrontierMutation, None, info, **kwargs
@@ -271,7 +271,7 @@ def m_delete_authority_frontier(
             name="ids", description="Global IDs of the frontier rows to delete."
         ),
     ] = strawberry.UNSET,
-) -> Optional["DeleteAuthorityFrontierMutation"]:
+) -> DeleteAuthorityFrontierMutation | None:
     kwargs = strip_unset({"ids": ids})
     return _mutate_DeleteAuthorityFrontierMutation(
         DeleteAuthorityFrontierMutation, None, info, **kwargs

@@ -94,11 +94,11 @@ logger = logging.getLogger(__name__)
 
 @strawberry.type(name="UploadDocument")
 class UploadDocument:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    document: Optional[
-        Annotated["DocumentType", strawberry.lazy("config.graphql.document_types")]
-    ] = strawberry.field(name="document", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    document: None | (
+        Annotated[DocumentType, strawberry.lazy("config.graphql.document_types")]
+    ) = strawberry.field(name="document", default=None)
 
 
 register_type("UploadDocument", UploadDocument, model=None)
@@ -106,9 +106,9 @@ register_type("UploadDocument", UploadDocument, model=None)
 
 @strawberry.type(name="UpdateDocument")
 class UpdateDocument:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    obj_id: Optional[strawberry.ID] = strawberry.field(name="objId", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj_id: strawberry.ID | None = strawberry.field(name="objId", default=None)
 
 
 register_type("UpdateDocument", UpdateDocument, model=None)
@@ -119,12 +119,12 @@ register_type("UpdateDocument", UpdateDocument, model=None)
     description="Mutation to update a document's markdown summary for a specific corpus, creating a new version in the process.\nUsers can create/update summaries if:\n- No summary exists yet and they have permission on the corpus (public or their corpus)\n- A summary exists and they are the original author",
 )
 class UpdateDocumentSummary:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[
-        Annotated["DocumentType", strawberry.lazy("config.graphql.document_types")]
-    ] = strawberry.field(name="obj", default=None)
-    version: Optional[int] = strawberry.field(
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
+        Annotated[DocumentType, strawberry.lazy("config.graphql.document_types")]
+    ) = strawberry.field(name="obj", default=None)
+    version: int | None = strawberry.field(
         name="version", description="The new version number after update", default=None
     )
 
@@ -134,8 +134,8 @@ register_type("UpdateDocumentSummary", UpdateDocumentSummary, model=None)
 
 @strawberry.type(name="DeleteDocument")
 class DeleteDocument:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
 
 
 register_type("DeleteDocument", DeleteDocument, model=None)
@@ -143,8 +143,8 @@ register_type("DeleteDocument", DeleteDocument, model=None)
 
 @strawberry.type(name="DeleteMultipleDocuments")
 class DeleteMultipleDocuments:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
 
 
 register_type("DeleteMultipleDocuments", DeleteMultipleDocuments, model=None)
@@ -155,9 +155,9 @@ register_type("DeleteMultipleDocuments", DeleteMultipleDocuments, model=None)
     description="Mutation for uploading multiple documents via a zip file.\nThe zip is stored as a temporary file and processed asynchronously.\nOnly files with allowed MIME types will be created as documents.",
 )
 class UploadDocumentsZip:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    job_id: Optional[str] = strawberry.field(
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    job_id: str | None = strawberry.field(
         name="jobId", description="ID to track the processing job", default=None
     )
 
@@ -170,11 +170,11 @@ register_type("UploadDocumentsZip", UploadDocumentsZip, model=None)
     description="Retry processing for a failed document.\n\nThis mutation allows users to manually trigger reprocessing of a document\nthat failed during the parsing pipeline. It's useful when transient errors\n(like network timeouts or service unavailability) have been resolved.\n\nRequirements:\n- Document must be in FAILED processing state\n- User must have UPDATE permission on the document",
 )
 class RetryDocumentProcessing:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    document: Optional[
-        Annotated["DocumentType", strawberry.lazy("config.graphql.document_types")]
-    ] = strawberry.field(name="document", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    document: None | (
+        Annotated[DocumentType, strawberry.lazy("config.graphql.document_types")]
+    ) = strawberry.field(name="document", default=None)
 
 
 register_type("RetryDocumentProcessing", RetryDocumentProcessing, model=None)
@@ -185,11 +185,11 @@ register_type("RetryDocumentProcessing", RetryDocumentProcessing, model=None)
     description="Restore a soft-deleted document path within a corpus.\n\nDelegates to DocumentLifecycleService.restore_document() for:\n- Permission checking (corpus UPDATE permission)\n- Creating new DocumentPath with is_deleted=False",
 )
 class RestoreDeletedDocument:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    document: Optional[
-        Annotated["DocumentType", strawberry.lazy("config.graphql.document_types")]
-    ] = strawberry.field(name="document", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    document: None | (
+        Annotated[DocumentType, strawberry.lazy("config.graphql.document_types")]
+    ) = strawberry.field(name="document", default=None)
 
 
 register_type("RestoreDeletedDocument", RestoreDeletedDocument, model=None)
@@ -200,12 +200,12 @@ register_type("RestoreDeletedDocument", RestoreDeletedDocument, model=None)
     description="Restore a document to a previous content version.\nCreates a new version that is a copy of the specified version.",
 )
 class RestoreDocumentToVersion:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    document: Optional[
-        Annotated["DocumentType", strawberry.lazy("config.graphql.document_types")]
-    ] = strawberry.field(name="document", default=None)
-    new_version_number: Optional[int] = strawberry.field(
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    document: None | (
+        Annotated[DocumentType, strawberry.lazy("config.graphql.document_types")]
+    ) = strawberry.field(name="document", default=None)
+    new_version_number: int | None = strawberry.field(
         name="newVersionNumber", default=None
     )
 
@@ -218,8 +218,8 @@ register_type("RestoreDocumentToVersion", RestoreDocumentToVersion, model=None)
     description="Permanently delete a soft-deleted document from a corpus.\n\nThis is IRREVERSIBLE and removes:\n- All DocumentPath history for the document in this corpus\n- User annotations (non-structural) on the document\n- Relationships involving those annotations\n- DocumentSummaryRevision records\n- The Document itself if no other corpus references it\n\nRequires DELETE permission on the corpus.",
 )
 class PermanentlyDeleteDocument:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
 
 
 register_type("PermanentlyDeleteDocument", PermanentlyDeleteDocument, model=None)
@@ -230,9 +230,9 @@ register_type("PermanentlyDeleteDocument", PermanentlyDeleteDocument, model=None
     description="Permanently delete ALL soft-deleted documents in a corpus (empty trash).\n\nThis is IRREVERSIBLE and removes all documents currently in the corpus trash.\n\nRequires DELETE permission on the corpus.",
 )
 class EmptyTrash:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    deleted_count: Optional[int] = strawberry.field(name="deletedCount", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    deleted_count: int | None = strawberry.field(name="deletedCount", default=None)
 
 
 register_type("EmptyTrash", EmptyTrash, model=None)
@@ -243,9 +243,9 @@ register_type("EmptyTrash", EmptyTrash, model=None)
     description='Move EVERY document in a corpus to Trash and remove ALL of its folders.\n\nThis is the "empty everything" action. Documents are soft-deleted (they\nremain in the trash and are restorable until the trash is emptied); the\nfolder tree is removed. Nothing is permanently deleted here — callers can\nfollow up with ``emptyTrash`` to purge.\n\nRequires DELETE permission on the corpus.',
 )
 class EmptyCorpus:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    trashed_count: Optional[int] = strawberry.field(name="trashedCount", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    trashed_count: int | None = strawberry.field(name="trashedCount", default=None)
 
 
 register_type("EmptyCorpus", EmptyCorpus, model=None)
@@ -253,8 +253,8 @@ register_type("EmptyCorpus", EmptyCorpus, model=None)
 
 @strawberry.type(name="UploadAnnotatedDocument")
 class UploadAnnotatedDocument:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
 
 
 register_type("UploadAnnotatedDocument", UploadAnnotatedDocument, model=None)
@@ -265,11 +265,11 @@ register_type("UploadAnnotatedDocument", UploadAnnotatedDocument, model=None)
     description="Mutation entrypoint for starting a corpus export.\nNow refactored to optionally accept a list of Analysis IDs (analyses_ids)\nthat should be included in the export. If analyses_ids are provided, then\nonly annotations/labels from those analyses are included. Otherwise, all\nannotations/labels for the corpus are included.",
 )
 class StartCorpusExport:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    export: Optional[
-        Annotated["UserExportType", strawberry.lazy("config.graphql.user_types")]
-    ] = strawberry.field(name="export", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    export: None | (
+        Annotated[UserExportType, strawberry.lazy("config.graphql.user_types")]
+    ) = strawberry.field(name="export", default=None)
 
 
 register_type("StartCorpusExport", StartCorpusExport, model=None)
@@ -277,8 +277,8 @@ register_type("StartCorpusExport", StartCorpusExport, model=None)
 
 @strawberry.type(name="DeleteExport")
 class DeleteExport:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
 
 
 register_type("DeleteExport", DeleteExport, model=None)
@@ -313,7 +313,7 @@ def _mutate_UploadDocument(payload_cls, root, info, **kwargs):
         ingestion_source_id=None,
         external_id=None,
         ingestion_metadata=None,
-    ) -> "UploadDocument":
+    ) -> UploadDocument:
         if add_to_corpus_id is not None and add_to_extract_id is not None:
             return UploadDocument(
                 message="Cannot simultaneously add document to both corpus and extract",
@@ -407,21 +407,21 @@ def _mutate_UploadDocument(payload_cls, root, info, **kwargs):
 def m_upload_document(
     info: strawberry.Info,
     add_to_corpus_id: Annotated[
-        Optional[strawberry.ID],
+        strawberry.ID | None,
         strawberry.argument(
             name="addToCorpusId",
             description="If provided, successfully uploaded document will be uploaded to corpus with specified id",
         ),
     ] = strawberry.UNSET,
     add_to_extract_id: Annotated[
-        Optional[strawberry.ID],
+        strawberry.ID | None,
         strawberry.argument(
             name="addToExtractId",
             description="If provided, successfully uploaded document will be added to extract with specified id",
         ),
     ] = strawberry.UNSET,
     add_to_folder_id: Annotated[
-        Optional[strawberry.ID],
+        strawberry.ID | None,
         strawberry.argument(
             name="addToFolderId",
             description="If provided along with add_to_corpus_id, the document will be assigned to this folder within the corpus",
@@ -435,7 +435,7 @@ def m_upload_document(
         ),
     ] = strawberry.UNSET,
     custom_meta: Annotated[
-        Optional[GenericScalar], strawberry.argument(name="customMeta")
+        GenericScalar | None, strawberry.argument(name="customMeta")
     ] = strawberry.UNSET,
     description: Annotated[
         str,
@@ -444,7 +444,7 @@ def m_upload_document(
         ),
     ] = strawberry.UNSET,
     external_id: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="externalId",
             description="Identifier in the external system (e.g. 'alpha:contract-123')",
@@ -455,14 +455,14 @@ def m_upload_document(
         strawberry.argument(name="filename", description="Filename of the document."),
     ] = strawberry.UNSET,
     ingestion_metadata: Annotated[
-        Optional[GenericScalar],
+        GenericScalar | None,
         strawberry.argument(
             name="ingestionMetadata",
             description="Arbitrary source-specific metadata (URL, crawl job ID, etc.)",
         ),
     ] = strawberry.UNSET,
     ingestion_source_id: Annotated[
-        Optional[strawberry.ID],
+        strawberry.ID | None,
         strawberry.argument(
             name="ingestionSourceId",
             description="Global ID of the IngestionSource that produced this document",
@@ -475,11 +475,11 @@ def m_upload_document(
             description="If True, document is immediately public. Defaults to False.",
         ),
     ] = strawberry.UNSET,
-    slug: Annotated[Optional[str], strawberry.argument(name="slug")] = strawberry.UNSET,
+    slug: Annotated[str | None, strawberry.argument(name="slug")] = strawberry.UNSET,
     title: Annotated[
         str, strawberry.argument(name="title", description="Title of the document.")
     ] = strawberry.UNSET,
-) -> Optional["UploadDocument"]:
+) -> UploadDocument | None:
     kwargs = strip_unset(
         {
             "add_to_corpus_id": add_to_corpus_id,
@@ -503,20 +503,18 @@ def m_upload_document(
 def m_update_document(
     info: strawberry.Info,
     custom_meta: Annotated[
-        Optional[GenericScalar], strawberry.argument(name="customMeta")
+        GenericScalar | None, strawberry.argument(name="customMeta")
     ] = strawberry.UNSET,
     description: Annotated[
-        Optional[str], strawberry.argument(name="description")
+        str | None, strawberry.argument(name="description")
     ] = strawberry.UNSET,
     id: Annotated[str, strawberry.argument(name="id")] = strawberry.UNSET,
     pdf_file: Annotated[
-        Optional[str], strawberry.argument(name="pdfFile")
+        str | None, strawberry.argument(name="pdfFile")
     ] = strawberry.UNSET,
-    slug: Annotated[Optional[str], strawberry.argument(name="slug")] = strawberry.UNSET,
-    title: Annotated[
-        Optional[str], strawberry.argument(name="title")
-    ] = strawberry.UNSET,
-) -> Optional["UpdateDocument"]:
+    slug: Annotated[str | None, strawberry.argument(name="slug")] = strawberry.UNSET,
+    title: Annotated[str | None, strawberry.argument(name="title")] = strawberry.UNSET,
+) -> UpdateDocument | None:
     kwargs = strip_unset(
         {
             "custom_meta": custom_meta,
@@ -550,7 +548,7 @@ def _mutate_UpdateDocumentSummary(payload_cls, root, info, **kwargs):
     @login_required
     def mutate(
         root, info, document_id, corpus_id, new_content
-    ) -> "UpdateDocumentSummary":
+    ) -> UpdateDocumentSummary:
         try:
             from opencontractserver.documents.models import DocumentSummaryRevision
 
@@ -673,7 +671,7 @@ def m_update_document_summary(
             description="New markdown content for the document summary",
         ),
     ] = strawberry.UNSET,
-) -> Optional["UpdateDocumentSummary"]:
+) -> UpdateDocumentSummary | None:
     kwargs = strip_unset(
         {"corpus_id": corpus_id, "document_id": document_id, "new_content": new_content}
     )
@@ -683,7 +681,7 @@ def m_update_document_summary(
 def m_delete_document(
     info: strawberry.Info,
     id: Annotated[str, strawberry.argument(name="id")] = strawberry.UNSET,
-) -> Optional["DeleteDocument"]:
+) -> DeleteDocument | None:
     kwargs = strip_unset({"id": id})
     return drf_deletion(
         payload_cls=DeleteDocument,
@@ -703,7 +701,7 @@ def _mutate_DeleteMultipleDocuments(payload_cls, root, info, **kwargs):
 
     # Decorator applied to an inner function — see _mutate_UploadDocument.
     @login_required
-    def mutate(root, info, document_ids_to_delete) -> "DeleteMultipleDocuments":
+    def mutate(root, info, document_ids_to_delete) -> DeleteMultipleDocuments:
         try:
             document_pks = list(
                 map(
@@ -729,13 +727,13 @@ def _mutate_DeleteMultipleDocuments(payload_cls, root, info, **kwargs):
 def m_delete_multiple_documents(
     info: strawberry.Info,
     document_ids_to_delete: Annotated[
-        list[Optional[str]],
+        list[str | None],
         strawberry.argument(
             name="documentIdsToDelete",
             description="List of ids of the documents to delete",
         ),
     ] = strawberry.UNSET,
-) -> Optional["DeleteMultipleDocuments"]:
+) -> DeleteMultipleDocuments | None:
     kwargs = strip_unset({"document_ids_to_delete": document_ids_to_delete})
     return _mutate_DeleteMultipleDocuments(
         DeleteMultipleDocuments, None, info, **kwargs
@@ -760,7 +758,7 @@ def _mutate_UploadDocumentsZip(payload_cls, root, info, **kwargs):
         description=None,
         custom_meta=None,
         add_to_corpus_id=None,
-    ) -> "UploadDocumentsZip":
+    ) -> UploadDocumentsZip:
         user = info.context.user
         logger.info("UploadDocumentsZip.mutate() - Received zip upload request...")
 
@@ -800,7 +798,7 @@ def _mutate_UploadDocumentsZip(payload_cls, root, info, **kwargs):
 def m_upload_documents_zip(
     info: strawberry.Info,
     add_to_corpus_id: Annotated[
-        Optional[strawberry.ID],
+        strawberry.ID | None,
         strawberry.argument(
             name="addToCorpusId",
             description="If provided, successfully uploaded documents will be added to corpus with specified id",
@@ -814,13 +812,13 @@ def m_upload_documents_zip(
         ),
     ] = strawberry.UNSET,
     custom_meta: Annotated[
-        Optional[GenericScalar],
+        GenericScalar | None,
         strawberry.argument(
             name="customMeta", description="Optional metadata to apply to all documents"
         ),
     ] = strawberry.UNSET,
     description: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="description",
             description="Optional description to apply to all documents",
@@ -834,13 +832,13 @@ def m_upload_documents_zip(
         ),
     ] = strawberry.UNSET,
     title_prefix: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="titlePrefix",
             description="Optional prefix for document titles (will be combined with filename)",
         ),
     ] = strawberry.UNSET,
-) -> Optional["UploadDocumentsZip"]:
+) -> UploadDocumentsZip | None:
     kwargs = strip_unset(
         {
             "add_to_corpus_id": add_to_corpus_id,
@@ -862,7 +860,7 @@ def _mutate_RetryDocumentProcessing(payload_cls, root, info, **kwargs):
 
     # Decorator applied to an inner function — see _mutate_UploadDocument.
     @login_required
-    def mutate(root, info, document_id) -> "RetryDocumentProcessing":
+    def mutate(root, info, document_id) -> RetryDocumentProcessing:
         from opencontractserver.documents.models import DocumentProcessingStatus
         from opencontractserver.tasks.doc_tasks import retry_document_processing
         from opencontractserver.types.enums import PermissionTypes
@@ -933,7 +931,7 @@ def m_retry_document_processing(
             description="ID of the failed document to retry processing",
         ),
     ] = strawberry.UNSET,
-) -> Optional["RetryDocumentProcessing"]:
+) -> RetryDocumentProcessing | None:
     kwargs = strip_unset({"document_id": document_id})
     return _mutate_RetryDocumentProcessing(
         RetryDocumentProcessing, None, info, **kwargs
@@ -949,7 +947,7 @@ def _mutate_RestoreDeletedDocument(payload_cls, root, info, **kwargs):
     # Decorators applied to an inner function — see _mutate_UploadDocument.
     @login_required
     @graphql_ratelimit(rate=RateLimits.WRITE_MEDIUM)
-    def mutate(root, info, document_id, corpus_id) -> "RestoreDeletedDocument":
+    def mutate(root, info, document_id, corpus_id) -> RestoreDeletedDocument:
         from opencontractserver.corpuses.services import DocumentLifecycleService
 
         user = info.context.user
@@ -1034,7 +1032,7 @@ def m_restore_deleted_document(
             name="documentId", description="Global ID of the document to restore"
         ),
     ] = strawberry.UNSET,
-) -> Optional["RestoreDeletedDocument"]:
+) -> RestoreDeletedDocument | None:
     kwargs = strip_unset({"corpus_id": corpus_id, "document_id": document_id})
     return _mutate_RestoreDeletedDocument(RestoreDeletedDocument, None, info, **kwargs)
 
@@ -1048,7 +1046,7 @@ def _mutate_RestoreDocumentToVersion(payload_cls, root, info, **kwargs):
     # Decorators applied to an inner function — see _mutate_UploadDocument.
     @login_required
     @graphql_ratelimit(rate=RateLimits.WRITE_MEDIUM)
-    def mutate(root, info, document_id, corpus_id) -> "RestoreDocumentToVersion":
+    def mutate(root, info, document_id, corpus_id) -> RestoreDocumentToVersion:
         user = info.context.user
 
         try:
@@ -1219,7 +1217,7 @@ def m_restore_document_to_version(
             description="Global ID of the document version to restore to",
         ),
     ] = strawberry.UNSET,
-) -> Optional["RestoreDocumentToVersion"]:
+) -> RestoreDocumentToVersion | None:
     kwargs = strip_unset({"corpus_id": corpus_id, "document_id": document_id})
     return _mutate_RestoreDocumentToVersion(
         RestoreDocumentToVersion, None, info, **kwargs
@@ -1235,7 +1233,7 @@ def _mutate_PermanentlyDeleteDocument(payload_cls, root, info, **kwargs):
     # Decorators applied to an inner function — see _mutate_UploadDocument.
     @login_required
     @graphql_ratelimit(rate=RateLimits.WRITE_MEDIUM)
-    def mutate(root, info, document_id, corpus_id) -> "PermanentlyDeleteDocument":
+    def mutate(root, info, document_id, corpus_id) -> PermanentlyDeleteDocument:
         from opencontractserver.corpuses.services import DocumentLifecycleService
 
         user = info.context.user
@@ -1293,7 +1291,7 @@ def m_permanently_delete_document(
             description="Global ID of the document to permanently delete",
         ),
     ] = strawberry.UNSET,
-) -> Optional["PermanentlyDeleteDocument"]:
+) -> PermanentlyDeleteDocument | None:
     kwargs = strip_unset({"corpus_id": corpus_id, "document_id": document_id})
     return _mutate_PermanentlyDeleteDocument(
         PermanentlyDeleteDocument, None, info, **kwargs
@@ -1309,7 +1307,7 @@ def _mutate_EmptyTrash(payload_cls, root, info, **kwargs):
     # Decorators applied to an inner function — see _mutate_UploadDocument.
     @login_required
     @graphql_ratelimit(rate=RateLimits.WRITE_MEDIUM)
-    def mutate(root, info, corpus_id) -> "EmptyTrash":
+    def mutate(root, info, corpus_id) -> EmptyTrash:
         from opencontractserver.corpuses.services import DocumentLifecycleService
 
         user = info.context.user
@@ -1364,7 +1362,7 @@ def m_empty_trash(
             name="corpusId", description="Global ID of the corpus to empty trash for"
         ),
     ] = strawberry.UNSET,
-) -> Optional["EmptyTrash"]:
+) -> EmptyTrash | None:
     kwargs = strip_unset({"corpus_id": corpus_id})
     return _mutate_EmptyTrash(EmptyTrash, None, info, **kwargs)
 
@@ -1378,7 +1376,7 @@ def _mutate_EmptyCorpus(payload_cls, root, info, **kwargs):
     # Decorators applied to an inner function — see _mutate_UploadDocument.
     @login_required
     @graphql_ratelimit(rate=RateLimits.WRITE_MEDIUM)
-    def mutate(root, info, corpus_id) -> "EmptyCorpus":
+    def mutate(root, info, corpus_id) -> EmptyCorpus:
         from opencontractserver.corpuses.services import DocumentLifecycleService
 
         user = info.context.user
@@ -1436,7 +1434,7 @@ def m_empty_corpus(
             name="corpusId", description="Global ID of the corpus to empty"
         ),
     ] = strawberry.UNSET,
-) -> Optional["EmptyCorpus"]:
+) -> EmptyCorpus | None:
     kwargs = strip_unset({"corpus_id": corpus_id})
     return _mutate_EmptyCorpus(EmptyCorpus, None, info, **kwargs)
 
@@ -1451,7 +1449,7 @@ def _mutate_UploadAnnotatedDocument(payload_cls, root, info, **kwargs):
     @login_required
     def mutate(
         root, info, target_corpus_id, document_import_data
-    ) -> "UploadAnnotatedDocument":
+    ) -> UploadAnnotatedDocument:
 
         try:
             ok = True
@@ -1486,7 +1484,7 @@ def m_import_annotated_doc_to_corpus(
     target_corpus_id: Annotated[
         str, strawberry.argument(name="targetCorpusId")
     ] = strawberry.UNSET,
-) -> Optional["UploadAnnotatedDocument"]:
+) -> UploadAnnotatedDocument | None:
     kwargs = strip_unset(
         {
             "document_import_data": document_import_data,
@@ -1518,7 +1516,7 @@ def _mutate_StartCorpusExport(payload_cls, root, info, **kwargs):
         annotation_filter_mode: str = AnnotationFilterMode.CORPUS_LABELSET_ONLY.value,
         include_conversations: bool = False,
         include_action_trail: bool = False,
-    ) -> "StartCorpusExport":
+    ) -> StartCorpusExport:
         """
         Initiates async Celery export tasks. If analyses_ids are supplied,
         the export is filtered to annotations/labels from only those analyses.
@@ -1699,14 +1697,14 @@ def _mutate_StartCorpusExport(payload_cls, root, info, **kwargs):
 def m_export_corpus(
     info: strawberry.Info,
     analyses_ids: Annotated[
-        Optional[list[Optional[str]]],
+        list[str | None] | None,
         strawberry.argument(
             name="analysesIds",
             description="Optional list of Graphene IDs for analyses that should be included in the export",
         ),
     ] = strawberry.UNSET,
     annotation_filter_mode: Annotated[
-        Optional[enums.AnnotationFilterMode],
+        enums.AnnotationFilterMode | None,
         strawberry.argument(
             name="annotationFilterMode",
             description="How to filter annotations - from corpus label set only, plus analyses, or analyses only",
@@ -1720,37 +1718,37 @@ def m_export_corpus(
         ),
     ] = strawberry.UNSET,
     export_format: Annotated[
-        Optional[enums.ExportType], strawberry.argument(name="exportFormat")
+        enums.ExportType | None, strawberry.argument(name="exportFormat")
     ] = strawberry.UNSET,
     include_action_trail: Annotated[
-        Optional[bool],
+        bool | None,
         strawberry.argument(
             name="includeActionTrail",
             description="Whether to include corpus action execution trail in the export (V2 format only)",
         ),
     ] = False,
     include_conversations: Annotated[
-        Optional[bool],
+        bool | None,
         strawberry.argument(
             name="includeConversations",
             description="Whether to include conversations and messages in the export (V2 format only)",
         ),
     ] = False,
     input_kwargs: Annotated[
-        Optional[GenericScalar],
+        GenericScalar | None,
         strawberry.argument(
             name="inputKwargs",
             description="Additional keyword arguments to pass to post-processors",
         ),
     ] = strawberry.UNSET,
     post_processors: Annotated[
-        Optional[list[Optional[str]]],
+        list[str | None] | None,
         strawberry.argument(
             name="postProcessors",
             description="List of fully qualified Python paths to post-processor functions to run",
         ),
     ] = strawberry.UNSET,
-) -> Optional["StartCorpusExport"]:
+) -> StartCorpusExport | None:
     kwargs = strip_unset(
         {
             "analyses_ids": analyses_ids,
@@ -1769,7 +1767,7 @@ def m_export_corpus(
 def m_delete_export(
     info: strawberry.Info,
     id: Annotated[str, strawberry.argument(name="id")] = strawberry.UNSET,
-) -> Optional["DeleteExport"]:
+) -> DeleteExport | None:
     kwargs = strip_unset({"id": id})
     return drf_deletion(
         payload_cls=DeleteExport,

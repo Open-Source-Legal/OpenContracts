@@ -56,10 +56,10 @@ logger = logging.getLogger(__name__)
     description="Create a new worker service account. Superuser only.",
 )
 class CreateWorkerAccount:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    worker_account: Optional[
-        Annotated["WorkerAccountType", strawberry.lazy("config.graphql.worker_types")]
-    ] = strawberry.field(name="workerAccount", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    worker_account: None | (
+        Annotated[WorkerAccountType, strawberry.lazy("config.graphql.worker_types")]
+    ) = strawberry.field(name="workerAccount", default=None)
 
 
 register_type("CreateWorkerAccount", CreateWorkerAccount, model=None)
@@ -70,7 +70,7 @@ register_type("CreateWorkerAccount", CreateWorkerAccount, model=None)
     description="Deactivate a worker account (revokes all its tokens implicitly). Superuser only.",
 )
 class DeactivateWorkerAccount:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
 
 
 register_type("DeactivateWorkerAccount", DeactivateWorkerAccount, model=None)
@@ -81,7 +81,7 @@ register_type("DeactivateWorkerAccount", DeactivateWorkerAccount, model=None)
     description="Reactivate a previously deactivated worker account. Superuser only.",
 )
 class ReactivateWorkerAccount:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
 
 
 register_type("ReactivateWorkerAccount", ReactivateWorkerAccount, model=None)
@@ -92,13 +92,13 @@ register_type("ReactivateWorkerAccount", ReactivateWorkerAccount, model=None)
     description="Create a scoped access token granting a worker upload access to a corpus.\n\nReturns the full token key — it is only shown once.\nAllowed for superusers and the corpus creator.",
 )
 class CreateCorpusAccessTokenMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    token: Optional[
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    token: None | (
         Annotated[
-            "CorpusAccessTokenCreatedType",
+            CorpusAccessTokenCreatedType,
             strawberry.lazy("config.graphql.worker_types"),
         ]
-    ] = strawberry.field(name="token", default=None)
+    ) = strawberry.field(name="token", default=None)
 
 
 register_type(
@@ -111,7 +111,7 @@ register_type(
     description="Revoke a corpus access token. Allowed for superusers and the corpus creator.",
 )
 class RevokeCorpusAccessTokenMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
 
 
 register_type(
@@ -152,9 +152,9 @@ def _mutate_CreateWorkerAccount(payload_cls, root, info, name, description=""):
 
 def m_create_worker_account(
     info: strawberry.Info,
-    description: Annotated[Optional[str], strawberry.argument(name="description")] = "",
+    description: Annotated[str | None, strawberry.argument(name="description")] = "",
     name: Annotated[str, strawberry.argument(name="name")] = strawberry.UNSET,
-) -> Optional["CreateWorkerAccount"]:
+) -> CreateWorkerAccount | None:
     kwargs = strip_unset({"description": description, "name": name})
     return _mutate_CreateWorkerAccount(CreateWorkerAccount, None, info, **kwargs)
 
@@ -181,7 +181,7 @@ def m_deactivate_worker_account(
     worker_account_id: Annotated[
         int, strawberry.argument(name="workerAccountId")
     ] = strawberry.UNSET,
-) -> Optional["DeactivateWorkerAccount"]:
+) -> DeactivateWorkerAccount | None:
     kwargs = strip_unset({"worker_account_id": worker_account_id})
     return _mutate_DeactivateWorkerAccount(
         DeactivateWorkerAccount, None, info, **kwargs
@@ -210,7 +210,7 @@ def m_reactivate_worker_account(
     worker_account_id: Annotated[
         int, strawberry.argument(name="workerAccountId")
     ] = strawberry.UNSET,
-) -> Optional["ReactivateWorkerAccount"]:
+) -> ReactivateWorkerAccount | None:
     kwargs = strip_unset({"worker_account_id": worker_account_id})
     return _mutate_ReactivateWorkerAccount(
         ReactivateWorkerAccount, None, info, **kwargs
@@ -264,15 +264,15 @@ def m_create_corpus_access_token(
     info: strawberry.Info,
     corpus_id: Annotated[int, strawberry.argument(name="corpusId")] = strawberry.UNSET,
     expires_at: Annotated[
-        Optional[datetime.datetime], strawberry.argument(name="expiresAt")
+        datetime.datetime | None, strawberry.argument(name="expiresAt")
     ] = None,
     rate_limit_per_minute: Annotated[
-        Optional[int], strawberry.argument(name="rateLimitPerMinute")
+        int | None, strawberry.argument(name="rateLimitPerMinute")
     ] = 0,
     worker_account_id: Annotated[
         int, strawberry.argument(name="workerAccountId")
     ] = strawberry.UNSET,
-) -> Optional["CreateCorpusAccessTokenMutation"]:
+) -> CreateCorpusAccessTokenMutation | None:
     kwargs = strip_unset(
         {
             "corpus_id": corpus_id,
@@ -303,7 +303,7 @@ def _mutate_RevokeCorpusAccessTokenMutation(payload_cls, root, info, token_id):
 def m_revoke_corpus_access_token(
     info: strawberry.Info,
     token_id: Annotated[int, strawberry.argument(name="tokenId")] = strawberry.UNSET,
-) -> Optional["RevokeCorpusAccessTokenMutation"]:
+) -> RevokeCorpusAccessTokenMutation | None:
     kwargs = strip_unset({"token_id": token_id})
     return _mutate_RevokeCorpusAccessTokenMutation(
         RevokeCorpusAccessTokenMutation, None, info, **kwargs

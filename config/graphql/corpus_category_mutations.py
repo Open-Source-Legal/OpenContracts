@@ -73,11 +73,11 @@ def _resolve_category_pk(global_id: str):
     description="Create a new corpus category. Superuser-only.",
 )
 class CreateCorpusCategory:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[
-        Annotated["CorpusCategoryType", strawberry.lazy("config.graphql.corpus_types")]
-    ] = strawberry.field(name="obj", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
+        Annotated[CorpusCategoryType, strawberry.lazy("config.graphql.corpus_types")]
+    ) = strawberry.field(name="obj", default=None)
 
 
 register_type("CreateCorpusCategory", CreateCorpusCategory, model=None)
@@ -88,11 +88,11 @@ register_type("CreateCorpusCategory", CreateCorpusCategory, model=None)
     description="Update an existing corpus category. Superuser-only.",
 )
 class UpdateCorpusCategory:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[
-        Annotated["CorpusCategoryType", strawberry.lazy("config.graphql.corpus_types")]
-    ] = strawberry.field(name="obj", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
+        Annotated[CorpusCategoryType, strawberry.lazy("config.graphql.corpus_types")]
+    ) = strawberry.field(name="obj", default=None)
 
 
 register_type("UpdateCorpusCategory", UpdateCorpusCategory, model=None)
@@ -103,8 +103,8 @@ register_type("UpdateCorpusCategory", UpdateCorpusCategory, model=None)
     description="Delete a corpus category. Superuser-only.\n\nDeleting a category removes it from every corpus that referenced it (the\n``Corpus.categories`` M2M through-rows are cleaned up automatically) but\ndoes not affect the corpuses themselves.",
 )
 class DeleteCorpusCategory:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
 
 
 register_type("DeleteCorpusCategory", DeleteCorpusCategory, model=None)
@@ -168,20 +168,20 @@ def _mutate_CreateCorpusCategory(
 def m_create_corpus_category(
     info: strawberry.Info,
     color: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="color",
             description="Hex color for the badge (e.g. '#3B82F6'). Defaults to blue.",
         ),
     ] = strawberry.UNSET,
     description: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="description", description="Optional human-readable description"
         ),
     ] = strawberry.UNSET,
     icon: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="icon",
             description="Lucide icon name (e.g. 'scroll', 'gavel'). Defaults to 'folder'.",
@@ -191,12 +191,12 @@ def m_create_corpus_category(
         str, strawberry.argument(name="name", description="Unique category name")
     ] = strawberry.UNSET,
     sort_order: Annotated[
-        Optional[int],
+        int | None,
         strawberry.argument(
             name="sortOrder", description="Display order; lower sorts first"
         ),
     ] = strawberry.UNSET,
-) -> Optional["CreateCorpusCategory"]:
+) -> CreateCorpusCategory | None:
     kwargs = strip_unset(
         {
             "color": color,
@@ -280,22 +280,20 @@ def _mutate_UpdateCorpusCategory(
 
 def m_update_corpus_category(
     info: strawberry.Info,
-    color: Annotated[
-        Optional[str], strawberry.argument(name="color")
-    ] = strawberry.UNSET,
+    color: Annotated[str | None, strawberry.argument(name="color")] = strawberry.UNSET,
     description: Annotated[
-        Optional[str], strawberry.argument(name="description")
+        str | None, strawberry.argument(name="description")
     ] = strawberry.UNSET,
-    icon: Annotated[Optional[str], strawberry.argument(name="icon")] = strawberry.UNSET,
+    icon: Annotated[str | None, strawberry.argument(name="icon")] = strawberry.UNSET,
     id: Annotated[
         strawberry.ID,
         strawberry.argument(name="id", description="Global ID of the category"),
     ] = strawberry.UNSET,
-    name: Annotated[Optional[str], strawberry.argument(name="name")] = strawberry.UNSET,
+    name: Annotated[str | None, strawberry.argument(name="name")] = strawberry.UNSET,
     sort_order: Annotated[
-        Optional[int], strawberry.argument(name="sortOrder")
+        int | None, strawberry.argument(name="sortOrder")
     ] = strawberry.UNSET,
-) -> Optional["UpdateCorpusCategory"]:
+) -> UpdateCorpusCategory | None:
     kwargs = strip_unset(
         {
             "color": color,
@@ -348,7 +346,7 @@ def m_delete_corpus_category(
         strawberry.ID,
         strawberry.argument(name="id", description="Global ID of the category"),
     ] = strawberry.UNSET,
-) -> Optional["DeleteCorpusCategory"]:
+) -> DeleteCorpusCategory | None:
     kwargs = strip_unset({"id": id})
     return _mutate_DeleteCorpusCategory(DeleteCorpusCategory, None, info, **kwargs)
 

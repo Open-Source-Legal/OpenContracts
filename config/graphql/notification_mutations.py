@@ -58,11 +58,11 @@ logger = logging.getLogger(__name__)
     description="Mark a single notification as read.",
 )
 class MarkNotificationReadMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    notification: Optional[
-        Annotated["NotificationType", strawberry.lazy("config.graphql.social_types")]
-    ] = strawberry.field(name="notification", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    notification: None | (
+        Annotated[NotificationType, strawberry.lazy("config.graphql.social_types")]
+    ) = strawberry.field(name="notification", default=None)
 
 
 register_type("MarkNotificationReadMutation", MarkNotificationReadMutation, model=None)
@@ -73,11 +73,11 @@ register_type("MarkNotificationReadMutation", MarkNotificationReadMutation, mode
     description="Mark a single notification as unread.",
 )
 class MarkNotificationUnreadMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    notification: Optional[
-        Annotated["NotificationType", strawberry.lazy("config.graphql.social_types")]
-    ] = strawberry.field(name="notification", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    notification: None | (
+        Annotated[NotificationType, strawberry.lazy("config.graphql.social_types")]
+    ) = strawberry.field(name="notification", default=None)
 
 
 register_type(
@@ -90,9 +90,9 @@ register_type(
     description="Mark all of the current user's notifications as read.",
 )
 class MarkAllNotificationsReadMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    count: Optional[int] = strawberry.field(
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    count: int | None = strawberry.field(
         name="count", description="Number of notifications marked as read", default=None
     )
 
@@ -106,8 +106,8 @@ register_type(
     name="DeleteNotificationMutation", description="Delete a notification."
 )
 class DeleteNotificationMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
 
 
 register_type("DeleteNotificationMutation", DeleteNotificationMutation, model=None)
@@ -163,7 +163,7 @@ def m_mark_notification_read(
             name="notificationId", description="Notification ID to mark as read"
         ),
     ] = strawberry.UNSET,
-) -> Optional["MarkNotificationReadMutation"]:
+) -> MarkNotificationReadMutation | None:
     kwargs = strip_unset({"notification_id": notification_id})
     return _mutate_MarkNotificationReadMutation(
         MarkNotificationReadMutation, None, info, **kwargs
@@ -220,7 +220,7 @@ def m_mark_notification_unread(
             name="notificationId", description="Notification ID to mark as unread"
         ),
     ] = strawberry.UNSET,
-) -> Optional["MarkNotificationUnreadMutation"]:
+) -> MarkNotificationUnreadMutation | None:
     kwargs = strip_unset({"notification_id": notification_id})
     return _mutate_MarkNotificationUnreadMutation(
         MarkNotificationUnreadMutation, None, info, **kwargs
@@ -268,7 +268,7 @@ def _mutate_MarkAllNotificationsReadMutation(payload_cls, root, info):
 
 def m_mark_all_notifications_read(
     info: strawberry.Info,
-) -> Optional["MarkAllNotificationsReadMutation"]:
+) -> MarkAllNotificationsReadMutation | None:
     kwargs = strip_unset({})
     return _mutate_MarkAllNotificationsReadMutation(
         MarkAllNotificationsReadMutation, None, info, **kwargs
@@ -318,7 +318,7 @@ def m_delete_notification(
             name="notificationId", description="Notification ID to delete"
         ),
     ] = strawberry.UNSET,
-) -> Optional["DeleteNotificationMutation"]:
+) -> DeleteNotificationMutation | None:
     kwargs = strip_unset({"notification_id": notification_id})
     return _mutate_DeleteNotificationMutation(
         DeleteNotificationMutation, None, info, **kwargs

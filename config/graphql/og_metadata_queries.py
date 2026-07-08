@@ -94,11 +94,9 @@ def q_og_corpus_metadata(
     corpus_slug: Annotated[
         str, strawberry.argument(name="corpusSlug")
     ] = strawberry.UNSET,
-) -> Optional[
-    Annotated[
-        "OGCorpusMetadataType", strawberry.lazy("config.graphql.og_metadata_types")
-    ]
-]:
+) -> None | (
+    Annotated[OGCorpusMetadataType, strawberry.lazy("config.graphql.og_metadata_types")]
+):
     kwargs = strip_unset({"user_slug": user_slug, "corpus_slug": corpus_slug})
     return _resolve_Query_og_corpus_metadata(None, info, **kwargs)
 
@@ -139,11 +137,11 @@ def q_og_document_metadata(
     document_slug: Annotated[
         str, strawberry.argument(name="documentSlug")
     ] = strawberry.UNSET,
-) -> Optional[
+) -> None | (
     Annotated[
-        "OGDocumentMetadataType", strawberry.lazy("config.graphql.og_metadata_types")
+        OGDocumentMetadataType, strawberry.lazy("config.graphql.og_metadata_types")
     ]
-]:
+):
     kwargs = strip_unset({"user_slug": user_slug, "document_slug": document_slug})
     return _resolve_Query_og_document_metadata(None, info, **kwargs)
 
@@ -204,11 +202,11 @@ def q_og_document_in_corpus_metadata(
     document_slug: Annotated[
         str, strawberry.argument(name="documentSlug")
     ] = strawberry.UNSET,
-) -> Optional[
+) -> None | (
     Annotated[
-        "OGDocumentMetadataType", strawberry.lazy("config.graphql.og_metadata_types")
+        OGDocumentMetadataType, strawberry.lazy("config.graphql.og_metadata_types")
     ]
-]:
+):
     kwargs = strip_unset(
         {
             "user_slug": user_slug,
@@ -268,11 +266,9 @@ def q_og_thread_metadata(
         str, strawberry.argument(name="corpusSlug")
     ] = strawberry.UNSET,
     thread_id: Annotated[str, strawberry.argument(name="threadId")] = strawberry.UNSET,
-) -> Optional[
-    Annotated[
-        "OGThreadMetadataType", strawberry.lazy("config.graphql.og_metadata_types")
-    ]
-]:
+) -> None | (
+    Annotated[OGThreadMetadataType, strawberry.lazy("config.graphql.og_metadata_types")]
+):
     kwargs = strip_unset(
         {"user_slug": user_slug, "corpus_slug": corpus_slug, "thread_id": thread_id}
     )
@@ -324,11 +320,11 @@ def q_og_extract_metadata(
     extract_id: Annotated[
         str, strawberry.argument(name="extractId")
     ] = strawberry.UNSET,
-) -> Optional[
+) -> None | (
     Annotated[
-        "OGExtractMetadataType", strawberry.lazy("config.graphql.og_metadata_types")
+        OGExtractMetadataType, strawberry.lazy("config.graphql.og_metadata_types")
     ]
-]:
+):
     kwargs = strip_unset({"extract_id": extract_id})
     return _resolve_Query_og_extract_metadata(None, info, **kwargs)
 

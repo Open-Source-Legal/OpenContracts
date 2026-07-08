@@ -4,9 +4,9 @@ import os
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
 from django.test import TestCase
-from config.graphql.testing import Client
 
 from config.graphql.schema import schema
+from config.graphql.testing import Client
 from opencontractserver.documents.models import PipelineSettings
 from opencontractserver.pipeline.registry import reset_registry
 

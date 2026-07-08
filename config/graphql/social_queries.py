@@ -88,35 +88,31 @@ def _resolve_Query_badges(root, info, **kwargs):
 def q_badges(
     info: strawberry.Info,
     offset: Annotated[
-        Optional[int], strawberry.argument(name="offset")
+        int | None, strawberry.argument(name="offset")
     ] = strawberry.UNSET,
     before: Annotated[
-        Optional[str], strawberry.argument(name="before")
+        str | None, strawberry.argument(name="before")
     ] = strawberry.UNSET,
-    after: Annotated[
-        Optional[str], strawberry.argument(name="after")
-    ] = strawberry.UNSET,
-    first: Annotated[
-        Optional[int], strawberry.argument(name="first")
-    ] = strawberry.UNSET,
-    last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET,
+    after: Annotated[str | None, strawberry.argument(name="after")] = strawberry.UNSET,
+    first: Annotated[int | None, strawberry.argument(name="first")] = strawberry.UNSET,
+    last: Annotated[int | None, strawberry.argument(name="last")] = strawberry.UNSET,
     badge_type: Annotated[
-        Optional[enums.BadgesBadgeBadgeTypeChoices],
+        enums.BadgesBadgeBadgeTypeChoices | None,
         strawberry.argument(name="badgeType"),
     ] = strawberry.UNSET,
     is_auto_awarded: Annotated[
-        Optional[bool], strawberry.argument(name="isAutoAwarded")
+        bool | None, strawberry.argument(name="isAutoAwarded")
     ] = strawberry.UNSET,
     name__contains: Annotated[
-        Optional[str], strawberry.argument(name="name_Contains")
+        str | None, strawberry.argument(name="name_Contains")
     ] = strawberry.UNSET,
-    name: Annotated[Optional[str], strawberry.argument(name="name")] = strawberry.UNSET,
+    name: Annotated[str | None, strawberry.argument(name="name")] = strawberry.UNSET,
     corpus_id: Annotated[
-        Optional[str], strawberry.argument(name="corpusId")
+        str | None, strawberry.argument(name="corpusId")
     ] = strawberry.UNSET,
-) -> Optional[
-    Annotated["BadgeTypeConnection", strawberry.lazy("config.graphql.social_types")]
-]:
+) -> None | (
+    Annotated[BadgeTypeConnection, strawberry.lazy("config.graphql.social_types")]
+):
     kwargs = strip_unset(
         {
             "offset": offset,
@@ -155,7 +151,7 @@ def q_badge(
         strawberry.ID,
         strawberry.argument(name="id", description="The ID of the object"),
     ] = strawberry.UNSET,
-) -> Optional[Annotated["BadgeType", strawberry.lazy("config.graphql.social_types")]]:
+) -> Annotated[BadgeType, strawberry.lazy("config.graphql.social_types")] | None:
     return get_node_from_global_id(info, id, only_type_name="BadgeType")
 
 
@@ -181,36 +177,32 @@ def _resolve_Query_user_badges(root, info, **kwargs):
 def q_user_badges(
     info: strawberry.Info,
     offset: Annotated[
-        Optional[int], strawberry.argument(name="offset")
+        int | None, strawberry.argument(name="offset")
     ] = strawberry.UNSET,
     before: Annotated[
-        Optional[str], strawberry.argument(name="before")
+        str | None, strawberry.argument(name="before")
     ] = strawberry.UNSET,
-    after: Annotated[
-        Optional[str], strawberry.argument(name="after")
-    ] = strawberry.UNSET,
-    first: Annotated[
-        Optional[int], strawberry.argument(name="first")
-    ] = strawberry.UNSET,
-    last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET,
+    after: Annotated[str | None, strawberry.argument(name="after")] = strawberry.UNSET,
+    first: Annotated[int | None, strawberry.argument(name="first")] = strawberry.UNSET,
+    last: Annotated[int | None, strawberry.argument(name="last")] = strawberry.UNSET,
     awarded_at__gte: Annotated[
-        Optional[datetime.datetime], strawberry.argument(name="awardedAt_Gte")
+        datetime.datetime | None, strawberry.argument(name="awardedAt_Gte")
     ] = strawberry.UNSET,
     awarded_at__lte: Annotated[
-        Optional[datetime.datetime], strawberry.argument(name="awardedAt_Lte")
+        datetime.datetime | None, strawberry.argument(name="awardedAt_Lte")
     ] = strawberry.UNSET,
     user_id: Annotated[
-        Optional[str], strawberry.argument(name="userId")
+        str | None, strawberry.argument(name="userId")
     ] = strawberry.UNSET,
     badge_id: Annotated[
-        Optional[str], strawberry.argument(name="badgeId")
+        str | None, strawberry.argument(name="badgeId")
     ] = strawberry.UNSET,
     corpus_id: Annotated[
-        Optional[str], strawberry.argument(name="corpusId")
+        str | None, strawberry.argument(name="corpusId")
     ] = strawberry.UNSET,
-) -> Optional[
-    Annotated["UserBadgeTypeConnection", strawberry.lazy("config.graphql.social_types")]
-]:
+) -> None | (
+    Annotated[UserBadgeTypeConnection, strawberry.lazy("config.graphql.social_types")]
+):
     kwargs = strip_unset(
         {
             "offset": offset,
@@ -249,9 +241,7 @@ def q_user_badge(
         strawberry.ID,
         strawberry.argument(name="id", description="The ID of the object"),
     ] = strawberry.UNSET,
-) -> Optional[
-    Annotated["UserBadgeType", strawberry.lazy("config.graphql.social_types")]
-]:
+) -> None | (Annotated[UserBadgeType, strawberry.lazy("config.graphql.social_types")]):
     return get_node_from_global_id(info, id, only_type_name="UserBadgeType")
 
 
@@ -306,21 +296,22 @@ def _resolve_Query_badge_criteria_types(root, info, scope=None):
 def q_badge_criteria_types(
     info: strawberry.Info,
     scope: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="scope", description="Filter by scope: 'global', 'corpus', or 'both'"
         ),
     ] = strawberry.UNSET,
-) -> Optional[
+) -> None | (
     list[
-        Optional[
+        None
+        | (
             Annotated[
-                "CriteriaTypeDefinitionType",
+                CriteriaTypeDefinitionType,
                 strawberry.lazy("config.graphql.social_types"),
             ]
-        ]
+        )
     ]
-]:
+):
     kwargs = strip_unset({"scope": scope})
     return _resolve_Query_badge_criteria_types(None, info, **kwargs)
 
@@ -342,38 +333,34 @@ def _resolve_Query_agents(root, info, **kwargs):
 def q_agents(
     info: strawberry.Info,
     offset: Annotated[
-        Optional[int], strawberry.argument(name="offset")
+        int | None, strawberry.argument(name="offset")
     ] = strawberry.UNSET,
     before: Annotated[
-        Optional[str], strawberry.argument(name="before")
+        str | None, strawberry.argument(name="before")
     ] = strawberry.UNSET,
-    after: Annotated[
-        Optional[str], strawberry.argument(name="after")
-    ] = strawberry.UNSET,
-    first: Annotated[
-        Optional[int], strawberry.argument(name="first")
-    ] = strawberry.UNSET,
-    last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET,
+    after: Annotated[str | None, strawberry.argument(name="after")] = strawberry.UNSET,
+    first: Annotated[int | None, strawberry.argument(name="first")] = strawberry.UNSET,
+    last: Annotated[int | None, strawberry.argument(name="last")] = strawberry.UNSET,
     scope: Annotated[
-        Optional[enums.AgentsAgentConfigurationScopeChoices],
+        enums.AgentsAgentConfigurationScopeChoices | None,
         strawberry.argument(name="scope"),
     ] = strawberry.UNSET,
     is_active: Annotated[
-        Optional[bool], strawberry.argument(name="isActive")
+        bool | None, strawberry.argument(name="isActive")
     ] = strawberry.UNSET,
     name__contains: Annotated[
-        Optional[str], strawberry.argument(name="name_Contains")
+        str | None, strawberry.argument(name="name_Contains")
     ] = strawberry.UNSET,
-    name: Annotated[Optional[str], strawberry.argument(name="name")] = strawberry.UNSET,
+    name: Annotated[str | None, strawberry.argument(name="name")] = strawberry.UNSET,
     corpus_id: Annotated[
-        Optional[str], strawberry.argument(name="corpusId")
+        str | None, strawberry.argument(name="corpusId")
     ] = strawberry.UNSET,
-) -> Optional[
+) -> None | (
     Annotated[
-        "AgentConfigurationTypeConnection",
+        AgentConfigurationTypeConnection,
         strawberry.lazy("config.graphql.agent_types"),
     ]
-]:
+):
     kwargs = strip_unset(
         {
             "offset": offset,
@@ -423,38 +410,34 @@ def _resolve_Query_agent_configurations(root, info, **kwargs):
 def q_agent_configurations(
     info: strawberry.Info,
     offset: Annotated[
-        Optional[int], strawberry.argument(name="offset")
+        int | None, strawberry.argument(name="offset")
     ] = strawberry.UNSET,
     before: Annotated[
-        Optional[str], strawberry.argument(name="before")
+        str | None, strawberry.argument(name="before")
     ] = strawberry.UNSET,
-    after: Annotated[
-        Optional[str], strawberry.argument(name="after")
-    ] = strawberry.UNSET,
-    first: Annotated[
-        Optional[int], strawberry.argument(name="first")
-    ] = strawberry.UNSET,
-    last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET,
+    after: Annotated[str | None, strawberry.argument(name="after")] = strawberry.UNSET,
+    first: Annotated[int | None, strawberry.argument(name="first")] = strawberry.UNSET,
+    last: Annotated[int | None, strawberry.argument(name="last")] = strawberry.UNSET,
     scope: Annotated[
-        Optional[enums.AgentsAgentConfigurationScopeChoices],
+        enums.AgentsAgentConfigurationScopeChoices | None,
         strawberry.argument(name="scope"),
     ] = strawberry.UNSET,
     is_active: Annotated[
-        Optional[bool], strawberry.argument(name="isActive")
+        bool | None, strawberry.argument(name="isActive")
     ] = strawberry.UNSET,
     name__contains: Annotated[
-        Optional[str], strawberry.argument(name="name_Contains")
+        str | None, strawberry.argument(name="name_Contains")
     ] = strawberry.UNSET,
-    name: Annotated[Optional[str], strawberry.argument(name="name")] = strawberry.UNSET,
+    name: Annotated[str | None, strawberry.argument(name="name")] = strawberry.UNSET,
     corpus_id: Annotated[
-        Optional[str], strawberry.argument(name="corpusId")
+        str | None, strawberry.argument(name="corpusId")
     ] = strawberry.UNSET,
-) -> Optional[
+) -> None | (
     Annotated[
-        "AgentConfigurationTypeConnection",
+        AgentConfigurationTypeConnection,
         strawberry.lazy("config.graphql.agent_types"),
     ]
-]:
+):
     kwargs = strip_unset(
         {
             "offset": offset,
@@ -493,9 +476,9 @@ def q_agent(
         strawberry.ID,
         strawberry.argument(name="id", description="The ID of the object"),
     ] = strawberry.UNSET,
-) -> Optional[
-    Annotated["AgentConfigurationType", strawberry.lazy("config.graphql.agent_types")]
-]:
+) -> None | (
+    Annotated[AgentConfigurationType, strawberry.lazy("config.graphql.agent_types")]
+):
     return get_node_from_global_id(info, id, only_type_name="AgentConfigurationType")
 
 
@@ -550,15 +533,15 @@ def _resolve_Query_available_tools(root, info, category=None, **kwargs):
 def q_available_tools(
     info: strawberry.Info,
     category: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="category",
             description="Filter by tool category (search, document, corpus, notes, annotations, coordination)",
         ),
     ] = strawberry.UNSET,
-) -> Optional[
-    list[Annotated["AvailableToolType", strawberry.lazy("config.graphql.agent_types")]]
-]:
+) -> None | (
+    list[Annotated[AvailableToolType, strawberry.lazy("config.graphql.agent_types")]]
+):
     kwargs = strip_unset({"category": category})
     return _resolve_Query_available_tools(None, info, **kwargs)
 
@@ -575,7 +558,7 @@ def _resolve_Query_available_tool_categories(root, info, **kwargs):
     return [cat.value for cat in ToolCategory]
 
 
-def q_available_tool_categories(info: strawberry.Info) -> Optional[list[str]]:
+def q_available_tool_categories(info: strawberry.Info) -> list[str] | None:
     kwargs = strip_unset({})
     return _resolve_Query_available_tool_categories(None, info, **kwargs)
 
@@ -598,36 +581,32 @@ def _resolve_Query_notifications(root, info, **kwargs):
 def q_notifications(
     info: strawberry.Info,
     offset: Annotated[
-        Optional[int], strawberry.argument(name="offset")
+        int | None, strawberry.argument(name="offset")
     ] = strawberry.UNSET,
     before: Annotated[
-        Optional[str], strawberry.argument(name="before")
+        str | None, strawberry.argument(name="before")
     ] = strawberry.UNSET,
-    after: Annotated[
-        Optional[str], strawberry.argument(name="after")
-    ] = strawberry.UNSET,
-    first: Annotated[
-        Optional[int], strawberry.argument(name="first")
-    ] = strawberry.UNSET,
-    last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET,
+    after: Annotated[str | None, strawberry.argument(name="after")] = strawberry.UNSET,
+    first: Annotated[int | None, strawberry.argument(name="first")] = strawberry.UNSET,
+    last: Annotated[int | None, strawberry.argument(name="last")] = strawberry.UNSET,
     is_read: Annotated[
-        Optional[bool], strawberry.argument(name="isRead")
+        bool | None, strawberry.argument(name="isRead")
     ] = strawberry.UNSET,
     notification_type: Annotated[
-        Optional[enums.NotificationsNotificationNotificationTypeChoices],
+        enums.NotificationsNotificationNotificationTypeChoices | None,
         strawberry.argument(name="notificationType"),
     ] = strawberry.UNSET,
     created_at__lte: Annotated[
-        Optional[datetime.datetime], strawberry.argument(name="createdAt_Lte")
+        datetime.datetime | None, strawberry.argument(name="createdAt_Lte")
     ] = strawberry.UNSET,
     created_at__gte: Annotated[
-        Optional[datetime.datetime], strawberry.argument(name="createdAt_Gte")
+        datetime.datetime | None, strawberry.argument(name="createdAt_Gte")
     ] = strawberry.UNSET,
-) -> Optional[
+) -> None | (
     Annotated[
-        "NotificationTypeConnection", strawberry.lazy("config.graphql.social_types")
+        NotificationTypeConnection, strawberry.lazy("config.graphql.social_types")
     ]
-]:
+):
     kwargs = strip_unset(
         {
             "offset": offset,
@@ -671,9 +650,9 @@ def q_notification(
         strawberry.ID,
         strawberry.argument(name="id", description="The ID of the object"),
     ] = strawberry.UNSET,
-) -> Optional[
-    Annotated["NotificationType", strawberry.lazy("config.graphql.social_types")]
-]:
+) -> None | (
+    Annotated[NotificationType, strawberry.lazy("config.graphql.social_types")]
+):
     return get_node_from_global_id(info, id, only_type_name="NotificationType")
 
 
@@ -689,7 +668,7 @@ def _resolve_Query_unread_notification_count(root, info, **kwargs):
     return NotificationService.unread_count(info.context.user, request=info.context)
 
 
-def q_unread_notification_count(info: strawberry.Info) -> Optional[int]:
+def q_unread_notification_count(info: strawberry.Info) -> int | None:
     kwargs = strip_unset({})
     return _resolve_Query_unread_notification_count(None, info, **kwargs)
 
@@ -746,10 +725,10 @@ def q_corpus_leaderboard(
     corpus_id: Annotated[
         strawberry.ID, strawberry.argument(name="corpusId")
     ] = strawberry.UNSET,
-    limit: Annotated[Optional[int], strawberry.argument(name="limit")] = 10,
-) -> Optional[
-    list[Optional[Annotated["UserType", strawberry.lazy("config.graphql.user_types")]]]
-]:
+    limit: Annotated[int | None, strawberry.argument(name="limit")] = 10,
+) -> None | (
+    list[Annotated[UserType, strawberry.lazy("config.graphql.user_types")] | None]
+):
     kwargs = strip_unset({"corpus_id": corpus_id, "limit": limit})
     return _resolve_Query_corpus_leaderboard(None, info, **kwargs)
 
@@ -790,10 +769,10 @@ def _resolve_Query_global_leaderboard(root, info, limit=10):
 
 def q_global_leaderboard(
     info: strawberry.Info,
-    limit: Annotated[Optional[int], strawberry.argument(name="limit")] = 10,
-) -> Optional[
-    list[Optional[Annotated["UserType", strawberry.lazy("config.graphql.user_types")]]]
-]:
+    limit: Annotated[int | None, strawberry.argument(name="limit")] = 10,
+) -> None | (
+    list[Annotated[UserType, strawberry.lazy("config.graphql.user_types")] | None]
+):
     kwargs = strip_unset({"limit": limit})
     return _resolve_Query_global_leaderboard(None, info, **kwargs)
 
@@ -1046,15 +1025,15 @@ def q_leaderboard(
         enums.LeaderboardMetricEnum, strawberry.argument(name="metric")
     ] = strawberry.UNSET,
     scope: Annotated[
-        Optional[enums.LeaderboardScopeEnum], strawberry.argument(name="scope")
+        enums.LeaderboardScopeEnum | None, strawberry.argument(name="scope")
     ] = enums.LeaderboardScopeEnum.ALL_TIME,
     corpus_id: Annotated[
-        Optional[strawberry.ID], strawberry.argument(name="corpusId")
+        strawberry.ID | None, strawberry.argument(name="corpusId")
     ] = strawberry.UNSET,
-    limit: Annotated[Optional[int], strawberry.argument(name="limit")] = 25,
-) -> Optional[
-    Annotated["LeaderboardType", strawberry.lazy("config.graphql.social_types")]
-]:
+    limit: Annotated[int | None, strawberry.argument(name="limit")] = 25,
+) -> None | (
+    Annotated[LeaderboardType, strawberry.lazy("config.graphql.social_types")]
+):
     kwargs = strip_unset(
         {"metric": metric, "scope": scope, "corpus_id": corpus_id, "limit": limit}
     )
@@ -1276,11 +1255,11 @@ def _resolve_Query_community_stats(root, info, corpus_id=None):
 def q_community_stats(
     info: strawberry.Info,
     corpus_id: Annotated[
-        Optional[strawberry.ID], strawberry.argument(name="corpusId")
+        strawberry.ID | None, strawberry.argument(name="corpusId")
     ] = strawberry.UNSET,
-) -> Optional[
-    Annotated["CommunityStatsType", strawberry.lazy("config.graphql.social_types")]
-]:
+) -> None | (
+    Annotated[CommunityStatsType, strawberry.lazy("config.graphql.social_types")]
+):
     kwargs = strip_unset({"corpus_id": corpus_id})
     return _resolve_Query_community_stats(None, info, **kwargs)
 

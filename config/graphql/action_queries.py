@@ -72,27 +72,23 @@ def _resolve_Query_corpus_action_templates(root, info, **kwargs):
 def q_corpus_action_templates(
     info: strawberry.Info,
     is_active: Annotated[
-        Optional[bool], strawberry.argument(name="isActive")
+        bool | None, strawberry.argument(name="isActive")
     ] = strawberry.UNSET,
     offset: Annotated[
-        Optional[int], strawberry.argument(name="offset")
+        int | None, strawberry.argument(name="offset")
     ] = strawberry.UNSET,
     before: Annotated[
-        Optional[str], strawberry.argument(name="before")
+        str | None, strawberry.argument(name="before")
     ] = strawberry.UNSET,
-    after: Annotated[
-        Optional[str], strawberry.argument(name="after")
-    ] = strawberry.UNSET,
-    first: Annotated[
-        Optional[int], strawberry.argument(name="first")
-    ] = strawberry.UNSET,
-    last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET,
-) -> Optional[
+    after: Annotated[str | None, strawberry.argument(name="after")] = strawberry.UNSET,
+    first: Annotated[int | None, strawberry.argument(name="first")] = strawberry.UNSET,
+    last: Annotated[int | None, strawberry.argument(name="last")] = strawberry.UNSET,
+) -> None | (
     Annotated[
-        "CorpusActionTemplateTypeConnection",
+        CorpusActionTemplateTypeConnection,
         strawberry.lazy("config.graphql.agent_types"),
     ]
-]:
+):
     kwargs = strip_unset(
         {
             "is_active": is_active,
@@ -144,32 +140,26 @@ def _resolve_Query_corpus_actions(root, info, **kwargs):
 def q_corpus_actions(
     info: strawberry.Info,
     corpus_id: Annotated[
-        Optional[strawberry.ID], strawberry.argument(name="corpusId")
+        strawberry.ID | None, strawberry.argument(name="corpusId")
     ] = strawberry.UNSET,
     trigger: Annotated[
-        Optional[str], strawberry.argument(name="trigger")
+        str | None, strawberry.argument(name="trigger")
     ] = strawberry.UNSET,
     disabled: Annotated[
-        Optional[bool], strawberry.argument(name="disabled")
+        bool | None, strawberry.argument(name="disabled")
     ] = strawberry.UNSET,
     offset: Annotated[
-        Optional[int], strawberry.argument(name="offset")
+        int | None, strawberry.argument(name="offset")
     ] = strawberry.UNSET,
     before: Annotated[
-        Optional[str], strawberry.argument(name="before")
+        str | None, strawberry.argument(name="before")
     ] = strawberry.UNSET,
-    after: Annotated[
-        Optional[str], strawberry.argument(name="after")
-    ] = strawberry.UNSET,
-    first: Annotated[
-        Optional[int], strawberry.argument(name="first")
-    ] = strawberry.UNSET,
-    last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET,
-) -> Optional[
-    Annotated[
-        "CorpusActionTypeConnection", strawberry.lazy("config.graphql.agent_types")
-    ]
-]:
+    after: Annotated[str | None, strawberry.argument(name="after")] = strawberry.UNSET,
+    first: Annotated[int | None, strawberry.argument(name="first")] = strawberry.UNSET,
+    last: Annotated[int | None, strawberry.argument(name="last")] = strawberry.UNSET,
+) -> None | (
+    Annotated[CorpusActionTypeConnection, strawberry.lazy("config.graphql.agent_types")]
+):
     kwargs = strip_unset(
         {
             "corpus_id": corpus_id,
@@ -222,32 +212,28 @@ def _resolve_Query_agent_action_results(root, info, **kwargs):
 def q_agent_action_results(
     info: strawberry.Info,
     corpus_action_id: Annotated[
-        Optional[strawberry.ID], strawberry.argument(name="corpusActionId")
+        strawberry.ID | None, strawberry.argument(name="corpusActionId")
     ] = strawberry.UNSET,
     document_id: Annotated[
-        Optional[strawberry.ID], strawberry.argument(name="documentId")
+        strawberry.ID | None, strawberry.argument(name="documentId")
     ] = strawberry.UNSET,
     status: Annotated[
-        Optional[str], strawberry.argument(name="status")
+        str | None, strawberry.argument(name="status")
     ] = strawberry.UNSET,
     offset: Annotated[
-        Optional[int], strawberry.argument(name="offset")
+        int | None, strawberry.argument(name="offset")
     ] = strawberry.UNSET,
     before: Annotated[
-        Optional[str], strawberry.argument(name="before")
+        str | None, strawberry.argument(name="before")
     ] = strawberry.UNSET,
-    after: Annotated[
-        Optional[str], strawberry.argument(name="after")
-    ] = strawberry.UNSET,
-    first: Annotated[
-        Optional[int], strawberry.argument(name="first")
-    ] = strawberry.UNSET,
-    last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET,
-) -> Optional[
+    after: Annotated[str | None, strawberry.argument(name="after")] = strawberry.UNSET,
+    first: Annotated[int | None, strawberry.argument(name="first")] = strawberry.UNSET,
+    last: Annotated[int | None, strawberry.argument(name="last")] = strawberry.UNSET,
+) -> None | (
     Annotated[
-        "AgentActionResultTypeConnection", strawberry.lazy("config.graphql.agent_types")
+        AgentActionResultTypeConnection, strawberry.lazy("config.graphql.agent_types")
     ]
-]:
+):
     kwargs = strip_unset(
         {
             "corpus_action_id": corpus_action_id,
@@ -351,42 +337,38 @@ def _resolve_Query_corpus_action_executions(root, info, **kwargs):
 def q_corpus_action_executions(
     info: strawberry.Info,
     corpus_id: Annotated[
-        Optional[strawberry.ID], strawberry.argument(name="corpusId")
+        strawberry.ID | None, strawberry.argument(name="corpusId")
     ] = strawberry.UNSET,
     document_id: Annotated[
-        Optional[strawberry.ID], strawberry.argument(name="documentId")
+        strawberry.ID | None, strawberry.argument(name="documentId")
     ] = strawberry.UNSET,
     corpus_action_id: Annotated[
-        Optional[strawberry.ID], strawberry.argument(name="corpusActionId")
+        strawberry.ID | None, strawberry.argument(name="corpusActionId")
     ] = strawberry.UNSET,
     status: Annotated[
-        Optional[str], strawberry.argument(name="status")
+        str | None, strawberry.argument(name="status")
     ] = strawberry.UNSET,
     action_type: Annotated[
-        Optional[str], strawberry.argument(name="actionType")
+        str | None, strawberry.argument(name="actionType")
     ] = strawberry.UNSET,
     since: Annotated[
-        Optional[datetime.datetime], strawberry.argument(name="since")
+        datetime.datetime | None, strawberry.argument(name="since")
     ] = strawberry.UNSET,
     offset: Annotated[
-        Optional[int], strawberry.argument(name="offset")
+        int | None, strawberry.argument(name="offset")
     ] = strawberry.UNSET,
     before: Annotated[
-        Optional[str], strawberry.argument(name="before")
+        str | None, strawberry.argument(name="before")
     ] = strawberry.UNSET,
-    after: Annotated[
-        Optional[str], strawberry.argument(name="after")
-    ] = strawberry.UNSET,
-    first: Annotated[
-        Optional[int], strawberry.argument(name="first")
-    ] = strawberry.UNSET,
-    last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET,
-) -> Optional[
+    after: Annotated[str | None, strawberry.argument(name="after")] = strawberry.UNSET,
+    first: Annotated[int | None, strawberry.argument(name="first")] = strawberry.UNSET,
+    last: Annotated[int | None, strawberry.argument(name="last")] = strawberry.UNSET,
+) -> None | (
     Annotated[
-        "CorpusActionExecutionTypeConnection",
+        CorpusActionExecutionTypeConnection,
         strawberry.lazy("config.graphql.agent_types"),
     ]
-]:
+):
     kwargs = strip_unset(
         {
             "corpus_id": corpus_id,
@@ -491,13 +473,11 @@ def q_corpus_action_trail_stats(
         strawberry.ID, strawberry.argument(name="corpusId")
     ] = strawberry.UNSET,
     since: Annotated[
-        Optional[datetime.datetime], strawberry.argument(name="since")
+        datetime.datetime | None, strawberry.argument(name="since")
     ] = strawberry.UNSET,
-) -> Optional[
-    Annotated[
-        "CorpusActionTrailStatsType", strawberry.lazy("config.graphql.agent_types")
-    ]
-]:
+) -> None | (
+    Annotated[CorpusActionTrailStatsType, strawberry.lazy("config.graphql.agent_types")]
+):
     kwargs = strip_unset({"corpus_id": corpus_id, "since": since})
     return _resolve_Query_corpus_action_trail_stats(None, info, **kwargs)
 
@@ -548,13 +528,13 @@ def q_document_corpus_actions(
         strawberry.ID, strawberry.argument(name="documentId")
     ] = strawberry.UNSET,
     corpus_id: Annotated[
-        Optional[strawberry.ID], strawberry.argument(name="corpusId")
+        strawberry.ID | None, strawberry.argument(name="corpusId")
     ] = strawberry.UNSET,
-) -> Optional[
+) -> None | (
     Annotated[
-        "DocumentCorpusActionsType", strawberry.lazy("config.graphql.document_types")
+        DocumentCorpusActionsType, strawberry.lazy("config.graphql.document_types")
     ]
-]:
+):
     kwargs = strip_unset({"document_id": document_id, "corpus_id": corpus_id})
     return _resolve_Query_document_corpus_actions(None, info, **kwargs)
 

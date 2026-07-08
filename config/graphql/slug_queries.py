@@ -73,7 +73,7 @@ def q_corpus_by_slugs(
     corpus_slug: Annotated[
         str, strawberry.argument(name="corpusSlug")
     ] = strawberry.UNSET,
-) -> Optional[Annotated["CorpusType", strawberry.lazy("config.graphql.corpus_types")]]:
+) -> Annotated[CorpusType, strawberry.lazy("config.graphql.corpus_types")] | None:
     kwargs = strip_unset({"user_slug": user_slug, "corpus_slug": corpus_slug})
     return _resolve_Query_corpus_by_slugs(None, info, **kwargs)
 
@@ -103,9 +103,7 @@ def q_document_by_slugs(
     document_slug: Annotated[
         str, strawberry.argument(name="documentSlug")
     ] = strawberry.UNSET,
-) -> Optional[
-    Annotated["DocumentType", strawberry.lazy("config.graphql.document_types")]
-]:
+) -> None | (Annotated[DocumentType, strawberry.lazy("config.graphql.document_types")]):
     kwargs = strip_unset({"user_slug": user_slug, "document_slug": document_slug})
     return _resolve_Query_document_by_slugs(None, info, **kwargs)
 
@@ -208,15 +206,13 @@ def q_document_in_corpus_by_slugs(
         str, strawberry.argument(name="documentSlug")
     ] = strawberry.UNSET,
     version_number: Annotated[
-        Optional[int],
+        int | None,
         strawberry.argument(
             name="versionNumber",
             description="Optional version number to resolve a specific historical version. When omitted, returns the current (latest) version.",
         ),
     ] = strawberry.UNSET,
-) -> Optional[
-    Annotated["DocumentType", strawberry.lazy("config.graphql.document_types")]
-]:
+) -> None | (Annotated[DocumentType, strawberry.lazy("config.graphql.document_types")]):
     kwargs = strip_unset(
         {
             "user_slug": user_slug,

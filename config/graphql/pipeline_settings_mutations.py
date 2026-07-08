@@ -80,7 +80,7 @@ def _write_light_rate_gate(root, info, **kwargs):
     return None
 
 
-def validate_component_path(path: str) -> Optional[str]:
+def validate_component_path(path: str) -> str | None:
     """
     Validate a component class path.
 
@@ -99,7 +99,7 @@ def validate_component_path(path: str) -> Optional[str]:
     return None
 
 
-def validate_mime_type(mime_type: str) -> Optional[str]:
+def validate_mime_type(mime_type: str) -> str | None:
     """
     Validate a MIME type string.
 
@@ -120,7 +120,7 @@ def validate_mime_type(mime_type: str) -> Optional[str]:
 
 def validate_component_mapping(
     mapping: dict, registry, component_type: str, expected_type=None
-) -> Optional[str]:
+) -> str | None:
     """
     Validate a mapping of MIME types to component paths.
 
@@ -177,7 +177,7 @@ def validate_component_mapping(
     return None
 
 
-def validate_enricher_mapping(mapping: dict, registry) -> Optional[str]:
+def validate_enricher_mapping(mapping: dict, registry) -> str | None:
     """
     Validate a mapping of MIME types to ORDERED LISTS of enricher class paths.
 
@@ -239,7 +239,7 @@ def validate_enricher_mapping(mapping: dict, registry) -> Optional[str]:
     return None
 
 
-def validate_secrets_input(secrets: dict) -> Optional[str]:
+def validate_secrets_input(secrets: dict) -> str | None:
     """
     Validate secrets input structure and size.
 
@@ -304,7 +304,7 @@ def find_plaintext_secret_keys(
     )
 
 
-def validate_json_field_size(value: dict, field_name: str) -> Optional[str]:
+def validate_json_field_size(value: dict, field_name: str) -> str | None:
     """
     Validate that a JSON field does not exceed the maximum allowed size.
 
@@ -326,7 +326,7 @@ def validate_json_field_size(value: dict, field_name: str) -> Optional[str]:
     return None
 
 
-def merge_mapping_field(existing: Optional[dict], incoming: dict) -> dict:
+def merge_mapping_field(existing: dict | None, incoming: dict) -> dict:
     """
     Shallow-merge ``incoming`` over ``existing`` (top-level keys only).
 
@@ -362,13 +362,13 @@ def merge_mapping_field(existing: Optional[dict], incoming: dict) -> dict:
     description="Update the singleton pipeline settings.\n\nOnly superusers can modify these settings. Changes take effect immediately\nfor all new document processing tasks.\n\nArguments:\n    preferred_parsers: Dict mapping MIME types to parser class paths\n    preferred_embedders: Dict mapping MIME types to embedder class paths\n    preferred_thumbnailers: Dict mapping MIME types to thumbnailer class paths\n    preferred_enrichers: Dict mapping MIME types to ORDERED LISTS of enricher class paths\n    parser_kwargs: Dict mapping parser class paths to their configuration kwargs\n    component_settings: Dict mapping component class paths to settings overrides\n    default_embedder: Default embedder class path\n\nReturns:\n    ok: Whether the update succeeded\n    message: Status message\n    pipeline_settings: The updated settings",
 )
 class UpdatePipelineSettingsMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    pipeline_settings: Optional[
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    pipeline_settings: None | (
         Annotated[
-            "PipelineSettingsType", strawberry.lazy("config.graphql.pipeline_types")
+            PipelineSettingsType, strawberry.lazy("config.graphql.pipeline_types")
         ]
-    ] = strawberry.field(name="pipelineSettings", default=None)
+    ) = strawberry.field(name="pipelineSettings", default=None)
 
 
 register_type(
@@ -381,13 +381,13 @@ register_type(
     description="Reset pipeline settings to Django settings defaults.\n\nThis mutation resets all pipeline settings to their default values from\nDjango settings (PREFERRED_PARSERS, PREFERRED_EMBEDDERS, etc.).\n\nOnly superusers can perform this operation.",
 )
 class ResetPipelineSettingsMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    pipeline_settings: Optional[
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    pipeline_settings: None | (
         Annotated[
-            "PipelineSettingsType", strawberry.lazy("config.graphql.pipeline_types")
+            PipelineSettingsType, strawberry.lazy("config.graphql.pipeline_types")
         ]
-    ] = strawberry.field(name="pipelineSettings", default=None)
+    ) = strawberry.field(name="pipelineSettings", default=None)
 
 
 register_type(
@@ -400,9 +400,9 @@ register_type(
     description="Update encrypted secrets for a specific pipeline component.\n\nThis mutation allows superusers to securely store API keys, tokens, and\nother credentials for pipeline components. The secrets are encrypted at\nrest using Fernet symmetric encryption.\n\nOnly superusers can perform this operation.\n\nArguments:\n    component_path: Full class path of the component (e.g.,\n        'opencontractserver.pipeline.parsers.llamaparse_parser.LlamaParseParser')\n    secrets: Dict of secret key-value pairs to store (e.g., {'api_key': '...'})\n    merge: If True, merge with existing secrets. If False, replace all secrets\n        for this component. Default: True\n\nReturns:\n    ok: Whether the update succeeded\n    message: Status message\n    components_with_secrets: List of component paths that have secrets stored",
 )
 class UpdateComponentSecretsMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    components_with_secrets: Optional[list[Optional[str]]] = strawberry.field(
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    components_with_secrets: list[str | None] | None = strawberry.field(
         name="componentsWithSecrets",
         description="List of component paths that have secrets stored.",
         default=None,
@@ -419,9 +419,9 @@ register_type(
     description="Delete all encrypted secrets for a specific pipeline component.\n\nOnly superusers can perform this operation.\n\nArguments:\n    component_path: Full class path of the component\n\nReturns:\n    ok: Whether the deletion succeeded\n    message: Status message\n    components_with_secrets: Updated list of component paths that have secrets",
 )
 class DeleteComponentSecretsMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    components_with_secrets: Optional[list[Optional[str]]] = strawberry.field(
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    components_with_secrets: list[str | None] | None = strawberry.field(
         name="componentsWithSecrets", default=None
     )
 
@@ -436,9 +436,9 @@ register_type(
     description='Update encrypted secrets for an agent tool (e.g. web search API keys).\n\nTool secrets are stored in PipelineSettings alongside component secrets,\nunder a ``tool:`` namespace prefix. Only superusers can perform this.\n\nArguments:\n    tool_key: Tool identifier, e.g. ``"tool:web_search"``\n    secrets: Dict of secret key-value pairs, e.g. ``{"api_key": "..."}``\n    settings: Optional non-sensitive settings, e.g. ``{"provider": "brave"}``\n    merge: If True (default), merge with existing; if False, replace.',
 )
 class UpdateToolSecretsMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    tools_with_secrets: Optional[list[Optional[str]]] = strawberry.field(
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    tools_with_secrets: list[str | None] | None = strawberry.field(
         name="toolsWithSecrets",
         description="Tool keys that have secrets stored.",
         default=None,
@@ -453,9 +453,9 @@ register_type("UpdateToolSecretsMutation", UpdateToolSecretsMutation, model=None
     description="Delete all settings and secrets for an agent tool.\n\nOnly superusers can perform this operation.",
 )
 class DeleteToolSecretsMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    tools_with_secrets: Optional[list[Optional[str]]] = strawberry.field(
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    tools_with_secrets: list[str | None] | None = strawberry.field(
         name="toolsWithSecrets", default=None
     )
 
@@ -862,7 +862,7 @@ def _mutate_UpdatePipelineSettingsMutation(
         # without also re-sending enabled_components skipped the check
         # entirely, even though a prior save had already set a non-empty
         # enabled_components list.
-        def _find_disabled_but_assigned() -> Optional[str]:
+        def _find_disabled_but_assigned() -> str | None:
             """Return a comma-joined list of assigned-but-disabled
             component paths, or None if everything assigned is enabled
             (including the "empty enabled_components = all enabled"
@@ -1020,83 +1020,83 @@ def _mutate_UpdatePipelineSettingsMutation(
 def m_update_pipeline_settings(
     info: strawberry.Info,
     component_settings: Annotated[
-        Optional[GenericScalar],
+        GenericScalar | None,
         strawberry.argument(
             name="componentSettings",
             description="Mapping of component class paths to settings overrides.",
         ),
     ] = strawberry.UNSET,
     default_embedder: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="defaultEmbedder",
             description="Default embedder class path used for all ingest embedding. There is no MIME-specific override; see preferred_embedders.",
         ),
     ] = strawberry.UNSET,
     default_file_converter: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="defaultFileConverter",
             description="File converter class path used to convert non-native upload formats to PDF before parsing. Empty string disables the conversion step.",
         ),
     ] = strawberry.UNSET,
     default_llm: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="defaultLlm",
             description="Install-wide default LLM model spec (pydantic-ai '{provider}:{model}' form, e.g. 'anthropic:claude-opus-4-6') for agents when no per-corpus or per-agent override is set. Empty string falls back to the Django settings default. The provider prefix must be a registered LLM provider.",
         ),
     ] = strawberry.UNSET,
     default_reranker: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="defaultReranker",
             description="Default post-retrieval reranker class path. Empty string disables reranking (first-stage vector / hybrid search only).",
         ),
     ] = strawberry.UNSET,
     enabled_components: Annotated[
-        Optional[list[Optional[str]]],
+        list[str | None] | None,
         strawberry.argument(
             name="enabledComponents",
             description="List of enabled component class paths. Components assigned as filetype defaults must be included.",
         ),
     ] = strawberry.UNSET,
     parser_kwargs: Annotated[
-        Optional[GenericScalar],
+        GenericScalar | None,
         strawberry.argument(
             name="parserKwargs",
             description="Mapping of parser class paths to their configuration kwargs. Example: {'DoclingParser': {'force_ocr': true}}",
         ),
     ] = strawberry.UNSET,
     preferred_embedders: Annotated[
-        Optional[GenericScalar],
+        GenericScalar | None,
         strawberry.argument(
             name="preferredEmbedders",
             description="Mapping of MIME types to preferred embedder class paths. API-only (issue #2114): has no effect at ingest, which always resolves the single global default_embedder to keep the cross-corpus vector index on one embedding space.",
         ),
     ] = strawberry.UNSET,
     preferred_enrichers: Annotated[
-        Optional[GenericScalar],
+        GenericScalar | None,
         strawberry.argument(
             name="preferredEnrichers",
             description="Mapping of MIME types to ordered lists of preferred enricher class paths.",
         ),
     ] = strawberry.UNSET,
     preferred_parsers: Annotated[
-        Optional[GenericScalar],
+        GenericScalar | None,
         strawberry.argument(
             name="preferredParsers",
             description="Mapping of MIME types to preferred parser class paths. Example: {'application/pdf': 'opencontractserver.pipeline.parsers.docling_parser_rest.DoclingParser'}",
         ),
     ] = strawberry.UNSET,
     preferred_thumbnailers: Annotated[
-        Optional[GenericScalar],
+        GenericScalar | None,
         strawberry.argument(
             name="preferredThumbnailers",
             description="Mapping of MIME types to preferred thumbnailer class paths.",
         ),
     ] = strawberry.UNSET,
-) -> Optional["UpdatePipelineSettingsMutation"]:
+) -> UpdatePipelineSettingsMutation | None:
     kwargs = strip_unset(
         {
             "component_settings": component_settings,
@@ -1222,7 +1222,7 @@ def _mutate_ResetPipelineSettingsMutation(payload_cls, root, info):
 
 def m_reset_pipeline_settings(
     info: strawberry.Info,
-) -> Optional["ResetPipelineSettingsMutation"]:
+) -> ResetPipelineSettingsMutation | None:
     kwargs = strip_unset({})
     return _mutate_ResetPipelineSettingsMutation(
         ResetPipelineSettingsMutation, None, info, **kwargs
@@ -1326,7 +1326,7 @@ def m_update_component_secrets(
         ),
     ] = strawberry.UNSET,
     merge: Annotated[
-        Optional[bool],
+        bool | None,
         strawberry.argument(
             name="merge",
             description="If True, merge with existing secrets. If False, replace all secrets for this component.",
@@ -1339,7 +1339,7 @@ def m_update_component_secrets(
             description="Dict of secret key-value pairs to store. Example: {'api_key': 'sk-...', 'secret_token': '...'}",
         ),
     ] = strawberry.UNSET,
-) -> Optional["UpdateComponentSecretsMutation"]:
+) -> UpdateComponentSecretsMutation | None:
     kwargs = strip_unset(
         {"component_path": component_path, "merge": merge, "secrets": secrets}
     )
@@ -1412,7 +1412,7 @@ def m_delete_component_secrets(
             name="componentPath", description="Full class path of the component."
         ),
     ] = strawberry.UNSET,
-) -> Optional["DeleteComponentSecretsMutation"]:
+) -> DeleteComponentSecretsMutation | None:
     kwargs = strip_unset({"component_path": component_path})
     return _mutate_DeleteComponentSecretsMutation(
         DeleteComponentSecretsMutation, None, info, **kwargs
@@ -1555,20 +1555,20 @@ def _mutate_UpdateToolSecretsMutation(
 def m_update_tool_secrets(
     info: strawberry.Info,
     merge: Annotated[
-        Optional[bool],
+        bool | None,
         strawberry.argument(
             name="merge", description="If True, merge with existing. If False, replace."
         ),
     ] = True,
     secrets: Annotated[
-        Optional[GenericScalar],
+        GenericScalar | None,
         strawberry.argument(
             name="secrets",
             description="Dict of secret values to encrypt (e.g. api_key).",
         ),
     ] = None,
     settings: Annotated[
-        Optional[GenericScalar],
+        GenericScalar | None,
         strawberry.argument(
             name="settings",
             description="Dict of non-sensitive settings (e.g. provider).",
@@ -1580,7 +1580,7 @@ def m_update_tool_secrets(
             name="toolKey", description='Tool identifier, e.g. "tool:web_search".'
         ),
     ] = strawberry.UNSET,
-) -> Optional["UpdateToolSecretsMutation"]:
+) -> UpdateToolSecretsMutation | None:
     kwargs = strip_unset(
         {"merge": merge, "secrets": secrets, "settings": settings, "tool_key": tool_key}
     )
@@ -1652,7 +1652,7 @@ def m_delete_tool_secrets(
             name="toolKey", description='Tool identifier, e.g. "tool:web_search".'
         ),
     ] = strawberry.UNSET,
-) -> Optional["DeleteToolSecretsMutation"]:
+) -> DeleteToolSecretsMutation | None:
     kwargs = strip_unset({"tool_key": tool_key})
     return _mutate_DeleteToolSecretsMutation(
         DeleteToolSecretsMutation, None, info, **kwargs

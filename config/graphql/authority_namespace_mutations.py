@@ -61,13 +61,13 @@ def _partial(**kwargs):
     description="Create a manual AuthorityNamespace (superuser-only).",
 )
 class CreateAuthorityNamespaceMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
         Annotated[
-            "AuthorityNamespaceNode", strawberry.lazy("config.graphql.annotation_types")
+            AuthorityNamespaceNode, strawberry.lazy("config.graphql.annotation_types")
         ]
-    ] = strawberry.field(name="obj", default=None)
+    ) = strawberry.field(name="obj", default=None)
 
 
 register_type(
@@ -80,13 +80,13 @@ register_type(
     description="Edit an AuthorityNamespace (superuser-only; stamps source='manual').",
 )
 class UpdateAuthorityNamespaceMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
         Annotated[
-            "AuthorityNamespaceNode", strawberry.lazy("config.graphql.annotation_types")
+            AuthorityNamespaceNode, strawberry.lazy("config.graphql.annotation_types")
         ]
-    ] = strawberry.field(name="obj", default=None)
+    ) = strawberry.field(name="obj", default=None)
 
 
 register_type(
@@ -99,13 +99,13 @@ register_type(
     description="Replace a namespace's alias set (superuser-only).",
 )
 class SetAuthorityNamespaceAliasesMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
         Annotated[
-            "AuthorityNamespaceNode", strawberry.lazy("config.graphql.annotation_types")
+            AuthorityNamespaceNode, strawberry.lazy("config.graphql.annotation_types")
         ]
-    ] = strawberry.field(name="obj", default=None)
+    ) = strawberry.field(name="obj", default=None)
 
 
 register_type(
@@ -120,8 +120,8 @@ register_type(
     description="Delete an AuthorityNamespace (superuser-only; guarded against orphaning).",
 )
 class DeleteAuthorityNamespaceMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
 
 
 register_type(
@@ -183,23 +183,23 @@ def _mutate_CreateAuthorityNamespaceMutation(
 def m_create_authority_namespace(
     info: strawberry.Info,
     aliases: Annotated[
-        Optional[list[Optional[str]]], strawberry.argument(name="aliases")
+        list[str | None] | None, strawberry.argument(name="aliases")
     ] = strawberry.UNSET,
     authority_corpus_id: Annotated[
-        Optional[strawberry.ID], strawberry.argument(name="authorityCorpusId")
+        strawberry.ID | None, strawberry.argument(name="authorityCorpusId")
     ] = strawberry.UNSET,
     authority_type: Annotated[
-        Optional[str], strawberry.argument(name="authorityType")
+        str | None, strawberry.argument(name="authorityType")
     ] = strawberry.UNSET,
     display_name: Annotated[
         str, strawberry.argument(name="displayName")
     ] = strawberry.UNSET,
-    is_global: Annotated[Optional[bool], strawberry.argument(name="isGlobal")] = True,
+    is_global: Annotated[bool | None, strawberry.argument(name="isGlobal")] = True,
     jurisdiction: Annotated[
-        Optional[str], strawberry.argument(name="jurisdiction")
+        str | None, strawberry.argument(name="jurisdiction")
     ] = strawberry.UNSET,
     license: Annotated[
-        Optional[str], strawberry.argument(name="license")
+        str | None, strawberry.argument(name="license")
     ] = strawberry.UNSET,
     prefix: Annotated[
         str,
@@ -208,12 +208,12 @@ def m_create_authority_namespace(
         ),
     ] = strawberry.UNSET,
     provider: Annotated[
-        Optional[str], strawberry.argument(name="provider")
+        str | None, strawberry.argument(name="provider")
     ] = strawberry.UNSET,
     source_root_url: Annotated[
-        Optional[str], strawberry.argument(name="sourceRootUrl")
+        str | None, strawberry.argument(name="sourceRootUrl")
     ] = strawberry.UNSET,
-) -> Optional["CreateAuthorityNamespaceMutation"]:
+) -> CreateAuthorityNamespaceMutation | None:
     kwargs = strip_unset(
         {
             "aliases": aliases,
@@ -288,34 +288,34 @@ def _mutate_UpdateAuthorityNamespaceMutation(
 def m_update_authority_namespace(
     info: strawberry.Info,
     aliases: Annotated[
-        Optional[list[Optional[str]]], strawberry.argument(name="aliases")
+        list[str | None] | None, strawberry.argument(name="aliases")
     ] = strawberry.UNSET,
     authority_corpus_id: Annotated[
-        Optional[strawberry.ID], strawberry.argument(name="authorityCorpusId")
+        strawberry.ID | None, strawberry.argument(name="authorityCorpusId")
     ] = strawberry.UNSET,
     authority_type: Annotated[
-        Optional[str], strawberry.argument(name="authorityType")
+        str | None, strawberry.argument(name="authorityType")
     ] = strawberry.UNSET,
     display_name: Annotated[
-        Optional[str], strawberry.argument(name="displayName")
+        str | None, strawberry.argument(name="displayName")
     ] = strawberry.UNSET,
     id: Annotated[strawberry.ID, strawberry.argument(name="id")] = strawberry.UNSET,
     is_global: Annotated[
-        Optional[bool], strawberry.argument(name="isGlobal")
+        bool | None, strawberry.argument(name="isGlobal")
     ] = strawberry.UNSET,
     jurisdiction: Annotated[
-        Optional[str], strawberry.argument(name="jurisdiction")
+        str | None, strawberry.argument(name="jurisdiction")
     ] = strawberry.UNSET,
     license: Annotated[
-        Optional[str], strawberry.argument(name="license")
+        str | None, strawberry.argument(name="license")
     ] = strawberry.UNSET,
     provider: Annotated[
-        Optional[str], strawberry.argument(name="provider")
+        str | None, strawberry.argument(name="provider")
     ] = strawberry.UNSET,
     source_root_url: Annotated[
-        Optional[str], strawberry.argument(name="sourceRootUrl")
+        str | None, strawberry.argument(name="sourceRootUrl")
     ] = strawberry.UNSET,
-) -> Optional["UpdateAuthorityNamespaceMutation"]:
+) -> UpdateAuthorityNamespaceMutation | None:
     kwargs = strip_unset(
         {
             "aliases": aliases,
@@ -357,14 +357,14 @@ def _mutate_SetAuthorityNamespaceAliasesMutation(payload_cls, root, info, id, al
 def m_set_authority_namespace_aliases(
     info: strawberry.Info,
     aliases: Annotated[
-        list[Optional[str]],
+        list[str | None],
         strawberry.argument(
             name="aliases",
             description="Full replacement alias list (lowercased + de-duped).",
         ),
     ] = strawberry.UNSET,
     id: Annotated[strawberry.ID, strawberry.argument(name="id")] = strawberry.UNSET,
-) -> Optional["SetAuthorityNamespaceAliasesMutation"]:
+) -> SetAuthorityNamespaceAliasesMutation | None:
     kwargs = strip_unset({"aliases": aliases, "id": id})
     return _mutate_SetAuthorityNamespaceAliasesMutation(
         SetAuthorityNamespaceAliasesMutation, None, info, **kwargs
@@ -389,7 +389,7 @@ def _mutate_DeleteAuthorityNamespaceMutation(payload_cls, root, info, id):
 def m_delete_authority_namespace(
     info: strawberry.Info,
     id: Annotated[strawberry.ID, strawberry.argument(name="id")] = strawberry.UNSET,
-) -> Optional["DeleteAuthorityNamespaceMutation"]:
+) -> DeleteAuthorityNamespaceMutation | None:
     kwargs = strip_unset({"id": id})
     return _mutate_DeleteAuthorityNamespaceMutation(
         DeleteAuthorityNamespaceMutation, None, info, **kwargs

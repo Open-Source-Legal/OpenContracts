@@ -54,33 +54,34 @@ logger = logging.getLogger(__name__)
     description="Smart mutation that handles label search and creation with automatic labelset management.\n\nThis mutation encapsulates the following logic:\n1. If no labelset exists for the corpus and createIfNotFound is true:\n   - Creates a new labelset\n   - Assigns it to the corpus\n   - Creates the label in the new labelset\n\n2. If labelset exists:\n   - Searches for existing labels matching the search term\n   - If matches found: returns the matching labels\n   - If no matches and createIfNotFound is true: creates the label\n   - If no matches and createIfNotFound is false: returns empty list",
 )
 class SmartLabelSearchOrCreateMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    labels: Optional[
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    labels: None | (
         list[
-            Optional[
+            None
+            | (
                 Annotated[
-                    "AnnotationLabelType",
+                    AnnotationLabelType,
                     strawberry.lazy("config.graphql.annotation_types"),
                 ]
-            ]
+            )
         ]
-    ] = strawberry.field(
+    ) = strawberry.field(
         name="labels", description="List of matching or created labels", default=None
     )
-    labelset: Optional[
-        Annotated["LabelSetType", strawberry.lazy("config.graphql.annotation_types")]
-    ] = strawberry.field(
+    labelset: None | (
+        Annotated[LabelSetType, strawberry.lazy("config.graphql.annotation_types")]
+    ) = strawberry.field(
         name="labelset",
         description="The labelset (existing or newly created)",
         default=None,
     )
-    labelset_created: Optional[bool] = strawberry.field(
+    labelset_created: bool | None = strawberry.field(
         name="labelsetCreated",
         description="Whether a new labelset was created",
         default=None,
     )
-    label_created: Optional[bool] = strawberry.field(
+    label_created: bool | None = strawberry.field(
         name="labelCreated", description="Whether a new label was created", default=None
     )
 
@@ -95,20 +96,21 @@ register_type(
     description="Simplified mutation to get all available labels for a corpus with helpful status info.",
 )
 class SmartLabelListMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    labels: Optional[
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    labels: None | (
         list[
-            Optional[
+            None
+            | (
                 Annotated[
-                    "AnnotationLabelType",
+                    AnnotationLabelType,
                     strawberry.lazy("config.graphql.annotation_types"),
                 ]
-            ]
+            )
         ]
-    ] = strawberry.field(name="labels", default=None)
-    has_labelset: Optional[bool] = strawberry.field(name="hasLabelset", default=None)
-    can_create_labels: Optional[bool] = strawberry.field(
+    ) = strawberry.field(name="labels", default=None)
+    has_labelset: bool | None = strawberry.field(name="hasLabelset", default=None)
+    can_create_labels: bool | None = strawberry.field(
         name="canCreateLabels", default=None
     )
 
@@ -128,7 +130,7 @@ def _mutate_SmartLabelSearchOrCreateMutation(
     description: str = "",
     icon: str = "tag",
     create_if_not_found: bool = False,
-    labelset_title: Optional[str] = None,
+    labelset_title: str | None = None,
     labelset_description: str = "",
 ):
     """PORT: /home/user/oc-graphene-ref/config/graphql/smart_label_mutations.py:94
@@ -289,7 +291,7 @@ def _mutate_SmartLabelSearchOrCreateMutation(
 def m_smart_label_search_or_create(
     info: strawberry.Info,
     color: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="color", description="Color for new label (if created)"
         ),
@@ -301,20 +303,20 @@ def m_smart_label_search_or_create(
         ),
     ] = strawberry.UNSET,
     create_if_not_found: Annotated[
-        Optional[bool],
+        bool | None,
         strawberry.argument(
             name="createIfNotFound",
             description="Whether to create label/labelset if not found",
         ),
     ] = False,
     description: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="description", description="Description for new label (if created)"
         ),
     ] = "",
     icon: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(name="icon", description="Icon for new label (if created)"),
     ] = "tag",
     label_type: Annotated[
@@ -325,14 +327,14 @@ def m_smart_label_search_or_create(
         ),
     ] = strawberry.UNSET,
     labelset_description: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="labelsetDescription",
             description="Description for new labelset (if created)",
         ),
     ] = "",
     labelset_title: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="labelsetTitle",
             description="Title for new labelset (if created). Defaults to corpus title + ' Labels'",
@@ -344,7 +346,7 @@ def m_smart_label_search_or_create(
             name="searchTerm", description="The label text to search for or create"
         ),
     ] = strawberry.UNSET,
-) -> Optional["SmartLabelSearchOrCreateMutation"]:
+) -> SmartLabelSearchOrCreateMutation | None:
     kwargs = strip_unset(
         {
             "color": color,
@@ -364,7 +366,7 @@ def m_smart_label_search_or_create(
 
 
 def _mutate_SmartLabelListMutation(
-    payload_cls, root, info, corpus_id: str, label_type: Optional[str] = None
+    payload_cls, root, info, corpus_id: str, label_type: str | None = None
 ):
     """PORT: /home/user/oc-graphene-ref/config/graphql/smart_label_mutations.py:270
 
@@ -441,12 +443,12 @@ def m_smart_label_list(
         str, strawberry.argument(name="corpusId", description="ID of the corpus")
     ] = strawberry.UNSET,
     label_type: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="labelType", description="Optional filter by label type"
         ),
     ] = strawberry.UNSET,
-) -> Optional["SmartLabelListMutation"]:
+) -> SmartLabelListMutation | None:
     kwargs = strip_unset({"corpus_id": corpus_id, "label_type": label_type})
     return _mutate_SmartLabelListMutation(SmartLabelListMutation, None, info, **kwargs)
 

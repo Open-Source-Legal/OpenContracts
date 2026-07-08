@@ -49,11 +49,11 @@ logger = logging.getLogger(__name__)
 
 @strawberry.type(name="StartDocumentAnalysisMutation")
 class StartDocumentAnalysisMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[
-        Annotated["AnalysisType", strawberry.lazy("config.graphql.extract_types")]
-    ] = strawberry.field(name="obj", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
+        Annotated[AnalysisType, strawberry.lazy("config.graphql.extract_types")]
+    ) = strawberry.field(name="obj", default=None)
 
 
 register_type(
@@ -63,8 +63,8 @@ register_type(
 
 @strawberry.type(name="DeleteAnalysisMutation")
 class DeleteAnalysisMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
 
 
 register_type("DeleteAnalysisMutation", DeleteAnalysisMutation, model=None)
@@ -72,11 +72,11 @@ register_type("DeleteAnalysisMutation", DeleteAnalysisMutation, model=None)
 
 @strawberry.type(name="MakeAnalysisPublic")
 class MakeAnalysisPublic:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[
-        Annotated["AnalysisType", strawberry.lazy("config.graphql.extract_types")]
-    ] = strawberry.field(name="obj", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
+        Annotated[AnalysisType, strawberry.lazy("config.graphql.extract_types")]
+    ) = strawberry.field(name="obj", default=None)
 
 
 register_type("MakeAnalysisPublic", MakeAnalysisPublic, model=None)
@@ -148,7 +148,7 @@ def _mutate_StartDocumentAnalysisMutation(
 def m_start_analysis_on_doc(
     info: strawberry.Info,
     analysis_input_data: Annotated[
-        Optional[GenericScalar],
+        GenericScalar | None,
         strawberry.argument(
             name="analysisInputData",
             description="Optional arguments to be passed to the analyzer.",
@@ -161,19 +161,19 @@ def m_start_analysis_on_doc(
         ),
     ] = strawberry.UNSET,
     corpus_id: Annotated[
-        Optional[strawberry.ID],
+        strawberry.ID | None,
         strawberry.argument(
             name="corpusId",
             description="Optional Id of the corpus to associate with the analysis.",
         ),
     ] = strawberry.UNSET,
     document_id: Annotated[
-        Optional[strawberry.ID],
+        strawberry.ID | None,
         strawberry.argument(
             name="documentId", description="Id of the document to be analyzed."
         ),
     ] = strawberry.UNSET,
-) -> Optional["StartDocumentAnalysisMutation"]:
+) -> StartDocumentAnalysisMutation | None:
     kwargs = strip_unset(
         {
             "analysis_input_data": analysis_input_data,
@@ -217,7 +217,7 @@ def _mutate_DeleteAnalysisMutation(payload_cls, root, info, id):
 def m_delete_analysis(
     info: strawberry.Info,
     id: Annotated[str, strawberry.argument(name="id")] = strawberry.UNSET,
-) -> Optional["DeleteAnalysisMutation"]:
+) -> DeleteAnalysisMutation | None:
     kwargs = strip_unset({"id": id})
     return _mutate_DeleteAnalysisMutation(DeleteAnalysisMutation, None, info, **kwargs)
 
@@ -267,7 +267,7 @@ def m_make_analysis_public(
             name="analysisId", description="Analysis id to make public (superuser only)"
         ),
     ] = strawberry.UNSET,
-) -> Optional["MakeAnalysisPublic"]:
+) -> MakeAnalysisPublic | None:
     kwargs = strip_unset({"analysis_id": analysis_id})
     return _mutate_MakeAnalysisPublic(MakeAnalysisPublic, None, info, **kwargs)
 

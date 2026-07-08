@@ -100,10 +100,8 @@ def _mutate_Verify(payload_cls, root, info, token=None):
 
 def m_verify_token(
     info: strawberry.Info,
-    token: Annotated[
-        Optional[str], strawberry.argument(name="token")
-    ] = strawberry.UNSET,
-) -> Optional["Verify"]:
+    token: Annotated[str | None, strawberry.argument(name="token")] = strawberry.UNSET,
+) -> Verify | None:
     kwargs = strip_unset({"token": token})
     return _mutate_Verify(Verify, None, info, **kwargs)
 
@@ -157,9 +155,9 @@ def _mutate_Refresh(payload_cls, root, info, refresh_token=None):
 def m_refresh_token(
     info: strawberry.Info,
     refresh_token: Annotated[
-        Optional[str], strawberry.argument(name="refreshToken")
+        str | None, strawberry.argument(name="refreshToken")
     ] = strawberry.UNSET,
-) -> Optional["Refresh"]:
+) -> Refresh | None:
     kwargs = strip_unset({"refresh_token": refresh_token})
     return _mutate_Refresh(Refresh, None, info, **kwargs)
 

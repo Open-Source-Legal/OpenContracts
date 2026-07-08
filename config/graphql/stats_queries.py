@@ -44,25 +44,25 @@ from opencontractserver.users.models import SystemStats
     description="Install-wide aggregate metrics, materialised periodically.\n\nFields mirror :class:`opencontractserver.users.models.SystemStats`. All\ncounts are global, not permission-scoped.",
 )
 class SystemStatsType:
-    user_count: Optional[int] = strawberry.field(
+    user_count: int | None = strawberry.field(
         name="userCount", description="Active users.", default=None
     )
-    document_count: Optional[int] = strawberry.field(
+    document_count: int | None = strawberry.field(
         name="documentCount", description="Documents with an active path.", default=None
     )
-    corpus_count: Optional[int] = strawberry.field(
+    corpus_count: int | None = strawberry.field(
         name="corpusCount", description="Corpuses.", default=None
     )
-    annotation_count: Optional[int] = strawberry.field(
+    annotation_count: int | None = strawberry.field(
         name="annotationCount", description="Non-structural annotations.", default=None
     )
-    conversation_count: Optional[int] = strawberry.field(
+    conversation_count: int | None = strawberry.field(
         name="conversationCount", description="Non-deleted conversations.", default=None
     )
-    message_count: Optional[int] = strawberry.field(
+    message_count: int | None = strawberry.field(
         name="messageCount", description="Non-deleted chat messages.", default=None
     )
-    computed_at: Optional[datetime.datetime] = strawberry.field(
+    computed_at: datetime.datetime | None = strawberry.field(
         name="computedAt",
         description="When the snapshot was last recomputed; null until first run.",
         default=None,
@@ -82,7 +82,7 @@ def _resolve_Query_system_stats(root, info, **kwargs):
     return SystemStats.get()
 
 
-def q_system_stats(info: strawberry.Info) -> Optional["SystemStatsType"]:
+def q_system_stats(info: strawberry.Info) -> SystemStatsType | None:
     kwargs = strip_unset({})
     return _resolve_Query_system_stats(None, info, **kwargs)
 

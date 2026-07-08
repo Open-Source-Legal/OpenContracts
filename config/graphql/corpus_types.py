@@ -353,7 +353,7 @@ def _resolve_CorpusType_annotation_count(root, info):
 
 @strawberry.type(name="CorpusType")
 class CorpusType(Node):
-    parent: Optional["CorpusType"] = strawberry.field(name="parent", default=None)
+    parent: CorpusType | None = strawberry.field(name="parent", default=None)
 
     @strawberry.field(name="title")
     def title(self, info: strawberry.Info) -> str:
@@ -376,9 +376,9 @@ class CorpusType(Node):
     )
     def readme_caml_document(
         self, info: strawberry.Info
-    ) -> Optional[
-        Annotated["DocumentType", strawberry.lazy("config.graphql.document_types")]
-    ]:
+    ) -> None | (
+        Annotated[DocumentType, strawberry.lazy("config.graphql.document_types")]
+    ):
         kwargs = strip_unset({})
         return _resolve_CorpusType_readme_caml_document(self, info, **kwargs)
 
@@ -386,11 +386,11 @@ class CorpusType(Node):
         name="slug",
         description="Case-sensitive slug unique per creator. Allowed: A-Z, a-z, 0-9, hyphen (-).",
     )
-    def slug(self, info: strawberry.Info) -> Optional[str]:
+    def slug(self, info: strawberry.Info) -> str | None:
         return coerce_str(getattr(self, "slug", None))
 
     @strawberry.field(name="icon")
-    def icon(self, info: strawberry.Info) -> Optional[str]:
+    def icon(self, info: strawberry.Info) -> str | None:
         kwargs = strip_unset({})
         return _resolve_CorpusType_icon(self, info, **kwargs)
 
@@ -403,16 +403,16 @@ class CorpusType(Node):
     @strawberry.field(name="categories")
     def categories(
         self, info: strawberry.Info
-    ) -> Optional[list[Optional["CorpusCategoryType"]]]:
+    ) -> list[CorpusCategoryType | None] | None:
         kwargs = strip_unset({})
         return _resolve_CorpusType_categories(self, info, **kwargs)
 
     @strawberry.field(name="labelSet")
     def label_set(
         self, info: strawberry.Info
-    ) -> Optional[
-        Annotated["LabelSetType", strawberry.lazy("config.graphql.annotation_types")]
-    ]:
+    ) -> None | (
+        Annotated[LabelSetType, strawberry.lazy("config.graphql.annotation_types")]
+    ):
         kwargs = strip_unset({})
         return _resolve_CorpusType_label_set(self, info, **kwargs)
 
@@ -426,42 +426,42 @@ class CorpusType(Node):
         name="preferredEmbedder",
         description="Fully qualified Python path to the embedder class to use for this corpus. Auto-populated from DEFAULT_EMBEDDER at creation if not set. Immutable after documents are added (use re-embed to change).",
     )
-    def preferred_embedder(self, info: strawberry.Info) -> Optional[str]:
+    def preferred_embedder(self, info: strawberry.Info) -> str | None:
         return coerce_str(getattr(self, "preferred_embedder", None))
 
     @strawberry.field(
         name="createdWithEmbedder",
         description="The embedder that was active when this corpus was created. Set automatically and never changes (audit trail).",
     )
-    def created_with_embedder(self, info: strawberry.Info) -> Optional[str]:
+    def created_with_embedder(self, info: strawberry.Info) -> str | None:
         return coerce_str(getattr(self, "created_with_embedder", None))
 
     @strawberry.field(
         name="preferredLlm",
         description="Preferred pydantic-ai model spec for agents in this corpus (e.g. 'anthropic:claude-opus-4-6'). Overridable per-agent via AgentConfiguration.preferred_llm. Falls back to settings.DEFAULT_LLM / settings.OPENAI_MODEL when unset.",
     )
-    def preferred_llm(self, info: strawberry.Info) -> Optional[str]:
+    def preferred_llm(self, info: strawberry.Info) -> str | None:
         return coerce_str(getattr(self, "preferred_llm", None))
 
     @strawberry.field(
         name="createdWithLlm",
         description="The LLM model spec that was active when this corpus was created. Set automatically and never changes (audit trail).",
     )
-    def created_with_llm(self, info: strawberry.Info) -> Optional[str]:
+    def created_with_llm(self, info: strawberry.Info) -> str | None:
         return coerce_str(getattr(self, "created_with_llm", None))
 
     @strawberry.field(
         name="corpusAgentInstructions",
         description="Custom system instructions for the corpus-level agent. If not set, uses DEFAULT_CORPUS_AGENT_INSTRUCTIONS from settings.",
     )
-    def corpus_agent_instructions(self, info: strawberry.Info) -> Optional[str]:
+    def corpus_agent_instructions(self, info: strawberry.Info) -> str | None:
         return coerce_str(getattr(self, "corpus_agent_instructions", None))
 
     @strawberry.field(
         name="documentAgentInstructions",
         description="Custom system instructions for document-level agents in this corpus. If not set, uses DEFAULT_DOCUMENT_AGENT_INSTRUCTIONS from settings.",
     )
-    def document_agent_instructions(self, info: strawberry.Info) -> Optional[str]:
+    def document_agent_instructions(self, info: strawberry.Info) -> str | None:
         return coerce_str(getattr(self, "document_agent_instructions", None))
 
     memory_enabled: bool = strawberry.field(
@@ -469,9 +469,9 @@ class CorpusType(Node):
         description="Enable agent memory system for this corpus. When enabled, agents accumulate reusable insights from conversations into a memory document.",
         default=None,
     )
-    memory_document: Optional[
-        Annotated["DocumentType", strawberry.lazy("config.graphql.document_types")]
-    ] = strawberry.field(
+    memory_document: None | (
+        Annotated[DocumentType, strawberry.lazy("config.graphql.document_types")]
+    ) = strawberry.field(
         name="memoryDocument",
         description="The Document storing accumulated agent memory for this corpus.",
         default=None,
@@ -483,7 +483,7 @@ class CorpusType(Node):
     )
     def license(
         self, info: strawberry.Info
-    ) -> Optional[enums.CorpusesCorpusLicenseChoices]:
+    ) -> enums.CorpusesCorpusLicenseChoices | None:
         return coerce_enum(
             enums.CorpusesCorpusLicenseChoices, getattr(self, "license", None)
         )
@@ -497,13 +497,13 @@ class CorpusType(Node):
 
     allow_comments: bool = strawberry.field(name="allowComments", default=None)
     is_public: bool = strawberry.field(name="isPublic", default=None)
-    creator: Annotated["UserType", strawberry.lazy("config.graphql.user_types")] = (
+    creator: Annotated[UserType, strawberry.lazy("config.graphql.user_types")] = (
         strawberry.field(name="creator", default=None)
     )
     backend_lock: bool = strawberry.field(name="backendLock", default=None)
-    user_lock: Optional[
-        Annotated["UserType", strawberry.lazy("config.graphql.user_types")]
-    ] = strawberry.field(name="userLock", default=None)
+    user_lock: None | (
+        Annotated[UserType, strawberry.lazy("config.graphql.user_types")]
+    ) = strawberry.field(name="userLock", default=None)
     error: bool = strawberry.field(name="error", default=None)
     is_personal: bool = strawberry.field(
         name="isPersonal",
@@ -533,22 +533,22 @@ class CorpusType(Node):
         self,
         info: strawberry.Info,
         offset: Annotated[
-            Optional[int], strawberry.argument(name="offset")
+            int | None, strawberry.argument(name="offset")
         ] = strawberry.UNSET,
         before: Annotated[
-            Optional[str], strawberry.argument(name="before")
+            str | None, strawberry.argument(name="before")
         ] = strawberry.UNSET,
         after: Annotated[
-            Optional[str], strawberry.argument(name="after")
+            str | None, strawberry.argument(name="after")
         ] = strawberry.UNSET,
         first: Annotated[
-            Optional[int], strawberry.argument(name="first")
+            int | None, strawberry.argument(name="first")
         ] = strawberry.UNSET,
         last: Annotated[
-            Optional[int], strawberry.argument(name="last")
+            int | None, strawberry.argument(name="last")
         ] = strawberry.UNSET,
     ) -> Annotated[
-        "AssignmentTypeConnection", strawberry.lazy("config.graphql.user_types")
+        AssignmentTypeConnection, strawberry.lazy("config.graphql.user_types")
     ]:
         kwargs = strip_unset(
             {
@@ -572,22 +572,22 @@ class CorpusType(Node):
         self,
         info: strawberry.Info,
         offset: Annotated[
-            Optional[int], strawberry.argument(name="offset")
+            int | None, strawberry.argument(name="offset")
         ] = strawberry.UNSET,
         before: Annotated[
-            Optional[str], strawberry.argument(name="before")
+            str | None, strawberry.argument(name="before")
         ] = strawberry.UNSET,
         after: Annotated[
-            Optional[str], strawberry.argument(name="after")
+            str | None, strawberry.argument(name="after")
         ] = strawberry.UNSET,
         first: Annotated[
-            Optional[int], strawberry.argument(name="first")
+            int | None, strawberry.argument(name="first")
         ] = strawberry.UNSET,
         last: Annotated[
-            Optional[int], strawberry.argument(name="last")
+            int | None, strawberry.argument(name="last")
         ] = strawberry.UNSET,
     ) -> Annotated[
-        "DocumentRelationshipTypeConnection",
+        DocumentRelationshipTypeConnection,
         strawberry.lazy("config.graphql.document_types"),
     ]:
         kwargs = strip_unset(
@@ -612,22 +612,22 @@ class CorpusType(Node):
         self,
         info: strawberry.Info,
         offset: Annotated[
-            Optional[int], strawberry.argument(name="offset")
+            int | None, strawberry.argument(name="offset")
         ] = strawberry.UNSET,
         before: Annotated[
-            Optional[str], strawberry.argument(name="before")
+            str | None, strawberry.argument(name="before")
         ] = strawberry.UNSET,
         after: Annotated[
-            Optional[str], strawberry.argument(name="after")
+            str | None, strawberry.argument(name="after")
         ] = strawberry.UNSET,
         first: Annotated[
-            Optional[int], strawberry.argument(name="first")
+            int | None, strawberry.argument(name="first")
         ] = strawberry.UNSET,
         last: Annotated[
-            Optional[int], strawberry.argument(name="last")
+            int | None, strawberry.argument(name="last")
         ] = strawberry.UNSET,
     ) -> Annotated[
-        "DocumentPathTypeConnection", strawberry.lazy("config.graphql.document_types")
+        DocumentPathTypeConnection, strawberry.lazy("config.graphql.document_types")
     ]:
         kwargs = strip_unset(
             {
@@ -651,22 +651,22 @@ class CorpusType(Node):
         self,
         info: strawberry.Info,
         offset: Annotated[
-            Optional[int], strawberry.argument(name="offset")
+            int | None, strawberry.argument(name="offset")
         ] = strawberry.UNSET,
         before: Annotated[
-            Optional[str], strawberry.argument(name="before")
+            str | None, strawberry.argument(name="before")
         ] = strawberry.UNSET,
         after: Annotated[
-            Optional[str], strawberry.argument(name="after")
+            str | None, strawberry.argument(name="after")
         ] = strawberry.UNSET,
         first: Annotated[
-            Optional[int], strawberry.argument(name="first")
+            int | None, strawberry.argument(name="first")
         ] = strawberry.UNSET,
         last: Annotated[
-            Optional[int], strawberry.argument(name="last")
+            int | None, strawberry.argument(name="last")
         ] = strawberry.UNSET,
     ) -> Annotated[
-        "DocumentSummaryRevisionTypeConnection",
+        DocumentSummaryRevisionTypeConnection,
         strawberry.lazy("config.graphql.document_types"),
     ]:
         kwargs = strip_unset(
@@ -691,21 +691,21 @@ class CorpusType(Node):
         self,
         info: strawberry.Info,
         offset: Annotated[
-            Optional[int], strawberry.argument(name="offset")
+            int | None, strawberry.argument(name="offset")
         ] = strawberry.UNSET,
         before: Annotated[
-            Optional[str], strawberry.argument(name="before")
+            str | None, strawberry.argument(name="before")
         ] = strawberry.UNSET,
         after: Annotated[
-            Optional[str], strawberry.argument(name="after")
+            str | None, strawberry.argument(name="after")
         ] = strawberry.UNSET,
         first: Annotated[
-            Optional[int], strawberry.argument(name="first")
+            int | None, strawberry.argument(name="first")
         ] = strawberry.UNSET,
         last: Annotated[
-            Optional[int], strawberry.argument(name="last")
+            int | None, strawberry.argument(name="last")
         ] = strawberry.UNSET,
-    ) -> "CorpusTypeConnection":
+    ) -> CorpusTypeConnection:
         kwargs = strip_unset(
             {
                 "offset": offset,
@@ -728,56 +728,56 @@ class CorpusType(Node):
         self,
         info: strawberry.Info,
         offset: Annotated[
-            Optional[int], strawberry.argument(name="offset")
+            int | None, strawberry.argument(name="offset")
         ] = strawberry.UNSET,
         before: Annotated[
-            Optional[str], strawberry.argument(name="before")
+            str | None, strawberry.argument(name="before")
         ] = strawberry.UNSET,
         after: Annotated[
-            Optional[str], strawberry.argument(name="after")
+            str | None, strawberry.argument(name="after")
         ] = strawberry.UNSET,
         first: Annotated[
-            Optional[int], strawberry.argument(name="first")
+            int | None, strawberry.argument(name="first")
         ] = strawberry.UNSET,
         last: Annotated[
-            Optional[int], strawberry.argument(name="last")
+            int | None, strawberry.argument(name="last")
         ] = strawberry.UNSET,
         id: Annotated[
-            Optional[strawberry.ID], strawberry.argument(name="id")
+            strawberry.ID | None, strawberry.argument(name="id")
         ] = strawberry.UNSET,
         name: Annotated[
-            Optional[str], strawberry.argument(name="name")
+            str | None, strawberry.argument(name="name")
         ] = strawberry.UNSET,
         name__icontains: Annotated[
-            Optional[str], strawberry.argument(name="name_Icontains")
+            str | None, strawberry.argument(name="name_Icontains")
         ] = strawberry.UNSET,
         name__istartswith: Annotated[
-            Optional[str], strawberry.argument(name="name_Istartswith")
+            str | None, strawberry.argument(name="name_Istartswith")
         ] = strawberry.UNSET,
         corpus__id: Annotated[
-            Optional[strawberry.ID], strawberry.argument(name="corpus_Id")
+            strawberry.ID | None, strawberry.argument(name="corpus_Id")
         ] = strawberry.UNSET,
         fieldset__id: Annotated[
-            Optional[strawberry.ID], strawberry.argument(name="fieldset_Id")
+            strawberry.ID | None, strawberry.argument(name="fieldset_Id")
         ] = strawberry.UNSET,
         analyzer__id: Annotated[
-            Optional[strawberry.ID], strawberry.argument(name="analyzer_Id")
+            strawberry.ID | None, strawberry.argument(name="analyzer_Id")
         ] = strawberry.UNSET,
         agent_config__id: Annotated[
-            Optional[strawberry.ID], strawberry.argument(name="agentConfig_Id")
+            strawberry.ID | None, strawberry.argument(name="agentConfig_Id")
         ] = strawberry.UNSET,
         trigger: Annotated[
-            Optional[enums.CorpusesCorpusActionTriggerChoices],
+            enums.CorpusesCorpusActionTriggerChoices | None,
             strawberry.argument(name="trigger"),
         ] = strawberry.UNSET,
         creator__id: Annotated[
-            Optional[strawberry.ID], strawberry.argument(name="creator_Id")
+            strawberry.ID | None, strawberry.argument(name="creator_Id")
         ] = strawberry.UNSET,
         source_template__id: Annotated[
-            Optional[strawberry.ID], strawberry.argument(name="sourceTemplate_Id")
+            strawberry.ID | None, strawberry.argument(name="sourceTemplate_Id")
         ] = strawberry.UNSET,
     ) -> Annotated[
-        "CorpusActionTypeConnection", strawberry.lazy("config.graphql.agent_types")
+        CorpusActionTypeConnection, strawberry.lazy("config.graphql.agent_types")
     ]:
         kwargs = strip_unset(
             {
@@ -837,16 +837,14 @@ class CorpusType(Node):
     @strawberry.field(name="engagementMetrics")
     def engagement_metrics(
         self, info: strawberry.Info
-    ) -> Optional["CorpusEngagementMetricsType"]:
+    ) -> CorpusEngagementMetricsType | None:
         kwargs = strip_unset({})
         return _resolve_CorpusType_engagement_metrics(self, info, **kwargs)
 
     @strawberry.field(
         name="folders", description="All folders in this corpus (flat list)"
     )
-    def folders(
-        self, info: strawberry.Info
-    ) -> Optional[list[Optional["CorpusFolderType"]]]:
+    def folders(self, info: strawberry.Info) -> list[CorpusFolderType | None] | None:
         kwargs = strip_unset({})
         return _resolve_CorpusType_folders(self, info, **kwargs)
 
@@ -858,49 +856,49 @@ class CorpusType(Node):
         self,
         info: strawberry.Info,
         offset: Annotated[
-            Optional[int], strawberry.argument(name="offset")
+            int | None, strawberry.argument(name="offset")
         ] = strawberry.UNSET,
         before: Annotated[
-            Optional[str], strawberry.argument(name="before")
+            str | None, strawberry.argument(name="before")
         ] = strawberry.UNSET,
         after: Annotated[
-            Optional[str], strawberry.argument(name="after")
+            str | None, strawberry.argument(name="after")
         ] = strawberry.UNSET,
         first: Annotated[
-            Optional[int], strawberry.argument(name="first")
+            int | None, strawberry.argument(name="first")
         ] = strawberry.UNSET,
         last: Annotated[
-            Optional[int], strawberry.argument(name="last")
+            int | None, strawberry.argument(name="last")
         ] = strawberry.UNSET,
         id: Annotated[
-            Optional[strawberry.ID], strawberry.argument(name="id")
+            strawberry.ID | None, strawberry.argument(name="id")
         ] = strawberry.UNSET,
         corpus__id: Annotated[
-            Optional[strawberry.ID], strawberry.argument(name="corpus_Id")
+            strawberry.ID | None, strawberry.argument(name="corpus_Id")
         ] = strawberry.UNSET,
         corpus_action__id: Annotated[
-            Optional[strawberry.ID], strawberry.argument(name="corpusAction_Id")
+            strawberry.ID | None, strawberry.argument(name="corpusAction_Id")
         ] = strawberry.UNSET,
         document__id: Annotated[
-            Optional[strawberry.ID], strawberry.argument(name="document_Id")
+            strawberry.ID | None, strawberry.argument(name="document_Id")
         ] = strawberry.UNSET,
         status: Annotated[
-            Optional[enums.CorpusesCorpusActionExecutionStatusChoices],
+            enums.CorpusesCorpusActionExecutionStatusChoices | None,
             strawberry.argument(name="status"),
         ] = strawberry.UNSET,
         action_type: Annotated[
-            Optional[enums.CorpusesCorpusActionExecutionActionTypeChoices],
+            enums.CorpusesCorpusActionExecutionActionTypeChoices | None,
             strawberry.argument(name="actionType"),
         ] = strawberry.UNSET,
         trigger: Annotated[
-            Optional[enums.CorpusesCorpusActionExecutionTriggerChoices],
+            enums.CorpusesCorpusActionExecutionTriggerChoices | None,
             strawberry.argument(name="trigger"),
         ] = strawberry.UNSET,
         creator__id: Annotated[
-            Optional[strawberry.ID], strawberry.argument(name="creator_Id")
+            strawberry.ID | None, strawberry.argument(name="creator_Id")
         ] = strawberry.UNSET,
     ) -> Annotated[
-        "CorpusActionExecutionTypeConnection",
+        CorpusActionExecutionTypeConnection,
         strawberry.lazy("config.graphql.agent_types"),
     ]:
         kwargs = strip_unset(
@@ -956,22 +954,22 @@ class CorpusType(Node):
         self,
         info: strawberry.Info,
         offset: Annotated[
-            Optional[int], strawberry.argument(name="offset")
+            int | None, strawberry.argument(name="offset")
         ] = strawberry.UNSET,
         before: Annotated[
-            Optional[str], strawberry.argument(name="before")
+            str | None, strawberry.argument(name="before")
         ] = strawberry.UNSET,
         after: Annotated[
-            Optional[str], strawberry.argument(name="after")
+            str | None, strawberry.argument(name="after")
         ] = strawberry.UNSET,
         first: Annotated[
-            Optional[int], strawberry.argument(name="first")
+            int | None, strawberry.argument(name="first")
         ] = strawberry.UNSET,
         last: Annotated[
-            Optional[int], strawberry.argument(name="last")
+            int | None, strawberry.argument(name="last")
         ] = strawberry.UNSET,
     ) -> Annotated[
-        "RelationshipTypeConnection", strawberry.lazy("config.graphql.annotation_types")
+        RelationshipTypeConnection, strawberry.lazy("config.graphql.annotation_types")
     ]:
         kwargs = strip_unset(
             {
@@ -995,66 +993,66 @@ class CorpusType(Node):
         self,
         info: strawberry.Info,
         offset: Annotated[
-            Optional[int], strawberry.argument(name="offset")
+            int | None, strawberry.argument(name="offset")
         ] = strawberry.UNSET,
         before: Annotated[
-            Optional[str], strawberry.argument(name="before")
+            str | None, strawberry.argument(name="before")
         ] = strawberry.UNSET,
         after: Annotated[
-            Optional[str], strawberry.argument(name="after")
+            str | None, strawberry.argument(name="after")
         ] = strawberry.UNSET,
         first: Annotated[
-            Optional[int], strawberry.argument(name="first")
+            int | None, strawberry.argument(name="first")
         ] = strawberry.UNSET,
         last: Annotated[
-            Optional[int], strawberry.argument(name="last")
+            int | None, strawberry.argument(name="last")
         ] = strawberry.UNSET,
         raw_text__contains: Annotated[
-            Optional[str], strawberry.argument(name="rawText_Contains")
+            str | None, strawberry.argument(name="rawText_Contains")
         ] = strawberry.UNSET,
         annotation_label_id: Annotated[
-            Optional[strawberry.ID], strawberry.argument(name="annotationLabelId")
+            strawberry.ID | None, strawberry.argument(name="annotationLabelId")
         ] = strawberry.UNSET,
         annotation_label__text: Annotated[
-            Optional[str], strawberry.argument(name="annotationLabel_Text")
+            str | None, strawberry.argument(name="annotationLabel_Text")
         ] = strawberry.UNSET,
         annotation_label__text__contains: Annotated[
-            Optional[str], strawberry.argument(name="annotationLabel_Text_Contains")
+            str | None, strawberry.argument(name="annotationLabel_Text_Contains")
         ] = strawberry.UNSET,
         annotation_label__description__contains: Annotated[
-            Optional[str],
+            str | None,
             strawberry.argument(name="annotationLabel_Description_Contains"),
         ] = strawberry.UNSET,
         annotation_label__label_type: Annotated[
-            Optional[enums.AnnotationsAnnotationLabelLabelTypeChoices],
+            enums.AnnotationsAnnotationLabelLabelTypeChoices | None,
             strawberry.argument(name="annotationLabel_LabelType"),
         ] = strawberry.UNSET,
         analysis__isnull: Annotated[
-            Optional[bool], strawberry.argument(name="analysis_Isnull")
+            bool | None, strawberry.argument(name="analysis_Isnull")
         ] = strawberry.UNSET,
         document_id: Annotated[
-            Optional[strawberry.ID], strawberry.argument(name="documentId")
+            strawberry.ID | None, strawberry.argument(name="documentId")
         ] = strawberry.UNSET,
         corpus_id: Annotated[
-            Optional[strawberry.ID], strawberry.argument(name="corpusId")
+            strawberry.ID | None, strawberry.argument(name="corpusId")
         ] = strawberry.UNSET,
         structural: Annotated[
-            Optional[bool], strawberry.argument(name="structural")
+            bool | None, strawberry.argument(name="structural")
         ] = strawberry.UNSET,
         uses_label_from_labelset_id: Annotated[
-            Optional[str], strawberry.argument(name="usesLabelFromLabelsetId")
+            str | None, strawberry.argument(name="usesLabelFromLabelsetId")
         ] = strawberry.UNSET,
         created_by_analysis_ids: Annotated[
-            Optional[str], strawberry.argument(name="createdByAnalysisIds")
+            str | None, strawberry.argument(name="createdByAnalysisIds")
         ] = strawberry.UNSET,
         created_with_analyzer_id: Annotated[
-            Optional[str], strawberry.argument(name="createdWithAnalyzerId")
+            str | None, strawberry.argument(name="createdWithAnalyzerId")
         ] = strawberry.UNSET,
         order_by: Annotated[
-            Optional[str], strawberry.argument(name="orderBy", description="Ordering")
+            str | None, strawberry.argument(name="orderBy", description="Ordering")
         ] = strawberry.UNSET,
     ) -> Annotated[
-        "AnnotationTypeConnection", strawberry.lazy("config.graphql.annotation_types")
+        AnnotationTypeConnection, strawberry.lazy("config.graphql.annotation_types")
     ]:
         kwargs = strip_unset(
             {
@@ -1109,22 +1107,22 @@ class CorpusType(Node):
         self,
         info: strawberry.Info,
         offset: Annotated[
-            Optional[int], strawberry.argument(name="offset")
+            int | None, strawberry.argument(name="offset")
         ] = strawberry.UNSET,
         before: Annotated[
-            Optional[str], strawberry.argument(name="before")
+            str | None, strawberry.argument(name="before")
         ] = strawberry.UNSET,
         after: Annotated[
-            Optional[str], strawberry.argument(name="after")
+            str | None, strawberry.argument(name="after")
         ] = strawberry.UNSET,
         first: Annotated[
-            Optional[int], strawberry.argument(name="first")
+            int | None, strawberry.argument(name="first")
         ] = strawberry.UNSET,
         last: Annotated[
-            Optional[int], strawberry.argument(name="last")
+            int | None, strawberry.argument(name="last")
         ] = strawberry.UNSET,
     ) -> Annotated[
-        "NoteTypeConnection", strawberry.lazy("config.graphql.annotation_types")
+        NoteTypeConnection, strawberry.lazy("config.graphql.annotation_types")
     ]:
         kwargs = strip_unset(
             {
@@ -1148,22 +1146,22 @@ class CorpusType(Node):
         self,
         info: strawberry.Info,
         offset: Annotated[
-            Optional[int], strawberry.argument(name="offset")
+            int | None, strawberry.argument(name="offset")
         ] = strawberry.UNSET,
         before: Annotated[
-            Optional[str], strawberry.argument(name="before")
+            str | None, strawberry.argument(name="before")
         ] = strawberry.UNSET,
         after: Annotated[
-            Optional[str], strawberry.argument(name="after")
+            str | None, strawberry.argument(name="after")
         ] = strawberry.UNSET,
         first: Annotated[
-            Optional[int], strawberry.argument(name="first")
+            int | None, strawberry.argument(name="first")
         ] = strawberry.UNSET,
         last: Annotated[
-            Optional[int], strawberry.argument(name="last")
+            int | None, strawberry.argument(name="last")
         ] = strawberry.UNSET,
     ) -> Annotated[
-        "CorpusReferenceTypeConnection",
+        CorpusReferenceTypeConnection,
         strawberry.lazy("config.graphql.annotation_types"),
     ]:
         kwargs = strip_unset(
@@ -1188,22 +1186,22 @@ class CorpusType(Node):
         self,
         info: strawberry.Info,
         offset: Annotated[
-            Optional[int], strawberry.argument(name="offset")
+            int | None, strawberry.argument(name="offset")
         ] = strawberry.UNSET,
         before: Annotated[
-            Optional[str], strawberry.argument(name="before")
+            str | None, strawberry.argument(name="before")
         ] = strawberry.UNSET,
         after: Annotated[
-            Optional[str], strawberry.argument(name="after")
+            str | None, strawberry.argument(name="after")
         ] = strawberry.UNSET,
         first: Annotated[
-            Optional[int], strawberry.argument(name="first")
+            int | None, strawberry.argument(name="first")
         ] = strawberry.UNSET,
         last: Annotated[
-            Optional[int], strawberry.argument(name="last")
+            int | None, strawberry.argument(name="last")
         ] = strawberry.UNSET,
     ) -> Annotated[
-        "CorpusReferenceTypeConnection",
+        CorpusReferenceTypeConnection,
         strawberry.lazy("config.graphql.annotation_types"),
     ]:
         kwargs = strip_unset(
@@ -1228,22 +1226,22 @@ class CorpusType(Node):
         self,
         info: strawberry.Info,
         offset: Annotated[
-            Optional[int], strawberry.argument(name="offset")
+            int | None, strawberry.argument(name="offset")
         ] = strawberry.UNSET,
         before: Annotated[
-            Optional[str], strawberry.argument(name="before")
+            str | None, strawberry.argument(name="before")
         ] = strawberry.UNSET,
         after: Annotated[
-            Optional[str], strawberry.argument(name="after")
+            str | None, strawberry.argument(name="after")
         ] = strawberry.UNSET,
         first: Annotated[
-            Optional[int], strawberry.argument(name="first")
+            int | None, strawberry.argument(name="first")
         ] = strawberry.UNSET,
         last: Annotated[
-            Optional[int], strawberry.argument(name="last")
+            int | None, strawberry.argument(name="last")
         ] = strawberry.UNSET,
     ) -> Annotated[
-        "AuthorityNamespaceNodeConnection",
+        AuthorityNamespaceNodeConnection,
         strawberry.lazy("config.graphql.annotation_types"),
     ]:
         kwargs = strip_unset(
@@ -1268,22 +1266,22 @@ class CorpusType(Node):
         self,
         info: strawberry.Info,
         offset: Annotated[
-            Optional[int], strawberry.argument(name="offset")
+            int | None, strawberry.argument(name="offset")
         ] = strawberry.UNSET,
         before: Annotated[
-            Optional[str], strawberry.argument(name="before")
+            str | None, strawberry.argument(name="before")
         ] = strawberry.UNSET,
         after: Annotated[
-            Optional[str], strawberry.argument(name="after")
+            str | None, strawberry.argument(name="after")
         ] = strawberry.UNSET,
         first: Annotated[
-            Optional[int], strawberry.argument(name="first")
+            int | None, strawberry.argument(name="first")
         ] = strawberry.UNSET,
         last: Annotated[
-            Optional[int], strawberry.argument(name="last")
+            int | None, strawberry.argument(name="last")
         ] = strawberry.UNSET,
     ) -> Annotated[
-        "AnalysisTypeConnection", strawberry.lazy("config.graphql.extract_types")
+        AnalysisTypeConnection, strawberry.lazy("config.graphql.extract_types")
     ]:
         kwargs = strip_unset(
             {
@@ -1302,31 +1300,31 @@ class CorpusType(Node):
             node_type_name="AnalysisType",
         )
 
-    metadata_schema: Optional[
-        Annotated["FieldsetType", strawberry.lazy("config.graphql.extract_types")]
-    ] = strawberry.field(name="metadataSchema", default=None)
+    metadata_schema: None | (
+        Annotated[FieldsetType, strawberry.lazy("config.graphql.extract_types")]
+    ) = strawberry.field(name="metadataSchema", default=None)
 
     @strawberry.field(name="extracts")
     def extracts(
         self,
         info: strawberry.Info,
         offset: Annotated[
-            Optional[int], strawberry.argument(name="offset")
+            int | None, strawberry.argument(name="offset")
         ] = strawberry.UNSET,
         before: Annotated[
-            Optional[str], strawberry.argument(name="before")
+            str | None, strawberry.argument(name="before")
         ] = strawberry.UNSET,
         after: Annotated[
-            Optional[str], strawberry.argument(name="after")
+            str | None, strawberry.argument(name="after")
         ] = strawberry.UNSET,
         first: Annotated[
-            Optional[int], strawberry.argument(name="first")
+            int | None, strawberry.argument(name="first")
         ] = strawberry.UNSET,
         last: Annotated[
-            Optional[int], strawberry.argument(name="last")
+            int | None, strawberry.argument(name="last")
         ] = strawberry.UNSET,
     ) -> Annotated[
-        "ExtractTypeConnection", strawberry.lazy("config.graphql.extract_types")
+        ExtractTypeConnection, strawberry.lazy("config.graphql.extract_types")
     ]:
         kwargs = strip_unset(
             {
@@ -1353,22 +1351,22 @@ class CorpusType(Node):
         self,
         info: strawberry.Info,
         offset: Annotated[
-            Optional[int], strawberry.argument(name="offset")
+            int | None, strawberry.argument(name="offset")
         ] = strawberry.UNSET,
         before: Annotated[
-            Optional[str], strawberry.argument(name="before")
+            str | None, strawberry.argument(name="before")
         ] = strawberry.UNSET,
         after: Annotated[
-            Optional[str], strawberry.argument(name="after")
+            str | None, strawberry.argument(name="after")
         ] = strawberry.UNSET,
         first: Annotated[
-            Optional[int], strawberry.argument(name="first")
+            int | None, strawberry.argument(name="first")
         ] = strawberry.UNSET,
         last: Annotated[
-            Optional[int], strawberry.argument(name="last")
+            int | None, strawberry.argument(name="last")
         ] = strawberry.UNSET,
     ) -> Annotated[
-        "ConversationTypeConnection",
+        ConversationTypeConnection,
         strawberry.lazy("config.graphql.conversation_types"),
     ]:
         kwargs = strip_unset(
@@ -1396,23 +1394,21 @@ class CorpusType(Node):
         self,
         info: strawberry.Info,
         offset: Annotated[
-            Optional[int], strawberry.argument(name="offset")
+            int | None, strawberry.argument(name="offset")
         ] = strawberry.UNSET,
         before: Annotated[
-            Optional[str], strawberry.argument(name="before")
+            str | None, strawberry.argument(name="before")
         ] = strawberry.UNSET,
         after: Annotated[
-            Optional[str], strawberry.argument(name="after")
+            str | None, strawberry.argument(name="after")
         ] = strawberry.UNSET,
         first: Annotated[
-            Optional[int], strawberry.argument(name="first")
+            int | None, strawberry.argument(name="first")
         ] = strawberry.UNSET,
         last: Annotated[
-            Optional[int], strawberry.argument(name="last")
+            int | None, strawberry.argument(name="last")
         ] = strawberry.UNSET,
-    ) -> Annotated[
-        "BadgeTypeConnection", strawberry.lazy("config.graphql.social_types")
-    ]:
+    ) -> Annotated[BadgeTypeConnection, strawberry.lazy("config.graphql.social_types")]:
         kwargs = strip_unset(
             {
                 "offset": offset,
@@ -1438,22 +1434,22 @@ class CorpusType(Node):
         self,
         info: strawberry.Info,
         offset: Annotated[
-            Optional[int], strawberry.argument(name="offset")
+            int | None, strawberry.argument(name="offset")
         ] = strawberry.UNSET,
         before: Annotated[
-            Optional[str], strawberry.argument(name="before")
+            str | None, strawberry.argument(name="before")
         ] = strawberry.UNSET,
         after: Annotated[
-            Optional[str], strawberry.argument(name="after")
+            str | None, strawberry.argument(name="after")
         ] = strawberry.UNSET,
         first: Annotated[
-            Optional[int], strawberry.argument(name="first")
+            int | None, strawberry.argument(name="first")
         ] = strawberry.UNSET,
         last: Annotated[
-            Optional[int], strawberry.argument(name="last")
+            int | None, strawberry.argument(name="last")
         ] = strawberry.UNSET,
     ) -> Annotated[
-        "UserBadgeTypeConnection", strawberry.lazy("config.graphql.social_types")
+        UserBadgeTypeConnection, strawberry.lazy("config.graphql.social_types")
     ]:
         kwargs = strip_unset(
             {
@@ -1479,32 +1475,32 @@ class CorpusType(Node):
         self,
         info: strawberry.Info,
         offset: Annotated[
-            Optional[int], strawberry.argument(name="offset")
+            int | None, strawberry.argument(name="offset")
         ] = strawberry.UNSET,
         before: Annotated[
-            Optional[str], strawberry.argument(name="before")
+            str | None, strawberry.argument(name="before")
         ] = strawberry.UNSET,
         after: Annotated[
-            Optional[str], strawberry.argument(name="after")
+            str | None, strawberry.argument(name="after")
         ] = strawberry.UNSET,
         first: Annotated[
-            Optional[int], strawberry.argument(name="first")
+            int | None, strawberry.argument(name="first")
         ] = strawberry.UNSET,
         last: Annotated[
-            Optional[int], strawberry.argument(name="last")
+            int | None, strawberry.argument(name="last")
         ] = strawberry.UNSET,
         scope: Annotated[
-            Optional[enums.AgentsAgentConfigurationScopeChoices],
+            enums.AgentsAgentConfigurationScopeChoices | None,
             strawberry.argument(name="scope"),
         ] = strawberry.UNSET,
         is_active: Annotated[
-            Optional[bool], strawberry.argument(name="isActive")
+            bool | None, strawberry.argument(name="isActive")
         ] = strawberry.UNSET,
         corpus: Annotated[
-            Optional[strawberry.ID], strawberry.argument(name="corpus")
+            strawberry.ID | None, strawberry.argument(name="corpus")
         ] = strawberry.UNSET,
     ) -> Annotated[
-        "AgentConfigurationTypeConnection",
+        AgentConfigurationTypeConnection,
         strawberry.lazy("config.graphql.agent_types"),
     ]:
         kwargs = strip_unset(
@@ -1545,22 +1541,22 @@ class CorpusType(Node):
         self,
         info: strawberry.Info,
         offset: Annotated[
-            Optional[int], strawberry.argument(name="offset")
+            int | None, strawberry.argument(name="offset")
         ] = strawberry.UNSET,
         before: Annotated[
-            Optional[str], strawberry.argument(name="before")
+            str | None, strawberry.argument(name="before")
         ] = strawberry.UNSET,
         after: Annotated[
-            Optional[str], strawberry.argument(name="after")
+            str | None, strawberry.argument(name="after")
         ] = strawberry.UNSET,
         first: Annotated[
-            Optional[int], strawberry.argument(name="first")
+            int | None, strawberry.argument(name="first")
         ] = strawberry.UNSET,
         last: Annotated[
-            Optional[int], strawberry.argument(name="last")
+            int | None, strawberry.argument(name="last")
         ] = strawberry.UNSET,
     ) -> Annotated[
-        "ResearchReportTypeConnection", strawberry.lazy("config.graphql.research_types")
+        ResearchReportTypeConnection, strawberry.lazy("config.graphql.research_types")
     ]:
         kwargs = strip_unset(
             {
@@ -1580,15 +1576,15 @@ class CorpusType(Node):
         )
 
     @strawberry.field(name="myPermissions")
-    def my_permissions(self, info: strawberry.Info) -> Optional[GenericScalar]:
+    def my_permissions(self, info: strawberry.Info) -> GenericScalar | None:
         return core_permissions.resolve_my_permissions(self, info)
 
     @strawberry.field(name="isPublished")
-    def is_published(self, info: strawberry.Info) -> Optional[bool]:
+    def is_published(self, info: strawberry.Info) -> bool | None:
         return core_permissions.resolve_is_published(self, info)
 
     @strawberry.field(name="objectSharedWith")
-    def object_shared_with(self, info: strawberry.Info) -> Optional[GenericScalar]:
+    def object_shared_with(self, info: strawberry.Info) -> GenericScalar | None:
         return core_permissions.resolve_object_shared_with(self, info)
 
     @strawberry.field(name="allAnnotationSummaries")
@@ -1596,21 +1592,22 @@ class CorpusType(Node):
         self,
         info: strawberry.Info,
         analysis_id: Annotated[
-            Optional[strawberry.ID], strawberry.argument(name="analysisId")
+            strawberry.ID | None, strawberry.argument(name="analysisId")
         ] = strawberry.UNSET,
         label_types: Annotated[
-            Optional[list[Optional[enums.LabelTypeEnum]]],
+            list[enums.LabelTypeEnum | None] | None,
             strawberry.argument(name="labelTypes"),
         ] = strawberry.UNSET,
-    ) -> Optional[
+    ) -> None | (
         list[
-            Optional[
+            None
+            | (
                 Annotated[
-                    "AnnotationType", strawberry.lazy("config.graphql.annotation_types")
+                    AnnotationType, strawberry.lazy("config.graphql.annotation_types")
                 ]
-            ]
+            )
         ]
-    ]:
+    ):
         kwargs = strip_unset({"analysis_id": analysis_id, "label_types": label_types})
         return _resolve_CorpusType_all_annotation_summaries(self, info, **kwargs)
 
@@ -1621,22 +1618,22 @@ class CorpusType(Node):
         self,
         info: strawberry.Info,
         before: Annotated[
-            Optional[str], strawberry.argument(name="before")
+            str | None, strawberry.argument(name="before")
         ] = strawberry.UNSET,
         after: Annotated[
-            Optional[str], strawberry.argument(name="after")
+            str | None, strawberry.argument(name="after")
         ] = strawberry.UNSET,
         first: Annotated[
-            Optional[int], strawberry.argument(name="first")
+            int | None, strawberry.argument(name="first")
         ] = strawberry.UNSET,
         last: Annotated[
-            Optional[int], strawberry.argument(name="last")
+            int | None, strawberry.argument(name="last")
         ] = strawberry.UNSET,
-    ) -> Optional[
+    ) -> None | (
         Annotated[
-            "DocumentTypeConnection", strawberry.lazy("config.graphql.document_types")
+            DocumentTypeConnection, strawberry.lazy("config.graphql.document_types")
         ]
-    ]:
+    ):
         kwargs = strip_unset(
             {"before": before, "after": after, "first": first, "last": last}
         )
@@ -1649,9 +1646,7 @@ class CorpusType(Node):
         )
 
     @strawberry.field(name="appliedAnalyzerIds")
-    def applied_analyzer_ids(
-        self, info: strawberry.Info
-    ) -> Optional[list[Optional[str]]]:
+    def applied_analyzer_ids(self, info: strawberry.Info) -> list[str | None] | None:
         kwargs = strip_unset({})
         return _resolve_CorpusType_applied_analyzer_ids(self, info, **kwargs)
 
@@ -1661,7 +1656,7 @@ class CorpusType(Node):
     )
     def description_revisions(
         self, info: strawberry.Info
-    ) -> Optional[list[Optional["CorpusDescriptionRevisionType"]]]:
+    ) -> list[CorpusDescriptionRevisionType | None] | None:
         kwargs = strip_unset({})
         return _resolve_CorpusType_description_revisions(self, info, **kwargs)
 
@@ -1669,7 +1664,7 @@ class CorpusType(Node):
         name="memoryActiveWarning",
         description="When memory is enabled, returns a privacy notice explaining that conversation patterns may be stored. Null when disabled.",
     )
-    def memory_active_warning(self, info: strawberry.Info) -> Optional[str]:
+    def memory_active_warning(self, info: strawberry.Info) -> str | None:
         kwargs = strip_unset({})
         return _resolve_CorpusType_memory_active_warning(self, info, **kwargs)
 
@@ -1677,7 +1672,7 @@ class CorpusType(Node):
         name="documentCount",
         description="Count of active documents in this corpus (optimized)",
     )
-    def document_count(self, info: strawberry.Info) -> Optional[int]:
+    def document_count(self, info: strawberry.Info) -> int | None:
         kwargs = strip_unset({})
         return _resolve_CorpusType_document_count(self, info, **kwargs)
 
@@ -1685,7 +1680,7 @@ class CorpusType(Node):
         name="myVote",
         description="Current viewer's vote on this corpus: 'UPVOTE', 'DOWNVOTE', or null. Resolved against the authenticated user when present, otherwise against the Django session id for guest voters.",
     )
-    def my_vote(self, info: strawberry.Info) -> Optional[str]:
+    def my_vote(self, info: strawberry.Info) -> str | None:
         kwargs = strip_unset({})
         return _resolve_CorpusType_my_vote(self, info, **kwargs)
 
@@ -1693,7 +1688,7 @@ class CorpusType(Node):
         name="annotationCount",
         description="Count of annotations in this corpus (optimized)",
     )
-    def annotation_count(self, info: strawberry.Info) -> Optional[int]:
+    def annotation_count(self, info: strawberry.Info) -> int | None:
         kwargs = strip_unset({})
         return _resolve_CorpusType_annotation_count(self, info, **kwargs)
 
@@ -1825,7 +1820,7 @@ def _resolve_CorpusCategoryType_corpus_count(root, info):
 )
 class CorpusCategoryType(Node):
     is_public: bool = strawberry.field(name="isPublic", default=None)
-    creator: Annotated["UserType", strawberry.lazy("config.graphql.user_types")] = (
+    creator: Annotated[UserType, strawberry.lazy("config.graphql.user_types")] = (
         strawberry.field(name="creator", default=None)
     )
     created: datetime.datetime = strawberry.field(name="created", default=None)
@@ -1859,7 +1854,7 @@ class CorpusCategoryType(Node):
     @strawberry.field(
         name="corpusCount", description="Number of corpuses in this category"
     )
-    def corpus_count(self, info: strawberry.Info) -> Optional[int]:
+    def corpus_count(self, info: strawberry.Info) -> int | None:
         kwargs = strip_unset({})
         return _resolve_CorpusCategoryType_corpus_count(self, info, **kwargs)
 
@@ -2016,7 +2011,7 @@ def _resolve_CorpusFolderType_descendant_document_count(root, info):
 )
 class CorpusFolderType(Node):
     @strawberry.field(name="parent")
-    def parent(self, info: strawberry.Info) -> Optional["CorpusFolderType"]:
+    def parent(self, info: strawberry.Info) -> CorpusFolderType | None:
         kwargs = strip_unset({})
         return _resolve_CorpusFolderType_parent(self, info, **kwargs)
 
@@ -2024,7 +2019,7 @@ class CorpusFolderType(Node):
     def name(self, info: strawberry.Info) -> str:
         return coerce_str(getattr(self, "name", None))
 
-    corpus: "CorpusType" = strawberry.field(
+    corpus: CorpusType = strawberry.field(
         name="corpus", description="Parent corpus this folder belongs to", default=None
     )
 
@@ -2046,7 +2041,7 @@ class CorpusFolderType(Node):
     is_public: bool = strawberry.field(name="isPublic", default=None)
     created: datetime.datetime = strawberry.field(name="created", default=None)
     modified: datetime.datetime = strawberry.field(name="modified", default=None)
-    creator: Annotated["UserType", strawberry.lazy("config.graphql.user_types")] = (
+    creator: Annotated[UserType, strawberry.lazy("config.graphql.user_types")] = (
         strawberry.field(name="creator", default=None)
     )
 
@@ -2058,22 +2053,22 @@ class CorpusFolderType(Node):
         self,
         info: strawberry.Info,
         offset: Annotated[
-            Optional[int], strawberry.argument(name="offset")
+            int | None, strawberry.argument(name="offset")
         ] = strawberry.UNSET,
         before: Annotated[
-            Optional[str], strawberry.argument(name="before")
+            str | None, strawberry.argument(name="before")
         ] = strawberry.UNSET,
         after: Annotated[
-            Optional[str], strawberry.argument(name="after")
+            str | None, strawberry.argument(name="after")
         ] = strawberry.UNSET,
         first: Annotated[
-            Optional[int], strawberry.argument(name="first")
+            int | None, strawberry.argument(name="first")
         ] = strawberry.UNSET,
         last: Annotated[
-            Optional[int], strawberry.argument(name="last")
+            int | None, strawberry.argument(name="last")
         ] = strawberry.UNSET,
     ) -> Annotated[
-        "DocumentPathTypeConnection", strawberry.lazy("config.graphql.document_types")
+        DocumentPathTypeConnection, strawberry.lazy("config.graphql.document_types")
     ]:
         kwargs = strip_unset(
             {
@@ -2093,35 +2088,33 @@ class CorpusFolderType(Node):
         )
 
     @strawberry.field(name="children", description="Immediate child folders")
-    def children(
-        self, info: strawberry.Info
-    ) -> Optional[list[Optional["CorpusFolderType"]]]:
+    def children(self, info: strawberry.Info) -> list[CorpusFolderType | None] | None:
         kwargs = strip_unset({})
         return _resolve_CorpusFolderType_children(self, info, **kwargs)
 
     @strawberry.field(name="myPermissions")
-    def my_permissions(self, info: strawberry.Info) -> Optional[GenericScalar]:
+    def my_permissions(self, info: strawberry.Info) -> GenericScalar | None:
         kwargs = strip_unset({})
         return _resolve_CorpusFolderType_my_permissions(self, info, **kwargs)
 
     @strawberry.field(name="isPublished")
-    def is_published(self, info: strawberry.Info) -> Optional[bool]:
+    def is_published(self, info: strawberry.Info) -> bool | None:
         kwargs = strip_unset({})
         return _resolve_CorpusFolderType_is_published(self, info, **kwargs)
 
     @strawberry.field(name="objectSharedWith")
-    def object_shared_with(self, info: strawberry.Info) -> Optional[GenericScalar]:
+    def object_shared_with(self, info: strawberry.Info) -> GenericScalar | None:
         return core_permissions.resolve_object_shared_with(self, info)
 
     @strawberry.field(name="path", description="Full path from root to this folder")
-    def path(self, info: strawberry.Info) -> Optional[str]:
+    def path(self, info: strawberry.Info) -> str | None:
         kwargs = strip_unset({})
         return _resolve_CorpusFolderType_path(self, info, **kwargs)
 
     @strawberry.field(
         name="documentCount", description="Number of documents directly in this folder"
     )
-    def document_count(self, info: strawberry.Info) -> Optional[int]:
+    def document_count(self, info: strawberry.Info) -> int | None:
         kwargs = strip_unset({})
         return _resolve_CorpusFolderType_document_count(self, info, **kwargs)
 
@@ -2129,7 +2122,7 @@ class CorpusFolderType(Node):
         name="descendantDocumentCount",
         description="Number of documents in this folder and all subfolders",
     )
-    def descendant_document_count(self, info: strawberry.Info) -> Optional[int]:
+    def descendant_document_count(self, info: strawberry.Info) -> int | None:
         kwargs = strip_unset({})
         return _resolve_CorpusFolderType_descendant_document_count(self, info, **kwargs)
 
@@ -2165,52 +2158,52 @@ CorpusFolderTypeConnection = make_connection_types(
     description="GraphQL type for corpus engagement metrics.\n\nThis type does NOT use AnnotatePermissionsForReadMixin because\nengagement metrics are read-only and permissions are checked on\nthe parent Corpus object.\n\nEpic: #565 - Corpus Engagement Metrics & Analytics\nIssue: #568 - Create GraphQL queries for engagement metrics and leaderboards",
 )
 class CorpusEngagementMetricsType:
-    total_threads: Optional[int] = strawberry.field(
+    total_threads: int | None = strawberry.field(
         name="totalThreads",
         description="Total number of discussion threads in this corpus",
         default=None,
     )
-    active_threads: Optional[int] = strawberry.field(
+    active_threads: int | None = strawberry.field(
         name="activeThreads",
         description="Number of active (not locked/deleted) threads",
         default=None,
     )
-    total_messages: Optional[int] = strawberry.field(
+    total_messages: int | None = strawberry.field(
         name="totalMessages",
         description="Total number of messages across all threads",
         default=None,
     )
-    messages_last_7_days: Optional[int] = strawberry.field(
+    messages_last_7_days: int | None = strawberry.field(
         name="messagesLast7Days",
         description="Number of messages posted in the last 7 days",
         default=None,
     )
-    messages_last_30_days: Optional[int] = strawberry.field(
+    messages_last_30_days: int | None = strawberry.field(
         name="messagesLast30Days",
         description="Number of messages posted in the last 30 days",
         default=None,
     )
-    unique_contributors: Optional[int] = strawberry.field(
+    unique_contributors: int | None = strawberry.field(
         name="uniqueContributors",
         description="Total number of unique users who have posted messages",
         default=None,
     )
-    active_contributors_30_days: Optional[int] = strawberry.field(
+    active_contributors_30_days: int | None = strawberry.field(
         name="activeContributors30Days",
         description="Number of users who posted in the last 30 days",
         default=None,
     )
-    total_upvotes: Optional[int] = strawberry.field(
+    total_upvotes: int | None = strawberry.field(
         name="totalUpvotes",
         description="Total upvotes across all messages in this corpus",
         default=None,
     )
-    avg_messages_per_thread: Optional[float] = strawberry.field(
+    avg_messages_per_thread: float | None = strawberry.field(
         name="avgMessagesPerThread",
         description="Average number of messages per thread",
         default=None,
     )
-    last_updated: Optional[datetime.datetime] = strawberry.field(
+    last_updated: datetime.datetime | None = strawberry.field(
         name="lastUpdated",
         description="Timestamp when metrics were last calculated",
         default=None,
@@ -2311,24 +2304,24 @@ class CorpusDescriptionRevisionType:
         return _resolve_CorpusDescriptionRevisionType_id(self, info, **kwargs)
 
     @strawberry.field(name="version")
-    def version(self, info: strawberry.Info) -> Optional[int]:
+    def version(self, info: strawberry.Info) -> int | None:
         kwargs = strip_unset({})
         return _resolve_CorpusDescriptionRevisionType_version(self, info, **kwargs)
 
     @strawberry.field(name="author")
     def author(
         self, info: strawberry.Info
-    ) -> Optional[Annotated["UserType", strawberry.lazy("config.graphql.user_types")]]:
+    ) -> Annotated[UserType, strawberry.lazy("config.graphql.user_types")] | None:
         kwargs = strip_unset({})
         return _resolve_CorpusDescriptionRevisionType_author(self, info, **kwargs)
 
     @strawberry.field(name="snapshot")
-    def snapshot(self, info: strawberry.Info) -> Optional[str]:
+    def snapshot(self, info: strawberry.Info) -> str | None:
         kwargs = strip_unset({})
         return _resolve_CorpusDescriptionRevisionType_snapshot(self, info, **kwargs)
 
     @strawberry.field(name="created")
-    def created(self, info: strawberry.Info) -> Optional[datetime.datetime]:
+    def created(self, info: strawberry.Info) -> datetime.datetime | None:
         kwargs = strip_unset({})
         return _resolve_CorpusDescriptionRevisionType_created(self, info, **kwargs)
 
@@ -2390,16 +2383,16 @@ register_type(
 
 @strawberry.type(name="CorpusStatsType")
 class CorpusStatsType:
-    total_docs: Optional[int] = strawberry.field(name="totalDocs", default=None)
-    total_annotations: Optional[int] = strawberry.field(
+    total_docs: int | None = strawberry.field(name="totalDocs", default=None)
+    total_annotations: int | None = strawberry.field(
         name="totalAnnotations", default=None
     )
-    total_comments: Optional[int] = strawberry.field(name="totalComments", default=None)
-    total_analyses: Optional[int] = strawberry.field(name="totalAnalyses", default=None)
-    total_extracts: Optional[int] = strawberry.field(name="totalExtracts", default=None)
-    total_threads: Optional[int] = strawberry.field(name="totalThreads", default=None)
-    total_chats: Optional[int] = strawberry.field(name="totalChats", default=None)
-    total_relationships: Optional[int] = strawberry.field(
+    total_comments: int | None = strawberry.field(name="totalComments", default=None)
+    total_analyses: int | None = strawberry.field(name="totalAnalyses", default=None)
+    total_extracts: int | None = strawberry.field(name="totalExtracts", default=None)
+    total_threads: int | None = strawberry.field(name="totalThreads", default=None)
+    total_chats: int | None = strawberry.field(name="totalChats", default=None)
+    total_relationships: int | None = strawberry.field(
         name="totalRelationships", default=None
     )
 
@@ -2412,10 +2405,10 @@ register_type("CorpusStatsType", CorpusStatsType, model=None)
     description="The corpus document-relationship graph (node-link form).\n\nBuilt entirely from permission-filtered ``DocumentRelationship`` rows via\n``DocumentRelationshipService`` — documents that participate in at least\none visible relationship, ranked by degree and capped for the glimpse.",
 )
 class CorpusDocumentGraphType:
-    nodes: list["CorpusDocumentGraphNodeType"] = strawberry.field(
+    nodes: list[CorpusDocumentGraphNodeType] = strawberry.field(
         name="nodes", default=None
     )
-    edges: list["CorpusDocumentGraphEdgeType"] = strawberry.field(
+    edges: list[CorpusDocumentGraphEdgeType] = strawberry.field(
         name="edges", default=None
     )
     total_node_count: int = strawberry.field(
@@ -2446,8 +2439,8 @@ class CorpusDocumentGraphNodeType:
     id: strawberry.ID = strawberry.field(
         name="id", description="Global DocumentType id (navigable).", default=None
     )
-    title: Optional[str] = strawberry.field(name="title", default=None)
-    file_type: Optional[str] = strawberry.field(name="fileType", default=None)
+    title: str | None = strawberry.field(name="title", default=None)
+    file_type: str | None = strawberry.field(name="fileType", default=None)
     degree: int = strawberry.field(
         name="degree",
         description="Number of visible relationships touching this document.",
@@ -2470,12 +2463,12 @@ class CorpusDocumentGraphEdgeType:
     target: strawberry.ID = strawberry.field(
         name="target", description="Global id of the target document.", default=None
     )
-    label: Optional[str] = strawberry.field(
+    label: str | None = strawberry.field(
         name="label",
         description="Relationship label text (null for NOTES).",
         default=None,
     )
-    relationship_type: Optional[str] = strawberry.field(
+    relationship_type: str | None = strawberry.field(
         name="relationshipType", default=None
     )
 
@@ -2488,7 +2481,7 @@ register_type("CorpusDocumentGraphEdgeType", CorpusDocumentGraphEdgeType, model=
     description="At-a-glance corpus intelligence framed as insight, not raw counts.\n\nFeeds the ``IntelligencePanel`` on the Corpus Intelligence home. Counts\nrespect the permission model (visible documents only).",
 )
 class CorpusIntelligenceAggregatesType:
-    label_distribution: list["LabelDistributionEntryType"] = strawberry.field(
+    label_distribution: list[LabelDistributionEntryType] = strawberry.field(
         name="labelDistribution",
         description="Top annotation labels by frequency across visible documents.",
         default=None,
@@ -2516,7 +2509,7 @@ register_type(
 )
 class LabelDistributionEntryType:
     label: str = strawberry.field(name="label", default=None)
-    color: Optional[str] = strawberry.field(name="color", default=None)
+    color: str | None = strawberry.field(name="color", default=None)
     count: int = strawberry.field(name="count", default=None)
 
 
@@ -2529,7 +2522,7 @@ register_type("LabelDistributionEntryType", LabelDistributionEntryType, model=No
 )
 class CorpusDataStoryType:
     total_documents: int = strawberry.field(name="totalDocuments", default=None)
-    profiles: list["CorpusDataStoryProfileType"] = strawberry.field(
+    profiles: list[CorpusDataStoryProfileType] = strawberry.field(
         name="profiles", default=None
     )
 
@@ -2544,19 +2537,19 @@ register_type("CorpusDataStoryType", CorpusDataStoryType, model=None)
 class CorpusDataStoryProfileType:
     document_id: strawberry.ID = strawberry.field(name="documentId", default=None)
     title: str = strawberry.field(name="title", default=None)
-    slug: Optional[str] = strawberry.field(name="slug", default=None)
-    type: Optional[str] = strawberry.field(
+    slug: str | None = strawberry.field(name="slug", default=None)
+    type: str | None = strawberry.field(
         name="type", description="Short document/agreement category.", default=None
     )
-    party: Optional[str] = strawberry.field(
+    party: str | None = strawberry.field(
         name="party", description="Primary counterparty / organisation.", default=None
     )
-    effective_date: Optional[str] = strawberry.field(
+    effective_date: str | None = strawberry.field(
         name="effectiveDate",
         description="Effective date, ISO YYYY-MM-DD.",
         default=None,
     )
-    value: Optional[float] = strawberry.field(
+    value: float | None = strawberry.field(
         name="value",
         description="Primary dollar value, positive or null.",
         default=None,
@@ -2574,17 +2567,15 @@ class ArtifactType:
     id: strawberry.ID = strawberry.field(name="id", default=None)
     slug: str = strawberry.field(name="slug", default=None)
     template: str = strawberry.field(name="template", default=None)
-    title: Optional[str] = strawberry.field(name="title", default=None)
-    subtitle: Optional[str] = strawberry.field(name="subtitle", default=None)
-    byline: Optional[str] = strawberry.field(name="byline", default=None)
-    config: Optional[GenericScalar] = strawberry.field(name="config", default=None)
+    title: str | None = strawberry.field(name="title", default=None)
+    subtitle: str | None = strawberry.field(name="subtitle", default=None)
+    byline: str | None = strawberry.field(name="byline", default=None)
+    config: GenericScalar | None = strawberry.field(name="config", default=None)
     corpus_id: strawberry.ID = strawberry.field(name="corpusId", default=None)
-    corpus_slug: Optional[str] = strawberry.field(name="corpusSlug", default=None)
-    creator_slug: Optional[str] = strawberry.field(name="creatorSlug", default=None)
-    image_url: Optional[str] = strawberry.field(name="imageUrl", default=None)
-    created: Optional[datetime.datetime] = strawberry.field(
-        name="created", default=None
-    )
+    corpus_slug: str | None = strawberry.field(name="corpusSlug", default=None)
+    creator_slug: str | None = strawberry.field(name="creatorSlug", default=None)
+    image_url: str | None = strawberry.field(name="imageUrl", default=None)
+    created: datetime.datetime | None = strawberry.field(name="created", default=None)
 
 
 register_type("ArtifactType", ArtifactType, model=None)
@@ -2597,9 +2588,9 @@ register_type("ArtifactType", ArtifactType, model=None)
 class ArtifactTemplateType:
     id: str = strawberry.field(name="id", default=None)
     label: str = strawberry.field(name="label", default=None)
-    description: Optional[str] = strawberry.field(name="description", default=None)
+    description: str | None = strawberry.field(name="description", default=None)
     eligible: bool = strawberry.field(name="eligible", default=None)
-    reason: Optional[str] = strawberry.field(name="reason", default=None)
+    reason: str | None = strawberry.field(name="reason", default=None)
 
 
 register_type("ArtifactTemplateType", ArtifactTemplateType, model=None)
@@ -2629,7 +2620,7 @@ class CorpusIntelligenceSetupSummaryType:
     total_active_documents: int = strawberry.field(
         name="totalActiveDocuments", default=None
     )
-    templates: list["IntelligenceTemplateOutcomeType"] = strawberry.field(
+    templates: list[IntelligenceTemplateOutcomeType] = strawberry.field(
         name="templates", default=None
     )
 
@@ -2688,7 +2679,7 @@ def q_corpus(
         strawberry.ID,
         strawberry.argument(name="id", description="The ID of the object"),
     ] = strawberry.UNSET,
-) -> Optional["CorpusType"]:
+) -> CorpusType | None:
     return get_node_from_global_id(info, id, only_type_name="CorpusType")
 
 

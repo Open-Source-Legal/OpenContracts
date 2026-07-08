@@ -91,13 +91,13 @@ def get_conversation_with_moderation_check(conversation_id, user):
     description="Lock a conversation/thread to prevent new messages.\nOnly corpus owners or moderators with lock_threads permission can lock threads.",
 )
 class LockThreadMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
         Annotated[
-            "ConversationType", strawberry.lazy("config.graphql.conversation_types")
+            ConversationType, strawberry.lazy("config.graphql.conversation_types")
         ]
-    ] = strawberry.field(name="obj", default=None)
+    ) = strawberry.field(name="obj", default=None)
 
 
 register_type("LockThreadMutation", LockThreadMutation, model=None)
@@ -108,13 +108,13 @@ register_type("LockThreadMutation", LockThreadMutation, model=None)
     description="Unlock a conversation/thread to allow new messages.\nOnly corpus owners or moderators with lock_threads permission can unlock threads.",
 )
 class UnlockThreadMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
         Annotated[
-            "ConversationType", strawberry.lazy("config.graphql.conversation_types")
+            ConversationType, strawberry.lazy("config.graphql.conversation_types")
         ]
-    ] = strawberry.field(name="obj", default=None)
+    ) = strawberry.field(name="obj", default=None)
 
 
 register_type("UnlockThreadMutation", UnlockThreadMutation, model=None)
@@ -125,13 +125,13 @@ register_type("UnlockThreadMutation", UnlockThreadMutation, model=None)
     description="Pin a conversation/thread to the top of the list.\nOnly corpus owners or moderators with pin_threads permission can pin threads.",
 )
 class PinThreadMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
         Annotated[
-            "ConversationType", strawberry.lazy("config.graphql.conversation_types")
+            ConversationType, strawberry.lazy("config.graphql.conversation_types")
         ]
-    ] = strawberry.field(name="obj", default=None)
+    ) = strawberry.field(name="obj", default=None)
 
 
 register_type("PinThreadMutation", PinThreadMutation, model=None)
@@ -142,13 +142,13 @@ register_type("PinThreadMutation", PinThreadMutation, model=None)
     description="Unpin a conversation/thread from the top of the list.\nOnly corpus owners or moderators with pin_threads permission can unpin threads.",
 )
 class UnpinThreadMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
         Annotated[
-            "ConversationType", strawberry.lazy("config.graphql.conversation_types")
+            ConversationType, strawberry.lazy("config.graphql.conversation_types")
         ]
-    ] = strawberry.field(name="obj", default=None)
+    ) = strawberry.field(name="obj", default=None)
 
 
 register_type("UnpinThreadMutation", UnpinThreadMutation, model=None)
@@ -159,13 +159,13 @@ register_type("UnpinThreadMutation", UnpinThreadMutation, model=None)
     description="Soft delete a thread (conversation).\nOnly moderators or thread creators can delete threads.",
 )
 class DeleteThreadMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    conversation: Optional[
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    conversation: None | (
         Annotated[
-            "ConversationType", strawberry.lazy("config.graphql.conversation_types")
+            ConversationType, strawberry.lazy("config.graphql.conversation_types")
         ]
-    ] = strawberry.field(name="conversation", default=None)
+    ) = strawberry.field(name="conversation", default=None)
 
 
 register_type("DeleteThreadMutation", DeleteThreadMutation, model=None)
@@ -176,13 +176,13 @@ register_type("DeleteThreadMutation", DeleteThreadMutation, model=None)
     description="Restore a soft-deleted thread.\nOnly moderators or thread creators can restore threads.",
 )
 class RestoreThreadMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    conversation: Optional[
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    conversation: None | (
         Annotated[
-            "ConversationType", strawberry.lazy("config.graphql.conversation_types")
+            ConversationType, strawberry.lazy("config.graphql.conversation_types")
         ]
-    ] = strawberry.field(name="conversation", default=None)
+    ) = strawberry.field(name="conversation", default=None)
 
 
 register_type("RestoreThreadMutation", RestoreThreadMutation, model=None)
@@ -193,8 +193,8 @@ register_type("RestoreThreadMutation", RestoreThreadMutation, model=None)
     description="Add a moderator to a corpus with specific permissions.\nOnly corpus owners can add moderators.",
 )
 class AddModeratorMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
 
 
 register_type("AddModeratorMutation", AddModeratorMutation, model=None)
@@ -205,8 +205,8 @@ register_type("AddModeratorMutation", AddModeratorMutation, model=None)
     description="Remove a moderator from a corpus.\nOnly corpus owners can remove moderators.",
 )
 class RemoveModeratorMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
 
 
 register_type("RemoveModeratorMutation", RemoveModeratorMutation, model=None)
@@ -217,8 +217,8 @@ register_type("RemoveModeratorMutation", RemoveModeratorMutation, model=None)
     description="Update a moderator's permissions for a corpus.\nOnly corpus owners can update moderator permissions.",
 )
 class UpdateModeratorPermissionsMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
 
 
 register_type(
@@ -231,13 +231,13 @@ register_type(
     description="Rollback a moderation action by executing its inverse.\n- delete_message -> restore_message\n- delete_thread -> restore_thread\n- lock_thread -> unlock_thread\n- pin_thread -> unpin_thread\n\nOnly moderators with appropriate permissions can rollback.\nCreates a new ModerationAction record for the rollback.",
 )
 class RollbackModerationActionMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    rollback_action: Optional[
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    rollback_action: None | (
         Annotated[
-            "ModerationActionType", strawberry.lazy("config.graphql.conversation_types")
+            ModerationActionType, strawberry.lazy("config.graphql.conversation_types")
         ]
-    ] = strawberry.field(name="rollbackAction", default=None)
+    ) = strawberry.field(name="rollbackAction", default=None)
 
 
 register_type(
@@ -298,10 +298,10 @@ def m_lock_thread(
         ),
     ] = strawberry.UNSET,
     reason: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(name="reason", description="Optional reason for locking"),
     ] = strawberry.UNSET,
-) -> Optional["LockThreadMutation"]:
+) -> LockThreadMutation | None:
     kwargs = strip_unset({"conversation_id": conversation_id, "reason": reason})
     return _mutate_LockThreadMutation(LockThreadMutation, None, info, **kwargs)
 
@@ -359,10 +359,10 @@ def m_unlock_thread(
         ),
     ] = strawberry.UNSET,
     reason: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(name="reason", description="Optional reason for unlocking"),
     ] = strawberry.UNSET,
-) -> Optional["UnlockThreadMutation"]:
+) -> UnlockThreadMutation | None:
     kwargs = strip_unset({"conversation_id": conversation_id, "reason": reason})
     return _mutate_UnlockThreadMutation(UnlockThreadMutation, None, info, **kwargs)
 
@@ -420,10 +420,10 @@ def m_pin_thread(
         ),
     ] = strawberry.UNSET,
     reason: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(name="reason", description="Optional reason for pinning"),
     ] = strawberry.UNSET,
-) -> Optional["PinThreadMutation"]:
+) -> PinThreadMutation | None:
     kwargs = strip_unset({"conversation_id": conversation_id, "reason": reason})
     return _mutate_PinThreadMutation(PinThreadMutation, None, info, **kwargs)
 
@@ -481,10 +481,10 @@ def m_unpin_thread(
         ),
     ] = strawberry.UNSET,
     reason: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(name="reason", description="Optional reason for unpinning"),
     ] = strawberry.UNSET,
-) -> Optional["UnpinThreadMutation"]:
+) -> UnpinThreadMutation | None:
     kwargs = strip_unset({"conversation_id": conversation_id, "reason": reason})
     return _mutate_UnpinThreadMutation(UnpinThreadMutation, None, info, **kwargs)
 
@@ -545,10 +545,10 @@ def m_delete_thread(
         ),
     ] = strawberry.UNSET,
     reason: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(name="reason", description="Reason for deletion"),
     ] = strawberry.UNSET,
-) -> Optional["DeleteThreadMutation"]:
+) -> DeleteThreadMutation | None:
     kwargs = strip_unset({"conversation_id": conversation_id, "reason": reason})
     return _mutate_DeleteThreadMutation(DeleteThreadMutation, None, info, **kwargs)
 
@@ -612,10 +612,10 @@ def m_restore_thread(
         ),
     ] = strawberry.UNSET,
     reason: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(name="reason", description="Reason for restoration"),
     ] = strawberry.UNSET,
-) -> Optional["RestoreThreadMutation"]:
+) -> RestoreThreadMutation | None:
     kwargs = strip_unset({"conversation_id": conversation_id, "reason": reason})
     return _mutate_RestoreThreadMutation(RestoreThreadMutation, None, info, **kwargs)
 
@@ -702,7 +702,7 @@ def m_add_moderator(
         str, strawberry.argument(name="corpusId", description="ID of the corpus")
     ] = strawberry.UNSET,
     permissions: Annotated[
-        list[Optional[str]],
+        list[str | None],
         strawberry.argument(
             name="permissions",
             description="List of permissions: lock_threads, pin_threads, delete_messages, delete_threads",
@@ -714,7 +714,7 @@ def m_add_moderator(
             name="userId", description="ID of the user to add as moderator"
         ),
     ] = strawberry.UNSET,
-) -> Optional["AddModeratorMutation"]:
+) -> AddModeratorMutation | None:
     kwargs = strip_unset(
         {"corpus_id": corpus_id, "permissions": permissions, "user_id": user_id}
     )
@@ -786,7 +786,7 @@ def m_remove_moderator(
             name="userId", description="ID of the user to remove as moderator"
         ),
     ] = strawberry.UNSET,
-) -> Optional["RemoveModeratorMutation"]:
+) -> RemoveModeratorMutation | None:
     kwargs = strip_unset({"corpus_id": corpus_id, "user_id": user_id})
     return _mutate_RemoveModeratorMutation(
         RemoveModeratorMutation, None, info, **kwargs
@@ -878,7 +878,7 @@ def m_update_moderator_permissions(
         str, strawberry.argument(name="corpusId", description="ID of the corpus")
     ] = strawberry.UNSET,
     permissions: Annotated[
-        list[Optional[str]],
+        list[str | None],
         strawberry.argument(
             name="permissions",
             description="List of permissions: lock_threads, pin_threads, delete_messages, delete_threads",
@@ -887,7 +887,7 @@ def m_update_moderator_permissions(
     user_id: Annotated[
         str, strawberry.argument(name="userId", description="ID of the moderator user")
     ] = strawberry.UNSET,
-) -> Optional["UpdateModeratorPermissionsMutation"]:
+) -> UpdateModeratorPermissionsMutation | None:
     kwargs = strip_unset(
         {"corpus_id": corpus_id, "permissions": permissions, "user_id": user_id}
     )
@@ -1034,10 +1034,10 @@ def m_rollback_moderation_action(
         strawberry.argument(name="actionId", description="ID of action to rollback"),
     ] = strawberry.UNSET,
     reason: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(name="reason", description="Reason for rollback"),
     ] = strawberry.UNSET,
-) -> Optional["RollbackModerationActionMutation"]:
+) -> RollbackModerationActionMutation | None:
     kwargs = strip_unset({"action_id": action_id, "reason": reason})
     return _mutate_RollbackModerationActionMutation(
         RollbackModerationActionMutation, None, info, **kwargs

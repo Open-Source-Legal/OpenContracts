@@ -6590,7 +6590,7 @@ type Mutation {
 
   """
   Create an annotation labelled ``OC_URL`` with a click-through URL.
-  
+
   Convenience wrapper over ``AddAnnotation``: ensures the corpus has an
   ``OC_URL`` label (creating it if absent) and stamps ``link_url`` on the
   resulting annotation so the frontend renders the highlighted text as a
@@ -6621,7 +6621,7 @@ type Mutation {
 
   """
   Create an annotation labelled ``OC_COUNTRY`` with offline-geocoded data.
-  
+
   Mirrors :class:`AddUrlAnnotation` but routes through the bundled
   geocoding service (see :mod:`opencontractserver.utils.geocoding`).
   ``country_hint`` is intentionally absent — the country lookup is
@@ -6649,7 +6649,7 @@ type Mutation {
 
   """
   Create an annotation labelled ``OC_STATE`` with offline-geocoded data.
-  
+
   ``country_hint`` narrows the candidate pool to a single country; today
   the bundled state dataset is US-only, so the hint mostly exists as a
   forward-compatibility hook for when non-US first-level admin
@@ -6673,7 +6673,7 @@ type Mutation {
 
   """
   Create an annotation labelled ``OC_CITY`` with offline-geocoded data.
-  
+
   ``country_hint`` / ``state_hint`` resolve via the same indexes the
   main lookup uses, so any recognised form ("France" / "FR" / "Texas"
   / "TX") works. Hints narrow the candidate pool BEFORE the
@@ -6792,11 +6792,11 @@ type Mutation {
 
   """
   Create a new relationship between two documents in the same corpus.
-  
+
   Permission requirements:
   - User must have CREATE permission on BOTH source and target documents
   - User must have CREATE permission on the corpus
-  
+
   Validation:
   - Both documents must be in the specified corpus
   - For RELATIONSHIP type: annotation_label_id is required
@@ -6824,11 +6824,11 @@ type Mutation {
 
   """
   Update an existing document relationship.
-  
+
   Permission requirements:
   - User must have UPDATE permission on the document relationship
   - OR UPDATE permission on BOTH source and target documents
-  
+
   Updatable fields:
   - relationship_type (with validation for annotation_label requirement)
   - annotation_label_id
@@ -6854,7 +6854,7 @@ type Mutation {
 
   """
   Delete a document relationship.
-  
+
   Permission requirements:
   - User must have DELETE permission on the document relationship
   - OR DELETE permission on BOTH source and target documents
@@ -6866,7 +6866,7 @@ type Mutation {
 
   """
   Delete multiple document relationships at once.
-  
+
   Permission requirements:
   - User must have DELETE permission on each document relationship
   """
@@ -6924,13 +6924,13 @@ type Mutation {
 
   """
   Smart mutation that handles label search and creation with automatic labelset management.
-  
+
   This mutation encapsulates the following logic:
   1. If no labelset exists for the corpus and createIfNotFound is true:
      - Creates a new labelset
      - Assigns it to the corpus
      - Creates the label in the new labelset
-  
+
   2. If labelset exists:
      - Searches for existing labels matching the search term
      - If matches found: returns the matching labels
@@ -7075,11 +7075,11 @@ type Mutation {
 
   """
   Retry processing for a failed document.
-  
+
   This mutation allows users to manually trigger reprocessing of a document
   that failed during the parsing pipeline. It's useful when transient errors
   (like network timeouts or service unavailability) have been resolved.
-  
+
   Requirements:
   - Document must be in FAILED processing state
   - User must have UPDATE permission on the document
@@ -7091,7 +7091,7 @@ type Mutation {
 
   """
   Restore a soft-deleted document path within a corpus.
-  
+
   Delegates to DocumentLifecycleService.restore_document() for:
   - Permission checking (corpus UPDATE permission)
   - Creating new DocumentPath with is_deleted=False
@@ -7118,14 +7118,14 @@ type Mutation {
 
   """
   Permanently delete a soft-deleted document from a corpus.
-  
+
   This is IRREVERSIBLE and removes:
   - All DocumentPath history for the document in this corpus
   - User annotations (non-structural) on the document
   - Relationships involving those annotations
   - DocumentSummaryRevision records
   - The Document itself if no other corpus references it
-  
+
   Requires DELETE permission on the corpus.
   """
   permanentlyDeleteDocument(
@@ -7138,9 +7138,9 @@ type Mutation {
 
   """
   Permanently delete ALL soft-deleted documents in a corpus (empty trash).
-  
+
   This is IRREVERSIBLE and removes all documents currently in the corpus trash.
-  
+
   Requires DELETE permission on the corpus.
   """
   emptyTrash(
@@ -7150,12 +7150,12 @@ type Mutation {
 
   """
   Move EVERY document in a corpus to Trash and remove ALL of its folders.
-  
+
   This is the "empty everything" action. Documents are soft-deleted (they
   remain in the trash and are restorable until the trash is emptied); the
   folder tree is removed. Nothing is permanently deleted here — callers can
   follow up with ``emptyTrash`` to purge.
-  
+
   Requires DELETE permission on the corpus.
   """
   emptyCorpus(
@@ -7174,7 +7174,7 @@ type Mutation {
 
   """
   Re-embed all annotations in a corpus with a different embedder (Issue #437).
-  
+
   This is the controlled migration path for changing a corpus's embedder
   after documents have been added. It:
   1. Validates the new embedder exists in the registry
@@ -7182,7 +7182,7 @@ type Mutation {
   3. Queues a background task that updates preferred_embedder and
      generates new embeddings for all annotations
   4. The corpus unlocks automatically when re-embedding completes
-  
+
   Only the corpus creator can trigger re-embedding.
   """
   reEmbedCorpus(
@@ -7197,12 +7197,12 @@ type Mutation {
 
   """
   Set corpus visibility (public/private).
-  
+
   Requires one of:
   - User is the corpus creator (owner), OR
   - User has PERMISSION permission on the corpus, OR
   - User is superuser
-  
+
   Security notes:
   - Permission check prevents users from escalating access
   - Uses existing make_corpus_public_task for cascading public visibility
@@ -7279,7 +7279,7 @@ type Mutation {
 
   """
   Add existing documents to a corpus.
-  
+
   Delegates to CorpusDocumentService.add_documents_to_corpus() for:
   - Permission checking (corpus UPDATE permission)
   - Document validation (user owns or public)
@@ -7295,7 +7295,7 @@ type Mutation {
 
   """
   Remove documents from a corpus (soft-delete).
-  
+
   Delegates to CorpusDocumentService.remove_documents_from_corpus() for:
   - Permission checking (corpus UPDATE permission)
   - Soft-delete via DocumentPath (creates is_deleted=True record)
@@ -7311,7 +7311,7 @@ type Mutation {
 
   """
   Create a new CorpusAction that will be triggered when events occur in a corpus.
-  
+
   Action types:
   - **Fieldset**: Run data extraction (fieldset_id)
   - **Analyzer**: Run classification/annotation (analyzer_id)
@@ -7320,7 +7320,7 @@ type Mutation {
     or use create_agent_inline=True for thread/message moderation.
   - **Lightweight agent**: Just provide task_instructions (no agent_config needed).
     The system auto-selects tools based on the trigger type.
-  
+
   Requires UPDATE permission on the corpus.
   """
   createCorpusAction(
@@ -7427,7 +7427,7 @@ type Mutation {
 
   """
   Manually trigger a specific agent-based corpus action on a document.
-  
+
   Superuser-only. Creates a CorpusActionExecution record and dispatches
   the run_agent_corpus_action Celery task.
   """
@@ -7449,14 +7449,14 @@ type Mutation {
 
   """
   Add an action template to a corpus by cloning it into a CorpusAction.
-  
+
   This is the core of the Action Library feature: users browse available
   templates and opt-in per corpus. Once cloned, the action is a regular
   CorpusAction that can be edited/toggled/deleted like any other.
-  
+
   Prevents duplicates: the same template cannot be added twice to the same
   corpus (checked via source_template FK).
-  
+
   Requires the user to be the corpus creator or have CRUD permission.
   """
   addTemplateToCorpus(
@@ -7469,7 +7469,7 @@ type Mutation {
 
   """
   One-click collection-intelligence setup.
-  
+
   Composes the default enrichment bundle in a single idempotent call:
   installs the reference-enrichment analyzer as an ``add_document`` action
   and starts the first weave (deterministic), then clones the description +
@@ -7485,15 +7485,15 @@ type Mutation {
 
   """
   Toggle the agent memory system on/off for a corpus.
-  
+
   When enabled, agents accumulate reusable insights from conversations
   into a memory document. The memory document is a first-class Document
   in the corpus, visible and editable by users.
-  
+
   IMPORTANT: When memory is enabled, conversation patterns (NOT specific
   content) may be distilled into the memory document. Users should be
   aware of this when discussing sensitive topics.
-  
+
   Requires CRUD permission on the corpus.
   """
   toggleCorpusMemory(
@@ -7506,7 +7506,7 @@ type Mutation {
 
   """
   Create a shareable poster (Artifact) of a corpus from a template.
-  
+
   READ-gated on the corpus (you can make a poster of any collection you can
   see): its ``/a/<slug>`` link is shareable to anyone who can read the
   source corpus (corpus-as-gate ONLY — there is no per-artifact visibility
@@ -7520,7 +7520,7 @@ type Mutation {
 
   """
   Persist the rendered poster PNG so ``/a/<slug>`` has a stable og:image.
-  
+
   The poster is an SVG rendered client-side; the editor rasterises it and
   uploads the bytes here on save. (A production deploy can swap in a headless
   server render behind the same field without changing the contract.)
@@ -7564,7 +7564,7 @@ type Mutation {
 
   """
   Delete a corpus category. Superuser-only.
-  
+
   Deleting a category removes it from every corpus that referenced it (the
   ``Corpus.categories`` M2M through-rows are cleaned up automatically) but
   does not affect the corpuses themselves.
@@ -7576,7 +7576,7 @@ type Mutation {
 
   """
   Create a new folder in a corpus.
-  
+
   Delegates to FolderCRUDService.create_folder() for:
   - Permission checking (corpus UPDATE permission)
   - Validation (unique name, parent in same corpus)
@@ -7607,7 +7607,7 @@ type Mutation {
 
   """
   Update folder properties (name, description, color, icon, tags).
-  
+
   Delegates to FolderCRUDService.update_folder() for:
   - Permission checking (corpus UPDATE permission)
   - Validation (unique name within parent)
@@ -7635,7 +7635,7 @@ type Mutation {
 
   """
   Move a folder to a different parent (or to root if parent_id is null).
-  
+
   Delegates to FolderCRUDService.move_folder() for:
   - Permission checking (corpus UPDATE permission)
   - Validation (no self-move, no move into descendants, same corpus)
@@ -7651,7 +7651,7 @@ type Mutation {
 
   """
   Delete a folder and optionally its contents.
-  
+
   Delegates to FolderCRUDService.delete_folder() for:
   - Permission checking (corpus DELETE permission)
   - Child folder handling (reparent or cascade)
@@ -7667,7 +7667,7 @@ type Mutation {
 
   """
   Move a document to a specific folder (or to corpus root if folder_id is null).
-  
+
   Delegates to FolderDocumentService.move_document_to_folder() for:
   - Permission checking (corpus UPDATE permission)
   - Validation (document in corpus, folder in corpus)
@@ -7686,7 +7686,7 @@ type Mutation {
 
   """
   Move multiple documents to a specific folder in bulk.
-  
+
   Delegates to FolderDocumentService.move_documents_to_folder() for:
   - Permission checking (corpus UPDATE permission)
   - Validation (all documents in corpus, folder in corpus)
@@ -7770,7 +7770,7 @@ type Mutation {
 
   """
   Dispatch the enrichment and/or crawl analyzer on a corpus.
-  
+
   The caller must hold UPDATE on the corpus — both analyzers write
   references and/or publish authority documents into it.  At least one of
   ``run_enrichment`` / ``run_crawl`` must be True.  On success every
@@ -7794,13 +7794,13 @@ type Mutation {
 
   """
   Run authority discovery on a hand-picked set of ``AuthorityFrontier`` rows.
-  
+
   The corpus-agnostic counterpart to :class:`RunCorpusEnrichmentMutation`'s
   crawl: instead of seeding + dequeuing the whole frontier under a corpus
   ``Analysis``, this ingests *exactly* the selected rows (depth 0, no
   recursion), so the global Authority Sources monitor can drain a chosen
   subset of the queue.
-  
+
   **Superuser-only.** The ``AuthorityFrontier`` is a global, system-managed
   queue with no per-object permissions — mirroring the ``authorityFrontier``
   query gate, there is no corpus to check ``UPDATE`` against. The work is
@@ -7916,14 +7916,14 @@ type Mutation {
 
   """
   Fork an existing Extract into a new iteration along a single axis.
-  
+
   Three axes are supported, mirroring the three eval workflows:
     * ``MODEL`` — same fieldset + same documents, new model_config.
     * ``DOCUMENT_VERSIONS`` — same fieldset + same model_config, but each
       document is replaced by the current row in its version tree.
     * ``FIELDSET`` — clone the fieldset (with optional per-column
       overrides), keep documents + model_config.
-  
+
   The new extract has ``parent_extract`` set to the source so the UI can
   walk the iteration series. If ``auto_start`` is true the standard
   ``run_extract`` task is queued exactly as ``StartExtract`` would.
@@ -7956,7 +7956,7 @@ type Mutation {
 
   """
   Mutation to update an existing Extract object.
-  
+
   Supports updating the name (title), corpus, fieldset, and error fields.
   Ensures proper permission checks are applied.
   """
@@ -8063,7 +8063,7 @@ type Mutation {
 
   """
   Set a metadata value for a document.
-  
+
   Permission model:
   - Requires Corpus UPDATE permission + Document READ permission
   - Metadata is a corpus-level feature, so corpus permission controls editing
@@ -8073,7 +8073,7 @@ type Mutation {
 
   """
   Delete a metadata value for a document.
-  
+
   Permission model:
   - Requires Corpus DELETE permission + Document READ permission
   - Metadata is a corpus-level feature, so corpus permission controls deletion
@@ -8146,12 +8146,12 @@ type Mutation {
 
   """
   Create a new discussion thread linked to a corpus and/or document.
-  
+
   Supports three modes:
   - corpus_id only: Thread is linked to corpus (corpus-level discussion)
   - document_id only: Thread is linked to document (standalone document discussion)
   - both corpus_id AND document_id: Thread is linked to both (doc-in-corpus discussion)
-  
+
   Security Note: Message content is stored as Markdown from TipTap editor.
   Markdown is safer than HTML (no script injection), and mention links use
   standard Markdown syntax [text](url) which is parsed to create database relationships.
@@ -8195,15 +8195,15 @@ type Mutation {
 
   """
   Update the content of an existing message.
-  
+
   Security Note: Only the message creator or a moderator can edit messages.
   Mention links are re-parsed when content is updated.
-  
+
   XSS Prevention Note: The content field contains user-generated markdown text
   that must be properly escaped when rendered in the frontend to prevent XSS
   attacks. GraphQL's GenericScalar handles JSON serialization safely, but the
   frontend must use a markdown renderer that sanitizes HTML output.
-  
+
   Part of Issue #686 - Mobile UI for Edit Message Modal
   """
   updateMessage(
@@ -8350,7 +8350,7 @@ type Mutation {
   - delete_thread -> restore_thread
   - lock_thread -> unlock_thread
   - pin_thread -> unpin_thread
-  
+
   Only moderators with appropriate permissions can rollback.
   Creates a new ModerationAction record for the rollback.
   """
@@ -8385,7 +8385,7 @@ type Mutation {
   Create or update a vote on a conversation/thread.
   Users can upvote or downvote threads. Changing vote type updates the existing vote.
   Users cannot vote on their own threads.
-  
+
   Permission: Users can vote on any conversation/thread they can see (visibility-based).
   """
   voteConversation(
@@ -8398,7 +8398,7 @@ type Mutation {
 
   """
   Remove user's vote from a conversation/thread.
-  
+
   Permission: Users can remove their vote from any conversation they can see.
   """
   removeConversationVote(
@@ -8408,7 +8408,7 @@ type Mutation {
 
   """
   Create or update a vote on a corpus.
-  
+
   Authenticated users vote with their account; the service blocks self-vote
   (creators cannot upvote their own corpuses, matching the Message /
   Conversation contract). Anonymous viewers vote via their Django session
@@ -8426,7 +8426,7 @@ type Mutation {
 
   """
   Remove the caller's vote on a corpus.
-  
+
   Symmetric with :class:`VoteCorpusMutation` — works for both
   authenticated users (creator-keyed) and anonymous viewers
   (session-keyed). Idempotent: removing a non-existent vote is a
@@ -8563,10 +8563,10 @@ type Mutation {
 
   """
   Update the singleton pipeline settings.
-  
+
   Only superusers can modify these settings. Changes take effect immediately
   for all new document processing tasks.
-  
+
   Arguments:
       preferred_parsers: Dict mapping MIME types to parser class paths
       preferred_embedders: Dict mapping MIME types to embedder class paths
@@ -8575,7 +8575,7 @@ type Mutation {
       parser_kwargs: Dict mapping parser class paths to their configuration kwargs
       component_settings: Dict mapping component class paths to settings overrides
       default_embedder: Default embedder class path
-  
+
   Returns:
       ok: Whether the update succeeded
       message: Status message
@@ -8636,30 +8636,30 @@ type Mutation {
 
   """
   Reset pipeline settings to Django settings defaults.
-  
+
   This mutation resets all pipeline settings to their default values from
   Django settings (PREFERRED_PARSERS, PREFERRED_EMBEDDERS, etc.).
-  
+
   Only superusers can perform this operation.
   """
   resetPipelineSettings: ResetPipelineSettingsMutation
 
   """
   Update encrypted secrets for a specific pipeline component.
-  
+
   This mutation allows superusers to securely store API keys, tokens, and
   other credentials for pipeline components. The secrets are encrypted at
   rest using Fernet symmetric encryption.
-  
+
   Only superusers can perform this operation.
-  
+
   Arguments:
       component_path: Full class path of the component (e.g.,
           'opencontractserver.pipeline.parsers.llamaparse_parser.LlamaParseParser')
       secrets: Dict of secret key-value pairs to store (e.g., {'api_key': '...'})
       merge: If True, merge with existing secrets. If False, replace all secrets
           for this component. Default: True
-  
+
   Returns:
       ok: Whether the update succeeded
       message: Status message
@@ -8682,12 +8682,12 @@ type Mutation {
 
   """
   Delete all encrypted secrets for a specific pipeline component.
-  
+
   Only superusers can perform this operation.
-  
+
   Arguments:
       component_path: Full class path of the component
-  
+
   Returns:
       ok: Whether the deletion succeeded
       message: Status message
@@ -8700,10 +8700,10 @@ type Mutation {
 
   """
   Update encrypted secrets for an agent tool (e.g. web search API keys).
-  
+
   Tool secrets are stored in PipelineSettings alongside component secrets,
   under a ``tool:`` namespace prefix. Only superusers can perform this.
-  
+
   Arguments:
       tool_key: Tool identifier, e.g. ``"tool:web_search"``
       secrets: Dict of secret key-value pairs, e.g. ``{"api_key": "..."}``
@@ -8726,7 +8726,7 @@ type Mutation {
 
   """
   Delete all settings and secrets for an agent tool.
-  
+
   Only superusers can perform this operation.
   """
   deleteToolSecrets(
@@ -8747,7 +8747,7 @@ type Mutation {
 
   """
   Create a scoped access token granting a worker upload access to a corpus.
-  
+
   Returns the full token key — it is only shown once.
   Allowed for superusers and the corpus creator.
   """

@@ -60,11 +60,11 @@ logger = logging.getLogger(__name__)
     description="Create a new folder in a corpus.\n\nDelegates to FolderCRUDService.create_folder() for:\n- Permission checking (corpus UPDATE permission)\n- Validation (unique name, parent in same corpus)\n- Folder creation",
 )
 class CreateCorpusFolderMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    folder: Optional[
-        Annotated["CorpusFolderType", strawberry.lazy("config.graphql.corpus_types")]
-    ] = strawberry.field(name="folder", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    folder: None | (
+        Annotated[CorpusFolderType, strawberry.lazy("config.graphql.corpus_types")]
+    ) = strawberry.field(name="folder", default=None)
 
 
 register_type("CreateCorpusFolderMutation", CreateCorpusFolderMutation, model=None)
@@ -75,11 +75,11 @@ register_type("CreateCorpusFolderMutation", CreateCorpusFolderMutation, model=No
     description="Update folder properties (name, description, color, icon, tags).\n\nDelegates to FolderCRUDService.update_folder() for:\n- Permission checking (corpus UPDATE permission)\n- Validation (unique name within parent)\n- Folder update",
 )
 class UpdateCorpusFolderMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    folder: Optional[
-        Annotated["CorpusFolderType", strawberry.lazy("config.graphql.corpus_types")]
-    ] = strawberry.field(name="folder", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    folder: None | (
+        Annotated[CorpusFolderType, strawberry.lazy("config.graphql.corpus_types")]
+    ) = strawberry.field(name="folder", default=None)
 
 
 register_type("UpdateCorpusFolderMutation", UpdateCorpusFolderMutation, model=None)
@@ -90,11 +90,11 @@ register_type("UpdateCorpusFolderMutation", UpdateCorpusFolderMutation, model=No
     description="Move a folder to a different parent (or to root if parent_id is null).\n\nDelegates to FolderCRUDService.move_folder() for:\n- Permission checking (corpus UPDATE permission)\n- Validation (no self-move, no move into descendants, same corpus)\n- Folder move",
 )
 class MoveCorpusFolderMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    folder: Optional[
-        Annotated["CorpusFolderType", strawberry.lazy("config.graphql.corpus_types")]
-    ] = strawberry.field(name="folder", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    folder: None | (
+        Annotated[CorpusFolderType, strawberry.lazy("config.graphql.corpus_types")]
+    ) = strawberry.field(name="folder", default=None)
 
 
 register_type("MoveCorpusFolderMutation", MoveCorpusFolderMutation, model=None)
@@ -105,8 +105,8 @@ register_type("MoveCorpusFolderMutation", MoveCorpusFolderMutation, model=None)
     description="Delete a folder and optionally its contents.\n\nDelegates to FolderCRUDService.delete_folder() for:\n- Permission checking (corpus DELETE permission)\n- Child folder handling (reparent or cascade)\n- Document folder assignment cleanup via DocumentPath",
 )
 class DeleteCorpusFolderMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
 
 
 register_type("DeleteCorpusFolderMutation", DeleteCorpusFolderMutation, model=None)
@@ -117,11 +117,11 @@ register_type("DeleteCorpusFolderMutation", DeleteCorpusFolderMutation, model=No
     description="Move a document to a specific folder (or to corpus root if folder_id is null).\n\nDelegates to FolderDocumentService.move_document_to_folder() for:\n- Permission checking (corpus UPDATE permission)\n- Validation (document in corpus, folder in corpus)\n- DocumentPath folder assignment update",
 )
 class MoveDocumentToFolderMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    document: Optional[
-        Annotated["DocumentType", strawberry.lazy("config.graphql.document_types")]
-    ] = strawberry.field(name="document", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    document: None | (
+        Annotated[DocumentType, strawberry.lazy("config.graphql.document_types")]
+    ) = strawberry.field(name="document", default=None)
 
 
 register_type("MoveDocumentToFolderMutation", MoveDocumentToFolderMutation, model=None)
@@ -132,9 +132,9 @@ register_type("MoveDocumentToFolderMutation", MoveDocumentToFolderMutation, mode
     description="Move multiple documents to a specific folder in bulk.\n\nDelegates to FolderDocumentService.move_documents_to_folder() for:\n- Permission checking (corpus UPDATE permission)\n- Validation (all documents in corpus, folder in corpus)\n- Bulk DocumentPath folder assignment update",
 )
 class MoveDocumentsToFolderMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    moved_count: Optional[int] = strawberry.field(
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    moved_count: int | None = strawberry.field(
         name="movedCount",
         description="Number of documents successfully moved",
         default=None,
@@ -255,7 +255,7 @@ def _mutate_CreateCorpusFolderMutation(
 def m_create_corpus_folder(
     info: strawberry.Info,
     color: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(name="color", description="Folder color (hex code)"),
     ] = strawberry.UNSET,
     corpus_id: Annotated[
@@ -265,27 +265,27 @@ def m_create_corpus_folder(
         ),
     ] = strawberry.UNSET,
     description: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(name="description", description="Folder description"),
     ] = strawberry.UNSET,
     icon: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(name="icon", description="Folder icon identifier"),
     ] = strawberry.UNSET,
     name: Annotated[
         str, strawberry.argument(name="name", description="Folder name")
     ] = strawberry.UNSET,
     parent_id: Annotated[
-        Optional[strawberry.ID],
+        strawberry.ID | None,
         strawberry.argument(
             name="parentId", description="Parent folder ID (omit for root-level folder)"
         ),
     ] = strawberry.UNSET,
     tags: Annotated[
-        Optional[list[Optional[str]]],
+        list[str | None] | None,
         strawberry.argument(name="tags", description="List of tags"),
     ] = strawberry.UNSET,
-) -> Optional["CreateCorpusFolderMutation"]:
+) -> CreateCorpusFolderMutation | None:
     kwargs = strip_unset(
         {
             "color": color,
@@ -403,11 +403,11 @@ def _mutate_UpdateCorpusFolderMutation(
 def m_update_corpus_folder(
     info: strawberry.Info,
     color: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(name="color", description="New color (hex code)"),
     ] = strawberry.UNSET,
     description: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(name="description", description="New description"),
     ] = strawberry.UNSET,
     folder_id: Annotated[
@@ -415,17 +415,17 @@ def m_update_corpus_folder(
         strawberry.argument(name="folderId", description="Folder ID to update"),
     ] = strawberry.UNSET,
     icon: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(name="icon", description="New icon identifier"),
     ] = strawberry.UNSET,
     name: Annotated[
-        Optional[str], strawberry.argument(name="name", description="New folder name")
+        str | None, strawberry.argument(name="name", description="New folder name")
     ] = strawberry.UNSET,
     tags: Annotated[
-        Optional[list[Optional[str]]],
+        list[str | None] | None,
         strawberry.argument(name="tags", description="New list of tags"),
     ] = strawberry.UNSET,
-) -> Optional["UpdateCorpusFolderMutation"]:
+) -> UpdateCorpusFolderMutation | None:
     kwargs = strip_unset(
         {
             "color": color,
@@ -524,13 +524,13 @@ def m_move_corpus_folder(
         strawberry.argument(name="folderId", description="Folder ID to move"),
     ] = strawberry.UNSET,
     new_parent_id: Annotated[
-        Optional[strawberry.ID],
+        strawberry.ID | None,
         strawberry.argument(
             name="newParentId",
             description="New parent folder ID (null to move to root)",
         ),
     ] = strawberry.UNSET,
-) -> Optional["MoveCorpusFolderMutation"]:
+) -> MoveCorpusFolderMutation | None:
     kwargs = strip_unset({"folder_id": folder_id, "new_parent_id": new_parent_id})
     return _mutate_MoveCorpusFolderMutation(
         MoveCorpusFolderMutation, None, info, **kwargs
@@ -601,7 +601,7 @@ def _mutate_DeleteCorpusFolderMutation(
 def m_delete_corpus_folder(
     info: strawberry.Info,
     delete_contents: Annotated[
-        Optional[bool],
+        bool | None,
         strawberry.argument(
             name="deleteContents",
             description="If true, delete subfolders; if false, move to parent",
@@ -611,7 +611,7 @@ def m_delete_corpus_folder(
         strawberry.ID,
         strawberry.argument(name="folderId", description="Folder ID to delete"),
     ] = strawberry.UNSET,
-) -> Optional["DeleteCorpusFolderMutation"]:
+) -> DeleteCorpusFolderMutation | None:
     kwargs = strip_unset({"delete_contents": delete_contents, "folder_id": folder_id})
     return _mutate_DeleteCorpusFolderMutation(
         DeleteCorpusFolderMutation, None, info, **kwargs
@@ -722,12 +722,12 @@ def m_move_document_to_folder(
         strawberry.argument(name="documentId", description="Document ID to move"),
     ] = strawberry.UNSET,
     folder_id: Annotated[
-        Optional[strawberry.ID],
+        strawberry.ID | None,
         strawberry.argument(
             name="folderId", description="Folder ID to move to (null for corpus root)"
         ),
     ] = strawberry.UNSET,
-) -> Optional["MoveDocumentToFolderMutation"]:
+) -> MoveDocumentToFolderMutation | None:
     kwargs = strip_unset(
         {"corpus_id": corpus_id, "document_id": document_id, "folder_id": folder_id}
     )
@@ -825,18 +825,18 @@ def m_move_documents_to_folder(
         ),
     ] = strawberry.UNSET,
     document_ids: Annotated[
-        list[Optional[strawberry.ID]],
+        list[strawberry.ID | None],
         strawberry.argument(
             name="documentIds", description="List of document IDs to move"
         ),
     ] = strawberry.UNSET,
     folder_id: Annotated[
-        Optional[strawberry.ID],
+        strawberry.ID | None,
         strawberry.argument(
             name="folderId", description="Folder ID to move to (null for corpus root)"
         ),
     ] = strawberry.UNSET,
-) -> Optional["MoveDocumentsToFolderMutation"]:
+) -> MoveDocumentsToFolderMutation | None:
     kwargs = strip_unset(
         {"corpus_id": corpus_id, "document_ids": document_ids, "folder_id": folder_id}
     )

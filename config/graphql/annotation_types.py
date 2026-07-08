@@ -77,29 +77,27 @@ from opencontractserver.utils.permissioning import get_users_permissions_for_obj
 
 @strawberry.input(name="RelationInputType")
 class RelationInputType:
-    my_permissions: Optional[GenericScalar] = strawberry.field(
+    my_permissions: GenericScalar | None = strawberry.field(
         name="myPermissions", default=strawberry.UNSET
     )
-    is_published: Optional[bool] = strawberry.field(
+    is_published: bool | None = strawberry.field(
         name="isPublished", default=strawberry.UNSET
     )
-    object_shared_with: Optional[GenericScalar] = strawberry.field(
+    object_shared_with: GenericScalar | None = strawberry.field(
         name="objectSharedWith", default=strawberry.UNSET
     )
-    id: Optional[str] = strawberry.field(name="id", default=strawberry.UNSET)
-    source_ids: Optional[list[Optional[str]]] = strawberry.field(
+    id: str | None = strawberry.field(name="id", default=strawberry.UNSET)
+    source_ids: list[str | None] | None = strawberry.field(
         name="sourceIds", default=strawberry.UNSET
     )
-    target_ids: Optional[list[Optional[str]]] = strawberry.field(
+    target_ids: list[str | None] | None = strawberry.field(
         name="targetIds", default=strawberry.UNSET
     )
-    relationship_label_id: Optional[str] = strawberry.field(
+    relationship_label_id: str | None = strawberry.field(
         name="relationshipLabelId", default=strawberry.UNSET
     )
-    corpus_id: Optional[str] = strawberry.field(
-        name="corpusId", default=strawberry.UNSET
-    )
-    document_id: Optional[str] = strawberry.field(
+    corpus_id: str | None = strawberry.field(name="corpusId", default=strawberry.UNSET)
+    document_id: str | None = strawberry.field(
         name="documentId", default=strawberry.UNSET
     )
 
@@ -319,35 +317,35 @@ def _resolve_AnnotationType_subtree(root, info):
 
 @strawberry.type(name="AnnotationType")
 class AnnotationType(Node):
-    user_lock: Optional[
-        Annotated["UserType", strawberry.lazy("config.graphql.user_types")]
-    ] = strawberry.field(name="userLock", default=None)
+    user_lock: None | (
+        Annotated[UserType, strawberry.lazy("config.graphql.user_types")]
+    ) = strawberry.field(name="userLock", default=None)
     backend_lock: bool = strawberry.field(name="backendLock", default=None)
     page: int = strawberry.field(name="page", default=None)
 
     @strawberry.field(name="rawText")
-    def raw_text(self, info: strawberry.Info) -> Optional[str]:
+    def raw_text(self, info: strawberry.Info) -> str | None:
         return coerce_str(getattr(self, "raw_text", None))
 
     @strawberry.field(
         name="longDescription",
         description="Optional markdown description for this annotation, e.g. a section summary in a document index.",
     )
-    def long_description(self, info: strawberry.Info) -> Optional[str]:
+    def long_description(self, info: strawberry.Info) -> str | None:
         return coerce_str(getattr(self, "long_description", None))
 
-    json: Optional[GenericScalar] = strawberry.field(name="json", default=None)
-    parent: Optional["AnnotationType"] = strawberry.field(name="parent", default=None)
+    json: GenericScalar | None = strawberry.field(name="json", default=None)
+    parent: AnnotationType | None = strawberry.field(name="parent", default=None)
 
     @strawberry.field(
         name="annotationType",
         description="Annotation type (e.g. TOKEN_LABEL, SPAN_LABEL). Returns raw DB value to avoid enum serialization errors on invalid data.",
     )
-    def annotation_type(self, info: strawberry.Info) -> Optional[str]:
+    def annotation_type(self, info: strawberry.Info) -> str | None:
         kwargs = strip_unset({})
         return _resolve_AnnotationType_annotation_type(self, info, **kwargs)
 
-    annotation_label: Optional["AnnotationLabelType"] = strawberry.field(
+    annotation_label: AnnotationLabelType | None = strawberry.field(
         name="annotationLabel", default=None
     )
 
@@ -357,35 +355,35 @@ class AnnotationType(Node):
     )
     def document(
         self, info: strawberry.Info
-    ) -> Optional[
-        Annotated["DocumentType", strawberry.lazy("config.graphql.document_types")]
-    ]:
+    ) -> None | (
+        Annotated[DocumentType, strawberry.lazy("config.graphql.document_types")]
+    ):
         kwargs = strip_unset({})
         return _resolve_AnnotationType_document(self, info, **kwargs)
 
-    corpus: Optional[
-        Annotated["CorpusType", strawberry.lazy("config.graphql.corpus_types")]
-    ] = strawberry.field(name="corpus", default=None)
-    analysis: Optional[
-        Annotated["AnalysisType", strawberry.lazy("config.graphql.extract_types")]
-    ] = strawberry.field(name="analysis", default=None)
-    created_by_analysis: Optional[
-        Annotated["AnalysisType", strawberry.lazy("config.graphql.extract_types")]
-    ] = strawberry.field(
+    corpus: None | (
+        Annotated[CorpusType, strawberry.lazy("config.graphql.corpus_types")]
+    ) = strawberry.field(name="corpus", default=None)
+    analysis: None | (
+        Annotated[AnalysisType, strawberry.lazy("config.graphql.extract_types")]
+    ) = strawberry.field(name="analysis", default=None)
+    created_by_analysis: None | (
+        Annotated[AnalysisType, strawberry.lazy("config.graphql.extract_types")]
+    ) = strawberry.field(
         name="createdByAnalysis",
         description="If set, this annotation is private to the analysis that created it",
         default=None,
     )
-    created_by_extract: Optional[
-        Annotated["ExtractType", strawberry.lazy("config.graphql.extract_types")]
-    ] = strawberry.field(
+    created_by_extract: None | (
+        Annotated[ExtractType, strawberry.lazy("config.graphql.extract_types")]
+    ) = strawberry.field(
         name="createdByExtract",
         description="If set, this annotation is private to the extract that created it",
         default=None,
     )
-    corpus_action: Optional[
-        Annotated["CorpusActionType", strawberry.lazy("config.graphql.agent_types")]
-    ] = strawberry.field(
+    corpus_action: None | (
+        Annotated[CorpusActionType, strawberry.lazy("config.graphql.agent_types")]
+    ) = strawberry.field(
         name="corpusAction",
         description="If set, this annotation was created by a corpus action agent",
         default=None,
@@ -396,19 +394,17 @@ class AnnotationType(Node):
         name="linkUrl",
         description="Target URL opened when the annotation is clicked. Only meaningful for annotations labelled OC_URL.",
     )
-    def link_url(self, info: strawberry.Info) -> Optional[str]:
+    def link_url(self, info: strawberry.Info) -> str | None:
         return coerce_str(getattr(self, "link_url", None))
 
-    data: Optional[GenericScalar] = strawberry.field(name="data", default=None)
+    data: GenericScalar | None = strawberry.field(name="data", default=None)
     is_grounding_source: bool = strawberry.field(name="isGroundingSource", default=None)
 
     @strawberry.field(
         name="contentModalities",
         description="Content modalities present in this annotation: TEXT, IMAGE, etc.",
     )
-    def content_modalities(
-        self, info: strawberry.Info
-    ) -> Optional[list[Optional[str]]]:
+    def content_modalities(self, info: strawberry.Info) -> list[str | None] | None:
         kwargs = strip_unset({})
         return _resolve_AnnotationType_content_modalities(self, info, **kwargs)
 
@@ -416,11 +412,11 @@ class AnnotationType(Node):
         name="imageContentFile",
         description="JSON file containing extracted image data for IMAGE modality annotations",
     )
-    def image_content_file(self, info: strawberry.Info) -> Optional[str]:
+    def image_content_file(self, info: strawberry.Info) -> str | None:
         return coerce_str(getattr(self, "image_content_file", None))
 
     is_public: bool = strawberry.field(name="isPublic", default=None)
-    creator: Annotated["UserType", strawberry.lazy("config.graphql.user_types")] = (
+    creator: Annotated[UserType, strawberry.lazy("config.graphql.user_types")] = (
         strawberry.field(name="creator", default=None)
     )
     created: datetime.datetime = strawberry.field(name="created", default=None)
@@ -431,22 +427,22 @@ class AnnotationType(Node):
         self,
         info: strawberry.Info,
         offset: Annotated[
-            Optional[int], strawberry.argument(name="offset")
+            int | None, strawberry.argument(name="offset")
         ] = strawberry.UNSET,
         before: Annotated[
-            Optional[str], strawberry.argument(name="before")
+            str | None, strawberry.argument(name="before")
         ] = strawberry.UNSET,
         after: Annotated[
-            Optional[str], strawberry.argument(name="after")
+            str | None, strawberry.argument(name="after")
         ] = strawberry.UNSET,
         first: Annotated[
-            Optional[int], strawberry.argument(name="first")
+            int | None, strawberry.argument(name="first")
         ] = strawberry.UNSET,
         last: Annotated[
-            Optional[int], strawberry.argument(name="last")
+            int | None, strawberry.argument(name="last")
         ] = strawberry.UNSET,
     ) -> Annotated[
-        "AssignmentTypeConnection", strawberry.lazy("config.graphql.user_types")
+        AssignmentTypeConnection, strawberry.lazy("config.graphql.user_types")
     ]:
         kwargs = strip_unset(
             {
@@ -470,22 +466,22 @@ class AnnotationType(Node):
         self,
         info: strawberry.Info,
         offset: Annotated[
-            Optional[int], strawberry.argument(name="offset")
+            int | None, strawberry.argument(name="offset")
         ] = strawberry.UNSET,
         before: Annotated[
-            Optional[str], strawberry.argument(name="before")
+            str | None, strawberry.argument(name="before")
         ] = strawberry.UNSET,
         after: Annotated[
-            Optional[str], strawberry.argument(name="after")
+            str | None, strawberry.argument(name="after")
         ] = strawberry.UNSET,
         first: Annotated[
-            Optional[int], strawberry.argument(name="first")
+            int | None, strawberry.argument(name="first")
         ] = strawberry.UNSET,
         last: Annotated[
-            Optional[int], strawberry.argument(name="last")
+            int | None, strawberry.argument(name="last")
         ] = strawberry.UNSET,
     ) -> Annotated[
-        "DocumentAnalysisRowTypeConnection",
+        DocumentAnalysisRowTypeConnection,
         strawberry.lazy("config.graphql.document_types"),
     ]:
         kwargs = strip_unset(
@@ -510,21 +506,21 @@ class AnnotationType(Node):
         self,
         info: strawberry.Info,
         offset: Annotated[
-            Optional[int], strawberry.argument(name="offset")
+            int | None, strawberry.argument(name="offset")
         ] = strawberry.UNSET,
         before: Annotated[
-            Optional[str], strawberry.argument(name="before")
+            str | None, strawberry.argument(name="before")
         ] = strawberry.UNSET,
         after: Annotated[
-            Optional[str], strawberry.argument(name="after")
+            str | None, strawberry.argument(name="after")
         ] = strawberry.UNSET,
         first: Annotated[
-            Optional[int], strawberry.argument(name="first")
+            int | None, strawberry.argument(name="first")
         ] = strawberry.UNSET,
         last: Annotated[
-            Optional[int], strawberry.argument(name="last")
+            int | None, strawberry.argument(name="last")
         ] = strawberry.UNSET,
-    ) -> "RelationshipTypeConnection":
+    ) -> RelationshipTypeConnection:
         kwargs = strip_unset(
             {
                 "offset": offset,
@@ -547,21 +543,21 @@ class AnnotationType(Node):
         self,
         info: strawberry.Info,
         offset: Annotated[
-            Optional[int], strawberry.argument(name="offset")
+            int | None, strawberry.argument(name="offset")
         ] = strawberry.UNSET,
         before: Annotated[
-            Optional[str], strawberry.argument(name="before")
+            str | None, strawberry.argument(name="before")
         ] = strawberry.UNSET,
         after: Annotated[
-            Optional[str], strawberry.argument(name="after")
+            str | None, strawberry.argument(name="after")
         ] = strawberry.UNSET,
         first: Annotated[
-            Optional[int], strawberry.argument(name="first")
+            int | None, strawberry.argument(name="first")
         ] = strawberry.UNSET,
         last: Annotated[
-            Optional[int], strawberry.argument(name="last")
+            int | None, strawberry.argument(name="last")
         ] = strawberry.UNSET,
-    ) -> "RelationshipTypeConnection":
+    ) -> RelationshipTypeConnection:
         kwargs = strip_unset(
             {
                 "offset": offset,
@@ -584,65 +580,65 @@ class AnnotationType(Node):
         self,
         info: strawberry.Info,
         offset: Annotated[
-            Optional[int], strawberry.argument(name="offset")
+            int | None, strawberry.argument(name="offset")
         ] = strawberry.UNSET,
         before: Annotated[
-            Optional[str], strawberry.argument(name="before")
+            str | None, strawberry.argument(name="before")
         ] = strawberry.UNSET,
         after: Annotated[
-            Optional[str], strawberry.argument(name="after")
+            str | None, strawberry.argument(name="after")
         ] = strawberry.UNSET,
         first: Annotated[
-            Optional[int], strawberry.argument(name="first")
+            int | None, strawberry.argument(name="first")
         ] = strawberry.UNSET,
         last: Annotated[
-            Optional[int], strawberry.argument(name="last")
+            int | None, strawberry.argument(name="last")
         ] = strawberry.UNSET,
         raw_text__contains: Annotated[
-            Optional[str], strawberry.argument(name="rawText_Contains")
+            str | None, strawberry.argument(name="rawText_Contains")
         ] = strawberry.UNSET,
         annotation_label_id: Annotated[
-            Optional[strawberry.ID], strawberry.argument(name="annotationLabelId")
+            strawberry.ID | None, strawberry.argument(name="annotationLabelId")
         ] = strawberry.UNSET,
         annotation_label__text: Annotated[
-            Optional[str], strawberry.argument(name="annotationLabel_Text")
+            str | None, strawberry.argument(name="annotationLabel_Text")
         ] = strawberry.UNSET,
         annotation_label__text__contains: Annotated[
-            Optional[str], strawberry.argument(name="annotationLabel_Text_Contains")
+            str | None, strawberry.argument(name="annotationLabel_Text_Contains")
         ] = strawberry.UNSET,
         annotation_label__description__contains: Annotated[
-            Optional[str],
+            str | None,
             strawberry.argument(name="annotationLabel_Description_Contains"),
         ] = strawberry.UNSET,
         annotation_label__label_type: Annotated[
-            Optional[enums.AnnotationsAnnotationLabelLabelTypeChoices],
+            enums.AnnotationsAnnotationLabelLabelTypeChoices | None,
             strawberry.argument(name="annotationLabel_LabelType"),
         ] = strawberry.UNSET,
         analysis__isnull: Annotated[
-            Optional[bool], strawberry.argument(name="analysis_Isnull")
+            bool | None, strawberry.argument(name="analysis_Isnull")
         ] = strawberry.UNSET,
         document_id: Annotated[
-            Optional[strawberry.ID], strawberry.argument(name="documentId")
+            strawberry.ID | None, strawberry.argument(name="documentId")
         ] = strawberry.UNSET,
         corpus_id: Annotated[
-            Optional[strawberry.ID], strawberry.argument(name="corpusId")
+            strawberry.ID | None, strawberry.argument(name="corpusId")
         ] = strawberry.UNSET,
         structural: Annotated[
-            Optional[bool], strawberry.argument(name="structural")
+            bool | None, strawberry.argument(name="structural")
         ] = strawberry.UNSET,
         uses_label_from_labelset_id: Annotated[
-            Optional[str], strawberry.argument(name="usesLabelFromLabelsetId")
+            str | None, strawberry.argument(name="usesLabelFromLabelsetId")
         ] = strawberry.UNSET,
         created_by_analysis_ids: Annotated[
-            Optional[str], strawberry.argument(name="createdByAnalysisIds")
+            str | None, strawberry.argument(name="createdByAnalysisIds")
         ] = strawberry.UNSET,
         created_with_analyzer_id: Annotated[
-            Optional[str], strawberry.argument(name="createdWithAnalyzerId")
+            str | None, strawberry.argument(name="createdWithAnalyzerId")
         ] = strawberry.UNSET,
         order_by: Annotated[
-            Optional[str], strawberry.argument(name="orderBy", description="Ordering")
+            str | None, strawberry.argument(name="orderBy", description="Ordering")
         ] = strawberry.UNSET,
-    ) -> "AnnotationTypeConnection":
+    ) -> AnnotationTypeConnection:
         kwargs = strip_unset(
             {
                 "offset": offset,
@@ -696,21 +692,21 @@ class AnnotationType(Node):
         self,
         info: strawberry.Info,
         offset: Annotated[
-            Optional[int], strawberry.argument(name="offset")
+            int | None, strawberry.argument(name="offset")
         ] = strawberry.UNSET,
         before: Annotated[
-            Optional[str], strawberry.argument(name="before")
+            str | None, strawberry.argument(name="before")
         ] = strawberry.UNSET,
         after: Annotated[
-            Optional[str], strawberry.argument(name="after")
+            str | None, strawberry.argument(name="after")
         ] = strawberry.UNSET,
         first: Annotated[
-            Optional[int], strawberry.argument(name="first")
+            int | None, strawberry.argument(name="first")
         ] = strawberry.UNSET,
         last: Annotated[
-            Optional[int], strawberry.argument(name="last")
+            int | None, strawberry.argument(name="last")
         ] = strawberry.UNSET,
-    ) -> "NoteTypeConnection":
+    ) -> NoteTypeConnection:
         kwargs = strip_unset(
             {
                 "offset": offset,
@@ -733,21 +729,21 @@ class AnnotationType(Node):
         self,
         info: strawberry.Info,
         offset: Annotated[
-            Optional[int], strawberry.argument(name="offset")
+            int | None, strawberry.argument(name="offset")
         ] = strawberry.UNSET,
         before: Annotated[
-            Optional[str], strawberry.argument(name="before")
+            str | None, strawberry.argument(name="before")
         ] = strawberry.UNSET,
         after: Annotated[
-            Optional[str], strawberry.argument(name="after")
+            str | None, strawberry.argument(name="after")
         ] = strawberry.UNSET,
         first: Annotated[
-            Optional[int], strawberry.argument(name="first")
+            int | None, strawberry.argument(name="first")
         ] = strawberry.UNSET,
         last: Annotated[
-            Optional[int], strawberry.argument(name="last")
+            int | None, strawberry.argument(name="last")
         ] = strawberry.UNSET,
-    ) -> "CorpusReferenceTypeConnection":
+    ) -> CorpusReferenceTypeConnection:
         kwargs = strip_unset(
             {
                 "offset": offset,
@@ -770,21 +766,21 @@ class AnnotationType(Node):
         self,
         info: strawberry.Info,
         offset: Annotated[
-            Optional[int], strawberry.argument(name="offset")
+            int | None, strawberry.argument(name="offset")
         ] = strawberry.UNSET,
         before: Annotated[
-            Optional[str], strawberry.argument(name="before")
+            str | None, strawberry.argument(name="before")
         ] = strawberry.UNSET,
         after: Annotated[
-            Optional[str], strawberry.argument(name="after")
+            str | None, strawberry.argument(name="after")
         ] = strawberry.UNSET,
         first: Annotated[
-            Optional[int], strawberry.argument(name="first")
+            int | None, strawberry.argument(name="first")
         ] = strawberry.UNSET,
         last: Annotated[
-            Optional[int], strawberry.argument(name="last")
+            int | None, strawberry.argument(name="last")
         ] = strawberry.UNSET,
-    ) -> "CorpusReferenceTypeConnection":
+    ) -> CorpusReferenceTypeConnection:
         kwargs = strip_unset(
             {
                 "offset": offset,
@@ -807,22 +803,22 @@ class AnnotationType(Node):
         self,
         info: strawberry.Info,
         offset: Annotated[
-            Optional[int], strawberry.argument(name="offset")
+            int | None, strawberry.argument(name="offset")
         ] = strawberry.UNSET,
         before: Annotated[
-            Optional[str], strawberry.argument(name="before")
+            str | None, strawberry.argument(name="before")
         ] = strawberry.UNSET,
         after: Annotated[
-            Optional[str], strawberry.argument(name="after")
+            str | None, strawberry.argument(name="after")
         ] = strawberry.UNSET,
         first: Annotated[
-            Optional[int], strawberry.argument(name="first")
+            int | None, strawberry.argument(name="first")
         ] = strawberry.UNSET,
         last: Annotated[
-            Optional[int], strawberry.argument(name="last")
+            int | None, strawberry.argument(name="last")
         ] = strawberry.UNSET,
     ) -> Annotated[
-        "DatacellTypeConnection", strawberry.lazy("config.graphql.extract_types")
+        DatacellTypeConnection, strawberry.lazy("config.graphql.extract_types")
     ]:
         kwargs = strip_unset(
             {
@@ -846,22 +842,22 @@ class AnnotationType(Node):
         self,
         info: strawberry.Info,
         offset: Annotated[
-            Optional[int], strawberry.argument(name="offset")
+            int | None, strawberry.argument(name="offset")
         ] = strawberry.UNSET,
         before: Annotated[
-            Optional[str], strawberry.argument(name="before")
+            str | None, strawberry.argument(name="before")
         ] = strawberry.UNSET,
         after: Annotated[
-            Optional[str], strawberry.argument(name="after")
+            str | None, strawberry.argument(name="after")
         ] = strawberry.UNSET,
         first: Annotated[
-            Optional[int], strawberry.argument(name="first")
+            int | None, strawberry.argument(name="first")
         ] = strawberry.UNSET,
         last: Annotated[
-            Optional[int], strawberry.argument(name="last")
+            int | None, strawberry.argument(name="last")
         ] = strawberry.UNSET,
     ) -> Annotated[
-        "UserFeedbackTypeConnection", strawberry.lazy("config.graphql.user_types")
+        UserFeedbackTypeConnection, strawberry.lazy("config.graphql.user_types")
     ]:
         kwargs = strip_unset(
             {
@@ -888,22 +884,22 @@ class AnnotationType(Node):
         self,
         info: strawberry.Info,
         offset: Annotated[
-            Optional[int], strawberry.argument(name="offset")
+            int | None, strawberry.argument(name="offset")
         ] = strawberry.UNSET,
         before: Annotated[
-            Optional[str], strawberry.argument(name="before")
+            str | None, strawberry.argument(name="before")
         ] = strawberry.UNSET,
         after: Annotated[
-            Optional[str], strawberry.argument(name="after")
+            str | None, strawberry.argument(name="after")
         ] = strawberry.UNSET,
         first: Annotated[
-            Optional[int], strawberry.argument(name="first")
+            int | None, strawberry.argument(name="first")
         ] = strawberry.UNSET,
         last: Annotated[
-            Optional[int], strawberry.argument(name="last")
+            int | None, strawberry.argument(name="last")
         ] = strawberry.UNSET,
     ) -> Annotated[
-        "MessageTypeConnection", strawberry.lazy("config.graphql.conversation_types")
+        MessageTypeConnection, strawberry.lazy("config.graphql.conversation_types")
     ]:
         kwargs = strip_unset(
             {
@@ -930,22 +926,22 @@ class AnnotationType(Node):
         self,
         info: strawberry.Info,
         offset: Annotated[
-            Optional[int], strawberry.argument(name="offset")
+            int | None, strawberry.argument(name="offset")
         ] = strawberry.UNSET,
         before: Annotated[
-            Optional[str], strawberry.argument(name="before")
+            str | None, strawberry.argument(name="before")
         ] = strawberry.UNSET,
         after: Annotated[
-            Optional[str], strawberry.argument(name="after")
+            str | None, strawberry.argument(name="after")
         ] = strawberry.UNSET,
         first: Annotated[
-            Optional[int], strawberry.argument(name="first")
+            int | None, strawberry.argument(name="first")
         ] = strawberry.UNSET,
         last: Annotated[
-            Optional[int], strawberry.argument(name="last")
+            int | None, strawberry.argument(name="last")
         ] = strawberry.UNSET,
     ) -> Annotated[
-        "MessageTypeConnection", strawberry.lazy("config.graphql.conversation_types")
+        MessageTypeConnection, strawberry.lazy("config.graphql.conversation_types")
     ]:
         kwargs = strip_unset(
             {
@@ -972,22 +968,22 @@ class AnnotationType(Node):
         self,
         info: strawberry.Info,
         offset: Annotated[
-            Optional[int], strawberry.argument(name="offset")
+            int | None, strawberry.argument(name="offset")
         ] = strawberry.UNSET,
         before: Annotated[
-            Optional[str], strawberry.argument(name="before")
+            str | None, strawberry.argument(name="before")
         ] = strawberry.UNSET,
         after: Annotated[
-            Optional[str], strawberry.argument(name="after")
+            str | None, strawberry.argument(name="after")
         ] = strawberry.UNSET,
         first: Annotated[
-            Optional[int], strawberry.argument(name="first")
+            int | None, strawberry.argument(name="first")
         ] = strawberry.UNSET,
         last: Annotated[
-            Optional[int], strawberry.argument(name="last")
+            int | None, strawberry.argument(name="last")
         ] = strawberry.UNSET,
     ) -> Annotated[
-        "ResearchReportTypeConnection", strawberry.lazy("config.graphql.research_types")
+        ResearchReportTypeConnection, strawberry.lazy("config.graphql.research_types")
     ]:
         kwargs = strip_unset(
             {
@@ -1007,26 +1003,26 @@ class AnnotationType(Node):
         )
 
     @strawberry.field(name="myPermissions")
-    def my_permissions(self, info: strawberry.Info) -> Optional[GenericScalar]:
+    def my_permissions(self, info: strawberry.Info) -> GenericScalar | None:
         return core_permissions.resolve_my_permissions(self, info)
 
     @strawberry.field(name="isPublished")
-    def is_published(self, info: strawberry.Info) -> Optional[bool]:
+    def is_published(self, info: strawberry.Info) -> bool | None:
         return core_permissions.resolve_is_published(self, info)
 
     @strawberry.field(name="objectSharedWith")
-    def object_shared_with(self, info: strawberry.Info) -> Optional[GenericScalar]:
+    def object_shared_with(self, info: strawberry.Info) -> GenericScalar | None:
         return core_permissions.resolve_object_shared_with(self, info)
 
     @strawberry.field(name="feedbackCount", description="Count of user feedback")
-    def feedback_count(self, info: strawberry.Info) -> Optional[int]:
+    def feedback_count(self, info: strawberry.Info) -> int | None:
         kwargs = strip_unset({})
         return _resolve_AnnotationType_feedback_count(self, info, **kwargs)
 
     @strawberry.field(name="allSourceNodeInRelationship")
     def all_source_node_in_relationship(
         self, info: strawberry.Info
-    ) -> Optional[list[Optional["RelationshipType"]]]:
+    ) -> list[RelationshipType | None] | None:
         kwargs = strip_unset({})
         return _resolve_AnnotationType_all_source_node_in_relationship(
             self, info, **kwargs
@@ -1035,7 +1031,7 @@ class AnnotationType(Node):
     @strawberry.field(name="allTargetNodeInRelationship")
     def all_target_node_in_relationship(
         self, info: strawberry.Info
-    ) -> Optional[list[Optional["RelationshipType"]]]:
+    ) -> list[RelationshipType | None] | None:
         kwargs = strip_unset({})
         return _resolve_AnnotationType_all_target_node_in_relationship(
             self, info, **kwargs
@@ -1047,7 +1043,7 @@ class AnnotationType(Node):
     )
     def descendants_tree(
         self, info: strawberry.Info
-    ) -> Optional[list[Optional[GenericScalar]]]:
+    ) -> list[GenericScalar | None] | None:
         kwargs = strip_unset({})
         return _resolve_AnnotationType_descendants_tree(self, info, **kwargs)
 
@@ -1055,9 +1051,7 @@ class AnnotationType(Node):
         name="fullTree",
         description="List of annotations from the root ancestor, each with immediate children's IDs.",
     )
-    def full_tree(
-        self, info: strawberry.Info
-    ) -> Optional[list[Optional[GenericScalar]]]:
+    def full_tree(self, info: strawberry.Info) -> list[GenericScalar | None] | None:
         kwargs = strip_unset({})
         return _resolve_AnnotationType_full_tree(self, info, **kwargs)
 
@@ -1065,7 +1059,7 @@ class AnnotationType(Node):
         name="subtree",
         description="List representing the path from the root ancestor to this annotation and its descendants.",
     )
-    def subtree(self, info: strawberry.Info) -> Optional[list[Optional[GenericScalar]]]:
+    def subtree(self, info: strawberry.Info) -> list[GenericScalar | None] | None:
         kwargs = strip_unset({})
         return _resolve_AnnotationType_subtree(self, info, **kwargs)
 
@@ -1166,9 +1160,9 @@ def _resolve_AnnotationLabelType_my_permissions(root, info):
 
 @strawberry.type(name="AnnotationLabelType")
 class AnnotationLabelType(Node):
-    user_lock: Optional[
-        Annotated["UserType", strawberry.lazy("config.graphql.user_types")]
-    ] = strawberry.field(name="userLock", default=None)
+    user_lock: None | (
+        Annotated[UserType, strawberry.lazy("config.graphql.user_types")]
+    ) = strawberry.field(name="userLock", default=None)
     backend_lock: bool = strawberry.field(name="backendLock", default=None)
     created: datetime.datetime = strawberry.field(name="created", default=None)
     modified: datetime.datetime = strawberry.field(name="modified", default=None)
@@ -1182,9 +1176,9 @@ class AnnotationLabelType(Node):
             getattr(self, "label_type", None),
         )
 
-    analyzer: Optional[
-        Annotated["AnalyzerType", strawberry.lazy("config.graphql.extract_types")]
-    ] = strawberry.field(name="analyzer", default=None)
+    analyzer: None | (
+        Annotated[AnalyzerType, strawberry.lazy("config.graphql.extract_types")]
+    ) = strawberry.field(name="analyzer", default=None)
     read_only: bool = strawberry.field(name="readOnly", default=None)
 
     @strawberry.field(name="color")
@@ -1204,7 +1198,7 @@ class AnnotationLabelType(Node):
         return coerce_str(getattr(self, "text", None))
 
     is_public: bool = strawberry.field(name="isPublic", default=None)
-    creator: Annotated["UserType", strawberry.lazy("config.graphql.user_types")] = (
+    creator: Annotated[UserType, strawberry.lazy("config.graphql.user_types")] = (
         strawberry.field(name="creator", default=None)
     )
 
@@ -1213,22 +1207,22 @@ class AnnotationLabelType(Node):
         self,
         info: strawberry.Info,
         offset: Annotated[
-            Optional[int], strawberry.argument(name="offset")
+            int | None, strawberry.argument(name="offset")
         ] = strawberry.UNSET,
         before: Annotated[
-            Optional[str], strawberry.argument(name="before")
+            str | None, strawberry.argument(name="before")
         ] = strawberry.UNSET,
         after: Annotated[
-            Optional[str], strawberry.argument(name="after")
+            str | None, strawberry.argument(name="after")
         ] = strawberry.UNSET,
         first: Annotated[
-            Optional[int], strawberry.argument(name="first")
+            int | None, strawberry.argument(name="first")
         ] = strawberry.UNSET,
         last: Annotated[
-            Optional[int], strawberry.argument(name="last")
+            int | None, strawberry.argument(name="last")
         ] = strawberry.UNSET,
     ) -> Annotated[
-        "DocumentRelationshipTypeConnection",
+        DocumentRelationshipTypeConnection,
         strawberry.lazy("config.graphql.document_types"),
     ]:
         kwargs = strip_unset(
@@ -1253,21 +1247,21 @@ class AnnotationLabelType(Node):
         self,
         info: strawberry.Info,
         offset: Annotated[
-            Optional[int], strawberry.argument(name="offset")
+            int | None, strawberry.argument(name="offset")
         ] = strawberry.UNSET,
         before: Annotated[
-            Optional[str], strawberry.argument(name="before")
+            str | None, strawberry.argument(name="before")
         ] = strawberry.UNSET,
         after: Annotated[
-            Optional[str], strawberry.argument(name="after")
+            str | None, strawberry.argument(name="after")
         ] = strawberry.UNSET,
         first: Annotated[
-            Optional[int], strawberry.argument(name="first")
+            int | None, strawberry.argument(name="first")
         ] = strawberry.UNSET,
         last: Annotated[
-            Optional[int], strawberry.argument(name="last")
+            int | None, strawberry.argument(name="last")
         ] = strawberry.UNSET,
-    ) -> "RelationshipTypeConnection":
+    ) -> RelationshipTypeConnection:
         kwargs = strip_unset(
             {
                 "offset": offset,
@@ -1290,65 +1284,65 @@ class AnnotationLabelType(Node):
         self,
         info: strawberry.Info,
         offset: Annotated[
-            Optional[int], strawberry.argument(name="offset")
+            int | None, strawberry.argument(name="offset")
         ] = strawberry.UNSET,
         before: Annotated[
-            Optional[str], strawberry.argument(name="before")
+            str | None, strawberry.argument(name="before")
         ] = strawberry.UNSET,
         after: Annotated[
-            Optional[str], strawberry.argument(name="after")
+            str | None, strawberry.argument(name="after")
         ] = strawberry.UNSET,
         first: Annotated[
-            Optional[int], strawberry.argument(name="first")
+            int | None, strawberry.argument(name="first")
         ] = strawberry.UNSET,
         last: Annotated[
-            Optional[int], strawberry.argument(name="last")
+            int | None, strawberry.argument(name="last")
         ] = strawberry.UNSET,
         raw_text__contains: Annotated[
-            Optional[str], strawberry.argument(name="rawText_Contains")
+            str | None, strawberry.argument(name="rawText_Contains")
         ] = strawberry.UNSET,
         annotation_label_id: Annotated[
-            Optional[strawberry.ID], strawberry.argument(name="annotationLabelId")
+            strawberry.ID | None, strawberry.argument(name="annotationLabelId")
         ] = strawberry.UNSET,
         annotation_label__text: Annotated[
-            Optional[str], strawberry.argument(name="annotationLabel_Text")
+            str | None, strawberry.argument(name="annotationLabel_Text")
         ] = strawberry.UNSET,
         annotation_label__text__contains: Annotated[
-            Optional[str], strawberry.argument(name="annotationLabel_Text_Contains")
+            str | None, strawberry.argument(name="annotationLabel_Text_Contains")
         ] = strawberry.UNSET,
         annotation_label__description__contains: Annotated[
-            Optional[str],
+            str | None,
             strawberry.argument(name="annotationLabel_Description_Contains"),
         ] = strawberry.UNSET,
         annotation_label__label_type: Annotated[
-            Optional[enums.AnnotationsAnnotationLabelLabelTypeChoices],
+            enums.AnnotationsAnnotationLabelLabelTypeChoices | None,
             strawberry.argument(name="annotationLabel_LabelType"),
         ] = strawberry.UNSET,
         analysis__isnull: Annotated[
-            Optional[bool], strawberry.argument(name="analysis_Isnull")
+            bool | None, strawberry.argument(name="analysis_Isnull")
         ] = strawberry.UNSET,
         document_id: Annotated[
-            Optional[strawberry.ID], strawberry.argument(name="documentId")
+            strawberry.ID | None, strawberry.argument(name="documentId")
         ] = strawberry.UNSET,
         corpus_id: Annotated[
-            Optional[strawberry.ID], strawberry.argument(name="corpusId")
+            strawberry.ID | None, strawberry.argument(name="corpusId")
         ] = strawberry.UNSET,
         structural: Annotated[
-            Optional[bool], strawberry.argument(name="structural")
+            bool | None, strawberry.argument(name="structural")
         ] = strawberry.UNSET,
         uses_label_from_labelset_id: Annotated[
-            Optional[str], strawberry.argument(name="usesLabelFromLabelsetId")
+            str | None, strawberry.argument(name="usesLabelFromLabelsetId")
         ] = strawberry.UNSET,
         created_by_analysis_ids: Annotated[
-            Optional[str], strawberry.argument(name="createdByAnalysisIds")
+            str | None, strawberry.argument(name="createdByAnalysisIds")
         ] = strawberry.UNSET,
         created_with_analyzer_id: Annotated[
-            Optional[str], strawberry.argument(name="createdWithAnalyzerId")
+            str | None, strawberry.argument(name="createdWithAnalyzerId")
         ] = strawberry.UNSET,
         order_by: Annotated[
-            Optional[str], strawberry.argument(name="orderBy", description="Ordering")
+            str | None, strawberry.argument(name="orderBy", description="Ordering")
         ] = strawberry.UNSET,
-    ) -> "AnnotationTypeConnection":
+    ) -> AnnotationTypeConnection:
         kwargs = strip_unset(
             {
                 "offset": offset,
@@ -1402,21 +1396,21 @@ class AnnotationLabelType(Node):
         self,
         info: strawberry.Info,
         offset: Annotated[
-            Optional[int], strawberry.argument(name="offset")
+            int | None, strawberry.argument(name="offset")
         ] = strawberry.UNSET,
         before: Annotated[
-            Optional[str], strawberry.argument(name="before")
+            str | None, strawberry.argument(name="before")
         ] = strawberry.UNSET,
         after: Annotated[
-            Optional[str], strawberry.argument(name="after")
+            str | None, strawberry.argument(name="after")
         ] = strawberry.UNSET,
         first: Annotated[
-            Optional[int], strawberry.argument(name="first")
+            int | None, strawberry.argument(name="first")
         ] = strawberry.UNSET,
         last: Annotated[
-            Optional[int], strawberry.argument(name="last")
+            int | None, strawberry.argument(name="last")
         ] = strawberry.UNSET,
-    ) -> "LabelSetTypeConnection":
+    ) -> LabelSetTypeConnection:
         kwargs = strip_unset(
             {
                 "offset": offset,
@@ -1435,16 +1429,16 @@ class AnnotationLabelType(Node):
         )
 
     @strawberry.field(name="myPermissions")
-    def my_permissions(self, info: strawberry.Info) -> Optional[GenericScalar]:
+    def my_permissions(self, info: strawberry.Info) -> GenericScalar | None:
         kwargs = strip_unset({})
         return _resolve_AnnotationLabelType_my_permissions(self, info, **kwargs)
 
     @strawberry.field(name="isPublished")
-    def is_published(self, info: strawberry.Info) -> Optional[bool]:
+    def is_published(self, info: strawberry.Info) -> bool | None:
         return core_permissions.resolve_is_published(self, info)
 
     @strawberry.field(name="objectSharedWith")
-    def object_shared_with(self, info: strawberry.Info) -> Optional[GenericScalar]:
+    def object_shared_with(self, info: strawberry.Info) -> GenericScalar | None:
         return core_permissions.resolve_object_shared_with(self, info)
 
 
@@ -1498,12 +1492,12 @@ def _resolve_LabelSetType_all_annotation_labels(root, info):
 
 @strawberry.type(name="LabelSetType")
 class LabelSetType(Node):
-    user_lock: Optional[
-        Annotated["UserType", strawberry.lazy("config.graphql.user_types")]
-    ] = strawberry.field(name="userLock", default=None)
+    user_lock: None | (
+        Annotated[UserType, strawberry.lazy("config.graphql.user_types")]
+    ) = strawberry.field(name="userLock", default=None)
     backend_lock: bool = strawberry.field(name="backendLock", default=None)
     is_public: bool = strawberry.field(name="isPublic", default=None)
-    creator: Annotated["UserType", strawberry.lazy("config.graphql.user_types")] = (
+    creator: Annotated[UserType, strawberry.lazy("config.graphql.user_types")] = (
         strawberry.field(name="creator", default=None)
     )
     created: datetime.datetime = strawberry.field(name="created", default=None)
@@ -1527,43 +1521,43 @@ class LabelSetType(Node):
         self,
         info: strawberry.Info,
         offset: Annotated[
-            Optional[int], strawberry.argument(name="offset")
+            int | None, strawberry.argument(name="offset")
         ] = strawberry.UNSET,
         before: Annotated[
-            Optional[str], strawberry.argument(name="before")
+            str | None, strawberry.argument(name="before")
         ] = strawberry.UNSET,
         after: Annotated[
-            Optional[str], strawberry.argument(name="after")
+            str | None, strawberry.argument(name="after")
         ] = strawberry.UNSET,
         first: Annotated[
-            Optional[int], strawberry.argument(name="first")
+            int | None, strawberry.argument(name="first")
         ] = strawberry.UNSET,
         last: Annotated[
-            Optional[int], strawberry.argument(name="last")
+            int | None, strawberry.argument(name="last")
         ] = strawberry.UNSET,
         description__contains: Annotated[
-            Optional[str], strawberry.argument(name="description_Contains")
+            str | None, strawberry.argument(name="description_Contains")
         ] = strawberry.UNSET,
         text: Annotated[
-            Optional[str], strawberry.argument(name="text")
+            str | None, strawberry.argument(name="text")
         ] = strawberry.UNSET,
         text__contains: Annotated[
-            Optional[str], strawberry.argument(name="text_Contains")
+            str | None, strawberry.argument(name="text_Contains")
         ] = strawberry.UNSET,
         label_type: Annotated[
-            Optional[enums.AnnotationsAnnotationLabelLabelTypeChoices],
+            enums.AnnotationsAnnotationLabelLabelTypeChoices | None,
             strawberry.argument(name="labelType"),
         ] = strawberry.UNSET,
         used_in_labelset_id: Annotated[
-            Optional[str], strawberry.argument(name="usedInLabelsetId")
+            str | None, strawberry.argument(name="usedInLabelsetId")
         ] = strawberry.UNSET,
         used_in_labelset_for_corpus_id: Annotated[
-            Optional[str], strawberry.argument(name="usedInLabelsetForCorpusId")
+            str | None, strawberry.argument(name="usedInLabelsetForCorpusId")
         ] = strawberry.UNSET,
         used_in_analysis_ids: Annotated[
-            Optional[str], strawberry.argument(name="usedInAnalysisIds")
+            str | None, strawberry.argument(name="usedInAnalysisIds")
         ] = strawberry.UNSET,
-    ) -> Optional["AnnotationLabelTypeConnection"]:
+    ) -> AnnotationLabelTypeConnection | None:
         kwargs = strip_unset(
             {
                 "offset": offset,
@@ -1598,9 +1592,9 @@ class LabelSetType(Node):
             },
         )
 
-    analyzer: Optional[
-        Annotated["AnalyzerType", strawberry.lazy("config.graphql.extract_types")]
-    ] = strawberry.field(name="analyzer", default=None)
+    analyzer: None | (
+        Annotated[AnalyzerType, strawberry.lazy("config.graphql.extract_types")]
+    ) = strawberry.field(name="analyzer", default=None)
     is_default: bool = strawberry.field(name="isDefault", default=None)
 
     @strawberry.field(name="usedByCorpuses")
@@ -1608,22 +1602,22 @@ class LabelSetType(Node):
         self,
         info: strawberry.Info,
         offset: Annotated[
-            Optional[int], strawberry.argument(name="offset")
+            int | None, strawberry.argument(name="offset")
         ] = strawberry.UNSET,
         before: Annotated[
-            Optional[str], strawberry.argument(name="before")
+            str | None, strawberry.argument(name="before")
         ] = strawberry.UNSET,
         after: Annotated[
-            Optional[str], strawberry.argument(name="after")
+            str | None, strawberry.argument(name="after")
         ] = strawberry.UNSET,
         first: Annotated[
-            Optional[int], strawberry.argument(name="first")
+            int | None, strawberry.argument(name="first")
         ] = strawberry.UNSET,
         last: Annotated[
-            Optional[int], strawberry.argument(name="last")
+            int | None, strawberry.argument(name="last")
         ] = strawberry.UNSET,
     ) -> Annotated[
-        "CorpusTypeConnection", strawberry.lazy("config.graphql.corpus_types")
+        CorpusTypeConnection, strawberry.lazy("config.graphql.corpus_types")
     ]:
         kwargs = strip_unset(
             {
@@ -1643,45 +1637,45 @@ class LabelSetType(Node):
         )
 
     @strawberry.field(name="myPermissions")
-    def my_permissions(self, info: strawberry.Info) -> Optional[GenericScalar]:
+    def my_permissions(self, info: strawberry.Info) -> GenericScalar | None:
         return core_permissions.resolve_my_permissions(self, info)
 
     @strawberry.field(name="isPublished")
-    def is_published(self, info: strawberry.Info) -> Optional[bool]:
+    def is_published(self, info: strawberry.Info) -> bool | None:
         return core_permissions.resolve_is_published(self, info)
 
     @strawberry.field(name="objectSharedWith")
-    def object_shared_with(self, info: strawberry.Info) -> Optional[GenericScalar]:
+    def object_shared_with(self, info: strawberry.Info) -> GenericScalar | None:
         return core_permissions.resolve_object_shared_with(self, info)
 
     @strawberry.field(
         name="docLabelCount", description="Count of document-level type labels"
     )
-    def doc_label_count(self, info: strawberry.Info) -> Optional[int]:
+    def doc_label_count(self, info: strawberry.Info) -> int | None:
         kwargs = strip_unset({})
         return _resolve_LabelSetType_doc_label_count(self, info, **kwargs)
 
     @strawberry.field(name="spanLabelCount", description="Count of span-based labels")
-    def span_label_count(self, info: strawberry.Info) -> Optional[int]:
+    def span_label_count(self, info: strawberry.Info) -> int | None:
         kwargs = strip_unset({})
         return _resolve_LabelSetType_span_label_count(self, info, **kwargs)
 
     @strawberry.field(name="tokenLabelCount", description="Count of token-level labels")
-    def token_label_count(self, info: strawberry.Info) -> Optional[int]:
+    def token_label_count(self, info: strawberry.Info) -> int | None:
         kwargs = strip_unset({})
         return _resolve_LabelSetType_token_label_count(self, info, **kwargs)
 
     @strawberry.field(
         name="corpusCount", description="Number of corpuses using this label set"
     )
-    def corpus_count(self, info: strawberry.Info) -> Optional[int]:
+    def corpus_count(self, info: strawberry.Info) -> int | None:
         kwargs = strip_unset({})
         return _resolve_LabelSetType_corpus_count(self, info, **kwargs)
 
     @strawberry.field(name="allAnnotationLabels")
     def all_annotation_labels(
         self, info: strawberry.Info
-    ) -> Optional[list[Optional["AnnotationLabelType"]]]:
+    ) -> list[AnnotationLabelType | None] | None:
         kwargs = strip_unset({})
         return _resolve_LabelSetType_all_annotation_labels(self, info, **kwargs)
 
@@ -1699,84 +1693,84 @@ LabelSetTypeConnection = make_connection_types(
 
 @strawberry.type(name="RelationshipType")
 class RelationshipType(Node):
-    user_lock: Optional[
-        Annotated["UserType", strawberry.lazy("config.graphql.user_types")]
-    ] = strawberry.field(name="userLock", default=None)
+    user_lock: None | (
+        Annotated[UserType, strawberry.lazy("config.graphql.user_types")]
+    ) = strawberry.field(name="userLock", default=None)
     backend_lock: bool = strawberry.field(name="backendLock", default=None)
-    relationship_label: Optional["AnnotationLabelType"] = strawberry.field(
+    relationship_label: AnnotationLabelType | None = strawberry.field(
         name="relationshipLabel", default=None
     )
-    corpus: Optional[
-        Annotated["CorpusType", strawberry.lazy("config.graphql.corpus_types")]
-    ] = strawberry.field(name="corpus", default=None)
-    document: Optional[
-        Annotated["DocumentType", strawberry.lazy("config.graphql.document_types")]
-    ] = strawberry.field(name="document", default=None)
+    corpus: None | (
+        Annotated[CorpusType, strawberry.lazy("config.graphql.corpus_types")]
+    ) = strawberry.field(name="corpus", default=None)
+    document: None | (
+        Annotated[DocumentType, strawberry.lazy("config.graphql.document_types")]
+    ) = strawberry.field(name="document", default=None)
 
     @strawberry.field(name="sourceAnnotations")
     def source_annotations(
         self,
         info: strawberry.Info,
         offset: Annotated[
-            Optional[int], strawberry.argument(name="offset")
+            int | None, strawberry.argument(name="offset")
         ] = strawberry.UNSET,
         before: Annotated[
-            Optional[str], strawberry.argument(name="before")
+            str | None, strawberry.argument(name="before")
         ] = strawberry.UNSET,
         after: Annotated[
-            Optional[str], strawberry.argument(name="after")
+            str | None, strawberry.argument(name="after")
         ] = strawberry.UNSET,
         first: Annotated[
-            Optional[int], strawberry.argument(name="first")
+            int | None, strawberry.argument(name="first")
         ] = strawberry.UNSET,
         last: Annotated[
-            Optional[int], strawberry.argument(name="last")
+            int | None, strawberry.argument(name="last")
         ] = strawberry.UNSET,
         raw_text__contains: Annotated[
-            Optional[str], strawberry.argument(name="rawText_Contains")
+            str | None, strawberry.argument(name="rawText_Contains")
         ] = strawberry.UNSET,
         annotation_label_id: Annotated[
-            Optional[strawberry.ID], strawberry.argument(name="annotationLabelId")
+            strawberry.ID | None, strawberry.argument(name="annotationLabelId")
         ] = strawberry.UNSET,
         annotation_label__text: Annotated[
-            Optional[str], strawberry.argument(name="annotationLabel_Text")
+            str | None, strawberry.argument(name="annotationLabel_Text")
         ] = strawberry.UNSET,
         annotation_label__text__contains: Annotated[
-            Optional[str], strawberry.argument(name="annotationLabel_Text_Contains")
+            str | None, strawberry.argument(name="annotationLabel_Text_Contains")
         ] = strawberry.UNSET,
         annotation_label__description__contains: Annotated[
-            Optional[str],
+            str | None,
             strawberry.argument(name="annotationLabel_Description_Contains"),
         ] = strawberry.UNSET,
         annotation_label__label_type: Annotated[
-            Optional[enums.AnnotationsAnnotationLabelLabelTypeChoices],
+            enums.AnnotationsAnnotationLabelLabelTypeChoices | None,
             strawberry.argument(name="annotationLabel_LabelType"),
         ] = strawberry.UNSET,
         analysis__isnull: Annotated[
-            Optional[bool], strawberry.argument(name="analysis_Isnull")
+            bool | None, strawberry.argument(name="analysis_Isnull")
         ] = strawberry.UNSET,
         document_id: Annotated[
-            Optional[strawberry.ID], strawberry.argument(name="documentId")
+            strawberry.ID | None, strawberry.argument(name="documentId")
         ] = strawberry.UNSET,
         corpus_id: Annotated[
-            Optional[strawberry.ID], strawberry.argument(name="corpusId")
+            strawberry.ID | None, strawberry.argument(name="corpusId")
         ] = strawberry.UNSET,
         structural: Annotated[
-            Optional[bool], strawberry.argument(name="structural")
+            bool | None, strawberry.argument(name="structural")
         ] = strawberry.UNSET,
         uses_label_from_labelset_id: Annotated[
-            Optional[str], strawberry.argument(name="usesLabelFromLabelsetId")
+            str | None, strawberry.argument(name="usesLabelFromLabelsetId")
         ] = strawberry.UNSET,
         created_by_analysis_ids: Annotated[
-            Optional[str], strawberry.argument(name="createdByAnalysisIds")
+            str | None, strawberry.argument(name="createdByAnalysisIds")
         ] = strawberry.UNSET,
         created_with_analyzer_id: Annotated[
-            Optional[str], strawberry.argument(name="createdWithAnalyzerId")
+            str | None, strawberry.argument(name="createdWithAnalyzerId")
         ] = strawberry.UNSET,
         order_by: Annotated[
-            Optional[str], strawberry.argument(name="orderBy", description="Ordering")
+            str | None, strawberry.argument(name="orderBy", description="Ordering")
         ] = strawberry.UNSET,
-    ) -> "AnnotationTypeConnection":
+    ) -> AnnotationTypeConnection:
         kwargs = strip_unset(
             {
                 "offset": offset,
@@ -1830,65 +1824,65 @@ class RelationshipType(Node):
         self,
         info: strawberry.Info,
         offset: Annotated[
-            Optional[int], strawberry.argument(name="offset")
+            int | None, strawberry.argument(name="offset")
         ] = strawberry.UNSET,
         before: Annotated[
-            Optional[str], strawberry.argument(name="before")
+            str | None, strawberry.argument(name="before")
         ] = strawberry.UNSET,
         after: Annotated[
-            Optional[str], strawberry.argument(name="after")
+            str | None, strawberry.argument(name="after")
         ] = strawberry.UNSET,
         first: Annotated[
-            Optional[int], strawberry.argument(name="first")
+            int | None, strawberry.argument(name="first")
         ] = strawberry.UNSET,
         last: Annotated[
-            Optional[int], strawberry.argument(name="last")
+            int | None, strawberry.argument(name="last")
         ] = strawberry.UNSET,
         raw_text__contains: Annotated[
-            Optional[str], strawberry.argument(name="rawText_Contains")
+            str | None, strawberry.argument(name="rawText_Contains")
         ] = strawberry.UNSET,
         annotation_label_id: Annotated[
-            Optional[strawberry.ID], strawberry.argument(name="annotationLabelId")
+            strawberry.ID | None, strawberry.argument(name="annotationLabelId")
         ] = strawberry.UNSET,
         annotation_label__text: Annotated[
-            Optional[str], strawberry.argument(name="annotationLabel_Text")
+            str | None, strawberry.argument(name="annotationLabel_Text")
         ] = strawberry.UNSET,
         annotation_label__text__contains: Annotated[
-            Optional[str], strawberry.argument(name="annotationLabel_Text_Contains")
+            str | None, strawberry.argument(name="annotationLabel_Text_Contains")
         ] = strawberry.UNSET,
         annotation_label__description__contains: Annotated[
-            Optional[str],
+            str | None,
             strawberry.argument(name="annotationLabel_Description_Contains"),
         ] = strawberry.UNSET,
         annotation_label__label_type: Annotated[
-            Optional[enums.AnnotationsAnnotationLabelLabelTypeChoices],
+            enums.AnnotationsAnnotationLabelLabelTypeChoices | None,
             strawberry.argument(name="annotationLabel_LabelType"),
         ] = strawberry.UNSET,
         analysis__isnull: Annotated[
-            Optional[bool], strawberry.argument(name="analysis_Isnull")
+            bool | None, strawberry.argument(name="analysis_Isnull")
         ] = strawberry.UNSET,
         document_id: Annotated[
-            Optional[strawberry.ID], strawberry.argument(name="documentId")
+            strawberry.ID | None, strawberry.argument(name="documentId")
         ] = strawberry.UNSET,
         corpus_id: Annotated[
-            Optional[strawberry.ID], strawberry.argument(name="corpusId")
+            strawberry.ID | None, strawberry.argument(name="corpusId")
         ] = strawberry.UNSET,
         structural: Annotated[
-            Optional[bool], strawberry.argument(name="structural")
+            bool | None, strawberry.argument(name="structural")
         ] = strawberry.UNSET,
         uses_label_from_labelset_id: Annotated[
-            Optional[str], strawberry.argument(name="usesLabelFromLabelsetId")
+            str | None, strawberry.argument(name="usesLabelFromLabelsetId")
         ] = strawberry.UNSET,
         created_by_analysis_ids: Annotated[
-            Optional[str], strawberry.argument(name="createdByAnalysisIds")
+            str | None, strawberry.argument(name="createdByAnalysisIds")
         ] = strawberry.UNSET,
         created_with_analyzer_id: Annotated[
-            Optional[str], strawberry.argument(name="createdWithAnalyzerId")
+            str | None, strawberry.argument(name="createdWithAnalyzerId")
         ] = strawberry.UNSET,
         order_by: Annotated[
-            Optional[str], strawberry.argument(name="orderBy", description="Ordering")
+            str | None, strawberry.argument(name="orderBy", description="Ordering")
         ] = strawberry.UNSET,
-    ) -> "AnnotationTypeConnection":
+    ) -> AnnotationTypeConnection:
         kwargs = strip_unset(
             {
                 "offset": offset,
@@ -1937,29 +1931,29 @@ class RelationshipType(Node):
             },
         )
 
-    analyzer: Optional[
-        Annotated["AnalyzerType", strawberry.lazy("config.graphql.extract_types")]
-    ] = strawberry.field(name="analyzer", default=None)
-    analysis: Optional[
-        Annotated["AnalysisType", strawberry.lazy("config.graphql.extract_types")]
-    ] = strawberry.field(name="analysis", default=None)
-    created_by_analysis: Optional[
-        Annotated["AnalysisType", strawberry.lazy("config.graphql.extract_types")]
-    ] = strawberry.field(
+    analyzer: None | (
+        Annotated[AnalyzerType, strawberry.lazy("config.graphql.extract_types")]
+    ) = strawberry.field(name="analyzer", default=None)
+    analysis: None | (
+        Annotated[AnalysisType, strawberry.lazy("config.graphql.extract_types")]
+    ) = strawberry.field(name="analysis", default=None)
+    created_by_analysis: None | (
+        Annotated[AnalysisType, strawberry.lazy("config.graphql.extract_types")]
+    ) = strawberry.field(
         name="createdByAnalysis",
         description="If set, this relationship is private to the analysis that created it",
         default=None,
     )
-    created_by_extract: Optional[
-        Annotated["ExtractType", strawberry.lazy("config.graphql.extract_types")]
-    ] = strawberry.field(
+    created_by_extract: None | (
+        Annotated[ExtractType, strawberry.lazy("config.graphql.extract_types")]
+    ) = strawberry.field(
         name="createdByExtract",
         description="If set, this relationship is private to the extract that created it",
         default=None,
     )
     structural: bool = strawberry.field(name="structural", default=None)
     is_public: bool = strawberry.field(name="isPublic", default=None)
-    creator: Annotated["UserType", strawberry.lazy("config.graphql.user_types")] = (
+    creator: Annotated[UserType, strawberry.lazy("config.graphql.user_types")] = (
         strawberry.field(name="creator", default=None)
     )
     created: datetime.datetime = strawberry.field(name="created", default=None)
@@ -1970,22 +1964,22 @@ class RelationshipType(Node):
         self,
         info: strawberry.Info,
         offset: Annotated[
-            Optional[int], strawberry.argument(name="offset")
+            int | None, strawberry.argument(name="offset")
         ] = strawberry.UNSET,
         before: Annotated[
-            Optional[str], strawberry.argument(name="before")
+            str | None, strawberry.argument(name="before")
         ] = strawberry.UNSET,
         after: Annotated[
-            Optional[str], strawberry.argument(name="after")
+            str | None, strawberry.argument(name="after")
         ] = strawberry.UNSET,
         first: Annotated[
-            Optional[int], strawberry.argument(name="first")
+            int | None, strawberry.argument(name="first")
         ] = strawberry.UNSET,
         last: Annotated[
-            Optional[int], strawberry.argument(name="last")
+            int | None, strawberry.argument(name="last")
         ] = strawberry.UNSET,
     ) -> Annotated[
-        "AssignmentTypeConnection", strawberry.lazy("config.graphql.user_types")
+        AssignmentTypeConnection, strawberry.lazy("config.graphql.user_types")
     ]:
         kwargs = strip_unset(
             {
@@ -2005,15 +1999,15 @@ class RelationshipType(Node):
         )
 
     @strawberry.field(name="myPermissions")
-    def my_permissions(self, info: strawberry.Info) -> Optional[GenericScalar]:
+    def my_permissions(self, info: strawberry.Info) -> GenericScalar | None:
         return core_permissions.resolve_my_permissions(self, info)
 
     @strawberry.field(name="isPublished")
-    def is_published(self, info: strawberry.Info) -> Optional[bool]:
+    def is_published(self, info: strawberry.Info) -> bool | None:
         return core_permissions.resolve_is_published(self, info)
 
     @strawberry.field(name="objectSharedWith")
-    def object_shared_with(self, info: strawberry.Info) -> Optional[GenericScalar]:
+    def object_shared_with(self, info: strawberry.Info) -> GenericScalar | None:
         return core_permissions.resolve_object_shared_with(self, info)
 
 
@@ -2033,17 +2027,17 @@ RelationshipTypeConnection = make_connection_types(
     description="Read-only view of an enrichment cross-reference.\n\nNo ``AnnotatePermissionsForReadMixin``: ``CorpusReference`` has no guardian\npermission tables — visibility derives from the parent corpus and is\nenforced by ``CorpusReferenceService`` in the resolver.",
 )
 class CorpusReferenceType(Node):
-    user_lock: Optional[
-        Annotated["UserType", strawberry.lazy("config.graphql.user_types")]
-    ] = strawberry.field(name="userLock", default=None)
+    user_lock: None | (
+        Annotated[UserType, strawberry.lazy("config.graphql.user_types")]
+    ) = strawberry.field(name="userLock", default=None)
     backend_lock: bool = strawberry.field(name="backendLock", default=None)
     is_public: bool = strawberry.field(name="isPublic", default=None)
-    creator: Annotated["UserType", strawberry.lazy("config.graphql.user_types")] = (
+    creator: Annotated[UserType, strawberry.lazy("config.graphql.user_types")] = (
         strawberry.field(name="creator", default=None)
     )
     created: datetime.datetime = strawberry.field(name="created", default=None)
     modified: datetime.datetime = strawberry.field(name="modified", default=None)
-    corpus: Annotated["CorpusType", strawberry.lazy("config.graphql.corpus_types")] = (
+    corpus: Annotated[CorpusType, strawberry.lazy("config.graphql.corpus_types")] = (
         strawberry.field(name="corpus", default=None)
     )
 
@@ -2056,36 +2050,36 @@ class CorpusReferenceType(Node):
             getattr(self, "reference_type", None),
         )
 
-    source_annotation: "AnnotationType" = strawberry.field(
+    source_annotation: AnnotationType = strawberry.field(
         name="sourceAnnotation", default=None
     )
-    target_annotation: Optional["AnnotationType"] = strawberry.field(
+    target_annotation: AnnotationType | None = strawberry.field(
         name="targetAnnotation", default=None
     )
-    target_document: Optional[
-        Annotated["DocumentType", strawberry.lazy("config.graphql.document_types")]
-    ] = strawberry.field(name="targetDocument", default=None)
-    target_corpus: Optional[
-        Annotated["CorpusType", strawberry.lazy("config.graphql.corpus_types")]
-    ] = strawberry.field(name="targetCorpus", default=None)
+    target_document: None | (
+        Annotated[DocumentType, strawberry.lazy("config.graphql.document_types")]
+    ) = strawberry.field(name="targetDocument", default=None)
+    target_corpus: None | (
+        Annotated[CorpusType, strawberry.lazy("config.graphql.corpus_types")]
+    ) = strawberry.field(name="targetCorpus", default=None)
 
     @strawberry.field(name="canonicalKey")
-    def canonical_key(self, info: strawberry.Info) -> Optional[str]:
+    def canonical_key(self, info: strawberry.Info) -> str | None:
         return coerce_str(getattr(self, "canonical_key", None))
 
-    normalized_data: Optional[GenericScalar] = strawberry.field(
+    normalized_data: GenericScalar | None = strawberry.field(
         name="normalizedData", default=None
     )
     confidence: float = strawberry.field(name="confidence", default=None)
 
     @strawberry.field(name="jurisdiction")
-    def jurisdiction(self, info: strawberry.Info) -> Optional[str]:
+    def jurisdiction(self, info: strawberry.Info) -> str | None:
         return coerce_str(getattr(self, "jurisdiction", None))
 
     @strawberry.field(name="authorityType")
     def authority_type(
         self, info: strawberry.Info
-    ) -> Optional[enums.AnnotationsCorpusReferenceAuthorityTypeChoices]:
+    ) -> enums.AnnotationsCorpusReferenceAuthorityTypeChoices | None:
         return coerce_enum(
             enums.AnnotationsCorpusReferenceAuthorityTypeChoices,
             getattr(self, "authority_type", None),
@@ -2113,9 +2107,9 @@ class CorpusReferenceType(Node):
             getattr(self, "resolution_status", None),
         )
 
-    created_by_analysis: Optional[
-        Annotated["AnalysisType", strawberry.lazy("config.graphql.extract_types")]
-    ] = strawberry.field(name="createdByAnalysis", default=None)
+    created_by_analysis: None | (
+        Annotated[AnalysisType, strawberry.lazy("config.graphql.extract_types")]
+    ) = strawberry.field(name="createdByAnalysis", default=None)
     is_provisional: bool = strawberry.field(name="isProvisional", default=None)
 
 
@@ -2250,9 +2244,9 @@ def _resolve_NoteType_content_preview(root, info):
     description="GraphQL type for the Note model with tree-based functionality.",
 )
 class NoteType(Node):
-    user_lock: Optional[
-        Annotated["UserType", strawberry.lazy("config.graphql.user_types")]
-    ] = strawberry.field(name="userLock", default=None)
+    user_lock: None | (
+        Annotated[UserType, strawberry.lazy("config.graphql.user_types")]
+    ) = strawberry.field(name="userLock", default=None)
     backend_lock: bool = strawberry.field(name="backendLock", default=None)
 
     @strawberry.field(name="title")
@@ -2263,18 +2257,18 @@ class NoteType(Node):
     def content(self, info: strawberry.Info) -> str:
         return coerce_str(getattr(self, "content", None))
 
-    parent: Optional["NoteType"] = strawberry.field(name="parent", default=None)
-    corpus: Optional[
-        Annotated["CorpusType", strawberry.lazy("config.graphql.corpus_types")]
-    ] = strawberry.field(name="corpus", default=None)
+    parent: NoteType | None = strawberry.field(name="parent", default=None)
+    corpus: None | (
+        Annotated[CorpusType, strawberry.lazy("config.graphql.corpus_types")]
+    ) = strawberry.field(name="corpus", default=None)
     document: Annotated[
-        "DocumentType", strawberry.lazy("config.graphql.document_types")
+        DocumentType, strawberry.lazy("config.graphql.document_types")
     ] = strawberry.field(name="document", default=None)
-    annotation: Optional["AnnotationType"] = strawberry.field(
+    annotation: AnnotationType | None = strawberry.field(
         name="annotation", default=None
     )
     is_public: bool = strawberry.field(name="isPublic", default=None)
-    creator: Annotated["UserType", strawberry.lazy("config.graphql.user_types")] = (
+    creator: Annotated[UserType, strawberry.lazy("config.graphql.user_types")] = (
         strawberry.field(name="creator", default=None)
     )
     created: datetime.datetime = strawberry.field(name="created", default=None)
@@ -2285,21 +2279,21 @@ class NoteType(Node):
         self,
         info: strawberry.Info,
         offset: Annotated[
-            Optional[int], strawberry.argument(name="offset")
+            int | None, strawberry.argument(name="offset")
         ] = strawberry.UNSET,
         before: Annotated[
-            Optional[str], strawberry.argument(name="before")
+            str | None, strawberry.argument(name="before")
         ] = strawberry.UNSET,
         after: Annotated[
-            Optional[str], strawberry.argument(name="after")
+            str | None, strawberry.argument(name="after")
         ] = strawberry.UNSET,
         first: Annotated[
-            Optional[int], strawberry.argument(name="first")
+            int | None, strawberry.argument(name="first")
         ] = strawberry.UNSET,
         last: Annotated[
-            Optional[int], strawberry.argument(name="last")
+            int | None, strawberry.argument(name="last")
         ] = strawberry.UNSET,
-    ) -> "NoteTypeConnection":
+    ) -> NoteTypeConnection:
         kwargs = strip_unset(
             {
                 "offset": offset,
@@ -2321,22 +2315,20 @@ class NoteType(Node):
         name="revisions",
         description="List of all revisions/versions of this note, ordered by version.",
     )
-    def revisions(
-        self, info: strawberry.Info
-    ) -> Optional[list[Optional["NoteRevisionType"]]]:
+    def revisions(self, info: strawberry.Info) -> list[NoteRevisionType | None] | None:
         kwargs = strip_unset({})
         return _resolve_NoteType_revisions(self, info, **kwargs)
 
     @strawberry.field(name="myPermissions")
-    def my_permissions(self, info: strawberry.Info) -> Optional[GenericScalar]:
+    def my_permissions(self, info: strawberry.Info) -> GenericScalar | None:
         return core_permissions.resolve_my_permissions(self, info)
 
     @strawberry.field(name="isPublished")
-    def is_published(self, info: strawberry.Info) -> Optional[bool]:
+    def is_published(self, info: strawberry.Info) -> bool | None:
         return core_permissions.resolve_is_published(self, info)
 
     @strawberry.field(name="objectSharedWith")
-    def object_shared_with(self, info: strawberry.Info) -> Optional[GenericScalar]:
+    def object_shared_with(self, info: strawberry.Info) -> GenericScalar | None:
         return core_permissions.resolve_object_shared_with(self, info)
 
     @strawberry.field(
@@ -2345,7 +2337,7 @@ class NoteType(Node):
     )
     def descendants_tree(
         self, info: strawberry.Info
-    ) -> Optional[list[Optional[GenericScalar]]]:
+    ) -> list[GenericScalar | None] | None:
         kwargs = strip_unset({})
         return _resolve_NoteType_descendants_tree(self, info, **kwargs)
 
@@ -2353,9 +2345,7 @@ class NoteType(Node):
         name="fullTree",
         description="List of notes from the root ancestor, each with immediate children's IDs.",
     )
-    def full_tree(
-        self, info: strawberry.Info
-    ) -> Optional[list[Optional[GenericScalar]]]:
+    def full_tree(self, info: strawberry.Info) -> list[GenericScalar | None] | None:
         kwargs = strip_unset({})
         return _resolve_NoteType_full_tree(self, info, **kwargs)
 
@@ -2363,14 +2353,14 @@ class NoteType(Node):
         name="subtree",
         description="List representing the path from the root ancestor to this note and its descendants.",
     )
-    def subtree(self, info: strawberry.Info) -> Optional[list[Optional[GenericScalar]]]:
+    def subtree(self, info: strawberry.Info) -> list[GenericScalar | None] | None:
         kwargs = strip_unset({})
         return _resolve_NoteType_subtree(self, info, **kwargs)
 
     @strawberry.field(
         name="currentVersion", description="Current version number of the note"
     )
-    def current_version(self, info: strawberry.Info) -> Optional[int]:
+    def current_version(self, info: strawberry.Info) -> int | None:
         kwargs = strip_unset({})
         return _resolve_NoteType_current_version(self, info, **kwargs)
 
@@ -2378,7 +2368,7 @@ class NoteType(Node):
         name="contentPreview",
         description="First 400 characters of the note body for list/search previews. Resolvers may annotate the queryset with `content_preview` to avoid shipping the full body over the wire.",
     )
-    def content_preview(self, info: strawberry.Info) -> Optional[str]:
+    def content_preview(self, info: strawberry.Info) -> str | None:
         kwargs = strip_unset({})
         return _resolve_NoteType_content_preview(self, info, **kwargs)
 
@@ -2406,10 +2396,10 @@ NoteTypeConnection = make_connection_types(
     description="GraphQL type for the NoteRevision model to expose note version history.",
 )
 class NoteRevisionType(Node):
-    note: "NoteType" = strawberry.field(name="note", default=None)
-    author: Optional[
-        Annotated["UserType", strawberry.lazy("config.graphql.user_types")]
-    ] = strawberry.field(name="author", default=None)
+    note: NoteType = strawberry.field(name="note", default=None)
+    author: None | (
+        Annotated[UserType, strawberry.lazy("config.graphql.user_types")]
+    ) = strawberry.field(name="author", default=None)
     version: int = strawberry.field(name="version", default=None)
 
     @strawberry.field(name="diff")
@@ -2417,7 +2407,7 @@ class NoteRevisionType(Node):
         return coerce_str(getattr(self, "diff", None))
 
     @strawberry.field(name="snapshot")
-    def snapshot(self, info: strawberry.Info) -> Optional[str]:
+    def snapshot(self, info: strawberry.Info) -> str | None:
         return coerce_str(getattr(self, "snapshot", None))
 
     @strawberry.field(name="checksumBase")
@@ -2491,49 +2481,49 @@ class AuthorityNamespaceNode(Node):
         return coerce_str(getattr(self, "display_name", None))
 
     @strawberry.field(name="jurisdiction")
-    def jurisdiction(self, info: strawberry.Info) -> Optional[str]:
+    def jurisdiction(self, info: strawberry.Info) -> str | None:
         return coerce_str(getattr(self, "jurisdiction", None))
 
     @strawberry.field(name="provider")
-    def provider(self, info: strawberry.Info) -> Optional[str]:
+    def provider(self, info: strawberry.Info) -> str | None:
         return coerce_str(getattr(self, "provider", None))
 
     @strawberry.field(name="sourceRootUrl")
-    def source_root_url(self, info: strawberry.Info) -> Optional[str]:
+    def source_root_url(self, info: strawberry.Info) -> str | None:
         return coerce_str(getattr(self, "source_root_url", None))
 
     @strawberry.field(name="license")
-    def license(self, info: strawberry.Info) -> Optional[str]:
+    def license(self, info: strawberry.Info) -> str | None:
         return coerce_str(getattr(self, "license", None))
 
     @strawberry.field(name="baselineOrigin")
-    def baseline_origin(self, info: strawberry.Info) -> Optional[str]:
+    def baseline_origin(self, info: strawberry.Info) -> str | None:
         return coerce_str(getattr(self, "baseline_origin", None))
 
     is_global: bool = strawberry.field(name="isGlobal", default=None)
-    authority_corpus: Optional[
-        Annotated["CorpusType", strawberry.lazy("config.graphql.corpus_types")]
-    ] = strawberry.field(name="authorityCorpus", default=None)
+    authority_corpus: None | (
+        Annotated[CorpusType, strawberry.lazy("config.graphql.corpus_types")]
+    ) = strawberry.field(name="authorityCorpus", default=None)
     created: datetime.datetime = strawberry.field(name="created", default=None)
     modified: datetime.datetime = strawberry.field(name="modified", default=None)
 
     @strawberry.field(
         name="aliases", description="Lowercased surface forms feeding extraction."
     )
-    def aliases(self, info: strawberry.Info) -> Optional[list[Optional[str]]]:
+    def aliases(self, info: strawberry.Info) -> list[str | None] | None:
         kwargs = strip_unset({})
         return _resolve_AuthorityNamespaceNode_aliases(self, info, **kwargs)
 
     @strawberry.field(name="source", description="'baseline' or 'manual' (ownership).")
-    def source(self, info: strawberry.Info) -> Optional[str]:
+    def source(self, info: strawberry.Info) -> str | None:
         return coerce_str(getattr(self, "source", None))
 
     @strawberry.field(name="authorityType", description="Raw authority_type value.")
-    def authority_type(self, info: strawberry.Info) -> Optional[str]:
+    def authority_type(self, info: strawberry.Info) -> str | None:
         return coerce_str(getattr(self, "authority_type", None))
 
     @strawberry.field(name="scope", description="'global' or 'corpus' (derived).")
-    def scope(self, info: strawberry.Info) -> Optional[str]:
+    def scope(self, info: strawberry.Info) -> str | None:
         kwargs = strip_unset({})
         return _resolve_AuthorityNamespaceNode_scope(self, info, **kwargs)
 
@@ -2541,14 +2531,14 @@ class AuthorityNamespaceNode(Node):
         name="equivalenceCount",
         description="Key-equivalences whose from/to key is under this prefix.",
     )
-    def equivalence_count(self, info: strawberry.Info) -> Optional[int]:
+    def equivalence_count(self, info: strawberry.Info) -> int | None:
         kwargs = strip_unset({})
         return _resolve_AuthorityNamespaceNode_equivalence_count(self, info, **kwargs)
 
     @strawberry.field(
         name="frontierCount", description="Discovery-queue rows for this authority."
     )
-    def frontier_count(self, info: strawberry.Info) -> Optional[int]:
+    def frontier_count(self, info: strawberry.Info) -> int | None:
         kwargs = strip_unset({})
         return _resolve_AuthorityNamespaceNode_frontier_count(self, info, **kwargs)
 
@@ -2556,7 +2546,7 @@ class AuthorityNamespaceNode(Node):
         name="referenceCount",
         description="CorpusReferences whose canonical_key is under this prefix.",
     )
-    def reference_count(self, info: strawberry.Info) -> Optional[int]:
+    def reference_count(self, info: strawberry.Info) -> int | None:
         kwargs = strip_unset({})
         return _resolve_AuthorityNamespaceNode_reference_count(self, info, **kwargs)
 
@@ -2564,7 +2554,7 @@ class AuthorityNamespaceNode(Node):
         name="effectiveProvider",
         description="Registry class-name that would actually handle this prefix (by can_handle/priority) — contrast with the advisory 'provider' column. Null when no provider can handle it.",
     )
-    def effective_provider(self, info: strawberry.Info) -> Optional[str]:
+    def effective_provider(self, info: strawberry.Info) -> str | None:
         kwargs = strip_unset({})
         return _resolve_AuthorityNamespaceNode_effective_provider(self, info, **kwargs)
 
@@ -2572,7 +2562,7 @@ class AuthorityNamespaceNode(Node):
         name="createdByUsername",
         description="Curator who created/edited this manual row (else null).",
     )
-    def created_by_username(self, info: strawberry.Info) -> Optional[str]:
+    def created_by_username(self, info: strawberry.Info) -> str | None:
         kwargs = strip_unset({})
         return _resolve_AuthorityNamespaceNode_created_by_username(self, info, **kwargs)
 
@@ -2642,13 +2632,13 @@ class AuthorityFrontierNode(Node):
         return coerce_str(getattr(self, "authority", None))
 
     @strawberry.field(name="jurisdiction")
-    def jurisdiction(self, info: strawberry.Info) -> Optional[str]:
+    def jurisdiction(self, info: strawberry.Info) -> str | None:
         return coerce_str(getattr(self, "jurisdiction", None))
 
     @strawberry.field(name="authorityType")
     def authority_type(
         self, info: strawberry.Info
-    ) -> Optional[enums.AnnotationsAuthorityFrontierAuthorityTypeChoices]:
+    ) -> enums.AnnotationsAuthorityFrontierAuthorityTypeChoices | None:
         return coerce_enum(
             enums.AnnotationsAuthorityFrontierAuthorityTypeChoices,
             getattr(self, "authority_type", None),
@@ -2671,26 +2661,26 @@ class AuthorityFrontierNode(Node):
     depth: int = strawberry.field(name="depth", default=None)
 
     @strawberry.field(name="provider")
-    def provider(self, info: strawberry.Info) -> Optional[str]:
+    def provider(self, info: strawberry.Info) -> str | None:
         return coerce_str(getattr(self, "provider", None))
 
     @strawberry.field(name="lastError")
-    def last_error(self, info: strawberry.Info) -> Optional[str]:
+    def last_error(self, info: strawberry.Info) -> str | None:
         return coerce_str(getattr(self, "last_error", None))
 
-    last_attempt: Optional[datetime.datetime] = strawberry.field(
+    last_attempt: datetime.datetime | None = strawberry.field(
         name="lastAttempt", default=None
     )
     created: datetime.datetime = strawberry.field(name="created", default=None)
     modified: datetime.datetime = strawberry.field(name="modified", default=None)
-    candidate_sources: Optional[GenericScalar] = strawberry.field(
+    candidate_sources: GenericScalar | None = strawberry.field(
         name="candidateSources",
         description="Per-corpus demand breakdown: [{corpus_id, mention_count, top_detection_tier}].",
         default=None,
     )
-    ingested_document: Optional[
-        Annotated["DocumentType", strawberry.lazy("config.graphql.document_types")]
-    ] = strawberry.field(
+    ingested_document: None | (
+        Annotated[DocumentType, strawberry.lazy("config.graphql.document_types")]
+    ) = strawberry.field(
         name="ingestedDocument",
         description="The Document imported for this key once ingested (else null).",
         default=None,
@@ -2700,7 +2690,7 @@ class AuthorityFrontierNode(Node):
         name="ingestable",
         description="True if a source provider can_handle this key directly or via an AuthorityKeyEquivalence bridge (i.e. discovery could ingest it). False keys would record 'unsupported' if run.",
     )
-    def ingestable(self, info: strawberry.Info) -> Optional[bool]:
+    def ingestable(self, info: strawberry.Info) -> bool | None:
         kwargs = strip_unset({})
         return _resolve_AuthorityFrontierNode_ingestable(self, info, **kwargs)
 
@@ -2708,7 +2698,7 @@ class AuthorityFrontierNode(Node):
         name="predictedProvider",
         description="Registry class name of the provider that would handle this key, or null when none can.",
     )
-    def predicted_provider(self, info: strawberry.Info) -> Optional[str]:
+    def predicted_provider(self, info: strawberry.Info) -> str | None:
         kwargs = strip_unset({})
         return _resolve_AuthorityFrontierNode_predicted_provider(self, info, **kwargs)
 
@@ -2773,7 +2763,7 @@ class AuthorityKeyEquivalenceNode(Node):
     confidence: float = strawberry.field(name="confidence", default=None)
 
     @strawberry.field(name="note")
-    def note(self, info: strawberry.Info) -> Optional[str]:
+    def note(self, info: strawberry.Info) -> str | None:
         return coerce_str(getattr(self, "note", None))
 
     created: datetime.datetime = strawberry.field(name="created", default=None)
@@ -2783,7 +2773,7 @@ class AuthorityKeyEquivalenceNode(Node):
         name="editable",
         description="True iff this is a manual row the curator may edit/delete.",
     )
-    def editable(self, info: strawberry.Info) -> Optional[bool]:
+    def editable(self, info: strawberry.Info) -> bool | None:
         kwargs = strip_unset({})
         return _resolve_AuthorityKeyEquivalenceNode_editable(self, info, **kwargs)
 
@@ -2791,7 +2781,7 @@ class AuthorityKeyEquivalenceNode(Node):
         name="createdByUsername",
         description="Username of the curator who created this manual row (else null).",
     )
-    def created_by_username(self, info: strawberry.Info) -> Optional[str]:
+    def created_by_username(self, info: strawberry.Info) -> str | None:
         kwargs = strip_unset({})
         return _resolve_AuthorityKeyEquivalenceNode_created_by_username(
             self, info, **kwargs
@@ -2828,15 +2818,11 @@ AuthorityKeyEquivalenceNodeConnection = make_connection_types(
     description="The corpus-scoped reference web in node-link form.\n\nBuilt by ``GovernanceGraphService`` from corpus-as-gate ``CorpusReference``\nrows + permission-filtered ``DocumentRelationship`` rows, with every\nsurfaced document independently READ-checked (invisible targets degrade to\nexternal ghost nodes). Counts describe the full visible graph; the\nnode/edge lists may be degree-capped (``truncated``).",
 )
 class GovernanceGraphType:
-    corpora: list["GovernanceGraphCorpusType"] = strawberry.field(
+    corpora: list[GovernanceGraphCorpusType] = strawberry.field(
         name="corpora", default=None
     )
-    nodes: list["GovernanceGraphNodeType"] = strawberry.field(
-        name="nodes", default=None
-    )
-    edges: list["GovernanceGraphEdgeType"] = strawberry.field(
-        name="edges", default=None
-    )
+    nodes: list[GovernanceGraphNodeType] = strawberry.field(name="nodes", default=None)
+    edges: list[GovernanceGraphEdgeType] = strawberry.field(name="edges", default=None)
     document_count: int = strawberry.field(
         name="documentCount",
         description="Distinct visible document nodes (pre-cap).",
@@ -2875,7 +2861,7 @@ class GovernanceGraphCorpusType:
     id: strawberry.ID = strawberry.field(
         name="id", description="Global CorpusType id.", default=None
     )
-    title: Optional[str] = strawberry.field(name="title", default=None)
+    title: str | None = strawberry.field(name="title", default=None)
     kind: str = strawberry.field(
         name="kind",
         description='"filing" or "authority" (cited body of law).',
@@ -2896,12 +2882,12 @@ class GovernanceGraphNodeType:
         description='Node id: the global DocumentType id for document nodes, or "key:<canonical_key>" for external ghost nodes.',
         default=None,
     )
-    document_id: Optional[strawberry.ID] = strawberry.field(
+    document_id: strawberry.ID | None = strawberry.field(
         name="documentId",
         description="Global DocumentType id (null for external ghost nodes).",
         default=None,
     )
-    title: Optional[str] = strawberry.field(
+    title: str | None = strawberry.field(
         name="title",
         description="Document title, or the canonical key for ghost nodes.",
         default=None,
@@ -2911,27 +2897,27 @@ class GovernanceGraphNodeType:
         description='"primary", "exhibit", "statute" or "external".',
         default=None,
     )
-    corpus_id: Optional[strawberry.ID] = strawberry.field(
+    corpus_id: strawberry.ID | None = strawberry.field(
         name="corpusId",
         description="Global CorpusType id of the node's corpus (null for ghosts).",
         default=None,
     )
-    authority: Optional[str] = strawberry.field(
+    authority: str | None = strawberry.field(
         name="authority",
         description='Body-of-law key prefix (e.g. "dgcl") for statute/ghost nodes.',
         default=None,
     )
-    jurisdiction: Optional[str] = strawberry.field(
+    jurisdiction: str | None = strawberry.field(
         name="jurisdiction",
         description='Jurisdiction code, e.g. "us-de", "us-federal" (null if unknown).',
         default=None,
     )
-    authority_type: Optional[str] = strawberry.field(
+    authority_type: str | None = strawberry.field(
         name="authorityType",
         description='Authority type: "statute", "regulation", etc. (null if unknown).',
         default=None,
     )
-    discovery_state: Optional[str] = strawberry.field(
+    discovery_state: str | None = strawberry.field(
         name="discoveryState",
         description='Authority-frontier crawl status for ghost nodes: "queued", "in_progress", "ingested", "failed", "unsupported", "blocked_license", "blocked_domain", "unlocated", "pending_approval", "deferred_cap" — or null when not tracked.',
         default=None,
@@ -2991,7 +2977,7 @@ class WantedAuthorityType:
         description="Distinct corpora with unresolved citations.",
         default=None,
     )
-    top_keys: list["WantedAuthorityKeyType"] = strawberry.field(
+    top_keys: list[WantedAuthorityKeyType] = strawberry.field(
         name="topKeys",
         description="Most-cited missing keys (capped server-side).",
         default=None,
@@ -3036,7 +3022,7 @@ class AuthorityFrontierStatsType:
         description="Total frontier rows matching the non-state facets.",
         default=None,
     )
-    by_state: list["AuthorityFrontierStateCountType"] = strawberry.field(
+    by_state: list[AuthorityFrontierStateCountType] = strawberry.field(
         name="byState",
         description="Row count per discovery_state (only non-empty states).",
         default=None,
@@ -3072,7 +3058,7 @@ class AuthorityMappingStatsType:
         description="Total equivalence rows matching the search.",
         default=None,
     )
-    by_source: list["AuthorityMappingSourceCountType"] = strawberry.field(
+    by_source: list[AuthorityMappingSourceCountType] = strawberry.field(
         name="bySource",
         description="Row count per source (only non-empty sources).",
         default=None,
@@ -3104,13 +3090,13 @@ register_type(
 )
 class AuthorityNamespaceStatsType:
     total_count: int = strawberry.field(name="totalCount", default=None)
-    by_jurisdiction: list["AuthorityNamespaceFacetCountType"] = strawberry.field(
+    by_jurisdiction: list[AuthorityNamespaceFacetCountType] = strawberry.field(
         name="byJurisdiction", default=None
     )
-    by_authority_type: list["AuthorityNamespaceFacetCountType"] = strawberry.field(
+    by_authority_type: list[AuthorityNamespaceFacetCountType] = strawberry.field(
         name="byAuthorityType", default=None
     )
-    by_scope: list["AuthorityNamespaceFacetCountType"] = strawberry.field(
+    by_scope: list[AuthorityNamespaceFacetCountType] = strawberry.field(
         name="byScope", default=None
     )
 
@@ -3123,7 +3109,7 @@ register_type("AuthorityNamespaceStatsType", AuthorityNamespaceStatsType, model=
     description="One facet value (jurisdiction / authority_type / scope) and its row count.",
 )
 class AuthorityNamespaceFacetCountType:
-    value: Optional[str] = strawberry.field(
+    value: str | None = strawberry.field(
         name="value",
         description="The facet value (null collapses to '').",
         default=None,
@@ -3141,35 +3127,33 @@ register_type(
     description="Everything about one body of law, string-joined across the authority models.\n\nThe console's single-authority view. Superuser-gated at the service layer\n(``AuthorityNamespaceService.detail``); the nested node types are returned as\npre-fetched instances, so their own connection gates are not re-applied (the\nservice already enforced access).",
 )
 class AuthorityDetailType:
-    namespace: "AuthorityNamespaceNode" = strawberry.field(
-        name="namespace", default=None
-    )
-    equivalences_out: list["AuthorityKeyEquivalenceNode"] = strawberry.field(
+    namespace: AuthorityNamespaceNode = strawberry.field(name="namespace", default=None)
+    equivalences_out: list[AuthorityKeyEquivalenceNode] = strawberry.field(
         name="equivalencesOut",
         description="Equivalences FROM a key under this prefix.",
         default=None,
     )
-    equivalences_in: list["AuthorityKeyEquivalenceNode"] = strawberry.field(
+    equivalences_in: list[AuthorityKeyEquivalenceNode] = strawberry.field(
         name="equivalencesIn",
         description="Equivalences TO a key under this prefix.",
         default=None,
     )
-    frontier_rows: list["AuthorityFrontierNode"] = strawberry.field(
+    frontier_rows: list[AuthorityFrontierNode] = strawberry.field(
         name="frontierRows", default=None
     )
-    frontier_state_counts: list["AuthorityFrontierStateCountType"] = strawberry.field(
+    frontier_state_counts: list[AuthorityFrontierStateCountType] = strawberry.field(
         name="frontierStateCounts", default=None
     )
     reference_total: int = strawberry.field(name="referenceTotal", default=None)
-    reference_status_counts: list["AuthorityReferenceStatusCountType"] = (
-        strawberry.field(name="referenceStatusCounts", default=None)
+    reference_status_counts: list[AuthorityReferenceStatusCountType] = strawberry.field(
+        name="referenceStatusCounts", default=None
     )
-    reference_sample: list["CorpusReferenceType"] = strawberry.field(
+    reference_sample: list[CorpusReferenceType] = strawberry.field(
         name="referenceSample",
         description="Most-recent references under this prefix (capped).",
         default=None,
     )
-    effective_provider: Optional[str] = strawberry.field(
+    effective_provider: str | None = strawberry.field(
         name="effectiveProvider", default=None
     )
 
@@ -3199,15 +3183,15 @@ class AuthoritySourceProviderType:
     name: str = strawberry.field(
         name="name", description="Registry class name.", default=None
     )
-    class_name: Optional[str] = strawberry.field(
+    class_name: str | None = strawberry.field(
         name="className", description="Full module.ClassName path.", default=None
     )
-    title: Optional[str] = strawberry.field(name="title", default=None)
-    supported_prefixes: list[Optional[str]] = strawberry.field(
+    title: str | None = strawberry.field(name="title", default=None)
+    supported_prefixes: list[str | None] = strawberry.field(
         name="supportedPrefixes", default=None
     )
-    license: Optional[str] = strawberry.field(name="license", default=None)
-    priority: Optional[int] = strawberry.field(name="priority", default=None)
+    license: str | None = strawberry.field(name="license", default=None)
+    priority: int | None = strawberry.field(name="priority", default=None)
     requires_approval: bool = strawberry.field(name="requiresApproval", default=None)
     enabled: bool = strawberry.field(name="enabled", default=None)
     has_credentials: bool = strawberry.field(name="hasCredentials", default=None)
@@ -3219,37 +3203,33 @@ register_type("AuthoritySourceProviderType", AuthoritySourceProviderType, model=
 def q_authority_frontier(
     info: strawberry.Info,
     offset: Annotated[
-        Optional[int], strawberry.argument(name="offset")
+        int | None, strawberry.argument(name="offset")
     ] = strawberry.UNSET,
     before: Annotated[
-        Optional[str], strawberry.argument(name="before")
+        str | None, strawberry.argument(name="before")
     ] = strawberry.UNSET,
-    after: Annotated[
-        Optional[str], strawberry.argument(name="after")
-    ] = strawberry.UNSET,
-    first: Annotated[
-        Optional[int], strawberry.argument(name="first")
-    ] = strawberry.UNSET,
-    last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET,
+    after: Annotated[str | None, strawberry.argument(name="after")] = strawberry.UNSET,
+    first: Annotated[int | None, strawberry.argument(name="first")] = strawberry.UNSET,
+    last: Annotated[int | None, strawberry.argument(name="last")] = strawberry.UNSET,
     jurisdiction: Annotated[
-        Optional[str], strawberry.argument(name="jurisdiction")
+        str | None, strawberry.argument(name="jurisdiction")
     ] = strawberry.UNSET,
     provider: Annotated[
-        Optional[str], strawberry.argument(name="provider")
+        str | None, strawberry.argument(name="provider")
     ] = strawberry.UNSET,
     authority: Annotated[
-        Optional[str], strawberry.argument(name="authority")
+        str | None, strawberry.argument(name="authority")
     ] = strawberry.UNSET,
     discovery_state: Annotated[
-        Optional[str], strawberry.argument(name="discoveryState")
+        str | None, strawberry.argument(name="discoveryState")
     ] = strawberry.UNSET,
     authority_type: Annotated[
-        Optional[str], strawberry.argument(name="authorityType")
+        str | None, strawberry.argument(name="authorityType")
     ] = strawberry.UNSET,
     search: Annotated[
-        Optional[str], strawberry.argument(name="search")
+        str | None, strawberry.argument(name="search")
     ] = strawberry.UNSET,
-) -> Optional["AuthorityFrontierNodeConnection"]:
+) -> AuthorityFrontierNodeConnection | None:
     kwargs = strip_unset(
         {
             "offset": offset,
@@ -3287,25 +3267,21 @@ def q_authority_frontier(
 def q_authority_key_equivalences(
     info: strawberry.Info,
     offset: Annotated[
-        Optional[int], strawberry.argument(name="offset")
+        int | None, strawberry.argument(name="offset")
     ] = strawberry.UNSET,
     before: Annotated[
-        Optional[str], strawberry.argument(name="before")
+        str | None, strawberry.argument(name="before")
     ] = strawberry.UNSET,
-    after: Annotated[
-        Optional[str], strawberry.argument(name="after")
-    ] = strawberry.UNSET,
-    first: Annotated[
-        Optional[int], strawberry.argument(name="first")
-    ] = strawberry.UNSET,
-    last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET,
+    after: Annotated[str | None, strawberry.argument(name="after")] = strawberry.UNSET,
+    first: Annotated[int | None, strawberry.argument(name="first")] = strawberry.UNSET,
+    last: Annotated[int | None, strawberry.argument(name="last")] = strawberry.UNSET,
     source: Annotated[
-        Optional[str], strawberry.argument(name="source")
+        str | None, strawberry.argument(name="source")
     ] = strawberry.UNSET,
     search: Annotated[
-        Optional[str], strawberry.argument(name="search")
+        str | None, strawberry.argument(name="search")
     ] = strawberry.UNSET,
-) -> Optional["AuthorityKeyEquivalenceNodeConnection"]:
+) -> AuthorityKeyEquivalenceNodeConnection | None:
     kwargs = strip_unset(
         {
             "offset": offset,
@@ -3332,31 +3308,25 @@ def q_authority_key_equivalences(
 def q_authority_namespaces(
     info: strawberry.Info,
     offset: Annotated[
-        Optional[int], strawberry.argument(name="offset")
+        int | None, strawberry.argument(name="offset")
     ] = strawberry.UNSET,
     before: Annotated[
-        Optional[str], strawberry.argument(name="before")
+        str | None, strawberry.argument(name="before")
     ] = strawberry.UNSET,
-    after: Annotated[
-        Optional[str], strawberry.argument(name="after")
-    ] = strawberry.UNSET,
-    first: Annotated[
-        Optional[int], strawberry.argument(name="first")
-    ] = strawberry.UNSET,
-    last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET,
+    after: Annotated[str | None, strawberry.argument(name="after")] = strawberry.UNSET,
+    first: Annotated[int | None, strawberry.argument(name="first")] = strawberry.UNSET,
+    last: Annotated[int | None, strawberry.argument(name="last")] = strawberry.UNSET,
     jurisdiction: Annotated[
-        Optional[str], strawberry.argument(name="jurisdiction")
+        str | None, strawberry.argument(name="jurisdiction")
     ] = strawberry.UNSET,
     authority_type: Annotated[
-        Optional[str], strawberry.argument(name="authorityType")
+        str | None, strawberry.argument(name="authorityType")
     ] = strawberry.UNSET,
-    scope: Annotated[
-        Optional[str], strawberry.argument(name="scope")
-    ] = strawberry.UNSET,
+    scope: Annotated[str | None, strawberry.argument(name="scope")] = strawberry.UNSET,
     search: Annotated[
-        Optional[str], strawberry.argument(name="search")
+        str | None, strawberry.argument(name="search")
     ] = strawberry.UNSET,
-) -> Optional["AuthorityNamespaceNodeConnection"]:
+) -> AuthorityNamespaceNodeConnection | None:
     kwargs = strip_unset(
         {
             "offset": offset,

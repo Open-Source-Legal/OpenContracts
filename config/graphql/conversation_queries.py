@@ -81,49 +81,45 @@ def _resolve_Query_conversations(root, info, **kwargs):
 def q_conversations(
     info: strawberry.Info,
     offset: Annotated[
-        Optional[int], strawberry.argument(name="offset")
+        int | None, strawberry.argument(name="offset")
     ] = strawberry.UNSET,
     before: Annotated[
-        Optional[str], strawberry.argument(name="before")
+        str | None, strawberry.argument(name="before")
     ] = strawberry.UNSET,
-    after: Annotated[
-        Optional[str], strawberry.argument(name="after")
-    ] = strawberry.UNSET,
-    first: Annotated[
-        Optional[int], strawberry.argument(name="first")
-    ] = strawberry.UNSET,
-    last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET,
+    after: Annotated[str | None, strawberry.argument(name="after")] = strawberry.UNSET,
+    first: Annotated[int | None, strawberry.argument(name="first")] = strawberry.UNSET,
+    last: Annotated[int | None, strawberry.argument(name="last")] = strawberry.UNSET,
     created_at__gte: Annotated[
-        Optional[datetime.datetime], strawberry.argument(name="createdAt_Gte")
+        datetime.datetime | None, strawberry.argument(name="createdAt_Gte")
     ] = strawberry.UNSET,
     created_at__lte: Annotated[
-        Optional[datetime.datetime], strawberry.argument(name="createdAt_Lte")
+        datetime.datetime | None, strawberry.argument(name="createdAt_Lte")
     ] = strawberry.UNSET,
     conversation_type: Annotated[
-        Optional[enums.ConversationTypeEnum],
+        enums.ConversationTypeEnum | None,
         strawberry.argument(name="conversationType"),
     ] = strawberry.UNSET,
     document_id: Annotated[
-        Optional[str], strawberry.argument(name="documentId")
+        str | None, strawberry.argument(name="documentId")
     ] = strawberry.UNSET,
     corpus_id: Annotated[
-        Optional[str], strawberry.argument(name="corpusId")
+        str | None, strawberry.argument(name="corpusId")
     ] = strawberry.UNSET,
     has_corpus: Annotated[
-        Optional[bool], strawberry.argument(name="hasCorpus")
+        bool | None, strawberry.argument(name="hasCorpus")
     ] = strawberry.UNSET,
     has_document: Annotated[
-        Optional[bool], strawberry.argument(name="hasDocument")
+        bool | None, strawberry.argument(name="hasDocument")
     ] = strawberry.UNSET,
     title__contains: Annotated[
-        Optional[str], strawberry.argument(name="title_Contains")
+        str | None, strawberry.argument(name="title_Contains")
     ] = strawberry.UNSET,
-) -> Optional[
+) -> None | (
     Annotated[
-        "ConversationTypeConnection",
+        ConversationTypeConnection,
         strawberry.lazy("config.graphql.conversation_types"),
     ]
-]:
+):
     kwargs = strip_unset(
         {
             "offset": offset,
@@ -235,42 +231,38 @@ def q_search_conversations(
         str, strawberry.argument(name="query", description="Search query text")
     ] = strawberry.UNSET,
     corpus_id: Annotated[
-        Optional[strawberry.ID],
+        strawberry.ID | None,
         strawberry.argument(name="corpusId", description="Filter by corpus ID"),
     ] = strawberry.UNSET,
     document_id: Annotated[
-        Optional[strawberry.ID],
+        strawberry.ID | None,
         strawberry.argument(name="documentId", description="Filter by document ID"),
     ] = strawberry.UNSET,
     conversation_type: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="conversationType",
             description="Filter by conversation type (chat/thread)",
         ),
     ] = strawberry.UNSET,
     top_k: Annotated[
-        Optional[int],
+        int | None,
         strawberry.argument(
             name="topK",
             description="Maximum number of results to fetch from vector store",
         ),
     ] = 100,
     before: Annotated[
-        Optional[str], strawberry.argument(name="before")
+        str | None, strawberry.argument(name="before")
     ] = strawberry.UNSET,
-    after: Annotated[
-        Optional[str], strawberry.argument(name="after")
-    ] = strawberry.UNSET,
-    first: Annotated[
-        Optional[int], strawberry.argument(name="first")
-    ] = strawberry.UNSET,
-    last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET,
-) -> Optional[
+    after: Annotated[str | None, strawberry.argument(name="after")] = strawberry.UNSET,
+    first: Annotated[int | None, strawberry.argument(name="first")] = strawberry.UNSET,
+    last: Annotated[int | None, strawberry.argument(name="last")] = strawberry.UNSET,
+) -> None | (
     Annotated[
-        "ConversationConnection", strawberry.lazy("config.graphql.conversation_types")
+        ConversationConnection, strawberry.lazy("config.graphql.conversation_types")
     ]
-]:
+):
     kwargs = strip_unset(
         {
             "query": query,
@@ -352,34 +344,31 @@ def q_search_messages(
         str, strawberry.argument(name="query", description="Search query text")
     ] = strawberry.UNSET,
     corpus_id: Annotated[
-        Optional[strawberry.ID],
+        strawberry.ID | None,
         strawberry.argument(name="corpusId", description="Filter by corpus ID"),
     ] = strawberry.UNSET,
     conversation_id: Annotated[
-        Optional[strawberry.ID],
+        strawberry.ID | None,
         strawberry.argument(
             name="conversationId", description="Filter by conversation ID"
         ),
     ] = strawberry.UNSET,
     msg_type: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="msgType", description="Filter by message type (HUMAN/LLM/SYSTEM)"
         ),
     ] = strawberry.UNSET,
     top_k: Annotated[
-        Optional[int],
+        int | None,
         strawberry.argument(name="topK", description="Number of results to return"),
     ] = 10,
-) -> Optional[
+) -> None | (
     list[
-        Optional[
-            Annotated[
-                "MessageType", strawberry.lazy("config.graphql.conversation_types")
-            ]
-        ]
+        None
+        | (Annotated[MessageType, strawberry.lazy("config.graphql.conversation_types")])
     ]
-]:
+):
     kwargs = strip_unset(
         {
             "query": query,
@@ -428,17 +417,14 @@ def q_chat_messages(
         strawberry.ID, strawberry.argument(name="conversationId")
     ] = strawberry.UNSET,
     order_by: Annotated[
-        Optional[str], strawberry.argument(name="orderBy")
+        str | None, strawberry.argument(name="orderBy")
     ] = strawberry.UNSET,
-) -> Optional[
+) -> None | (
     list[
-        Optional[
-            Annotated[
-                "MessageType", strawberry.lazy("config.graphql.conversation_types")
-            ]
-        ]
+        None
+        | (Annotated[MessageType, strawberry.lazy("config.graphql.conversation_types")])
     ]
-]:
+):
     kwargs = strip_unset({"conversation_id": conversation_id, "order_by": order_by})
     return _resolve_Query_chat_messages(None, info, **kwargs)
 
@@ -449,9 +435,9 @@ def q_chat_message(
         strawberry.ID,
         strawberry.argument(name="id", description="The ID of the object"),
     ] = strawberry.UNSET,
-) -> Optional[
-    Annotated["MessageType", strawberry.lazy("config.graphql.conversation_types")]
-]:
+) -> None | (
+    Annotated[MessageType, strawberry.lazy("config.graphql.conversation_types")]
+):
     return get_node_from_global_id(info, id, only_type_name="MessageType")
 
 
@@ -500,22 +486,19 @@ def q_user_messages(
     creator_id: Annotated[
         strawberry.ID, strawberry.argument(name="creatorId")
     ] = strawberry.UNSET,
-    first: Annotated[Optional[int], strawberry.argument(name="first")] = 10,
+    first: Annotated[int | None, strawberry.argument(name="first")] = 10,
     msg_type: Annotated[
-        Optional[str], strawberry.argument(name="msgType")
+        str | None, strawberry.argument(name="msgType")
     ] = strawberry.UNSET,
     order_by: Annotated[
-        Optional[str], strawberry.argument(name="orderBy")
+        str | None, strawberry.argument(name="orderBy")
     ] = strawberry.UNSET,
-) -> Optional[
+) -> None | (
     list[
-        Optional[
-            Annotated[
-                "MessageType", strawberry.lazy("config.graphql.conversation_types")
-            ]
-        ]
+        None
+        | (Annotated[MessageType, strawberry.lazy("config.graphql.conversation_types")])
     ]
-]:
+):
     kwargs = strip_unset(
         {
             "creator_id": creator_id,
@@ -584,53 +567,49 @@ def _resolve_Query_moderation_actions(
 def q_moderation_actions(
     info: strawberry.Info,
     corpus_id: Annotated[
-        Optional[strawberry.ID], strawberry.argument(name="corpusId")
+        strawberry.ID | None, strawberry.argument(name="corpusId")
     ] = strawberry.UNSET,
     thread_id: Annotated[
-        Optional[strawberry.ID], strawberry.argument(name="threadId")
+        strawberry.ID | None, strawberry.argument(name="threadId")
     ] = strawberry.UNSET,
     moderator_id: Annotated[
-        Optional[strawberry.ID], strawberry.argument(name="moderatorId")
+        strawberry.ID | None, strawberry.argument(name="moderatorId")
     ] = strawberry.UNSET,
     action_types: Annotated[
-        Optional[list[Optional[str]]], strawberry.argument(name="actionTypes")
+        list[str | None] | None, strawberry.argument(name="actionTypes")
     ] = strawberry.UNSET,
     automated_only: Annotated[
-        Optional[bool], strawberry.argument(name="automatedOnly")
+        bool | None, strawberry.argument(name="automatedOnly")
     ] = strawberry.UNSET,
     offset: Annotated[
-        Optional[int], strawberry.argument(name="offset")
+        int | None, strawberry.argument(name="offset")
     ] = strawberry.UNSET,
     before: Annotated[
-        Optional[str], strawberry.argument(name="before")
+        str | None, strawberry.argument(name="before")
     ] = strawberry.UNSET,
-    after: Annotated[
-        Optional[str], strawberry.argument(name="after")
-    ] = strawberry.UNSET,
-    first: Annotated[
-        Optional[int], strawberry.argument(name="first")
-    ] = strawberry.UNSET,
-    last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET,
+    after: Annotated[str | None, strawberry.argument(name="after")] = strawberry.UNSET,
+    first: Annotated[int | None, strawberry.argument(name="first")] = strawberry.UNSET,
+    last: Annotated[int | None, strawberry.argument(name="last")] = strawberry.UNSET,
     action_type: Annotated[
-        Optional[enums.ConversationsModerationActionActionTypeChoices],
+        enums.ConversationsModerationActionActionTypeChoices | None,
         strawberry.argument(name="actionType"),
     ] = strawberry.UNSET,
     action_type__in: Annotated[
-        Optional[list[Optional[enums.ConversationsModerationActionActionTypeChoices]]],
+        list[enums.ConversationsModerationActionActionTypeChoices | None] | None,
         strawberry.argument(name="actionType_In"),
     ] = strawberry.UNSET,
     created__gte: Annotated[
-        Optional[datetime.datetime], strawberry.argument(name="created_Gte")
+        datetime.datetime | None, strawberry.argument(name="created_Gte")
     ] = strawberry.UNSET,
     created__lte: Annotated[
-        Optional[datetime.datetime], strawberry.argument(name="created_Lte")
+        datetime.datetime | None, strawberry.argument(name="created_Lte")
     ] = strawberry.UNSET,
-) -> Optional[
+) -> None | (
     Annotated[
-        "ModerationActionTypeConnection",
+        ModerationActionTypeConnection,
         strawberry.lazy("config.graphql.conversation_types"),
     ]
-]:
+):
     kwargs = strip_unset(
         {
             "corpus_id": corpus_id,
@@ -707,11 +686,11 @@ def _resolve_Query_moderation_action(root, info, id, **kwargs):
 def q_moderation_action(
     info: strawberry.Info,
     id: Annotated[strawberry.ID, strawberry.argument(name="id")] = strawberry.UNSET,
-) -> Optional[
+) -> None | (
     Annotated[
-        "ModerationActionType", strawberry.lazy("config.graphql.conversation_types")
+        ModerationActionType, strawberry.lazy("config.graphql.conversation_types")
     ]
-]:
+):
     kwargs = strip_unset({"id": id})
     return _resolve_Query_moderation_action(None, info, **kwargs)
 
@@ -793,13 +772,13 @@ def q_moderation_metrics(
         strawberry.ID, strawberry.argument(name="corpusId")
     ] = strawberry.UNSET,
     time_range_hours: Annotated[
-        Optional[int], strawberry.argument(name="timeRangeHours")
+        int | None, strawberry.argument(name="timeRangeHours")
     ] = 24,
-) -> Optional[
+) -> None | (
     Annotated[
-        "ModerationMetricsType", strawberry.lazy("config.graphql.conversation_types")
+        ModerationMetricsType, strawberry.lazy("config.graphql.conversation_types")
     ]
-]:
+):
     kwargs = strip_unset({"corpus_id": corpus_id, "time_range_hours": time_range_hours})
     return _resolve_Query_moderation_metrics(None, info, **kwargs)
 

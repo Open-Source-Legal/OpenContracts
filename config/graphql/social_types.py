@@ -116,7 +116,7 @@ def _resolve_NotificationType_data(root, info, **kwargs):
 
 @strawberry.type(name="NotificationType", description="GraphQL type for notifications.")
 class NotificationType(Node):
-    recipient: Annotated["UserType", strawberry.lazy("config.graphql.user_types")] = (
+    recipient: Annotated[UserType, strawberry.lazy("config.graphql.user_types")] = (
         strawberry.field(
             name="recipient",
             description="User receiving this notification",
@@ -136,9 +136,9 @@ class NotificationType(Node):
     @strawberry.field(name="message", description="Related message if applicable")
     def message(
         self, info: strawberry.Info
-    ) -> Optional[
-        Annotated["MessageType", strawberry.lazy("config.graphql.conversation_types")]
-    ]:
+    ) -> None | (
+        Annotated[MessageType, strawberry.lazy("config.graphql.conversation_types")]
+    ):
         kwargs = strip_unset({})
         return _resolve_NotificationType_message(self, info, **kwargs)
 
@@ -147,17 +147,17 @@ class NotificationType(Node):
     )
     def conversation(
         self, info: strawberry.Info
-    ) -> Optional[
+    ) -> None | (
         Annotated[
-            "ConversationType", strawberry.lazy("config.graphql.conversation_types")
+            ConversationType, strawberry.lazy("config.graphql.conversation_types")
         ]
-    ]:
+    ):
         kwargs = strip_unset({})
         return _resolve_NotificationType_conversation(self, info, **kwargs)
 
-    actor: Optional[
-        Annotated["UserType", strawberry.lazy("config.graphql.user_types")]
-    ] = strawberry.field(
+    actor: None | (
+        Annotated[UserType, strawberry.lazy("config.graphql.user_types")]
+    ) = strawberry.field(
         name="actor",
         description="User who triggered this notification (if applicable)",
         default=None,
@@ -180,7 +180,7 @@ class NotificationType(Node):
         name="data",
         description="Additional context data for the notification (e.g., vote type, badge info)",
     )
-    def data(self, info: strawberry.Info) -> Optional[JSONString]:
+    def data(self, info: strawberry.Info) -> JSONString | None:
         kwargs = strip_unset({})
         return _resolve_NotificationType_data(self, info, **kwargs)
 
@@ -228,7 +228,7 @@ NotificationTypeConnection = make_connection_types(
 @strawberry.type(name="BadgeType", description="GraphQL type for badges.")
 class BadgeType(Node):
     is_public: bool = strawberry.field(name="isPublic", default=None)
-    creator: Annotated["UserType", strawberry.lazy("config.graphql.user_types")] = (
+    creator: Annotated[UserType, strawberry.lazy("config.graphql.user_types")] = (
         strawberry.field(name="creator", default=None)
     )
     created: datetime.datetime = strawberry.field(name="created", default=None)
@@ -264,9 +264,9 @@ class BadgeType(Node):
     def color(self, info: strawberry.Info) -> str:
         return coerce_str(getattr(self, "color", None))
 
-    corpus: Optional[
-        Annotated["CorpusType", strawberry.lazy("config.graphql.corpus_types")]
-    ] = strawberry.field(
+    corpus: None | (
+        Annotated[CorpusType, strawberry.lazy("config.graphql.corpus_types")]
+    ) = strawberry.field(
         name="corpus",
         description="If badge_type is CORPUS, the corpus this badge belongs to",
         default=None,
@@ -276,22 +276,22 @@ class BadgeType(Node):
         description="Whether this badge is automatically awarded based on criteria",
         default=None,
     )
-    criteria_config: Optional[JSONString] = strawberry.field(
+    criteria_config: JSONString | None = strawberry.field(
         name="criteriaConfig",
         description="JSON configuration for auto-award criteria. Example: {'type': 'reputation_threshold', 'value': 100, 'scope': 'global'}",
         default=None,
     )
 
     @strawberry.field(name="myPermissions")
-    def my_permissions(self, info: strawberry.Info) -> Optional[GenericScalar]:
+    def my_permissions(self, info: strawberry.Info) -> GenericScalar | None:
         return core_permissions.resolve_my_permissions(self, info)
 
     @strawberry.field(name="isPublished")
-    def is_published(self, info: strawberry.Info) -> Optional[bool]:
+    def is_published(self, info: strawberry.Info) -> bool | None:
         return core_permissions.resolve_is_published(self, info)
 
     @strawberry.field(name="objectSharedWith")
-    def object_shared_with(self, info: strawberry.Info) -> Optional[GenericScalar]:
+    def object_shared_with(self, info: strawberry.Info) -> GenericScalar | None:
         return core_permissions.resolve_object_shared_with(self, info)
 
 
@@ -307,42 +307,42 @@ BadgeTypeConnection = make_connection_types(
     name="UserBadgeType", description="GraphQL type for user badge awards."
 )
 class UserBadgeType(Node):
-    user: Annotated["UserType", strawberry.lazy("config.graphql.user_types")] = (
+    user: Annotated[UserType, strawberry.lazy("config.graphql.user_types")] = (
         strawberry.field(
             name="user", description="User who received the badge", default=None
         )
     )
-    badge: "BadgeType" = strawberry.field(
+    badge: BadgeType = strawberry.field(
         name="badge", description="Badge that was awarded", default=None
     )
     awarded_at: datetime.datetime = strawberry.field(
         name="awardedAt", description="When the badge was awarded", default=None
     )
-    awarded_by: Optional[
-        Annotated["UserType", strawberry.lazy("config.graphql.user_types")]
-    ] = strawberry.field(
+    awarded_by: None | (
+        Annotated[UserType, strawberry.lazy("config.graphql.user_types")]
+    ) = strawberry.field(
         name="awardedBy",
         description="User who awarded the badge (null for auto-awards)",
         default=None,
     )
-    corpus: Optional[
-        Annotated["CorpusType", strawberry.lazy("config.graphql.corpus_types")]
-    ] = strawberry.field(
+    corpus: None | (
+        Annotated[CorpusType, strawberry.lazy("config.graphql.corpus_types")]
+    ) = strawberry.field(
         name="corpus",
         description="For corpus-specific badges, the context in which it was awarded",
         default=None,
     )
 
     @strawberry.field(name="myPermissions")
-    def my_permissions(self, info: strawberry.Info) -> Optional[GenericScalar]:
+    def my_permissions(self, info: strawberry.Info) -> GenericScalar | None:
         return core_permissions.resolve_my_permissions(self, info)
 
     @strawberry.field(name="isPublished")
-    def is_published(self, info: strawberry.Info) -> Optional[bool]:
+    def is_published(self, info: strawberry.Info) -> bool | None:
         return core_permissions.resolve_is_published(self, info)
 
     @strawberry.field(name="objectSharedWith")
-    def object_shared_with(self, info: strawberry.Info) -> Optional[GenericScalar]:
+    def object_shared_with(self, info: strawberry.Info) -> GenericScalar | None:
         return core_permissions.resolve_object_shared_with(self, info)
 
 
@@ -413,7 +413,7 @@ class CriteriaTypeDefinitionType:
         description="Where this criteria can be used: 'global', 'corpus', or 'both'",
         default=None,
     )
-    fields: list["CriteriaFieldType"] = strawberry.field(
+    fields: list[CriteriaFieldType] = strawberry.field(
         name="fields",
         description="Configuration fields required for this criteria type",
         default=None,
@@ -451,22 +451,22 @@ class CriteriaFieldType:
         description="Whether this field must be present in configuration",
         default=None,
     )
-    description: Optional[str] = strawberry.field(
+    description: str | None = strawberry.field(
         name="description",
         description="Help text explaining the field's purpose",
         default=None,
     )
-    min_value: Optional[int] = strawberry.field(
+    min_value: int | None = strawberry.field(
         name="minValue",
         description="Minimum allowed value (for number fields only)",
         default=None,
     )
-    max_value: Optional[int] = strawberry.field(
+    max_value: int | None = strawberry.field(
         name="maxValue",
         description="Maximum allowed value (for number fields only)",
         default=None,
     )
-    allowed_values: Optional[list[Optional[str]]] = strawberry.field(
+    allowed_values: list[str | None] | None = strawberry.field(
         name="allowedValues",
         description="List of allowed values (for enum-like text fields)",
         default=None,
@@ -481,28 +481,28 @@ register_type("CriteriaFieldType", CriteriaFieldType, model=None)
     description="Complete leaderboard with entries and metadata.\n\nIssue: #613 - Create leaderboard and community stats dashboard\nEpic: #572 - Social Features Epic",
 )
 class LeaderboardType:
-    metric: Optional[enums.LeaderboardMetricEnum] = strawberry.field(
+    metric: enums.LeaderboardMetricEnum | None = strawberry.field(
         name="metric",
         description="The metric this leaderboard is sorted by",
         default=None,
     )
-    scope: Optional[enums.LeaderboardScopeEnum] = strawberry.field(
+    scope: enums.LeaderboardScopeEnum | None = strawberry.field(
         name="scope", description="The time period for this leaderboard", default=None
     )
-    corpus_id: Optional[strawberry.ID] = strawberry.field(
+    corpus_id: strawberry.ID | None = strawberry.field(
         name="corpusId",
         description="If corpus-specific leaderboard, the corpus ID",
         default=None,
     )
-    total_users: Optional[int] = strawberry.field(
+    total_users: int | None = strawberry.field(
         name="totalUsers",
         description="Total number of users in leaderboard",
         default=None,
     )
-    entries: Optional[list[Optional["LeaderboardEntryType"]]] = strawberry.field(
+    entries: list[LeaderboardEntryType | None] | None = strawberry.field(
         name="entries", description="Leaderboard entries in rank order", default=None
     )
-    current_user_rank: Optional[int] = strawberry.field(
+    current_user_rank: int | None = strawberry.field(
         name="currentUserRank",
         description="Current user's rank in this leaderboard (null if not ranked)",
         default=None,
@@ -517,37 +517,37 @@ register_type("LeaderboardType", LeaderboardType, model=None)
     description="Represents a single entry in the leaderboard.\n\nIssue: #613 - Create leaderboard and community stats dashboard\nEpic: #572 - Social Features Epic",
 )
 class LeaderboardEntryType:
-    user: Optional[
-        Annotated["UserType", strawberry.lazy("config.graphql.user_types")]
-    ] = strawberry.field(
-        name="user", description="The user in this leaderboard entry", default=None
+    user: None | (Annotated[UserType, strawberry.lazy("config.graphql.user_types")]) = (
+        strawberry.field(
+            name="user", description="The user in this leaderboard entry", default=None
+        )
     )
-    rank: Optional[int] = strawberry.field(
+    rank: int | None = strawberry.field(
         name="rank",
         description="User's rank in the leaderboard (1-indexed)",
         default=None,
     )
-    score: Optional[int] = strawberry.field(
+    score: int | None = strawberry.field(
         name="score", description="User's score for this metric", default=None
     )
-    badge_count: Optional[int] = strawberry.field(
+    badge_count: int | None = strawberry.field(
         name="badgeCount", description="Total badges earned by user", default=None
     )
-    message_count: Optional[int] = strawberry.field(
+    message_count: int | None = strawberry.field(
         name="messageCount", description="Total messages posted by user", default=None
     )
-    thread_count: Optional[int] = strawberry.field(
+    thread_count: int | None = strawberry.field(
         name="threadCount", description="Total threads created by user", default=None
     )
-    annotation_count: Optional[int] = strawberry.field(
+    annotation_count: int | None = strawberry.field(
         name="annotationCount",
         description="Total annotations created by user",
         default=None,
     )
-    reputation: Optional[int] = strawberry.field(
+    reputation: int | None = strawberry.field(
         name="reputation", description="User's reputation score", default=None
     )
-    is_rising_star: Optional[bool] = strawberry.field(
+    is_rising_star: bool | None = strawberry.field(
         name="isRisingStar",
         description="True if user has shown significant recent activity",
         default=None,
@@ -562,44 +562,42 @@ register_type("LeaderboardEntryType", LeaderboardEntryType, model=None)
     description="Overall community engagement statistics.\n\nIssue: #613 - Create leaderboard and community stats dashboard\nEpic: #572 - Social Features Epic",
 )
 class CommunityStatsType:
-    total_users: Optional[int] = strawberry.field(
+    total_users: int | None = strawberry.field(
         name="totalUsers", description="Total number of active users", default=None
     )
-    total_messages: Optional[int] = strawberry.field(
+    total_messages: int | None = strawberry.field(
         name="totalMessages", description="Total messages posted", default=None
     )
-    total_threads: Optional[int] = strawberry.field(
+    total_threads: int | None = strawberry.field(
         name="totalThreads", description="Total threads created", default=None
     )
-    total_annotations: Optional[int] = strawberry.field(
+    total_annotations: int | None = strawberry.field(
         name="totalAnnotations", description="Total annotations created", default=None
     )
-    total_badges_awarded: Optional[int] = strawberry.field(
+    total_badges_awarded: int | None = strawberry.field(
         name="totalBadgesAwarded", description="Total badge awards", default=None
     )
-    badge_distribution: Optional[list[Optional["BadgeDistributionType"]]] = (
-        strawberry.field(
-            name="badgeDistribution",
-            description="Badge distribution across users",
-            default=None,
-        )
+    badge_distribution: list[BadgeDistributionType | None] | None = strawberry.field(
+        name="badgeDistribution",
+        description="Badge distribution across users",
+        default=None,
     )
-    messages_this_week: Optional[int] = strawberry.field(
+    messages_this_week: int | None = strawberry.field(
         name="messagesThisWeek",
         description="Messages posted in last 7 days",
         default=None,
     )
-    messages_this_month: Optional[int] = strawberry.field(
+    messages_this_month: int | None = strawberry.field(
         name="messagesThisMonth",
         description="Messages posted in last 30 days",
         default=None,
     )
-    active_users_this_week: Optional[int] = strawberry.field(
+    active_users_this_week: int | None = strawberry.field(
         name="activeUsersThisWeek",
         description="Users who posted in last 7 days",
         default=None,
     )
-    active_users_this_month: Optional[int] = strawberry.field(
+    active_users_this_month: int | None = strawberry.field(
         name="activeUsersThisMonth",
         description="Users who posted in last 30 days",
         default=None,
@@ -614,15 +612,15 @@ register_type("CommunityStatsType", CommunityStatsType, model=None)
     description="Statistics about badge distribution across users.\n\nIssue: #613 - Create leaderboard and community stats dashboard\nEpic: #572 - Social Features Epic",
 )
 class BadgeDistributionType:
-    badge: Optional["BadgeType"] = strawberry.field(
+    badge: BadgeType | None = strawberry.field(
         name="badge", description="The badge", default=None
     )
-    award_count: Optional[int] = strawberry.field(
+    award_count: int | None = strawberry.field(
         name="awardCount",
         description="Number of times this badge has been awarded",
         default=None,
     )
-    unique_recipients: Optional[int] = strawberry.field(
+    unique_recipients: int | None = strawberry.field(
         name="uniqueRecipients",
         description="Number of unique users who have earned this badge",
         default=None,
@@ -673,7 +671,7 @@ def _resolve_SemanticSearchResultType_corpus(root, info, **kwargs):
 )
 class SemanticSearchResultType:
     annotation: Annotated[
-        "AnnotationType", strawberry.lazy("config.graphql.annotation_types")
+        AnnotationType, strawberry.lazy("config.graphql.annotation_types")
     ] = strawberry.field(
         name="annotation", description="The matched annotation", default=None
     )
@@ -689,9 +687,9 @@ class SemanticSearchResultType:
     )
     def document(
         self, info: strawberry.Info
-    ) -> Optional[
-        Annotated["DocumentType", strawberry.lazy("config.graphql.document_types")]
-    ]:
+    ) -> None | (
+        Annotated[DocumentType, strawberry.lazy("config.graphql.document_types")]
+    ):
         kwargs = strip_unset({})
         return _resolve_SemanticSearchResultType_document(self, info, **kwargs)
 
@@ -700,13 +698,11 @@ class SemanticSearchResultType:
     )
     def corpus(
         self, info: strawberry.Info
-    ) -> Optional[
-        Annotated["CorpusType", strawberry.lazy("config.graphql.corpus_types")]
-    ]:
+    ) -> None | (Annotated[CorpusType, strawberry.lazy("config.graphql.corpus_types")]):
         kwargs = strip_unset({})
         return _resolve_SemanticSearchResultType_corpus(self, info, **kwargs)
 
-    block_context: Optional["BlockContextType"] = strawberry.field(
+    block_context: BlockContextType | None = strawberry.field(
         name="blockContext",
         description="Smallest enclosing OC_SUBTREE_GROUP subtree for this hit, or null when the annotation has no materialised containing block (root structural rows, legacy documents).",
         default=None,
@@ -766,12 +762,12 @@ class SemanticSearchRelationshipResultType:
         description="Cosine similarity (0.0-1.0, higher is more similar).",
         default=None,
     )
-    label: Optional[str] = strawberry.field(
+    label: str | None = strawberry.field(
         name="label",
         description="Relationship label text (e.g. ``OC_SUBTREE_GROUP``). Provided so callers can filter or branch on the relationship kind without a follow-up fetch.",
         default=None,
     )
-    source_annotation_id: Optional[strawberry.ID] = strawberry.field(
+    source_annotation_id: strawberry.ID | None = strawberry.field(
         name="sourceAnnotationId",
         description="PK of the (typically single) source annotation — the block's root. Null only when the relationship has no source row, which the materialiser does not produce but defensive frontends should still handle.",
         default=None,
@@ -786,12 +782,12 @@ class SemanticSearchRelationshipResultType:
         description="Source + targets concatenated newline-separated, capped at ``SUBTREE_GROUP_BLOCK_TEXT_MAX_CHARS`` — the same string the embedder saw, suitable for snippet display.",
         default=None,
     )
-    document_id: Optional[strawberry.ID] = strawberry.field(
+    document_id: strawberry.ID | None = strawberry.field(
         name="documentId",
         description="PK of the document this relationship is anchored to (or that shares the ``StructuralAnnotationSet`` for structural rows). Null when the relationship is global and not tied to any single document.",
         default=None,
     )
-    corpus_id: Optional[strawberry.ID] = strawberry.field(
+    corpus_id: strawberry.ID | None = strawberry.field(
         name="corpusId",
         description="PK of the corpus this relationship belongs to. Null for non-corpus relationships.",
         default=None,

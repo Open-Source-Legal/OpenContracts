@@ -164,24 +164,22 @@ def _resolve_Query_admin_document_ingestion(
 def q_admin_document_ingestion(
     info: strawberry.Info,
     status: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="status",
             description="Filter by processing status (pending/processing/completed/failed).",
         ),
     ] = strawberry.UNSET,
-    limit: Annotated[
-        Optional[int], strawberry.argument(name="limit")
-    ] = strawberry.UNSET,
+    limit: Annotated[int | None, strawberry.argument(name="limit")] = strawberry.UNSET,
     offset: Annotated[
-        Optional[int], strawberry.argument(name="offset")
+        int | None, strawberry.argument(name="offset")
     ] = strawberry.UNSET,
-) -> Optional[
+) -> None | (
     Annotated[
-        "AdminDocumentIngestionPageType",
+        AdminDocumentIngestionPageType,
         strawberry.lazy("config.graphql.ingestion_admin_types"),
     ]
-]:
+):
     kwargs = strip_unset({"status": status, "limit": limit, "offset": offset})
     return _resolve_Query_admin_document_ingestion(None, info, **kwargs)
 
@@ -252,20 +250,18 @@ def _resolve_Query_admin_worker_uploads(
 def q_admin_worker_uploads(
     info: strawberry.Info,
     status: Annotated[
-        Optional[str], strawberry.argument(name="status")
+        str | None, strawberry.argument(name="status")
     ] = strawberry.UNSET,
-    limit: Annotated[
-        Optional[int], strawberry.argument(name="limit")
-    ] = strawberry.UNSET,
+    limit: Annotated[int | None, strawberry.argument(name="limit")] = strawberry.UNSET,
     offset: Annotated[
-        Optional[int], strawberry.argument(name="offset")
+        int | None, strawberry.argument(name="offset")
     ] = strawberry.UNSET,
-) -> Optional[
+) -> None | (
     Annotated[
-        "AdminWorkerUploadPageType",
+        AdminWorkerUploadPageType,
         strawberry.lazy("config.graphql.ingestion_admin_types"),
     ]
-]:
+):
     kwargs = strip_unset({"status": status, "limit": limit, "offset": offset})
     return _resolve_Query_admin_worker_uploads(None, info, **kwargs)
 
@@ -333,20 +329,18 @@ def _resolve_Query_admin_corpus_imports(
 def q_admin_corpus_imports(
     info: strawberry.Info,
     status: Annotated[
-        Optional[str], strawberry.argument(name="status")
+        str | None, strawberry.argument(name="status")
     ] = strawberry.UNSET,
-    limit: Annotated[
-        Optional[int], strawberry.argument(name="limit")
-    ] = strawberry.UNSET,
+    limit: Annotated[int | None, strawberry.argument(name="limit")] = strawberry.UNSET,
     offset: Annotated[
-        Optional[int], strawberry.argument(name="offset")
+        int | None, strawberry.argument(name="offset")
     ] = strawberry.UNSET,
-) -> Optional[
+) -> None | (
     Annotated[
-        "AdminCorpusImportPageType",
+        AdminCorpusImportPageType,
         strawberry.lazy("config.graphql.ingestion_admin_types"),
     ]
-]:
+):
     kwargs = strip_unset({"status": status, "limit": limit, "offset": offset})
     return _resolve_Query_admin_corpus_imports(None, info, **kwargs)
 
@@ -423,20 +417,18 @@ def _resolve_Query_admin_bulk_import_sessions(
 def q_admin_bulk_import_sessions(
     info: strawberry.Info,
     status: Annotated[
-        Optional[str], strawberry.argument(name="status")
+        str | None, strawberry.argument(name="status")
     ] = strawberry.UNSET,
-    limit: Annotated[
-        Optional[int], strawberry.argument(name="limit")
-    ] = strawberry.UNSET,
+    limit: Annotated[int | None, strawberry.argument(name="limit")] = strawberry.UNSET,
     offset: Annotated[
-        Optional[int], strawberry.argument(name="offset")
+        int | None, strawberry.argument(name="offset")
     ] = strawberry.UNSET,
-) -> Optional[
+) -> None | (
     Annotated[
-        "AdminBulkImportSessionPageType",
+        AdminBulkImportSessionPageType,
         strawberry.lazy("config.graphql.ingestion_admin_types"),
     ]
-]:
+):
     kwargs = strip_unset({"status": status, "limit": limit, "offset": offset})
     return _resolve_Query_admin_bulk_import_sessions(None, info, **kwargs)
 

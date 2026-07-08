@@ -84,13 +84,11 @@ def _resolve_source_type(source_type) -> Any:
     description="Create a new ingestion source for document lineage tracking.",
 )
 class CreateIngestionSourceMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    ingestion_source: Optional[
-        Annotated[
-            "IngestionSourceType", strawberry.lazy("config.graphql.document_types")
-        ]
-    ] = strawberry.field(name="ingestionSource", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    ingestion_source: None | (
+        Annotated[IngestionSourceType, strawberry.lazy("config.graphql.document_types")]
+    ) = strawberry.field(name="ingestionSource", default=None)
 
 
 register_type(
@@ -103,13 +101,11 @@ register_type(
     description="Update an existing ingestion source.",
 )
 class UpdateIngestionSourceMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    ingestion_source: Optional[
-        Annotated[
-            "IngestionSourceType", strawberry.lazy("config.graphql.document_types")
-        ]
-    ] = strawberry.field(name="ingestionSource", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    ingestion_source: None | (
+        Annotated[IngestionSourceType, strawberry.lazy("config.graphql.document_types")]
+    ) = strawberry.field(name="ingestionSource", default=None)
 
 
 register_type(
@@ -122,8 +118,8 @@ register_type(
     description="Delete an ingestion source. Existing DocumentPath references become NULL.",
 )
 class DeleteIngestionSourceMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
 
 
 register_type(
@@ -179,7 +175,7 @@ def _mutate_CreateIngestionSourceMutation(
 def m_create_ingestion_source(
     info: strawberry.Info,
     config: Annotated[
-        Optional[GenericScalar],
+        GenericScalar | None,
         strawberry.argument(
             name="config", description="Connection details, schedule, etc."
         ),
@@ -191,12 +187,12 @@ def m_create_ingestion_source(
         ),
     ] = strawberry.UNSET,
     source_type: Annotated[
-        Optional[enums.IngestionSourceTypeEnum],
+        enums.IngestionSourceTypeEnum | None,
         strawberry.argument(
             name="sourceType", description="Category of source (default: MANUAL)"
         ),
     ] = strawberry.UNSET,
-) -> Optional["CreateIngestionSourceMutation"]:
+) -> CreateIngestionSourceMutation | None:
     kwargs = strip_unset({"config": config, "name": name, "source_type": source_type})
     return _mutate_CreateIngestionSourceMutation(
         CreateIngestionSourceMutation, None, info, **kwargs
@@ -273,17 +269,17 @@ def _mutate_UpdateIngestionSourceMutation(payload_cls, root, info, id, **kwargs)
 def m_update_ingestion_source(
     info: strawberry.Info,
     active: Annotated[
-        Optional[bool], strawberry.argument(name="active")
+        bool | None, strawberry.argument(name="active")
     ] = strawberry.UNSET,
     config: Annotated[
-        Optional[GenericScalar], strawberry.argument(name="config")
+        GenericScalar | None, strawberry.argument(name="config")
     ] = strawberry.UNSET,
     id: Annotated[strawberry.ID, strawberry.argument(name="id")] = strawberry.UNSET,
-    name: Annotated[Optional[str], strawberry.argument(name="name")] = strawberry.UNSET,
+    name: Annotated[str | None, strawberry.argument(name="name")] = strawberry.UNSET,
     source_type: Annotated[
-        Optional[enums.IngestionSourceTypeEnum], strawberry.argument(name="sourceType")
+        enums.IngestionSourceTypeEnum | None, strawberry.argument(name="sourceType")
     ] = strawberry.UNSET,
-) -> Optional["UpdateIngestionSourceMutation"]:
+) -> UpdateIngestionSourceMutation | None:
     kwargs = strip_unset(
         {
             "active": active,
@@ -335,7 +331,7 @@ def _mutate_DeleteIngestionSourceMutation(payload_cls, root, info, id):
 def m_delete_ingestion_source(
     info: strawberry.Info,
     id: Annotated[strawberry.ID, strawberry.argument(name="id")] = strawberry.UNSET,
-) -> Optional["DeleteIngestionSourceMutation"]:
+) -> DeleteIngestionSourceMutation | None:
     kwargs = strip_unset({"id": id})
     return _mutate_DeleteIngestionSourceMutation(
         DeleteIngestionSourceMutation, None, info, **kwargs

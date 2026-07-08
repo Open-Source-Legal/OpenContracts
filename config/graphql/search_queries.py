@@ -115,28 +115,24 @@ def _resolve_Query_search_corpuses_for_mention(
 def q_search_corpuses_for_mention(
     info: strawberry.Info,
     text_search: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="textSearch",
             description="Search query to find corpuses by title or description",
         ),
     ] = strawberry.UNSET,
     offset: Annotated[
-        Optional[int], strawberry.argument(name="offset")
+        int | None, strawberry.argument(name="offset")
     ] = strawberry.UNSET,
     before: Annotated[
-        Optional[str], strawberry.argument(name="before")
+        str | None, strawberry.argument(name="before")
     ] = strawberry.UNSET,
-    after: Annotated[
-        Optional[str], strawberry.argument(name="after")
-    ] = strawberry.UNSET,
-    first: Annotated[
-        Optional[int], strawberry.argument(name="first")
-    ] = strawberry.UNSET,
-    last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET,
-) -> Optional[
-    Annotated["CorpusTypeConnection", strawberry.lazy("config.graphql.corpus_types")]
-]:
+    after: Annotated[str | None, strawberry.argument(name="after")] = strawberry.UNSET,
+    first: Annotated[int | None, strawberry.argument(name="first")] = strawberry.UNSET,
+    last: Annotated[int | None, strawberry.argument(name="last")] = strawberry.UNSET,
+) -> None | (
+    Annotated[CorpusTypeConnection, strawberry.lazy("config.graphql.corpus_types")]
+):
     kwargs = strip_unset(
         {
             "text_search": text_search,
@@ -290,37 +286,31 @@ def _resolve_Query_search_documents_for_mention(
 def q_search_documents_for_mention(
     info: strawberry.Info,
     text_search: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="textSearch",
             description="Search query to find documents by title or description",
         ),
     ] = strawberry.UNSET,
     corpus_id: Annotated[
-        Optional[strawberry.ID],
+        strawberry.ID | None,
         strawberry.argument(
             name="corpusId",
             description="Optional corpus ID to scope search to documents in specific corpus",
         ),
     ] = strawberry.UNSET,
     offset: Annotated[
-        Optional[int], strawberry.argument(name="offset")
+        int | None, strawberry.argument(name="offset")
     ] = strawberry.UNSET,
     before: Annotated[
-        Optional[str], strawberry.argument(name="before")
+        str | None, strawberry.argument(name="before")
     ] = strawberry.UNSET,
-    after: Annotated[
-        Optional[str], strawberry.argument(name="after")
-    ] = strawberry.UNSET,
-    first: Annotated[
-        Optional[int], strawberry.argument(name="first")
-    ] = strawberry.UNSET,
-    last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET,
-) -> Optional[
-    Annotated[
-        "DocumentTypeConnection", strawberry.lazy("config.graphql.document_types")
-    ]
-]:
+    after: Annotated[str | None, strawberry.argument(name="after")] = strawberry.UNSET,
+    first: Annotated[int | None, strawberry.argument(name="first")] = strawberry.UNSET,
+    last: Annotated[int | None, strawberry.argument(name="last")] = strawberry.UNSET,
+) -> None | (
+    Annotated[DocumentTypeConnection, strawberry.lazy("config.graphql.document_types")]
+):
     kwargs = strip_unset(
         {
             "text_search": text_search,
@@ -427,37 +417,33 @@ def _resolve_Query_search_annotations_for_mention(
 def q_search_annotations_for_mention(
     info: strawberry.Info,
     text_search: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="textSearch",
             description="Search query to find annotations by label text or raw content",
         ),
     ] = strawberry.UNSET,
     corpus_id: Annotated[
-        Optional[strawberry.ID],
+        strawberry.ID | None,
         strawberry.argument(
             name="corpusId",
             description="Optional corpus ID to scope search to specific corpus",
         ),
     ] = strawberry.UNSET,
     offset: Annotated[
-        Optional[int], strawberry.argument(name="offset")
+        int | None, strawberry.argument(name="offset")
     ] = strawberry.UNSET,
     before: Annotated[
-        Optional[str], strawberry.argument(name="before")
+        str | None, strawberry.argument(name="before")
     ] = strawberry.UNSET,
-    after: Annotated[
-        Optional[str], strawberry.argument(name="after")
-    ] = strawberry.UNSET,
-    first: Annotated[
-        Optional[int], strawberry.argument(name="first")
-    ] = strawberry.UNSET,
-    last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET,
-) -> Optional[
+    after: Annotated[str | None, strawberry.argument(name="after")] = strawberry.UNSET,
+    first: Annotated[int | None, strawberry.argument(name="first")] = strawberry.UNSET,
+    last: Annotated[int | None, strawberry.argument(name="last")] = strawberry.UNSET,
+) -> None | (
     Annotated[
-        "AnnotationTypeConnection", strawberry.lazy("config.graphql.annotation_types")
+        AnnotationTypeConnection, strawberry.lazy("config.graphql.annotation_types")
     ]
-]:
+):
     kwargs = strip_unset(
         {
             "text_search": text_search,
@@ -533,28 +519,24 @@ def _resolve_Query_search_users_for_mention(
 def q_search_users_for_mention(
     info: strawberry.Info,
     text_search: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="textSearch",
             description="Search query to find users by slug or display handle",
         ),
     ] = strawberry.UNSET,
     offset: Annotated[
-        Optional[int], strawberry.argument(name="offset")
+        int | None, strawberry.argument(name="offset")
     ] = strawberry.UNSET,
     before: Annotated[
-        Optional[str], strawberry.argument(name="before")
+        str | None, strawberry.argument(name="before")
     ] = strawberry.UNSET,
-    after: Annotated[
-        Optional[str], strawberry.argument(name="after")
-    ] = strawberry.UNSET,
-    first: Annotated[
-        Optional[int], strawberry.argument(name="first")
-    ] = strawberry.UNSET,
-    last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET,
-) -> Optional[
-    Annotated["UserTypeConnection", strawberry.lazy("config.graphql.user_types")]
-]:
+    after: Annotated[str | None, strawberry.argument(name="after")] = strawberry.UNSET,
+    first: Annotated[int | None, strawberry.argument(name="first")] = strawberry.UNSET,
+    last: Annotated[int | None, strawberry.argument(name="last")] = strawberry.UNSET,
+) -> None | (
+    Annotated[UserTypeConnection, strawberry.lazy("config.graphql.user_types")]
+):
     kwargs = strip_unset(
         {
             "text_search": text_search,
@@ -618,38 +600,34 @@ def _resolve_Query_search_agents_for_mention(
 def q_search_agents_for_mention(
     info: strawberry.Info,
     text_search: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="textSearch",
             description="Search query to find agents by name, slug, or description",
         ),
     ] = strawberry.UNSET,
     corpus_id: Annotated[
-        Optional[strawberry.ID],
+        strawberry.ID | None,
         strawberry.argument(
             name="corpusId",
             description="Corpus ID to scope agent search (includes global + corpus agents)",
         ),
     ] = strawberry.UNSET,
     offset: Annotated[
-        Optional[int], strawberry.argument(name="offset")
+        int | None, strawberry.argument(name="offset")
     ] = strawberry.UNSET,
     before: Annotated[
-        Optional[str], strawberry.argument(name="before")
+        str | None, strawberry.argument(name="before")
     ] = strawberry.UNSET,
-    after: Annotated[
-        Optional[str], strawberry.argument(name="after")
-    ] = strawberry.UNSET,
-    first: Annotated[
-        Optional[int], strawberry.argument(name="first")
-    ] = strawberry.UNSET,
-    last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET,
-) -> Optional[
+    after: Annotated[str | None, strawberry.argument(name="after")] = strawberry.UNSET,
+    first: Annotated[int | None, strawberry.argument(name="first")] = strawberry.UNSET,
+    last: Annotated[int | None, strawberry.argument(name="last")] = strawberry.UNSET,
+) -> None | (
     Annotated[
-        "AgentConfigurationTypeConnection",
+        AgentConfigurationTypeConnection,
         strawberry.lazy("config.graphql.agent_types"),
     ]
-]:
+):
     kwargs = strip_unset(
         {
             "text_search": text_search,
@@ -737,42 +715,38 @@ def _resolve_Query_search_notes_for_mention(
 def q_search_notes_for_mention(
     info: strawberry.Info,
     text_search: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="textSearch",
             description="Search query to find notes by title or content",
         ),
     ] = strawberry.UNSET,
     corpus_id: Annotated[
-        Optional[strawberry.ID],
+        strawberry.ID | None,
         strawberry.argument(
             name="corpusId",
             description="Optional corpus ID to scope search to notes in specific corpus",
         ),
     ] = strawberry.UNSET,
     document_id: Annotated[
-        Optional[strawberry.ID],
+        strawberry.ID | None,
         strawberry.argument(
             name="documentId",
             description="Optional document ID to scope search to notes on a specific document",
         ),
     ] = strawberry.UNSET,
     offset: Annotated[
-        Optional[int], strawberry.argument(name="offset")
+        int | None, strawberry.argument(name="offset")
     ] = strawberry.UNSET,
     before: Annotated[
-        Optional[str], strawberry.argument(name="before")
+        str | None, strawberry.argument(name="before")
     ] = strawberry.UNSET,
-    after: Annotated[
-        Optional[str], strawberry.argument(name="after")
-    ] = strawberry.UNSET,
-    first: Annotated[
-        Optional[int], strawberry.argument(name="first")
-    ] = strawberry.UNSET,
-    last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET,
-) -> Optional[
-    Annotated["NoteTypeConnection", strawberry.lazy("config.graphql.annotation_types")]
-]:
+    after: Annotated[str | None, strawberry.argument(name="after")] = strawberry.UNSET,
+    first: Annotated[int | None, strawberry.argument(name="first")] = strawberry.UNSET,
+    last: Annotated[int | None, strawberry.argument(name="last")] = strawberry.UNSET,
+) -> None | (
+    Annotated[NoteTypeConnection, strawberry.lazy("config.graphql.annotation_types")]
+):
     kwargs = strip_unset(
         {
             "text_search": text_search,
@@ -1050,60 +1024,61 @@ def q_semantic_search(
         str, strawberry.argument(name="query", description="Search query text")
     ] = strawberry.UNSET,
     corpus_id: Annotated[
-        Optional[strawberry.ID],
+        strawberry.ID | None,
         strawberry.argument(
             name="corpusId", description="Optional corpus ID to search within"
         ),
     ] = strawberry.UNSET,
     document_id: Annotated[
-        Optional[strawberry.ID],
+        strawberry.ID | None,
         strawberry.argument(
             name="documentId", description="Optional document ID to search within"
         ),
     ] = strawberry.UNSET,
     modalities: Annotated[
-        Optional[list[Optional[str]]],
+        list[str | None] | None,
         strawberry.argument(
             name="modalities", description="Filter by content modalities (TEXT, IMAGE)"
         ),
     ] = strawberry.UNSET,
     label_text: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="labelText",
             description="Filter by annotation label text (case-insensitive substring match)",
         ),
     ] = strawberry.UNSET,
     raw_text_contains: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="rawTextContains",
             description="Filter by raw_text content (case-insensitive substring match)",
         ),
     ] = strawberry.UNSET,
     limit: Annotated[
-        Optional[int],
+        int | None,
         strawberry.argument(
             name="limit",
             description="Maximum number of results to return (default: 50, max: 200)",
         ),
     ] = 50,
     offset: Annotated[
-        Optional[int],
+        int | None,
         strawberry.argument(
             name="offset", description="Number of results to skip for pagination"
         ),
     ] = 0,
-) -> Optional[
+) -> None | (
     list[
-        Optional[
+        None
+        | (
             Annotated[
-                "SemanticSearchResultType",
+                SemanticSearchResultType,
                 strawberry.lazy("config.graphql.social_types"),
             ]
-        ]
+        )
     ]
-]:
+):
     kwargs = strip_unset(
         {
             "query": query,
@@ -1225,40 +1200,41 @@ def q_semantic_search_relationships(
         str, strawberry.argument(name="query", description="Search query text")
     ] = strawberry.UNSET,
     corpus_id: Annotated[
-        Optional[strawberry.ID],
+        strawberry.ID | None,
         strawberry.argument(
             name="corpusId", description="Optional corpus ID to scope search within"
         ),
     ] = strawberry.UNSET,
     document_id: Annotated[
-        Optional[strawberry.ID],
+        strawberry.ID | None,
         strawberry.argument(
             name="documentId", description="Optional document ID to scope search within"
         ),
     ] = strawberry.UNSET,
     limit: Annotated[
-        Optional[int],
+        int | None,
         strawberry.argument(
             name="limit",
             description="Maximum number of results to return (default: 50, max: 200)",
         ),
     ] = 50,
     offset: Annotated[
-        Optional[int],
+        int | None,
         strawberry.argument(
             name="offset", description="Number of results to skip for pagination"
         ),
     ] = 0,
-) -> Optional[
+) -> None | (
     list[
-        Optional[
+        None
+        | (
             Annotated[
-                "SemanticSearchRelationshipResultType",
+                SemanticSearchRelationshipResultType,
                 strawberry.lazy("config.graphql.social_types"),
             ]
-        ]
+        )
     ]
-]:
+):
     kwargs = strip_unset(
         {
             "query": query,

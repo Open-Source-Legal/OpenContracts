@@ -3,6 +3,7 @@ Tests for the availableTools GraphQL query.
 """
 
 from django.contrib.auth import get_user_model
+
 from config.graphql.testing import GraphQLTestCase
 
 User = get_user_model()

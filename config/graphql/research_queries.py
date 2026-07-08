@@ -43,7 +43,7 @@ from opencontractserver.shared.services.base import BaseService
 from opencontractserver.types.enums import JobStatus
 
 
-def _decode_global_pk(global_id: str) -> "int | None":
+def _decode_global_pk(global_id: str) -> int | None:
     """Decode a relay global id to its integer pk, or ``None`` if malformed.
 
     Mirrors ``search_queries.py``'s defensive pattern so a hand-crafted /
@@ -62,9 +62,9 @@ def q_research_report(
         strawberry.ID,
         strawberry.argument(name="id", description="The ID of the object"),
     ] = strawberry.UNSET,
-) -> Optional[
-    Annotated["ResearchReportType", strawberry.lazy("config.graphql.research_types")]
-]:
+) -> None | (
+    Annotated[ResearchReportType, strawberry.lazy("config.graphql.research_types")]
+):
     return get_node_from_global_id(info, id, only_type_name="ResearchReportType")
 
 
@@ -98,29 +98,25 @@ def _resolve_Query_research_reports(root, info, **kwargs):
 def q_research_reports(
     info: strawberry.Info,
     corpus_id: Annotated[
-        Optional[strawberry.ID], strawberry.argument(name="corpusId")
+        strawberry.ID | None, strawberry.argument(name="corpusId")
     ] = strawberry.UNSET,
     status: Annotated[
-        Optional[str], strawberry.argument(name="status")
+        str | None, strawberry.argument(name="status")
     ] = strawberry.UNSET,
     offset: Annotated[
-        Optional[int], strawberry.argument(name="offset")
+        int | None, strawberry.argument(name="offset")
     ] = strawberry.UNSET,
     before: Annotated[
-        Optional[str], strawberry.argument(name="before")
+        str | None, strawberry.argument(name="before")
     ] = strawberry.UNSET,
-    after: Annotated[
-        Optional[str], strawberry.argument(name="after")
-    ] = strawberry.UNSET,
-    first: Annotated[
-        Optional[int], strawberry.argument(name="first")
-    ] = strawberry.UNSET,
-    last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET,
-) -> Optional[
+    after: Annotated[str | None, strawberry.argument(name="after")] = strawberry.UNSET,
+    first: Annotated[int | None, strawberry.argument(name="first")] = strawberry.UNSET,
+    last: Annotated[int | None, strawberry.argument(name="last")] = strawberry.UNSET,
+) -> None | (
     Annotated[
-        "ResearchReportTypeConnection", strawberry.lazy("config.graphql.research_types")
+        ResearchReportTypeConnection, strawberry.lazy("config.graphql.research_types")
     ]
-]:
+):
     kwargs = strip_unset(
         {
             "corpus_id": corpus_id,
@@ -160,9 +156,9 @@ def _resolve_Query_research_report_by_slug(root, info, slug, **kwargs):
 def q_research_report_by_slug(
     info: strawberry.Info,
     slug: Annotated[str, strawberry.argument(name="slug")] = strawberry.UNSET,
-) -> Optional[
-    Annotated["ResearchReportType", strawberry.lazy("config.graphql.research_types")]
-]:
+) -> None | (
+    Annotated[ResearchReportType, strawberry.lazy("config.graphql.research_types")]
+):
     kwargs = strip_unset({"slug": slug})
     return _resolve_Query_research_report_by_slug(None, info, **kwargs)
 

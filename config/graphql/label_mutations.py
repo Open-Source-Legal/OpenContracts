@@ -72,11 +72,11 @@ def _write_medium_rate_gate(root, info, **kwargs):
 
 @strawberry.type(name="CreateLabelset")
 class CreateLabelset:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[
-        Annotated["LabelSetType", strawberry.lazy("config.graphql.annotation_types")]
-    ] = strawberry.field(name="obj", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
+        Annotated[LabelSetType, strawberry.lazy("config.graphql.annotation_types")]
+    ) = strawberry.field(name="obj", default=None)
 
 
 register_type("CreateLabelset", CreateLabelset, model=None)
@@ -84,9 +84,9 @@ register_type("CreateLabelset", CreateLabelset, model=None)
 
 @strawberry.type(name="UpdateLabelset")
 class UpdateLabelset:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    obj_id: Optional[strawberry.ID] = strawberry.field(name="objId", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj_id: strawberry.ID | None = strawberry.field(name="objId", default=None)
 
 
 register_type("UpdateLabelset", UpdateLabelset, model=None)
@@ -94,8 +94,8 @@ register_type("UpdateLabelset", UpdateLabelset, model=None)
 
 @strawberry.type(name="DeleteLabelset")
 class DeleteLabelset:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
 
 
 register_type("DeleteLabelset", DeleteLabelset, model=None)
@@ -103,9 +103,9 @@ register_type("DeleteLabelset", DeleteLabelset, model=None)
 
 @strawberry.type(name="CreateLabelMutation")
 class CreateLabelMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    obj_id: Optional[strawberry.ID] = strawberry.field(name="objId", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj_id: strawberry.ID | None = strawberry.field(name="objId", default=None)
 
 
 register_type("CreateLabelMutation", CreateLabelMutation, model=None)
@@ -113,9 +113,9 @@ register_type("CreateLabelMutation", CreateLabelMutation, model=None)
 
 @strawberry.type(name="UpdateLabelMutation")
 class UpdateLabelMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    obj_id: Optional[strawberry.ID] = strawberry.field(name="objId", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj_id: strawberry.ID | None = strawberry.field(name="objId", default=None)
 
 
 register_type("UpdateLabelMutation", UpdateLabelMutation, model=None)
@@ -123,8 +123,8 @@ register_type("UpdateLabelMutation", UpdateLabelMutation, model=None)
 
 @strawberry.type(name="DeleteLabelMutation")
 class DeleteLabelMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
 
 
 register_type("DeleteLabelMutation", DeleteLabelMutation, model=None)
@@ -132,8 +132,8 @@ register_type("DeleteLabelMutation", DeleteLabelMutation, model=None)
 
 @strawberry.type(name="DeleteMultipleLabelMutation")
 class DeleteMultipleLabelMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
 
 
 register_type("DeleteMultipleLabelMutation", DeleteMultipleLabelMutation, model=None)
@@ -141,14 +141,14 @@ register_type("DeleteMultipleLabelMutation", DeleteMultipleLabelMutation, model=
 
 @strawberry.type(name="CreateLabelForLabelsetMutation")
 class CreateLabelForLabelsetMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
         Annotated[
-            "AnnotationLabelType", strawberry.lazy("config.graphql.annotation_types")
+            AnnotationLabelType, strawberry.lazy("config.graphql.annotation_types")
         ]
-    ] = strawberry.field(name="obj", default=None)
-    obj_id: Optional[strawberry.ID] = strawberry.field(name="objId", default=None)
+    ) = strawberry.field(name="obj", default=None)
+    obj_id: strawberry.ID | None = strawberry.field(name="objId", default=None)
 
 
 register_type(
@@ -158,8 +158,8 @@ register_type(
 
 @strawberry.type(name="RemoveLabelsFromLabelsetMutation")
 class RemoveLabelsFromLabelsetMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
 
 
 register_type(
@@ -217,26 +217,26 @@ def _mutate_CreateLabelset(
 def m_create_labelset(
     info: strawberry.Info,
     base64_icon_string: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="base64IconString",
             description="Base64-encoded file string for the Labelset icon (optional).",
         ),
     ] = strawberry.UNSET,
     description: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="description", description="Description of the Labelset."
         ),
     ] = strawberry.UNSET,
     filename: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(name="filename", description="Filename of the document."),
     ] = strawberry.UNSET,
     title: Annotated[
         str, strawberry.argument(name="title", description="Title of the Labelset.")
     ] = strawberry.UNSET,
-) -> Optional["CreateLabelset"]:
+) -> CreateLabelset | None:
     kwargs = strip_unset(
         {
             "base64_icon_string": base64_icon_string,
@@ -251,13 +251,13 @@ def m_create_labelset(
 def m_update_labelset(
     info: strawberry.Info,
     description: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="description", description="Description of the Labelset."
         ),
     ] = strawberry.UNSET,
     icon: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="icon",
             description="Base64-encoded file string for the Labelset icon (optional).",
@@ -267,7 +267,7 @@ def m_update_labelset(
     title: Annotated[
         str, strawberry.argument(name="title", description="Title of the Labelset.")
     ] = strawberry.UNSET,
-) -> Optional["UpdateLabelset"]:
+) -> UpdateLabelset | None:
     kwargs = strip_unset(
         {"description": description, "icon": icon, "id": id, "title": title}
     )
@@ -287,7 +287,7 @@ def m_update_labelset(
 def m_delete_labelset(
     info: strawberry.Info,
     id: Annotated[str, strawberry.argument(name="id")] = strawberry.UNSET,
-) -> Optional["DeleteLabelset"]:
+) -> DeleteLabelset | None:
     kwargs = strip_unset({"id": id})
     return drf_deletion(
         payload_cls=DeleteLabelset,
@@ -301,16 +301,14 @@ def m_delete_labelset(
 
 def m_create_annotation_label(
     info: strawberry.Info,
-    color: Annotated[
-        Optional[str], strawberry.argument(name="color")
-    ] = strawberry.UNSET,
+    color: Annotated[str | None, strawberry.argument(name="color")] = strawberry.UNSET,
     description: Annotated[
-        Optional[str], strawberry.argument(name="description")
+        str | None, strawberry.argument(name="description")
     ] = strawberry.UNSET,
-    icon: Annotated[Optional[str], strawberry.argument(name="icon")] = strawberry.UNSET,
-    text: Annotated[Optional[str], strawberry.argument(name="text")] = strawberry.UNSET,
-    type: Annotated[Optional[str], strawberry.argument(name="type")] = strawberry.UNSET,
-) -> Optional["CreateLabelMutation"]:
+    icon: Annotated[str | None, strawberry.argument(name="icon")] = strawberry.UNSET,
+    text: Annotated[str | None, strawberry.argument(name="text")] = strawberry.UNSET,
+    type: Annotated[str | None, strawberry.argument(name="type")] = strawberry.UNSET,
+) -> CreateLabelMutation | None:
     kwargs = strip_unset(
         {
             "color": color,
@@ -335,19 +333,17 @@ def m_create_annotation_label(
 
 def m_update_annotation_label(
     info: strawberry.Info,
-    color: Annotated[
-        Optional[str], strawberry.argument(name="color")
-    ] = strawberry.UNSET,
+    color: Annotated[str | None, strawberry.argument(name="color")] = strawberry.UNSET,
     description: Annotated[
-        Optional[str], strawberry.argument(name="description")
+        str | None, strawberry.argument(name="description")
     ] = strawberry.UNSET,
-    icon: Annotated[Optional[str], strawberry.argument(name="icon")] = strawberry.UNSET,
+    icon: Annotated[str | None, strawberry.argument(name="icon")] = strawberry.UNSET,
     id: Annotated[str, strawberry.argument(name="id")] = strawberry.UNSET,
     label_type: Annotated[
-        Optional[str], strawberry.argument(name="labelType")
+        str | None, strawberry.argument(name="labelType")
     ] = strawberry.UNSET,
-    text: Annotated[Optional[str], strawberry.argument(name="text")] = strawberry.UNSET,
-) -> Optional["UpdateLabelMutation"]:
+    text: Annotated[str | None, strawberry.argument(name="text")] = strawberry.UNSET,
+) -> UpdateLabelMutation | None:
     kwargs = strip_unset(
         {
             "color": color,
@@ -374,7 +370,7 @@ def m_update_annotation_label(
 def m_delete_annotation_label(
     info: strawberry.Info,
     id: Annotated[str, strawberry.argument(name="id")] = strawberry.UNSET,
-) -> Optional["DeleteLabelMutation"]:
+) -> DeleteLabelMutation | None:
     kwargs = strip_unset({"id": id})
     return drf_deletion(
         payload_cls=DeleteLabelMutation,
@@ -439,13 +435,13 @@ def _mutate_DeleteMultipleLabelMutation(
 def m_delete_multiple_annotation_labels(
     info: strawberry.Info,
     annotation_label_ids_to_delete: Annotated[
-        list[Optional[str]],
+        list[str | None],
         strawberry.argument(
             name="annotationLabelIdsToDelete",
             description="List of ids of the labels to delete",
         ),
     ] = strawberry.UNSET,
-) -> Optional["DeleteMultipleLabelMutation"]:
+) -> DeleteMultipleLabelMutation | None:
     kwargs = strip_unset(
         {"annotation_label_ids_to_delete": annotation_label_ids_to_delete}
     )
@@ -570,15 +566,13 @@ def _mutate_CreateLabelForLabelsetMutation(
 
 def m_create_annotation_label_for_labelset(
     info: strawberry.Info,
-    color: Annotated[
-        Optional[str], strawberry.argument(name="color")
-    ] = strawberry.UNSET,
+    color: Annotated[str | None, strawberry.argument(name="color")] = strawberry.UNSET,
     description: Annotated[
-        Optional[str], strawberry.argument(name="description")
+        str | None, strawberry.argument(name="description")
     ] = strawberry.UNSET,
-    icon: Annotated[Optional[str], strawberry.argument(name="icon")] = strawberry.UNSET,
+    icon: Annotated[str | None, strawberry.argument(name="icon")] = strawberry.UNSET,
     label_type: Annotated[
-        Optional[str], strawberry.argument(name="labelType")
+        str | None, strawberry.argument(name="labelType")
     ] = strawberry.UNSET,
     labelset_id: Annotated[
         str,
@@ -586,8 +580,8 @@ def m_create_annotation_label_for_labelset(
             name="labelsetId", description="Id of the label that is to be updated."
         ),
     ] = strawberry.UNSET,
-    text: Annotated[Optional[str], strawberry.argument(name="text")] = strawberry.UNSET,
-) -> Optional["CreateLabelForLabelsetMutation"]:
+    text: Annotated[str | None, strawberry.argument(name="text")] = strawberry.UNSET,
+) -> CreateLabelForLabelsetMutation | None:
     kwargs = strip_unset(
         {
             "color": color,
@@ -660,7 +654,7 @@ def _mutate_RemoveLabelsFromLabelsetMutation(
 def m_remove_annotation_labels_from_labelset(
     info: strawberry.Info,
     label_ids: Annotated[
-        list[Optional[str]],
+        list[str | None],
         strawberry.argument(
             name="labelIds", description="List of Ids of the labels to be deleted."
         ),
@@ -668,7 +662,7 @@ def m_remove_annotation_labels_from_labelset(
     labelset_id: Annotated[
         str, strawberry.argument(name="labelsetId")
     ] = "Id of the labelset to delete the labels from",
-) -> Optional["RemoveLabelsFromLabelsetMutation"]:
+) -> RemoveLabelsFromLabelsetMutation | None:
     kwargs = strip_unset({"label_ids": label_ids, "labelset_id": labelset_id})
     return _mutate_RemoveLabelsFromLabelsetMutation(
         RemoveLabelsFromLabelsetMutation, None, info, **kwargs

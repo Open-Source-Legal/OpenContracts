@@ -67,11 +67,11 @@ logger = logging.getLogger(__name__)
     description="Create a new badge (admin/corpus owner only).",
 )
 class CreateBadgeMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    badge: Optional[
-        Annotated["BadgeType", strawberry.lazy("config.graphql.social_types")]
-    ] = strawberry.field(name="badge", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    badge: None | (
+        Annotated[BadgeType, strawberry.lazy("config.graphql.social_types")]
+    ) = strawberry.field(name="badge", default=None)
 
 
 register_type("CreateBadgeMutation", CreateBadgeMutation, model=None)
@@ -79,11 +79,11 @@ register_type("CreateBadgeMutation", CreateBadgeMutation, model=None)
 
 @strawberry.type(name="UpdateBadgeMutation", description="Update an existing badge.")
 class UpdateBadgeMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    badge: Optional[
-        Annotated["BadgeType", strawberry.lazy("config.graphql.social_types")]
-    ] = strawberry.field(name="badge", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    badge: None | (
+        Annotated[BadgeType, strawberry.lazy("config.graphql.social_types")]
+    ) = strawberry.field(name="badge", default=None)
 
 
 register_type("UpdateBadgeMutation", UpdateBadgeMutation, model=None)
@@ -91,8 +91,8 @@ register_type("UpdateBadgeMutation", UpdateBadgeMutation, model=None)
 
 @strawberry.type(name="DeleteBadgeMutation", description="Delete a badge.")
 class DeleteBadgeMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
 
 
 register_type("DeleteBadgeMutation", DeleteBadgeMutation, model=None)
@@ -102,11 +102,11 @@ register_type("DeleteBadgeMutation", DeleteBadgeMutation, model=None)
     name="AwardBadgeMutation", description="Manually award a badge to a user."
 )
 class AwardBadgeMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    user_badge: Optional[
-        Annotated["UserBadgeType", strawberry.lazy("config.graphql.social_types")]
-    ] = strawberry.field(name="userBadge", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    user_badge: None | (
+        Annotated[UserBadgeType, strawberry.lazy("config.graphql.social_types")]
+    ) = strawberry.field(name="userBadge", default=None)
 
 
 register_type("AwardBadgeMutation", AwardBadgeMutation, model=None)
@@ -114,8 +114,8 @@ register_type("AwardBadgeMutation", AwardBadgeMutation, model=None)
 
 @strawberry.type(name="RevokeBadgeMutation", description="Revoke a badge from a user.")
 class RevokeBadgeMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
 
 
 register_type("RevokeBadgeMutation", RevokeBadgeMutation, model=None)
@@ -265,16 +265,16 @@ def m_create_badge(
         ),
     ] = strawberry.UNSET,
     color: Annotated[
-        Optional[str], strawberry.argument(name="color", description="Hex color code")
+        str | None, strawberry.argument(name="color", description="Hex color code")
     ] = strawberry.UNSET,
     corpus_id: Annotated[
-        Optional[strawberry.ID],
+        strawberry.ID | None,
         strawberry.argument(
             name="corpusId", description="Corpus ID for corpus-specific badges"
         ),
     ] = strawberry.UNSET,
     criteria_config: Annotated[
-        Optional[JSONString],
+        JSONString | None,
         strawberry.argument(
             name="criteriaConfig",
             description="JSON configuration for auto-award criteria",
@@ -291,7 +291,7 @@ def m_create_badge(
         ),
     ] = strawberry.UNSET,
     is_auto_awarded: Annotated[
-        Optional[bool],
+        bool | None,
         strawberry.argument(
             name="isAutoAwarded", description="Whether badge is automatically awarded"
         ),
@@ -299,7 +299,7 @@ def m_create_badge(
     name: Annotated[
         str, strawberry.argument(name="name", description="Unique badge name")
     ] = strawberry.UNSET,
-) -> Optional["CreateBadgeMutation"]:
+) -> CreateBadgeMutation | None:
     kwargs = strip_unset(
         {
             "badge_type": badge_type,
@@ -472,21 +472,19 @@ def m_update_badge(
         strawberry.ID,
         strawberry.argument(name="badgeId", description="Badge ID to update"),
     ] = strawberry.UNSET,
-    color: Annotated[
-        Optional[str], strawberry.argument(name="color")
-    ] = strawberry.UNSET,
+    color: Annotated[str | None, strawberry.argument(name="color")] = strawberry.UNSET,
     criteria_config: Annotated[
-        Optional[JSONString], strawberry.argument(name="criteriaConfig")
+        JSONString | None, strawberry.argument(name="criteriaConfig")
     ] = strawberry.UNSET,
     description: Annotated[
-        Optional[str], strawberry.argument(name="description")
+        str | None, strawberry.argument(name="description")
     ] = strawberry.UNSET,
-    icon: Annotated[Optional[str], strawberry.argument(name="icon")] = strawberry.UNSET,
+    icon: Annotated[str | None, strawberry.argument(name="icon")] = strawberry.UNSET,
     is_auto_awarded: Annotated[
-        Optional[bool], strawberry.argument(name="isAutoAwarded")
+        bool | None, strawberry.argument(name="isAutoAwarded")
     ] = strawberry.UNSET,
-    name: Annotated[Optional[str], strawberry.argument(name="name")] = strawberry.UNSET,
-) -> Optional["UpdateBadgeMutation"]:
+    name: Annotated[str | None, strawberry.argument(name="name")] = strawberry.UNSET,
+) -> UpdateBadgeMutation | None:
     kwargs = strip_unset(
         {
             "badge_id": badge_id,
@@ -565,7 +563,7 @@ def m_delete_badge(
         strawberry.ID,
         strawberry.argument(name="badgeId", description="Badge ID to delete"),
     ] = strawberry.UNSET,
-) -> Optional["DeleteBadgeMutation"]:
+) -> DeleteBadgeMutation | None:
     kwargs = strip_unset({"badge_id": badge_id})
     return _mutate_DeleteBadgeMutation(DeleteBadgeMutation, None, info, **kwargs)
 
@@ -703,7 +701,7 @@ def m_award_badge(
         strawberry.argument(name="badgeId", description="Badge ID to award"),
     ] = strawberry.UNSET,
     corpus_id: Annotated[
-        Optional[strawberry.ID],
+        strawberry.ID | None,
         strawberry.argument(
             name="corpusId", description="Corpus context for corpus-specific badges"
         ),
@@ -712,7 +710,7 @@ def m_award_badge(
         strawberry.ID,
         strawberry.argument(name="userId", description="User ID to award badge to"),
     ] = strawberry.UNSET,
-) -> Optional["AwardBadgeMutation"]:
+) -> AwardBadgeMutation | None:
     kwargs = strip_unset(
         {"badge_id": badge_id, "corpus_id": corpus_id, "user_id": user_id}
     )
@@ -785,7 +783,7 @@ def m_revoke_badge(
         strawberry.ID,
         strawberry.argument(name="userBadgeId", description="UserBadge ID to revoke"),
     ] = strawberry.UNSET,
-) -> Optional["RevokeBadgeMutation"]:
+) -> RevokeBadgeMutation | None:
     kwargs = strip_unset({"user_badge_id": user_badge_id})
     return _mutate_RevokeBadgeMutation(RevokeBadgeMutation, None, info, **kwargs)
 

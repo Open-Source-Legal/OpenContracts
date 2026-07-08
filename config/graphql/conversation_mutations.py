@@ -68,13 +68,13 @@ logger = logging.getLogger(__name__)
     description="Create a new discussion thread linked to a corpus and/or document.\n\nSupports three modes:\n- corpus_id only: Thread is linked to corpus (corpus-level discussion)\n- document_id only: Thread is linked to document (standalone document discussion)\n- both corpus_id AND document_id: Thread is linked to both (doc-in-corpus discussion)\n\nSecurity Note: Message content is stored as Markdown from TipTap editor.\nMarkdown is safer than HTML (no script injection), and mention links use\nstandard Markdown syntax [text](url) which is parsed to create database relationships.\nPart of Issue #623 - @ Mentions Feature (Extended)\nPart of Issue #677 - Document Discussions UI Enhancement",
 )
 class CreateThreadMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
         Annotated[
-            "ConversationType", strawberry.lazy("config.graphql.conversation_types")
+            ConversationType, strawberry.lazy("config.graphql.conversation_types")
         ]
-    ] = strawberry.field(name="obj", default=None)
+    ) = strawberry.field(name="obj", default=None)
 
 
 register_type("CreateThreadMutation", CreateThreadMutation, model=None)
@@ -85,11 +85,11 @@ register_type("CreateThreadMutation", CreateThreadMutation, model=None)
     description="Post a new message to an existing thread.",
 )
 class CreateThreadMessageMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[
-        Annotated["MessageType", strawberry.lazy("config.graphql.conversation_types")]
-    ] = strawberry.field(name="obj", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
+        Annotated[MessageType, strawberry.lazy("config.graphql.conversation_types")]
+    ) = strawberry.field(name="obj", default=None)
 
 
 register_type("CreateThreadMessageMutation", CreateThreadMessageMutation, model=None)
@@ -100,11 +100,11 @@ register_type("CreateThreadMessageMutation", CreateThreadMessageMutation, model=
     description="Create a nested reply to an existing message.",
 )
 class ReplyToMessageMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[
-        Annotated["MessageType", strawberry.lazy("config.graphql.conversation_types")]
-    ] = strawberry.field(name="obj", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
+        Annotated[MessageType, strawberry.lazy("config.graphql.conversation_types")]
+    ) = strawberry.field(name="obj", default=None)
 
 
 register_type("ReplyToMessageMutation", ReplyToMessageMutation, model=None)
@@ -115,11 +115,11 @@ register_type("ReplyToMessageMutation", ReplyToMessageMutation, model=None)
     description="Update the content of an existing message.\n\nSecurity Note: Only the message creator or a moderator can edit messages.\nMention links are re-parsed when content is updated.\n\nXSS Prevention Note: The content field contains user-generated markdown text\nthat must be properly escaped when rendered in the frontend to prevent XSS\nattacks. GraphQL's GenericScalar handles JSON serialization safely, but the\nfrontend must use a markdown renderer that sanitizes HTML output.\n\nPart of Issue #686 - Mobile UI for Edit Message Modal",
 )
 class UpdateMessageMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[
-        Annotated["MessageType", strawberry.lazy("config.graphql.conversation_types")]
-    ] = strawberry.field(name="obj", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
+        Annotated[MessageType, strawberry.lazy("config.graphql.conversation_types")]
+    ) = strawberry.field(name="obj", default=None)
 
 
 register_type("UpdateMessageMutation", UpdateMessageMutation, model=None)
@@ -129,8 +129,8 @@ register_type("UpdateMessageMutation", UpdateMessageMutation, model=None)
     name="DeleteConversationMutation", description="Soft delete a conversation/thread."
 )
 class DeleteConversationMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
 
 
 register_type("DeleteConversationMutation", DeleteConversationMutation, model=None)
@@ -138,8 +138,8 @@ register_type("DeleteConversationMutation", DeleteConversationMutation, model=No
 
 @strawberry.type(name="DeleteMessageMutation", description="Soft delete a message.")
 class DeleteMessageMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
 
 
 register_type("DeleteMessageMutation", DeleteMessageMutation, model=None)
@@ -306,18 +306,18 @@ def _mutate_CreateThreadMutation(
 def m_create_thread(
     info: strawberry.Info,
     corpus_id: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="corpusId",
             description="ID of the corpus for this thread (optional if document_id provided)",
         ),
     ] = strawberry.UNSET,
     description: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(name="description", description="Optional description"),
     ] = strawberry.UNSET,
     document_id: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="documentId",
             description="ID of the document for this thread (for doc-specific discussions)",
@@ -332,7 +332,7 @@ def m_create_thread(
     title: Annotated[
         str, strawberry.argument(name="title", description="Title of the thread")
     ] = strawberry.UNSET,
-) -> Optional["CreateThreadMutation"]:
+) -> CreateThreadMutation | None:
     kwargs = strip_unset(
         {
             "corpus_id": corpus_id,
@@ -453,7 +453,7 @@ def m_create_thread_message(
             name="conversationId", description="ID of the conversation/thread"
         ),
     ] = strawberry.UNSET,
-) -> Optional["CreateThreadMessageMutation"]:
+) -> CreateThreadMessageMutation | None:
     kwargs = strip_unset({"content": content, "conversation_id": conversation_id})
     return _mutate_CreateThreadMessageMutation(
         CreateThreadMessageMutation, None, info, **kwargs
@@ -582,7 +582,7 @@ def m_reply_to_message(
             name="parentMessageId", description="ID of the parent message"
         ),
     ] = strawberry.UNSET,
-) -> Optional["ReplyToMessageMutation"]:
+) -> ReplyToMessageMutation | None:
     kwargs = strip_unset({"content": content, "parent_message_id": parent_message_id})
     return _mutate_ReplyToMessageMutation(ReplyToMessageMutation, None, info, **kwargs)
 
@@ -773,7 +773,7 @@ def m_update_message(
             name="messageId", description="ID of the message to update"
         ),
     ] = strawberry.UNSET,
-) -> Optional["UpdateMessageMutation"]:
+) -> UpdateMessageMutation | None:
     kwargs = strip_unset({"content": content, "message_id": message_id})
     return _mutate_UpdateMessageMutation(UpdateMessageMutation, None, info, **kwargs)
 
@@ -850,7 +850,7 @@ def m_delete_conversation(
             name="conversationId", description="ID of the conversation to delete"
         ),
     ] = strawberry.UNSET,
-) -> Optional["DeleteConversationMutation"]:
+) -> DeleteConversationMutation | None:
     kwargs = strip_unset({"conversation_id": conversation_id})
     return _mutate_DeleteConversationMutation(
         DeleteConversationMutation, None, info, **kwargs
@@ -929,7 +929,7 @@ def m_delete_message(
             name="messageId", description="ID of the message to delete"
         ),
     ] = strawberry.UNSET,
-) -> Optional["DeleteMessageMutation"]:
+) -> DeleteMessageMutation | None:
     kwargs = strip_unset({"message_id": message_id})
     return _mutate_DeleteMessageMutation(DeleteMessageMutation, None, info, **kwargs)
 

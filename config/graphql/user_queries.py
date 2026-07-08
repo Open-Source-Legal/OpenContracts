@@ -59,7 +59,7 @@ def _resolve_Query_me(root, info, **kwargs):
 
 def q_me(
     info: strawberry.Info,
-) -> Optional[Annotated["UserType", strawberry.lazy("config.graphql.user_types")]]:
+) -> Annotated[UserType, strawberry.lazy("config.graphql.user_types")] | None:
     kwargs = strip_unset({})
     return _resolve_Query_me(None, info, **kwargs)
 
@@ -94,7 +94,7 @@ def _resolve_Query_user_by_slug(root, info, slug):
 def q_user_by_slug(
     info: strawberry.Info,
     slug: Annotated[str, strawberry.argument(name="slug")] = strawberry.UNSET,
-) -> Optional[Annotated["UserType", strawberry.lazy("config.graphql.user_types")]]:
+) -> Annotated[UserType, strawberry.lazy("config.graphql.user_types")] | None:
     kwargs = strip_unset({"slug": slug})
     return _resolve_Query_user_by_slug(None, info, **kwargs)
 
@@ -113,21 +113,17 @@ def _resolve_Query_userimports(root, info, **kwargs):
 def q_userimports(
     info: strawberry.Info,
     offset: Annotated[
-        Optional[int], strawberry.argument(name="offset")
+        int | None, strawberry.argument(name="offset")
     ] = strawberry.UNSET,
     before: Annotated[
-        Optional[str], strawberry.argument(name="before")
+        str | None, strawberry.argument(name="before")
     ] = strawberry.UNSET,
-    after: Annotated[
-        Optional[str], strawberry.argument(name="after")
-    ] = strawberry.UNSET,
-    first: Annotated[
-        Optional[int], strawberry.argument(name="first")
-    ] = strawberry.UNSET,
-    last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET,
-) -> Optional[
-    Annotated["UserImportTypeConnection", strawberry.lazy("config.graphql.user_types")]
-]:
+    after: Annotated[str | None, strawberry.argument(name="after")] = strawberry.UNSET,
+    first: Annotated[int | None, strawberry.argument(name="first")] = strawberry.UNSET,
+    last: Annotated[int | None, strawberry.argument(name="last")] = strawberry.UNSET,
+) -> None | (
+    Annotated[UserImportTypeConnection, strawberry.lazy("config.graphql.user_types")]
+):
     kwargs = strip_unset(
         {
             "offset": offset,
@@ -153,9 +149,7 @@ def q_userimport(
         strawberry.ID,
         strawberry.argument(name="id", description="The ID of the object"),
     ] = strawberry.UNSET,
-) -> Optional[
-    Annotated["UserImportType", strawberry.lazy("config.graphql.user_types")]
-]:
+) -> None | (Annotated[UserImportType, strawberry.lazy("config.graphql.user_types")]):
     return get_node_from_global_id(info, id, only_type_name="UserImportType")
 
 
@@ -173,48 +167,44 @@ def _resolve_Query_userexports(root, info, **kwargs):
 def q_userexports(
     info: strawberry.Info,
     offset: Annotated[
-        Optional[int], strawberry.argument(name="offset")
+        int | None, strawberry.argument(name="offset")
     ] = strawberry.UNSET,
     before: Annotated[
-        Optional[str], strawberry.argument(name="before")
+        str | None, strawberry.argument(name="before")
     ] = strawberry.UNSET,
-    after: Annotated[
-        Optional[str], strawberry.argument(name="after")
-    ] = strawberry.UNSET,
-    first: Annotated[
-        Optional[int], strawberry.argument(name="first")
-    ] = strawberry.UNSET,
-    last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET,
+    after: Annotated[str | None, strawberry.argument(name="after")] = strawberry.UNSET,
+    first: Annotated[int | None, strawberry.argument(name="first")] = strawberry.UNSET,
+    last: Annotated[int | None, strawberry.argument(name="last")] = strawberry.UNSET,
     name__contains: Annotated[
-        Optional[str], strawberry.argument(name="name_Contains")
+        str | None, strawberry.argument(name="name_Contains")
     ] = strawberry.UNSET,
     id: Annotated[
-        Optional[strawberry.ID], strawberry.argument(name="id")
+        strawberry.ID | None, strawberry.argument(name="id")
     ] = strawberry.UNSET,
     created__lte: Annotated[
-        Optional[datetime.datetime], strawberry.argument(name="created_Lte")
+        datetime.datetime | None, strawberry.argument(name="created_Lte")
     ] = strawberry.UNSET,
     started__lte: Annotated[
-        Optional[datetime.datetime], strawberry.argument(name="started_Lte")
+        datetime.datetime | None, strawberry.argument(name="started_Lte")
     ] = strawberry.UNSET,
     finished__lte: Annotated[
-        Optional[datetime.datetime], strawberry.argument(name="finished_Lte")
+        datetime.datetime | None, strawberry.argument(name="finished_Lte")
     ] = strawberry.UNSET,
     order_by_created: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(name="orderByCreated", description="Ordering"),
     ] = strawberry.UNSET,
     order_by_started: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(name="orderByStarted", description="Ordering"),
     ] = strawberry.UNSET,
     order_by_finished: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(name="orderByFinished", description="Ordering"),
     ] = strawberry.UNSET,
-) -> Optional[
-    Annotated["UserExportTypeConnection", strawberry.lazy("config.graphql.user_types")]
-]:
+) -> None | (
+    Annotated[UserExportTypeConnection, strawberry.lazy("config.graphql.user_types")]
+):
     kwargs = strip_unset(
         {
             "offset": offset,
@@ -259,9 +249,7 @@ def q_userexport(
         strawberry.ID,
         strawberry.argument(name="id", description="The ID of the object"),
     ] = strawberry.UNSET,
-) -> Optional[
-    Annotated["UserExportType", strawberry.lazy("config.graphql.user_types")]
-]:
+) -> None | (Annotated[UserExportType, strawberry.lazy("config.graphql.user_types")]):
     return get_node_from_global_id(info, id, only_type_name="UserExportType")
 
 
@@ -292,30 +280,26 @@ def _resolve_Query_assignments(root, info, **kwargs):
 def q_assignments(
     info: strawberry.Info,
     offset: Annotated[
-        Optional[int], strawberry.argument(name="offset")
+        int | None, strawberry.argument(name="offset")
     ] = strawberry.UNSET,
     before: Annotated[
-        Optional[str], strawberry.argument(name="before")
+        str | None, strawberry.argument(name="before")
     ] = strawberry.UNSET,
-    after: Annotated[
-        Optional[str], strawberry.argument(name="after")
-    ] = strawberry.UNSET,
-    first: Annotated[
-        Optional[int], strawberry.argument(name="first")
-    ] = strawberry.UNSET,
-    last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET,
+    after: Annotated[str | None, strawberry.argument(name="after")] = strawberry.UNSET,
+    first: Annotated[int | None, strawberry.argument(name="first")] = strawberry.UNSET,
+    last: Annotated[int | None, strawberry.argument(name="last")] = strawberry.UNSET,
     assignor__email: Annotated[
-        Optional[str], strawberry.argument(name="assignor_Email")
+        str | None, strawberry.argument(name="assignor_Email")
     ] = strawberry.UNSET,
     assignee__email: Annotated[
-        Optional[str], strawberry.argument(name="assignee_Email")
+        str | None, strawberry.argument(name="assignee_Email")
     ] = strawberry.UNSET,
     document_id: Annotated[
-        Optional[str], strawberry.argument(name="documentId")
+        str | None, strawberry.argument(name="documentId")
     ] = strawberry.UNSET,
-) -> Optional[
-    Annotated["AssignmentTypeConnection", strawberry.lazy("config.graphql.user_types")]
-]:
+) -> None | (
+    Annotated[AssignmentTypeConnection, strawberry.lazy("config.graphql.user_types")]
+):
     kwargs = strip_unset(
         {
             "offset": offset,
@@ -350,9 +334,7 @@ def q_assignment(
         strawberry.ID,
         strawberry.argument(name="id", description="The ID of the object"),
     ] = strawberry.UNSET,
-) -> Optional[
-    Annotated["AssignmentType", strawberry.lazy("config.graphql.user_types")]
-]:
+) -> None | (Annotated[AssignmentType, strawberry.lazy("config.graphql.user_types")]):
     return get_node_from_global_id(info, id, only_type_name="AssignmentType")
 
 

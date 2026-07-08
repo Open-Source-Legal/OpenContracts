@@ -107,7 +107,7 @@ def _corpus_count_subqueries() -> tuple[Any, Any]:
     return document_count_sq, annotation_count_sq
 
 
-def _artifact_to_type(a: Any) -> "ArtifactType":
+def _artifact_to_type(a: Any) -> ArtifactType:
     """Build the GraphQL ``ArtifactType`` from an ``Artifact`` model row."""
     return ArtifactType(
         id=to_global_id("ArtifactType", a.id),
@@ -173,54 +173,48 @@ def _resolve_Query_corpuses(root, info, **kwargs):
 def q_corpuses(
     info: strawberry.Info,
     offset: Annotated[
-        Optional[int], strawberry.argument(name="offset")
+        int | None, strawberry.argument(name="offset")
     ] = strawberry.UNSET,
     before: Annotated[
-        Optional[str], strawberry.argument(name="before")
+        str | None, strawberry.argument(name="before")
     ] = strawberry.UNSET,
-    after: Annotated[
-        Optional[str], strawberry.argument(name="after")
-    ] = strawberry.UNSET,
-    first: Annotated[
-        Optional[int], strawberry.argument(name="first")
-    ] = strawberry.UNSET,
-    last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET,
+    after: Annotated[str | None, strawberry.argument(name="after")] = strawberry.UNSET,
+    first: Annotated[int | None, strawberry.argument(name="first")] = strawberry.UNSET,
+    last: Annotated[int | None, strawberry.argument(name="last")] = strawberry.UNSET,
     description: Annotated[
-        Optional[str], strawberry.argument(name="description")
+        str | None, strawberry.argument(name="description")
     ] = strawberry.UNSET,
     description__contains: Annotated[
-        Optional[str], strawberry.argument(name="description_Contains")
+        str | None, strawberry.argument(name="description_Contains")
     ] = strawberry.UNSET,
     id: Annotated[
-        Optional[strawberry.ID], strawberry.argument(name="id")
+        strawberry.ID | None, strawberry.argument(name="id")
     ] = strawberry.UNSET,
     text_search: Annotated[
-        Optional[str], strawberry.argument(name="textSearch")
+        str | None, strawberry.argument(name="textSearch")
     ] = strawberry.UNSET,
     title__contains: Annotated[
-        Optional[str], strawberry.argument(name="title_Contains")
+        str | None, strawberry.argument(name="title_Contains")
     ] = strawberry.UNSET,
     uses_labelset_id: Annotated[
-        Optional[str], strawberry.argument(name="usesLabelsetId")
+        str | None, strawberry.argument(name="usesLabelsetId")
     ] = strawberry.UNSET,
     categories: Annotated[
-        Optional[list[Optional[strawberry.ID]]], strawberry.argument(name="categories")
+        list[strawberry.ID | None] | None, strawberry.argument(name="categories")
     ] = strawberry.UNSET,
-    mine: Annotated[
-        Optional[bool], strawberry.argument(name="mine")
-    ] = strawberry.UNSET,
+    mine: Annotated[bool | None, strawberry.argument(name="mine")] = strawberry.UNSET,
     is_public: Annotated[
-        Optional[bool], strawberry.argument(name="isPublic")
+        bool | None, strawberry.argument(name="isPublic")
     ] = strawberry.UNSET,
     shared_with_me: Annotated[
-        Optional[bool], strawberry.argument(name="sharedWithMe")
+        bool | None, strawberry.argument(name="sharedWithMe")
     ] = strawberry.UNSET,
     order_by: Annotated[
-        Optional[str], strawberry.argument(name="orderBy", description="Ordering")
+        str | None, strawberry.argument(name="orderBy", description="Ordering")
     ] = strawberry.UNSET,
-) -> Optional[
-    Annotated["CorpusTypeConnection", strawberry.lazy("config.graphql.corpus_types")]
-]:
+) -> None | (
+    Annotated[CorpusTypeConnection, strawberry.lazy("config.graphql.corpus_types")]
+):
     kwargs = strip_unset(
         {
             "offset": offset,
@@ -309,15 +303,15 @@ def _resolve_Query_corpus_filter_counts(root, info, text_search=None, **kwargs):
 def q_corpus_filter_counts(
     info: strawberry.Info,
     text_search: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="textSearch",
             description="Optional text search to apply alongside the tab counts so badges match the result set the user actually sees when searching.",
         ),
     ] = strawberry.UNSET,
-) -> Optional[
-    Annotated["CorpusFilterCountsType", strawberry.lazy("config.graphql.corpus_types")]
-]:
+) -> None | (
+    Annotated[CorpusFilterCountsType, strawberry.lazy("config.graphql.corpus_types")]
+):
     kwargs = strip_unset({"text_search": text_search})
     return _resolve_Query_corpus_filter_counts(None, info, **kwargs)
 
@@ -363,30 +357,26 @@ def _resolve_Query_corpus_categories(root, info, **kwargs):
 def q_corpus_categories(
     info: strawberry.Info,
     offset: Annotated[
-        Optional[int], strawberry.argument(name="offset")
+        int | None, strawberry.argument(name="offset")
     ] = strawberry.UNSET,
     before: Annotated[
-        Optional[str], strawberry.argument(name="before")
+        str | None, strawberry.argument(name="before")
     ] = strawberry.UNSET,
-    after: Annotated[
-        Optional[str], strawberry.argument(name="after")
-    ] = strawberry.UNSET,
-    first: Annotated[
-        Optional[int], strawberry.argument(name="first")
-    ] = strawberry.UNSET,
-    last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET,
-    name: Annotated[Optional[str], strawberry.argument(name="name")] = strawberry.UNSET,
+    after: Annotated[str | None, strawberry.argument(name="after")] = strawberry.UNSET,
+    first: Annotated[int | None, strawberry.argument(name="first")] = strawberry.UNSET,
+    last: Annotated[int | None, strawberry.argument(name="last")] = strawberry.UNSET,
+    name: Annotated[str | None, strawberry.argument(name="name")] = strawberry.UNSET,
     name__contains: Annotated[
-        Optional[str], strawberry.argument(name="name_Contains")
+        str | None, strawberry.argument(name="name_Contains")
     ] = strawberry.UNSET,
     description__contains: Annotated[
-        Optional[str], strawberry.argument(name="description_Contains")
+        str | None, strawberry.argument(name="description_Contains")
     ] = strawberry.UNSET,
-) -> Optional[
+) -> None | (
     Annotated[
-        "CorpusCategoryTypeConnection", strawberry.lazy("config.graphql.corpus_types")
+        CorpusCategoryTypeConnection, strawberry.lazy("config.graphql.corpus_types")
     ]
-]:
+):
     kwargs = strip_unset(
         {
             "offset": offset,
@@ -447,15 +437,12 @@ def q_corpus_folders(
     corpus_id: Annotated[
         strawberry.ID, strawberry.argument(name="corpusId")
     ] = strawberry.UNSET,
-) -> Optional[
+) -> None | (
     list[
-        Optional[
-            Annotated[
-                "CorpusFolderType", strawberry.lazy("config.graphql.corpus_types")
-            ]
-        ]
+        None
+        | (Annotated[CorpusFolderType, strawberry.lazy("config.graphql.corpus_types")])
     ]
-]:
+):
     kwargs = strip_unset({"corpus_id": corpus_id})
     return _resolve_Query_corpus_folders(None, info, **kwargs)
 
@@ -484,9 +471,9 @@ def _resolve_Query_corpus_folder(root, info, id):
 def q_corpus_folder(
     info: strawberry.Info,
     id: Annotated[strawberry.ID, strawberry.argument(name="id")] = strawberry.UNSET,
-) -> Optional[
-    Annotated["CorpusFolderType", strawberry.lazy("config.graphql.corpus_types")]
-]:
+) -> None | (
+    Annotated[CorpusFolderType, strawberry.lazy("config.graphql.corpus_types")]
+):
     kwargs = strip_unset({"id": id})
     return _resolve_Query_corpus_folder(None, info, **kwargs)
 
@@ -517,15 +504,16 @@ def q_deleted_documents_in_corpus(
     corpus_id: Annotated[
         strawberry.ID, strawberry.argument(name="corpusId")
     ] = strawberry.UNSET,
-) -> Optional[
+) -> None | (
     list[
-        Optional[
+        None
+        | (
             Annotated[
-                "DocumentPathType", strawberry.lazy("config.graphql.document_types")
+                DocumentPathType, strawberry.lazy("config.graphql.document_types")
             ]
-        ]
+        )
     ]
-]:
+):
     kwargs = strip_unset({"corpus_id": corpus_id})
     return _resolve_Query_deleted_documents_in_corpus(None, info, **kwargs)
 
@@ -565,12 +553,12 @@ def q_corpus_intelligence_setup_status(
     corpus_id: Annotated[
         strawberry.ID, strawberry.argument(name="corpusId")
     ] = strawberry.UNSET,
-) -> Optional[
+) -> None | (
     Annotated[
-        "CorpusIntelligenceSetupStatusType",
+        CorpusIntelligenceSetupStatusType,
         strawberry.lazy("config.graphql.corpus_types"),
     ]
-]:
+):
     kwargs = strip_unset({"corpus_id": corpus_id})
     return _resolve_Query_corpus_intelligence_setup_status(None, info, **kwargs)
 
@@ -705,9 +693,9 @@ def q_corpus_stats(
     corpus_id: Annotated[
         strawberry.ID, strawberry.argument(name="corpusId")
     ] = strawberry.UNSET,
-) -> Optional[
-    Annotated["CorpusStatsType", strawberry.lazy("config.graphql.corpus_types")]
-]:
+) -> None | (
+    Annotated[CorpusStatsType, strawberry.lazy("config.graphql.corpus_types")]
+):
     kwargs = strip_unset({"corpus_id": corpus_id})
     return _resolve_Query_corpus_stats(None, info, **kwargs)
 
@@ -859,12 +847,10 @@ def q_corpus_document_graph(
     corpus_id: Annotated[
         strawberry.ID, strawberry.argument(name="corpusId")
     ] = strawberry.UNSET,
-    limit: Annotated[
-        Optional[int], strawberry.argument(name="limit")
-    ] = strawberry.UNSET,
-) -> Optional[
-    Annotated["CorpusDocumentGraphType", strawberry.lazy("config.graphql.corpus_types")]
-]:
+    limit: Annotated[int | None, strawberry.argument(name="limit")] = strawberry.UNSET,
+) -> None | (
+    Annotated[CorpusDocumentGraphType, strawberry.lazy("config.graphql.corpus_types")]
+):
     kwargs = strip_unset({"corpus_id": corpus_id, "limit": limit})
     return _resolve_Query_corpus_document_graph(None, info, **kwargs)
 
@@ -958,12 +944,12 @@ def q_corpus_intelligence_aggregates(
     corpus_id: Annotated[
         strawberry.ID, strawberry.argument(name="corpusId")
     ] = strawberry.UNSET,
-) -> Optional[
+) -> None | (
     Annotated[
-        "CorpusIntelligenceAggregatesType",
+        CorpusIntelligenceAggregatesType,
         strawberry.lazy("config.graphql.corpus_types"),
     ]
-]:
+):
     kwargs = strip_unset({"corpus_id": corpus_id})
     return _resolve_Query_corpus_intelligence_aggregates(None, info, **kwargs)
 
@@ -1008,9 +994,9 @@ def q_corpus_data_story(
     corpus_id: Annotated[
         strawberry.ID, strawberry.argument(name="corpusId")
     ] = strawberry.UNSET,
-) -> Optional[
-    Annotated["CorpusDataStoryType", strawberry.lazy("config.graphql.corpus_types")]
-]:
+) -> None | (
+    Annotated[CorpusDataStoryType, strawberry.lazy("config.graphql.corpus_types")]
+):
     kwargs = strip_unset({"corpus_id": corpus_id})
     return _resolve_Query_corpus_data_story(None, info, **kwargs)
 
@@ -1034,9 +1020,7 @@ def _resolve_Query_artifact_by_slug(root, info, slug):
 def q_artifact_by_slug(
     info: strawberry.Info,
     slug: Annotated[str, strawberry.argument(name="slug")] = strawberry.UNSET,
-) -> Optional[
-    Annotated["ArtifactType", strawberry.lazy("config.graphql.corpus_types")]
-]:
+) -> None | (Annotated[ArtifactType, strawberry.lazy("config.graphql.corpus_types")]):
     kwargs = strip_unset({"slug": slug})
     return _resolve_Query_artifact_by_slug(None, info, **kwargs)
 
@@ -1067,9 +1051,9 @@ def q_corpus_artifacts(
     corpus_id: Annotated[
         strawberry.ID, strawberry.argument(name="corpusId")
     ] = strawberry.UNSET,
-) -> Optional[
-    list[Annotated["ArtifactType", strawberry.lazy("config.graphql.corpus_types")]]
-]:
+) -> None | (
+    list[Annotated[ArtifactType, strawberry.lazy("config.graphql.corpus_types")]]
+):
     kwargs = strip_unset({"corpus_id": corpus_id})
     return _resolve_Query_corpus_artifacts(None, info, **kwargs)
 
@@ -1106,13 +1090,11 @@ def q_corpus_artifact_templates(
     corpus_id: Annotated[
         strawberry.ID, strawberry.argument(name="corpusId")
     ] = strawberry.UNSET,
-) -> Optional[
+) -> None | (
     list[
-        Annotated[
-            "ArtifactTemplateType", strawberry.lazy("config.graphql.corpus_types")
-        ]
+        Annotated[ArtifactTemplateType, strawberry.lazy("config.graphql.corpus_types")]
     ]
-]:
+):
     kwargs = strip_unset({"corpus_id": corpus_id})
     return _resolve_Query_corpus_artifact_templates(None, info, **kwargs)
 
@@ -1139,13 +1121,11 @@ def q_corpus_metadata_columns(
     corpus_id: Annotated[
         strawberry.ID, strawberry.argument(name="corpusId")
     ] = strawberry.UNSET,
-) -> Optional[
+) -> None | (
     list[
-        Optional[
-            Annotated["ColumnType", strawberry.lazy("config.graphql.extract_types")]
-        ]
+        None | (Annotated[ColumnType, strawberry.lazy("config.graphql.extract_types")])
     ]
-]:
+):
     kwargs = strip_unset({"corpus_id": corpus_id})
     return _resolve_Query_corpus_metadata_columns(None, info, **kwargs)
 

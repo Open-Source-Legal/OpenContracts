@@ -62,13 +62,11 @@ logger = logging.getLogger(__name__)
     description="Create a new agent configuration (admin/corpus owner only).",
 )
 class CreateAgentConfigurationMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    agent: Optional[
-        Annotated[
-            "AgentConfigurationType", strawberry.lazy("config.graphql.agent_types")
-        ]
-    ] = strawberry.field(name="agent", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    agent: None | (
+        Annotated[AgentConfigurationType, strawberry.lazy("config.graphql.agent_types")]
+    ) = strawberry.field(name="agent", default=None)
 
 
 register_type(
@@ -81,13 +79,11 @@ register_type(
     description="Update an existing agent configuration.",
 )
 class UpdateAgentConfigurationMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    agent: Optional[
-        Annotated[
-            "AgentConfigurationType", strawberry.lazy("config.graphql.agent_types")
-        ]
-    ] = strawberry.field(name="agent", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    agent: None | (
+        Annotated[AgentConfigurationType, strawberry.lazy("config.graphql.agent_types")]
+    ) = strawberry.field(name="agent", default=None)
 
 
 register_type(
@@ -100,8 +96,8 @@ register_type(
     description="Delete an agent configuration.",
 )
 class DeleteAgentConfigurationMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
 
 
 register_type(
@@ -240,22 +236,22 @@ def _mutate_CreateAgentConfigurationMutation(
 def m_create_agent_configuration(
     info: strawberry.Info,
     available_tools: Annotated[
-        Optional[list[Optional[str]]],
+        list[str | None] | None,
         strawberry.argument(
             name="availableTools", description="List of tools available to the agent"
         ),
     ] = strawberry.UNSET,
     avatar_url: Annotated[
-        Optional[str], strawberry.argument(name="avatarUrl", description="Avatar URL")
+        str | None, strawberry.argument(name="avatarUrl", description="Avatar URL")
     ] = strawberry.UNSET,
     badge_config: Annotated[
-        Optional[GenericScalar],
+        GenericScalar | None,
         strawberry.argument(
             name="badgeConfig", description="Badge display configuration"
         ),
     ] = strawberry.UNSET,
     corpus_id: Annotated[
-        Optional[strawberry.ID],
+        strawberry.ID | None,
         strawberry.argument(
             name="corpusId", description="Corpus ID for corpus-specific agents"
         ),
@@ -264,7 +260,7 @@ def m_create_agent_configuration(
         str, strawberry.argument(name="description", description="Agent description")
     ] = strawberry.UNSET,
     is_public: Annotated[
-        Optional[bool],
+        bool | None,
         strawberry.argument(
             name="isPublic", description="Whether agent is publicly visible"
         ),
@@ -273,14 +269,14 @@ def m_create_agent_configuration(
         str, strawberry.argument(name="name", description="Agent name")
     ] = strawberry.UNSET,
     permission_required_tools: Annotated[
-        Optional[list[Optional[str]]],
+        list[str | None] | None,
         strawberry.argument(
             name="permissionRequiredTools",
             description="List of tools requiring explicit permission",
         ),
     ] = strawberry.UNSET,
     preferred_llm: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="preferredLlm",
             description="Optional pydantic-ai model spec to use when this agent runs (e.g. 'anthropic:claude-haiku-4-5'). Overrides Corpus.preferred_llm. Empty falls back to the corpus default.",
@@ -290,7 +286,7 @@ def m_create_agent_configuration(
         str, strawberry.argument(name="scope", description="Scope: GLOBAL or CORPUS")
     ] = strawberry.UNSET,
     slug: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="slug",
             description="URL-friendly slug for @mentions (auto-generated from name if not provided)",
@@ -302,7 +298,7 @@ def m_create_agent_configuration(
             name="systemInstructions", description="System instructions for the agent"
         ),
     ] = strawberry.UNSET,
-) -> Optional["CreateAgentConfigurationMutation"]:
+) -> CreateAgentConfigurationMutation | None:
     kwargs = strip_unset(
         {
             "available_tools": available_tools,
@@ -457,50 +453,50 @@ def m_update_agent_configuration(
         strawberry.argument(name="agentId", description="Agent ID to update"),
     ] = strawberry.UNSET,
     available_tools: Annotated[
-        Optional[list[Optional[str]]], strawberry.argument(name="availableTools")
+        list[str | None] | None, strawberry.argument(name="availableTools")
     ] = strawberry.UNSET,
     avatar_url: Annotated[
-        Optional[str], strawberry.argument(name="avatarUrl")
+        str | None, strawberry.argument(name="avatarUrl")
     ] = strawberry.UNSET,
     badge_config: Annotated[
-        Optional[GenericScalar], strawberry.argument(name="badgeConfig")
+        GenericScalar | None, strawberry.argument(name="badgeConfig")
     ] = strawberry.UNSET,
     clear_preferred_llm: Annotated[
-        Optional[bool],
+        bool | None,
         strawberry.argument(
             name="clearPreferredLlm",
             description="When true, clears any per-agent LLM override so the agent falls back to the corpus default.",
         ),
     ] = False,
     description: Annotated[
-        Optional[str], strawberry.argument(name="description")
+        str | None, strawberry.argument(name="description")
     ] = strawberry.UNSET,
     is_active: Annotated[
-        Optional[bool], strawberry.argument(name="isActive")
+        bool | None, strawberry.argument(name="isActive")
     ] = strawberry.UNSET,
     is_public: Annotated[
-        Optional[bool], strawberry.argument(name="isPublic")
+        bool | None, strawberry.argument(name="isPublic")
     ] = strawberry.UNSET,
-    name: Annotated[Optional[str], strawberry.argument(name="name")] = strawberry.UNSET,
+    name: Annotated[str | None, strawberry.argument(name="name")] = strawberry.UNSET,
     permission_required_tools: Annotated[
-        Optional[list[Optional[str]]],
+        list[str | None] | None,
         strawberry.argument(name="permissionRequiredTools"),
     ] = strawberry.UNSET,
     preferred_llm: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(
             name="preferredLlm",
             description="Set/replace the per-agent LLM override (e.g. 'anthropic:claude-haiku-4-5'). Pass null to leave the existing value unchanged; pass clearPreferredLlm=true to reset back to the corpus default.",
         ),
     ] = strawberry.UNSET,
     slug: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(name="slug", description="URL-friendly slug for @mentions"),
     ] = strawberry.UNSET,
     system_instructions: Annotated[
-        Optional[str], strawberry.argument(name="systemInstructions")
+        str | None, strawberry.argument(name="systemInstructions")
     ] = strawberry.UNSET,
-) -> Optional["UpdateAgentConfigurationMutation"]:
+) -> UpdateAgentConfigurationMutation | None:
     kwargs = strip_unset(
         {
             "agent_id": agent_id,
@@ -587,7 +583,7 @@ def m_delete_agent_configuration(
         strawberry.ID,
         strawberry.argument(name="agentId", description="Agent ID to delete"),
     ] = strawberry.UNSET,
-) -> Optional["DeleteAgentConfigurationMutation"]:
+) -> DeleteAgentConfigurationMutation | None:
     kwargs = strip_unset({"agent_id": agent_id})
     return _mutate_DeleteAgentConfigurationMutation(
         DeleteAgentConfigurationMutation, None, info, **kwargs

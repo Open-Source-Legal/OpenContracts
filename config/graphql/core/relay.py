@@ -288,10 +288,10 @@ class PageInfo:
     has_previous_page: bool = strawberry.field(
         description="When paginating backwards, are there more items?"
     )
-    start_cursor: Optional[str] = strawberry.field(
+    start_cursor: str | None = strawberry.field(
         description="When paginating backwards, the cursor to continue."
     )
-    end_cursor: Optional[str] = strawberry.field(
+    end_cursor: str | None = strawberry.field(
         description="When paginating forwards, the cursor to continue."
     )
 

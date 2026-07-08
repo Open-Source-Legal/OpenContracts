@@ -56,14 +56,14 @@ def _decode_pk(global_id: str) -> int | None:
     description="Create a manual canonical-key equivalence (superuser-only).",
 )
 class CreateAuthorityKeyEquivalenceMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
         Annotated[
-            "AuthorityKeyEquivalenceNode",
+            AuthorityKeyEquivalenceNode,
             strawberry.lazy("config.graphql.annotation_types"),
         ]
-    ] = strawberry.field(name="obj", default=None)
+    ) = strawberry.field(name="obj", default=None)
 
 
 register_type(
@@ -78,14 +78,14 @@ register_type(
     description="Edit a manual equivalence (superuser-only; managed rows are read-only).",
 )
 class UpdateAuthorityKeyEquivalenceMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
         Annotated[
-            "AuthorityKeyEquivalenceNode",
+            AuthorityKeyEquivalenceNode,
             strawberry.lazy("config.graphql.annotation_types"),
         ]
-    ] = strawberry.field(name="obj", default=None)
+    ) = strawberry.field(name="obj", default=None)
 
 
 register_type(
@@ -100,8 +100,8 @@ register_type(
     description="Delete a manual equivalence (superuser-only; managed rows are read-only).",
 )
 class DeleteAuthorityKeyEquivalenceMutation:
-    ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    message: Optional[str] = strawberry.field(name="message", default=None)
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
 
 
 register_type(
@@ -140,7 +140,7 @@ def m_create_authority_key_equivalence(
         ),
     ] = strawberry.UNSET,
     note: Annotated[
-        Optional[str],
+        str | None,
         strawberry.argument(name="note", description="Why this mapping exists."),
     ] = strawberry.UNSET,
     to_key: Annotated[
@@ -149,7 +149,7 @@ def m_create_authority_key_equivalence(
             name="toKey", description="Equivalent canonical key, e.g. 'usc-26:401'."
         ),
     ] = strawberry.UNSET,
-) -> Optional["CreateAuthorityKeyEquivalenceMutation"]:
+) -> CreateAuthorityKeyEquivalenceMutation | None:
     kwargs = strip_unset({"from_key": from_key, "note": note, "to_key": to_key})
     return _mutate_CreateAuthorityKeyEquivalenceMutation(
         CreateAuthorityKeyEquivalenceMutation, None, info, **kwargs
@@ -185,17 +185,15 @@ def _mutate_UpdateAuthorityKeyEquivalenceMutation(
 def m_update_authority_key_equivalence(
     info: strawberry.Info,
     from_key: Annotated[
-        Optional[str], strawberry.argument(name="fromKey")
+        str | None, strawberry.argument(name="fromKey")
     ] = strawberry.UNSET,
     id: Annotated[
         strawberry.ID,
         strawberry.argument(name="id", description="Global ID of the row to edit."),
     ] = strawberry.UNSET,
-    note: Annotated[Optional[str], strawberry.argument(name="note")] = strawberry.UNSET,
-    to_key: Annotated[
-        Optional[str], strawberry.argument(name="toKey")
-    ] = strawberry.UNSET,
-) -> Optional["UpdateAuthorityKeyEquivalenceMutation"]:
+    note: Annotated[str | None, strawberry.argument(name="note")] = strawberry.UNSET,
+    to_key: Annotated[str | None, strawberry.argument(name="toKey")] = strawberry.UNSET,
+) -> UpdateAuthorityKeyEquivalenceMutation | None:
     kwargs = strip_unset(
         {"from_key": from_key, "id": id, "note": note, "to_key": to_key}
     )
@@ -226,7 +224,7 @@ def m_delete_authority_key_equivalence(
         strawberry.ID,
         strawberry.argument(name="id", description="Global ID of the row to delete."),
     ] = strawberry.UNSET,
-) -> Optional["DeleteAuthorityKeyEquivalenceMutation"]:
+) -> DeleteAuthorityKeyEquivalenceMutation | None:
     kwargs = strip_unset({"id": id})
     return _mutate_DeleteAuthorityKeyEquivalenceMutation(
         DeleteAuthorityKeyEquivalenceMutation, None, info, **kwargs

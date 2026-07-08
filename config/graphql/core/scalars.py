@@ -10,7 +10,7 @@ outside the GraphQL Int 32-bit range.
 from __future__ import annotations
 
 import json
-from typing import Any, NewType, Union
+from typing import Any, NewType
 
 import strawberry
 from graphql import IntValueNode, StringValueNode
@@ -118,7 +118,7 @@ def _coerce_big_int(value: Any) -> int:
     return num
 
 
-def _parse_big_int_literal(ast: Any, variables: Any = None) -> Union[int, None]:
+def _parse_big_int_literal(ast: Any, variables: Any = None) -> int | None:
     if isinstance(ast, IntValueNode):
         return int(ast.value)
     return None

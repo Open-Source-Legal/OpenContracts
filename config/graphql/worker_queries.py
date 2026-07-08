@@ -91,20 +91,21 @@ def _resolve_Query_worker_accounts(root, info, name_contains=None, is_active=Non
 def q_worker_accounts(
     info: strawberry.Info,
     name_contains: Annotated[
-        Optional[str], strawberry.argument(name="nameContains")
+        str | None, strawberry.argument(name="nameContains")
     ] = strawberry.UNSET,
     is_active: Annotated[
-        Optional[bool], strawberry.argument(name="isActive")
+        bool | None, strawberry.argument(name="isActive")
     ] = strawberry.UNSET,
-) -> Optional[
+) -> None | (
     list[
-        Optional[
+        None
+        | (
             Annotated[
-                "WorkerAccountQueryType", strawberry.lazy("config.graphql.worker_types")
+                WorkerAccountQueryType, strawberry.lazy("config.graphql.worker_types")
             ]
-        ]
+        )
     ]
-]:
+):
     kwargs = strip_unset({"name_contains": name_contains, "is_active": is_active})
     return _resolve_Query_worker_accounts(None, info, **kwargs)
 
@@ -152,18 +153,19 @@ def q_corpus_access_tokens(
     info: strawberry.Info,
     corpus_id: Annotated[int, strawberry.argument(name="corpusId")] = strawberry.UNSET,
     is_active: Annotated[
-        Optional[bool], strawberry.argument(name="isActive")
+        bool | None, strawberry.argument(name="isActive")
     ] = strawberry.UNSET,
-) -> Optional[
+) -> None | (
     list[
-        Optional[
+        None
+        | (
             Annotated[
-                "CorpusAccessTokenQueryType",
+                CorpusAccessTokenQueryType,
                 strawberry.lazy("config.graphql.worker_types"),
             ]
-        ]
+        )
     ]
-]:
+):
     kwargs = strip_unset({"corpus_id": corpus_id, "is_active": is_active})
     return _resolve_Query_corpus_access_tokens(None, info, **kwargs)
 
@@ -215,21 +217,21 @@ def q_worker_document_uploads(
     info: strawberry.Info,
     corpus_id: Annotated[int, strawberry.argument(name="corpusId")] = strawberry.UNSET,
     status: Annotated[
-        Optional[str], strawberry.argument(name="status")
+        str | None, strawberry.argument(name="status")
     ] = strawberry.UNSET,
     limit: Annotated[
-        Optional[int],
+        int | None,
         strawberry.argument(name="limit", description="Max results (default/max 100)"),
     ] = strawberry.UNSET,
     offset: Annotated[
-        Optional[int],
+        int | None,
         strawberry.argument(name="offset", description="Pagination offset"),
     ] = strawberry.UNSET,
-) -> Optional[
+) -> None | (
     Annotated[
-        "WorkerDocumentUploadPageType", strawberry.lazy("config.graphql.worker_types")
+        WorkerDocumentUploadPageType, strawberry.lazy("config.graphql.worker_types")
     ]
-]:
+):
     kwargs = strip_unset(
         {"corpus_id": corpus_id, "status": status, "limit": limit, "offset": offset}
     )
