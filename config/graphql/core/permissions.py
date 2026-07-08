@@ -53,11 +53,13 @@ def get_anonymous_user_id(info: Any) -> int | None:
         try:
             info.context._anon_user_id = _ANON_USER_LOOKUP_FAILED
         except AttributeError:
+            # Frozen/immutable context (some tests) — skip the memo.
             pass
         return None
     try:
         info.context._anon_user_id = anon_id
     except AttributeError:
+        # Frozen/immutable context (some tests) — skip the memo.
         pass
     return anon_id
 
@@ -74,6 +76,7 @@ def _permission_annotations(info: Any) -> dict[str, Any]:
         try:
             info.context.permission_annotations = annotations
         except AttributeError:
+            # Frozen/immutable context — fall back to an uncached dict.
             pass
     return annotations
 

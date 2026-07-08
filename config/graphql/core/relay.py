@@ -160,6 +160,7 @@ def get_node_from_global_id(
     try:
         info.context._node_type_hint = _type
     except AttributeError:
+        # Frozen/immutable context — hint is best-effort only.
         pass
 
     if entry.get_node is not None:
