@@ -68,76 +68,219 @@ class RelationInputType:
     document_id: Optional[str] = strawberry.field(name="documentId", default=strawberry.UNSET)
 
 
-def _resolve_AnnotationType_annotation_type(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:732
+def _resolve_AnnotationType_annotation_type(root, info):
+    """Return annotation_type as a plain string to tolerate invalid DB values."""
+    return root.annotation_type or ""
 
-    Port of AnnotationType.resolve_annotation_type
+
+def _resolve_AnnotationType_document(root, info):
+    """Return the document, resolving via structural_set for structural annotations.
+
+    Runs because ``document`` is declared as an explicit ``graphene.Field``
+    above — graphene-django's auto-generated FK field would short-circuit to
+    ``None`` for structural annotations (``document_id=NULL``) before this
+    method ever ran.
     """
-    raise NotImplementedError("_resolve_AnnotationType_annotation_type not yet ported — see manifest")
+    # Deferred import avoids a module-level cycle: ``annotations.services``
+    # (via ``documents.models``) pulls in ``document_types`` which imports
+    # ``annotation_types``.
+    from opencontractserver.annotations.services import AnnotationService
+
+    user = info.context.user
+
+    if root.document_id:
+        # Non-structural annotation: the document is its own parent. The
+        # annotation list / semantic-search resolvers always
+        # ``select_related("document")``, so the FK is already in memory —
+        # return it directly instead of issuing a per-row ``SELECT``.
+        # ``Field.is_cached`` (``django.db.models.fields.mixins.
+        # FieldCacheMixin``) checks ``instance._state.fields_cache``, i.e.
+        # whether the related ``Document`` object itself was loaded via
+        # ``select_related`` — NOT whether the raw ``document_id`` column
+        # is present on the row (that column is always loaded). So this
+        # correctly distinguishes "FK object in memory" from "FK object
+        # not fetched yet", and the fallback below IS reached whenever a
+        # caller queries ``Annotation`` without ``select_related("document")``.
+        # Annotation READ visibility is inherited from the document, so any
+        # annotation that reached this resolver already implies document
+        # READ; the fallback still re-derives that via a permission-scoped
+        # fetch instead of trusting an un-checked FK traversal.
+        document_field = root._meta.get_field("document")
+        if document_field.is_cached(root):
+            return root.document
+        return AnnotationService.resolve_owned_document(
+            document_id=root.document_id, user=user
+        )
+
+    # Structural annotations carry document_id=NULL; resolve via structural_set.
+    if not root.structural_set_id:
+        return None
+
+    structural_set = root.structural_set
+    if structural_set is not None:
+        # When ``AnnotationService.structural_document_prefetch`` was applied
+        # (the hot list / search paths), the prefetch cache is already scoped
+        # to the queried context AND to documents the user may READ —
+        # evaluated once for the whole page, ordered by slug. The prefetch is
+        # the permission gate (``user`` is required there), so trust it —
+        # including an empty result, which is already a definitive "no
+        # visible member of this set in this context" rather than a
+        # missing-prefetch signal. ``_prefetched_objects_cache`` is a
+        # private Django attribute (same trade-off already accepted in
+        # ``config/graphql/extract_types.py::resolve_document_count``);
+        # regression coverage lives in
+        # ``test_corpus_cards_structural_document_resolution.py`` —
+        # a broken cache-detection here silently degrades every row to
+        # the per-row fallback query below, which that test's captured
+        # query-count assertion catches.
+        prefetched_cache = getattr(structural_set, "_prefetched_objects_cache", {})
+        if "documents" in prefetched_cache:
+            prefetched = list(structural_set.documents.all())
+            return prefetched[0] if prefetched else None
+
+    # Fallback when the caller did not apply
+    # ``AnnotationService.structural_document_prefetch`` at all (no
+    # ``_prefetched_objects_cache`` entry for ``documents``). Best-effort,
+    # corpus-scoped, permission-gated degraded path — see
+    # ``AnnotationService.resolve_structural_document_fallback``.
+    return AnnotationService.resolve_structural_document_fallback(
+        structural_set_id=root.structural_set_id,
+        corpus_id=root.corpus_id,
+        user=user,
+    )
 
 
-def _resolve_AnnotationType_document(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:656
+def _resolve_AnnotationType_content_modalities(root, info):
+    """Return content modalities list from model."""
+    return root.content_modalities or []
 
-    Port of AnnotationType.resolve_document
+
+def _resolve_AnnotationType_feedback_count(root, info):
+    # If ``feedback_count`` was annotated on the queryset (legacy callers),
+    # honour it — but the optimizer no longer adds the annotation because
+    # it forced a LEFT JOIN + GROUP BY for every annotation in the result.
+    if hasattr(root, "feedback_count"):
+        return root.feedback_count
+    # Prefer the prefetched ``user_feedback`` list when the parent resolver
+    # populated it (see ``AnnotationService.get_document_annotations``);
+    # ``QuerySet.count()`` always issues a fresh ``COUNT(*)`` and would
+    # produce one round-trip per annotation. ``_prefetched_objects_cache``
+    # is a Django internal — if it changes shape in a future release the
+    # ``self.user_feedback.count()`` fallback keeps correctness intact, only
+    # losing the per-row optimisation.
+    prefetched = getattr(root, "_prefetched_objects_cache", {})
+    if "user_feedback" in prefetched:
+        return len(prefetched["user_feedback"])
+    return root.user_feedback.count()
+
+
+def _resolve_AnnotationType_all_source_node_in_relationship(root, info):
+    return root.source_node_in_relationships.all()
+
+
+def _resolve_AnnotationType_all_target_node_in_relationship(root, info):
+    return root.target_node_in_relationships.all()
+
+
+def _resolve_AnnotationType_descendants_tree(root, info):
     """
-    raise NotImplementedError("_resolve_AnnotationType_document not yet ported — see manifest")
-
-
-def _resolve_AnnotationType_content_modalities(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:736
-
-    Port of AnnotationType.resolve_content_modalities
+    Returns a flat list of descendant annotations,
+    each including only the IDs of its immediate children.
     """
-    raise NotImplementedError("_resolve_AnnotationType_content_modalities not yet ported — see manifest")
+    from django_cte import CTE, with_cte
+
+    def get_descendants(cte):
+        base_qs = Annotation.objects.filter(parent_id=root.id).values(
+            "id", "parent_id", "raw_text"
+        )
+        recursive_qs = cte.join(Annotation, parent_id=cte.col.id).values(
+            "id", "parent_id", "raw_text"
+        )
+        return base_qs.union(recursive_qs, all=True)
+
+    cte = CTE.recursive(get_descendants)
+    descendants_qs = with_cte(cte, select=cte.queryset()).order_by("id")
+    descendants_list = list(descendants_qs)
+
+    return build_flat_tree(
+        descendants_list, type_name="AnnotationType", text_key="raw_text"
+    )
 
 
-def _resolve_AnnotationType_feedback_count(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:742
-
-    Port of AnnotationType.resolve_feedback_count
+def _resolve_AnnotationType_full_tree(root, info):
     """
-    raise NotImplementedError("_resolve_AnnotationType_feedback_count not yet ported — see manifest")
-
-
-def _resolve_AnnotationType_all_source_node_in_relationship(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:760
-
-    Port of AnnotationType.resolve_all_source_node_in_relationship
+    Returns a flat list of annotations from the root ancestor,
+    each including only the IDs of its immediate children.
     """
-    raise NotImplementedError("_resolve_AnnotationType_all_source_node_in_relationship not yet ported — see manifest")
+    from django_cte import CTE, with_cte
+
+    # Find the root ancestor
+    tree_root = root
+    while tree_root.parent_id is not None:
+        tree_root = tree_root.parent
+
+    def get_full_tree(cte):
+        base_qs = Annotation.objects.filter(id=tree_root.id).values(
+            "id", "parent_id", "raw_text"
+        )
+        recursive_qs = cte.join(Annotation, parent_id=cte.col.id).values(
+            "id", "parent_id", "raw_text"
+        )
+        return base_qs.union(recursive_qs, all=True)
+
+    cte = CTE.recursive(get_full_tree)
+    full_tree_qs = with_cte(cte, select=cte.queryset()).order_by("id")
+    nodes = list(full_tree_qs)
+    full_tree = build_flat_tree(
+        nodes, type_name="AnnotationType", text_key="raw_text"
+    )
+    return full_tree
 
 
-def _resolve_AnnotationType_all_target_node_in_relationship(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:765
-
-    Port of AnnotationType.resolve_all_target_node_in_relationship
+def _resolve_AnnotationType_subtree(root, info):
     """
-    raise NotImplementedError("_resolve_AnnotationType_all_target_node_in_relationship not yet ported — see manifest")
-
-
-def _resolve_AnnotationType_descendants_tree(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:784
-
-    Port of AnnotationType.resolve_descendants_tree
+    Returns a combined tree that includes:
+    - The path from the root ancestor to this annotation (ancestors).
+    - This annotation and all its descendants.
     """
-    raise NotImplementedError("_resolve_AnnotationType_descendants_tree not yet ported — see manifest")
+    from django_cte import CTE, with_cte
 
+    # Find all ancestors up to the root
+    ancestors = []
+    node = root
+    while node.parent_id is not None:
+        ancestors.append(node)
+        node = node.parent
+    ancestors.append(node)  # Include the root ancestor
+    ancestor_ids = [ancestor.id for ancestor in ancestors]
 
-def _resolve_AnnotationType_full_tree(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:809
+    # Get all descendants of the current node
+    def get_descendants(cte):
+        base_qs = Annotation.objects.filter(parent_id=root.id).values(
+            "id", "parent_id", "raw_text"
+        )
+        recursive_qs = cte.join(Annotation, parent_id=cte.col.id).values(
+            "id", "parent_id", "raw_text"
+        )
+        return base_qs.union(recursive_qs, all=True)
 
-    Port of AnnotationType.resolve_full_tree
-    """
-    raise NotImplementedError("_resolve_AnnotationType_full_tree not yet ported — see manifest")
+    descendants_cte = CTE.recursive(get_descendants)
+    descendants_qs = with_cte(
+        descendants_cte, select=descendants_cte.queryset()
+    ).values("id", "parent_id", "raw_text")
 
+    # Combine ancestors and descendants
+    combined_qs = (
+        Annotation.objects.filter(id__in=ancestor_ids)
+        .values("id", "parent_id", "raw_text")
+        .union(descendants_qs, all=True)
+    )
 
-def _resolve_AnnotationType_subtree(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:839
-
-    Port of AnnotationType.resolve_subtree
-    """
-    raise NotImplementedError("_resolve_AnnotationType_subtree not yet ported — see manifest")
+    subtree_nodes = list(combined_qs)
+    subtree = build_flat_tree(
+        subtree_nodes, type_name="AnnotationType", text_key="raw_text"
+    )
+    return subtree
 
 
 @strawberry.type(name="AnnotationType")
@@ -285,11 +428,32 @@ class AnnotationType(Node):
 
 
 def _get_queryset_AnnotationType(queryset, info):
-    """PORT: config.graphql.annotation_types.AnnotationType.get_queryset
+    # Always pre-join the FKs the GraphQL type exposes
+    # (``annotation_label`` and ``corpus``). Without this, graphene-django's
+    # auto-generated FK resolver falls through to ``cls.get_node(info, pk)``
+    # → ``Corpus.objects.get(pk)`` per row — and because ``Corpus`` is a
+    # ``TreeNode`` registered with ``with_tree_fields=True``, every such
+    # ``get`` triggers a recursive ``WITH __rank_table`` CTE.
+    # ``AnnotationService.get_document_annotations`` already adds
+    # ``annotation_label`` / ``creator`` / ``analysis`` but not ``corpus``,
+    # so the join is added here regardless of which path produced the qs.
+    fk_joins = ("annotation_label", "corpus")
 
-    Port of AnnotationType.get_queryset
-    """
-    raise NotImplementedError("_get_queryset_AnnotationType not yet ported — see manifest")
+    # The query optimizer adds ``_can_*`` annotations and has already
+    # filtered for visibility — don't re-filter.
+    if (
+        hasattr(queryset, "query")
+        and queryset.query.annotations
+        and any(key.startswith("_can_") for key in queryset.query.annotations)
+    ):
+        return queryset.select_related(*fk_joins)
+
+    # Otherwise apply ``visible_to_user`` via the service layer
+    # (the ``opencontracts.E001`` system check forbids inline use here),
+    # then layer the FK joins on top.
+    return BaseService.filter_visible_qs(
+        queryset, info.context.user, request=info.context
+    ).select_related(*fk_joins)
 
 
 register_type("AnnotationType", AnnotationType, model=Annotation, get_queryset=_get_queryset_AnnotationType)
@@ -298,12 +462,53 @@ register_type("AnnotationType", AnnotationType, model=Annotation, get_queryset=_
 AnnotationTypeConnection = make_connection_types(AnnotationType, type_name="AnnotationTypeConnection", countable=True, pdf_page_aware=False)
 
 
-def _resolve_AnnotationLabelType_my_permissions(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:930
+def _resolve_AnnotationLabelType_my_permissions(root, info):
+    """Inherit permissions from the LabelSet(s) that include this label.
 
-    Port of AnnotationLabelType.resolve_my_permissions
+    AnnotationLabels deliberately carry no django-guardian object-permission
+    tables of their own — the LabelSet is the permissioned entity that
+    governs its labels. A label can belong to multiple labelsets; the
+    caller's effective permissions are the union of their permissions
+    across those labelsets, with ``*_labelset`` codenames mapped onto
+    ``*_annotationlabel``. Public / built-in (``read_only``) labels are
+    always readable.
+
+    This override replaces the generic mixin resolver, which assumes the
+    model exposes a ``{model}userobjectpermission_set`` reverse accessor
+    and otherwise raises ``AttributeError`` (caught + error-logged) for
+    every annotation-label node.
     """
-    raise NotImplementedError("_resolve_AnnotationLabelType_my_permissions not yet ported — see manifest")
+    permissions: set[str] = set()
+
+    if getattr(root, "is_public", False) or getattr(root, "read_only", False):
+        permissions.add("read_annotationlabel")
+
+    context = getattr(info, "context", None)
+    user = getattr(context, "user", None)
+    anon_id = get_anonymous_user_id(info)
+    if (
+        user is not None
+        and getattr(user, "is_authenticated", False)
+        and user.id != anon_id
+    ):
+        # ``get_users_permissions_for_obj`` returns only the perms the
+        # caller actually holds on each labelset (creator / guardian /
+        # group / is_public), so labelsets they cannot see contribute
+        # nothing.
+        #
+        # Known limitation (accepted): this is a per-label N+1 — each label
+        # node runs ``included_in_labelsets.all()`` plus a permission lookup
+        # per labelset, with no resolver-level ``prefetch_related`` to
+        # collapse it. Acceptable only because label↔labelset membership is
+        # small (typically 1) in practice. If ``AnnotationLabelType`` is ever
+        # rendered inside a large connection that also selects
+        # ``myPermissions``, add ``prefetch_related("included_in_labelsets")``
+        # to the source queryset before this fans out.
+        for labelset in root.included_in_labelsets.all():
+            for perm in get_users_permissions_for_obj(user, labelset):
+                permissions.add(perm.replace("labelset", "annotationlabel"))
+
+    return list(permissions)
 
 
 @strawberry.type(name="AnnotationLabelType")
@@ -369,52 +574,41 @@ register_type("AnnotationLabelType", AnnotationLabelType, model=AnnotationLabel)
 AnnotationLabelTypeConnection = make_connection_types(AnnotationLabelType, type_name="AnnotationLabelTypeConnection", countable=True, pdf_page_aware=False)
 
 
-def _resolve_LabelSetType_icon(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:1024
-
-    Port of LabelSetType.resolve_icon
-    """
-    raise NotImplementedError("_resolve_LabelSetType_icon not yet ported — see manifest")
+def _resolve_LabelSetType_icon(root, info):
+    return "" if not root.icon else info.context.build_absolute_uri(root.icon.url)
 
 
-def _resolve_LabelSetType_doc_label_count(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:989
-
-    Port of LabelSetType.resolve_doc_label_count
-    """
-    raise NotImplementedError("_resolve_LabelSetType_doc_label_count not yet ported — see manifest")
-
-
-def _resolve_LabelSetType_span_label_count(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:996
-
-    Port of LabelSetType.resolve_span_label_count
-    """
-    raise NotImplementedError("_resolve_LabelSetType_span_label_count not yet ported — see manifest")
+def _resolve_LabelSetType_doc_label_count(root, info):
+    """Return doc label count from annotation or query."""
+    # Check if parent corpus has passed the annotated value
+    if hasattr(root, "_doc_label_count") and root._doc_label_count is not None:
+        return root._doc_label_count
+    return root.annotation_labels.filter(label_type="DOC_TYPE_LABEL").count()
 
 
-def _resolve_LabelSetType_token_label_count(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:1002
-
-    Port of LabelSetType.resolve_token_label_count
-    """
-    raise NotImplementedError("_resolve_LabelSetType_token_label_count not yet ported — see manifest")
-
-
-def _resolve_LabelSetType_corpus_count(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:1011
-
-    Port of LabelSetType.resolve_corpus_count
-    """
-    raise NotImplementedError("_resolve_LabelSetType_corpus_count not yet ported — see manifest")
+def _resolve_LabelSetType_span_label_count(root, info):
+    """Return span label count from annotation or query."""
+    if hasattr(root, "_span_label_count") and root._span_label_count is not None:
+        return root._span_label_count
+    return root.annotation_labels.filter(label_type="SPAN_LABEL").count()
 
 
-def _resolve_LabelSetType_all_annotation_labels(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:1020
+def _resolve_LabelSetType_token_label_count(root, info):
+    """Return token label count from annotation or query."""
+    if hasattr(root, "_token_label_count") and root._token_label_count is not None:
+        return root._token_label_count
+    return root.annotation_labels.filter(label_type="TOKEN_LABEL").count()
 
-    Port of LabelSetType.resolve_all_annotation_labels
-    """
-    raise NotImplementedError("_resolve_LabelSetType_all_annotation_labels not yet ported — see manifest")
+
+def _resolve_LabelSetType_corpus_count(root, info):
+    """Return count of corpuses using this label set that are visible to the user."""
+    return BaseService.filter_visible_qs(
+        root.used_by_corpuses, info.context.user, request=info.context
+    ).count()
+
+
+def _resolve_LabelSetType_all_annotation_labels(root, info):
+    return root.annotation_labels.all()
 
 
 @strawberry.type(name="LabelSetType")
@@ -576,52 +770,121 @@ register_type("CorpusReferenceType", CorpusReferenceType, model=CorpusReference)
 CorpusReferenceTypeConnection = make_connection_types(CorpusReferenceType, type_name="CorpusReferenceTypeConnection", countable=True, pdf_page_aware=False)
 
 
-def _resolve_NoteType_revisions(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:1073
+def _resolve_NoteType_revisions(root, info):
+    """Returns all revisions for this note, ordered by version."""
+    return root.revisions.all()
 
-    Port of NoteType.resolve_revisions
+
+def _resolve_NoteType_descendants_tree(root, info):
     """
-    raise NotImplementedError("_resolve_NoteType_revisions not yet ported — see manifest")
-
-
-def _resolve_NoteType_descendants_tree(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:1083
-
-    Port of NoteType.resolve_descendants_tree
+    Returns a flat list of descendant notes,
+    each including only the IDs of its immediate children.
     """
-    raise NotImplementedError("_resolve_NoteType_descendants_tree not yet ported — see manifest")
+    from django_cte import CTE, with_cte
+
+    def get_descendants(cte):
+        base_qs = Note.objects.filter(parent_id=root.id).values(
+            "id", "parent_id", "content"
+        )
+        recursive_qs = cte.join(Note, parent_id=cte.col.id).values(
+            "id", "parent_id", "content"
+        )
+        return base_qs.union(recursive_qs, all=True)
+
+    cte = CTE.recursive(get_descendants)
+    descendants_qs = with_cte(cte, select=cte.queryset()).order_by("id")
+    descendants_list = list(descendants_qs)
+    descendants_tree = build_flat_tree(
+        descendants_list, type_name="NoteType", text_key="content"
+    )
+    return descendants_tree
 
 
-def _resolve_NoteType_full_tree(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:1108
-
-    Port of NoteType.resolve_full_tree
+def _resolve_NoteType_full_tree(root, info):
     """
-    raise NotImplementedError("_resolve_NoteType_full_tree not yet ported — see manifest")
-
-
-def _resolve_NoteType_subtree(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:1136
-
-    Port of NoteType.resolve_subtree
+    Returns a flat list of notes from the root ancestor,
+    each including only the IDs of its immediate children.
     """
-    raise NotImplementedError("_resolve_NoteType_subtree not yet ported — see manifest")
+    from django_cte import CTE, with_cte
+
+    # Find the root ancestor
+    tree_root = root
+    while tree_root.parent_id is not None:
+        tree_root = tree_root.parent
+
+    def get_full_tree(cte):
+        base_qs = Note.objects.filter(id=tree_root.id).values(
+            "id", "parent_id", "content"
+        )
+        recursive_qs = cte.join(Note, parent_id=cte.col.id).values(
+            "id", "parent_id", "content"
+        )
+        return base_qs.union(recursive_qs, all=True)
+
+    cte = CTE.recursive(get_full_tree)
+    full_tree_qs = with_cte(cte, select=cte.queryset()).order_by("id")
+    nodes = list(full_tree_qs)
+    full_tree = build_flat_tree(nodes, type_name="NoteType", text_key="content")
+    return full_tree
 
 
-def _resolve_NoteType_current_version(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:1077
-
-    Port of NoteType.resolve_current_version
+def _resolve_NoteType_subtree(root, info):
     """
-    raise NotImplementedError("_resolve_NoteType_current_version not yet ported — see manifest")
-
-
-def _resolve_NoteType_content_preview(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:1067
-
-    Port of NoteType.resolve_content_preview
+    Returns a combined tree that includes:
+    - The path from the root ancestor to this note (ancestors).
+    - This note and all its descendants.
     """
-    raise NotImplementedError("_resolve_NoteType_content_preview not yet ported — see manifest")
+    from django_cte import CTE, with_cte
+
+    # Find all ancestors up to the root
+    ancestors = []
+    node = root
+    while node.parent_id is not None:
+        ancestors.append(node)
+        node = node.parent
+    ancestors.append(node)  # Include the root ancestor
+    ancestor_ids = [ancestor.id for ancestor in ancestors]
+
+    # Get all descendants of the current node
+    def get_descendants(cte):
+        base_qs = Note.objects.filter(parent_id=root.id).values(
+            "id", "parent_id", "content"
+        )
+        recursive_qs = cte.join(Note, parent_id=cte.col.id).values(
+            "id", "parent_id", "content"
+        )
+        return base_qs.union(recursive_qs, all=True)
+
+    descendants_cte = CTE.recursive(get_descendants)
+    descendants_qs = with_cte(
+        descendants_cte, select=descendants_cte.queryset()
+    ).values("id", "parent_id", "content")
+
+    # Combine ancestors and descendants
+    combined_qs = (
+        Note.objects.filter(id__in=ancestor_ids)
+        .values("id", "parent_id", "content")
+        .union(descendants_qs, all=True)
+    )
+
+    subtree_nodes = list(combined_qs)
+    subtree = build_flat_tree(
+        subtree_nodes, type_name="NoteType", text_key="content"
+    )
+    return subtree
+
+
+def _resolve_NoteType_current_version(root, info):
+    """Returns the current version number."""
+    latest_revision = root.revisions.order_by("-version").first()
+    return latest_revision.version if latest_revision else 0
+
+
+def _resolve_NoteType_content_preview(root, info):
+    annotated = getattr(root, "content_preview", None)
+    if annotated is not None:
+        return annotated
+    return (root.content or "")[:400]
 
 
 @strawberry.type(name="NoteType", description='GraphQL type for the Note model with tree-based functionality.')
@@ -683,11 +946,13 @@ class NoteType(Node):
 
 
 def _get_queryset_NoteType(queryset, info):
-    """PORT: config.graphql.annotation_types.NoteType.get_queryset
-
-    Port of NoteType.get_queryset
-    """
-    raise NotImplementedError("_get_queryset_NoteType not yet ported — see manifest")
+    # Route visibility through the service layer (BaseService) so this
+    # type field resolver does not touch Tier-0 directly. Uses
+    # ``filter_visible_qs`` so the visibility filter chains on the
+    # incoming queryset/manager in a single SQL pass.
+    return BaseService.filter_visible_qs(
+        queryset, info.context.user, request=info.context
+    )
 
 
 register_type("NoteType", NoteType, model=Note, get_queryset=_get_queryset_NoteType)
@@ -722,60 +987,39 @@ register_type("NoteRevisionType", NoteRevisionType, model=NoteRevision)
 NoteRevisionTypeConnection = make_connection_types(NoteRevisionType, type_name="NoteRevisionTypeConnection", countable=True, pdf_page_aware=False)
 
 
-def _resolve_AuthorityNamespaceNode_aliases(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:479
-
-    Port of AuthorityNamespaceNode.resolve_aliases
-    """
-    raise NotImplementedError("_resolve_AuthorityNamespaceNode_aliases not yet ported — see manifest")
+def _resolve_AuthorityNamespaceNode_aliases(root, info):
+    return root.aliases or []
 
 
-def _resolve_AuthorityNamespaceNode_scope(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:482
-
-    Port of AuthorityNamespaceNode.resolve_scope
-    """
-    raise NotImplementedError("_resolve_AuthorityNamespaceNode_scope not yet ported — see manifest")
+def _resolve_AuthorityNamespaceNode_scope(root, info):
+    return "global" if root.is_global else "corpus"
 
 
-def _resolve_AuthorityNamespaceNode_equivalence_count(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:485
-
-    Port of AuthorityNamespaceNode.resolve_equivalence_count
-    """
-    raise NotImplementedError("_resolve_AuthorityNamespaceNode_equivalence_count not yet ported — see manifest")
-
-
-def _resolve_AuthorityNamespaceNode_frontier_count(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:491
-
-    Port of AuthorityNamespaceNode.resolve_frontier_count
-    """
-    raise NotImplementedError("_resolve_AuthorityNamespaceNode_frontier_count not yet ported — see manifest")
+def _resolve_AuthorityNamespaceNode_equivalence_count(root, info) -> int:
+    kp = f"{root.prefix}:"
+    return AuthorityKeyEquivalence.objects.filter(
+        Q(from_key__startswith=kp) | Q(to_key__startswith=kp)
+    ).count()
 
 
-def _resolve_AuthorityNamespaceNode_reference_count(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:494
-
-    Port of AuthorityNamespaceNode.resolve_reference_count
-    """
-    raise NotImplementedError("_resolve_AuthorityNamespaceNode_reference_count not yet ported — see manifest")
+def _resolve_AuthorityNamespaceNode_frontier_count(root, info) -> int:
+    return AuthorityFrontier.objects.filter(authority=root.prefix).count()
 
 
-def _resolve_AuthorityNamespaceNode_effective_provider(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:499
-
-    Port of AuthorityNamespaceNode.resolve_effective_provider
-    """
-    raise NotImplementedError("_resolve_AuthorityNamespaceNode_effective_provider not yet ported — see manifest")
+def _resolve_AuthorityNamespaceNode_reference_count(root, info) -> int:
+    return CorpusReference.objects.filter(
+        canonical_key__startswith=f"{root.prefix}:"
+    ).count()
 
 
-def _resolve_AuthorityNamespaceNode_created_by_username(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:504
+def _resolve_AuthorityNamespaceNode_effective_provider(root, info):
+    from opencontractserver.enrichment.services import AuthorityNamespaceService
 
-    Port of AuthorityNamespaceNode.resolve_created_by_username
-    """
-    raise NotImplementedError("_resolve_AuthorityNamespaceNode_created_by_username not yet ported — see manifest")
+    return AuthorityNamespaceService._effective_provider(root.prefix)
+
+
+def _resolve_AuthorityNamespaceNode_created_by_username(root, info):
+    return root.created_by.username if root.created_by_id else None
 
 
 @strawberry.type(name="AuthorityNamespaceNode", description='One ``AuthorityNamespace`` row: a body of law (canonical-key prefix) whose\n``aliases`` drive Tier-1 citation extraction.\n\nGlobal reference data with no per-object permissions, so the connection is\n**superuser-only**: ``get_queryset`` returns nothing for everyone else and\norders by ``prefix``. The ``*_count`` and ``effective_provider`` fields are\nstring-joined to the other authority models on demand (graphene resolves\nthem only when selected, so the master list pays only for what it shows).')
@@ -841,12 +1085,13 @@ class AuthorityNamespaceNode(Node):
         return _resolve_AuthorityNamespaceNode_created_by_username(self, info, **kwargs)
 
 
-def _get_queryset_AuthorityNamespaceNode(queryset, info):
-    """PORT: config.graphql.annotation_types.AuthorityNamespaceNode.get_queryset
-
-    Port of AuthorityNamespaceNode.get_queryset
-    """
-    raise NotImplementedError("_get_queryset_AuthorityNamespaceNode not yet ported — see manifest")
+def _get_queryset_AuthorityNamespaceNode(queryset: QuerySet, info: Any) -> QuerySet:
+    user = getattr(info.context, "user", None)
+    if not is_authority_admin(user):
+        return queryset.none()
+    return queryset.select_related("authority_corpus", "created_by").order_by(
+        "prefix"
+    )
 
 
 register_type("AuthorityNamespaceNode", AuthorityNamespaceNode, model=AuthorityNamespace, get_queryset=_get_queryset_AuthorityNamespaceNode)
@@ -855,20 +1100,32 @@ register_type("AuthorityNamespaceNode", AuthorityNamespaceNode, model=AuthorityN
 AuthorityNamespaceNodeConnection = make_connection_types(AuthorityNamespaceNode, type_name="AuthorityNamespaceNodeConnection", countable=True, pdf_page_aware=False)
 
 
-def _resolve_AuthorityFrontierNode_ingestable(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:302
+def _frontier_predicted_provider(row):
+    """Provider class-name that would handle ``row.canonical_key`` (or ``None``).
 
-    Port of AuthorityFrontierNode.resolve_ingestable
+    Memoized on the row instance so the ``ingestable`` and ``predicted_provider``
+    resolvers share a single registry+equivalence lookup per node. ``row`` is the
+    ``AuthorityFrontier`` MODEL instance graphene passes as the resolver root
+    (NOT an ``AuthorityFrontierNode``), so this MUST be a free function — a method
+    defined on the type is invisible on the model-instance root.
     """
-    raise NotImplementedError("_resolve_AuthorityFrontierNode_ingestable not yet ported — see manifest")
+    if not hasattr(row, "_predicted_provider_cache"):
+        from opencontractserver.enrichment.services.authority_discovery_service import (  # noqa: E501
+            AuthorityDiscoveryService,
+        )
+
+        row._predicted_provider_cache = AuthorityDiscoveryService._provider_for(
+            row.canonical_key
+        )[0]
+    return row._predicted_provider_cache
 
 
-def _resolve_AuthorityFrontierNode_predicted_provider(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:305
+def _resolve_AuthorityFrontierNode_ingestable(root, info) -> bool:
+    return _frontier_predicted_provider(root) is not None
 
-    Port of AuthorityFrontierNode.resolve_predicted_provider
-    """
-    raise NotImplementedError("_resolve_AuthorityFrontierNode_predicted_provider not yet ported — see manifest")
+
+def _resolve_AuthorityFrontierNode_predicted_provider(root, info):
+    return _frontier_predicted_provider(root)
 
 
 @strawberry.type(name="AuthorityFrontierNode", description="One ``AuthorityFrontier`` row: the discovery/ingestion state of a wanted\nsection-root canonical key (e.g. ``usc-15:78j``), aggregated instance-wide\nacross all corpora.\n\n``AuthorityFrontier`` is a system-managed global queue with no per-object\npermissions, so the connection is **superuser-only**: ``get_queryset``\nreturns nothing for everyone else and sets the backlog-first default order\n(``-mention_count``, matching the model's index).")
@@ -912,12 +1169,15 @@ class AuthorityFrontierNode(Node):
         return _resolve_AuthorityFrontierNode_predicted_provider(self, info, **kwargs)
 
 
-def _get_queryset_AuthorityFrontierNode(queryset, info):
-    """PORT: config.graphql.annotation_types.AuthorityFrontierNode.get_queryset
-
-    Port of AuthorityFrontierNode.get_queryset
-    """
-    raise NotImplementedError("_get_queryset_AuthorityFrontierNode not yet ported — see manifest")
+def _get_queryset_AuthorityFrontierNode(queryset: QuerySet, info: Any) -> QuerySet:
+    user = getattr(info.context, "user", None)
+    if not is_authority_admin(user):
+        return queryset.none()
+    # Backlog-first by default (most-cited wanted authorities lead); the
+    # ``-mention_count, discovery_state`` index backs this ordering.
+    return queryset.select_related("ingested_document").order_by(
+        "-mention_count", "discovery_state"
+    )
 
 
 register_type("AuthorityFrontierNode", AuthorityFrontierNode, model=AuthorityFrontier, get_queryset=_get_queryset_AuthorityFrontierNode)
@@ -926,20 +1186,12 @@ register_type("AuthorityFrontierNode", AuthorityFrontierNode, model=AuthorityFro
 AuthorityFrontierNodeConnection = make_connection_types(AuthorityFrontierNode, type_name="AuthorityFrontierNodeConnection", countable=True, pdf_page_aware=False)
 
 
-def _resolve_AuthorityKeyEquivalenceNode_editable(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:374
-
-    Port of AuthorityKeyEquivalenceNode.resolve_editable
-    """
-    raise NotImplementedError("_resolve_AuthorityKeyEquivalenceNode_editable not yet ported — see manifest")
+def _resolve_AuthorityKeyEquivalenceNode_editable(root, info) -> bool:
+    return root.source == MANUAL_SOURCE
 
 
-def _resolve_AuthorityKeyEquivalenceNode_created_by_username(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:377
-
-    Port of AuthorityKeyEquivalenceNode.resolve_created_by_username
-    """
-    raise NotImplementedError("_resolve_AuthorityKeyEquivalenceNode_created_by_username not yet ported — see manifest")
+def _resolve_AuthorityKeyEquivalenceNode_created_by_username(root, info):
+    return root.created_by.username if root.created_by_id else None
 
 
 @strawberry.type(name="AuthorityKeyEquivalenceNode", description='One ``AuthorityKeyEquivalence`` row (canonical-key synonym) for the\nruntime authority-mappings admin panel.\n\nGlobal system data with no per-object permissions, so the connection is\n**superuser-only**: ``get_queryset`` returns nothing for everyone else and\nsets the default order (most-recently-modified first). ``editable`` is True\nonly for ``source="manual"`` rows — loader/importer-owned rows\n(``baseline`` / ``popular_name`` / ``uslm``) are read-only.')
@@ -969,12 +1221,11 @@ class AuthorityKeyEquivalenceNode(Node):
         return _resolve_AuthorityKeyEquivalenceNode_created_by_username(self, info, **kwargs)
 
 
-def _get_queryset_AuthorityKeyEquivalenceNode(queryset, info):
-    """PORT: config.graphql.annotation_types.AuthorityKeyEquivalenceNode.get_queryset
-
-    Port of AuthorityKeyEquivalenceNode.get_queryset
-    """
-    raise NotImplementedError("_get_queryset_AuthorityKeyEquivalenceNode not yet ported — see manifest")
+def _get_queryset_AuthorityKeyEquivalenceNode(queryset: QuerySet, info: Any) -> QuerySet:
+    user = getattr(info.context, "user", None)
+    if not is_authority_admin(user):
+        return queryset.none()
+    return queryset.select_related("created_by").order_by("-modified")
 
 
 register_type("AuthorityKeyEquivalenceNode", AuthorityKeyEquivalenceNode, model=AuthorityKeyEquivalence, get_queryset=_get_queryset_AuthorityKeyEquivalenceNode)

@@ -39,6 +39,8 @@ from graphql_jwt.refresh_token.shortcuts import (
 )
 from graphql_jwt.settings import jwt_settings as _jwt_settings
 
+from config.graphql.core.auth import PermissionDenied
+
 
 
 
@@ -81,12 +83,62 @@ class DismissGettingStarted:
 register_type("DismissGettingStarted", DismissGettingStarted, model=None)
 
 
-def _mutate_ObtainJSONWebTokenWithUser(payload_cls, root, info, **kwargs):
+def _mutate_ObtainJSONWebTokenWithUser(payload_cls, root, info, username=None, password=None):
     """PORT: /home/user/oc-graphene-ref/config/graphql/user_mutations.py:75
 
     Port of ObtainJSONWebTokenWithUser.mutate
+
+    Flattened port of ``graphql_jwt.mutations.JSONWebTokenMutation.mutate``
+    (the ``@token_auth`` decorator chain: ``setup_jwt_cookie`` →
+    ``csrf_rotation`` → ``refresh_expiration`` → the auth body →
+    ``on_token_auth_resolve``) plus the project's
+    ``ObtainJSONWebTokenWithUser.resolve`` override, which attaches the
+    authenticated user to the payload.
     """
-    raise NotImplementedError("_mutate_ObtainJSONWebTokenWithUser not yet ported — see manifest")
+    context = info.context
+    context._jwt_token_auth = True
+
+    user = _dj_authenticate(
+        request=context,
+        username=username,
+        password=password,
+    )
+    if user is None:
+        raise _JWTError("Please enter valid credentials")
+
+    if hasattr(context, "user"):
+        context.user = user
+
+    # ObtainJSONWebTokenWithUser.resolve — return the authenticated user.
+    result = payload_cls(user=context.user)
+    _jwt_signals.token_issued.send(sender=payload_cls, request=context, user=user)
+
+    # graphql_jwt.decorators.on_token_auth_resolve
+    result.payload = _jwt_settings.JWT_PAYLOAD_HANDLER(user, context)
+    result.token = _jwt_settings.JWT_ENCODE_HANDLER(result.payload, context)
+
+    if _jwt_settings.JWT_LONG_RUNNING_REFRESH_TOKEN:
+        if getattr(context, "jwt_cookie", False):
+            context.jwt_refresh_token = _create_refresh_token(user)
+            result.refresh_token = context.jwt_refresh_token.get_token()
+        else:
+            result.refresh_token = _refresh_token_lazy(user)
+
+    # graphql_jwt.decorators.refresh_expiration
+    result.refresh_expires_in = (
+        _timegm(_datetime.utcnow().utctimetuple())
+        + _jwt_settings.JWT_REFRESH_EXPIRATION_DELTA.total_seconds()
+    )
+
+    # graphql_jwt.decorators.csrf_rotation
+    if _jwt_settings.JWT_CSRF_ROTATION:
+        _rotate_token(context)
+
+    # graphql_jwt.decorators.setup_jwt_cookie
+    if getattr(context, "jwt_cookie", False):
+        context.jwt_token = result.token
+
+    return result
 
 
 def m_token_auth(info: strawberry.Info, username: Annotated[str, strawberry.argument(name="username")] = strawberry.UNSET, password: Annotated[str, strawberry.argument(name="password")] = strawberry.UNSET) -> Optional["ObtainJSONWebTokenWithUser"]:
@@ -99,7 +151,24 @@ def _mutate_UpdateMe(payload_cls, root, info, **kwargs):
 
     Port of UpdateMe.mutate
     """
-    raise NotImplementedError("_mutate_UpdateMe not yet ported — see manifest")
+    # @login_required (graphql_jwt) — inlined because mutate stubs take
+    # ``payload_cls`` as their first positional argument, which does not
+    # match core.auth's ``(root, info, ...)`` calling convention.
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+
+    from config.graphql.serializers import UserUpdateSerializer
+
+    user = info.context.user
+    try:
+        serializer = UserUpdateSerializer(user, data=kwargs, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return payload_cls(ok=True, message="Success", user=user)
+    except Exception as e:
+        return payload_cls(
+            ok=False, message=f"Failed to update profile: {e}", user=None
+        )
 
 
 def m_update_me(info: strawberry.Info, first_name: Annotated[Optional[str], strawberry.argument(name="firstName")] = strawberry.UNSET, is_profile_public: Annotated[Optional[bool], strawberry.argument(name="isProfilePublic")] = strawberry.UNSET, last_name: Annotated[Optional[str], strawberry.argument(name="lastName")] = strawberry.UNSET, name: Annotated[Optional[str], strawberry.argument(name="name")] = strawberry.UNSET, phone: Annotated[Optional[str], strawberry.argument(name="phone")] = strawberry.UNSET, profile_about_markdown: Annotated[Optional[str], strawberry.argument(name="profileAboutMarkdown")] = strawberry.UNSET, profile_headline: Annotated[Optional[str], strawberry.argument(name="profileHeadline")] = strawberry.UNSET, profile_links_markdown: Annotated[Optional[str], strawberry.argument(name="profileLinksMarkdown")] = strawberry.UNSET, slug: Annotated[Optional[str], strawberry.argument(name="slug")] = strawberry.UNSET) -> Optional["UpdateMe"]:
@@ -112,7 +181,14 @@ def _mutate_AcceptCookieConsent(payload_cls, root, info, **kwargs):
 
     Port of AcceptCookieConsent.mutate
     """
-    raise NotImplementedError("_mutate_AcceptCookieConsent not yet ported — see manifest")
+    # @login_required (graphql_jwt) — inlined; see _mutate_UpdateMe.
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+
+    user = info.context.user
+    user.has_accepted_cookies = True
+    user.save()
+    return payload_cls(ok=True)
 
 
 def m_accept_cookie_consent(info: strawberry.Info) -> Optional["AcceptCookieConsent"]:
@@ -125,7 +201,14 @@ def _mutate_DismissGettingStarted(payload_cls, root, info, **kwargs):
 
     Port of DismissGettingStarted.mutate
     """
-    raise NotImplementedError("_mutate_DismissGettingStarted not yet ported — see manifest")
+    # @login_required (graphql_jwt) — inlined; see _mutate_UpdateMe.
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+
+    user = info.context.user
+    user.has_dismissed_getting_started = True
+    user.save()
+    return payload_cls(ok=True, message="Getting started dismissed")
 
 
 def m_dismiss_getting_started(info: strawberry.Info) -> Optional["DismissGettingStarted"]:

@@ -27,8 +27,14 @@ from config.graphql.core.scalars import BigInt, GenericScalar, JSONString
 from config.graphql._util import coerce_enum, coerce_str, strip_unset
 from config.graphql import enums
 
+import warnings
+
+from django.db.models import Q
+
+from config.graphql.core.auth import login_required
 from config.graphql.filters import AssignmentFilter
 from config.graphql.filters import ExportFilter
+from opencontractserver.shared.services.base import BaseService
 from opencontractserver.users.models import Assignment
 from opencontractserver.users.models import UserExport
 from opencontractserver.users.models import UserImport
@@ -39,7 +45,10 @@ def _resolve_Query_me(root, info, **kwargs):
 
     Port of UserQueryMixin.resolve_me
     """
-    raise NotImplementedError("_resolve_Query_me not yet ported — see manifest")
+    user = info.context.user
+    if not user.is_authenticated:
+        return None
+    return user
 
 
 def q_me(info: strawberry.Info) -> Optional[Annotated["UserType", strawberry.lazy("config.graphql.user_types")]]:
@@ -47,12 +56,31 @@ def q_me(info: strawberry.Info) -> Optional[Annotated["UserType", strawberry.laz
     return _resolve_Query_me(None, info, **kwargs)
 
 
-def _resolve_Query_user_by_slug(root, info, **kwargs):
+def _resolve_Query_user_by_slug(root, info, slug):
     """PORT: /home/user/oc-graphene-ref/config/graphql/user_queries.py:46
 
     Port of UserQueryMixin.resolve_user_by_slug
+
+    Resolve a user by their slug with profile privacy filtering.
+
+    SECURITY: Respects is_profile_public and corpus membership visibility rules.
+    Users are visible if:
+    - Profile is public (is_profile_public=True)
+    - Requesting user shares corpus membership with > READ permission
+    - It's the requesting user's own profile
     """
-    raise NotImplementedError("_resolve_Query_user_by_slug not yet ported — see manifest")
+    from django.contrib.auth import get_user_model
+
+    from opencontractserver.users.services import UserService
+
+    User = get_user_model()
+    try:
+        # Use visibility filtering instead of direct query
+        return UserService.get_visible_users(
+            info.context.user, request=info.context
+        ).get(slug=slug)
+    except User.DoesNotExist:
+        return None
 
 
 def q_user_by_slug(info: strawberry.Info, slug: Annotated[str, strawberry.argument(name="slug")] = strawberry.UNSET) -> Optional[Annotated["UserType", strawberry.lazy("config.graphql.user_types")]]:
@@ -60,12 +88,15 @@ def q_user_by_slug(info: strawberry.Info, slug: Annotated[str, strawberry.argume
     return _resolve_Query_user_by_slug(None, info, **kwargs)
 
 
+@login_required
 def _resolve_Query_userimports(root, info, **kwargs):
     """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:74
 
     Port of UserQueryMixin.resolve_userimports
     """
-    raise NotImplementedError("_resolve_Query_userimports not yet ported — see manifest")
+    return BaseService.filter_visible(
+        UserImport, info.context.user, request=info.context
+    )
 
 
 def q_userimports(info: strawberry.Info, offset: Annotated[Optional[int], strawberry.argument(name="offset")] = strawberry.UNSET, before: Annotated[Optional[str], strawberry.argument(name="before")] = strawberry.UNSET, after: Annotated[Optional[str], strawberry.argument(name="after")] = strawberry.UNSET, first: Annotated[Optional[int], strawberry.argument(name="first")] = strawberry.UNSET, last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET) -> Optional[Annotated["UserImportTypeConnection", strawberry.lazy("config.graphql.user_types")]]:
@@ -78,12 +109,15 @@ def q_userimport(info: strawberry.Info, id: Annotated[strawberry.ID, strawberry.
     return get_node_from_global_id(info, id, only_type_name="UserImportType")
 
 
+@login_required
 def _resolve_Query_userexports(root, info, **kwargs):
     """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:105
 
     Port of UserQueryMixin.resolve_userexports
     """
-    raise NotImplementedError("_resolve_Query_userexports not yet ported — see manifest")
+    return BaseService.filter_visible(
+        UserExport, info.context.user, request=info.context
+    )
 
 
 def q_userexports(info: strawberry.Info, offset: Annotated[Optional[int], strawberry.argument(name="offset")] = strawberry.UNSET, before: Annotated[Optional[str], strawberry.argument(name="before")] = strawberry.UNSET, after: Annotated[Optional[str], strawberry.argument(name="after")] = strawberry.UNSET, first: Annotated[Optional[int], strawberry.argument(name="first")] = strawberry.UNSET, last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET, name__contains: Annotated[Optional[str], strawberry.argument(name="name_Contains")] = strawberry.UNSET, id: Annotated[Optional[strawberry.ID], strawberry.argument(name="id")] = strawberry.UNSET, created__lte: Annotated[Optional[datetime.datetime], strawberry.argument(name="created_Lte")] = strawberry.UNSET, started__lte: Annotated[Optional[datetime.datetime], strawberry.argument(name="started_Lte")] = strawberry.UNSET, finished__lte: Annotated[Optional[datetime.datetime], strawberry.argument(name="finished_Lte")] = strawberry.UNSET, order_by_created: Annotated[Optional[str], strawberry.argument(name="orderByCreated", description='Ordering')] = strawberry.UNSET, order_by_started: Annotated[Optional[str], strawberry.argument(name="orderByStarted", description='Ordering')] = strawberry.UNSET, order_by_finished: Annotated[Optional[str], strawberry.argument(name="orderByFinished", description='Ordering')] = strawberry.UNSET) -> Optional[Annotated["UserExportTypeConnection", strawberry.lazy("config.graphql.user_types")]]:
@@ -96,12 +130,30 @@ def q_userexport(info: strawberry.Info, id: Annotated[strawberry.ID, strawberry.
     return get_node_from_global_id(info, id, only_type_name="UserExportType")
 
 
+@login_required
 def _resolve_Query_assignments(root, info, **kwargs):
     """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:135
 
     Port of UserQueryMixin.resolve_assignments
+
+    Resolve assignments.
+
+    DEPRECATED: Assignment feature is not currently used.
+    See opencontractserver/users/models.py:202-206
+
+    SECURITY: Users can only see assignments where they are the assignor or assignee.
+    Superusers can see all assignments.
     """
-    raise NotImplementedError("_resolve_Query_assignments not yet ported — see manifest")
+    warnings.warn(
+        "Assignment feature is deprecated and not in use", DeprecationWarning
+    )
+
+    user = info.context.user
+    if user.is_superuser:
+        return Assignment.objects.all()
+    else:
+        # User can see assignments they created or were assigned to
+        return Assignment.objects.filter(Q(assignor=user) | Q(assignee=user))
 
 
 def q_assignments(info: strawberry.Info, offset: Annotated[Optional[int], strawberry.argument(name="offset")] = strawberry.UNSET, before: Annotated[Optional[str], strawberry.argument(name="before")] = strawberry.UNSET, after: Annotated[Optional[str], strawberry.argument(name="after")] = strawberry.UNSET, first: Annotated[Optional[int], strawberry.argument(name="first")] = strawberry.UNSET, last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET, assignor__email: Annotated[Optional[str], strawberry.argument(name="assignor_Email")] = strawberry.UNSET, assignee__email: Annotated[Optional[str], strawberry.argument(name="assignee_Email")] = strawberry.UNSET, document_id: Annotated[Optional[str], strawberry.argument(name="documentId")] = strawberry.UNSET) -> Optional[Annotated["AssignmentTypeConnection", strawberry.lazy("config.graphql.user_types")]]:

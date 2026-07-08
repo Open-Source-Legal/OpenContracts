@@ -33,127 +33,284 @@ from opencontractserver.corpuses.models import Corpus
 from opencontractserver.corpuses.models import CorpusAction
 from opencontractserver.corpuses.models import CorpusActionExecution
 from opencontractserver.corpuses.models import CorpusCategory
+from opencontractserver.corpuses.models import CorpusEngagementMetrics
 from opencontractserver.corpuses.models import CorpusFolder
+from opencontractserver.corpuses.models import CorpusVote
+
+import logging
+
+from django.contrib.auth import get_user_model
+from django.db.models import OuterRef, Q, Subquery
+from graphql_relay import from_global_id
+
+from opencontractserver.annotations.models import Annotation
+from opencontractserver.shared.services.base import BaseService
+from opencontractserver.utils.auth import is_authenticated_user
+
+User = get_user_model()
+logger = logging.getLogger(__name__)
 
 
-def _resolve_CorpusType_readme_caml_document(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:458
+def _resolve_CorpusType_readme_caml_document(root, info):
+    """Optional rich-object access to the canonical Readme.CAML doc.
 
-    Port of CorpusType.resolve_readme_caml_document
+    Existing clients use mdDescription (URL) or descriptionPreview
+    (text). New clients that need revision history or any other
+    Document field can fetch it here. Resolves from the cached FK
+    — see spec §4.5.
     """
-    raise NotImplementedError("_resolve_CorpusType_readme_caml_document not yet ported — see manifest")
+    return root.readme_caml_document
 
 
-def _resolve_CorpusType_icon(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:420
+def _resolve_CorpusType_icon(root, info):
+    return "" if not root.icon else info.context.build_absolute_uri(root.icon.url)
 
-    Port of CorpusType.resolve_icon
+
+def _resolve_CorpusType_categories(root, info):
+    """Get all categories assigned to this corpus."""
+    return root.categories.all()
+
+
+def _resolve_CorpusType_label_set(root, info):
     """
-    raise NotImplementedError("_resolve_CorpusType_icon not yet ported — see manifest")
+    Return label_set with count annotations copied from corpus.
 
-
-def _resolve_CorpusType_categories(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:570
-
-    Port of CorpusType.resolve_categories
+    When resolve_corpuses annotates label counts on the Corpus, we need
+    to copy those annotations to the label_set instance so that its
+    count resolvers can use them instead of hitting the database.
     """
-    raise NotImplementedError("_resolve_CorpusType_categories not yet ported — see manifest")
+    if root.label_set is None:
+        return None
+
+    # Copy annotated counts to the label_set instance
+    if hasattr(root, "_label_doc_count"):
+        root.label_set._doc_label_count = root._label_doc_count
+    if hasattr(root, "_label_span_count"):
+        root.label_set._span_label_count = root._label_span_count
+    if hasattr(root, "_label_token_count"):
+        root.label_set._token_label_count = root._label_token_count
+
+    return root.label_set
 
 
-def _resolve_CorpusType_label_set(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:652
-
-    Port of CorpusType.resolve_label_set
+def _resolve_CorpusType_engagement_metrics(root, info):
     """
-    raise NotImplementedError("_resolve_CorpusType_label_set not yet ported — see manifest")
+    Resolve engagement metrics for this corpus.
 
+    Returns None if metrics haven't been calculated yet.
 
-def _resolve_CorpusType_engagement_metrics(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:535
-
-    Port of CorpusType.resolve_engagement_metrics
+    Epic: #565 - Corpus Engagement Metrics & Analytics
+    Issue: #568 - Create GraphQL queries for engagement metrics and leaderboards
     """
-    raise NotImplementedError("_resolve_CorpusType_engagement_metrics not yet ported — see manifest")
+    try:
+        return root.engagement_metrics
+    except CorpusEngagementMetrics.DoesNotExist:
+        return None
 
 
-def _resolve_CorpusType_folders(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:526
-
-    Port of CorpusType.resolve_folders
-    """
-    raise NotImplementedError("_resolve_CorpusType_folders not yet ported — see manifest")
+def _resolve_CorpusType_folders(root, info):
+    """Get all folders in this corpus with service-layer visibility filtering."""
+    return BaseService.filter_visible_qs(
+        root.folders, info.context.user, request=info.context
+    )
 
 
 def _resolve_CorpusType_annotations(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:360
-
-    Port of CorpusType.resolve_annotations
     """
-    raise NotImplementedError("_resolve_CorpusType_annotations not yet ported — see manifest")
+    Custom resolver for annotations field that properly computes permissions.
+    Uses AnnotationService to ensure permission flags are set.
+    """
+    from opencontractserver.annotations.models import Annotation
+    from opencontractserver.annotations.services import AnnotationService
+
+    user = getattr(info.context, "user", None)
+
+    # Get all document IDs in this corpus via DocumentPath. Corpus READ is
+    # already gated by the parent query that resolved ``root`` — see the
+    # equivalent note in ``_resolve_CorpusType_documents`` below. The internal
+    # helper avoids the deprecated user-facing wrapper's runtime warning.
+    document_ids = root._get_active_documents().values_list("id", flat=True)
+
+    # Collect annotations for all documents with proper permission computation
+    all_annotations = Annotation.objects.none()
+    for doc_id in document_ids:
+        annotations = AnnotationService.get_document_annotations(
+            document_id=doc_id, user=user, corpus_id=root.id
+        )
+        all_annotations = all_annotations | annotations
+
+    return all_annotations.distinct()
 
 
 def _resolve_CorpusType_all_annotation_summaries(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:386
 
-    Port of CorpusType.resolve_all_annotation_summaries
-    """
-    raise NotImplementedError("_resolve_CorpusType_all_annotation_summaries not yet ported — see manifest")
+    analysis_id = kwargs.get("analysis_id", None)
+    label_types = kwargs.get("label_types", None)
+
+    annotation_set = root.annotations.all()
+
+    if label_types and isinstance(label_types, list):
+        logger.info(f"Filter to label_types: {label_types}")
+        annotation_set = annotation_set.filter(
+            annotation_label__label_type__in=[
+                label_type.value for label_type in label_types
+            ]
+        )
+
+    if analysis_id:
+        try:
+            analysis_pk = from_global_id(analysis_id)[1]
+            annotation_set = annotation_set.filter(analysis_id=analysis_pk)
+        except Exception as e:
+            logger.warning(
+                f"Failed resolving analysis pk for corpus {root.id} with input graphene id"
+                f" {analysis_id}: {e}"
+            )
+
+    return annotation_set
 
 
 def _resolve_CorpusType_documents(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:330
-
-    Port of CorpusType.resolve_documents
     """
-    raise NotImplementedError("_resolve_CorpusType_documents not yet ported — see manifest")
+    Custom resolver for documents field that uses DocumentPath.
+    Returns documents with active paths in this corpus, filtered by
+    document-level visibility.
 
+    Delegates to
+    ``CorpusDocumentService.get_corpus_documents_visible_to_user``, which
+    enforces the MIN-permission semantic::
 
-def _resolve_CorpusType_applied_analyzer_ids(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:415
+        Effective Permission = MIN(document_permission, corpus_permission)
 
-    Port of CorpusType.resolve_applied_analyzer_ids
+    A private document in a public (or shared) corpus stays hidden from
+    users without document-level access — keeping this user-facing
+    GraphQL field aligned with the permission model documented in
+    ``CLAUDE.md`` rather than the corpus-as-gate semantic that
+    pipeline-facing callers (MCP, discovery) use. See issue #1682.
+
+    CAML/markdown files are included here since this resolver serves
+    corpus views that need to display the article landing page.
     """
-    raise NotImplementedError("_resolve_CorpusType_applied_analyzer_ids not yet ported — see manifest")
+    from django.contrib.auth.models import AnonymousUser
+
+    from opencontractserver.corpuses.services import CorpusDocumentService
+
+    user = getattr(info.context, "user", None) or AnonymousUser()
+    return CorpusDocumentService.get_corpus_documents_visible_to_user(
+        user, root, include_caml=True, request=info.context
+    )
 
 
-def _resolve_CorpusType_description_revisions(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:484
+def _resolve_CorpusType_applied_analyzer_ids(root, info):
+    return list(root.analyses.all().values_list("analyzer_id", flat=True).distinct())
 
-    Port of CorpusType.resolve_description_revisions
+
+def _resolve_CorpusType_description_revisions(root, info):
+    """List Readme.CAML version-tree siblings as revisions, newest first.
+
+    Resolves via the cached ``readme_caml_document`` FK and the
+    Document ``version_tree_id``; returns ``[]`` when the corpus has
+    no canonical CAML document yet. Filtering on the canonical title
+    + markdown mime is defensive — a Readme.CAML version tree only
+    ever contains Readme.CAML siblings — and keeps the contract
+    explicit.
+
+    Annotates each sibling with ``_version_index`` (1-based, oldest
+    first) so ``CorpusDescriptionRevisionType.resolve_version`` can
+    read the position off the instance instead of re-querying the
+    full tree per row (avoids an N+1 storm on the revisions modal).
     """
-    raise NotImplementedError("_resolve_CorpusType_description_revisions not yet ported — see manifest")
+    if root.readme_caml_document_id is None:
+        return []
+    from opencontractserver.constants.document_processing import (
+        CAML_ARTICLE_TITLE,
+        MARKDOWN_MIME_TYPE,
+    )
+    from opencontractserver.documents.models import Document
+
+    tree_id = root.readme_caml_document.version_tree_id
+    oldest_first = list(
+        Document.objects.filter(
+            version_tree_id=tree_id,
+            title=CAML_ARTICLE_TITLE,
+            file_type=MARKDOWN_MIME_TYPE,
+        )
+        .select_related("creator")
+        .order_by("created", "pk")
+    )
+    for index, doc in enumerate(oldest_first, start=1):
+        doc._version_index = index
+    return list(reversed(oldest_first))
 
 
-def _resolve_CorpusType_memory_active_warning(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:557
+def _resolve_CorpusType_memory_active_warning(root, info):
+    if not root.memory_enabled:
+        return None
+    return (
+        "Agent memory is enabled for this corpus. Generalised patterns "
+        "from conversations (not specific content) may be distilled into "
+        "the corpus memory document. Review the memory document in your "
+        "corpus to see what has been recorded."
+    )
 
-    Port of CorpusType.resolve_memory_active_warning
+
+def _resolve_CorpusType_document_count(root, info):
     """
-    raise NotImplementedError("_resolve_CorpusType_memory_active_warning not yet ported — see manifest")
+    Return document count from annotation or fallback to model method.
 
-
-def _resolve_CorpusType_document_count(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:579
-
-    Port of CorpusType.resolve_document_count
+    For list queries, resolve_corpuses annotates _document_count.
+    For single corpus queries, falls back to model.document_count().
     """
-    raise NotImplementedError("_resolve_CorpusType_document_count not yet ported — see manifest")
+    if hasattr(root, "_document_count") and root._document_count is not None:
+        return root._document_count
+    return root.document_count()
 
 
-def _resolve_CorpusType_my_vote(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:602
+def _resolve_CorpusType_my_vote(root, info):
+    """Return the viewer's vote on this corpus, if any.
 
-    Port of CorpusType.resolve_my_vote
+    Prefer the ``_viewer_vote`` annotation that ``get_queryset`` attaches
+    to every row of a list query — that's a single ``Subquery`` per page
+    instead of N per-row lookups. Fall back to a per-row service call
+    only when the annotation isn't present (e.g. a nested fetch path
+    that bypasses our list resolver). The Subquery returns ``None`` for
+    rows the viewer hasn't voted on; ``hasattr`` distinguishes "no
+    annotation attached" from "annotated with no vote".
     """
-    raise NotImplementedError("_resolve_CorpusType_my_vote not yet ported — see manifest")
+    if hasattr(root, "_viewer_vote"):
+        annotated = root._viewer_vote
+        return annotated.upper() if annotated else None
+
+    from opencontractserver.corpuses.services import CorpusVoteService
+
+    request = info.context
+    user = getattr(request, "user", None)
+    session_key = None
+    session = getattr(request, "session", None)
+    if session is not None:
+        session_key = session.session_key
+
+    vote_type = CorpusVoteService.get_user_vote_type(
+        user, root, session_key=session_key
+    )
+    return vote_type.upper() if vote_type else None
 
 
-def _resolve_CorpusType_annotation_count(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:636
-
-    Port of CorpusType.resolve_annotation_count
+def _resolve_CorpusType_annotation_count(root, info):
     """
-    raise NotImplementedError("_resolve_CorpusType_annotation_count not yet ported — see manifest")
+    Return annotation count from annotation or fallback to database query.
+
+    For list queries, resolve_corpuses annotates _annotation_count.
+    For single corpus queries, falls back to counting via DocumentPath.
+    """
+    if hasattr(root, "_annotation_count") and root._annotation_count is not None:
+        return root._annotation_count
+    from opencontractserver.documents.models import DocumentPath
+
+    doc_ids = DocumentPath.objects.filter(
+        corpus=root, is_current=True, is_deleted=False
+    ).values_list("document_id", flat=True)
+    return Annotation.objects.filter(document_id__in=doc_ids).count()
 
 
 @strawberry.type(name="CorpusType")
@@ -381,19 +538,80 @@ class CorpusType(Node):
 
 
 def _get_queryset_CorpusType(queryset, info):
-    """PORT: config.graphql.corpus_types.CorpusType.get_queryset
+    # Chain ``visible_to_user`` on the incoming queryset/manager so the
+    # filter is a single ``WHERE`` expression tree (no ``pk__in``
+    # subquery over the full table).
+    request = info.context
+    user = getattr(request, "user", None)
+    visible_qs = BaseService.filter_visible_qs(queryset, user, request=request)
+    # Prefetch the Readme.CAML FK so mdDescription / readmeCamlDocument
+    # resolve in O(1) per row. See spec §4.5.
+    from opencontractserver.corpuses.services.corpus_documents import (
+        CorpusDocumentService,
+    )
 
-    Port of CorpusType.get_queryset
-    """
-    raise NotImplementedError("_get_queryset_CorpusType not yet ported — see manifest")
+    visible_qs = CorpusDocumentService.with_readme_caml_doc(visible_qs)
+
+    # Annotate the viewer's vote in one Subquery per page so
+    # ``resolve_my_vote`` doesn't fire N queries (one per corpus card)
+    # on the public list view. Authenticated viewers key on creator;
+    # anonymous viewers key on the Django session key — both branches
+    # mirror ``CorpusVoteService.get_user_vote_type``.
+    is_auth = is_authenticated_user(user)
+    if is_auth:
+        viewer_filter = Q(creator=user, session_key__isnull=True)
+    else:
+        session = getattr(request, "session", None)
+        session_key = getattr(session, "session_key", None) if session else None
+        if not session_key:
+            # No session => no anonymous votes possible; skip the
+            # annotation to avoid attaching a column of NULLs.
+            return visible_qs
+        viewer_filter = Q(session_key=session_key, creator__isnull=True)
+
+    viewer_vote_subquery = CorpusVote.objects.filter(
+        viewer_filter, corpus=OuterRef("pk")
+    ).values("vote_type")[:1]
+    return visible_qs.annotate(_viewer_vote=Subquery(viewer_vote_subquery))
 
 
 def _get_node_CorpusType(info, pk):
-    """PORT: config.graphql.corpus_types.CorpusType.get_node
+    """Cache + visibility-check FK/relay-node ``Corpus`` lookups.
 
-    Port of CorpusType.get_node
+    ``Corpus`` is a ``with_tree_fields=True`` ``TreeNode``, so every
+    ``Corpus.objects.get(pk=...)`` emits a recursive ``WITH __rank_table``
+    CTE. Graphene's default ``DjangoObjectType.get_node`` fires that CTE
+    once per FK-via-Node access AND does an unprotected lookup that
+    bypasses visibility. This override caches the result on
+    ``info.context._corpus_node_cache`` and routes the fetch through
+    ``BaseService.get_or_none`` so visibility + the Tier-2 permission
+    cache apply (also required by the ``opencontracts.E001`` system check).
     """
-    raise NotImplementedError("_get_node_CorpusType not yet ported — see manifest")
+    try:
+        pk = int(pk)
+    except (TypeError, ValueError):
+        return None
+
+    cache = getattr(info.context, "_corpus_node_cache", None)
+    if cache is None:
+        cache = {}
+        try:
+            info.context._corpus_node_cache = cache
+        except AttributeError:
+            # ``info.context`` may be frozen in some test contexts; skip
+            # caching but still apply visibility.
+            cache = None
+
+    if cache is not None and pk in cache:
+        return cache[pk]
+
+    corpus = BaseService.get_or_none(
+        Corpus, pk, info.context.user, request=info.context
+    )
+
+    if cache is not None:
+        cache[pk] = corpus
+    return corpus
 
 
 register_type("CorpusType", CorpusType, model=Corpus, get_queryset=_get_queryset_CorpusType, get_node=_get_node_CorpusType)
@@ -402,12 +620,23 @@ register_type("CorpusType", CorpusType, model=Corpus, get_queryset=_get_queryset
 CorpusTypeConnection = make_connection_types(CorpusType, type_name="CorpusTypeConnection", countable=True, pdf_page_aware=False)
 
 
-def _resolve_CorpusCategoryType_corpus_count(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:72
-
-    Port of CorpusCategoryType.resolve_corpus_count
+def _resolve_CorpusCategoryType_corpus_count(root, info):
     """
-    raise NotImplementedError("_resolve_CorpusCategoryType_corpus_count not yet ported — see manifest")
+    Return count of corpuses visible to user in this category.
+
+    NOTE: This resolver could cause N+1 queries if many categories are fetched.
+    The resolve_corpus_categories query uses annotation to pre-compute counts
+    to avoid this issue.
+    """
+    # If the count was pre-annotated by the query resolver, use it
+    if hasattr(root, "_corpus_count"):
+        return root._corpus_count
+    # Fallback to dynamic count (used when accessed individually)
+    user = info.context.user
+    visible_corpus_ids = BaseService.filter_visible(
+        Corpus, user, request=info.context
+    ).values("pk")
+    return root.corpuses.filter(pk__in=visible_corpus_ids).count()
 
 
 @strawberry.type(name="CorpusCategoryType", description='GraphQL type for corpus categories.\n\nNOTE: This type does NOT use AnnotatePermissionsForReadMixin because\ncorpus categories are admin-provisioned structural data that is globally\nvisible to all users and do not have per-user permissions.\n\nCategories are managed by superusers either via Django Admin or at\nruntime through the create/update/deleteCorpusCategory GraphQL mutations\n(see config/graphql/corpus_category_mutations.py) and the in-app\n"Corpus Categories" admin panel.\n\nSee docs/permissioning/consolidated_permissioning_guide.md for details.')
@@ -441,60 +670,139 @@ register_type("CorpusCategoryType", CorpusCategoryType, model=CorpusCategory)
 CorpusCategoryTypeConnection = make_connection_types(CorpusCategoryType, type_name="CorpusCategoryTypeConnection", countable=True, pdf_page_aware=False)
 
 
-def _resolve_CorpusFolderType_parent(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:205
+def _resolve_CorpusFolderType_parent(root, info):
+    """Return the in-memory ``parent`` cached by ``select_related``.
 
-    Port of CorpusFolderType.resolve_parent
+    graphene-django's auto-generated FK resolver re-queried through
+    ``CorpusFolderType.get_queryset`` (which chains
+    ``visible_to_user().with_tree_fields()``), firing a recursive
+    CTE plus two guardian-permission subqueries per row on the
+    folder-list view — the exact ``N`` fan-out the
+    :meth:`FolderCRUDService.get_visible_folders_with_aggregates`
+    rewrite was supposed to kill. The parent is already
+    ``select_related``-cached on the in-memory folder instance and
+    the surrounding visibility filter authorised ``root``, so reading
+    from the cache is equivalent and skips the per-row query. (The
+    graphene ``_bypass_get_queryset`` shim flag is unnecessary here —
+    the strawberry wrapper calls this resolver directly.)
     """
-    raise NotImplementedError("_resolve_CorpusFolderType_parent not yet ported — see manifest")
+    if root.parent_id is None:
+        return None
+    cached = root._state.fields_cache.get("parent")
+    if cached is not None:
+        return cached
+    # Single-folder reads (no select_related) fall back to the
+    # auto-generated resolver semantics via the standard descriptor.
+    return root.parent
 
 
-def _resolve_CorpusFolderType_children(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:199
+def _resolve_CorpusFolderType_children(root, info):
+    """Get immediate child folders (service-layer visibility)."""
+    return BaseService.filter_visible_qs(
+        root.children, info.context.user, request=info.context
+    )
 
-    Port of CorpusFolderType.resolve_children
+
+def _resolve_CorpusFolderType_my_permissions(root, info):
+    """Permissions are inherited from the parent corpus.
+
+    ``CorpusFolder`` rows never carry guardian permission rows (see
+    ``opencontractserver/corpuses/models.py`` ``CorpusFolder`` class
+    docstring), so the default
+    :meth:`AnnotatePermissionsForReadMixin.resolve_my_permissions`
+    would burn two empty ``.filter()`` queries per folder against
+    ``corpusfolderuserobjectpermission_set`` and
+    ``corpusfoldergroupobjectpermission_set`` — a ``2N`` fan-out on the
+    folder-list view. Resolve once per ``(corpus, user)`` per request
+    by delegating to the parent corpus's resolver and translating the
+    permission strings.
     """
-    raise NotImplementedError("_resolve_CorpusFolderType_children not yet ported — see manifest")
+    context = info.context
+    user = getattr(context, "user", None)
+    if user is None or not is_authenticated_user(user):
+        # Anonymous users get ``read_corpusfolder`` whenever the
+        # *corpus* is public OR the folder is explicitly public.
+        # ``CorpusFolder.user_can`` delegates to the corpus, so the
+        # corpus's public-read grant authorises folder access; the
+        # permissions list must mirror that decision (otherwise the
+        # frontend disables folder-read UI for an anon viewer of a
+        # public corpus). The mixin's bare ``self.is_public`` branch
+        # would only consult the folder row.
+        if root.corpus.is_public or root.is_public:
+            return ["read_corpusfolder"]
+        return []
+
+    cache_attr = f"_corpus_folder_perms_{root.corpus_id}_{user.id}"
+    cached = getattr(context, cache_attr, None)
+    if cached is None:
+        corpus_perms = core_permissions.resolve_my_permissions(root.corpus, info)
+        # corpus_perms entries end in ``_corpus`` (e.g. ``read_corpus``);
+        # rewrite to the folder model name so the API contract matches
+        # what the AnnotatePermissionsForReadMixin would have returned.
+        cached = [
+            (
+                f"{perm[: -len('corpus')]}corpusfolder"
+                if perm.endswith("_corpus")
+                else perm
+            )
+            for perm in corpus_perms
+        ]
+        setattr(context, cache_attr, cached)
+
+    if root.is_public and "read_corpusfolder" not in cached:
+        return [*cached, "read_corpusfolder"]
+    return list(cached)
 
 
-def _resolve_CorpusFolderType_my_permissions(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:238
-
-    Port of CorpusFolderType.resolve_my_permissions
+def _resolve_CorpusFolderType_is_published(root, info):
+    """``CorpusFolder`` rows never carry guardian permission rows, so the
+    ``DEFAULT_PERMISSIONS_GROUP`` is never granted on a folder; the
+    answer is always ``False``. Override the mixin's
+    :meth:`resolve_is_published` to skip the per-folder
+    ``get_groups_with_perms`` + ``.filter().count()`` queries it would
+    otherwise run on the folder-list view.
     """
-    raise NotImplementedError("_resolve_CorpusFolderType_my_permissions not yet ported — see manifest")
+    return False
 
 
-def _resolve_CorpusFolderType_is_published(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:290
+def _resolve_CorpusFolderType_path(root, info):
+    """Get full path from root to this folder.
 
-    Port of CorpusFolderType.resolve_is_published
+    Prefers the ``_path`` attribute attached by
+    :meth:`FolderCRUDService.get_visible_folders_with_aggregates` so the
+    list-view resolver doesn't fire a recursive ancestor CTE per folder.
+    Falls back to the per-folder ``get_path()`` for single-folder reads
+    (e.g. the ``corpusFolder(id:)`` resolver).
     """
-    raise NotImplementedError("_resolve_CorpusFolderType_is_published not yet ported — see manifest")
+    if hasattr(root, "_path"):
+        return root._path
+    return root.get_path()
 
 
-def _resolve_CorpusFolderType_path(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:162
+def _resolve_CorpusFolderType_document_count(root, info):
+    """Get count of documents directly in this folder.
 
-    Port of CorpusFolderType.resolve_path
+    Prefers the ``_doc_count`` attribute attached by
+    :meth:`FolderCRUDService.get_visible_folders_with_aggregates` so the
+    list-view resolver doesn't fire a per-folder ``COUNT`` on
+    ``DocumentPath``.
     """
-    raise NotImplementedError("_resolve_CorpusFolderType_path not yet ported — see manifest")
+    if hasattr(root, "_doc_count"):
+        return root._doc_count
+    return root.get_document_count()
 
 
-def _resolve_CorpusFolderType_document_count(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:175
+def _resolve_CorpusFolderType_descendant_document_count(root, info):
+    """Get count of documents in this folder and all subfolders.
 
-    Port of CorpusFolderType.resolve_document_count
+    Prefers the ``_descendant_doc_count`` attribute attached by
+    :meth:`FolderCRUDService.get_visible_folders_with_aggregates` so the
+    list-view resolver doesn't fire a recursive descendant CTE + COUNT
+    per folder.
     """
-    raise NotImplementedError("_resolve_CorpusFolderType_document_count not yet ported — see manifest")
-
-
-def _resolve_CorpusFolderType_descendant_document_count(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:187
-
-    Port of CorpusFolderType.resolve_descendant_document_count
-    """
-    raise NotImplementedError("_resolve_CorpusFolderType_descendant_document_count not yet ported — see manifest")
+    if hasattr(root, "_descendant_doc_count"):
+        return root._descendant_doc_count
+    return root.get_descendant_document_count()
 
 
 @strawberry.type(name="CorpusFolderType", description='GraphQL type for corpus folders.\nFolders inherit permissions from their parent corpus.')
@@ -556,11 +864,13 @@ class CorpusFolderType(Node):
 
 
 def _get_queryset_CorpusFolderType(queryset, info):
-    """PORT: config.graphql.corpus_types.CorpusFolderType.get_queryset
-
-    Port of CorpusFolderType.get_queryset
-    """
-    raise NotImplementedError("_get_queryset_CorpusFolderType not yet ported — see manifest")
+    """Filter folders to only those the user can see (via corpus permissions)."""
+    # Chain ``visible_to_user`` on the incoming queryset/manager so the
+    # filter is a single ``WHERE`` expression tree (no ``pk__in``
+    # subquery over the full table).
+    return BaseService.filter_visible_qs(
+        queryset, info.context.user, request=info.context
+    )
 
 
 register_type("CorpusFolderType", CorpusFolderType, model=CorpusFolder, get_queryset=_get_queryset_CorpusFolderType)
@@ -586,44 +896,84 @@ class CorpusEngagementMetricsType:
 register_type("CorpusEngagementMetricsType", CorpusEngagementMetricsType, model=None)
 
 
-def _resolve_CorpusDescriptionRevisionType_id(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:917
+def _resolve_CorpusDescriptionRevisionType_id(root, info):
+    """Document primary key — used as the revision identity."""
+    return root.pk
 
-    Port of CorpusDescriptionRevisionType.resolve_id
+
+def _resolve_CorpusDescriptionRevisionType_version(root, info):
+    """1-indexed position within the version_tree, oldest first.
+
+    Mirrors the legacy ``CorpusDescriptionRevision.version`` counter
+    so the frontend's "Version N" header keeps lining up. Reads the
+    index pre-computed by the list resolver
+    (``CorpusType.resolve_description_revisions``); falls back to a
+    per-row query when the instance is resolved outside that list
+    path (e.g. node(id:) — uncommon for this facade type).
     """
-    raise NotImplementedError("_resolve_CorpusDescriptionRevisionType_id not yet ported — see manifest")
+    precomputed = getattr(root, "_version_index", None)
+    if precomputed is not None:
+        return precomputed
+
+    from opencontractserver.constants.document_processing import (
+        CAML_ARTICLE_TITLE,
+        MARKDOWN_MIME_TYPE,
+    )
+    from opencontractserver.documents.models import Document
+
+    ordered_ids = list(
+        Document.objects.filter(
+            version_tree_id=root.version_tree_id,
+            title=CAML_ARTICLE_TITLE,
+            file_type=MARKDOWN_MIME_TYPE,
+        )
+        .order_by("created", "pk")
+        .values_list("pk", flat=True)
+    )
+    try:
+        return ordered_ids.index(root.pk) + 1
+    except ValueError:
+        return None
 
 
-def _resolve_CorpusDescriptionRevisionType_version(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:921
+def _resolve_CorpusDescriptionRevisionType_author(root, info):
+    """Document creator — historical revisions used ``author``."""
+    return root.creator
 
-    Port of CorpusDescriptionRevisionType.resolve_version
+
+def _resolve_CorpusDescriptionRevisionType_snapshot(root, info):
+    """Read the Document's txt_extract_file body on demand.
+
+    Each Readme.CAML version-tree sibling stores the full markdown
+    in ``txt_extract_file``; the legacy ``snapshot`` column on
+    ``CorpusDescriptionRevision`` carried the same content, so this
+    is a 1:1 swap for the frontend rev viewer. Reads go through the
+    shared ``read_caml_body`` helper (promoted from a private helper
+    in ``corpuses/signals.py`` to ``description_cache.py`` for DRY) so the I/O
+    contract — text-mode then binary-fallback — matches the
+    cache-refresh signal handler exactly.
+
+    Performance (accepted trade-off): each call opens one
+    ``txt_extract_file`` blob, so requesting ``snapshot`` for every
+    revision in one query is N storage round-trips. Pre-reading the
+    bodies in the list resolver would not reduce that count (object
+    storage has no batch read), so the effective fix is to fetch
+    ``snapshot`` only on a single-revision drill-down rather than in
+    the list query. The list path is the modal-only revision viewer,
+    so the N reads
+    are bounded by the revision count a human is browsing.
     """
-    raise NotImplementedError("_resolve_CorpusDescriptionRevisionType_version not yet ported — see manifest")
+    from opencontractserver.corpuses.services.description_cache import (
+        read_caml_body,
+    )
+
+    return read_caml_body(root)
 
 
-def _resolve_CorpusDescriptionRevisionType_author(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:955
-
-    Port of CorpusDescriptionRevisionType.resolve_author
-    """
-    raise NotImplementedError("_resolve_CorpusDescriptionRevisionType_author not yet ported — see manifest")
-
-
-def _resolve_CorpusDescriptionRevisionType_snapshot(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:959
-
-    Port of CorpusDescriptionRevisionType.resolve_snapshot
-    """
-    raise NotImplementedError("_resolve_CorpusDescriptionRevisionType_snapshot not yet ported — see manifest")
-
-
-def _resolve_CorpusDescriptionRevisionType_created(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:987
-
-    Port of CorpusDescriptionRevisionType.resolve_created
-    """
-    raise NotImplementedError("_resolve_CorpusDescriptionRevisionType_created not yet ported — see manifest")
+def _resolve_CorpusDescriptionRevisionType_created(root, info):
+    """Document creation timestamp — historical revisions used the
+    same field name."""
+    return root.created
 
 
 @strawberry.type(name="CorpusDescriptionRevisionType", description="Backwards-compatible facade over a Readme.CAML version-tree sibling.\n\nThe legacy ``CorpusDescriptionRevision`` model was dropped in\nmigration 0055. The GraphQL shape is preserved by mapping each\nDocument sibling's metadata onto the historical fields, so the\nfrontend revision-history viewer renders without changes. The\ninstance bound to each resolver is a\n``opencontractserver.documents.models.Document`` row (a Readme.CAML\nversion-tree sibling), NOT a ``CorpusDescriptionRevision``.\n\nThe legacy ``diff`` field is dropped: clients that need a unified\ndiff compute it on the fly from successive ``snapshot`` values via\n``difflib`` rather than reading a pre-stored payload. Queries that\nstill reference ``diff`` will fail GraphQL validation — remove it\nfrom the frontend query to eliminate the field entirely.\n\nSpec: ``docs/superpowers/specs/2026-05-27-canonical-caml-description-refactor-design.md`` §4.5")

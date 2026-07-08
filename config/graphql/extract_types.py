@@ -11,6 +11,7 @@ import uuid
 from typing import Annotated, Any, Optional
 
 import strawberry
+from graphql_relay import from_global_id
 
 from config.graphql.core import permissions as core_permissions
 from config.graphql.core.filtering import filterset_factory, setup_filterset
@@ -31,6 +32,7 @@ from config.graphql.filters import AnnotationFilter
 from opencontractserver.analyzer.models import Analysis
 from opencontractserver.analyzer.models import Analyzer
 from opencontractserver.analyzer.models import GremlinEngine
+from opencontractserver.constants.extracts import MAX_FULL_DATACELL_LIST_LIMIT
 from opencontractserver.corpuses.models import CorpusAction
 from opencontractserver.corpuses.models import CorpusActionExecution
 from opencontractserver.extracts.models import Column
@@ -38,30 +40,52 @@ from opencontractserver.extracts.models import Datacell
 from opencontractserver.extracts.models import Extract
 from opencontractserver.extracts.models import Fieldset
 from opencontractserver.notifications.models import Notification
+from opencontractserver.shared.services.base import BaseService
 
 
-def _resolve_AnalyzerType_icon(root, info, **kwargs):
+def _get_datacell_qs(extract, user) -> Any:
+    """Return the permission-filtered, deterministically ordered queryset.
+
+    Note: this is a module-level function because Graphene-Django resolvers
+    receive the Django model instance as ``self``, not the GraphQL type.
+
+    Graphene-Django creates a fresh model instance per resolved object per
+    request, so both ``resolve_full_datacell_list`` and ``resolve_datacell_count``
+    call this with the same ``(extract, user)`` pair within a single query.
+    The queryset itself is lazy (no DB hit until evaluated), so constructing
+    it twice is cheap.
+    """
+    # Imported inside the function rather than at module scope to keep this
+    # GraphQL type module's import graph flat.
+    from opencontractserver.extracts.services import ExtractService
+
+    return ExtractService.get_extract_datacells(
+        extract, user, document_id=None
+    ).order_by("document_id", "column_id", "id")
+
+
+def _resolve_AnalyzerType_icon(root, info):
     """PORT: /home/user/oc-graphene-ref/config/graphql/extract_types.py:275
 
     Port of AnalyzerType.resolve_icon
     """
-    raise NotImplementedError("_resolve_AnalyzerType_icon not yet ported — see manifest")
+    return "" if not root.icon else info.context.build_absolute_uri(root.icon.url)
 
 
-def _resolve_AnalyzerType_analyzer_id(root, info, **kwargs):
+def _resolve_AnalyzerType_analyzer_id(root, info):
     """PORT: /home/user/oc-graphene-ref/config/graphql/extract_types.py:261
 
     Port of AnalyzerType.resolve_analyzer_id
     """
-    raise NotImplementedError("_resolve_AnalyzerType_analyzer_id not yet ported — see manifest")
+    return root.id.__str__()
 
 
-def _resolve_AnalyzerType_full_label_list(root, info, **kwargs):
+def _resolve_AnalyzerType_full_label_list(root, info):
     """PORT: /home/user/oc-graphene-ref/config/graphql/extract_types.py:272
 
     Port of AnalyzerType.resolve_full_label_list
     """
-    raise NotImplementedError("_resolve_AnalyzerType_full_label_list not yet ported — see manifest")
+    return root.annotation_labels.all()
 
 
 @strawberry.type(name="AnalyzerType")
@@ -175,52 +199,113 @@ register_type("GremlinEngineType_WRITE", GremlinEngineType_WRITE, model=GremlinE
 GremlinEngineType_WRITEConnection = make_connection_types(GremlinEngineType_WRITE, type_name="GremlinEngineType_WRITEConnection", countable=True, pdf_page_aware=False)
 
 
-def _resolve_ExtractType_full_datacell_list(root, info, **kwargs):
+def _resolve_ExtractType_full_datacell_list(root, info, limit=None, offset=None):
     """PORT: /home/user/oc-graphene-ref/config/graphql/extract_types.py:178
 
     Port of ExtractType.resolve_full_datacell_list
     """
-    raise NotImplementedError("_resolve_ExtractType_full_datacell_list not yet ported — see manifest")
+    qs = _get_datacell_qs(root, info.context.user)
+
+    # Guard against negative offset — Django does not support negative
+    # indexing on querysets and would raise AssertionError.
+    start = max(0, offset) if offset is not None else 0
+
+    if limit is not None:
+        # Clamp to [0, MAX_FULL_DATACELL_LIST_LIMIT] so callers cannot
+        # bypass the intended payload cap via the GraphQL API.
+        limit = max(0, min(limit, MAX_FULL_DATACELL_LIST_LIMIT))
+        return qs[start : start + limit]
+    # No limit supplied: always apply the server cap regardless of offset
+    # so every code path (no-args, offset-only, limit+offset) is bounded.
+    return qs[start : start + MAX_FULL_DATACELL_LIST_LIMIT]
 
 
-def _resolve_ExtractType_full_document_list(root, info, **kwargs):
+def _resolve_ExtractType_full_document_list(root, info):
     """PORT: /home/user/oc-graphene-ref/config/graphql/extract_types.py:226
 
     Port of ExtractType.resolve_full_document_list
     """
-    raise NotImplementedError("_resolve_ExtractType_full_document_list not yet ported — see manifest")
+    from opencontractserver.extracts.services import ExtractService
+
+    # Bulk visibility filter (no per-document N+1); superusers are computed
+    # like a normal user (scoped admin access, 2026-05) — no all-documents
+    # branch. Routed through the service per CLAUDE.md rule 7.
+    return list(ExtractService.get_visible_documents(root, info.context.user))
 
 
-def _resolve_ExtractType_document_count(root, info, **kwargs):
+def _resolve_ExtractType_document_count(root, info):
     """PORT: /home/user/oc-graphene-ref/config/graphql/extract_types.py:200
 
     Port of ExtractType.resolve_document_count
     """
-    raise NotImplementedError("_resolve_ExtractType_document_count not yet ported — see manifest")
+    # Mirrors the per-document permission filter applied by
+    # ``resolve_full_document_list`` so the count never exceeds the list
+    # length the same viewer would observe (effective permission is
+    # ``MIN(document, corpus)`` per CLAUDE.md). Reads from the prefetch
+    # populated by ``ExtractService.get_visible_extracts`` to avoid
+    # the per-extract SQL N+1; the in-Python permission loop is still
+    # ``O(n_docs)`` per row — acceptable while extracts stay small.
+    # ``_prefetched_objects_cache`` is a Django private API; the
+    # ``count()``/``all()`` fallback keeps the resolver correct if the
+    # prefetch is missing.
+    from opencontractserver.types.enums import PermissionTypes
+
+    # Scoped admin access (2026-05): superusers are computed like a normal
+    # user — they count only the documents in this extract they can READ,
+    # via the same per-doc filter below (no blanket all-documents branch).
+    cache = getattr(root, "_prefetched_objects_cache", {})
+    documents = cache["documents"] if "documents" in cache else root.documents.all()
+    return sum(
+        1
+        for doc in documents
+        if BaseService.user_has(
+            doc, info.context.user, PermissionTypes.READ, request=info.context
+        )
+    )
 
 
-def _resolve_ExtractType_datacell_count(root, info, **kwargs):
+def _resolve_ExtractType_datacell_count(root, info):
     """PORT: /home/user/oc-graphene-ref/config/graphql/extract_types.py:194
 
     Port of ExtractType.resolve_datacell_count
     """
-    raise NotImplementedError("_resolve_ExtractType_datacell_count not yet ported — see manifest")
+    # N+1 warning: issues a COUNT(*) in addition to the main list query
+    # per ExtractType instance. Safe for the single-extract embed query;
+    # add a DataLoader before exposing this field on list queries.
+    return _get_datacell_qs(root, info.context.user).count()
 
 
-def _resolve_ExtractType_iteration_axis(root, info, **kwargs):
+def _resolve_ExtractType_iteration_axis(root, info):
     """PORT: /home/user/oc-graphene-ref/config/graphql/extract_types.py:240
 
     Port of ExtractType.resolve_iteration_axis
     """
-    raise NotImplementedError("_resolve_ExtractType_iteration_axis not yet ported — see manifest")
+    parent = root.parent_extract
+    if parent is None:
+        return None
+    # Compare cheap signals first. Sets compared by PK to avoid hitting
+    # the DB more than necessary; if iteration has fewer/more docs we
+    # treat that as DOCUMENT_VERSIONS too.
+    if root.fieldset_id != parent.fieldset_id:
+        return "FIELDSET"
+    own_doc_ids = set(root.documents.values_list("id", flat=True))
+    parent_doc_ids = set(parent.documents.values_list("id", flat=True))
+    if own_doc_ids != parent_doc_ids:
+        return "DOCUMENT_VERSIONS"
+    if (root.model_config or {}) != (parent.model_config or {}):
+        return "MODEL"
+    return None
 
 
-def _resolve_ExtractType_full_iteration_list(root, info, **kwargs):
+def _resolve_ExtractType_full_iteration_list(root, info):
     """PORT: /home/user/oc-graphene-ref/config/graphql/extract_types.py:234
 
     Port of ExtractType.resolve_full_iteration_list
     """
-    raise NotImplementedError("_resolve_ExtractType_full_iteration_list not yet ported — see manifest")
+    # Permission filter is handled by ExtractService for the
+    # individual iteration view; here we return all direct children
+    # (FK is set, parent is visible by definition).
+    return root.iterations.all().order_by("created", "id")
 
 
 @strawberry.type(name="ExtractType")
@@ -317,9 +402,15 @@ class ExtractType(Node):
 def _get_node_ExtractType(info, pk):
     """PORT: config.graphql.extract_types.ExtractType.get_node
 
-    Port of ExtractType.get_node
+    Port of ExtractType.get_node — override the default node resolution to
+    apply permission checks.
     """
-    raise NotImplementedError("_get_node_ExtractType not yet ported — see manifest")
+    from opencontractserver.extracts.services import ExtractService
+
+    has_perm, extract = ExtractService.check_extract_permission(
+        info.context.user, int(pk), context=info.context
+    )
+    return extract if has_perm else None
 
 
 register_type("ExtractType", ExtractType, model=Extract, get_node=_get_node_ExtractType)
@@ -328,28 +419,35 @@ register_type("ExtractType", ExtractType, model=Extract, get_node=_get_node_Extr
 ExtractTypeConnection = make_connection_types(ExtractType, type_name="ExtractTypeConnection", countable=True, pdf_page_aware=False)
 
 
-def _resolve_FieldsetType_in_use(root, info, **kwargs):
+def _resolve_FieldsetType_in_use(root, info):
     """PORT: /home/user/oc-graphene-ref/config/graphql/extract_types.py:51
 
-    Port of FieldsetType.resolve_in_use
+    Returns True if the fieldset is used in any extract that has started.
     """
-    raise NotImplementedError("_resolve_FieldsetType_in_use not yet ported — see manifest")
+    return root.extracts.filter(started__isnull=False).exists()
 
 
-def _resolve_FieldsetType_full_column_list(root, info, **kwargs):
+def _resolve_FieldsetType_full_column_list(root, info):
     """PORT: /home/user/oc-graphene-ref/config/graphql/extract_types.py:57
 
     Port of FieldsetType.resolve_full_column_list
     """
-    raise NotImplementedError("_resolve_FieldsetType_full_column_list not yet ported — see manifest")
+    return root.columns.all()
 
 
-def _resolve_FieldsetType_column_count(root, info, **kwargs):
+def _resolve_FieldsetType_column_count(root, info):
     """PORT: /home/user/oc-graphene-ref/config/graphql/extract_types.py:60
 
     Port of FieldsetType.resolve_column_count
     """
-    raise NotImplementedError("_resolve_FieldsetType_column_count not yet ported — see manifest")
+    # Reads the ``fieldset__columns`` prefetch populated by
+    # ``ExtractService`` to avoid N+1 COUNTs on the list view.
+    # No per-column permission filter — columns inherit fieldset
+    # visibility, matching ``resolve_full_column_list``.
+    cache = getattr(root, "_prefetched_objects_cache", {})
+    if "columns" in cache:
+        return len(cache["columns"])
+    return root.columns.count()
 
 
 @strawberry.type(name="FieldsetType")
@@ -477,12 +575,12 @@ register_type("ColumnType", ColumnType, model=Column)
 ColumnTypeConnection = make_connection_types(ColumnType, type_name="ColumnTypeConnection", countable=True, pdf_page_aware=False)
 
 
-def _resolve_DatacellType_full_source_list(root, info, **kwargs):
+def _resolve_DatacellType_full_source_list(root, info):
     """PORT: /home/user/oc-graphene-ref/config/graphql/extract_types.py:76
 
     Port of DatacellType.resolve_full_source_list
     """
-    raise NotImplementedError("_resolve_DatacellType_full_source_list not yet ported — see manifest")
+    return root.sources.all()
 
 
 @strawberry.type(name="DatacellType")
@@ -543,12 +641,21 @@ register_type("DatacellType", DatacellType, model=Datacell)
 DatacellTypeConnection = make_connection_types(DatacellType, type_name="DatacellTypeConnection", countable=True, pdf_page_aware=False)
 
 
-def _resolve_AnalysisType_full_annotation_list(root, info, **kwargs):
+def _resolve_AnalysisType_full_annotation_list(root, info, document_id=None):
     """PORT: /home/user/oc-graphene-ref/config/graphql/extract_types.py:305
 
     Port of AnalysisType.resolve_full_annotation_list
     """
-    raise NotImplementedError("_resolve_AnalysisType_full_annotation_list not yet ported — see manifest")
+    from opencontractserver.analyzer.services import AnalysisService
+
+    if document_id is not None:
+        document_pk = int(from_global_id(document_id)[1])
+    else:
+        document_pk = None
+
+    return AnalysisService.get_analysis_annotations(
+        root, info.context.user, document_id=document_pk
+    )
 
 
 @strawberry.type(name="AnalysisType")
@@ -648,9 +755,15 @@ class AnalysisType(Node):
 def _get_node_AnalysisType(info, pk):
     """PORT: config.graphql.extract_types.AnalysisType.get_node
 
-    Port of AnalysisType.get_node
+    Port of AnalysisType.get_node — override the default node resolution to
+    apply permission checks.
     """
-    raise NotImplementedError("_get_node_AnalysisType not yet ported — see manifest")
+    from opencontractserver.analyzer.services import AnalysisService
+
+    has_perm, analysis = AnalysisService.check_analysis_permission(
+        info.context.user, int(pk), context=info.context
+    )
+    return analysis if has_perm else None
 
 
 register_type("AnalysisType", AnalysisType, model=Analysis, get_node=_get_node_AnalysisType)

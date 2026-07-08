@@ -33,9 +33,64 @@ from config.graphql import enums
 # imported by other GraphQL modules (og_metadata_queries, etc.).
 # ---------------------------------------------------------------------------
 
+from django.conf import settings  # noqa: E402
+
 from opencontractserver.constants.auth import (  # noqa: E402
     OAUTH_SUB_DISPLAY_SUFFIX_LENGTH,
 )
+from opencontractserver.shared.services.base import BaseService  # noqa: E402
+
+
+def _stripped(value: object) -> str:
+    """Return a trimmed string when ``value`` is a string, else empty."""
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _is_self_view(user_obj: Any, info: Any) -> bool:
+    """True iff the requester *is* the user object being resolved.
+
+    Authentication is required: anonymous viewers, server-side ``None``
+    contexts (e.g. internal callers passing ``info=None``), and deactivated
+    accounts (``is_active=False``) all return ``False``. Superusers
+    deliberately do not bypass this gate — PII access is reserved for
+    Django admin, not the public GraphQL API.
+
+    The ``is_active`` check is explicit because Django's
+    ``AbstractBaseUser.is_authenticated`` is a ``True`` constant for any
+    User instance regardless of activation status, and
+    ``AuthenticationMiddleware`` does not invalidate sessions when an
+    admin flips ``is_active=False``. Without this check, a deactivated
+    user with a still-live session cookie would continue to read their
+    own PII.
+    """
+    if info is None:
+        return False
+    context = getattr(info, "context", None)
+    if context is None:
+        return False
+    requester = getattr(context, "user", None)
+    if requester is None:
+        return False
+    if not getattr(requester, "is_authenticated", False):
+        return False
+    if not getattr(requester, "is_active", False):
+        return False
+    return requester.pk == user_obj.pk
+
+
+def _self_only(user_obj: Any, info: Any, attr: str) -> Optional[Any]:
+    """Return ``user_obj.attr`` only when the requester is the user themselves.
+
+    Returns ``None`` for non-self views, including superusers. The empty
+    string is also normalised to ``None`` so clients can rely on ``null``
+    as the universal "hidden / unset" sentinel.
+    """
+    if not _is_self_view(user_obj, info):
+        return None
+    value = getattr(user_obj, attr, None)
+    if isinstance(value, str) and not value:
+        return None
+    return value
 
 
 def redacted_handle(user_obj: Any) -> str:
@@ -74,7 +129,7 @@ def _resolve_UserType_username(root, info, **kwargs):
 
     Port of UserType.resolve_username
     """
-    raise NotImplementedError("_resolve_UserType_username not yet ported — see manifest")
+    return _self_only(root, info, "username")
 
 
 def _resolve_UserType_name(root, info, **kwargs):
@@ -82,7 +137,7 @@ def _resolve_UserType_name(root, info, **kwargs):
 
     Port of UserType.resolve_name
     """
-    raise NotImplementedError("_resolve_UserType_name not yet ported — see manifest")
+    return _self_only(root, info, "name")
 
 
 def _resolve_UserType_first_name(root, info, **kwargs):
@@ -90,7 +145,7 @@ def _resolve_UserType_first_name(root, info, **kwargs):
 
     Port of UserType.resolve_first_name
     """
-    raise NotImplementedError("_resolve_UserType_first_name not yet ported — see manifest")
+    return _self_only(root, info, "first_name")
 
 
 def _resolve_UserType_last_name(root, info, **kwargs):
@@ -98,7 +153,7 @@ def _resolve_UserType_last_name(root, info, **kwargs):
 
     Port of UserType.resolve_last_name
     """
-    raise NotImplementedError("_resolve_UserType_last_name not yet ported — see manifest")
+    return _self_only(root, info, "last_name")
 
 
 def _resolve_UserType_given_name(root, info, **kwargs):
@@ -106,7 +161,7 @@ def _resolve_UserType_given_name(root, info, **kwargs):
 
     Port of UserType.resolve_given_name
     """
-    raise NotImplementedError("_resolve_UserType_given_name not yet ported — see manifest")
+    return _self_only(root, info, "given_name")
 
 
 def _resolve_UserType_family_name(root, info, **kwargs):
@@ -114,7 +169,7 @@ def _resolve_UserType_family_name(root, info, **kwargs):
 
     Port of UserType.resolve_family_name
     """
-    raise NotImplementedError("_resolve_UserType_family_name not yet ported — see manifest")
+    return _self_only(root, info, "family_name")
 
 
 def _resolve_UserType_phone(root, info, **kwargs):
@@ -122,7 +177,7 @@ def _resolve_UserType_phone(root, info, **kwargs):
 
     Port of UserType.resolve_phone
     """
-    raise NotImplementedError("_resolve_UserType_phone not yet ported — see manifest")
+    return _self_only(root, info, "phone")
 
 
 def _resolve_UserType_email(root, info, **kwargs):
@@ -130,7 +185,7 @@ def _resolve_UserType_email(root, info, **kwargs):
 
     Port of UserType.resolve_email
     """
-    raise NotImplementedError("_resolve_UserType_email not yet ported — see manifest")
+    return _self_only(root, info, "email")
 
 
 def _resolve_UserType_email_verified(root, info, **kwargs):
@@ -138,7 +193,9 @@ def _resolve_UserType_email_verified(root, info, **kwargs):
 
     Port of UserType.resolve_email_verified
     """
-    raise NotImplementedError("_resolve_UserType_email_verified not yet ported — see manifest")
+    if not _is_self_view(root, info):
+        return None
+    return bool(getattr(root, "email_verified", False))
 
 
 def _resolve_UserType_is_social_user(root, info, **kwargs):
@@ -146,7 +203,9 @@ def _resolve_UserType_is_social_user(root, info, **kwargs):
 
     Port of UserType.resolve_is_social_user
     """
-    raise NotImplementedError("_resolve_UserType_is_social_user not yet ported — see manifest")
+    if not _is_self_view(root, info):
+        return None
+    return bool(getattr(root, "is_social_user", False))
 
 
 def _resolve_UserType_is_usage_capped(root, info, **kwargs):
@@ -154,31 +213,127 @@ def _resolve_UserType_is_usage_capped(root, info, **kwargs):
 
     Port of UserType.resolve_is_usage_capped
     """
-    raise NotImplementedError("_resolve_UserType_is_usage_capped not yet ported — see manifest")
+    # Account-tier signal — same self-only gate as
+    # ``resolve_can_import_corpus``. Without this resolver the model
+    # field ``User.is_usage_capped`` would be served raw to any
+    # authenticated viewer, letting a client probe whether another
+    # account is on a paid or free tier (the module docstring already
+    # claims this is gated; the resolver was missing).
+    if not _is_self_view(root, info):
+        return None
+    return bool(getattr(root, "is_usage_capped", False))
 
 
 def _resolve_UserType_display_name(root, info, **kwargs):
     """PORT: config/graphql/user_types.py:291
 
     Port of UserType.resolve_display_name
+
+    Pick the first non-empty branch of the display-name chain.
+
+    Resolution order:
+        1. ``name`` (Auth0 ``name`` claim).
+        2. ``given_name`` + ``family_name`` (Auth0).
+        3. ``first_name`` + ``last_name`` (local Django fields).
+        4. ``handle`` (Reddit-style auto-assigned handle).
+        5. ``username`` verbatim — ONLY when ``is_social_user=False``.
+           ``UserUnicodeUsernameValidator`` (see
+           ``opencontractserver/users/validators.py``) explicitly allows
+           ``|`` in locally-chosen usernames, so a local username like
+           ``alice|admin`` is legitimate and must NOT be redacted.
+        6. ``user_<last N chars after the last "|">`` for social users.
+           The raw OAuth ``sub`` (e.g. ``google-oauth2|114688...``) is
+           never returned — ``rsplit("|", 1)[-1]`` strips the provider
+           prefix even when the sub is short, and we keep only the last
+           ``OAUTH_SUB_DISPLAY_SUFFIX_LENGTH`` chars.
+        7. ``user_<pk>`` / ``user_unknown`` last-resort fallback. With a
+           populated handle column (see migration 0028) this branch is
+           effectively unreachable for any user touched by the backfill.
+
+    Non-self viewers always get the user's ``slug`` (or a redacted
+    ``user_<pk-suffix>`` fallback when slug is unset — should not
+    happen post-migration, but is defensive against partial data).
     """
-    raise NotImplementedError("_resolve_UserType_display_name not yet ported — see manifest")
+    if not _is_self_view(root, info):
+        slug = _stripped(getattr(root, "slug", ""))
+        return slug or redacted_handle(root)
+
+    name = _stripped(getattr(root, "name", ""))
+    if name:
+        return name
+
+    given = _stripped(getattr(root, "given_name", ""))
+    family = _stripped(getattr(root, "family_name", ""))
+    if given or family:
+        return f"{given} {family}".strip()
+
+    first = _stripped(getattr(root, "first_name", ""))
+    last = _stripped(getattr(root, "last_name", ""))
+    if first or last:
+        return f"{first} {last}".strip()
+
+    handle = _stripped(getattr(root, "handle", ""))
+    if handle:
+        return handle
+
+    username = _stripped(getattr(root, "username", ""))
+    is_social = bool(getattr(root, "is_social_user", False))
+
+    # Local users get their chosen username verbatim. ``|`` is allowed
+    # by ``UserUnicodeUsernameValidator``, so a ``|``-containing local
+    # username like ``alice|admin`` is legitimate and not an OAuth sub.
+    if username and not is_social:
+        return username
+
+    if username:
+        # Social user — never surface the raw ``sub``. ``rsplit("|", 1)``
+        # strips the provider prefix even when the sub is short.
+        sub = username.rsplit("|", 1)[-1]
+        return f"user_{sub[-OAUTH_SUB_DISPLAY_SUFFIX_LENGTH:]}"
+
+    return redacted_handle(root)
 
 
 def _resolve_UserType_reputation_global(root, info, **kwargs):
     """PORT: config/graphql/user_types.py:356
 
     Port of UserType.resolve_reputation_global
+
+    Resolve global reputation for this user.
+
+    Uses pre-attached _reputation_global from resolve_global_leaderboard
+    to avoid N+1 queries. Falls back to database query for single-user
+    lookups.
     """
-    raise NotImplementedError("_resolve_UserType_reputation_global not yet ported — see manifest")
+    if hasattr(root, "_reputation_global") and root._reputation_global is not None:
+        return root._reputation_global
+
+    from opencontractserver.conversations.models import UserReputation
+
+    try:
+        rep = UserReputation.objects.get(user=root, corpus__isnull=True)
+        return rep.reputation_score
+    except UserReputation.DoesNotExist:
+        return 0
 
 
-def _resolve_UserType_reputation_for_corpus(root, info, **kwargs):
+def _resolve_UserType_reputation_for_corpus(root, info, corpus_id):
     """PORT: config/graphql/user_types.py:375
 
     Port of UserType.resolve_reputation_for_corpus
     """
-    raise NotImplementedError("_resolve_UserType_reputation_for_corpus not yet ported — see manifest")
+    from graphql_relay import from_global_id
+
+    from opencontractserver.conversations.models import UserReputation
+
+    try:
+        _, corpus_pk = from_global_id(corpus_id)
+        rep = UserReputation.objects.get(user=root, corpus_id=corpus_pk)
+        return rep.reputation_score
+    except UserReputation.DoesNotExist:
+        return 0
+    except Exception:
+        return 0
 
 
 def _resolve_UserType_total_messages(root, info, **kwargs):
@@ -186,7 +341,18 @@ def _resolve_UserType_total_messages(root, info, **kwargs):
 
     Port of UserType.resolve_total_messages
     """
-    raise NotImplementedError("_resolve_UserType_total_messages not yet ported — see manifest")
+    from opencontractserver.conversations.models import (
+        ChatMessage,
+        MessageTypeChoices,
+    )
+
+    return (
+        BaseService.filter_visible(
+            ChatMessage, info.context.user, request=info.context
+        )
+        .filter(creator=root, msg_type=MessageTypeChoices.HUMAN)
+        .count()
+    )
 
 
 def _resolve_UserType_total_threads_created(root, info, **kwargs):
@@ -194,7 +360,15 @@ def _resolve_UserType_total_threads_created(root, info, **kwargs):
 
     Port of UserType.resolve_total_threads_created
     """
-    raise NotImplementedError("_resolve_UserType_total_threads_created not yet ported — see manifest")
+    from opencontractserver.conversations.models import Conversation
+
+    return (
+        BaseService.filter_visible(
+            Conversation, info.context.user, request=info.context
+        )
+        .filter(creator=root, conversation_type="thread")
+        .count()
+    )
 
 
 def _resolve_UserType_total_annotations_created(root, info, **kwargs):
@@ -202,7 +376,16 @@ def _resolve_UserType_total_annotations_created(root, info, **kwargs):
 
     Port of UserType.resolve_total_annotations_created
     """
-    raise NotImplementedError("_resolve_UserType_total_annotations_created not yet ported — see manifest")
+    from opencontractserver.annotations.models import Annotation
+
+    # Filter by visibility via service layer, then narrow to this creator.
+    return (
+        BaseService.filter_visible(
+            Annotation, info.context.user, request=info.context
+        )
+        .filter(creator=root)
+        .count()
+    )
 
 
 def _resolve_UserType_total_documents_uploaded(root, info, **kwargs):
@@ -210,7 +393,15 @@ def _resolve_UserType_total_documents_uploaded(root, info, **kwargs):
 
     Port of UserType.resolve_total_documents_uploaded
     """
-    raise NotImplementedError("_resolve_UserType_total_documents_uploaded not yet ported — see manifest")
+    from opencontractserver.documents.models import Document
+
+    return (
+        BaseService.filter_visible(
+            Document, info.context.user, request=info.context
+        )
+        .filter(creator=root)
+        .count()
+    )
 
 
 def _resolve_UserType_can_import_corpus(root, info, **kwargs):
@@ -218,7 +409,15 @@ def _resolve_UserType_can_import_corpus(root, info, **kwargs):
 
     Port of UserType.resolve_can_import_corpus
     """
-    raise NotImplementedError("_resolve_UserType_can_import_corpus not yet ported — see manifest")
+    # Self-only gate: ``is_usage_capped`` reflects account-tier status,
+    # so exposing this cross-user would let any client probe whether
+    # another account is paid/free. Returns ``None`` for non-self
+    # viewers (parallel to the other PII resolvers above).
+    if not _is_self_view(root, info):
+        return None
+    if root.is_usage_capped and not settings.USAGE_CAPPED_USER_CAN_IMPORT_CORPUS:
+        return False
+    return True
 
 
 @strawberry.type(name="UserType")
@@ -825,7 +1024,30 @@ def _get_queryset_UserFeedbackType(queryset, info):
 
     Port of UserFeedbackType.get_queryset
     """
-    raise NotImplementedError("_get_queryset_UserFeedbackType not yet ported — see manifest")
+    # https://docs.graphene-python.org/projects/django/en/latest/queries/#default-queryset
+    # When the parent resolver prefetched the reverse relation
+    # (see ``AnnotationService.get_document_annotations`` which
+    # registers a ``Prefetch("user_feedback", ...)``), the manager passed
+    # in here has its parent's ``_prefetched_objects_cache`` populated.
+    # Re-applying the visibility filter invalidates that cache and forces
+    # a fresh SELECT per parent row — the original N+1 storm we were
+    # trying to eliminate. Detect the prefetch and pass through.
+    # ``instance``, ``prefetch_cache_name``, and ``_prefetched_objects_cache``
+    # are Django RelatedManager internals — if their shape changes in a
+    # future release the service-layer fallback keeps correctness intact,
+    # only losing the per-row optimisation.
+    instance = getattr(queryset, "instance", None)
+    cache_name = getattr(queryset, "prefetch_cache_name", None)
+    prefetched = getattr(instance, "_prefetched_objects_cache", None) or {}
+    if instance is not None and cache_name is not None and cache_name in prefetched:
+        return queryset
+
+    # Chain ``visible_to_user`` on the incoming queryset/manager so the
+    # filter is a single ``WHERE`` expression tree (no ``pk__in``
+    # subquery over the full table).
+    return BaseService.filter_visible_qs(
+        queryset, info.context.user, request=info.context
+    )
 
 
 register_type("UserFeedbackType", UserFeedbackType, model=UserFeedback, get_queryset=_get_queryset_UserFeedbackType)
@@ -839,7 +1061,7 @@ def _resolve_UserExportType_file(root, info, **kwargs):
 
     Port of UserExportType.resolve_file
     """
-    raise NotImplementedError("_resolve_UserExportType_file not yet ported — see manifest")
+    return "" if not root.file else info.context.build_absolute_uri(root.file.url)
 
 
 @strawberry.type(name="UserExportType")
@@ -889,7 +1111,9 @@ def _resolve_UserImportType_zip(root, info, **kwargs):
 
     Port of UserImportType.resolve_zip
     """
-    raise NotImplementedError("_resolve_UserImportType_zip not yet ported — see manifest")
+    # NOTE: kept verbatim from the graphene resolver, including the
+    # ``self.file`` guard (UserImport has no ``file`` field — only ``zip``).
+    return "" if not root.file else info.context.build_absolute_uri(root.zip.url)
 
 
 @strawberry.type(name="UserImportType")
