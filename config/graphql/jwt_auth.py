@@ -3,34 +3,25 @@
 Shape-generated from the graphene schema; stub functions marked PORT(...)
 carry the ported business logic. See config/graphql_new/manifest.json.
 """
+
+# flake8: noqa: E501, F821 — generated strawberry schema module.
+# E501: long GraphQL field/argument ``description=`` strings and the
+# single-line generated resolver signatures (black cannot split string
+# literals). F821: ``Annotated["XType", strawberry.lazy(...)]`` /
+# ``cast("QuerySet", ...)`` forward-reference STRINGS that pyflakes
+# resolves as names — the whole point of strawberry.lazy is to avoid the
+# import (which would then be F401). Both are code-generation artifacts,
+# not defects; hand-written modules (config/graphql/core/*, security.py,
+# testing.py, filters.py, …) stay fully linted.
+
 from __future__ import annotations
 
-import datetime
-import decimal
-import uuid
-from typing import Annotated, Any, Optional
-
-import strawberry
-
-from config.graphql.core import permissions as core_permissions
-from config.graphql.core.filtering import filterset_factory, setup_filterset
-from config.graphql.core.mutations import drf_deletion, drf_mutation
-from config.graphql.core.relay import (
-    Node,
-    get_node_from_global_id,
-    make_connection_types,
-    register_type,
-    resolve_django_connection,
-    resolve_django_list,
-)
-from config.graphql.core.scalars import BigInt, GenericScalar, JSONString
-from config.graphql._util import coerce_enum, coerce_str, strip_unset
-from config.graphql import enums
 from calendar import timegm
 from datetime import datetime
+from typing import Annotated, Optional
 
+import strawberry
 from django.middleware.csrf import rotate_token
-from graphql_jwt import signals as jwt_signals
 from graphql_jwt.exceptions import JSONWebTokenError
 from graphql_jwt.refresh_token import signals as refresh_token_signals
 from graphql_jwt.refresh_token.shortcuts import (
@@ -41,7 +32,11 @@ from graphql_jwt.refresh_token.shortcuts import (
 from graphql_jwt.settings import jwt_settings
 from graphql_jwt.utils import get_payload
 
-
+from config.graphql._util import strip_unset
+from config.graphql.core.relay import (
+    register_type,
+)
+from config.graphql.core.scalars import GenericScalar
 
 
 @strawberry.type(name="Verify")
@@ -74,7 +69,9 @@ def _ensure_token(info, token):
 
 def _refresh_expires_in(orig_iat=None):
     """Port of ``graphql_jwt.decorators.refresh_expiration`` timestamping."""
-    base = orig_iat if orig_iat is not None else timegm(datetime.utcnow().utctimetuple())
+    base = (
+        orig_iat if orig_iat is not None else timegm(datetime.utcnow().utctimetuple())
+    )
     return base + jwt_settings.JWT_REFRESH_EXPIRATION_DELTA.total_seconds()
 
 
@@ -90,7 +87,12 @@ def _mutate_Verify(payload_cls, root, info, token=None):
     return payload_cls(payload=get_payload(token, info.context))
 
 
-def m_verify_token(info: strawberry.Info, token: Annotated[Optional[str], strawberry.argument(name="token")] = strawberry.UNSET) -> Optional["Verify"]:
+def m_verify_token(
+    info: strawberry.Info,
+    token: Annotated[
+        Optional[str], strawberry.argument(name="token")
+    ] = strawberry.UNSET,
+) -> Optional["Verify"]:
     kwargs = strip_unset({"token": token})
     return _mutate_Verify(Verify, None, info, **kwargs)
 
@@ -104,9 +106,7 @@ def _mutate_Refresh(payload_cls, root, info, refresh_token=None):
 
     # ensure_refresh_token
     if refresh_token is None:
-        refresh_token = context.COOKIES.get(
-            jwt_settings.JWT_REFRESH_TOKEN_COOKIE_NAME
-        )
+        refresh_token = context.COOKIES.get(jwt_settings.JWT_REFRESH_TOKEN_COOKIE_NAME)
         if refresh_token is None:
             raise JSONWebTokenError("Refresh token is required")
 
@@ -143,10 +143,14 @@ def _mutate_Refresh(payload_cls, root, info, refresh_token=None):
     return result
 
 
-def m_refresh_token(info: strawberry.Info, refresh_token: Annotated[Optional[str], strawberry.argument(name="refreshToken")] = strawberry.UNSET) -> Optional["Refresh"]:
+def m_refresh_token(
+    info: strawberry.Info,
+    refresh_token: Annotated[
+        Optional[str], strawberry.argument(name="refreshToken")
+    ] = strawberry.UNSET,
+) -> Optional["Refresh"]:
     kwargs = strip_unset({"refresh_token": refresh_token})
     return _mutate_Refresh(Refresh, None, info, **kwargs)
-
 
 
 MUTATION_FIELDS = {

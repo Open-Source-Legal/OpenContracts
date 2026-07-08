@@ -1,4 +1,5 @@
 """Shared runtime helpers for generated strawberry modules."""
+
 from enum import Enum
 from typing import Any
 

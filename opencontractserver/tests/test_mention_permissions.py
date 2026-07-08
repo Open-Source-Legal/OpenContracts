@@ -388,7 +388,9 @@ class DocumentMentionPermissionTestCase(TestCase):
 
             context = MockContext()
 
-        results = query._resolve_Query_search_documents_for_mention(None, MockInfo(), text_search="")
+        results = query._resolve_Query_search_documents_for_mention(
+            None, MockInfo(), text_search=""
+        )
 
         doc_ids = [d.id for d in results]
         self.assertIn(
@@ -429,7 +431,9 @@ class DocumentMentionPermissionTestCase(TestCase):
 
             context = MockContext()
 
-        results = query._resolve_Query_search_documents_for_mention(None, MockInfo(), text_search="")
+        results = query._resolve_Query_search_documents_for_mention(
+            None, MockInfo(), text_search=""
+        )
 
         doc_titles = [d.title for d in results]
 
@@ -456,7 +460,9 @@ class DocumentMentionPermissionTestCase(TestCase):
 
             context = MockContext()
 
-        results = query._resolve_Query_search_documents_for_mention(None, MockInfo(), text_search="")
+        results = query._resolve_Query_search_documents_for_mention(
+            None, MockInfo(), text_search=""
+        )
 
         doc_ids = [d.id for d in results]
         self.assertIn(
@@ -479,7 +485,9 @@ class DocumentMentionPermissionTestCase(TestCase):
 
             context = MockContext()
 
-        results = query._resolve_Query_search_documents_for_mention(None, MockInfo(), text_search="")
+        results = query._resolve_Query_search_documents_for_mention(
+            None, MockInfo(), text_search=""
+        )
 
         doc_ids = [d.id for d in results]
         self.assertNotIn(
@@ -507,7 +515,9 @@ class DocumentMentionPermissionTestCase(TestCase):
 
             context = MockContext()
 
-        results = query._resolve_Query_search_documents_for_mention(None, MockInfo(), text_search="")
+        results = query._resolve_Query_search_documents_for_mention(
+            None, MockInfo(), text_search=""
+        )
 
         doc_ids = [d.id for d in results]
         self.assertIn(
@@ -540,7 +550,9 @@ class DocumentMentionPermissionTestCase(TestCase):
 
             context = MockContext()
 
-        results = query._resolve_Query_search_documents_for_mention(None, MockInfo(), text_search="")
+        results = query._resolve_Query_search_documents_for_mention(
+            None, MockInfo(), text_search=""
+        )
 
         self.assertEqual(
             len(list(results)),
@@ -564,7 +576,9 @@ class DocumentMentionPermissionTestCase(TestCase):
 
             context = MockContext()
 
-        results = query._resolve_Query_search_documents_for_mention(None, MockInfo(), text_search="")
+        results = query._resolve_Query_search_documents_for_mention(
+            None, MockInfo(), text_search=""
+        )
 
         doc_ids = [d.id for d in results]
         self.assertIn(
@@ -888,7 +902,10 @@ class CorpusScopedMentionSearchTestCase(TestCase):
 
         # Search annotations scoped to corpus A
         results = query._resolve_Query_search_annotations_for_mention(
-            None, MockInfo(), text_search="Annotation", corpus_id=self.corpus_a_global_id
+            None,
+            MockInfo(),
+            text_search="Annotation",
+            corpus_id=self.corpus_a_global_id,
         )
 
         annotation_ids = [a.id for a in results]
@@ -918,7 +935,10 @@ class CorpusScopedMentionSearchTestCase(TestCase):
 
         # Search annotations scoped to corpus B
         results = query._resolve_Query_search_annotations_for_mention(
-            None, MockInfo(), text_search="Annotation", corpus_id=self.corpus_b_global_id
+            None,
+            MockInfo(),
+            text_search="Annotation",
+            corpus_id=self.corpus_b_global_id,
         )
 
         annotation_ids = [a.id for a in results]
@@ -1231,7 +1251,8 @@ class AgentMentionCorpusScopingTestCase(TestCase):
             with self.subTest(corpus_id=bad_corpus_id):
                 # Must not raise — degrades to a global / unscoped search.
                 results = query._resolve_Query_search_agents_for_mention(
-                    None, MockInfo(),
+                    None,
+                    MockInfo(),
                     text_search="Agent",
                     corpus_id=bad_corpus_id,
                 )

@@ -133,12 +133,10 @@ def _install_graphene_resolver_aliases(type_name: str, strawberry_type: type) ->
         prefix = f"_resolve_{type_name}_"
         for attr_name in dir(module):
             if attr_name.startswith(prefix):
-                field = attr_name[len(prefix):]
+                field = attr_name[len(prefix) :]
                 fn = getattr(module, attr_name)
                 if callable(fn) and not hasattr(strawberry_type, f"resolve_{field}"):
-                    setattr(
-                        strawberry_type, f"resolve_{field}", staticmethod(fn)
-                    )
+                    setattr(strawberry_type, f"resolve_{field}", staticmethod(fn))
 
     # Permission-annotation fields live in the shared core module, not the
     # per-type module, so alias them explicitly.
@@ -365,12 +363,8 @@ def make_connection_types(
                 "node": Optional[node_type],
                 "cursor": str,
             },
-            "node": strawberry.field(
-                description="The item at the end of the edge"
-            ),
-            "cursor": strawberry.field(
-                description="A cursor for use in pagination"
-            ),
+            "node": strawberry.field(description="The item at the end of the edge"),
+            "cursor": strawberry.field(description="A cursor for use in pagination"),
         },
     )
     edge_cls = strawberry.type(
@@ -390,9 +384,7 @@ def make_connection_types(
         "page_info": strawberry.field(
             description="Pagination data for this connection."
         ),
-        "edges": strawberry.field(
-            description="Contains the nodes in this connection."
-        ),
+        "edges": strawberry.field(description="Contains the nodes in this connection."),
     }
     if countable:
         namespace["total_count"] = strawberry.field(
@@ -537,7 +529,9 @@ def resolve_django_connection(
     iterable = maybe_queryset(iterable)
 
     if isinstance(iterable, QuerySet):
-        iterable = maybe_queryset(apply_type_get_queryset(node_type_name, iterable, info))
+        iterable = maybe_queryset(
+            apply_type_get_queryset(node_type_name, iterable, info)
+        )
 
     if filterset_class is not None and isinstance(iterable, QuerySet):
         filter_kwargs = {

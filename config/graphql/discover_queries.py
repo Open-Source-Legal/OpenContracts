@@ -3,37 +3,29 @@
 Shape-generated from the graphene schema; stub functions marked PORT(...)
 carry the ported business logic. See config/graphql_new/manifest.json.
 """
+
+# flake8: noqa: E501, F821 — generated strawberry schema module.
+# E501: long GraphQL field/argument ``description=`` strings and the
+# single-line generated resolver signatures (black cannot split string
+# literals). F821: ``Annotated["XType", strawberry.lazy(...)]`` /
+# ``cast("QuerySet", ...)`` forward-reference STRINGS that pyflakes
+# resolves as names — the whole point of strawberry.lazy is to avoid the
+# import (which would then be F401). Both are code-generation artifacts,
+# not defects; hand-written modules (config/graphql/core/*, security.py,
+# testing.py, filters.py, …) stay fully linted.
+
 from __future__ import annotations
-
-import datetime
-import decimal
-import uuid
-from typing import Annotated, Any, Optional
-
-import strawberry
-
-from config.graphql.core import permissions as core_permissions
-from config.graphql.core.filtering import filterset_factory, setup_filterset
-from config.graphql.core.mutations import drf_deletion, drf_mutation
-from config.graphql.core.relay import (
-    Node,
-    get_node_from_global_id,
-    make_connection_types,
-    register_type,
-    resolve_django_connection,
-    resolve_django_list,
-)
-from config.graphql.core.scalars import BigInt, GenericScalar, JSONString
-from config.graphql._util import coerce_enum, coerce_str, strip_unset
-from config.graphql import enums
 
 import functools
 import logging
+from typing import Annotated, Any, Optional
 
+import strawberry
 from django.contrib.postgres.search import SearchQuery
 from django.db.models import Q, QuerySet
 from django.db.models.functions import Left
 
+from config.graphql._util import strip_unset
 from config.graphql.ratelimits import get_user_tier_rate, graphql_ratelimit_dynamic
 from opencontractserver.annotations.models import Annotation, Note
 from opencontractserver.constants.annotations import SEMANTIC_SEARCH_MAX_RESULTS
@@ -253,7 +245,9 @@ def _clamp_limit(limit: Optional[int]) -> int:
 
 
 @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
-def _resolve_Query_discover_annotations(root, info, text_search, limit=DISCOVER_DEFAULT_LIMIT):
+def _resolve_Query_discover_annotations(
+    root, info, text_search, limit=DISCOVER_DEFAULT_LIMIT
+):
     """Port of DiscoverSearchQueryMixin.resolve_discover_annotations."""
     text = _normalise_text_search(text_search)
     if not text:
@@ -285,13 +279,29 @@ def _resolve_Query_discover_annotations(root, info, text_search, limit=DISCOVER_
     return _order_by_ids(qs, ids)
 
 
-def q_discover_annotations(info: strawberry.Info, text_search: Annotated[str, strawberry.argument(name="textSearch")] = strawberry.UNSET, limit: Annotated[Optional[int], strawberry.argument(name="limit")] = 25) -> Optional[list[Optional[Annotated["AnnotationType", strawberry.lazy("config.graphql.annotation_types")]]]]:
+def q_discover_annotations(
+    info: strawberry.Info,
+    text_search: Annotated[
+        str, strawberry.argument(name="textSearch")
+    ] = strawberry.UNSET,
+    limit: Annotated[Optional[int], strawberry.argument(name="limit")] = 25,
+) -> Optional[
+    list[
+        Optional[
+            Annotated[
+                "AnnotationType", strawberry.lazy("config.graphql.annotation_types")
+            ]
+        ]
+    ]
+]:
     kwargs = strip_unset({"text_search": text_search, "limit": limit})
     return _resolve_Query_discover_annotations(None, info, **kwargs)
 
 
 @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
-def _resolve_Query_discover_documents(root, info, text_search, limit=DISCOVER_DEFAULT_LIMIT):
+def _resolve_Query_discover_documents(
+    root, info, text_search, limit=DISCOVER_DEFAULT_LIMIT
+):
     """Port of DiscoverSearchQueryMixin.resolve_discover_documents."""
     text = _normalise_text_search(text_search)
     if not text:
@@ -311,13 +321,27 @@ def _resolve_Query_discover_documents(root, info, text_search, limit=DISCOVER_DE
     return _order_by_ids(qs, ids)
 
 
-def q_discover_documents(info: strawberry.Info, text_search: Annotated[str, strawberry.argument(name="textSearch")] = strawberry.UNSET, limit: Annotated[Optional[int], strawberry.argument(name="limit")] = 25) -> Optional[list[Optional[Annotated["DocumentType", strawberry.lazy("config.graphql.document_types")]]]]:
+def q_discover_documents(
+    info: strawberry.Info,
+    text_search: Annotated[
+        str, strawberry.argument(name="textSearch")
+    ] = strawberry.UNSET,
+    limit: Annotated[Optional[int], strawberry.argument(name="limit")] = 25,
+) -> Optional[
+    list[
+        Optional[
+            Annotated["DocumentType", strawberry.lazy("config.graphql.document_types")]
+        ]
+    ]
+]:
     kwargs = strip_unset({"text_search": text_search, "limit": limit})
     return _resolve_Query_discover_documents(None, info, **kwargs)
 
 
 @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
-def _resolve_Query_discover_notes(root, info, text_search, limit=DISCOVER_DEFAULT_LIMIT):
+def _resolve_Query_discover_notes(
+    root, info, text_search, limit=DISCOVER_DEFAULT_LIMIT
+):
     """Port of DiscoverSearchQueryMixin.resolve_discover_notes."""
     text = _normalise_text_search(text_search)
     if not text:
@@ -345,13 +369,27 @@ def _resolve_Query_discover_notes(root, info, text_search, limit=DISCOVER_DEFAUL
     return _order_by_ids(qs, ids)
 
 
-def q_discover_notes(info: strawberry.Info, text_search: Annotated[str, strawberry.argument(name="textSearch")] = strawberry.UNSET, limit: Annotated[Optional[int], strawberry.argument(name="limit")] = 25) -> Optional[list[Optional[Annotated["NoteType", strawberry.lazy("config.graphql.annotation_types")]]]]:
+def q_discover_notes(
+    info: strawberry.Info,
+    text_search: Annotated[
+        str, strawberry.argument(name="textSearch")
+    ] = strawberry.UNSET,
+    limit: Annotated[Optional[int], strawberry.argument(name="limit")] = 25,
+) -> Optional[
+    list[
+        Optional[
+            Annotated["NoteType", strawberry.lazy("config.graphql.annotation_types")]
+        ]
+    ]
+]:
     kwargs = strip_unset({"text_search": text_search, "limit": limit})
     return _resolve_Query_discover_notes(None, info, **kwargs)
 
 
 @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
-def _resolve_Query_discover_corpuses(root, info, text_search, limit=DISCOVER_DEFAULT_LIMIT):
+def _resolve_Query_discover_corpuses(
+    root, info, text_search, limit=DISCOVER_DEFAULT_LIMIT
+):
     """Port of DiscoverSearchQueryMixin.resolve_discover_corpuses."""
     text = _normalise_text_search(text_search)
     if not text:
@@ -387,9 +425,7 @@ def _resolve_Query_discover_corpuses(root, info, text_search, limit=DISCOVER_DEF
         BaseService.filter_visible(Document, user, request=info.context)
         .filter(Q(title__icontains=text) | Q(description__icontains=text))
         .order_by()
-        .values_list("id", flat=True)[
-            : fetch_k * DISCOVER_CORPUS_CONTENT_OVERSAMPLE
-        ]
+        .values_list("id", flat=True)[: fetch_k * DISCOVER_CORPUS_CONTENT_OVERSAMPLE]
     )
     corpus_ids_from_docs = DocumentPath.objects.filter(
         document_id__in=list(matching_doc_ids),
@@ -413,9 +449,7 @@ def _resolve_Query_discover_corpuses(root, info, text_search, limit=DISCOVER_DEF
         for cid in list(corpus_ids_from_docs) + list(corpus_ids_from_annots)
         if cid is not None
     }
-    content_ids = _text_ids(
-        visible, Q(id__in=content_corpus_ids), "modified", fetch_k
-    )
+    content_ids = _text_ids(visible, Q(id__in=content_corpus_ids), "modified", fetch_k)
 
     ids = _rrf([meta_ids, content_ids], limit)
     # ``_order_by_ids`` applies the ``id__in=ids`` filter itself.
@@ -423,13 +457,27 @@ def _resolve_Query_discover_corpuses(root, info, text_search, limit=DISCOVER_DEF
     return _order_by_ids(qs, ids)
 
 
-def q_discover_corpuses(info: strawberry.Info, text_search: Annotated[str, strawberry.argument(name="textSearch")] = strawberry.UNSET, limit: Annotated[Optional[int], strawberry.argument(name="limit")] = 25) -> Optional[list[Optional[Annotated["CorpusType", strawberry.lazy("config.graphql.corpus_types")]]]]:
+def q_discover_corpuses(
+    info: strawberry.Info,
+    text_search: Annotated[
+        str, strawberry.argument(name="textSearch")
+    ] = strawberry.UNSET,
+    limit: Annotated[Optional[int], strawberry.argument(name="limit")] = 25,
+) -> Optional[
+    list[
+        Optional[
+            Annotated["CorpusType", strawberry.lazy("config.graphql.corpus_types")]
+        ]
+    ]
+]:
     kwargs = strip_unset({"text_search": text_search, "limit": limit})
     return _resolve_Query_discover_corpuses(None, info, **kwargs)
 
 
 @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
-def _resolve_Query_discover_discussions(root, info, text_search, limit=DISCOVER_DEFAULT_LIMIT):
+def _resolve_Query_discover_discussions(
+    root, info, text_search, limit=DISCOVER_DEFAULT_LIMIT
+):
     """Port of DiscoverSearchQueryMixin.resolve_discover_discussions."""
     text = _normalise_text_search(text_search)
     if not text:
@@ -463,16 +511,49 @@ def _resolve_Query_discover_discussions(root, info, text_search, limit=DISCOVER_
     return _order_by_ids(qs, ids)
 
 
-def q_discover_discussions(info: strawberry.Info, text_search: Annotated[str, strawberry.argument(name="textSearch")] = strawberry.UNSET, limit: Annotated[Optional[int], strawberry.argument(name="limit")] = 25) -> Optional[list[Optional[Annotated["ConversationType", strawberry.lazy("config.graphql.conversation_types")]]]]:
+def q_discover_discussions(
+    info: strawberry.Info,
+    text_search: Annotated[
+        str, strawberry.argument(name="textSearch")
+    ] = strawberry.UNSET,
+    limit: Annotated[Optional[int], strawberry.argument(name="limit")] = 25,
+) -> Optional[
+    list[
+        Optional[
+            Annotated[
+                "ConversationType", strawberry.lazy("config.graphql.conversation_types")
+            ]
+        ]
+    ]
+]:
     kwargs = strip_unset({"text_search": text_search, "limit": limit})
     return _resolve_Query_discover_discussions(None, info, **kwargs)
 
 
-
 QUERY_FIELDS = {
-    "discover_annotations": strawberry.field(resolver=q_discover_annotations, name="discoverAnnotations", description='Hybrid (text + semantic) annotation search for Discover.'),
-    "discover_documents": strawberry.field(resolver=q_discover_documents, name="discoverDocuments", description='Hybrid (text + semantic) document search for Discover.'),
-    "discover_notes": strawberry.field(resolver=q_discover_notes, name="discoverNotes", description='Hybrid (text + semantic) note search for Discover.'),
-    "discover_corpuses": strawberry.field(resolver=q_discover_corpuses, name="discoverCorpuses", description='Collection search for Discover: matches corpus title/description and collections whose documents or annotations match the query.'),
-    "discover_discussions": strawberry.field(resolver=q_discover_discussions, name="discoverDiscussions", description='Hybrid (title + message body + semantic) discussion-thread search for Discover.'),
+    "discover_annotations": strawberry.field(
+        resolver=q_discover_annotations,
+        name="discoverAnnotations",
+        description="Hybrid (text + semantic) annotation search for Discover.",
+    ),
+    "discover_documents": strawberry.field(
+        resolver=q_discover_documents,
+        name="discoverDocuments",
+        description="Hybrid (text + semantic) document search for Discover.",
+    ),
+    "discover_notes": strawberry.field(
+        resolver=q_discover_notes,
+        name="discoverNotes",
+        description="Hybrid (text + semantic) note search for Discover.",
+    ),
+    "discover_corpuses": strawberry.field(
+        resolver=q_discover_corpuses,
+        name="discoverCorpuses",
+        description="Collection search for Discover: matches corpus title/description and collections whose documents or annotations match the query.",
+    ),
+    "discover_discussions": strawberry.field(
+        resolver=q_discover_discussions,
+        name="discoverDiscussions",
+        description="Hybrid (title + message body + semantic) discussion-thread search for Discover.",
+    ),
 }

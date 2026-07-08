@@ -3,35 +3,30 @@
 Shape-generated from the graphene schema; stub functions marked PORT(...)
 carry the ported business logic. See config/graphql_new/manifest.json.
 """
+
+# flake8: noqa: E501, F821 — generated strawberry schema module.
+# E501: long GraphQL field/argument ``description=`` strings and the
+# single-line generated resolver signatures (black cannot split string
+# literals). F821: ``Annotated["XType", strawberry.lazy(...)]`` /
+# ``cast("QuerySet", ...)`` forward-reference STRINGS that pyflakes
+# resolves as names — the whole point of strawberry.lazy is to avoid the
+# import (which would then be F401). Both are code-generation artifacts,
+# not defects; hand-written modules (config/graphql/core/*, security.py,
+# testing.py, filters.py, …) stay fully linted.
+
 from __future__ import annotations
 
-import datetime
-import decimal
-import uuid
-from typing import Annotated, Any, Optional
+import logging
+from typing import Annotated, Optional
 
 import strawberry
-
-from config.graphql.core import permissions as core_permissions
-from config.graphql.core.filtering import filterset_factory, setup_filterset
-from config.graphql.core.mutations import drf_deletion, drf_mutation
-from config.graphql.core.relay import (
-    Node,
-    get_node_from_global_id,
-    make_connection_types,
-    register_type,
-    resolve_django_connection,
-    resolve_django_list,
-)
-from config.graphql.core.scalars import BigInt, GenericScalar, JSONString
-from config.graphql._util import coerce_enum, coerce_str, strip_unset
-from config.graphql import enums
-
-import logging
-
 from graphql_relay import from_global_id
 
+from config.graphql._util import strip_unset
 from config.graphql.core.auth import PermissionDenied
+from config.graphql.core.relay import (
+    register_type,
+)
 from config.graphql.ratelimits import RateLimits, graphql_ratelimit
 from opencontractserver.corpuses.services import CorpusCategoryService
 
@@ -62,27 +57,40 @@ def _resolve_category_pk(global_id: str):
     return category_pk
 
 
-@strawberry.type(name="CreateCorpusCategory", description='Create a new corpus category. Superuser-only.')
+@strawberry.type(
+    name="CreateCorpusCategory",
+    description="Create a new corpus category. Superuser-only.",
+)
 class CreateCorpusCategory:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
     message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[Annotated["CorpusCategoryType", strawberry.lazy("config.graphql.corpus_types")]] = strawberry.field(name="obj", default=None)
+    obj: Optional[
+        Annotated["CorpusCategoryType", strawberry.lazy("config.graphql.corpus_types")]
+    ] = strawberry.field(name="obj", default=None)
 
 
 register_type("CreateCorpusCategory", CreateCorpusCategory, model=None)
 
 
-@strawberry.type(name="UpdateCorpusCategory", description='Update an existing corpus category. Superuser-only.')
+@strawberry.type(
+    name="UpdateCorpusCategory",
+    description="Update an existing corpus category. Superuser-only.",
+)
 class UpdateCorpusCategory:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
     message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[Annotated["CorpusCategoryType", strawberry.lazy("config.graphql.corpus_types")]] = strawberry.field(name="obj", default=None)
+    obj: Optional[
+        Annotated["CorpusCategoryType", strawberry.lazy("config.graphql.corpus_types")]
+    ] = strawberry.field(name="obj", default=None)
 
 
 register_type("UpdateCorpusCategory", UpdateCorpusCategory, model=None)
 
 
-@strawberry.type(name="DeleteCorpusCategory", description='Delete a corpus category. Superuser-only.\n\nDeleting a category removes it from every corpus that referenced it (the\n``Corpus.categories`` M2M through-rows are cleaned up automatically) but\ndoes not affect the corpuses themselves.')
+@strawberry.type(
+    name="DeleteCorpusCategory",
+    description="Delete a corpus category. Superuser-only.\n\nDeleting a category removes it from every corpus that referenced it (the\n``Corpus.categories`` M2M through-rows are cleaned up automatically) but\ndoes not affect the corpuses themselves.",
+)
 class DeleteCorpusCategory:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
     message: Optional[str] = strawberry.field(name="message", default=None)
@@ -115,13 +123,13 @@ def _mutate_CreateCorpusCategory(
     # convention (root, info, ...) and the rate-limit cache group ("mutate")
     # match the graphene original.
     @graphql_ratelimit(rate=RateLimits.WRITE_LIGHT)
-    def mutate(root, info, name, description=None, icon=None, color=None, sort_order=None):
+    def mutate(
+        root, info, name, description=None, icon=None, color=None, sort_order=None
+    ):
         user = info.context.user
 
         if not user.is_superuser:
-            return payload_cls(
-                ok=False, message=NOT_SUPERUSER_MESSAGE, obj=None
-            )
+            return payload_cls(ok=False, message=NOT_SUPERUSER_MESSAGE, obj=None)
 
         result = CorpusCategoryService.create_category(
             user,
@@ -146,8 +154,47 @@ def _mutate_CreateCorpusCategory(
     )
 
 
-def m_create_corpus_category(info: strawberry.Info, color: Annotated[Optional[str], strawberry.argument(name="color", description="Hex color for the badge (e.g. '#3B82F6'). Defaults to blue.")] = strawberry.UNSET, description: Annotated[Optional[str], strawberry.argument(name="description", description='Optional human-readable description')] = strawberry.UNSET, icon: Annotated[Optional[str], strawberry.argument(name="icon", description="Lucide icon name (e.g. 'scroll', 'gavel'). Defaults to 'folder'.")] = strawberry.UNSET, name: Annotated[str, strawberry.argument(name="name", description='Unique category name')] = strawberry.UNSET, sort_order: Annotated[Optional[int], strawberry.argument(name="sortOrder", description='Display order; lower sorts first')] = strawberry.UNSET) -> Optional["CreateCorpusCategory"]:
-    kwargs = strip_unset({"color": color, "description": description, "icon": icon, "name": name, "sort_order": sort_order})
+def m_create_corpus_category(
+    info: strawberry.Info,
+    color: Annotated[
+        Optional[str],
+        strawberry.argument(
+            name="color",
+            description="Hex color for the badge (e.g. '#3B82F6'). Defaults to blue.",
+        ),
+    ] = strawberry.UNSET,
+    description: Annotated[
+        Optional[str],
+        strawberry.argument(
+            name="description", description="Optional human-readable description"
+        ),
+    ] = strawberry.UNSET,
+    icon: Annotated[
+        Optional[str],
+        strawberry.argument(
+            name="icon",
+            description="Lucide icon name (e.g. 'scroll', 'gavel'). Defaults to 'folder'.",
+        ),
+    ] = strawberry.UNSET,
+    name: Annotated[
+        str, strawberry.argument(name="name", description="Unique category name")
+    ] = strawberry.UNSET,
+    sort_order: Annotated[
+        Optional[int],
+        strawberry.argument(
+            name="sortOrder", description="Display order; lower sorts first"
+        ),
+    ] = strawberry.UNSET,
+) -> Optional["CreateCorpusCategory"]:
+    kwargs = strip_unset(
+        {
+            "color": color,
+            "description": description,
+            "icon": icon,
+            "name": name,
+            "sort_order": sort_order,
+        }
+    )
     return _mutate_CreateCorpusCategory(CreateCorpusCategory, None, info, **kwargs)
 
 
@@ -172,13 +219,20 @@ def _mutate_UpdateCorpusCategory(
 
     # @graphql_ratelimit on an inner ``mutate`` — see _mutate_CreateCorpusCategory.
     @graphql_ratelimit(rate=RateLimits.WRITE_LIGHT)
-    def mutate(root, info, id, name=None, description=None, icon=None, color=None, sort_order=None):
+    def mutate(
+        root,
+        info,
+        id,
+        name=None,
+        description=None,
+        icon=None,
+        color=None,
+        sort_order=None,
+    ):
         user = info.context.user
 
         if not user.is_superuser:
-            return payload_cls(
-                ok=False, message=NOT_SUPERUSER_MESSAGE, obj=None
-            )
+            return payload_cls(ok=False, message=NOT_SUPERUSER_MESSAGE, obj=None)
 
         category_pk = _resolve_category_pk(id)
         if category_pk is None:
@@ -213,8 +267,34 @@ def _mutate_UpdateCorpusCategory(
     )
 
 
-def m_update_corpus_category(info: strawberry.Info, color: Annotated[Optional[str], strawberry.argument(name="color")] = strawberry.UNSET, description: Annotated[Optional[str], strawberry.argument(name="description")] = strawberry.UNSET, icon: Annotated[Optional[str], strawberry.argument(name="icon")] = strawberry.UNSET, id: Annotated[strawberry.ID, strawberry.argument(name="id", description='Global ID of the category')] = strawberry.UNSET, name: Annotated[Optional[str], strawberry.argument(name="name")] = strawberry.UNSET, sort_order: Annotated[Optional[int], strawberry.argument(name="sortOrder")] = strawberry.UNSET) -> Optional["UpdateCorpusCategory"]:
-    kwargs = strip_unset({"color": color, "description": description, "icon": icon, "id": id, "name": name, "sort_order": sort_order})
+def m_update_corpus_category(
+    info: strawberry.Info,
+    color: Annotated[
+        Optional[str], strawberry.argument(name="color")
+    ] = strawberry.UNSET,
+    description: Annotated[
+        Optional[str], strawberry.argument(name="description")
+    ] = strawberry.UNSET,
+    icon: Annotated[Optional[str], strawberry.argument(name="icon")] = strawberry.UNSET,
+    id: Annotated[
+        strawberry.ID,
+        strawberry.argument(name="id", description="Global ID of the category"),
+    ] = strawberry.UNSET,
+    name: Annotated[Optional[str], strawberry.argument(name="name")] = strawberry.UNSET,
+    sort_order: Annotated[
+        Optional[int], strawberry.argument(name="sortOrder")
+    ] = strawberry.UNSET,
+) -> Optional["UpdateCorpusCategory"]:
+    kwargs = strip_unset(
+        {
+            "color": color,
+            "description": description,
+            "icon": icon,
+            "id": id,
+            "name": name,
+            "sort_order": sort_order,
+        }
+    )
     return _mutate_UpdateCorpusCategory(UpdateCorpusCategory, None, info, **kwargs)
 
 
@@ -251,14 +331,31 @@ def _mutate_DeleteCorpusCategory(payload_cls, root, info, id):
     return mutate(root, info, id=id)
 
 
-def m_delete_corpus_category(info: strawberry.Info, id: Annotated[strawberry.ID, strawberry.argument(name="id", description='Global ID of the category')] = strawberry.UNSET) -> Optional["DeleteCorpusCategory"]:
+def m_delete_corpus_category(
+    info: strawberry.Info,
+    id: Annotated[
+        strawberry.ID,
+        strawberry.argument(name="id", description="Global ID of the category"),
+    ] = strawberry.UNSET,
+) -> Optional["DeleteCorpusCategory"]:
     kwargs = strip_unset({"id": id})
     return _mutate_DeleteCorpusCategory(DeleteCorpusCategory, None, info, **kwargs)
 
 
-
 MUTATION_FIELDS = {
-    "create_corpus_category": strawberry.field(resolver=m_create_corpus_category, name="createCorpusCategory", description='Create a new corpus category. Superuser-only.'),
-    "update_corpus_category": strawberry.field(resolver=m_update_corpus_category, name="updateCorpusCategory", description='Update an existing corpus category. Superuser-only.'),
-    "delete_corpus_category": strawberry.field(resolver=m_delete_corpus_category, name="deleteCorpusCategory", description='Delete a corpus category. Superuser-only.\n\nDeleting a category removes it from every corpus that referenced it (the\n``Corpus.categories`` M2M through-rows are cleaned up automatically) but\ndoes not affect the corpuses themselves.'),
+    "create_corpus_category": strawberry.field(
+        resolver=m_create_corpus_category,
+        name="createCorpusCategory",
+        description="Create a new corpus category. Superuser-only.",
+    ),
+    "update_corpus_category": strawberry.field(
+        resolver=m_update_corpus_category,
+        name="updateCorpusCategory",
+        description="Update an existing corpus category. Superuser-only.",
+    ),
+    "delete_corpus_category": strawberry.field(
+        resolver=m_delete_corpus_category,
+        name="deleteCorpusCategory",
+        description="Delete a corpus category. Superuser-only.\n\nDeleting a category removes it from every corpus that referenced it (the\n``Corpus.categories`` M2M through-rows are cleaned up automatically) but\ndoes not affect the corpuses themselves.",
+    ),
 }

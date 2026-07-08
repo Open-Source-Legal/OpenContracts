@@ -3,35 +3,26 @@
 Shape-generated from the graphene schema; stub functions marked PORT(...)
 carry the ported business logic. See config/graphql_new/manifest.json.
 """
+
+# flake8: noqa: E501, F821 — generated strawberry schema module.
+# E501: long GraphQL field/argument ``description=`` strings and the
+# single-line generated resolver signatures (black cannot split string
+# literals). F821: ``Annotated["XType", strawberry.lazy(...)]`` /
+# ``cast("QuerySet", ...)`` forward-reference STRINGS that pyflakes
+# resolves as names — the whole point of strawberry.lazy is to avoid the
+# import (which would then be F401). Both are code-generation artifacts,
+# not defects; hand-written modules (config/graphql/core/*, security.py,
+# testing.py, filters.py, …) stay fully linted.
+
 from __future__ import annotations
 
-import datetime
-import decimal
-import uuid
-from typing import Annotated, Any, Optional
+import logging
+from typing import Annotated, Optional, cast
 
 import strawberry
-
-from config.graphql.core import permissions as core_permissions
-from config.graphql.core.filtering import filterset_factory, setup_filterset
-from config.graphql.core.mutations import drf_deletion, drf_mutation
-from config.graphql.core.relay import (
-    Node,
-    get_node_from_global_id,
-    make_connection_types,
-    register_type,
-    resolve_django_connection,
-    resolve_django_list,
-)
-from config.graphql.core.scalars import BigInt, GenericScalar, JSONString
-from config.graphql._util import coerce_enum, coerce_str, strip_unset
-from config.graphql import enums
-
-import logging
-from typing import cast
-
 from graphql import GraphQLError
 
+from config.graphql._util import strip_unset
 from config.graphql.core.auth import login_required
 from config.graphql.worker_types import (
     CorpusAccessTokenQueryType,
@@ -86,7 +77,23 @@ def _resolve_Query_worker_accounts(root, info, name_contains=None, is_active=Non
     ]
 
 
-def q_worker_accounts(info: strawberry.Info, name_contains: Annotated[Optional[str], strawberry.argument(name="nameContains")] = strawberry.UNSET, is_active: Annotated[Optional[bool], strawberry.argument(name="isActive")] = strawberry.UNSET) -> Optional[list[Optional[Annotated["WorkerAccountQueryType", strawberry.lazy("config.graphql.worker_types")]]]]:
+def q_worker_accounts(
+    info: strawberry.Info,
+    name_contains: Annotated[
+        Optional[str], strawberry.argument(name="nameContains")
+    ] = strawberry.UNSET,
+    is_active: Annotated[
+        Optional[bool], strawberry.argument(name="isActive")
+    ] = strawberry.UNSET,
+) -> Optional[
+    list[
+        Optional[
+            Annotated[
+                "WorkerAccountQueryType", strawberry.lazy("config.graphql.worker_types")
+            ]
+        ]
+    ]
+]:
     kwargs = strip_unset({"name_contains": name_contains, "is_active": is_active})
     return _resolve_Query_worker_accounts(None, info, **kwargs)
 
@@ -130,7 +137,22 @@ def _resolve_Query_corpus_access_tokens(root, info, corpus_id, is_active=None):
     ]
 
 
-def q_corpus_access_tokens(info: strawberry.Info, corpus_id: Annotated[int, strawberry.argument(name="corpusId")] = strawberry.UNSET, is_active: Annotated[Optional[bool], strawberry.argument(name="isActive")] = strawberry.UNSET) -> Optional[list[Optional[Annotated["CorpusAccessTokenQueryType", strawberry.lazy("config.graphql.worker_types")]]]]:
+def q_corpus_access_tokens(
+    info: strawberry.Info,
+    corpus_id: Annotated[int, strawberry.argument(name="corpusId")] = strawberry.UNSET,
+    is_active: Annotated[
+        Optional[bool], strawberry.argument(name="isActive")
+    ] = strawberry.UNSET,
+) -> Optional[
+    list[
+        Optional[
+            Annotated[
+                "CorpusAccessTokenQueryType",
+                strawberry.lazy("config.graphql.worker_types"),
+            ]
+        ]
+    ]
+]:
     kwargs = strip_unset({"corpus_id": corpus_id, "is_active": is_active})
     return _resolve_Query_corpus_access_tokens(None, info, **kwargs)
 
@@ -178,14 +200,45 @@ def _resolve_Query_worker_document_uploads(
     )
 
 
-def q_worker_document_uploads(info: strawberry.Info, corpus_id: Annotated[int, strawberry.argument(name="corpusId")] = strawberry.UNSET, status: Annotated[Optional[str], strawberry.argument(name="status")] = strawberry.UNSET, limit: Annotated[Optional[int], strawberry.argument(name="limit", description='Max results (default/max 100)')] = strawberry.UNSET, offset: Annotated[Optional[int], strawberry.argument(name="offset", description='Pagination offset')] = strawberry.UNSET) -> Optional[Annotated["WorkerDocumentUploadPageType", strawberry.lazy("config.graphql.worker_types")]]:
-    kwargs = strip_unset({"corpus_id": corpus_id, "status": status, "limit": limit, "offset": offset})
+def q_worker_document_uploads(
+    info: strawberry.Info,
+    corpus_id: Annotated[int, strawberry.argument(name="corpusId")] = strawberry.UNSET,
+    status: Annotated[
+        Optional[str], strawberry.argument(name="status")
+    ] = strawberry.UNSET,
+    limit: Annotated[
+        Optional[int],
+        strawberry.argument(name="limit", description="Max results (default/max 100)"),
+    ] = strawberry.UNSET,
+    offset: Annotated[
+        Optional[int],
+        strawberry.argument(name="offset", description="Pagination offset"),
+    ] = strawberry.UNSET,
+) -> Optional[
+    Annotated[
+        "WorkerDocumentUploadPageType", strawberry.lazy("config.graphql.worker_types")
+    ]
+]:
+    kwargs = strip_unset(
+        {"corpus_id": corpus_id, "status": status, "limit": limit, "offset": offset}
+    )
     return _resolve_Query_worker_document_uploads(None, info, **kwargs)
 
 
-
 QUERY_FIELDS = {
-    "worker_accounts": strawberry.field(resolver=q_worker_accounts, name="workerAccounts", description='List all worker accounts. Superuser only.'),
-    "corpus_access_tokens": strawberry.field(resolver=q_corpus_access_tokens, name="corpusAccessTokens", description='List access tokens for a corpus. Superuser or corpus creator.'),
-    "worker_document_uploads": strawberry.field(resolver=q_worker_document_uploads, name="workerDocumentUploads", description='List worker uploads for a corpus. Superuser or corpus creator.'),
+    "worker_accounts": strawberry.field(
+        resolver=q_worker_accounts,
+        name="workerAccounts",
+        description="List all worker accounts. Superuser only.",
+    ),
+    "corpus_access_tokens": strawberry.field(
+        resolver=q_corpus_access_tokens,
+        name="corpusAccessTokens",
+        description="List access tokens for a corpus. Superuser or corpus creator.",
+    ),
+    "worker_document_uploads": strawberry.field(
+        resolver=q_worker_document_uploads,
+        name="workerDocumentUploads",
+        description="List worker uploads for a corpus. Superuser or corpus creator.",
+    ),
 }

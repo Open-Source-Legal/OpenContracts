@@ -12,12 +12,11 @@ extension APPENDS to graphql-core's full spec rule set, so every standard
 validation stays active on the served endpoint. ``validation_rules`` keeps
 the full effective list exported for tests/tooling.
 """
+
 import strawberry
 from django.conf import settings
 from graphql.validation import specified_rules
 from strawberry.extensions import AddValidationRules
-
-from config.graphql.security import DepthLimitValidationRule, DisableIntrospection
 
 from config.graphql import action_queries as _action_queries
 from config.graphql import agent_mutations as _agent_mutations
@@ -28,7 +27,9 @@ from config.graphql import annotation_queries as _annotation_queries
 from config.graphql import annotation_types as _annotation_types
 from config.graphql import authority_frontier_mutations as _authority_frontier_mutations
 from config.graphql import authority_mapping_mutations as _authority_mapping_mutations
-from config.graphql import authority_namespace_mutations as _authority_namespace_mutations
+from config.graphql import (
+    authority_namespace_mutations as _authority_namespace_mutations,
+)
 from config.graphql import badge_mutations as _badge_mutations
 from config.graphql import base_types as _base_types
 from config.graphql import conversation_mutations as _conversation_mutations
@@ -42,7 +43,9 @@ from config.graphql import corpus_types as _corpus_types
 from config.graphql import discover_queries as _discover_queries
 from config.graphql import document_mutations as _document_mutations
 from config.graphql import document_queries as _document_queries
-from config.graphql import document_relationship_mutations as _document_relationship_mutations
+from config.graphql import (
+    document_relationship_mutations as _document_relationship_mutations,
+)
 from config.graphql import document_types as _document_types
 from config.graphql import enrichment_mutations as _enrichment_mutations
 from config.graphql import extract_mutations as _extract_mutations
@@ -76,6 +79,7 @@ from config.graphql import voting_mutations as _voting_mutations
 from config.graphql import worker_mutations as _worker_mutations
 from config.graphql import worker_queries as _worker_queries
 from config.graphql import worker_types as _worker_types
+from config.graphql.security import DepthLimitValidationRule, DisableIntrospection
 
 _query_ns = {}
 _query_ns.update(_action_queries.QUERY_FIELDS)
@@ -128,49 +132,195 @@ _mutation_ns.update(_worker_mutations.MUTATION_FIELDS)
 Query = strawberry.type(type("Query", (), dict(_query_ns)), name="Query")
 Mutation = strawberry.type(type("Mutation", (), dict(_mutation_ns)), name="Mutation")
 _extra_types = []
-_extra_types += [v for v in vars(_agent_mutations).values() if hasattr(v, '__strawberry_definition__')]
-_extra_types += [v for v in vars(_agent_types).values() if hasattr(v, '__strawberry_definition__')]
-_extra_types += [v for v in vars(_analysis_mutations).values() if hasattr(v, '__strawberry_definition__')]
-_extra_types += [v for v in vars(_annotation_mutations).values() if hasattr(v, '__strawberry_definition__')]
-_extra_types += [v for v in vars(_annotation_queries).values() if hasattr(v, '__strawberry_definition__')]
-_extra_types += [v for v in vars(_annotation_types).values() if hasattr(v, '__strawberry_definition__')]
-_extra_types += [v for v in vars(_authority_frontier_mutations).values() if hasattr(v, '__strawberry_definition__')]
-_extra_types += [v for v in vars(_authority_mapping_mutations).values() if hasattr(v, '__strawberry_definition__')]
-_extra_types += [v for v in vars(_authority_namespace_mutations).values() if hasattr(v, '__strawberry_definition__')]
-_extra_types += [v for v in vars(_badge_mutations).values() if hasattr(v, '__strawberry_definition__')]
-_extra_types += [v for v in vars(_base_types).values() if hasattr(v, '__strawberry_definition__')]
-_extra_types += [v for v in vars(_conversation_mutations).values() if hasattr(v, '__strawberry_definition__')]
-_extra_types += [v for v in vars(_conversation_types).values() if hasattr(v, '__strawberry_definition__')]
-_extra_types += [v for v in vars(_corpus_category_mutations).values() if hasattr(v, '__strawberry_definition__')]
-_extra_types += [v for v in vars(_corpus_folder_mutations).values() if hasattr(v, '__strawberry_definition__')]
-_extra_types += [v for v in vars(_corpus_mutations).values() if hasattr(v, '__strawberry_definition__')]
-_extra_types += [v for v in vars(_corpus_types).values() if hasattr(v, '__strawberry_definition__')]
-_extra_types += [v for v in vars(_document_mutations).values() if hasattr(v, '__strawberry_definition__')]
-_extra_types += [v for v in vars(_document_relationship_mutations).values() if hasattr(v, '__strawberry_definition__')]
-_extra_types += [v for v in vars(_document_types).values() if hasattr(v, '__strawberry_definition__')]
-_extra_types += [v for v in vars(_enrichment_mutations).values() if hasattr(v, '__strawberry_definition__')]
-_extra_types += [v for v in vars(_extract_mutations).values() if hasattr(v, '__strawberry_definition__')]
-_extra_types += [v for v in vars(_extract_queries).values() if hasattr(v, '__strawberry_definition__')]
-_extra_types += [v for v in vars(_extract_types).values() if hasattr(v, '__strawberry_definition__')]
-_extra_types += [v for v in vars(_ingestion_admin_types).values() if hasattr(v, '__strawberry_definition__')]
-_extra_types += [v for v in vars(_ingestion_source_mutations).values() if hasattr(v, '__strawberry_definition__')]
-_extra_types += [v for v in vars(_jwt_auth).values() if hasattr(v, '__strawberry_definition__')]
-_extra_types += [v for v in vars(_label_mutations).values() if hasattr(v, '__strawberry_definition__')]
-_extra_types += [v for v in vars(_moderation_mutations).values() if hasattr(v, '__strawberry_definition__')]
-_extra_types += [v for v in vars(_notification_mutations).values() if hasattr(v, '__strawberry_definition__')]
-_extra_types += [v for v in vars(_og_metadata_types).values() if hasattr(v, '__strawberry_definition__')]
-_extra_types += [v for v in vars(_pipeline_settings_mutations).values() if hasattr(v, '__strawberry_definition__')]
-_extra_types += [v for v in vars(_pipeline_types).values() if hasattr(v, '__strawberry_definition__')]
-_extra_types += [v for v in vars(_research_mutations).values() if hasattr(v, '__strawberry_definition__')]
-_extra_types += [v for v in vars(_research_types).values() if hasattr(v, '__strawberry_definition__')]
-_extra_types += [v for v in vars(_smart_label_mutations).values() if hasattr(v, '__strawberry_definition__')]
-_extra_types += [v for v in vars(_social_types).values() if hasattr(v, '__strawberry_definition__')]
-_extra_types += [v for v in vars(_stats_queries).values() if hasattr(v, '__strawberry_definition__')]
-_extra_types += [v for v in vars(_user_mutations).values() if hasattr(v, '__strawberry_definition__')]
-_extra_types += [v for v in vars(_user_types).values() if hasattr(v, '__strawberry_definition__')]
-_extra_types += [v for v in vars(_voting_mutations).values() if hasattr(v, '__strawberry_definition__')]
-_extra_types += [v for v in vars(_worker_mutations).values() if hasattr(v, '__strawberry_definition__')]
-_extra_types += [v for v in vars(_worker_types).values() if hasattr(v, '__strawberry_definition__')]
+_extra_types += [
+    v
+    for v in vars(_agent_mutations).values()
+    if hasattr(v, "__strawberry_definition__")
+]
+_extra_types += [
+    v for v in vars(_agent_types).values() if hasattr(v, "__strawberry_definition__")
+]
+_extra_types += [
+    v
+    for v in vars(_analysis_mutations).values()
+    if hasattr(v, "__strawberry_definition__")
+]
+_extra_types += [
+    v
+    for v in vars(_annotation_mutations).values()
+    if hasattr(v, "__strawberry_definition__")
+]
+_extra_types += [
+    v
+    for v in vars(_annotation_queries).values()
+    if hasattr(v, "__strawberry_definition__")
+]
+_extra_types += [
+    v
+    for v in vars(_annotation_types).values()
+    if hasattr(v, "__strawberry_definition__")
+]
+_extra_types += [
+    v
+    for v in vars(_authority_frontier_mutations).values()
+    if hasattr(v, "__strawberry_definition__")
+]
+_extra_types += [
+    v
+    for v in vars(_authority_mapping_mutations).values()
+    if hasattr(v, "__strawberry_definition__")
+]
+_extra_types += [
+    v
+    for v in vars(_authority_namespace_mutations).values()
+    if hasattr(v, "__strawberry_definition__")
+]
+_extra_types += [
+    v
+    for v in vars(_badge_mutations).values()
+    if hasattr(v, "__strawberry_definition__")
+]
+_extra_types += [
+    v for v in vars(_base_types).values() if hasattr(v, "__strawberry_definition__")
+]
+_extra_types += [
+    v
+    for v in vars(_conversation_mutations).values()
+    if hasattr(v, "__strawberry_definition__")
+]
+_extra_types += [
+    v
+    for v in vars(_conversation_types).values()
+    if hasattr(v, "__strawberry_definition__")
+]
+_extra_types += [
+    v
+    for v in vars(_corpus_category_mutations).values()
+    if hasattr(v, "__strawberry_definition__")
+]
+_extra_types += [
+    v
+    for v in vars(_corpus_folder_mutations).values()
+    if hasattr(v, "__strawberry_definition__")
+]
+_extra_types += [
+    v
+    for v in vars(_corpus_mutations).values()
+    if hasattr(v, "__strawberry_definition__")
+]
+_extra_types += [
+    v for v in vars(_corpus_types).values() if hasattr(v, "__strawberry_definition__")
+]
+_extra_types += [
+    v
+    for v in vars(_document_mutations).values()
+    if hasattr(v, "__strawberry_definition__")
+]
+_extra_types += [
+    v
+    for v in vars(_document_relationship_mutations).values()
+    if hasattr(v, "__strawberry_definition__")
+]
+_extra_types += [
+    v for v in vars(_document_types).values() if hasattr(v, "__strawberry_definition__")
+]
+_extra_types += [
+    v
+    for v in vars(_enrichment_mutations).values()
+    if hasattr(v, "__strawberry_definition__")
+]
+_extra_types += [
+    v
+    for v in vars(_extract_mutations).values()
+    if hasattr(v, "__strawberry_definition__")
+]
+_extra_types += [
+    v
+    for v in vars(_extract_queries).values()
+    if hasattr(v, "__strawberry_definition__")
+]
+_extra_types += [
+    v for v in vars(_extract_types).values() if hasattr(v, "__strawberry_definition__")
+]
+_extra_types += [
+    v
+    for v in vars(_ingestion_admin_types).values()
+    if hasattr(v, "__strawberry_definition__")
+]
+_extra_types += [
+    v
+    for v in vars(_ingestion_source_mutations).values()
+    if hasattr(v, "__strawberry_definition__")
+]
+_extra_types += [
+    v for v in vars(_jwt_auth).values() if hasattr(v, "__strawberry_definition__")
+]
+_extra_types += [
+    v
+    for v in vars(_label_mutations).values()
+    if hasattr(v, "__strawberry_definition__")
+]
+_extra_types += [
+    v
+    for v in vars(_moderation_mutations).values()
+    if hasattr(v, "__strawberry_definition__")
+]
+_extra_types += [
+    v
+    for v in vars(_notification_mutations).values()
+    if hasattr(v, "__strawberry_definition__")
+]
+_extra_types += [
+    v
+    for v in vars(_og_metadata_types).values()
+    if hasattr(v, "__strawberry_definition__")
+]
+_extra_types += [
+    v
+    for v in vars(_pipeline_settings_mutations).values()
+    if hasattr(v, "__strawberry_definition__")
+]
+_extra_types += [
+    v for v in vars(_pipeline_types).values() if hasattr(v, "__strawberry_definition__")
+]
+_extra_types += [
+    v
+    for v in vars(_research_mutations).values()
+    if hasattr(v, "__strawberry_definition__")
+]
+_extra_types += [
+    v for v in vars(_research_types).values() if hasattr(v, "__strawberry_definition__")
+]
+_extra_types += [
+    v
+    for v in vars(_smart_label_mutations).values()
+    if hasattr(v, "__strawberry_definition__")
+]
+_extra_types += [
+    v for v in vars(_social_types).values() if hasattr(v, "__strawberry_definition__")
+]
+_extra_types += [
+    v for v in vars(_stats_queries).values() if hasattr(v, "__strawberry_definition__")
+]
+_extra_types += [
+    v for v in vars(_user_mutations).values() if hasattr(v, "__strawberry_definition__")
+]
+_extra_types += [
+    v for v in vars(_user_types).values() if hasattr(v, "__strawberry_definition__")
+]
+_extra_types += [
+    v
+    for v in vars(_voting_mutations).values()
+    if hasattr(v, "__strawberry_definition__")
+]
+_extra_types += [
+    v
+    for v in vars(_worker_mutations).values()
+    if hasattr(v, "__strawberry_definition__")
+]
+_extra_types += [
+    v for v in vars(_worker_types).values() if hasattr(v, "__strawberry_definition__")
+]
 _custom_rules: list = [DepthLimitValidationRule]
 if not settings.DEBUG:
     _custom_rules.append(DisableIntrospection)

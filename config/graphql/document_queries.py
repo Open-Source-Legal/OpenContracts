@@ -3,54 +3,53 @@
 Shape-generated from the graphene schema; stub functions marked PORT(...)
 carry the ported business logic. See config/graphql_new/manifest.json.
 """
+
+# flake8: noqa: E501, F821 — generated strawberry schema module.
+# E501: long GraphQL field/argument ``description=`` strings and the
+# single-line generated resolver signatures (black cannot split string
+# literals). F821: ``Annotated["XType", strawberry.lazy(...)]`` /
+# ``cast("QuerySet", ...)`` forward-reference STRINGS that pyflakes
+# resolves as names — the whole point of strawberry.lazy is to avoid the
+# import (which would then be F401). Both are code-generation artifacts,
+# not defects; hand-written modules (config/graphql/core/*, security.py,
+# testing.py, filters.py, …) stay fully linted.
+
 from __future__ import annotations
 
-import datetime
-import decimal
-import uuid
+import logging
 from typing import Annotated, Any, Optional
 
 import strawberry
-
-from config.graphql.core import permissions as core_permissions
-from config.graphql.core.filtering import filterset_factory, setup_filterset
-from config.graphql.core.mutations import drf_deletion, drf_mutation
-from config.graphql.core.relay import (
-    Node,
-    get_node_from_global_id,
-    make_connection_types,
-    register_type,
-    resolve_django_connection,
-    resolve_django_list,
-)
-from config.graphql.core.scalars import BigInt, GenericScalar, JSONString
-from config.graphql._util import coerce_enum, coerce_str, strip_unset
-from config.graphql import enums
-
-import logging
-
 from django.conf import settings
 from django.core.cache import cache
-from django.db.models import Count, Q, QuerySet, Sum
+from django.db.models import Count, Q, Sum
 from django.db.models.functions import Coalesce
 from graphql import GraphQLError
 from graphql_relay import from_global_id, to_global_id
 
+from config.graphql import enums
+from config.graphql._util import strip_unset
 from config.graphql.core.auth import login_required
+from config.graphql.core.filtering import setup_filterset
+from config.graphql.core.relay import (
+    get_node_from_global_id,
+    resolve_django_connection,
+)
 from config.graphql.custom_resolvers import requests_doc_type_labels
 from config.graphql.document_types import (
     INGESTION_SOURCE_GLOBAL_ID_TYPE,
     DocumentStatsType,
 )
-from config.graphql.filters import DocumentFilter
-from config.graphql.filters import DocumentRelationshipFilter
+from config.graphql.filters import DocumentFilter, DocumentRelationshipFilter
 from config.graphql.ratelimits import get_user_tier_rate, graphql_ratelimit_dynamic
 from config.graphql.user_types import BulkDocumentUploadStatusType
 from opencontractserver.constants.search import MAX_SELECT_ALL_DOCUMENT_IDS
 from opencontractserver.constants.zip_import import BULK_UPLOAD_OWNER_CACHE_PREFIX
-from opencontractserver.documents.models import Document
-from opencontractserver.documents.models import DocumentRelationship
-from opencontractserver.documents.models import IngestionSource
+from opencontractserver.documents.models import (
+    Document,
+    DocumentRelationship,
+    IngestionSource,
+)
 from opencontractserver.documents.services import DocumentRelationshipService
 from opencontractserver.shared.services.base import BaseService
 
@@ -100,10 +99,116 @@ def _resolve_Query_documents(root, info, **kwargs):
     )
 
 
-def q_documents(info: strawberry.Info, offset: Annotated[Optional[int], strawberry.argument(name="offset")] = strawberry.UNSET, before: Annotated[Optional[str], strawberry.argument(name="before")] = strawberry.UNSET, after: Annotated[Optional[str], strawberry.argument(name="after")] = strawberry.UNSET, first: Annotated[Optional[int], strawberry.argument(name="first")] = strawberry.UNSET, last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET, description: Annotated[Optional[str], strawberry.argument(name="description")] = strawberry.UNSET, description__contains: Annotated[Optional[str], strawberry.argument(name="description_Contains")] = strawberry.UNSET, id: Annotated[Optional[strawberry.ID], strawberry.argument(name="id")] = strawberry.UNSET, title: Annotated[Optional[str], strawberry.argument(name="title")] = strawberry.UNSET, title__contains: Annotated[Optional[str], strawberry.argument(name="title_Contains")] = strawberry.UNSET, company_search: Annotated[Optional[str], strawberry.argument(name="companySearch")] = strawberry.UNSET, has_pdf: Annotated[Optional[bool], strawberry.argument(name="hasPdf")] = strawberry.UNSET, has_annotations_with_ids: Annotated[Optional[str], strawberry.argument(name="hasAnnotationsWithIds")] = strawberry.UNSET, in_corpus_with_id: Annotated[Optional[str], strawberry.argument(name="inCorpusWithId")] = strawberry.UNSET, in_folder_id: Annotated[Optional[str], strawberry.argument(name="inFolderId")] = strawberry.UNSET, has_label_with_title: Annotated[Optional[str], strawberry.argument(name="hasLabelWithTitle")] = strawberry.UNSET, has_label_with_id: Annotated[Optional[str], strawberry.argument(name="hasLabelWithId")] = strawberry.UNSET, text_search: Annotated[Optional[str], strawberry.argument(name="textSearch")] = strawberry.UNSET, include_caml: Annotated[Optional[bool], strawberry.argument(name="includeCaml")] = strawberry.UNSET) -> Optional[Annotated["DocumentTypeConnection", strawberry.lazy("config.graphql.document_types")]]:
-    kwargs = strip_unset({"offset": offset, "before": before, "after": after, "first": first, "last": last, "description": description, "description__contains": description__contains, "id": id, "title": title, "title__contains": title__contains, "company_search": company_search, "has_pdf": has_pdf, "has_annotations_with_ids": has_annotations_with_ids, "in_corpus_with_id": in_corpus_with_id, "in_folder_id": in_folder_id, "has_label_with_title": has_label_with_title, "has_label_with_id": has_label_with_id, "text_search": text_search, "include_caml": include_caml})
+def q_documents(
+    info: strawberry.Info,
+    offset: Annotated[
+        Optional[int], strawberry.argument(name="offset")
+    ] = strawberry.UNSET,
+    before: Annotated[
+        Optional[str], strawberry.argument(name="before")
+    ] = strawberry.UNSET,
+    after: Annotated[
+        Optional[str], strawberry.argument(name="after")
+    ] = strawberry.UNSET,
+    first: Annotated[
+        Optional[int], strawberry.argument(name="first")
+    ] = strawberry.UNSET,
+    last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET,
+    description: Annotated[
+        Optional[str], strawberry.argument(name="description")
+    ] = strawberry.UNSET,
+    description__contains: Annotated[
+        Optional[str], strawberry.argument(name="description_Contains")
+    ] = strawberry.UNSET,
+    id: Annotated[
+        Optional[strawberry.ID], strawberry.argument(name="id")
+    ] = strawberry.UNSET,
+    title: Annotated[
+        Optional[str], strawberry.argument(name="title")
+    ] = strawberry.UNSET,
+    title__contains: Annotated[
+        Optional[str], strawberry.argument(name="title_Contains")
+    ] = strawberry.UNSET,
+    company_search: Annotated[
+        Optional[str], strawberry.argument(name="companySearch")
+    ] = strawberry.UNSET,
+    has_pdf: Annotated[
+        Optional[bool], strawberry.argument(name="hasPdf")
+    ] = strawberry.UNSET,
+    has_annotations_with_ids: Annotated[
+        Optional[str], strawberry.argument(name="hasAnnotationsWithIds")
+    ] = strawberry.UNSET,
+    in_corpus_with_id: Annotated[
+        Optional[str], strawberry.argument(name="inCorpusWithId")
+    ] = strawberry.UNSET,
+    in_folder_id: Annotated[
+        Optional[str], strawberry.argument(name="inFolderId")
+    ] = strawberry.UNSET,
+    has_label_with_title: Annotated[
+        Optional[str], strawberry.argument(name="hasLabelWithTitle")
+    ] = strawberry.UNSET,
+    has_label_with_id: Annotated[
+        Optional[str], strawberry.argument(name="hasLabelWithId")
+    ] = strawberry.UNSET,
+    text_search: Annotated[
+        Optional[str], strawberry.argument(name="textSearch")
+    ] = strawberry.UNSET,
+    include_caml: Annotated[
+        Optional[bool], strawberry.argument(name="includeCaml")
+    ] = strawberry.UNSET,
+) -> Optional[
+    Annotated[
+        "DocumentTypeConnection", strawberry.lazy("config.graphql.document_types")
+    ]
+]:
+    kwargs = strip_unset(
+        {
+            "offset": offset,
+            "before": before,
+            "after": after,
+            "first": first,
+            "last": last,
+            "description": description,
+            "description__contains": description__contains,
+            "id": id,
+            "title": title,
+            "title__contains": title__contains,
+            "company_search": company_search,
+            "has_pdf": has_pdf,
+            "has_annotations_with_ids": has_annotations_with_ids,
+            "in_corpus_with_id": in_corpus_with_id,
+            "in_folder_id": in_folder_id,
+            "has_label_with_title": has_label_with_title,
+            "has_label_with_id": has_label_with_id,
+            "text_search": text_search,
+            "include_caml": include_caml,
+        }
+    )
     resolved = _resolve_Query_documents(None, info, **kwargs)
-    return resolve_django_connection(resolved=resolved, info=info, args=kwargs, node_type_name="DocumentType", default_manager=Document._default_manager, filterset_class=setup_filterset(DocumentFilter), filter_args={"description": "description", "description__contains": "description__contains", "id": "id", "title": "title", "title__contains": "title__contains", "company_search": "company_search", "has_pdf": "has_pdf", "has_annotations_with_ids": "has_annotations_with_ids", "in_corpus_with_id": "in_corpus_with_id", "in_folder_id": "in_folder_id", "has_label_with_title": "has_label_with_title", "has_label_with_id": "has_label_with_id", "text_search": "text_search", "include_caml": "include_caml"}, )
+    return resolve_django_connection(
+        resolved=resolved,
+        info=info,
+        args=kwargs,
+        node_type_name="DocumentType",
+        default_manager=Document._default_manager,
+        filterset_class=setup_filterset(DocumentFilter),
+        filter_args={
+            "description": "description",
+            "description__contains": "description__contains",
+            "id": "id",
+            "title": "title",
+            "title__contains": "title__contains",
+            "company_search": "company_search",
+            "has_pdf": "has_pdf",
+            "has_annotations_with_ids": "has_annotations_with_ids",
+            "in_corpus_with_id": "in_corpus_with_id",
+            "in_folder_id": "in_folder_id",
+            "has_label_with_title": "has_label_with_title",
+            "has_label_with_id": "has_label_with_id",
+            "text_search": "text_search",
+            "include_caml": "include_caml",
+        },
+    )
 
 
 def _resolve_Query_document(root, info, **kwargs):
@@ -137,7 +242,14 @@ def _resolve_Query_document(root, info, **kwargs):
     return document
 
 
-def q_document(info: strawberry.Info, id: Annotated[Optional[strawberry.ID], strawberry.argument(name="id")] = strawberry.UNSET) -> Optional[Annotated["DocumentType", strawberry.lazy("config.graphql.document_types")]]:
+def q_document(
+    info: strawberry.Info,
+    id: Annotated[
+        Optional[strawberry.ID], strawberry.argument(name="id")
+    ] = strawberry.UNSET,
+) -> Optional[
+    Annotated["DocumentType", strawberry.lazy("config.graphql.document_types")]
+]:
     kwargs = strip_unset({"id": id})
     return _resolve_Query_document(None, info, **kwargs)
 
@@ -171,9 +283,7 @@ def _resolve_Query_corpus_document_ids(root, info, in_corpus_with_id, **kwargs):
         if value is not None:
             filter_data[key] = value
 
-    filtered = DocumentFilter(
-        data=filter_data, queryset=base, request=info.context
-    ).qs
+    filtered = DocumentFilter(data=filter_data, queryset=base, request=info.context).qs
 
     # Cap the response so a Select-All on a very large corpus cannot return
     # an unbounded multi-megabyte id list (the READ_LIGHT limiter throttles
@@ -184,9 +294,7 @@ def _resolve_Query_corpus_document_ids(root, info, in_corpus_with_id, **kwargs):
     # slice — not a separate COUNT(*) — decides whether we're over the limit,
     # so the cap decision comes from one consistent query (no count()/
     # values_list() TOCTOU drift) and the common under-cap path is one DB hit.
-    pks = list(
-        filtered.values_list("pk", flat=True)[: MAX_SELECT_ALL_DOCUMENT_IDS + 1]
-    )
+    pks = list(filtered.values_list("pk", flat=True)[: MAX_SELECT_ALL_DOCUMENT_IDS + 1])
     if len(pks) > MAX_SELECT_ALL_DOCUMENT_IDS:
         # Only the rare over-cap error path pays for an exact count, purely to
         # make the message actionable ("matches 31,234 documents").
@@ -200,8 +308,37 @@ def _resolve_Query_corpus_document_ids(root, info, in_corpus_with_id, **kwargs):
     return [to_global_id("DocumentType", pk) for pk in pks]
 
 
-def q_corpus_document_ids(info: strawberry.Info, in_corpus_with_id: Annotated[str, strawberry.argument(name="inCorpusWithId")] = strawberry.UNSET, in_folder_id: Annotated[Optional[str], strawberry.argument(name="inFolderId")] = strawberry.UNSET, text_search: Annotated[Optional[str], strawberry.argument(name="textSearch")] = strawberry.UNSET, has_label_with_id: Annotated[Optional[str], strawberry.argument(name="hasLabelWithId")] = strawberry.UNSET, has_annotations_with_ids: Annotated[Optional[str], strawberry.argument(name="hasAnnotationsWithIds")] = strawberry.UNSET, include_caml: Annotated[Optional[bool], strawberry.argument(name="includeCaml")] = strawberry.UNSET) -> Optional[list[strawberry.ID]]:
-    kwargs = strip_unset({"in_corpus_with_id": in_corpus_with_id, "in_folder_id": in_folder_id, "text_search": text_search, "has_label_with_id": has_label_with_id, "has_annotations_with_ids": has_annotations_with_ids, "include_caml": include_caml})
+def q_corpus_document_ids(
+    info: strawberry.Info,
+    in_corpus_with_id: Annotated[
+        str, strawberry.argument(name="inCorpusWithId")
+    ] = strawberry.UNSET,
+    in_folder_id: Annotated[
+        Optional[str], strawberry.argument(name="inFolderId")
+    ] = strawberry.UNSET,
+    text_search: Annotated[
+        Optional[str], strawberry.argument(name="textSearch")
+    ] = strawberry.UNSET,
+    has_label_with_id: Annotated[
+        Optional[str], strawberry.argument(name="hasLabelWithId")
+    ] = strawberry.UNSET,
+    has_annotations_with_ids: Annotated[
+        Optional[str], strawberry.argument(name="hasAnnotationsWithIds")
+    ] = strawberry.UNSET,
+    include_caml: Annotated[
+        Optional[bool], strawberry.argument(name="includeCaml")
+    ] = strawberry.UNSET,
+) -> Optional[list[strawberry.ID]]:
+    kwargs = strip_unset(
+        {
+            "in_corpus_with_id": in_corpus_with_id,
+            "in_folder_id": in_folder_id,
+            "text_search": text_search,
+            "has_label_with_id": has_label_with_id,
+            "has_annotations_with_ids": has_annotations_with_ids,
+            "include_caml": include_caml,
+        }
+    )
     return _resolve_Query_corpus_document_ids(None, info, **kwargs)
 
 
@@ -217,9 +354,7 @@ def _resolve_Query_document_stats(root, info, **kwargs):
 
     # Strip absent filter args so DocumentFilter doesn't apply them.
     filter_data = {
-        key: value
-        for key, value in kwargs.items()
-        if value is not None and value != ""
+        key: value for key, value in kwargs.items() if value is not None and value != ""
     }
 
     # ``lightweight=True`` skips prefetches we don't need for an
@@ -251,8 +386,31 @@ def _resolve_Query_document_stats(root, info, **kwargs):
     )
 
 
-def q_document_stats(info: strawberry.Info, in_corpus_with_id: Annotated[Optional[str], strawberry.argument(name="inCorpusWithId")] = strawberry.UNSET, has_label_with_id: Annotated[Optional[str], strawberry.argument(name="hasLabelWithId")] = strawberry.UNSET, text_search: Annotated[Optional[str], strawberry.argument(name="textSearch")] = strawberry.UNSET, include_caml: Annotated[Optional[bool], strawberry.argument(name="includeCaml")] = strawberry.UNSET) -> Optional[Annotated["DocumentStatsType", strawberry.lazy("config.graphql.document_types")]]:
-    kwargs = strip_unset({"in_corpus_with_id": in_corpus_with_id, "has_label_with_id": has_label_with_id, "text_search": text_search, "include_caml": include_caml})
+def q_document_stats(
+    info: strawberry.Info,
+    in_corpus_with_id: Annotated[
+        Optional[str], strawberry.argument(name="inCorpusWithId")
+    ] = strawberry.UNSET,
+    has_label_with_id: Annotated[
+        Optional[str], strawberry.argument(name="hasLabelWithId")
+    ] = strawberry.UNSET,
+    text_search: Annotated[
+        Optional[str], strawberry.argument(name="textSearch")
+    ] = strawberry.UNSET,
+    include_caml: Annotated[
+        Optional[bool], strawberry.argument(name="includeCaml")
+    ] = strawberry.UNSET,
+) -> Optional[
+    Annotated["DocumentStatsType", strawberry.lazy("config.graphql.document_types")]
+]:
+    kwargs = strip_unset(
+        {
+            "in_corpus_with_id": in_corpus_with_id,
+            "has_label_with_id": has_label_with_id,
+            "text_search": text_search,
+            "include_caml": include_caml,
+        }
+    )
     return _resolve_Query_document_stats(None, info, **kwargs)
 
 
@@ -295,13 +453,104 @@ def _resolve_Query_document_relationships(root, info, **kwargs):
     return queryset.distinct().order_by("-created")
 
 
-def q_document_relationships(info: strawberry.Info, corpus_id: Annotated[Optional[strawberry.ID], strawberry.argument(name="corpusId")] = strawberry.UNSET, document_id: Annotated[Optional[strawberry.ID], strawberry.argument(name="documentId")] = strawberry.UNSET, offset: Annotated[Optional[int], strawberry.argument(name="offset")] = strawberry.UNSET, before: Annotated[Optional[str], strawberry.argument(name="before")] = strawberry.UNSET, after: Annotated[Optional[str], strawberry.argument(name="after")] = strawberry.UNSET, first: Annotated[Optional[int], strawberry.argument(name="first")] = strawberry.UNSET, last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET, relationship_type: Annotated[Optional[enums.DocumentsDocumentRelationshipRelationshipTypeChoices], strawberry.argument(name="relationshipType")] = strawberry.UNSET, source_document: Annotated[Optional[strawberry.ID], strawberry.argument(name="sourceDocument")] = strawberry.UNSET, target_document: Annotated[Optional[strawberry.ID], strawberry.argument(name="targetDocument")] = strawberry.UNSET, annotation_label: Annotated[Optional[strawberry.ID], strawberry.argument(name="annotationLabel")] = strawberry.UNSET, creator: Annotated[Optional[strawberry.ID], strawberry.argument(name="creator")] = strawberry.UNSET, is_public: Annotated[Optional[bool], strawberry.argument(name="isPublic")] = strawberry.UNSET, annotation_label_text: Annotated[Optional[str], strawberry.argument(name="annotationLabelText")] = strawberry.UNSET) -> Optional[Annotated["DocumentRelationshipTypeConnection", strawberry.lazy("config.graphql.document_types")]]:
-    kwargs = strip_unset({"corpus_id": corpus_id, "document_id": document_id, "offset": offset, "before": before, "after": after, "first": first, "last": last, "relationship_type": relationship_type, "source_document": source_document, "target_document": target_document, "annotation_label": annotation_label, "creator": creator, "is_public": is_public, "annotation_label_text": annotation_label_text})
+def q_document_relationships(
+    info: strawberry.Info,
+    corpus_id: Annotated[
+        Optional[strawberry.ID], strawberry.argument(name="corpusId")
+    ] = strawberry.UNSET,
+    document_id: Annotated[
+        Optional[strawberry.ID], strawberry.argument(name="documentId")
+    ] = strawberry.UNSET,
+    offset: Annotated[
+        Optional[int], strawberry.argument(name="offset")
+    ] = strawberry.UNSET,
+    before: Annotated[
+        Optional[str], strawberry.argument(name="before")
+    ] = strawberry.UNSET,
+    after: Annotated[
+        Optional[str], strawberry.argument(name="after")
+    ] = strawberry.UNSET,
+    first: Annotated[
+        Optional[int], strawberry.argument(name="first")
+    ] = strawberry.UNSET,
+    last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET,
+    relationship_type: Annotated[
+        Optional[enums.DocumentsDocumentRelationshipRelationshipTypeChoices],
+        strawberry.argument(name="relationshipType"),
+    ] = strawberry.UNSET,
+    source_document: Annotated[
+        Optional[strawberry.ID], strawberry.argument(name="sourceDocument")
+    ] = strawberry.UNSET,
+    target_document: Annotated[
+        Optional[strawberry.ID], strawberry.argument(name="targetDocument")
+    ] = strawberry.UNSET,
+    annotation_label: Annotated[
+        Optional[strawberry.ID], strawberry.argument(name="annotationLabel")
+    ] = strawberry.UNSET,
+    creator: Annotated[
+        Optional[strawberry.ID], strawberry.argument(name="creator")
+    ] = strawberry.UNSET,
+    is_public: Annotated[
+        Optional[bool], strawberry.argument(name="isPublic")
+    ] = strawberry.UNSET,
+    annotation_label_text: Annotated[
+        Optional[str], strawberry.argument(name="annotationLabelText")
+    ] = strawberry.UNSET,
+) -> Optional[
+    Annotated[
+        "DocumentRelationshipTypeConnection",
+        strawberry.lazy("config.graphql.document_types"),
+    ]
+]:
+    kwargs = strip_unset(
+        {
+            "corpus_id": corpus_id,
+            "document_id": document_id,
+            "offset": offset,
+            "before": before,
+            "after": after,
+            "first": first,
+            "last": last,
+            "relationship_type": relationship_type,
+            "source_document": source_document,
+            "target_document": target_document,
+            "annotation_label": annotation_label,
+            "creator": creator,
+            "is_public": is_public,
+            "annotation_label_text": annotation_label_text,
+        }
+    )
     resolved = _resolve_Query_document_relationships(None, info, **kwargs)
-    return resolve_django_connection(resolved=resolved, info=info, args=kwargs, node_type_name="DocumentRelationshipType", default_manager=DocumentRelationship._default_manager, filterset_class=setup_filterset(DocumentRelationshipFilter), filter_args={"relationship_type": "relationship_type", "source_document": "source_document", "target_document": "target_document", "annotation_label": "annotation_label", "creator": "creator", "is_public": "is_public", "annotation_label_text": "annotation_label_text"}, )
+    return resolve_django_connection(
+        resolved=resolved,
+        info=info,
+        args=kwargs,
+        node_type_name="DocumentRelationshipType",
+        default_manager=DocumentRelationship._default_manager,
+        filterset_class=setup_filterset(DocumentRelationshipFilter),
+        filter_args={
+            "relationship_type": "relationship_type",
+            "source_document": "source_document",
+            "target_document": "target_document",
+            "annotation_label": "annotation_label",
+            "creator": "creator",
+            "is_public": "is_public",
+            "annotation_label_text": "annotation_label_text",
+        },
+    )
 
 
-def q_document_relationship(info: strawberry.Info, id: Annotated[strawberry.ID, strawberry.argument(name="id", description='The ID of the object')] = strawberry.UNSET) -> Optional[Annotated["DocumentRelationshipType", strawberry.lazy("config.graphql.document_types")]]:
+def q_document_relationship(
+    info: strawberry.Info,
+    id: Annotated[
+        strawberry.ID,
+        strawberry.argument(name="id", description="The ID of the object"),
+    ] = strawberry.UNSET,
+) -> Optional[
+    Annotated[
+        "DocumentRelationshipType", strawberry.lazy("config.graphql.document_types")
+    ]
+]:
     return get_node_from_global_id(info, id, only_type_name="DocumentRelationshipType")
 
 
@@ -339,8 +588,34 @@ def _resolve_Query_bulk_doc_relationships(root, info, document_id, **kwargs):
     return queryset.distinct().order_by("-created")
 
 
-def q_bulk_doc_relationships(info: strawberry.Info, corpus_id: Annotated[Optional[strawberry.ID], strawberry.argument(name="corpusId")] = strawberry.UNSET, document_id: Annotated[strawberry.ID, strawberry.argument(name="documentId")] = strawberry.UNSET, relationship_type: Annotated[Optional[str], strawberry.argument(name="relationshipType")] = strawberry.UNSET) -> Optional[list[Optional[Annotated["DocumentRelationshipType", strawberry.lazy("config.graphql.document_types")]]]]:
-    kwargs = strip_unset({"corpus_id": corpus_id, "document_id": document_id, "relationship_type": relationship_type})
+def q_bulk_doc_relationships(
+    info: strawberry.Info,
+    corpus_id: Annotated[
+        Optional[strawberry.ID], strawberry.argument(name="corpusId")
+    ] = strawberry.UNSET,
+    document_id: Annotated[
+        strawberry.ID, strawberry.argument(name="documentId")
+    ] = strawberry.UNSET,
+    relationship_type: Annotated[
+        Optional[str], strawberry.argument(name="relationshipType")
+    ] = strawberry.UNSET,
+) -> Optional[
+    list[
+        Optional[
+            Annotated[
+                "DocumentRelationshipType",
+                strawberry.lazy("config.graphql.document_types"),
+            ]
+        ]
+    ]
+]:
+    kwargs = strip_unset(
+        {
+            "corpus_id": corpus_id,
+            "document_id": document_id,
+            "relationship_type": relationship_type,
+        }
+    )
     return _resolve_Query_bulk_doc_relationships(None, info, **kwargs)
 
 
@@ -461,7 +736,14 @@ def _resolve_Query_bulk_document_upload_status(root, info, job_id):
         )
 
 
-def q_bulk_document_upload_status(info: strawberry.Info, job_id: Annotated[str, strawberry.argument(name="jobId")] = strawberry.UNSET) -> Optional[Annotated["BulkDocumentUploadStatusType", strawberry.lazy("config.graphql.user_types")]]:
+def q_bulk_document_upload_status(
+    info: strawberry.Info,
+    job_id: Annotated[str, strawberry.argument(name="jobId")] = strawberry.UNSET,
+) -> Optional[
+    Annotated[
+        "BulkDocumentUploadStatusType", strawberry.lazy("config.graphql.user_types")
+    ]
+]:
     kwargs = strip_unset({"job_id": job_id})
     return _resolve_Query_bulk_document_upload_status(None, info, **kwargs)
 
@@ -481,7 +763,23 @@ def _resolve_Query_ingestion_sources(root, info, active_only=False, **kwargs):
     return qs.order_by("name")
 
 
-def q_ingestion_sources(info: strawberry.Info, active_only: Annotated[Optional[bool], strawberry.argument(name="activeOnly", description='If true, only return active sources')] = False) -> Optional[list[Optional[Annotated["IngestionSourceType", strawberry.lazy("config.graphql.document_types")]]]]:
+def q_ingestion_sources(
+    info: strawberry.Info,
+    active_only: Annotated[
+        Optional[bool],
+        strawberry.argument(
+            name="activeOnly", description="If true, only return active sources"
+        ),
+    ] = False,
+) -> Optional[
+    list[
+        Optional[
+            Annotated[
+                "IngestionSourceType", strawberry.lazy("config.graphql.document_types")
+            ]
+        ]
+    ]
+]:
     kwargs = strip_unset({"active_only": active_only})
     return _resolve_Query_ingestion_sources(None, info, **kwargs)
 
@@ -504,21 +802,51 @@ def _resolve_Query_ingestion_source(root, info, id, **kwargs):
     )
 
 
-def q_ingestion_source(info: strawberry.Info, id: Annotated[strawberry.ID, strawberry.argument(name="id")] = strawberry.UNSET) -> Optional[Annotated["IngestionSourceType", strawberry.lazy("config.graphql.document_types")]]:
+def q_ingestion_source(
+    info: strawberry.Info,
+    id: Annotated[strawberry.ID, strawberry.argument(name="id")] = strawberry.UNSET,
+) -> Optional[
+    Annotated["IngestionSourceType", strawberry.lazy("config.graphql.document_types")]
+]:
     kwargs = strip_unset({"id": id})
     return _resolve_Query_ingestion_source(None, info, **kwargs)
-
 
 
 QUERY_FIELDS = {
     "documents": strawberry.field(resolver=q_documents, name="documents"),
     "document": strawberry.field(resolver=q_document, name="document"),
-    "corpus_document_ids": strawberry.field(resolver=q_corpus_document_ids, name="corpusDocumentIds", description="Global IDs of every document matching the given corpus / folder / search filters, ignoring pagination. Powers the document grid's 'Select All' so a bulk remove acts on every matching document, not just the page the virtualized list happens to have loaded. The folder filter is descendant-aware and the same DocumentFilter that backs the paginated ``documents`` connection is applied, so the id set always matches the visible list under identical filters."),
-    "document_stats": strawberry.field(resolver=q_document_stats, name="documentStats", description="Aggregate counts (total docs, total pages, processed, processing) over documents visible to the requesting user. Accepts the same filter args as the ``documents`` connection so the stat tiles on the Documents view stay accurate regardless of how many pages have been loaded into Apollo's cache."),
-    "document_relationships": strawberry.field(resolver=q_document_relationships, name="documentRelationships"),
-    "document_relationship": strawberry.field(resolver=q_document_relationship, name="documentRelationship"),
-    "bulk_doc_relationships": strawberry.field(resolver=q_bulk_doc_relationships, name="bulkDocRelationships"),
-    "bulk_document_upload_status": strawberry.field(resolver=q_bulk_document_upload_status, name="bulkDocumentUploadStatus", description='Check the status of a bulk document upload job by job ID'),
-    "ingestion_sources": strawberry.field(resolver=q_ingestion_sources, name="ingestionSources", description='List ingestion sources owned by the current user'),
-    "ingestion_source": strawberry.field(resolver=q_ingestion_source, name="ingestionSource", description='Get a single ingestion source by ID'),
+    "corpus_document_ids": strawberry.field(
+        resolver=q_corpus_document_ids,
+        name="corpusDocumentIds",
+        description="Global IDs of every document matching the given corpus / folder / search filters, ignoring pagination. Powers the document grid's 'Select All' so a bulk remove acts on every matching document, not just the page the virtualized list happens to have loaded. The folder filter is descendant-aware and the same DocumentFilter that backs the paginated ``documents`` connection is applied, so the id set always matches the visible list under identical filters.",
+    ),
+    "document_stats": strawberry.field(
+        resolver=q_document_stats,
+        name="documentStats",
+        description="Aggregate counts (total docs, total pages, processed, processing) over documents visible to the requesting user. Accepts the same filter args as the ``documents`` connection so the stat tiles on the Documents view stay accurate regardless of how many pages have been loaded into Apollo's cache.",
+    ),
+    "document_relationships": strawberry.field(
+        resolver=q_document_relationships, name="documentRelationships"
+    ),
+    "document_relationship": strawberry.field(
+        resolver=q_document_relationship, name="documentRelationship"
+    ),
+    "bulk_doc_relationships": strawberry.field(
+        resolver=q_bulk_doc_relationships, name="bulkDocRelationships"
+    ),
+    "bulk_document_upload_status": strawberry.field(
+        resolver=q_bulk_document_upload_status,
+        name="bulkDocumentUploadStatus",
+        description="Check the status of a bulk document upload job by job ID",
+    ),
+    "ingestion_sources": strawberry.field(
+        resolver=q_ingestion_sources,
+        name="ingestionSources",
+        description="List ingestion sources owned by the current user",
+    ),
+    "ingestion_source": strawberry.field(
+        resolver=q_ingestion_source,
+        name="ingestionSource",
+        description="Get a single ingestion source by ID",
+    ),
 }

@@ -3,41 +3,36 @@
 Shape-generated from the graphene schema; stub functions marked PORT(...)
 carry the ported business logic. See config/graphql_new/manifest.json.
 """
+
+# flake8: noqa: E501, F821 — generated strawberry schema module.
+# E501: long GraphQL field/argument ``description=`` strings and the
+# single-line generated resolver signatures (black cannot split string
+# literals). F821: ``Annotated["XType", strawberry.lazy(...)]`` /
+# ``cast("QuerySet", ...)`` forward-reference STRINGS that pyflakes
+# resolves as names — the whole point of strawberry.lazy is to avoid the
+# import (which would then be F401). Both are code-generation artifacts,
+# not defects; hand-written modules (config/graphql/core/*, security.py,
+# testing.py, filters.py, …) stay fully linted.
+
 from __future__ import annotations
 
 import datetime
-import decimal
-import uuid
-from typing import Annotated, Any, Optional
+import warnings
+from typing import Annotated, Optional
 
 import strawberry
-
-from config.graphql.core import permissions as core_permissions
-from config.graphql.core.filtering import filterset_factory, setup_filterset
-from config.graphql.core.mutations import drf_deletion, drf_mutation
-from config.graphql.core.relay import (
-    Node,
-    get_node_from_global_id,
-    make_connection_types,
-    register_type,
-    resolve_django_connection,
-    resolve_django_list,
-)
-from config.graphql.core.scalars import BigInt, GenericScalar, JSONString
-from config.graphql._util import coerce_enum, coerce_str, strip_unset
-from config.graphql import enums
-
-import warnings
-
 from django.db.models import Q
 
+from config.graphql._util import strip_unset
 from config.graphql.core.auth import login_required
-from config.graphql.filters import AssignmentFilter
-from config.graphql.filters import ExportFilter
+from config.graphql.core.filtering import setup_filterset
+from config.graphql.core.relay import (
+    get_node_from_global_id,
+    resolve_django_connection,
+)
+from config.graphql.filters import AssignmentFilter, ExportFilter
 from opencontractserver.shared.services.base import BaseService
-from opencontractserver.users.models import Assignment
-from opencontractserver.users.models import UserExport
-from opencontractserver.users.models import UserImport
+from opencontractserver.users.models import Assignment, UserExport, UserImport
 
 
 def _resolve_Query_me(root, info, **kwargs):
@@ -51,7 +46,9 @@ def _resolve_Query_me(root, info, **kwargs):
     return user
 
 
-def q_me(info: strawberry.Info) -> Optional[Annotated["UserType", strawberry.lazy("config.graphql.user_types")]]:
+def q_me(
+    info: strawberry.Info,
+) -> Optional[Annotated["UserType", strawberry.lazy("config.graphql.user_types")]]:
     kwargs = strip_unset({})
     return _resolve_Query_me(None, info, **kwargs)
 
@@ -83,7 +80,10 @@ def _resolve_Query_user_by_slug(root, info, slug):
         return None
 
 
-def q_user_by_slug(info: strawberry.Info, slug: Annotated[str, strawberry.argument(name="slug")] = strawberry.UNSET) -> Optional[Annotated["UserType", strawberry.lazy("config.graphql.user_types")]]:
+def q_user_by_slug(
+    info: strawberry.Info,
+    slug: Annotated[str, strawberry.argument(name="slug")] = strawberry.UNSET,
+) -> Optional[Annotated["UserType", strawberry.lazy("config.graphql.user_types")]]:
     kwargs = strip_unset({"slug": slug})
     return _resolve_Query_user_by_slug(None, info, **kwargs)
 
@@ -99,13 +99,52 @@ def _resolve_Query_userimports(root, info, **kwargs):
     )
 
 
-def q_userimports(info: strawberry.Info, offset: Annotated[Optional[int], strawberry.argument(name="offset")] = strawberry.UNSET, before: Annotated[Optional[str], strawberry.argument(name="before")] = strawberry.UNSET, after: Annotated[Optional[str], strawberry.argument(name="after")] = strawberry.UNSET, first: Annotated[Optional[int], strawberry.argument(name="first")] = strawberry.UNSET, last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET) -> Optional[Annotated["UserImportTypeConnection", strawberry.lazy("config.graphql.user_types")]]:
-    kwargs = strip_unset({"offset": offset, "before": before, "after": after, "first": first, "last": last})
+def q_userimports(
+    info: strawberry.Info,
+    offset: Annotated[
+        Optional[int], strawberry.argument(name="offset")
+    ] = strawberry.UNSET,
+    before: Annotated[
+        Optional[str], strawberry.argument(name="before")
+    ] = strawberry.UNSET,
+    after: Annotated[
+        Optional[str], strawberry.argument(name="after")
+    ] = strawberry.UNSET,
+    first: Annotated[
+        Optional[int], strawberry.argument(name="first")
+    ] = strawberry.UNSET,
+    last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET,
+) -> Optional[
+    Annotated["UserImportTypeConnection", strawberry.lazy("config.graphql.user_types")]
+]:
+    kwargs = strip_unset(
+        {
+            "offset": offset,
+            "before": before,
+            "after": after,
+            "first": first,
+            "last": last,
+        }
+    )
     resolved = _resolve_Query_userimports(None, info, **kwargs)
-    return resolve_django_connection(resolved=resolved, info=info, args=kwargs, node_type_name="UserImportType", default_manager=UserImport._default_manager, )
+    return resolve_django_connection(
+        resolved=resolved,
+        info=info,
+        args=kwargs,
+        node_type_name="UserImportType",
+        default_manager=UserImport._default_manager,
+    )
 
 
-def q_userimport(info: strawberry.Info, id: Annotated[strawberry.ID, strawberry.argument(name="id", description='The ID of the object')] = strawberry.UNSET) -> Optional[Annotated["UserImportType", strawberry.lazy("config.graphql.user_types")]]:
+def q_userimport(
+    info: strawberry.Info,
+    id: Annotated[
+        strawberry.ID,
+        strawberry.argument(name="id", description="The ID of the object"),
+    ] = strawberry.UNSET,
+) -> Optional[
+    Annotated["UserImportType", strawberry.lazy("config.graphql.user_types")]
+]:
     return get_node_from_global_id(info, id, only_type_name="UserImportType")
 
 
@@ -120,13 +159,98 @@ def _resolve_Query_userexports(root, info, **kwargs):
     )
 
 
-def q_userexports(info: strawberry.Info, offset: Annotated[Optional[int], strawberry.argument(name="offset")] = strawberry.UNSET, before: Annotated[Optional[str], strawberry.argument(name="before")] = strawberry.UNSET, after: Annotated[Optional[str], strawberry.argument(name="after")] = strawberry.UNSET, first: Annotated[Optional[int], strawberry.argument(name="first")] = strawberry.UNSET, last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET, name__contains: Annotated[Optional[str], strawberry.argument(name="name_Contains")] = strawberry.UNSET, id: Annotated[Optional[strawberry.ID], strawberry.argument(name="id")] = strawberry.UNSET, created__lte: Annotated[Optional[datetime.datetime], strawberry.argument(name="created_Lte")] = strawberry.UNSET, started__lte: Annotated[Optional[datetime.datetime], strawberry.argument(name="started_Lte")] = strawberry.UNSET, finished__lte: Annotated[Optional[datetime.datetime], strawberry.argument(name="finished_Lte")] = strawberry.UNSET, order_by_created: Annotated[Optional[str], strawberry.argument(name="orderByCreated", description='Ordering')] = strawberry.UNSET, order_by_started: Annotated[Optional[str], strawberry.argument(name="orderByStarted", description='Ordering')] = strawberry.UNSET, order_by_finished: Annotated[Optional[str], strawberry.argument(name="orderByFinished", description='Ordering')] = strawberry.UNSET) -> Optional[Annotated["UserExportTypeConnection", strawberry.lazy("config.graphql.user_types")]]:
-    kwargs = strip_unset({"offset": offset, "before": before, "after": after, "first": first, "last": last, "name__contains": name__contains, "id": id, "created__lte": created__lte, "started__lte": started__lte, "finished__lte": finished__lte, "order_by_created": order_by_created, "order_by_started": order_by_started, "order_by_finished": order_by_finished})
+def q_userexports(
+    info: strawberry.Info,
+    offset: Annotated[
+        Optional[int], strawberry.argument(name="offset")
+    ] = strawberry.UNSET,
+    before: Annotated[
+        Optional[str], strawberry.argument(name="before")
+    ] = strawberry.UNSET,
+    after: Annotated[
+        Optional[str], strawberry.argument(name="after")
+    ] = strawberry.UNSET,
+    first: Annotated[
+        Optional[int], strawberry.argument(name="first")
+    ] = strawberry.UNSET,
+    last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET,
+    name__contains: Annotated[
+        Optional[str], strawberry.argument(name="name_Contains")
+    ] = strawberry.UNSET,
+    id: Annotated[
+        Optional[strawberry.ID], strawberry.argument(name="id")
+    ] = strawberry.UNSET,
+    created__lte: Annotated[
+        Optional[datetime.datetime], strawberry.argument(name="created_Lte")
+    ] = strawberry.UNSET,
+    started__lte: Annotated[
+        Optional[datetime.datetime], strawberry.argument(name="started_Lte")
+    ] = strawberry.UNSET,
+    finished__lte: Annotated[
+        Optional[datetime.datetime], strawberry.argument(name="finished_Lte")
+    ] = strawberry.UNSET,
+    order_by_created: Annotated[
+        Optional[str],
+        strawberry.argument(name="orderByCreated", description="Ordering"),
+    ] = strawberry.UNSET,
+    order_by_started: Annotated[
+        Optional[str],
+        strawberry.argument(name="orderByStarted", description="Ordering"),
+    ] = strawberry.UNSET,
+    order_by_finished: Annotated[
+        Optional[str],
+        strawberry.argument(name="orderByFinished", description="Ordering"),
+    ] = strawberry.UNSET,
+) -> Optional[
+    Annotated["UserExportTypeConnection", strawberry.lazy("config.graphql.user_types")]
+]:
+    kwargs = strip_unset(
+        {
+            "offset": offset,
+            "before": before,
+            "after": after,
+            "first": first,
+            "last": last,
+            "name__contains": name__contains,
+            "id": id,
+            "created__lte": created__lte,
+            "started__lte": started__lte,
+            "finished__lte": finished__lte,
+            "order_by_created": order_by_created,
+            "order_by_started": order_by_started,
+            "order_by_finished": order_by_finished,
+        }
+    )
     resolved = _resolve_Query_userexports(None, info, **kwargs)
-    return resolve_django_connection(resolved=resolved, info=info, args=kwargs, node_type_name="UserExportType", default_manager=UserExport._default_manager, filterset_class=setup_filterset(ExportFilter), filter_args={"name__contains": "name__contains", "id": "id", "created__lte": "created__lte", "started__lte": "started__lte", "finished__lte": "finished__lte", "order_by_created": "order_by_created", "order_by_started": "order_by_started", "order_by_finished": "order_by_finished"}, )
+    return resolve_django_connection(
+        resolved=resolved,
+        info=info,
+        args=kwargs,
+        node_type_name="UserExportType",
+        default_manager=UserExport._default_manager,
+        filterset_class=setup_filterset(ExportFilter),
+        filter_args={
+            "name__contains": "name__contains",
+            "id": "id",
+            "created__lte": "created__lte",
+            "started__lte": "started__lte",
+            "finished__lte": "finished__lte",
+            "order_by_created": "order_by_created",
+            "order_by_started": "order_by_started",
+            "order_by_finished": "order_by_finished",
+        },
+    )
 
 
-def q_userexport(info: strawberry.Info, id: Annotated[strawberry.ID, strawberry.argument(name="id", description='The ID of the object')] = strawberry.UNSET) -> Optional[Annotated["UserExportType", strawberry.lazy("config.graphql.user_types")]]:
+def q_userexport(
+    info: strawberry.Info,
+    id: Annotated[
+        strawberry.ID,
+        strawberry.argument(name="id", description="The ID of the object"),
+    ] = strawberry.UNSET,
+) -> Optional[
+    Annotated["UserExportType", strawberry.lazy("config.graphql.user_types")]
+]:
     return get_node_from_global_id(info, id, only_type_name="UserExportType")
 
 
@@ -144,9 +268,7 @@ def _resolve_Query_assignments(root, info, **kwargs):
     SECURITY: Users can only see assignments where they are the assignor or assignee.
     Superusers can see all assignments.
     """
-    warnings.warn(
-        "Assignment feature is deprecated and not in use", DeprecationWarning
-    )
+    warnings.warn("Assignment feature is deprecated and not in use", DeprecationWarning)
 
     user = info.context.user
     if user.is_superuser:
@@ -156,15 +278,71 @@ def _resolve_Query_assignments(root, info, **kwargs):
         return Assignment.objects.filter(Q(assignor=user) | Q(assignee=user))
 
 
-def q_assignments(info: strawberry.Info, offset: Annotated[Optional[int], strawberry.argument(name="offset")] = strawberry.UNSET, before: Annotated[Optional[str], strawberry.argument(name="before")] = strawberry.UNSET, after: Annotated[Optional[str], strawberry.argument(name="after")] = strawberry.UNSET, first: Annotated[Optional[int], strawberry.argument(name="first")] = strawberry.UNSET, last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET, assignor__email: Annotated[Optional[str], strawberry.argument(name="assignor_Email")] = strawberry.UNSET, assignee__email: Annotated[Optional[str], strawberry.argument(name="assignee_Email")] = strawberry.UNSET, document_id: Annotated[Optional[str], strawberry.argument(name="documentId")] = strawberry.UNSET) -> Optional[Annotated["AssignmentTypeConnection", strawberry.lazy("config.graphql.user_types")]]:
-    kwargs = strip_unset({"offset": offset, "before": before, "after": after, "first": first, "last": last, "assignor__email": assignor__email, "assignee__email": assignee__email, "document_id": document_id})
+def q_assignments(
+    info: strawberry.Info,
+    offset: Annotated[
+        Optional[int], strawberry.argument(name="offset")
+    ] = strawberry.UNSET,
+    before: Annotated[
+        Optional[str], strawberry.argument(name="before")
+    ] = strawberry.UNSET,
+    after: Annotated[
+        Optional[str], strawberry.argument(name="after")
+    ] = strawberry.UNSET,
+    first: Annotated[
+        Optional[int], strawberry.argument(name="first")
+    ] = strawberry.UNSET,
+    last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET,
+    assignor__email: Annotated[
+        Optional[str], strawberry.argument(name="assignor_Email")
+    ] = strawberry.UNSET,
+    assignee__email: Annotated[
+        Optional[str], strawberry.argument(name="assignee_Email")
+    ] = strawberry.UNSET,
+    document_id: Annotated[
+        Optional[str], strawberry.argument(name="documentId")
+    ] = strawberry.UNSET,
+) -> Optional[
+    Annotated["AssignmentTypeConnection", strawberry.lazy("config.graphql.user_types")]
+]:
+    kwargs = strip_unset(
+        {
+            "offset": offset,
+            "before": before,
+            "after": after,
+            "first": first,
+            "last": last,
+            "assignor__email": assignor__email,
+            "assignee__email": assignee__email,
+            "document_id": document_id,
+        }
+    )
     resolved = _resolve_Query_assignments(None, info, **kwargs)
-    return resolve_django_connection(resolved=resolved, info=info, args=kwargs, node_type_name="AssignmentType", default_manager=Assignment._default_manager, filterset_class=setup_filterset(AssignmentFilter), filter_args={"assignor__email": "assignor__email", "assignee__email": "assignee__email", "document_id": "document_id"}, )
+    return resolve_django_connection(
+        resolved=resolved,
+        info=info,
+        args=kwargs,
+        node_type_name="AssignmentType",
+        default_manager=Assignment._default_manager,
+        filterset_class=setup_filterset(AssignmentFilter),
+        filter_args={
+            "assignor__email": "assignor__email",
+            "assignee__email": "assignee__email",
+            "document_id": "document_id",
+        },
+    )
 
 
-def q_assignment(info: strawberry.Info, id: Annotated[strawberry.ID, strawberry.argument(name="id", description='The ID of the object')] = strawberry.UNSET) -> Optional[Annotated["AssignmentType", strawberry.lazy("config.graphql.user_types")]]:
+def q_assignment(
+    info: strawberry.Info,
+    id: Annotated[
+        strawberry.ID,
+        strawberry.argument(name="id", description="The ID of the object"),
+    ] = strawberry.UNSET,
+) -> Optional[
+    Annotated["AssignmentType", strawberry.lazy("config.graphql.user_types")]
+]:
     return get_node_from_global_id(info, id, only_type_name="AssignmentType")
-
 
 
 QUERY_FIELDS = {

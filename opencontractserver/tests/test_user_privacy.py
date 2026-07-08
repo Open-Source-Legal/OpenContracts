@@ -31,9 +31,9 @@ from __future__ import annotations
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
 from django.test import TestCase
-from config.graphql.testing import Client
 
 from config.graphql.schema import schema
+from config.graphql.testing import Client
 from opencontractserver.corpuses.models import Corpus
 
 User = get_user_model()
@@ -259,9 +259,8 @@ class UserTypePrivacyTestCase(TestCase):
         # ``canImportCorpus`` reflects ``is_usage_capped`` — leaking it
         # cross-user would let any client probe whether another account
         # is paid/free. Must redact to ``null`` for non-self viewers.
-        from config.graphql.testing import Client
-
         from config.graphql.schema import schema
+        from config.graphql.testing import Client
 
         query = """
             query UserBySlug($slug: String!) {
@@ -276,9 +275,8 @@ class UserTypePrivacyTestCase(TestCase):
         self.assertIsNone(result["data"]["userBySlug"]["canImportCorpus"])
 
     def test_can_import_corpus_is_null_for_anonymous_viewer(self) -> None:
-        from config.graphql.testing import Client
-
         from config.graphql.schema import schema
+        from config.graphql.testing import Client
 
         query = """
             query UserBySlug($slug: String!) {
@@ -297,9 +295,8 @@ class UserTypePrivacyTestCase(TestCase):
         # boolean (not ``null``). The exact value depends on
         # ``is_usage_capped`` × ``USAGE_CAPPED_USER_CAN_IMPORT_CORPUS``;
         # we just assert the shape here.
-        from config.graphql.testing import Client
-
         from config.graphql.schema import schema
+        from config.graphql.testing import Client
 
         query = "query Me { me { canImportCorpus } }"
         client = Client(schema, context_value=_Ctx(self.alice))
@@ -314,9 +311,8 @@ class UserTypePrivacyTestCase(TestCase):
     # caller infer paid/free tier — the gate parallels ``canImportCorpus``.
     # ------------------------------------------------------------------
     def test_is_usage_capped_is_null_for_other_authenticated_user(self) -> None:
-        from config.graphql.testing import Client
-
         from config.graphql.schema import schema
+        from config.graphql.testing import Client
 
         query = """
             query UserBySlug($slug: String!) {
@@ -331,9 +327,8 @@ class UserTypePrivacyTestCase(TestCase):
         self.assertIsNone(result["data"]["userBySlug"]["isUsageCapped"])
 
     def test_is_usage_capped_is_null_for_anonymous_viewer(self) -> None:
-        from config.graphql.testing import Client
-
         from config.graphql.schema import schema
+        from config.graphql.testing import Client
 
         query = """
             query UserBySlug($slug: String!) {
@@ -348,9 +343,8 @@ class UserTypePrivacyTestCase(TestCase):
         self.assertIsNone(result["data"]["userBySlug"]["isUsageCapped"])
 
     def test_is_usage_capped_returns_boolean_for_self_view(self) -> None:
-        from config.graphql.testing import Client
-
         from config.graphql.schema import schema
+        from config.graphql.testing import Client
 
         query = "query Me { me { isUsageCapped } }"
         client = Client(schema, context_value=_Ctx(self.alice))

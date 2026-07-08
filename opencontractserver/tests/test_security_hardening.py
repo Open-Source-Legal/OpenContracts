@@ -13,11 +13,11 @@ Covers:
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
-from config.graphql.testing import Client
 from graphql_relay import to_global_id
 from rest_framework.test import APIClient
 
 from config.graphql.schema import schema
+from config.graphql.testing import Client
 from opencontractserver.analyzer.models import Analysis, Analyzer, GremlinEngine
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
@@ -1974,10 +1974,10 @@ class TestIOSettingsRequiredFieldsGuard(TestCase):
         ``graphene_model.__class__.__name__`` (the metaclass name like
         ``"SubclassWithMeta_Meta"``).
         """
-        from config.graphql.testing import Client
         from graphql_relay import from_global_id
 
         from config.graphql.schema import schema
+        from config.graphql.testing import Client
         from opencontractserver.corpuses.models import Corpus
 
         user = User.objects.create_user(username="objIdRegressionUser", password="x")

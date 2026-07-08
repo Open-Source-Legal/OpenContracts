@@ -3,35 +3,31 @@
 Shape-generated from the graphene schema; stub functions marked PORT(...)
 carry the ported business logic. See config/graphql_new/manifest.json.
 """
+
+# flake8: noqa: E501, F821 — generated strawberry schema module.
+# E501: long GraphQL field/argument ``description=`` strings and the
+# single-line generated resolver signatures (black cannot split string
+# literals). F821: ``Annotated["XType", strawberry.lazy(...)]`` /
+# ``cast("QuerySet", ...)`` forward-reference STRINGS that pyflakes
+# resolves as names — the whole point of strawberry.lazy is to avoid the
+# import (which would then be F401). Both are code-generation artifacts,
+# not defects; hand-written modules (config/graphql/core/*, security.py,
+# testing.py, filters.py, …) stay fully linted.
+
 from __future__ import annotations
 
-import datetime
-import decimal
-import uuid
-from typing import Annotated, Any, Optional
+import logging
+from typing import Annotated, Optional
 
 import strawberry
-
-from config.graphql.core import permissions as core_permissions
-from config.graphql.core.filtering import filterset_factory, setup_filterset
-from config.graphql.core.mutations import drf_deletion, drf_mutation
-from config.graphql.core.relay import (
-    Node,
-    get_node_from_global_id,
-    make_connection_types,
-    register_type,
-    resolve_django_connection,
-    resolve_django_list,
-)
-from config.graphql.core.scalars import BigInt, GenericScalar, JSONString
-from config.graphql._util import coerce_enum, coerce_str, strip_unset
-from config.graphql import enums
-
-import logging
-
 from graphql_relay import from_global_id
 
+from config.graphql._util import strip_unset
 from config.graphql.core.auth import login_required
+from config.graphql.core.relay import (
+    register_type,
+)
+from config.graphql.core.scalars import GenericScalar
 from opencontractserver.annotations.models import AnnotationLabel
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.corpuses.services import CorpusDocumentService
@@ -44,27 +40,44 @@ from opencontractserver.utils.permissioning import get_for_user_or_none
 logger = logging.getLogger(__name__)
 
 
-@strawberry.type(name="CreateDocumentRelationship", description='Create a new relationship between two documents in the same corpus.\n\nPermission requirements:\n- User must have CREATE permission on BOTH source and target documents\n- User must have CREATE permission on the corpus\n\nValidation:\n- Both documents must be in the specified corpus\n- For RELATIONSHIP type: annotation_label_id is required\n- For NOTES type: annotation_label_id is optional')
+@strawberry.type(
+    name="CreateDocumentRelationship",
+    description="Create a new relationship between two documents in the same corpus.\n\nPermission requirements:\n- User must have CREATE permission on BOTH source and target documents\n- User must have CREATE permission on the corpus\n\nValidation:\n- Both documents must be in the specified corpus\n- For RELATIONSHIP type: annotation_label_id is required\n- For NOTES type: annotation_label_id is optional",
+)
 class CreateDocumentRelationship:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    document_relationship: Optional[Annotated["DocumentRelationshipType", strawberry.lazy("config.graphql.document_types")]] = strawberry.field(name="documentRelationship", default=None)
+    document_relationship: Optional[
+        Annotated[
+            "DocumentRelationshipType", strawberry.lazy("config.graphql.document_types")
+        ]
+    ] = strawberry.field(name="documentRelationship", default=None)
     message: Optional[str] = strawberry.field(name="message", default=None)
 
 
 register_type("CreateDocumentRelationship", CreateDocumentRelationship, model=None)
 
 
-@strawberry.type(name="UpdateDocumentRelationship", description='Update an existing document relationship.\n\nPermission requirements:\n- User must have UPDATE permission on the document relationship\n- OR UPDATE permission on BOTH source and target documents\n\nUpdatable fields:\n- relationship_type (with validation for annotation_label requirement)\n- annotation_label_id\n- data (JSON payload)\n- corpus_id')
+@strawberry.type(
+    name="UpdateDocumentRelationship",
+    description="Update an existing document relationship.\n\nPermission requirements:\n- User must have UPDATE permission on the document relationship\n- OR UPDATE permission on BOTH source and target documents\n\nUpdatable fields:\n- relationship_type (with validation for annotation_label requirement)\n- annotation_label_id\n- data (JSON payload)\n- corpus_id",
+)
 class UpdateDocumentRelationship:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    document_relationship: Optional[Annotated["DocumentRelationshipType", strawberry.lazy("config.graphql.document_types")]] = strawberry.field(name="documentRelationship", default=None)
+    document_relationship: Optional[
+        Annotated[
+            "DocumentRelationshipType", strawberry.lazy("config.graphql.document_types")
+        ]
+    ] = strawberry.field(name="documentRelationship", default=None)
     message: Optional[str] = strawberry.field(name="message", default=None)
 
 
 register_type("UpdateDocumentRelationship", UpdateDocumentRelationship, model=None)
 
 
-@strawberry.type(name="DeleteDocumentRelationship", description='Delete a document relationship.\n\nPermission requirements:\n- User must have DELETE permission on the document relationship\n- OR DELETE permission on BOTH source and target documents')
+@strawberry.type(
+    name="DeleteDocumentRelationship",
+    description="Delete a document relationship.\n\nPermission requirements:\n- User must have DELETE permission on the document relationship\n- OR DELETE permission on BOTH source and target documents",
+)
 class DeleteDocumentRelationship:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
     message: Optional[str] = strawberry.field(name="message", default=None)
@@ -73,7 +86,10 @@ class DeleteDocumentRelationship:
 register_type("DeleteDocumentRelationship", DeleteDocumentRelationship, model=None)
 
 
-@strawberry.type(name="DeleteDocumentRelationships", description='Delete multiple document relationships at once.\n\nPermission requirements:\n- User must have DELETE permission on each document relationship')
+@strawberry.type(
+    name="DeleteDocumentRelationships",
+    description="Delete multiple document relationships at once.\n\nPermission requirements:\n- User must have DELETE permission on each document relationship",
+)
 class DeleteDocumentRelationships:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
     message: Optional[str] = strawberry.field(name="message", default=None)
@@ -88,6 +104,7 @@ def _mutate_CreateDocumentRelationship(payload_cls, root, info, **kwargs):
 
     Port of CreateDocumentRelationship.mutate
     """
+
     # Decorator applied to an inner function because mutate stubs take
     # ``payload_cls`` as their first positional argument, which does not match
     # the ``(root, info, ...)`` calling convention the decorators expect.
@@ -243,9 +260,61 @@ def _mutate_CreateDocumentRelationship(payload_cls, root, info, **kwargs):
     return mutate(root, info, **kwargs)
 
 
-def m_create_document_relationship(info: strawberry.Info, annotation_label_id: Annotated[Optional[str], strawberry.argument(name="annotationLabelId", description='ID of the annotation label (required for RELATIONSHIP type)')] = strawberry.UNSET, corpus_id: Annotated[str, strawberry.argument(name="corpusId", description='ID of the corpus (both documents must be in this corpus)')] = strawberry.UNSET, data: Annotated[Optional[GenericScalar], strawberry.argument(name="data", description='JSON data payload (e.g., for notes content)')] = strawberry.UNSET, relationship_type: Annotated[str, strawberry.argument(name="relationshipType", description="Type of relationship: 'RELATIONSHIP' or 'NOTES'")] = strawberry.UNSET, source_document_id: Annotated[str, strawberry.argument(name="sourceDocumentId", description='ID of the source document')] = strawberry.UNSET, target_document_id: Annotated[str, strawberry.argument(name="targetDocumentId", description='ID of the target document')] = strawberry.UNSET) -> Optional["CreateDocumentRelationship"]:
-    kwargs = strip_unset({"annotation_label_id": annotation_label_id, "corpus_id": corpus_id, "data": data, "relationship_type": relationship_type, "source_document_id": source_document_id, "target_document_id": target_document_id})
-    return _mutate_CreateDocumentRelationship(CreateDocumentRelationship, None, info, **kwargs)
+def m_create_document_relationship(
+    info: strawberry.Info,
+    annotation_label_id: Annotated[
+        Optional[str],
+        strawberry.argument(
+            name="annotationLabelId",
+            description="ID of the annotation label (required for RELATIONSHIP type)",
+        ),
+    ] = strawberry.UNSET,
+    corpus_id: Annotated[
+        str,
+        strawberry.argument(
+            name="corpusId",
+            description="ID of the corpus (both documents must be in this corpus)",
+        ),
+    ] = strawberry.UNSET,
+    data: Annotated[
+        Optional[GenericScalar],
+        strawberry.argument(
+            name="data", description="JSON data payload (e.g., for notes content)"
+        ),
+    ] = strawberry.UNSET,
+    relationship_type: Annotated[
+        str,
+        strawberry.argument(
+            name="relationshipType",
+            description="Type of relationship: 'RELATIONSHIP' or 'NOTES'",
+        ),
+    ] = strawberry.UNSET,
+    source_document_id: Annotated[
+        str,
+        strawberry.argument(
+            name="sourceDocumentId", description="ID of the source document"
+        ),
+    ] = strawberry.UNSET,
+    target_document_id: Annotated[
+        str,
+        strawberry.argument(
+            name="targetDocumentId", description="ID of the target document"
+        ),
+    ] = strawberry.UNSET,
+) -> Optional["CreateDocumentRelationship"]:
+    kwargs = strip_unset(
+        {
+            "annotation_label_id": annotation_label_id,
+            "corpus_id": corpus_id,
+            "data": data,
+            "relationship_type": relationship_type,
+            "source_document_id": source_document_id,
+            "target_document_id": target_document_id,
+        }
+    )
+    return _mutate_CreateDocumentRelationship(
+        CreateDocumentRelationship, None, info, **kwargs
+    )
 
 
 def _mutate_UpdateDocumentRelationship(payload_cls, root, info, **kwargs):
@@ -253,6 +322,7 @@ def _mutate_UpdateDocumentRelationship(payload_cls, root, info, **kwargs):
 
     Port of UpdateDocumentRelationship.mutate
     """
+
     # Decorator applied to an inner function — see _mutate_CreateDocumentRelationship.
     @login_required
     def mutate(
@@ -413,9 +483,48 @@ def _mutate_UpdateDocumentRelationship(payload_cls, root, info, **kwargs):
     return mutate(root, info, **kwargs)
 
 
-def m_update_document_relationship(info: strawberry.Info, annotation_label_id: Annotated[Optional[str], strawberry.argument(name="annotationLabelId", description='New annotation label ID')] = strawberry.UNSET, corpus_id: Annotated[Optional[str], strawberry.argument(name="corpusId", description='New corpus ID')] = strawberry.UNSET, data: Annotated[Optional[GenericScalar], strawberry.argument(name="data", description='Updated JSON data payload')] = strawberry.UNSET, document_relationship_id: Annotated[str, strawberry.argument(name="documentRelationshipId", description='ID of the document relationship to update')] = strawberry.UNSET, relationship_type: Annotated[Optional[str], strawberry.argument(name="relationshipType", description="New relationship type: 'RELATIONSHIP' or 'NOTES'")] = strawberry.UNSET) -> Optional["UpdateDocumentRelationship"]:
-    kwargs = strip_unset({"annotation_label_id": annotation_label_id, "corpus_id": corpus_id, "data": data, "document_relationship_id": document_relationship_id, "relationship_type": relationship_type})
-    return _mutate_UpdateDocumentRelationship(UpdateDocumentRelationship, None, info, **kwargs)
+def m_update_document_relationship(
+    info: strawberry.Info,
+    annotation_label_id: Annotated[
+        Optional[str],
+        strawberry.argument(
+            name="annotationLabelId", description="New annotation label ID"
+        ),
+    ] = strawberry.UNSET,
+    corpus_id: Annotated[
+        Optional[str], strawberry.argument(name="corpusId", description="New corpus ID")
+    ] = strawberry.UNSET,
+    data: Annotated[
+        Optional[GenericScalar],
+        strawberry.argument(name="data", description="Updated JSON data payload"),
+    ] = strawberry.UNSET,
+    document_relationship_id: Annotated[
+        str,
+        strawberry.argument(
+            name="documentRelationshipId",
+            description="ID of the document relationship to update",
+        ),
+    ] = strawberry.UNSET,
+    relationship_type: Annotated[
+        Optional[str],
+        strawberry.argument(
+            name="relationshipType",
+            description="New relationship type: 'RELATIONSHIP' or 'NOTES'",
+        ),
+    ] = strawberry.UNSET,
+) -> Optional["UpdateDocumentRelationship"]:
+    kwargs = strip_unset(
+        {
+            "annotation_label_id": annotation_label_id,
+            "corpus_id": corpus_id,
+            "data": data,
+            "document_relationship_id": document_relationship_id,
+            "relationship_type": relationship_type,
+        }
+    )
+    return _mutate_UpdateDocumentRelationship(
+        UpdateDocumentRelationship, None, info, **kwargs
+    )
 
 
 def _mutate_DeleteDocumentRelationship(payload_cls, root, info, **kwargs):
@@ -423,6 +532,7 @@ def _mutate_DeleteDocumentRelationship(payload_cls, root, info, **kwargs):
 
     Port of DeleteDocumentRelationship.mutate
     """
+
     # Decorator applied to an inner function — see _mutate_CreateDocumentRelationship.
     @login_required
     def mutate(root, info, document_relationship_id) -> "DeleteDocumentRelationship":
@@ -470,9 +580,20 @@ def _mutate_DeleteDocumentRelationship(payload_cls, root, info, **kwargs):
     return mutate(root, info, **kwargs)
 
 
-def m_delete_document_relationship(info: strawberry.Info, document_relationship_id: Annotated[str, strawberry.argument(name="documentRelationshipId", description='ID of the document relationship to delete')] = strawberry.UNSET) -> Optional["DeleteDocumentRelationship"]:
+def m_delete_document_relationship(
+    info: strawberry.Info,
+    document_relationship_id: Annotated[
+        str,
+        strawberry.argument(
+            name="documentRelationshipId",
+            description="ID of the document relationship to delete",
+        ),
+    ] = strawberry.UNSET,
+) -> Optional["DeleteDocumentRelationship"]:
     kwargs = strip_unset({"document_relationship_id": document_relationship_id})
-    return _mutate_DeleteDocumentRelationship(DeleteDocumentRelationship, None, info, **kwargs)
+    return _mutate_DeleteDocumentRelationship(
+        DeleteDocumentRelationship, None, info, **kwargs
+    )
 
 
 def _mutate_DeleteDocumentRelationships(payload_cls, root, info, **kwargs):
@@ -480,6 +601,7 @@ def _mutate_DeleteDocumentRelationships(payload_cls, root, info, **kwargs):
 
     Port of DeleteDocumentRelationships.mutate
     """
+
     # Decorator applied to an inner function — see _mutate_CreateDocumentRelationship.
     @login_required
     def mutate(root, info, document_relationship_ids) -> "DeleteDocumentRelationships":
@@ -546,15 +668,41 @@ def _mutate_DeleteDocumentRelationships(payload_cls, root, info, **kwargs):
     return mutate(root, info, **kwargs)
 
 
-def m_delete_document_relationships(info: strawberry.Info, document_relationship_ids: Annotated[list[Optional[str]], strawberry.argument(name="documentRelationshipIds", description='List of document relationship IDs to delete')] = strawberry.UNSET) -> Optional["DeleteDocumentRelationships"]:
+def m_delete_document_relationships(
+    info: strawberry.Info,
+    document_relationship_ids: Annotated[
+        list[Optional[str]],
+        strawberry.argument(
+            name="documentRelationshipIds",
+            description="List of document relationship IDs to delete",
+        ),
+    ] = strawberry.UNSET,
+) -> Optional["DeleteDocumentRelationships"]:
     kwargs = strip_unset({"document_relationship_ids": document_relationship_ids})
-    return _mutate_DeleteDocumentRelationships(DeleteDocumentRelationships, None, info, **kwargs)
-
+    return _mutate_DeleteDocumentRelationships(
+        DeleteDocumentRelationships, None, info, **kwargs
+    )
 
 
 MUTATION_FIELDS = {
-    "create_document_relationship": strawberry.field(resolver=m_create_document_relationship, name="createDocumentRelationship", description='Create a new relationship between two documents in the same corpus.\n\nPermission requirements:\n- User must have CREATE permission on BOTH source and target documents\n- User must have CREATE permission on the corpus\n\nValidation:\n- Both documents must be in the specified corpus\n- For RELATIONSHIP type: annotation_label_id is required\n- For NOTES type: annotation_label_id is optional'),
-    "update_document_relationship": strawberry.field(resolver=m_update_document_relationship, name="updateDocumentRelationship", description='Update an existing document relationship.\n\nPermission requirements:\n- User must have UPDATE permission on the document relationship\n- OR UPDATE permission on BOTH source and target documents\n\nUpdatable fields:\n- relationship_type (with validation for annotation_label requirement)\n- annotation_label_id\n- data (JSON payload)\n- corpus_id'),
-    "delete_document_relationship": strawberry.field(resolver=m_delete_document_relationship, name="deleteDocumentRelationship", description='Delete a document relationship.\n\nPermission requirements:\n- User must have DELETE permission on the document relationship\n- OR DELETE permission on BOTH source and target documents'),
-    "delete_document_relationships": strawberry.field(resolver=m_delete_document_relationships, name="deleteDocumentRelationships", description='Delete multiple document relationships at once.\n\nPermission requirements:\n- User must have DELETE permission on each document relationship'),
+    "create_document_relationship": strawberry.field(
+        resolver=m_create_document_relationship,
+        name="createDocumentRelationship",
+        description="Create a new relationship between two documents in the same corpus.\n\nPermission requirements:\n- User must have CREATE permission on BOTH source and target documents\n- User must have CREATE permission on the corpus\n\nValidation:\n- Both documents must be in the specified corpus\n- For RELATIONSHIP type: annotation_label_id is required\n- For NOTES type: annotation_label_id is optional",
+    ),
+    "update_document_relationship": strawberry.field(
+        resolver=m_update_document_relationship,
+        name="updateDocumentRelationship",
+        description="Update an existing document relationship.\n\nPermission requirements:\n- User must have UPDATE permission on the document relationship\n- OR UPDATE permission on BOTH source and target documents\n\nUpdatable fields:\n- relationship_type (with validation for annotation_label requirement)\n- annotation_label_id\n- data (JSON payload)\n- corpus_id",
+    ),
+    "delete_document_relationship": strawberry.field(
+        resolver=m_delete_document_relationship,
+        name="deleteDocumentRelationship",
+        description="Delete a document relationship.\n\nPermission requirements:\n- User must have DELETE permission on the document relationship\n- OR DELETE permission on BOTH source and target documents",
+    ),
+    "delete_document_relationships": strawberry.field(
+        resolver=m_delete_document_relationships,
+        name="deleteDocumentRelationships",
+        description="Delete multiple document relationships at once.\n\nPermission requirements:\n- User must have DELETE permission on each document relationship",
+    ),
 }

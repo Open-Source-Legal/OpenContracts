@@ -3,32 +3,25 @@
 Shape-generated from the graphene schema; stub functions marked PORT(...)
 carry the ported business logic. See config/graphql_new/manifest.json.
 """
+
+# flake8: noqa: E501, F821 — generated strawberry schema module.
+# E501: long GraphQL field/argument ``description=`` strings and the
+# single-line generated resolver signatures (black cannot split string
+# literals). F821: ``Annotated["XType", strawberry.lazy(...)]`` /
+# ``cast("QuerySet", ...)`` forward-reference STRINGS that pyflakes
+# resolves as names — the whole point of strawberry.lazy is to avoid the
+# import (which would then be F401). Both are code-generation artifacts,
+# not defects; hand-written modules (config/graphql/core/*, security.py,
+# testing.py, filters.py, …) stay fully linted.
+
 from __future__ import annotations
 
-import datetime
-import decimal
-import uuid
-from typing import Annotated, Any, Optional
+from typing import Annotated, Optional
 
 import strawberry
-
-from config.graphql.core import permissions as core_permissions
-from config.graphql.core.filtering import filterset_factory, setup_filterset
-from config.graphql.core.mutations import drf_deletion, drf_mutation
-from config.graphql.core.relay import (
-    Node,
-    get_node_from_global_id,
-    make_connection_types,
-    register_type,
-    resolve_django_connection,
-    resolve_django_list,
-)
-from config.graphql.core.scalars import BigInt, GenericScalar, JSONString
-from config.graphql._util import coerce_enum, coerce_str, strip_unset
-from config.graphql import enums
-
 from django.db.models.functions import Coalesce
 
+from config.graphql._util import strip_unset
 from config.graphql.corpus_queries import _corpus_count_subqueries
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
@@ -63,7 +56,13 @@ def _resolve_Query_corpus_by_slugs(root, info, user_slug: str, corpus_slug: str)
     return qs.first()
 
 
-def q_corpus_by_slugs(info: strawberry.Info, user_slug: Annotated[str, strawberry.argument(name="userSlug")] = strawberry.UNSET, corpus_slug: Annotated[str, strawberry.argument(name="corpusSlug")] = strawberry.UNSET) -> Optional[Annotated["CorpusType", strawberry.lazy("config.graphql.corpus_types")]]:
+def q_corpus_by_slugs(
+    info: strawberry.Info,
+    user_slug: Annotated[str, strawberry.argument(name="userSlug")] = strawberry.UNSET,
+    corpus_slug: Annotated[
+        str, strawberry.argument(name="corpusSlug")
+    ] = strawberry.UNSET,
+) -> Optional[Annotated["CorpusType", strawberry.lazy("config.graphql.corpus_types")]]:
     kwargs = strip_unset({"user_slug": user_slug, "corpus_slug": corpus_slug})
     return _resolve_Query_corpus_by_slugs(None, info, **kwargs)
 
@@ -81,15 +80,21 @@ def _resolve_Query_document_by_slugs(root, info, user_slug: str, document_slug: 
     except User.DoesNotExist:
         return None
     return (
-        BaseService.filter_visible(
-            Document, info.context.user, request=info.context
-        )
+        BaseService.filter_visible(Document, info.context.user, request=info.context)
         .filter(creator=owner, slug=document_slug)
         .first()
     )
 
 
-def q_document_by_slugs(info: strawberry.Info, user_slug: Annotated[str, strawberry.argument(name="userSlug")] = strawberry.UNSET, document_slug: Annotated[str, strawberry.argument(name="documentSlug")] = strawberry.UNSET) -> Optional[Annotated["DocumentType", strawberry.lazy("config.graphql.document_types")]]:
+def q_document_by_slugs(
+    info: strawberry.Info,
+    user_slug: Annotated[str, strawberry.argument(name="userSlug")] = strawberry.UNSET,
+    document_slug: Annotated[
+        str, strawberry.argument(name="documentSlug")
+    ] = strawberry.UNSET,
+) -> Optional[
+    Annotated["DocumentType", strawberry.lazy("config.graphql.document_types")]
+]:
     kwargs = strip_unset({"user_slug": user_slug, "document_slug": document_slug})
     return _resolve_Query_document_by_slugs(None, info, **kwargs)
 
@@ -143,9 +148,7 @@ def _resolve_Query_document_in_corpus_by_slugs(
         path_filter["path_records__is_current"] = True
 
     doc = (
-        BaseService.filter_visible(
-            Document, info.context.user, request=info.context
-        )
+        BaseService.filter_visible(Document, info.context.user, request=info.context)
         .filter(**path_filter)
         .order_by("pk")
         .first()
@@ -184,14 +187,44 @@ def _resolve_Query_document_in_corpus_by_slugs(
     return doc
 
 
-def q_document_in_corpus_by_slugs(info: strawberry.Info, user_slug: Annotated[str, strawberry.argument(name="userSlug")] = strawberry.UNSET, corpus_slug: Annotated[str, strawberry.argument(name="corpusSlug")] = strawberry.UNSET, document_slug: Annotated[str, strawberry.argument(name="documentSlug")] = strawberry.UNSET, version_number: Annotated[Optional[int], strawberry.argument(name="versionNumber", description='Optional version number to resolve a specific historical version. When omitted, returns the current (latest) version.')] = strawberry.UNSET) -> Optional[Annotated["DocumentType", strawberry.lazy("config.graphql.document_types")]]:
-    kwargs = strip_unset({"user_slug": user_slug, "corpus_slug": corpus_slug, "document_slug": document_slug, "version_number": version_number})
+def q_document_in_corpus_by_slugs(
+    info: strawberry.Info,
+    user_slug: Annotated[str, strawberry.argument(name="userSlug")] = strawberry.UNSET,
+    corpus_slug: Annotated[
+        str, strawberry.argument(name="corpusSlug")
+    ] = strawberry.UNSET,
+    document_slug: Annotated[
+        str, strawberry.argument(name="documentSlug")
+    ] = strawberry.UNSET,
+    version_number: Annotated[
+        Optional[int],
+        strawberry.argument(
+            name="versionNumber",
+            description="Optional version number to resolve a specific historical version. When omitted, returns the current (latest) version.",
+        ),
+    ] = strawberry.UNSET,
+) -> Optional[
+    Annotated["DocumentType", strawberry.lazy("config.graphql.document_types")]
+]:
+    kwargs = strip_unset(
+        {
+            "user_slug": user_slug,
+            "corpus_slug": corpus_slug,
+            "document_slug": document_slug,
+            "version_number": version_number,
+        }
+    )
     return _resolve_Query_document_in_corpus_by_slugs(None, info, **kwargs)
 
 
-
 QUERY_FIELDS = {
-    "corpus_by_slugs": strawberry.field(resolver=q_corpus_by_slugs, name="corpusBySlugs"),
-    "document_by_slugs": strawberry.field(resolver=q_document_by_slugs, name="documentBySlugs"),
-    "document_in_corpus_by_slugs": strawberry.field(resolver=q_document_in_corpus_by_slugs, name="documentInCorpusBySlugs"),
+    "corpus_by_slugs": strawberry.field(
+        resolver=q_corpus_by_slugs, name="corpusBySlugs"
+    ),
+    "document_by_slugs": strawberry.field(
+        resolver=q_document_by_slugs, name="documentBySlugs"
+    ),
+    "document_in_corpus_by_slugs": strawberry.field(
+        resolver=q_document_in_corpus_by_slugs, name="documentInCorpusBySlugs"
+    ),
 }

@@ -3,32 +3,28 @@
 Shape-generated from the graphene schema; stub functions marked PORT(...)
 carry the ported business logic. See config/graphql_new/manifest.json.
 """
+
+# flake8: noqa: E501, F821 — generated strawberry schema module.
+# E501: long GraphQL field/argument ``description=`` strings and the
+# single-line generated resolver signatures (black cannot split string
+# literals). F821: ``Annotated["XType", strawberry.lazy(...)]`` /
+# ``cast("QuerySet", ...)`` forward-reference STRINGS that pyflakes
+# resolves as names — the whole point of strawberry.lazy is to avoid the
+# import (which would then be F401). Both are code-generation artifacts,
+# not defects; hand-written modules (config/graphql/core/*, security.py,
+# testing.py, filters.py, …) stay fully linted.
+
 from __future__ import annotations
 
-import datetime
-import decimal
 import logging
-import uuid
 from collections.abc import Mapping, Sequence
-from typing import Annotated, Any, Optional
+from typing import Annotated, Optional
 
 import strawberry
 
-from config.graphql.core import permissions as core_permissions
-from config.graphql.core.auth import login_required
-from config.graphql.core.filtering import filterset_factory, setup_filterset
-from config.graphql.core.mutations import drf_deletion, drf_mutation
-from config.graphql.core.relay import (
-    Node,
-    get_node_from_global_id,
-    make_connection_types,
-    register_type,
-    resolve_django_connection,
-    resolve_django_list,
-)
-from config.graphql.core.scalars import BigInt, GenericScalar, JSONString
-from config.graphql._util import coerce_enum, coerce_str, strip_unset
 from config.graphql import enums
+from config.graphql._util import strip_unset
+from config.graphql.core.auth import login_required
 from config.graphql.pipeline_types import (
     ComponentSettingSchemaType,
     PipelineComponentsType,
@@ -132,26 +128,20 @@ def _resolve_Query_pipeline_components(root, info, mimetype=None):
             configured_components.update(settings_instance.parser_kwargs.keys())
 
         if settings_instance.component_settings:
-            configured_components.update(
-                settings_instance.component_settings.keys()
-            )
+            configured_components.update(settings_instance.component_settings.keys())
 
         def filter_configured(
             definitions: Sequence[PipelineComponentDefinition],
         ) -> list[PipelineComponentDefinition]:
             return [
-                defn
-                for defn in definitions
-                if defn.class_name in configured_components
+                defn for defn in definitions if defn.class_name in configured_components
             ]
 
         components_data = {
             "parsers": filter_configured(components_data["parsers"]),
             "embedders": filter_configured(components_data["embedders"]),
             "thumbnailers": filter_configured(components_data["thumbnailers"]),
-            "post_processors": filter_configured(
-                components_data["post_processors"]
-            ),
+            "post_processors": filter_configured(components_data["post_processors"]),
             "rerankers": filter_configured(components_data.get("rerankers", [])),
             "enrichers": filter_configured(components_data.get("enrichers", [])),
         }
@@ -167,9 +157,7 @@ def _resolve_Query_pipeline_components(root, info, mimetype=None):
         settings_schema: list[ComponentSettingSchemaType] | None = None
         if user.is_superuser:
             # Get schema augmented with has_value/current_value from DB
-            augmented_schema = settings_instance.get_component_schema(
-                defn.class_name
-            )
+            augmented_schema = settings_instance.get_component_schema(defn.class_name)
             if augmented_schema:
                 settings_schema = [
                     ComponentSettingSchemaType(
@@ -216,20 +204,17 @@ def _resolve_Query_pipeline_components(root, info, mimetype=None):
             to_graphql_type(d, "embedder") for d in components_data["embedders"]
         ],
         thumbnailers=[
-            to_graphql_type(d, "thumbnailer")
-            for d in components_data["thumbnailers"]
+            to_graphql_type(d, "thumbnailer") for d in components_data["thumbnailers"]
         ],
         post_processors=[
             to_graphql_type(d, "post_processor")
             for d in components_data["post_processors"]
         ],
         rerankers=[
-            to_graphql_type(d, "reranker")
-            for d in components_data.get("rerankers", [])
+            to_graphql_type(d, "reranker") for d in components_data.get("rerankers", [])
         ],
         enrichers=[
-            to_graphql_type(d, "enricher")
-            for d in components_data.get("enrichers", [])
+            to_graphql_type(d, "enricher") for d in components_data.get("enrichers", [])
         ],
         llm_providers=[
             # LLM providers are intentionally NOT run through
@@ -247,7 +232,16 @@ def _resolve_Query_pipeline_components(root, info, mimetype=None):
     )
 
 
-def q_pipeline_components(info: strawberry.Info, mimetype: Annotated[Optional[enums.FileTypeEnum], strawberry.argument(name="mimetype")] = strawberry.UNSET) -> Optional[Annotated["PipelineComponentsType", strawberry.lazy("config.graphql.pipeline_types")]]:
+def q_pipeline_components(
+    info: strawberry.Info,
+    mimetype: Annotated[
+        Optional[enums.FileTypeEnum], strawberry.argument(name="mimetype")
+    ] = strawberry.UNSET,
+) -> Optional[
+    Annotated[
+        "PipelineComponentsType", strawberry.lazy("config.graphql.pipeline_types")
+    ]
+]:
     kwargs = strip_unset({"mimetype": mimetype})
     return _resolve_Query_pipeline_components(None, info, **kwargs)
 
@@ -279,7 +273,18 @@ def _resolve_Query_supported_mime_types(root, info):
     ]
 
 
-def q_supported_mime_types(info: strawberry.Info) -> Optional[list[Optional[Annotated["SupportedMimeTypeType", strawberry.lazy("config.graphql.pipeline_types")]]]]:
+def q_supported_mime_types(
+    info: strawberry.Info,
+) -> Optional[
+    list[
+        Optional[
+            Annotated[
+                "SupportedMimeTypeType",
+                strawberry.lazy("config.graphql.pipeline_types"),
+            ]
+        ]
+    ]
+]:
     kwargs = strip_unset({})
     return _resolve_Query_supported_mime_types(None, info, **kwargs)
 
@@ -340,15 +345,34 @@ def _resolve_Query_pipeline_settings(root, info):
     )
 
 
-def q_pipeline_settings(info: strawberry.Info) -> Optional[Annotated["PipelineSettingsType", strawberry.lazy("config.graphql.pipeline_types")]]:
+def q_pipeline_settings(
+    info: strawberry.Info,
+) -> Optional[
+    Annotated["PipelineSettingsType", strawberry.lazy("config.graphql.pipeline_types")]
+]:
     kwargs = strip_unset({})
     return _resolve_Query_pipeline_settings(None, info, **kwargs)
 
 
-
 QUERY_FIELDS = {
-    "pipeline_components": strawberry.field(resolver=q_pipeline_components, name="pipelineComponents", description='Retrieve all registered pipeline components, optionally filtered by MIME type.'),
-    "supported_mime_types": strawberry.field(resolver=q_supported_mime_types, name="supportedMimeTypes", description='Dynamically derived list of MIME types supported by registered pipeline components. Each entry indicates per-stage availability (parser, embedder, thumbnailer) and whether required stages (parser and embedder) are covered.'),
-    "convertible_extensions": strawberry.field(resolver=q_convertible_extensions, name="convertibleExtensions", description='File extensions the configured pre-parse file converter will convert to PDF. Empty when no converter is configured. Upload UIs merge these into the accepted-format set alongside supported_mime_types.'),
-    "pipeline_settings": strawberry.field(resolver=q_pipeline_settings, name="pipelineSettings", description='Retrieve the singleton pipeline settings for document processing configuration.'),
+    "pipeline_components": strawberry.field(
+        resolver=q_pipeline_components,
+        name="pipelineComponents",
+        description="Retrieve all registered pipeline components, optionally filtered by MIME type.",
+    ),
+    "supported_mime_types": strawberry.field(
+        resolver=q_supported_mime_types,
+        name="supportedMimeTypes",
+        description="Dynamically derived list of MIME types supported by registered pipeline components. Each entry indicates per-stage availability (parser, embedder, thumbnailer) and whether required stages (parser and embedder) are covered.",
+    ),
+    "convertible_extensions": strawberry.field(
+        resolver=q_convertible_extensions,
+        name="convertibleExtensions",
+        description="File extensions the configured pre-parse file converter will convert to PDF. Empty when no converter is configured. Upload UIs merge these into the accepted-format set alongside supported_mime_types.",
+    ),
+    "pipeline_settings": strawberry.field(
+        resolver=q_pipeline_settings,
+        name="pipelineSettings",
+        description="Retrieve the singleton pipeline settings for document processing configuration.",
+    ),
 }

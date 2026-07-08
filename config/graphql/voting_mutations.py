@@ -3,35 +3,30 @@
 Shape-generated from the graphene schema; stub functions marked PORT(...)
 carry the ported business logic. See config/graphql_new/manifest.json.
 """
+
+# flake8: noqa: E501, F821 — generated strawberry schema module.
+# E501: long GraphQL field/argument ``description=`` strings and the
+# single-line generated resolver signatures (black cannot split string
+# literals). F821: ``Annotated["XType", strawberry.lazy(...)]`` /
+# ``cast("QuerySet", ...)`` forward-reference STRINGS that pyflakes
+# resolves as names — the whole point of strawberry.lazy is to avoid the
+# import (which would then be F401). Both are code-generation artifacts,
+# not defects; hand-written modules (config/graphql/core/*, security.py,
+# testing.py, filters.py, …) stay fully linted.
+
 from __future__ import annotations
 
-import datetime
-import decimal
-import uuid
-from typing import Annotated, Any, Optional
+import logging
+from typing import Annotated, Optional
 
 import strawberry
-
-from config.graphql.core import permissions as core_permissions
-from config.graphql.core.filtering import filterset_factory, setup_filterset
-from config.graphql.core.mutations import drf_deletion, drf_mutation
-from config.graphql.core.relay import (
-    Node,
-    get_node_from_global_id,
-    make_connection_types,
-    register_type,
-    resolve_django_connection,
-    resolve_django_list,
-)
-from config.graphql.core.scalars import BigInt, GenericScalar, JSONString
-from config.graphql._util import coerce_enum, coerce_str, strip_unset
-from config.graphql import enums
-
-import logging
-
 from graphql_relay import from_global_id
 
+from config.graphql._util import strip_unset
 from config.graphql.core.auth import PermissionDenied
+from config.graphql.core.relay import (
+    register_type,
+)
 from config.graphql.ratelimits import graphql_ratelimit
 from opencontractserver.conversations.models import (
     ChatMessage,
@@ -123,61 +118,96 @@ def _ensure_session_key(info) -> str | None:
     return session.session_key
 
 
-@strawberry.type(name="VoteMessageMutation", description='Create or update a vote on a message.\nUsers can upvote or downvote messages. Changing vote type updates the existing vote.\nUsers cannot vote on their own messages.')
+@strawberry.type(
+    name="VoteMessageMutation",
+    description="Create or update a vote on a message.\nUsers can upvote or downvote messages. Changing vote type updates the existing vote.\nUsers cannot vote on their own messages.",
+)
 class VoteMessageMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
     message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[Annotated["MessageType", strawberry.lazy("config.graphql.conversation_types")]] = strawberry.field(name="obj", default=None)
+    obj: Optional[
+        Annotated["MessageType", strawberry.lazy("config.graphql.conversation_types")]
+    ] = strawberry.field(name="obj", default=None)
 
 
 register_type("VoteMessageMutation", VoteMessageMutation, model=None)
 
 
-@strawberry.type(name="RemoveVoteMutation", description="Remove user's vote from a message.")
+@strawberry.type(
+    name="RemoveVoteMutation", description="Remove user's vote from a message."
+)
 class RemoveVoteMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
     message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[Annotated["MessageType", strawberry.lazy("config.graphql.conversation_types")]] = strawberry.field(name="obj", default=None)
+    obj: Optional[
+        Annotated["MessageType", strawberry.lazy("config.graphql.conversation_types")]
+    ] = strawberry.field(name="obj", default=None)
 
 
 register_type("RemoveVoteMutation", RemoveVoteMutation, model=None)
 
 
-@strawberry.type(name="VoteConversationMutation", description='Create or update a vote on a conversation/thread.\nUsers can upvote or downvote threads. Changing vote type updates the existing vote.\nUsers cannot vote on their own threads.\n\nPermission: Users can vote on any conversation/thread they can see (visibility-based).')
+@strawberry.type(
+    name="VoteConversationMutation",
+    description="Create or update a vote on a conversation/thread.\nUsers can upvote or downvote threads. Changing vote type updates the existing vote.\nUsers cannot vote on their own threads.\n\nPermission: Users can vote on any conversation/thread they can see (visibility-based).",
+)
 class VoteConversationMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
     message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[Annotated["ConversationType", strawberry.lazy("config.graphql.conversation_types")]] = strawberry.field(name="obj", default=None)
+    obj: Optional[
+        Annotated[
+            "ConversationType", strawberry.lazy("config.graphql.conversation_types")
+        ]
+    ] = strawberry.field(name="obj", default=None)
 
 
 register_type("VoteConversationMutation", VoteConversationMutation, model=None)
 
 
-@strawberry.type(name="RemoveConversationVoteMutation", description="Remove user's vote from a conversation/thread.\n\nPermission: Users can remove their vote from any conversation they can see.")
+@strawberry.type(
+    name="RemoveConversationVoteMutation",
+    description="Remove user's vote from a conversation/thread.\n\nPermission: Users can remove their vote from any conversation they can see.",
+)
 class RemoveConversationVoteMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
     message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[Annotated["ConversationType", strawberry.lazy("config.graphql.conversation_types")]] = strawberry.field(name="obj", default=None)
+    obj: Optional[
+        Annotated[
+            "ConversationType", strawberry.lazy("config.graphql.conversation_types")
+        ]
+    ] = strawberry.field(name="obj", default=None)
 
 
-register_type("RemoveConversationVoteMutation", RemoveConversationVoteMutation, model=None)
+register_type(
+    "RemoveConversationVoteMutation", RemoveConversationVoteMutation, model=None
+)
 
 
-@strawberry.type(name="VoteCorpusMutation", description='Create or update a vote on a corpus.\n\nAuthenticated users vote with their account; the service blocks self-vote\n(creators cannot upvote their own corpuses, matching the Message /\nConversation contract). Anonymous viewers vote via their Django session\nkey — one vote per session per corpus. Anonymous voting on a non-public\ncorpus is rejected by the same IDOR-safe "not found or no permission"\nresponse as a malformed corpus id.')
+@strawberry.type(
+    name="VoteCorpusMutation",
+    description='Create or update a vote on a corpus.\n\nAuthenticated users vote with their account; the service blocks self-vote\n(creators cannot upvote their own corpuses, matching the Message /\nConversation contract). Anonymous viewers vote via their Django session\nkey — one vote per session per corpus. Anonymous voting on a non-public\ncorpus is rejected by the same IDOR-safe "not found or no permission"\nresponse as a malformed corpus id.',
+)
 class VoteCorpusMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
     message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[Annotated["CorpusType", strawberry.lazy("config.graphql.corpus_types")]] = strawberry.field(name="obj", default=None)
+    obj: Optional[
+        Annotated["CorpusType", strawberry.lazy("config.graphql.corpus_types")]
+    ] = strawberry.field(name="obj", default=None)
 
 
 register_type("VoteCorpusMutation", VoteCorpusMutation, model=None)
 
 
-@strawberry.type(name="RemoveCorpusVoteMutation", description="Remove the caller's vote on a corpus.\n\nSymmetric with :class:`VoteCorpusMutation` — works for both\nauthenticated users (creator-keyed) and anonymous viewers\n(session-keyed). Idempotent: removing a non-existent vote is a\nsuccessful no-op rather than an error.")
+@strawberry.type(
+    name="RemoveCorpusVoteMutation",
+    description="Remove the caller's vote on a corpus.\n\nSymmetric with :class:`VoteCorpusMutation` — works for both\nauthenticated users (creator-keyed) and anonymous viewers\n(session-keyed). Idempotent: removing a non-existent vote is a\nsuccessful no-op rather than an error.",
+)
 class RemoveCorpusVoteMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
     message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[Annotated["CorpusType", strawberry.lazy("config.graphql.corpus_types")]] = strawberry.field(name="obj", default=None)
+    obj: Optional[
+        Annotated["CorpusType", strawberry.lazy("config.graphql.corpus_types")]
+    ] = strawberry.field(name="obj", default=None)
 
 
 register_type("RemoveCorpusVoteMutation", RemoveCorpusVoteMutation, model=None)
@@ -266,7 +296,21 @@ def _mutate_VoteMessageMutation(payload_cls, root, info, message_id, vote_type):
     return mutate(root, info, message_id, vote_type)
 
 
-def m_vote_message(info: strawberry.Info, message_id: Annotated[str, strawberry.argument(name="messageId", description='ID of the message to vote on')] = strawberry.UNSET, vote_type: Annotated[str, strawberry.argument(name="voteType", description="Vote type: 'upvote' or 'downvote'")] = strawberry.UNSET) -> Optional["VoteMessageMutation"]:
+def m_vote_message(
+    info: strawberry.Info,
+    message_id: Annotated[
+        str,
+        strawberry.argument(
+            name="messageId", description="ID of the message to vote on"
+        ),
+    ] = strawberry.UNSET,
+    vote_type: Annotated[
+        str,
+        strawberry.argument(
+            name="voteType", description="Vote type: 'upvote' or 'downvote'"
+        ),
+    ] = strawberry.UNSET,
+) -> Optional["VoteMessageMutation"]:
     kwargs = strip_unset({"message_id": message_id, "vote_type": vote_type})
     return _mutate_VoteMessageMutation(VoteMessageMutation, None, info, **kwargs)
 
@@ -322,12 +366,22 @@ def _mutate_RemoveVoteMutation(payload_cls, root, info, message_id):
     return mutate(root, info, message_id)
 
 
-def m_remove_vote(info: strawberry.Info, message_id: Annotated[str, strawberry.argument(name="messageId", description='ID of the message to remove vote from')] = strawberry.UNSET) -> Optional["RemoveVoteMutation"]:
+def m_remove_vote(
+    info: strawberry.Info,
+    message_id: Annotated[
+        str,
+        strawberry.argument(
+            name="messageId", description="ID of the message to remove vote from"
+        ),
+    ] = strawberry.UNSET,
+) -> Optional["RemoveVoteMutation"]:
     kwargs = strip_unset({"message_id": message_id})
     return _mutate_RemoveVoteMutation(RemoveVoteMutation, None, info, **kwargs)
 
 
-def _mutate_VoteConversationMutation(payload_cls, root, info, conversation_id, vote_type):
+def _mutate_VoteConversationMutation(
+    payload_cls, root, info, conversation_id, vote_type
+):
     """PORT: /home/user/oc-graphene-ref/config/graphql/voting_mutations.py:280
 
     Port of VoteConversationMutation.mutate
@@ -414,9 +468,26 @@ def _mutate_VoteConversationMutation(payload_cls, root, info, conversation_id, v
     return mutate(root, info, conversation_id, vote_type)
 
 
-def m_vote_conversation(info: strawberry.Info, conversation_id: Annotated[str, strawberry.argument(name="conversationId", description='ID of the conversation/thread to vote on')] = strawberry.UNSET, vote_type: Annotated[str, strawberry.argument(name="voteType", description="Vote type: 'upvote' or 'downvote'")] = strawberry.UNSET) -> Optional["VoteConversationMutation"]:
+def m_vote_conversation(
+    info: strawberry.Info,
+    conversation_id: Annotated[
+        str,
+        strawberry.argument(
+            name="conversationId",
+            description="ID of the conversation/thread to vote on",
+        ),
+    ] = strawberry.UNSET,
+    vote_type: Annotated[
+        str,
+        strawberry.argument(
+            name="voteType", description="Vote type: 'upvote' or 'downvote'"
+        ),
+    ] = strawberry.UNSET,
+) -> Optional["VoteConversationMutation"]:
     kwargs = strip_unset({"conversation_id": conversation_id, "vote_type": vote_type})
-    return _mutate_VoteConversationMutation(VoteConversationMutation, None, info, **kwargs)
+    return _mutate_VoteConversationMutation(
+        VoteConversationMutation, None, info, **kwargs
+    )
 
 
 def _mutate_RemoveConversationVoteMutation(payload_cls, root, info, conversation_id):
@@ -472,9 +543,20 @@ def _mutate_RemoveConversationVoteMutation(payload_cls, root, info, conversation
     return mutate(root, info, conversation_id)
 
 
-def m_remove_conversation_vote(info: strawberry.Info, conversation_id: Annotated[str, strawberry.argument(name="conversationId", description='ID of the conversation/thread to remove vote from')] = strawberry.UNSET) -> Optional["RemoveConversationVoteMutation"]:
+def m_remove_conversation_vote(
+    info: strawberry.Info,
+    conversation_id: Annotated[
+        str,
+        strawberry.argument(
+            name="conversationId",
+            description="ID of the conversation/thread to remove vote from",
+        ),
+    ] = strawberry.UNSET,
+) -> Optional["RemoveConversationVoteMutation"]:
     kwargs = strip_unset({"conversation_id": conversation_id})
-    return _mutate_RemoveConversationVoteMutation(RemoveConversationVoteMutation, None, info, **kwargs)
+    return _mutate_RemoveConversationVoteMutation(
+        RemoveConversationVoteMutation, None, info, **kwargs
+    )
 
 
 def _mutate_VoteCorpusMutation(payload_cls, root, info, corpus_id, vote_type):
@@ -482,6 +564,7 @@ def _mutate_VoteCorpusMutation(payload_cls, root, info, corpus_id, vote_type):
 
     Port of VoteCorpusMutation.mutate
     """
+
     # Rate-limited but NOT @login_required: anonymous voting is the whole
     # point of this mutation. The ratelimit_dynamic key falls back to IP for
     # anonymous callers via the existing graphql_ratelimit middleware.
@@ -536,7 +619,21 @@ def _mutate_VoteCorpusMutation(payload_cls, root, info, corpus_id, vote_type):
     return mutate(root, info, corpus_id, vote_type)
 
 
-def m_vote_corpus(info: strawberry.Info, corpus_id: Annotated[str, strawberry.argument(name="corpusId", description='Relay global ID of the corpus to vote on')] = strawberry.UNSET, vote_type: Annotated[str, strawberry.argument(name="voteType", description="Vote type: 'upvote' or 'downvote'")] = strawberry.UNSET) -> Optional["VoteCorpusMutation"]:
+def m_vote_corpus(
+    info: strawberry.Info,
+    corpus_id: Annotated[
+        str,
+        strawberry.argument(
+            name="corpusId", description="Relay global ID of the corpus to vote on"
+        ),
+    ] = strawberry.UNSET,
+    vote_type: Annotated[
+        str,
+        strawberry.argument(
+            name="voteType", description="Vote type: 'upvote' or 'downvote'"
+        ),
+    ] = strawberry.UNSET,
+) -> Optional["VoteCorpusMutation"]:
     kwargs = strip_unset({"corpus_id": corpus_id, "vote_type": vote_type})
     return _mutate_VoteCorpusMutation(VoteCorpusMutation, None, info, **kwargs)
 
@@ -546,6 +643,7 @@ def _mutate_RemoveCorpusVoteMutation(payload_cls, root, info, corpus_id):
 
     Port of RemoveCorpusVoteMutation.mutate
     """
+
     # NOT @login_required — symmetric with VoteCorpusMutation (anonymous
     # session-keyed voters must be able to remove their vote).
     @graphql_ratelimit(rate="60/m")
@@ -593,17 +691,51 @@ def _mutate_RemoveCorpusVoteMutation(payload_cls, root, info, corpus_id):
     return mutate(root, info, corpus_id)
 
 
-def m_remove_corpus_vote(info: strawberry.Info, corpus_id: Annotated[str, strawberry.argument(name="corpusId", description='Relay global ID of the corpus to remove the vote from')] = strawberry.UNSET) -> Optional["RemoveCorpusVoteMutation"]:
+def m_remove_corpus_vote(
+    info: strawberry.Info,
+    corpus_id: Annotated[
+        str,
+        strawberry.argument(
+            name="corpusId",
+            description="Relay global ID of the corpus to remove the vote from",
+        ),
+    ] = strawberry.UNSET,
+) -> Optional["RemoveCorpusVoteMutation"]:
     kwargs = strip_unset({"corpus_id": corpus_id})
-    return _mutate_RemoveCorpusVoteMutation(RemoveCorpusVoteMutation, None, info, **kwargs)
-
+    return _mutate_RemoveCorpusVoteMutation(
+        RemoveCorpusVoteMutation, None, info, **kwargs
+    )
 
 
 MUTATION_FIELDS = {
-    "vote_message": strawberry.field(resolver=m_vote_message, name="voteMessage", description='Create or update a vote on a message.\nUsers can upvote or downvote messages. Changing vote type updates the existing vote.\nUsers cannot vote on their own messages.'),
-    "remove_vote": strawberry.field(resolver=m_remove_vote, name="removeVote", description="Remove user's vote from a message."),
-    "vote_conversation": strawberry.field(resolver=m_vote_conversation, name="voteConversation", description='Create or update a vote on a conversation/thread.\nUsers can upvote or downvote threads. Changing vote type updates the existing vote.\nUsers cannot vote on their own threads.\n\nPermission: Users can vote on any conversation/thread they can see (visibility-based).'),
-    "remove_conversation_vote": strawberry.field(resolver=m_remove_conversation_vote, name="removeConversationVote", description="Remove user's vote from a conversation/thread.\n\nPermission: Users can remove their vote from any conversation they can see."),
-    "vote_corpus": strawberry.field(resolver=m_vote_corpus, name="voteCorpus", description='Create or update a vote on a corpus.\n\nAuthenticated users vote with their account; the service blocks self-vote\n(creators cannot upvote their own corpuses, matching the Message /\nConversation contract). Anonymous viewers vote via their Django session\nkey — one vote per session per corpus. Anonymous voting on a non-public\ncorpus is rejected by the same IDOR-safe "not found or no permission"\nresponse as a malformed corpus id.'),
-    "remove_corpus_vote": strawberry.field(resolver=m_remove_corpus_vote, name="removeCorpusVote", description="Remove the caller's vote on a corpus.\n\nSymmetric with :class:`VoteCorpusMutation` — works for both\nauthenticated users (creator-keyed) and anonymous viewers\n(session-keyed). Idempotent: removing a non-existent vote is a\nsuccessful no-op rather than an error."),
+    "vote_message": strawberry.field(
+        resolver=m_vote_message,
+        name="voteMessage",
+        description="Create or update a vote on a message.\nUsers can upvote or downvote messages. Changing vote type updates the existing vote.\nUsers cannot vote on their own messages.",
+    ),
+    "remove_vote": strawberry.field(
+        resolver=m_remove_vote,
+        name="removeVote",
+        description="Remove user's vote from a message.",
+    ),
+    "vote_conversation": strawberry.field(
+        resolver=m_vote_conversation,
+        name="voteConversation",
+        description="Create or update a vote on a conversation/thread.\nUsers can upvote or downvote threads. Changing vote type updates the existing vote.\nUsers cannot vote on their own threads.\n\nPermission: Users can vote on any conversation/thread they can see (visibility-based).",
+    ),
+    "remove_conversation_vote": strawberry.field(
+        resolver=m_remove_conversation_vote,
+        name="removeConversationVote",
+        description="Remove user's vote from a conversation/thread.\n\nPermission: Users can remove their vote from any conversation they can see.",
+    ),
+    "vote_corpus": strawberry.field(
+        resolver=m_vote_corpus,
+        name="voteCorpus",
+        description='Create or update a vote on a corpus.\n\nAuthenticated users vote with their account; the service blocks self-vote\n(creators cannot upvote their own corpuses, matching the Message /\nConversation contract). Anonymous viewers vote via their Django session\nkey — one vote per session per corpus. Anonymous voting on a non-public\ncorpus is rejected by the same IDOR-safe "not found or no permission"\nresponse as a malformed corpus id.',
+    ),
+    "remove_corpus_vote": strawberry.field(
+        resolver=m_remove_corpus_vote,
+        name="removeCorpusVote",
+        description="Remove the caller's vote on a corpus.\n\nSymmetric with :class:`VoteCorpusMutation` — works for both\nauthenticated users (creator-keyed) and anonymous viewers\n(session-keyed). Idempotent: removing a non-existent vote is a\nsuccessful no-op rather than an error.",
+    ),
 }

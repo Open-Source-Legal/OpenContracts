@@ -37,9 +37,7 @@ def to_camel_case(snake_str: str) -> str:
 @lru_cache(maxsize=None)
 def filterset_arg_names(filterset_class: type) -> tuple[tuple[str, str], ...]:
     """(filter_name, graphql_arg_name) pairs for a FilterSet class."""
-    return tuple(
-        (name, to_camel_case(name)) for name in filterset_class.base_filters
-    )
+    return tuple((name, to_camel_case(name)) for name in filterset_class.base_filters)
 
 
 # --------------------------------------------------------------------------- #

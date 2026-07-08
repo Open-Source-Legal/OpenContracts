@@ -3,36 +3,32 @@
 Shape-generated from the graphene schema; stub functions marked PORT(...)
 carry the ported business logic. See config/graphql_new/manifest.json.
 """
+
+# flake8: noqa: E501, F821 — generated strawberry schema module.
+# E501: long GraphQL field/argument ``description=`` strings and the
+# single-line generated resolver signatures (black cannot split string
+# literals). F821: ``Annotated["XType", strawberry.lazy(...)]`` /
+# ``cast("QuerySet", ...)`` forward-reference STRINGS that pyflakes
+# resolves as names — the whole point of strawberry.lazy is to avoid the
+# import (which would then be F401). Both are code-generation artifacts,
+# not defects; hand-written modules (config/graphql/core/*, security.py,
+# testing.py, filters.py, …) stay fully linted.
+
 from __future__ import annotations
 
-import datetime
-import decimal
-import uuid
-from typing import Annotated, Any, Optional
+import logging
+from typing import Annotated, Optional
 
 import strawberry
-
-from config.graphql.core import permissions as core_permissions
-from config.graphql.core.filtering import filterset_factory, setup_filterset
-from config.graphql.core.mutations import drf_deletion, drf_mutation
-from config.graphql.core.relay import (
-    Node,
-    get_node_from_global_id,
-    make_connection_types,
-    register_type,
-    resolve_django_connection,
-    resolve_django_list,
-)
-from config.graphql.core.scalars import BigInt, GenericScalar, JSONString
-from config.graphql._util import coerce_enum, coerce_str, strip_unset
-from config.graphql import enums
-
-import logging
-
 from django.conf import settings
 from graphql_relay import from_global_id
 
+from config.graphql._util import strip_unset
 from config.graphql.core.auth import PermissionDenied, user_passes_test
+from config.graphql.core.relay import (
+    register_type,
+)
+from config.graphql.core.scalars import GenericScalar
 from config.graphql.ratelimits import RateLimits, graphql_ratelimit
 from config.telemetry import record_event
 from opencontractserver.analyzer.services import AnalysisLifecycleService
@@ -40,15 +36,18 @@ from opencontractserver.analyzer.services import AnalysisLifecycleService
 logger = logging.getLogger(__name__)
 
 
-
 @strawberry.type(name="StartDocumentAnalysisMutation")
 class StartDocumentAnalysisMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
     message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[Annotated["AnalysisType", strawberry.lazy("config.graphql.extract_types")]] = strawberry.field(name="obj", default=None)
+    obj: Optional[
+        Annotated["AnalysisType", strawberry.lazy("config.graphql.extract_types")]
+    ] = strawberry.field(name="obj", default=None)
 
 
-register_type("StartDocumentAnalysisMutation", StartDocumentAnalysisMutation, model=None)
+register_type(
+    "StartDocumentAnalysisMutation", StartDocumentAnalysisMutation, model=None
+)
 
 
 @strawberry.type(name="DeleteAnalysisMutation")
@@ -64,7 +63,9 @@ register_type("DeleteAnalysisMutation", DeleteAnalysisMutation, model=None)
 class MakeAnalysisPublic:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
     message: Optional[str] = strawberry.field(name="message", default=None)
-    obj: Optional[Annotated["AnalysisType", strawberry.lazy("config.graphql.extract_types")]] = strawberry.field(name="obj", default=None)
+    obj: Optional[
+        Annotated["AnalysisType", strawberry.lazy("config.graphql.extract_types")]
+    ] = strawberry.field(name="obj", default=None)
 
 
 register_type("MakeAnalysisPublic", MakeAnalysisPublic, model=None)
@@ -133,9 +134,46 @@ def _mutate_StartDocumentAnalysisMutation(
     return payload_cls(ok=True, message="SUCCESS", obj=result.value)
 
 
-def m_start_analysis_on_doc(info: strawberry.Info, analysis_input_data: Annotated[Optional[GenericScalar], strawberry.argument(name="analysisInputData", description='Optional arguments to be passed to the analyzer.')] = strawberry.UNSET, analyzer_id: Annotated[strawberry.ID, strawberry.argument(name="analyzerId", description='Id of the analyzer to use.')] = strawberry.UNSET, corpus_id: Annotated[Optional[strawberry.ID], strawberry.argument(name="corpusId", description='Optional Id of the corpus to associate with the analysis.')] = strawberry.UNSET, document_id: Annotated[Optional[strawberry.ID], strawberry.argument(name="documentId", description='Id of the document to be analyzed.')] = strawberry.UNSET) -> Optional["StartDocumentAnalysisMutation"]:
-    kwargs = strip_unset({"analysis_input_data": analysis_input_data, "analyzer_id": analyzer_id, "corpus_id": corpus_id, "document_id": document_id})
-    return _mutate_StartDocumentAnalysisMutation(StartDocumentAnalysisMutation, None, info, **kwargs)
+def m_start_analysis_on_doc(
+    info: strawberry.Info,
+    analysis_input_data: Annotated[
+        Optional[GenericScalar],
+        strawberry.argument(
+            name="analysisInputData",
+            description="Optional arguments to be passed to the analyzer.",
+        ),
+    ] = strawberry.UNSET,
+    analyzer_id: Annotated[
+        strawberry.ID,
+        strawberry.argument(
+            name="analyzerId", description="Id of the analyzer to use."
+        ),
+    ] = strawberry.UNSET,
+    corpus_id: Annotated[
+        Optional[strawberry.ID],
+        strawberry.argument(
+            name="corpusId",
+            description="Optional Id of the corpus to associate with the analysis.",
+        ),
+    ] = strawberry.UNSET,
+    document_id: Annotated[
+        Optional[strawberry.ID],
+        strawberry.argument(
+            name="documentId", description="Id of the document to be analyzed."
+        ),
+    ] = strawberry.UNSET,
+) -> Optional["StartDocumentAnalysisMutation"]:
+    kwargs = strip_unset(
+        {
+            "analysis_input_data": analysis_input_data,
+            "analyzer_id": analyzer_id,
+            "corpus_id": corpus_id,
+            "document_id": document_id,
+        }
+    )
+    return _mutate_StartDocumentAnalysisMutation(
+        StartDocumentAnalysisMutation, None, info, **kwargs
+    )
 
 
 def _mutate_DeleteAnalysisMutation(payload_cls, root, info, id):
@@ -165,7 +203,10 @@ def _mutate_DeleteAnalysisMutation(payload_cls, root, info, id):
     return payload_cls(ok=True, message="SUCCESS")
 
 
-def m_delete_analysis(info: strawberry.Info, id: Annotated[str, strawberry.argument(name="id")] = strawberry.UNSET) -> Optional["DeleteAnalysisMutation"]:
+def m_delete_analysis(
+    info: strawberry.Info,
+    id: Annotated[str, strawberry.argument(name="id")] = strawberry.UNSET,
+) -> Optional["DeleteAnalysisMutation"]:
     kwargs = strip_unset({"id": id})
     return _mutate_DeleteAnalysisMutation(DeleteAnalysisMutation, None, info, **kwargs)
 
@@ -207,14 +248,27 @@ def _mutate_MakeAnalysisPublic(payload_cls, root, info, analysis_id):
     return mutate(root, info, analysis_id=analysis_id)
 
 
-def m_make_analysis_public(info: strawberry.Info, analysis_id: Annotated[str, strawberry.argument(name="analysisId", description='Analysis id to make public (superuser only)')] = strawberry.UNSET) -> Optional["MakeAnalysisPublic"]:
+def m_make_analysis_public(
+    info: strawberry.Info,
+    analysis_id: Annotated[
+        str,
+        strawberry.argument(
+            name="analysisId", description="Analysis id to make public (superuser only)"
+        ),
+    ] = strawberry.UNSET,
+) -> Optional["MakeAnalysisPublic"]:
     kwargs = strip_unset({"analysis_id": analysis_id})
     return _mutate_MakeAnalysisPublic(MakeAnalysisPublic, None, info, **kwargs)
 
 
-
 MUTATION_FIELDS = {
-    "start_analysis_on_doc": strawberry.field(resolver=m_start_analysis_on_doc, name="startAnalysisOnDoc"),
-    "delete_analysis": strawberry.field(resolver=m_delete_analysis, name="deleteAnalysis"),
-    "make_analysis_public": strawberry.field(resolver=m_make_analysis_public, name="makeAnalysisPublic"),
+    "start_analysis_on_doc": strawberry.field(
+        resolver=m_start_analysis_on_doc, name="startAnalysisOnDoc"
+    ),
+    "delete_analysis": strawberry.field(
+        resolver=m_delete_analysis, name="deleteAnalysis"
+    ),
+    "make_analysis_public": strawberry.field(
+        resolver=m_make_analysis_public, name="makeAnalysisPublic"
+    ),
 }
