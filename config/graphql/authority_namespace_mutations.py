@@ -27,7 +27,27 @@ from config.graphql.core.scalars import BigInt, GenericScalar, JSONString
 from config.graphql._util import coerce_enum, coerce_str, strip_unset
 from config.graphql import enums
 
+import logging
 
+from graphql_relay import from_global_id
+
+from config.graphql.core.auth import PermissionDenied
+from opencontractserver.enrichment.services import AuthorityNamespaceService
+from opencontractserver.enrichment.services.authority_permissions import DENIED
+
+logger = logging.getLogger(__name__)
+
+
+def _decode_pk(global_id: str) -> int | None:
+    try:
+        return int(from_global_id(global_id)[1])
+    except (ValueError, TypeError, IndexError):
+        return None
+
+
+def _partial(**kwargs):
+    """Drop ``None`` (omitted) args; keep ``""`` / ``[]`` (explicit clears)."""
+    return {k: v for k, v in kwargs.items() if v is not None}
 
 
 @strawberry.type(name="CreateAuthorityNamespaceMutation", description='Create a manual AuthorityNamespace (superuser-only).')

@@ -27,15 +27,40 @@ from config.graphql.core.scalars import BigInt, GenericScalar, JSONString
 from config.graphql._util import coerce_enum, coerce_str, strip_unset
 from config.graphql import enums
 
+from django.db.models.functions import Coalesce
+
+from config.graphql.corpus_queries import _corpus_count_subqueries
+from opencontractserver.corpuses.models import Corpus
+from opencontractserver.documents.models import Document
+from opencontractserver.shared.services.base import BaseService
 
 
-
-def _resolve_Query_corpus_by_slugs(root, info, **kwargs):
+def _resolve_Query_corpus_by_slugs(root, info, user_slug: str, corpus_slug: str):
     """PORT: /home/user/oc-graphene-ref/config/graphql/slug_queries.py:47
 
     Port of SlugQueryMixin.resolve_corpus_by_slugs
     """
-    raise NotImplementedError("_resolve_Query_corpus_by_slugs not yet ported — see manifest")
+    from django.contrib.auth import get_user_model
+    from django.db.models import Subquery
+
+    User = get_user_model()
+    try:
+        owner = User.objects.get(slug=user_slug)
+    except User.DoesNotExist:
+        return None
+    qs = BaseService.filter_visible(
+        Corpus, info.context.user, request=info.context
+    ).filter(creator=owner, slug=corpus_slug)
+
+    # Add count annotations for efficient documentCount/annotationCount
+    # resolution without N+1 queries. Coalesce ensures 0 instead of NULL.
+    doc_sq, annot_sq = _corpus_count_subqueries()
+    qs = qs.annotate(
+        _document_count=Coalesce(Subquery(doc_sq), 0),
+        _annotation_count=Coalesce(Subquery(annot_sq), 0),
+    )
+
+    return qs.first()
 
 
 def q_corpus_by_slugs(info: strawberry.Info, user_slug: Annotated[str, strawberry.argument(name="userSlug")] = strawberry.UNSET, corpus_slug: Annotated[str, strawberry.argument(name="corpusSlug")] = strawberry.UNSET) -> Optional[Annotated["CorpusType", strawberry.lazy("config.graphql.corpus_types")]]:
@@ -43,12 +68,25 @@ def q_corpus_by_slugs(info: strawberry.Info, user_slug: Annotated[str, strawberr
     return _resolve_Query_corpus_by_slugs(None, info, **kwargs)
 
 
-def _resolve_Query_document_by_slugs(root, info, **kwargs):
+def _resolve_Query_document_by_slugs(root, info, user_slug: str, document_slug: str):
     """PORT: /home/user/oc-graphene-ref/config/graphql/slug_queries.py:72
 
     Port of SlugQueryMixin.resolve_document_by_slugs
     """
-    raise NotImplementedError("_resolve_Query_document_by_slugs not yet ported — see manifest")
+    from django.contrib.auth import get_user_model
+
+    User = get_user_model()
+    try:
+        owner = User.objects.get(slug=user_slug)
+    except User.DoesNotExist:
+        return None
+    return (
+        BaseService.filter_visible(
+            Document, info.context.user, request=info.context
+        )
+        .filter(creator=owner, slug=document_slug)
+        .first()
+    )
 
 
 def q_document_by_slugs(info: strawberry.Info, user_slug: Annotated[str, strawberry.argument(name="userSlug")] = strawberry.UNSET, document_slug: Annotated[str, strawberry.argument(name="documentSlug")] = strawberry.UNSET) -> Optional[Annotated["DocumentType", strawberry.lazy("config.graphql.document_types")]]:
@@ -56,12 +94,94 @@ def q_document_by_slugs(info: strawberry.Info, user_slug: Annotated[str, strawbe
     return _resolve_Query_document_by_slugs(None, info, **kwargs)
 
 
-def _resolve_Query_document_in_corpus_by_slugs(root, info, **kwargs):
+def _resolve_Query_document_in_corpus_by_slugs(
+    root,
+    info,
+    user_slug: str,
+    corpus_slug: str,
+    document_slug: str,
+    version_number: int | None = None,
+):
     """PORT: /home/user/oc-graphene-ref/config/graphql/slug_queries.py:90
 
     Port of SlugQueryMixin.resolve_document_in_corpus_by_slugs
     """
-    raise NotImplementedError("_resolve_Query_document_in_corpus_by_slugs not yet ported — see manifest")
+    from django.contrib.auth import get_user_model
+
+    from opencontractserver.documents.models import DocumentPath
+
+    User = get_user_model()
+    try:
+        owner = User.objects.get(slug=user_slug)
+    except User.DoesNotExist:
+        return None
+    corpus = (
+        BaseService.filter_visible(Corpus, info.context.user, request=info.context)
+        .filter(creator=owner, slug=corpus_slug)
+        .first()
+    )
+    if not corpus:
+        return None
+    # Resolve document via corpus membership (DocumentPath), not by
+    # creator.  Documents in a corpus may have been uploaded by any
+    # user with write access, not necessarily the corpus owner.
+    # Filter by corpus membership to avoid ambiguity when documents
+    # in different corpuses share the same slug.
+    # Explicit ordering ensures deterministic results when multiple
+    # documents share the same slug in this corpus (different creators).
+    #
+    # When version_number is provided, skip is_current=True because the
+    # caller wants a historical version.  The slug may belong to an older
+    # version whose path record has is_current=False; we just need to
+    # confirm the document has *any* non-deleted path in this corpus.
+    path_filter = {
+        "slug": document_slug,
+        "path_records__corpus": corpus,
+        "path_records__is_deleted": False,
+    }
+    if version_number is None:
+        path_filter["path_records__is_current"] = True
+
+    doc = (
+        BaseService.filter_visible(
+            Document, info.context.user, request=info.context
+        )
+        .filter(**path_filter)
+        .order_by("pk")
+        .first()
+    )
+    if not doc:
+        return None
+
+    if version_number is not None:
+        # Resolve a specific historical version via version_tree_id.
+        # A document's slug may change between versions, so we must
+        # traverse by version_tree_id (which groups all versions of
+        # the same logical document) rather than filtering by slug.
+        visible_version_docs = (
+            BaseService.filter_visible(
+                Document, info.context.user, request=info.context
+            )
+            .filter(version_tree_id=doc.version_tree_id)
+            .only("pk")
+        )
+        path_record = (
+            DocumentPath.objects.filter(
+                document__in=visible_version_docs,
+                corpus=corpus,
+                version_number=version_number,
+                is_deleted=False,
+            )
+            .select_related("document")
+            .first()
+        )
+        if not path_record:
+            return None
+        return path_record.document
+
+    # Default: doc already satisfies corpus membership, visibility,
+    # and is_current constraints from the initial query above.
+    return doc
 
 
 def q_document_in_corpus_by_slugs(info: strawberry.Info, user_slug: Annotated[str, strawberry.argument(name="userSlug")] = strawberry.UNSET, corpus_slug: Annotated[str, strawberry.argument(name="corpusSlug")] = strawberry.UNSET, document_slug: Annotated[str, strawberry.argument(name="documentSlug")] = strawberry.UNSET, version_number: Annotated[Optional[int], strawberry.argument(name="versionNumber", description='Optional version number to resolve a specific historical version. When omitted, returns the current (latest) version.')] = strawberry.UNSET) -> Optional[Annotated["DocumentType", strawberry.lazy("config.graphql.document_types")]]:

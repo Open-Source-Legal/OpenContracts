@@ -125,7 +125,36 @@ class NotificationType(Node):
         return _resolve_NotificationType_data(self, info, **kwargs)
 
 
-register_type("NotificationType", NotificationType, model=Notification)
+def _get_node_NotificationType(info, pk):
+    """PORT: config.graphql.social_queries.SocialQueryMixin.resolve_notification
+
+    Port of the graphene ``resolve_notification`` override on the Query
+    mixin (graphene's ``relay.Node.Field(NotificationType)`` was shadowed
+    by a ``resolve_notification`` method): notifications use a simple
+    ownership model (``recipient=user``), NOT the guardian permission
+    manager, so the default ``BaseService.get_or_none`` node path cannot
+    be used. Returns consistent error to prevent IDOR enumeration.
+    """
+    from graphql import GraphQLError
+
+    from opencontractserver.notifications.services import NotificationService
+
+    notification = NotificationService.get_for_user(
+        info.context.user, int(pk), request=info.context
+    )
+    if notification is None:
+        # Same error whether notification doesn't exist or belongs to
+        # another user (IDOR protection).
+        raise GraphQLError("Notification not found")
+    return notification
+
+
+register_type(
+    "NotificationType",
+    NotificationType,
+    model=Notification,
+    get_node=_get_node_NotificationType,
+)
 
 
 NotificationTypeConnection = make_connection_types(NotificationType, type_name="NotificationTypeConnection", countable=True, pdf_page_aware=False)
@@ -190,7 +219,40 @@ class UserBadgeType(Node):
         return core_permissions.resolve_object_shared_with(self, info)
 
 
-register_type("UserBadgeType", UserBadgeType, model=UserBadge)
+def _get_node_UserBadgeType(info, pk):
+    """PORT: config.graphql.social_queries.SocialQueryMixin.resolve_user_badge
+
+    Port of the graphene ``resolve_user_badge`` override on the Query mixin
+    (graphene's ``relay.Node.Field(UserBadgeType)`` was shadowed by a
+    ``resolve_user_badge`` method).
+
+    Resolve a single user badge by ID with visibility check and IDOR
+    protection.
+
+    SECURITY: Returns same error whether badge doesn't exist or user lacks
+    permission. This prevents enumeration attacks.
+    """
+    from graphql import GraphQLError
+
+    from opencontractserver.badges.services import BadgeService
+
+    has_permission, user_badge = BadgeService.check_user_badge_visibility(
+        info.context.user, int(pk), request=info.context
+    )
+
+    if not has_permission:
+        # Same error whether doesn't exist or no permission (IDOR protection)
+        raise GraphQLError("User badge not found")
+
+    return user_badge
+
+
+register_type(
+    "UserBadgeType",
+    UserBadgeType,
+    model=UserBadge,
+    get_node=_get_node_UserBadgeType,
+)
 
 
 UserBadgeTypeConnection = make_connection_types(UserBadgeType, type_name="UserBadgeTypeConnection", countable=True, pdf_page_aware=False)

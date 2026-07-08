@@ -27,7 +27,7 @@ from config.graphql.core.scalars import BigInt, GenericScalar, JSONString
 from config.graphql._util import coerce_enum, coerce_str, strip_unset
 from config.graphql import enums
 
-
+from opencontractserver.users.models import SystemStats
 
 
 @strawberry.type(name="SystemStatsType", description='Install-wide aggregate metrics, materialised periodically.\n\nFields mirror :class:`opencontractserver.users.models.SystemStats`. All\ncounts are global, not permission-scoped.')
@@ -49,7 +49,9 @@ def _resolve_Query_system_stats(root, info, **kwargs):
 
     Port of StatsQueryMixin.resolve_system_stats
     """
-    raise NotImplementedError("_resolve_Query_system_stats not yet ported — see manifest")
+    # Singleton accessor — no permission scoping (global public
+    # aggregates). Returns zeros until the first scheduled refresh runs.
+    return SystemStats.get()
 
 
 def q_system_stats(info: strawberry.Info) -> Optional["SystemStatsType"]:

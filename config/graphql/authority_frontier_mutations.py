@@ -27,7 +27,34 @@ from config.graphql.core.scalars import BigInt, GenericScalar, JSONString
 from config.graphql._util import coerce_enum, coerce_str, strip_unset
 from config.graphql import enums
 
+import logging
 
+from graphql_relay import from_global_id
+
+from config.graphql.core.auth import PermissionDenied
+from opencontractserver.enrichment.services import AuthorityFrontierService
+from opencontractserver.enrichment.services.authority_permissions import DENIED
+
+logger = logging.getLogger(__name__)
+
+
+def _decode_pk(global_id: str) -> int | None:
+    try:
+        return int(from_global_id(global_id)[1])
+    except (ValueError, TypeError, IndexError):
+        return None
+
+
+def _run_verb(make_payload, verb: str, info, id, **extra):
+    """Decode ``id``, call the named service verb, build the mutation payload."""
+    pk = _decode_pk(id)
+    if pk is None:
+        return make_payload(ok=False, message=DENIED, obj=None)
+    method = getattr(AuthorityFrontierService, verb)
+    result = method(info.context.user, pk=pk, **extra)
+    return make_payload(
+        ok=result.ok, message=(result.error or "SUCCESS"), obj=result.obj
+    )
 
 
 @strawberry.type(name="RequeueAuthorityFrontierMutation", description='Re-queue a row (clears document + error) — un-sticks deferred_cap/failed.')
@@ -80,12 +107,17 @@ class DeleteAuthorityFrontierMutation:
 register_type("DeleteAuthorityFrontierMutation", DeleteAuthorityFrontierMutation, model=None)
 
 
-def _mutate_RequeueAuthorityFrontierMutation(payload_cls, root, info, **kwargs):
-    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:53
+def _mutate_RequeueAuthorityFrontierMutation(payload_cls, root, info, id):
+    """PORT: config/graphql/authority_frontier_mutations.py:54
 
     Port of RequeueAuthorityFrontierMutation.mutate
     """
-    raise NotImplementedError("_mutate_RequeueAuthorityFrontierMutation not yet ported — see manifest")
+    # @login_required (graphql_jwt) — inlined because mutate stubs take
+    # ``payload_cls`` as their first positional argument, which does not
+    # match core.auth's ``(root, info, ...)`` calling convention.
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+    return _run_verb(payload_cls, "requeue", info, id)
 
 
 def m_requeue_authority_frontier(info: strawberry.Info, id: Annotated[strawberry.ID, strawberry.argument(name="id")] = strawberry.UNSET) -> Optional["RequeueAuthorityFrontierMutation"]:
@@ -93,12 +125,15 @@ def m_requeue_authority_frontier(info: strawberry.Info, id: Annotated[strawberry
     return _mutate_RequeueAuthorityFrontierMutation(RequeueAuthorityFrontierMutation, None, info, **kwargs)
 
 
-def _mutate_ResetAuthorityFrontierMutation(payload_cls, root, info, **kwargs):
-    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:68
+def _mutate_ResetAuthorityFrontierMutation(payload_cls, root, info, id):
+    """PORT: config/graphql/authority_frontier_mutations.py:69
 
     Port of ResetAuthorityFrontierMutation.mutate
     """
-    raise NotImplementedError("_mutate_ResetAuthorityFrontierMutation not yet ported — see manifest")
+    # @login_required (graphql_jwt) — inlined; see _mutate_RequeueAuthorityFrontierMutation.
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+    return _run_verb(payload_cls, "reset", info, id)
 
 
 def m_reset_authority_frontier(info: strawberry.Info, id: Annotated[strawberry.ID, strawberry.argument(name="id")] = strawberry.UNSET) -> Optional["ResetAuthorityFrontierMutation"]:
@@ -106,12 +141,15 @@ def m_reset_authority_frontier(info: strawberry.Info, id: Annotated[strawberry.I
     return _mutate_ResetAuthorityFrontierMutation(ResetAuthorityFrontierMutation, None, info, **kwargs)
 
 
-def _mutate_RerouteAuthorityFrontierMutation(payload_cls, root, info, **kwargs):
-    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:101
+def _mutate_RerouteAuthorityFrontierMutation(payload_cls, root, info, id, provider):
+    """PORT: config/graphql/authority_frontier_mutations.py:102
 
     Port of RerouteAuthorityFrontierMutation.mutate
     """
-    raise NotImplementedError("_mutate_RerouteAuthorityFrontierMutation not yet ported — see manifest")
+    # @login_required (graphql_jwt) — inlined; see _mutate_RequeueAuthorityFrontierMutation.
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+    return _run_verb(payload_cls, "reroute", info, id, provider=provider)
 
 
 def m_reroute_authority_frontier(info: strawberry.Info, id: Annotated[strawberry.ID, strawberry.argument(name="id")] = strawberry.UNSET, provider: Annotated[str, strawberry.argument(name="provider", description='Registry provider class name to route to.')] = strawberry.UNSET) -> Optional["RerouteAuthorityFrontierMutation"]:
@@ -119,12 +157,15 @@ def m_reroute_authority_frontier(info: strawberry.Info, id: Annotated[strawberry
     return _mutate_RerouteAuthorityFrontierMutation(RerouteAuthorityFrontierMutation, None, info, **kwargs)
 
 
-def _mutate_ApproveAuthorityFrontierMutation(payload_cls, root, info, **kwargs):
-    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:83
+def _mutate_ApproveAuthorityFrontierMutation(payload_cls, root, info, id):
+    """PORT: config/graphql/authority_frontier_mutations.py:84
 
     Port of ApproveAuthorityFrontierMutation.mutate
     """
-    raise NotImplementedError("_mutate_ApproveAuthorityFrontierMutation not yet ported — see manifest")
+    # @login_required (graphql_jwt) — inlined; see _mutate_RequeueAuthorityFrontierMutation.
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+    return _run_verb(payload_cls, "approve", info, id)
 
 
 def m_approve_authority_frontier(info: strawberry.Info, id: Annotated[strawberry.ID, strawberry.argument(name="id")] = strawberry.UNSET) -> Optional["ApproveAuthorityFrontierMutation"]:
@@ -132,12 +173,21 @@ def m_approve_authority_frontier(info: strawberry.Info, id: Annotated[strawberry
     return _mutate_ApproveAuthorityFrontierMutation(ApproveAuthorityFrontierMutation, None, info, **kwargs)
 
 
-def _mutate_DeleteAuthorityFrontierMutation(payload_cls, root, info, **kwargs):
-    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:122
+def _mutate_DeleteAuthorityFrontierMutation(payload_cls, root, info, ids):
+    """PORT: config/graphql/authority_frontier_mutations.py:123
 
     Port of DeleteAuthorityFrontierMutation.mutate
     """
-    raise NotImplementedError("_mutate_DeleteAuthorityFrontierMutation not yet ported — see manifest")
+    # @login_required (graphql_jwt) — inlined; see _mutate_RequeueAuthorityFrontierMutation.
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+    pks = [pk for pk in (_decode_pk(i) for i in ids) if pk is not None]
+    result = AuthorityFrontierService.delete_rows(info.context.user, pks=pks)
+    return payload_cls(
+        ok=result.ok,
+        message=(result.error or "SUCCESS"),
+        count=result.count,
+    )
 
 
 def m_delete_authority_frontier(info: strawberry.Info, ids: Annotated[list[strawberry.ID], strawberry.argument(name="ids", description='Global IDs of the frontier rows to delete.')] = strawberry.UNSET) -> Optional["DeleteAuthorityFrontierMutation"]:

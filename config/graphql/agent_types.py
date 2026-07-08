@@ -35,12 +35,9 @@ from opencontractserver.corpuses.models import CorpusActionExecution
 from opencontractserver.corpuses.models import CorpusActionTemplate
 
 
-def _resolve_CorpusActionType_pre_authorized_tools(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/agent_types.py:42
-
-    Port of CorpusActionType.resolve_pre_authorized_tools
-    """
-    raise NotImplementedError("_resolve_CorpusActionType_pre_authorized_tools not yet ported — see manifest")
+def _resolve_CorpusActionType_pre_authorized_tools(root, info):
+    """Resolve pre_authorized_tools as a list of strings."""
+    return root.pre_authorized_tools or []
 
 
 @strawberry.type(name="CorpusActionType")
@@ -113,36 +110,24 @@ register_type("CorpusActionType", CorpusActionType, model=CorpusAction)
 CorpusActionTypeConnection = make_connection_types(CorpusActionType, type_name="CorpusActionTypeConnection", countable=True, pdf_page_aware=False)
 
 
-def _resolve_CorpusActionExecutionType_affected_objects(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/agent_types.py:113
-
-    Port of CorpusActionExecutionType.resolve_affected_objects
-    """
-    raise NotImplementedError("_resolve_CorpusActionExecutionType_affected_objects not yet ported — see manifest")
+def _resolve_CorpusActionExecutionType_affected_objects(root, info):
+    """Resolve affected_objects as a list of JSON objects."""
+    return root.affected_objects or []
 
 
-def _resolve_CorpusActionExecutionType_execution_metadata(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/agent_types.py:117
-
-    Port of CorpusActionExecutionType.resolve_execution_metadata
-    """
-    raise NotImplementedError("_resolve_CorpusActionExecutionType_execution_metadata not yet ported — see manifest")
+def _resolve_CorpusActionExecutionType_execution_metadata(root, info):
+    """Resolve execution_metadata as JSON dict."""
+    return root.execution_metadata or {}
 
 
-def _resolve_CorpusActionExecutionType_duration_seconds(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/agent_types.py:105
-
-    Port of CorpusActionExecutionType.resolve_duration_seconds
-    """
-    raise NotImplementedError("_resolve_CorpusActionExecutionType_duration_seconds not yet ported — see manifest")
+def _resolve_CorpusActionExecutionType_duration_seconds(root, info):
+    """Resolve duration from the model property."""
+    return root.duration_seconds
 
 
-def _resolve_CorpusActionExecutionType_wait_time_seconds(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/agent_types.py:109
-
-    Port of CorpusActionExecutionType.resolve_wait_time_seconds
-    """
-    raise NotImplementedError("_resolve_CorpusActionExecutionType_wait_time_seconds not yet ported — see manifest")
+def _resolve_CorpusActionExecutionType_wait_time_seconds(root, info):
+    """Resolve wait time from the model property."""
+    return root.wait_time_seconds
 
 
 @strawberry.type(name="CorpusActionExecutionType", description='GraphQL type for CorpusActionExecution - action execution tracking records.')
@@ -212,28 +197,21 @@ register_type("CorpusActionExecutionType", CorpusActionExecutionType, model=Corp
 CorpusActionExecutionTypeConnection = make_connection_types(CorpusActionExecutionType, type_name="CorpusActionExecutionTypeConnection", countable=True, pdf_page_aware=False)
 
 
-def _resolve_AgentConfigurationType_available_tools(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/agent_types.py:192
-
-    Port of AgentConfigurationType.resolve_available_tools
-    """
-    raise NotImplementedError("_resolve_AgentConfigurationType_available_tools not yet ported — see manifest")
+def _resolve_AgentConfigurationType_available_tools(root, info):
+    """Resolve available_tools as a list of strings, ensuring proper array type."""
+    return root.available_tools if root.available_tools else []
 
 
-def _resolve_AgentConfigurationType_permission_required_tools(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/agent_types.py:196
-
-    Port of AgentConfigurationType.resolve_permission_required_tools
-    """
-    raise NotImplementedError("_resolve_AgentConfigurationType_permission_required_tools not yet ported — see manifest")
+def _resolve_AgentConfigurationType_permission_required_tools(root, info):
+    """Resolve permission_required_tools as a list of strings, ensuring proper array type."""
+    return root.permission_required_tools if root.permission_required_tools else []
 
 
-def _resolve_AgentConfigurationType_mention_format(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/agent_types.py:186
-
-    Port of AgentConfigurationType.resolve_mention_format
-    """
-    raise NotImplementedError("_resolve_AgentConfigurationType_mention_format not yet ported — see manifest")
+def _resolve_AgentConfigurationType_mention_format(root, info):
+    """Return the @ mention format for this agent."""
+    if root.slug:
+        return f"@agent:{root.slug}"
+    return None
 
 
 @strawberry.type(name="AgentConfigurationType", description='GraphQL type for agent configurations.')
@@ -295,28 +273,19 @@ register_type("AgentConfigurationType", AgentConfigurationType, model=AgentConfi
 AgentConfigurationTypeConnection = make_connection_types(AgentConfigurationType, type_name="AgentConfigurationTypeConnection", countable=True, pdf_page_aware=False)
 
 
-def _resolve_AgentActionResultType_tools_executed(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/agent_types.py:66
-
-    Port of AgentActionResultType.resolve_tools_executed
-    """
-    raise NotImplementedError("_resolve_AgentActionResultType_tools_executed not yet ported — see manifest")
+def _resolve_AgentActionResultType_tools_executed(root, info):
+    """Resolve tools_executed as a list of JSON objects."""
+    return root.tools_executed or []
 
 
-def _resolve_AgentActionResultType_execution_metadata(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/agent_types.py:70
-
-    Port of AgentActionResultType.resolve_execution_metadata
-    """
-    raise NotImplementedError("_resolve_AgentActionResultType_execution_metadata not yet ported — see manifest")
+def _resolve_AgentActionResultType_execution_metadata(root, info):
+    """Resolve execution_metadata as JSON dict."""
+    return root.execution_metadata or {}
 
 
-def _resolve_AgentActionResultType_duration_seconds(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/agent_types.py:74
-
-    Port of AgentActionResultType.resolve_duration_seconds
-    """
-    raise NotImplementedError("_resolve_AgentActionResultType_duration_seconds not yet ported — see manifest")
+def _resolve_AgentActionResultType_duration_seconds(root, info):
+    """Resolve duration from the model property."""
+    return root.duration_seconds
 
 
 @strawberry.type(name="AgentActionResultType", description='GraphQL type for AgentActionResult - results from agent-based corpus actions.')
@@ -377,12 +346,8 @@ register_type("AgentActionResultType", AgentActionResultType, model=AgentActionR
 AgentActionResultTypeConnection = make_connection_types(AgentActionResultType, type_name="AgentActionResultTypeConnection", countable=True, pdf_page_aware=False)
 
 
-def _resolve_CorpusActionTemplateType_pre_authorized_tools(root, info, **kwargs):
-    """PORT: /home/user/oc-graphene-ref/config/graphql/agent_types.py:267
-
-    Port of CorpusActionTemplateType.resolve_pre_authorized_tools
-    """
-    raise NotImplementedError("_resolve_CorpusActionTemplateType_pre_authorized_tools not yet ported — see manifest")
+def _resolve_CorpusActionTemplateType_pre_authorized_tools(root, info):
+    return root.pre_authorized_tools or []
 
 
 @strawberry.type(name="CorpusActionTemplateType", description='GraphQL type for CorpusActionTemplate — read-only, system-level.')
