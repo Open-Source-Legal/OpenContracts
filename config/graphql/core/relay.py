@@ -109,6 +109,49 @@ def register_type(
 
             definition.is_type_of = _is_type_of
 
+    _install_graphene_resolver_aliases(type_name, strawberry_type)
+
+
+def _install_graphene_resolver_aliases(type_name: str, strawberry_type: type) -> None:
+    """Expose graphene-style ``XType.resolve_<field>(root, info, ...)`` methods.
+
+    graphene resolvers were bound methods callable as
+    ``XType.resolve_field(obj, info)`` — a form the unit tests use directly to
+    exercise resolver logic without going through the full schema. The
+    strawberry port keeps each custom resolver as a module-level
+    ``_resolve_<TypeName>_<field>(root, info, ...)`` function; this installs a
+    thin ``resolve_<field>`` staticmethod alias onto the type for each, plus
+    the three permission-annotation fields, so those tests keep working
+    unchanged. Strawberry ignores arbitrary ``resolve_*`` attributes (only
+    ``@strawberry.field`` methods and annotated fields matter), so the aliases
+    are inert for schema execution.
+    """
+    import sys
+
+    module = sys.modules.get(strawberry_type.__module__)
+    if module is not None:
+        prefix = f"_resolve_{type_name}_"
+        for attr_name in dir(module):
+            if attr_name.startswith(prefix):
+                field = attr_name[len(prefix):]
+                fn = getattr(module, attr_name)
+                if callable(fn) and not hasattr(strawberry_type, f"resolve_{field}"):
+                    setattr(
+                        strawberry_type, f"resolve_{field}", staticmethod(fn)
+                    )
+
+    # Permission-annotation fields live in the shared core module, not the
+    # per-type module, so alias them explicitly.
+    from config.graphql.core import permissions as _perm
+
+    for field, fn in (
+        ("my_permissions", _perm.resolve_my_permissions),
+        ("is_published", _perm.resolve_is_published),
+        ("object_shared_with", _perm.resolve_object_shared_with),
+    ):
+        if not hasattr(strawberry_type, f"resolve_{field}"):
+            setattr(strawberry_type, f"resolve_{field}", staticmethod(fn))
+
 
 def get_registry_entry(type_name: str) -> TypeRegistryEntry | None:
     return _TYPE_REGISTRY.get(type_name)
