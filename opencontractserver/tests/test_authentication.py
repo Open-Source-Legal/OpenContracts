@@ -4,7 +4,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.db import transaction
-from graphene_django.utils.testing import GraphQLTestCase
+from config.graphql.testing import GraphQLTestCase
 from rest_framework.authtoken.models import Token
 
 User = get_user_model()

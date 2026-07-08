@@ -3,7 +3,7 @@ import io
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from docx import Document as DocxDocument
-from graphene.test import Client
+from config.graphql.testing import Client
 from graphql_relay import from_global_id, to_global_id
 from openpyxl import Workbook
 from pptx import Presentation

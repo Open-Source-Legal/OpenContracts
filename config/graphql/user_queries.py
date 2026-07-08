@@ -1,198 +1,127 @@
-"""
-GraphQL query mixin for user, assignment, import, and export queries.
-"""
+"""Generated strawberry GraphQL module (graphene migration).
 
+Shape-generated from the graphene schema; stub functions marked PORT(...)
+carry the ported business logic. See config/graphql_new/manifest.json.
+"""
 from __future__ import annotations
 
-import warnings
-from typing import TYPE_CHECKING, Any
+import datetime
+import decimal
+import uuid
+from typing import Annotated, Any, Optional
 
-import graphene
-from django.db.models import Q, QuerySet
-from graphene import relay
-from graphene_django.fields import DjangoConnectionField
-from graphene_django.filter import DjangoFilterConnectionField
-from graphql import GraphQLError
-from graphql_jwt.decorators import login_required
-from graphql_relay import from_global_id
+import strawberry
 
-from config.graphql.filters import AssignmentFilter, ExportFilter
-from config.graphql.graphene_types import (
-    AssignmentType,
-    UserExportType,
-    UserImportType,
-    UserType,
+from config.graphql.core import permissions as core_permissions
+from config.graphql.core.filtering import filterset_factory, setup_filterset
+from config.graphql.core.mutations import drf_deletion, drf_mutation
+from config.graphql.core.relay import (
+    Node,
+    get_node_from_global_id,
+    make_connection_types,
+    register_type,
+    resolve_django_connection,
+    resolve_django_list,
 )
-from opencontractserver.shared.services.base import BaseService
-from opencontractserver.users.models import Assignment, UserExport, UserImport
+from config.graphql.core.scalars import BigInt, GenericScalar, JSONString
+from config.graphql._util import coerce_enum, coerce_str, strip_unset
+from config.graphql import enums
 
-if TYPE_CHECKING:
-    from opencontractserver.users.models import User
+from config.graphql.filters import AssignmentFilter
+from config.graphql.filters import ExportFilter
+from opencontractserver.users.models import Assignment
+from opencontractserver.users.models import UserExport
+from opencontractserver.users.models import UserImport
 
 
-class UserQueryMixin:
-    """Query fields and resolvers for user, assignment, import, and export queries."""
+def _resolve_Query_me(root, info, **kwargs):
+    """PORT: config/graphql/user_queries.py:40
 
-    # USER RESOLVERS #####################################
-    me = graphene.Field(UserType)
-    user_by_slug = graphene.Field(UserType, slug=graphene.String(required=True))
+    Port of UserQueryMixin.resolve_me
+    """
+    raise NotImplementedError("_resolve_Query_me not yet ported — see manifest")
 
-    def resolve_me(self, info: graphene.ResolveInfo) -> User | None:
-        user = info.context.user
-        if not user.is_authenticated:
-            return None
-        return user
 
-    def resolve_user_by_slug(
-        self, info: graphene.ResolveInfo, slug: str
-    ) -> User | None:
-        """
-        Resolve a user by their slug with profile privacy filtering.
+def q_me(info: strawberry.Info) -> Optional[Annotated["UserType", strawberry.lazy("config.graphql.user_types")]]:
+    kwargs = strip_unset({})
+    return _resolve_Query_me(None, info, **kwargs)
 
-        SECURITY: Respects is_profile_public and corpus membership visibility rules.
-        Users are visible if:
-        - Profile is public (is_profile_public=True)
-        - Requesting user shares corpus membership with > READ permission
-        - It's the requesting user's own profile
-        """
-        from django.contrib.auth import get_user_model
 
-        from opencontractserver.users.services import UserService
+def _resolve_Query_user_by_slug(root, info, **kwargs):
+    """PORT: config/graphql/user_queries.py:46
 
-        User = get_user_model()
-        try:
-            # Use visibility filtering instead of direct query
-            return UserService.get_visible_users(
-                info.context.user, request=info.context
-            ).get(slug=slug)
-        except User.DoesNotExist:
-            return None
+    Port of UserQueryMixin.resolve_user_by_slug
+    """
+    raise NotImplementedError("_resolve_Query_user_by_slug not yet ported — see manifest")
 
-    # IMPORT RESOLVERS #####################################
-    userimports = DjangoConnectionField(UserImportType)
 
-    @login_required
-    def resolve_userimports(
-        self, info: graphene.ResolveInfo, **kwargs: Any
-    ) -> QuerySet[UserImport]:
-        return BaseService.filter_visible(
-            UserImport, info.context.user, request=info.context
-        )
+def q_user_by_slug(info: strawberry.Info, slug: Annotated[str, strawberry.argument(name="slug")] = strawberry.UNSET) -> Optional[Annotated["UserType", strawberry.lazy("config.graphql.user_types")]]:
+    kwargs = strip_unset({"slug": slug})
+    return _resolve_Query_user_by_slug(None, info, **kwargs)
 
-    userimport = relay.Node.Field(UserImportType)
 
-    @login_required
-    def resolve_userimport(
-        self, info: graphene.ResolveInfo, **kwargs: Any
-    ) -> UserImport:
-        relay_id = kwargs.get("id")
-        if relay_id is None:
-            raise GraphQLError("UserImport id is required")
-        django_pk = from_global_id(relay_id)[1]
-        # IDOR-safe via service layer; returns None for missing/no-perm.
-        obj = BaseService.get_or_none(
-            UserImport, django_pk, info.context.user, request=info.context
-        )
-        if obj is None:
-            raise UserImport.DoesNotExist("UserImport matching query does not exist.")
-        return obj
+def _resolve_Query_userimports(root, info, **kwargs):
+    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:74
 
-    # EXPORT RESOLVERS #####################################
-    userexports = DjangoFilterConnectionField(
-        UserExportType, filterset_class=ExportFilter
-    )
+    Port of UserQueryMixin.resolve_userimports
+    """
+    raise NotImplementedError("_resolve_Query_userimports not yet ported — see manifest")
 
-    @login_required
-    def resolve_userexports(
-        self, info: graphene.ResolveInfo, **kwargs: Any
-    ) -> QuerySet[UserExport]:
-        return BaseService.filter_visible(
-            UserExport, info.context.user, request=info.context
-        )
 
-    userexport = relay.Node.Field(UserExportType)
+def q_userimports(info: strawberry.Info, offset: Annotated[Optional[int], strawberry.argument(name="offset")] = strawberry.UNSET, before: Annotated[Optional[str], strawberry.argument(name="before")] = strawberry.UNSET, after: Annotated[Optional[str], strawberry.argument(name="after")] = strawberry.UNSET, first: Annotated[Optional[int], strawberry.argument(name="first")] = strawberry.UNSET, last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET) -> Optional[Annotated["UserImportTypeConnection", strawberry.lazy("config.graphql.user_types")]]:
+    kwargs = strip_unset({"offset": offset, "before": before, "after": after, "first": first, "last": last})
+    resolved = _resolve_Query_userimports(None, info, **kwargs)
+    return resolve_django_connection(resolved=resolved, info=info, args=kwargs, node_type_name="UserImportType", default_manager=UserImport._default_manager, )
 
-    @login_required
-    def resolve_userexport(
-        self, info: graphene.ResolveInfo, **kwargs: Any
-    ) -> UserExport:
-        relay_id = kwargs.get("id")
-        if relay_id is None:
-            raise GraphQLError("UserExport id is required")
-        django_pk = from_global_id(relay_id)[1]
-        obj = BaseService.get_or_none(
-            UserExport, django_pk, info.context.user, request=info.context
-        )
-        if obj is None:
-            raise UserExport.DoesNotExist("UserExport matching query does not exist.")
-        return obj
 
-    # ASSIGNMENT RESOLVERS #####################################
-    assignments = DjangoFilterConnectionField(
-        AssignmentType, filterset_class=AssignmentFilter
-    )
+def q_userimport(info: strawberry.Info, id: Annotated[strawberry.ID, strawberry.argument(name="id", description='The ID of the object')] = strawberry.UNSET) -> Optional[Annotated["UserImportType", strawberry.lazy("config.graphql.user_types")]]:
+    return get_node_from_global_id(info, id, only_type_name="UserImportType")
 
-    @login_required
-    def resolve_assignments(
-        self, info: graphene.ResolveInfo, **kwargs: Any
-    ) -> QuerySet[Assignment]:
-        """
-        Resolve assignments.
 
-        DEPRECATED: Assignment feature is not currently used.
-        See opencontractserver/users/models.py:202-206
+def _resolve_Query_userexports(root, info, **kwargs):
+    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:105
 
-        SECURITY: Users can only see assignments where they are the assignor or assignee.
-        Superusers can see all assignments.
-        """
-        warnings.warn(
-            "Assignment feature is deprecated and not in use", DeprecationWarning
-        )
+    Port of UserQueryMixin.resolve_userexports
+    """
+    raise NotImplementedError("_resolve_Query_userexports not yet ported — see manifest")
 
-        user = info.context.user
-        if user.is_superuser:
-            return Assignment.objects.all()
-        else:
-            # User can see assignments they created or were assigned to
-            return Assignment.objects.filter(Q(assignor=user) | Q(assignee=user))
 
-    assignment = relay.Node.Field(AssignmentType)
+def q_userexports(info: strawberry.Info, offset: Annotated[Optional[int], strawberry.argument(name="offset")] = strawberry.UNSET, before: Annotated[Optional[str], strawberry.argument(name="before")] = strawberry.UNSET, after: Annotated[Optional[str], strawberry.argument(name="after")] = strawberry.UNSET, first: Annotated[Optional[int], strawberry.argument(name="first")] = strawberry.UNSET, last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET, name__contains: Annotated[Optional[str], strawberry.argument(name="name_Contains")] = strawberry.UNSET, id: Annotated[Optional[strawberry.ID], strawberry.argument(name="id")] = strawberry.UNSET, created__lte: Annotated[Optional[datetime.datetime], strawberry.argument(name="created_Lte")] = strawberry.UNSET, started__lte: Annotated[Optional[datetime.datetime], strawberry.argument(name="started_Lte")] = strawberry.UNSET, finished__lte: Annotated[Optional[datetime.datetime], strawberry.argument(name="finished_Lte")] = strawberry.UNSET, order_by_created: Annotated[Optional[str], strawberry.argument(name="orderByCreated", description='Ordering')] = strawberry.UNSET, order_by_started: Annotated[Optional[str], strawberry.argument(name="orderByStarted", description='Ordering')] = strawberry.UNSET, order_by_finished: Annotated[Optional[str], strawberry.argument(name="orderByFinished", description='Ordering')] = strawberry.UNSET) -> Optional[Annotated["UserExportTypeConnection", strawberry.lazy("config.graphql.user_types")]]:
+    kwargs = strip_unset({"offset": offset, "before": before, "after": after, "first": first, "last": last, "name__contains": name__contains, "id": id, "created__lte": created__lte, "started__lte": started__lte, "finished__lte": finished__lte, "order_by_created": order_by_created, "order_by_started": order_by_started, "order_by_finished": order_by_finished})
+    resolved = _resolve_Query_userexports(None, info, **kwargs)
+    return resolve_django_connection(resolved=resolved, info=info, args=kwargs, node_type_name="UserExportType", default_manager=UserExport._default_manager, filterset_class=setup_filterset(ExportFilter), filter_args={"name__contains": "name__contains", "id": "id", "created__lte": "created__lte", "started__lte": "started__lte", "finished__lte": "finished__lte", "order_by_created": "order_by_created", "order_by_started": "order_by_started", "order_by_finished": "order_by_finished"}, )
 
-    @login_required
-    def resolve_assignment(
-        self, info: graphene.ResolveInfo, **kwargs: Any
-    ) -> Assignment:
-        """
-        Resolve a single assignment by ID.
 
-        DEPRECATED: Assignment feature is not currently used.
+def q_userexport(info: strawberry.Info, id: Annotated[strawberry.ID, strawberry.argument(name="id", description='The ID of the object')] = strawberry.UNSET) -> Optional[Annotated["UserExportType", strawberry.lazy("config.graphql.user_types")]]:
+    return get_node_from_global_id(info, id, only_type_name="UserExportType")
 
-        SECURITY: Uses direct query instead of broken visible_to_user
-        (Assignment model doesn't have this method - it inherits from
-        django.db.models.Model, not BaseOCModel).
-        """
-        warnings.warn(
-            "Assignment feature is deprecated and not in use", DeprecationWarning
-        )
 
-        user = info.context.user
-        relay_id = kwargs.get("id")
-        if relay_id is None:
-            raise GraphQLError("Assignment not found")
-        django_pk = from_global_id(relay_id)[1]
+def _resolve_Query_assignments(root, info, **kwargs):
+    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:135
 
-        # Use direct query - Assignment model doesn't have visible_to_user manager
-        if user.is_superuser:
-            try:
-                return Assignment.objects.get(id=django_pk)
-            except Assignment.DoesNotExist:
-                raise GraphQLError("Assignment not found")
+    Port of UserQueryMixin.resolve_assignments
+    """
+    raise NotImplementedError("_resolve_Query_assignments not yet ported — see manifest")
 
-        # Regular users can only see their own assignments
-        try:
-            return Assignment.objects.get(
-                Q(id=django_pk) & (Q(assignor=user) | Q(assignee=user))
-            )
-        except Assignment.DoesNotExist:
-            # Same error whether doesn't exist or no permission (IDOR protection)
-            raise GraphQLError("Assignment not found")
+
+def q_assignments(info: strawberry.Info, offset: Annotated[Optional[int], strawberry.argument(name="offset")] = strawberry.UNSET, before: Annotated[Optional[str], strawberry.argument(name="before")] = strawberry.UNSET, after: Annotated[Optional[str], strawberry.argument(name="after")] = strawberry.UNSET, first: Annotated[Optional[int], strawberry.argument(name="first")] = strawberry.UNSET, last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET, assignor__email: Annotated[Optional[str], strawberry.argument(name="assignor_Email")] = strawberry.UNSET, assignee__email: Annotated[Optional[str], strawberry.argument(name="assignee_Email")] = strawberry.UNSET, document_id: Annotated[Optional[str], strawberry.argument(name="documentId")] = strawberry.UNSET) -> Optional[Annotated["AssignmentTypeConnection", strawberry.lazy("config.graphql.user_types")]]:
+    kwargs = strip_unset({"offset": offset, "before": before, "after": after, "first": first, "last": last, "assignor__email": assignor__email, "assignee__email": assignee__email, "document_id": document_id})
+    resolved = _resolve_Query_assignments(None, info, **kwargs)
+    return resolve_django_connection(resolved=resolved, info=info, args=kwargs, node_type_name="AssignmentType", default_manager=Assignment._default_manager, filterset_class=setup_filterset(AssignmentFilter), filter_args={"assignor__email": "assignor__email", "assignee__email": "assignee__email", "document_id": "document_id"}, )
+
+
+def q_assignment(info: strawberry.Info, id: Annotated[strawberry.ID, strawberry.argument(name="id", description='The ID of the object')] = strawberry.UNSET) -> Optional[Annotated["AssignmentType", strawberry.lazy("config.graphql.user_types")]]:
+    return get_node_from_global_id(info, id, only_type_name="AssignmentType")
+
+
+
+QUERY_FIELDS = {
+    "me": strawberry.field(resolver=q_me, name="me"),
+    "user_by_slug": strawberry.field(resolver=q_user_by_slug, name="userBySlug"),
+    "userimports": strawberry.field(resolver=q_userimports, name="userimports"),
+    "userimport": strawberry.field(resolver=q_userimport, name="userimport"),
+    "userexports": strawberry.field(resolver=q_userexports, name="userexports"),
+    "userexport": strawberry.field(resolver=q_userexport, name="userexport"),
+    "assignments": strawberry.field(resolver=q_assignments, name="assignments"),
+    "assignment": strawberry.field(resolver=q_assignment, name="assignment"),
+}

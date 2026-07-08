@@ -46,7 +46,7 @@ from typing import Any
 from django.db import connection
 from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
-from graphene.test import Client
+from config.graphql.testing import Client
 from graphql_relay import to_global_id
 
 from config.graphql.corpus_types import CorpusType

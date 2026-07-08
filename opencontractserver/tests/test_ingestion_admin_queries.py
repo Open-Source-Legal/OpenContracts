@@ -157,7 +157,7 @@ class IngestionAdminQueryTestCase(TestCase):
         )
 
     def _execute(self, query, user):
-        return schema.execute(query, context_value=TestContext(user))
+        return schema.execute_sync(query, context_value=TestContext(user))
 
     # ------------------------------------------------------------------ #
     # Gating

@@ -1035,7 +1035,7 @@ class TestToggleCorpusMemory(TestCase):
 
     def _execute_mutation(self, user, corpus_pk, enabled):
         """Execute the ToggleCorpusMemory mutation via the Graphene test client."""
-        from graphene.test import Client
+        from config.graphql.testing import Client
         from graphql_relay import to_global_id
 
         from config.graphql.schema import schema

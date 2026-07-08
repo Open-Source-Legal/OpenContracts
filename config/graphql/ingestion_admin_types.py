@@ -1,136 +1,215 @@
-"""GraphQL projection types for the superuser ingestion-monitor dashboard.
+"""Generated strawberry GraphQL module (graphene migration).
 
-All read-only ``graphene.ObjectType`` projections built by the resolvers in
-``config/graphql/ingestion_admin_queries.py`` from service-layer results.
-
-Byte sizes and ``elapsed_seconds`` are ``graphene.Float`` (not ``Int``): a
-GraphQL ``Int`` is a signed 32-bit value, but document/upload sizes can exceed
-2 GiB, so ``Int`` would overflow. ``Float`` represents integers exactly up to
-2**53, which comfortably covers any realistic file size.
+Shape-generated from the graphene schema; stub functions marked PORT(...)
+carry the ported business logic. See config/graphql_new/manifest.json.
 """
+from __future__ import annotations
 
-import graphene
+import datetime
+import decimal
+import uuid
+from typing import Annotated, Any, Optional
 
+import strawberry
 
-class AdminDocumentIngestionType(graphene.ObjectType):
-    """A single document's parsing-pipeline status (content excluded)."""
-
-    id = graphene.ID()
-    title = graphene.String()
-    creator_username = graphene.String()
-    creator_email = graphene.String()
-    file_type = graphene.String(description="MIME type")
-    page_count = graphene.Int()
-    size_bytes = graphene.Float(description="Size of the stored source file in bytes")
-    processing_status = graphene.String(
-        description="pending / processing / completed / failed"
-    )
-    processing_error = graphene.String(description="Error message if processing failed")
-    created = graphene.DateTime()
-    processing_started = graphene.DateTime()
-    processing_finished = graphene.DateTime()
-    elapsed_seconds = graphene.Float(
-        description="Processing duration (finished-started, or now-started if "
-        "still in flight); null if processing never started"
-    )
+from config.graphql.core import permissions as core_permissions
+from config.graphql.core.filtering import filterset_factory, setup_filterset
+from config.graphql.core.mutations import drf_deletion, drf_mutation
+from config.graphql.core.relay import (
+    Node,
+    get_node_from_global_id,
+    make_connection_types,
+    register_type,
+    resolve_django_connection,
+    resolve_django_list,
+)
+from config.graphql.core.scalars import BigInt, GenericScalar, JSONString
+from config.graphql._util import coerce_enum, coerce_str, strip_unset
+from config.graphql import enums
 
 
-class AdminDocumentIngestionPageType(graphene.ObjectType):
-    items = graphene.List(graphene.NonNull(AdminDocumentIngestionType))
-    total_count = graphene.Int(description="Total matching rows before pagination")
-    limit = graphene.Int()
-    offset = graphene.Int()
 
 
-class AdminWorkerUploadType(graphene.ObjectType):
-    """A worker/pipeline upload staging row (content excluded)."""
-
-    id = graphene.String(description="UUID of the upload")
-    corpus_id = graphene.Int()
-    corpus_title = graphene.String()
-    worker_account_name = graphene.String(
-        description="Worker account behind the token used for this upload"
-    )
-    status = graphene.String(description="PENDING / PROCESSING / COMPLETED / FAILED")
-    error_message = graphene.String()
-    file_name = graphene.String()
-    size_bytes = graphene.Float(description="Size of the staged file in bytes")
-    result_document_id = graphene.Int(description="Document created on success, if any")
-    created = graphene.DateTime()
-    processing_started = graphene.DateTime()
-    processing_finished = graphene.DateTime()
-    elapsed_seconds = graphene.Float()
+@strawberry.type(name="AdminDocumentIngestionPageType")
+class AdminDocumentIngestionPageType:
+    @strawberry.field(name="items")
+    def items(self, info: strawberry.Info) -> Optional[list["AdminDocumentIngestionType"]]:
+        return resolve_django_list(self, info, getattr(self, "items"), "AdminDocumentIngestionType")
+    total_count: Optional[int] = strawberry.field(name="totalCount", description='Total matching rows before pagination', default=None)
+    limit: Optional[int] = strawberry.field(name="limit", default=None)
+    offset: Optional[int] = strawberry.field(name="offset", default=None)
 
 
-class AdminWorkerUploadPageType(graphene.ObjectType):
-    items = graphene.List(graphene.NonNull(AdminWorkerUploadType))
-    total_count = graphene.Int()
-    limit = graphene.Int()
-    offset = graphene.Int()
+register_type("AdminDocumentIngestionPageType", AdminDocumentIngestionPageType, model=None)
 
 
-class AdminCorpusImportType(graphene.ObjectType):
-    """A corpus-export ZIP re-import run with per-document failure counts."""
-
-    id = graphene.ID(description="PendingCorpusImport primary key")
-    import_run_id = graphene.String(description="UUID correlating the run's documents")
-    corpus_id = graphene.Int()
-    corpus_title = graphene.String()
-    creator_username = graphene.String()
-    status = graphene.String(
-        description="enumerating / ready / finalizing / done / failed"
-    )
-    expected_doc_count = graphene.Int(
-        description="Docs the run expected to create (observability; may be null)"
-    )
-    total_count_docs = graphene.Int(
-        description="Per-document outcome rows recorded for this run"
-    )
-    done_count = graphene.Int()
-    failed_count = graphene.Int()
-    pending_count = graphene.Int()
-    percent_failed = graphene.Float(
-        description="failed / total * 100 over recorded per-document rows"
-    )
-    created = graphene.DateTime(description="When the run was enumerated")
-    modified = graphene.DateTime()
-
-
-class AdminCorpusImportPageType(graphene.ObjectType):
-    items = graphene.List(graphene.NonNull(AdminCorpusImportType))
-    total_count = graphene.Int()
-    limit = graphene.Int()
-    offset = graphene.Int()
+@strawberry.type(name="AdminDocumentIngestionType", description="A single document's parsing-pipeline status (content excluded).")
+class AdminDocumentIngestionType:
+    @strawberry.field(name="id")
+    def id(self, info: strawberry.Info) -> Optional[strawberry.ID]:
+        return coerce_str(getattr(self, "id", None))
+    @strawberry.field(name="title")
+    def title(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "title", None))
+    @strawberry.field(name="creatorUsername")
+    def creator_username(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "creator_username", None))
+    @strawberry.field(name="creatorEmail")
+    def creator_email(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "creator_email", None))
+    @strawberry.field(name="fileType", description='MIME type')
+    def file_type(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "file_type", None))
+    page_count: Optional[int] = strawberry.field(name="pageCount", default=None)
+    size_bytes: Optional[float] = strawberry.field(name="sizeBytes", description='Size of the stored source file in bytes', default=None)
+    @strawberry.field(name="processingStatus", description='pending / processing / completed / failed')
+    def processing_status(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "processing_status", None))
+    @strawberry.field(name="processingError", description='Error message if processing failed')
+    def processing_error(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "processing_error", None))
+    created: Optional[datetime.datetime] = strawberry.field(name="created", default=None)
+    processing_started: Optional[datetime.datetime] = strawberry.field(name="processingStarted", default=None)
+    processing_finished: Optional[datetime.datetime] = strawberry.field(name="processingFinished", default=None)
+    elapsed_seconds: Optional[float] = strawberry.field(name="elapsedSeconds", description='Processing duration (finished-started, or now-started if still in flight); null if processing never started', default=None)
 
 
-class AdminBulkImportSessionType(graphene.ObjectType):
-    """A bulk document-zip import (chunked upload session; content excluded)."""
-
-    id = graphene.String(description="UUID of the upload session")
-    kind = graphene.String(description="documents_zip / zip_to_corpus")
-    filename = graphene.String()
-    creator_username = graphene.String()
-    status = graphene.String(description="PENDING / ASSEMBLING / COMPLETED / FAILED")
-    error_message = graphene.String()
-    total_size = graphene.Float(description="Declared total assembled size in bytes")
-    received_size = graphene.Float(
-        description="Bytes received so far (0 once a completed session's parts "
-        "are reclaimed)"
-    )
-    received_parts = graphene.Int()
-    total_chunks = graphene.Int()
-    percent_complete = graphene.Float(
-        description="Upload progress; 100 for COMPLETED sessions"
-    )
-    target_corpus_id = graphene.String(
-        description="Target corpus id from the session metadata, if any"
-    )
-    created = graphene.DateTime()
-    modified = graphene.DateTime()
+register_type("AdminDocumentIngestionType", AdminDocumentIngestionType, model=None)
 
 
-class AdminBulkImportSessionPageType(graphene.ObjectType):
-    items = graphene.List(graphene.NonNull(AdminBulkImportSessionType))
-    total_count = graphene.Int()
-    limit = graphene.Int()
-    offset = graphene.Int()
+@strawberry.type(name="AdminWorkerUploadPageType")
+class AdminWorkerUploadPageType:
+    @strawberry.field(name="items")
+    def items(self, info: strawberry.Info) -> Optional[list["AdminWorkerUploadType"]]:
+        return resolve_django_list(self, info, getattr(self, "items"), "AdminWorkerUploadType")
+    total_count: Optional[int] = strawberry.field(name="totalCount", default=None)
+    limit: Optional[int] = strawberry.field(name="limit", default=None)
+    offset: Optional[int] = strawberry.field(name="offset", default=None)
+
+
+register_type("AdminWorkerUploadPageType", AdminWorkerUploadPageType, model=None)
+
+
+@strawberry.type(name="AdminWorkerUploadType", description='A worker/pipeline upload staging row (content excluded).')
+class AdminWorkerUploadType:
+    @strawberry.field(name="id", description='UUID of the upload')
+    def id(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "id", None))
+    corpus_id: Optional[int] = strawberry.field(name="corpusId", default=None)
+    @strawberry.field(name="corpusTitle")
+    def corpus_title(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "corpus_title", None))
+    @strawberry.field(name="workerAccountName", description='Worker account behind the token used for this upload')
+    def worker_account_name(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "worker_account_name", None))
+    @strawberry.field(name="status", description='PENDING / PROCESSING / COMPLETED / FAILED')
+    def status(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "status", None))
+    @strawberry.field(name="errorMessage")
+    def error_message(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "error_message", None))
+    @strawberry.field(name="fileName")
+    def file_name(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "file_name", None))
+    size_bytes: Optional[float] = strawberry.field(name="sizeBytes", description='Size of the staged file in bytes', default=None)
+    result_document_id: Optional[int] = strawberry.field(name="resultDocumentId", description='Document created on success, if any', default=None)
+    created: Optional[datetime.datetime] = strawberry.field(name="created", default=None)
+    processing_started: Optional[datetime.datetime] = strawberry.field(name="processingStarted", default=None)
+    processing_finished: Optional[datetime.datetime] = strawberry.field(name="processingFinished", default=None)
+    elapsed_seconds: Optional[float] = strawberry.field(name="elapsedSeconds", default=None)
+
+
+register_type("AdminWorkerUploadType", AdminWorkerUploadType, model=None)
+
+
+@strawberry.type(name="AdminCorpusImportPageType")
+class AdminCorpusImportPageType:
+    @strawberry.field(name="items")
+    def items(self, info: strawberry.Info) -> Optional[list["AdminCorpusImportType"]]:
+        return resolve_django_list(self, info, getattr(self, "items"), "AdminCorpusImportType")
+    total_count: Optional[int] = strawberry.field(name="totalCount", default=None)
+    limit: Optional[int] = strawberry.field(name="limit", default=None)
+    offset: Optional[int] = strawberry.field(name="offset", default=None)
+
+
+register_type("AdminCorpusImportPageType", AdminCorpusImportPageType, model=None)
+
+
+@strawberry.type(name="AdminCorpusImportType", description='A corpus-export ZIP re-import run with per-document failure counts.')
+class AdminCorpusImportType:
+    @strawberry.field(name="id", description='PendingCorpusImport primary key')
+    def id(self, info: strawberry.Info) -> Optional[strawberry.ID]:
+        return coerce_str(getattr(self, "id", None))
+    @strawberry.field(name="importRunId", description="UUID correlating the run's documents")
+    def import_run_id(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "import_run_id", None))
+    corpus_id: Optional[int] = strawberry.field(name="corpusId", default=None)
+    @strawberry.field(name="corpusTitle")
+    def corpus_title(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "corpus_title", None))
+    @strawberry.field(name="creatorUsername")
+    def creator_username(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "creator_username", None))
+    @strawberry.field(name="status", description='enumerating / ready / finalizing / done / failed')
+    def status(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "status", None))
+    expected_doc_count: Optional[int] = strawberry.field(name="expectedDocCount", description='Docs the run expected to create (observability; may be null)', default=None)
+    total_count_docs: Optional[int] = strawberry.field(name="totalCountDocs", description='Per-document outcome rows recorded for this run', default=None)
+    done_count: Optional[int] = strawberry.field(name="doneCount", default=None)
+    failed_count: Optional[int] = strawberry.field(name="failedCount", default=None)
+    pending_count: Optional[int] = strawberry.field(name="pendingCount", default=None)
+    percent_failed: Optional[float] = strawberry.field(name="percentFailed", description='failed / total * 100 over recorded per-document rows', default=None)
+    created: Optional[datetime.datetime] = strawberry.field(name="created", description='When the run was enumerated', default=None)
+    modified: Optional[datetime.datetime] = strawberry.field(name="modified", default=None)
+
+
+register_type("AdminCorpusImportType", AdminCorpusImportType, model=None)
+
+
+@strawberry.type(name="AdminBulkImportSessionPageType")
+class AdminBulkImportSessionPageType:
+    @strawberry.field(name="items")
+    def items(self, info: strawberry.Info) -> Optional[list["AdminBulkImportSessionType"]]:
+        return resolve_django_list(self, info, getattr(self, "items"), "AdminBulkImportSessionType")
+    total_count: Optional[int] = strawberry.field(name="totalCount", default=None)
+    limit: Optional[int] = strawberry.field(name="limit", default=None)
+    offset: Optional[int] = strawberry.field(name="offset", default=None)
+
+
+register_type("AdminBulkImportSessionPageType", AdminBulkImportSessionPageType, model=None)
+
+
+@strawberry.type(name="AdminBulkImportSessionType", description='A bulk document-zip import (chunked upload session; content excluded).')
+class AdminBulkImportSessionType:
+    @strawberry.field(name="id", description='UUID of the upload session')
+    def id(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "id", None))
+    @strawberry.field(name="kind", description='documents_zip / zip_to_corpus')
+    def kind(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "kind", None))
+    @strawberry.field(name="filename")
+    def filename(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "filename", None))
+    @strawberry.field(name="creatorUsername")
+    def creator_username(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "creator_username", None))
+    @strawberry.field(name="status", description='PENDING / ASSEMBLING / COMPLETED / FAILED')
+    def status(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "status", None))
+    @strawberry.field(name="errorMessage")
+    def error_message(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "error_message", None))
+    total_size: Optional[float] = strawberry.field(name="totalSize", description='Declared total assembled size in bytes', default=None)
+    received_size: Optional[float] = strawberry.field(name="receivedSize", description="Bytes received so far (0 once a completed session's parts are reclaimed)", default=None)
+    received_parts: Optional[int] = strawberry.field(name="receivedParts", default=None)
+    total_chunks: Optional[int] = strawberry.field(name="totalChunks", default=None)
+    percent_complete: Optional[float] = strawberry.field(name="percentComplete", description='Upload progress; 100 for COMPLETED sessions', default=None)
+    @strawberry.field(name="targetCorpusId", description='Target corpus id from the session metadata, if any')
+    def target_corpus_id(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "target_corpus_id", None))
+    created: Optional[datetime.datetime] = strawberry.field(name="created", default=None)
+    modified: Optional[datetime.datetime] = strawberry.field(name="modified", default=None)
+
+
+register_type("AdminBulkImportSessionType", AdminBulkImportSessionType, model=None)
+

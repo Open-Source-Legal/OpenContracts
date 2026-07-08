@@ -10,7 +10,7 @@ import logging
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.test import TestCase
-from graphene.test import Client
+from config.graphql.testing import Client
 from graphql_relay import to_global_id
 
 from config.graphql.schema import schema

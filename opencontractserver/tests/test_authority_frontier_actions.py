@@ -205,7 +205,7 @@ class _Ctx:
 
 
 def _run(query, user, **variables):
-    from graphene.test import Client
+    from config.graphql.testing import Client
 
     from config.graphql.schema import schema
 

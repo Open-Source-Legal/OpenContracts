@@ -1193,7 +1193,7 @@ class TestWorkerGraphQLMutations(TestCase):
                 self.user = u
                 self.META = {}
 
-        result = schema.execute(
+        result = schema.execute_sync(
             query, variables=variables, context_value=MockRequest(user)
         )
         response = {"data": result.data}
@@ -1351,7 +1351,7 @@ class TestWorkerGraphQLQueries(TestCase):
                 self.user = u
                 self.META = {}
 
-        result = schema.execute(
+        result = schema.execute_sync(
             query, variables=variables, context_value=MockRequest(user)
         )
         response = {"data": result.data}

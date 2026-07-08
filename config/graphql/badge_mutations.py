@@ -1,535 +1,163 @@
+"""Generated strawberry GraphQL module (graphene migration).
+
+Shape-generated from the graphene schema; stub functions marked PORT(...)
+carry the ported business logic. See config/graphql_new/manifest.json.
 """
-GraphQL mutations for the badge system.
-"""
+from __future__ import annotations
 
-import logging
+import datetime
+import decimal
+import uuid
+from typing import Annotated, Any, Optional
 
-import graphene
-from django.contrib.auth import get_user_model
-from graphql import GraphQLError
-from graphql_jwt.decorators import login_required
-from graphql_relay import from_global_id
+import strawberry
 
-from config.graphql.graphene_types import BadgeType, UserBadgeType
-from config.graphql.ratelimits import RateLimits, graphql_ratelimit
-from opencontractserver.badges.models import Badge, UserBadge
-from opencontractserver.corpuses.models import Corpus
-from opencontractserver.shared.services.base import BaseService
-from opencontractserver.types.enums import PermissionTypes
-from opencontractserver.utils.permissioning import (
-    get_for_user_or_none,
-    set_permissions_for_obj_to_user,
+from config.graphql.core import permissions as core_permissions
+from config.graphql.core.filtering import filterset_factory, setup_filterset
+from config.graphql.core.mutations import drf_deletion, drf_mutation
+from config.graphql.core.relay import (
+    Node,
+    get_node_from_global_id,
+    make_connection_types,
+    register_type,
+    resolve_django_connection,
+    resolve_django_list,
 )
+from config.graphql.core.scalars import BigInt, GenericScalar, JSONString
+from config.graphql._util import coerce_enum, coerce_str, strip_unset
+from config.graphql import enums
 
-User = get_user_model()
-logger = logging.getLogger(__name__)
-
-
-class CreateBadgeMutation(graphene.Mutation):
-    """Create a new badge (admin/corpus owner only)."""
-
-    class Arguments:
-        name = graphene.String(required=True, description="Unique badge name")
-        description = graphene.String(required=True, description="Badge description")
-        icon = graphene.String(
-            required=True,
-            description="Icon identifier from lucide-react (e.g., 'Trophy')",
-        )
-        badge_type = graphene.String(
-            required=True, description="Badge type: GLOBAL or CORPUS"
-        )
-        color = graphene.String(required=False, description="Hex color code")
-        corpus_id = graphene.ID(
-            required=False, description="Corpus ID for corpus-specific badges"
-        )
-        is_auto_awarded = graphene.Boolean(
-            required=False,
-            description="Whether badge is automatically awarded",
-            default_value=False,
-        )
-        criteria_config = graphene.JSONString(
-            required=False,
-            description="JSON configuration for auto-award criteria",
-        )
-
-    ok = graphene.Boolean()
-    message = graphene.String()
-    badge = graphene.Field(BadgeType)
-
-    @login_required
-    @graphql_ratelimit(rate=RateLimits.WRITE_MEDIUM)
-    def mutate(
-        root,
-        info,
-        name,
-        description,
-        icon,
-        badge_type,
-        color=None,
-        corpus_id=None,
-        is_auto_awarded=False,
-        criteria_config=None,
-    ) -> "CreateBadgeMutation":
-        user = info.context.user
-
-        try:
-            # Permission check: must be superuser or corpus owner
-            corpus = None
-            if corpus_id:
-                corpus_pk = from_global_id(corpus_id)[1]
-                # Service-layer IDOR-safe fetch + permission gate; both produce
-                # the same unified "Corpus not found" message.
-                corpus = BaseService.get_or_none(
-                    Corpus, corpus_pk, user, request=info.context
-                )
-                if corpus is None or BaseService.require_permission(
-                    corpus, user, PermissionTypes.UPDATE, request=info.context
-                ):
-                    return CreateBadgeMutation(
-                        ok=False,
-                        message="Corpus not found",
-                        badge=None,
-                    )
-            elif not user.is_superuser:
-                raise GraphQLError("You must be a superuser to create global badges.")
-
-            # Validate criteria_config before attempting to create
-            if is_auto_awarded:
-                if not criteria_config:
-                    return CreateBadgeMutation(
-                        ok=False,
-                        message="Auto-awarded badges must have criteria configuration",
-                        badge=None,
-                    )
-
-                # Validate against registry
-                from opencontractserver.badges.criteria_registry import (
-                    BadgeCriteriaRegistry,
-                )
-
-                is_valid, error_message = BadgeCriteriaRegistry.validate_config(
-                    criteria_config
-                )
-                if not is_valid:
-                    return CreateBadgeMutation(
-                        ok=False,
-                        message=f"Invalid criteria configuration: {error_message}",
-                        badge=None,
-                    )
-
-            elif criteria_config:
-                return CreateBadgeMutation(
-                    ok=False,
-                    message="Only auto-awarded badges can have criteria configuration",
-                    badge=None,
-                )
-
-            # Create the badge
-            badge = Badge.objects.create(
-                name=name,
-                description=description,
-                icon=icon,
-                badge_type=badge_type,
-                color=color or "#05313d",
-                corpus=corpus,
-                is_auto_awarded=is_auto_awarded,
-                criteria_config=criteria_config,
-                creator=user,
-                is_public=True,  # Badges are generally public
-            )
-
-            # Set permissions
-            set_permissions_for_obj_to_user(
-                user, badge, [PermissionTypes.CRUD], is_new=True, request=info.context
-            )
-
-            return CreateBadgeMutation(
-                ok=True,
-                message="Badge created successfully",
-                badge=badge,
-            )
-
-        except Exception as e:
-            logger.exception("Error creating badge")
-            return CreateBadgeMutation(
-                ok=False,
-                message=f"Failed to create badge: {str(e)}",
-                badge=None,
-            )
-
-
-class UpdateBadgeMutation(graphene.Mutation):
-    """Update an existing badge."""
-
-    class Arguments:
-        badge_id = graphene.ID(required=True, description="Badge ID to update")
-        name = graphene.String(required=False)
-        description = graphene.String(required=False)
-        icon = graphene.String(required=False)
-        color = graphene.String(required=False)
-        is_auto_awarded = graphene.Boolean(required=False)
-        criteria_config = graphene.JSONString(required=False)
-
-    ok = graphene.Boolean()
-    message = graphene.String()
-    badge = graphene.Field(BadgeType)
-
-    @login_required
-    @graphql_ratelimit(rate=RateLimits.WRITE_LIGHT)
-    def mutate(
-        root,
-        info,
-        badge_id,
-        name=None,
-        description=None,
-        icon=None,
-        color=None,
-        is_auto_awarded=None,
-        criteria_config=None,
-    ) -> "UpdateBadgeMutation":
-        user = info.context.user
-
-        try:
-            badge_pk = from_global_id(badge_id)[1]
-            # Service-layer IDOR-safe fetch.
-            badge = BaseService.get_or_none(Badge, badge_pk, user, request=info.context)
-            if badge is None:
-                return UpdateBadgeMutation(
-                    ok=False,
-                    message="Badge not found",
-                    badge=None,
-                )
-
-            # Permission check: For corpus badges, check corpus permissions
-            # For global badges, must be superuser
-            if badge.corpus:
-                # Corpus badge - check if creator or has UPDATE permission
-                if BaseService.require_permission(
-                    badge.corpus, user, PermissionTypes.UPDATE, request=info.context
-                ):
-                    return UpdateBadgeMutation(
-                        ok=False,
-                        message="Badge not found",
-                        badge=None,
-                    )
-            elif not user.is_superuser:
-                # Global badge - must be superuser
-                return UpdateBadgeMutation(
-                    ok=False,
-                    message="Badge not found",
-                    badge=None,
-                )
-
-            # Update fields
-            if name is not None:
-                badge.name = name
-            if description is not None:
-                badge.description = description
-            if icon is not None:
-                badge.icon = icon
-            if color is not None:
-                badge.color = color
-            if is_auto_awarded is not None:
-                badge.is_auto_awarded = is_auto_awarded
-            if criteria_config is not None:
-                badge.criteria_config = criteria_config
-
-            # Validate criteria_config if badge will be auto-awarded
-            # Check the final state after all updates
-            final_is_auto_awarded = (
-                is_auto_awarded
-                if is_auto_awarded is not None
-                else badge.is_auto_awarded
-            )
-            final_criteria_config = (
-                criteria_config
-                if criteria_config is not None
-                else badge.criteria_config
-            )
-
-            if final_is_auto_awarded:
-                if not final_criteria_config:
-                    return UpdateBadgeMutation(
-                        ok=False,
-                        message="Auto-awarded badges must have criteria configuration",
-                        badge=None,
-                    )
-
-                # Validate against registry
-                from opencontractserver.badges.criteria_registry import (
-                    BadgeCriteriaRegistry,
-                )
-
-                is_valid, error_message = BadgeCriteriaRegistry.validate_config(
-                    final_criteria_config
-                )
-                if not is_valid:
-                    return UpdateBadgeMutation(
-                        ok=False,
-                        message=f"Invalid criteria configuration: {error_message}",
-                        badge=None,
-                    )
-
-            elif final_criteria_config:
-                return UpdateBadgeMutation(
-                    ok=False,
-                    message="Only auto-awarded badges can have criteria configuration",
-                    badge=None,
-                )
-
-            badge.save()
-
-            return UpdateBadgeMutation(
-                ok=True,
-                message="Badge updated successfully",
-                badge=badge,
-            )
-
-        except Exception as e:
-            logger.exception("Error updating badge")
-            return UpdateBadgeMutation(
-                ok=False,
-                message=f"Failed to update badge: {str(e)}",
-                badge=None,
-            )
-
-
-class DeleteBadgeMutation(graphene.Mutation):
-    """Delete a badge."""
-
-    class Arguments:
-        badge_id = graphene.ID(required=True, description="Badge ID to delete")
-
-    ok = graphene.Boolean()
-    message = graphene.String()
-
-    @login_required
-    @graphql_ratelimit(rate=RateLimits.WRITE_LIGHT)
-    def mutate(root, info, badge_id) -> "DeleteBadgeMutation":
-        user = info.context.user
-
-        try:
-            badge_pk = from_global_id(badge_id)[1]
-            # Service-layer IDOR-safe fetch.
-            badge = BaseService.get_or_none(Badge, badge_pk, user, request=info.context)
-            if badge is None:
-                return DeleteBadgeMutation(
-                    ok=False,
-                    message="Badge not found",
-                )
-
-            # Permission check: For corpus badges, check corpus permissions
-            # For global badges, must be superuser
-            if badge.corpus:
-                # Corpus badge - check if creator or has UPDATE permission
-                if BaseService.require_permission(
-                    badge.corpus, user, PermissionTypes.UPDATE, request=info.context
-                ):
-                    return DeleteBadgeMutation(
-                        ok=False,
-                        message="Badge not found",
-                    )
-            elif not user.is_superuser:
-                # Global badge - must be superuser
-                return DeleteBadgeMutation(
-                    ok=False,
-                    message="Badge not found",
-                )
-
-            badge.delete()
-
-            return DeleteBadgeMutation(
-                ok=True,
-                message="Badge deleted successfully",
-            )
-
-        except Exception as e:
-            logger.exception("Error deleting badge")
-            return DeleteBadgeMutation(
-                ok=False,
-                message=f"Failed to delete badge: {str(e)}",
-            )
-
-
-class AwardBadgeMutation(graphene.Mutation):
-    """Manually award a badge to a user."""
-
-    class Arguments:
-        badge_id = graphene.ID(required=True, description="Badge ID to award")
-        user_id = graphene.ID(required=True, description="User ID to award badge to")
-        corpus_id = graphene.ID(
-            required=False, description="Corpus context for corpus-specific badges"
-        )
-
-    ok = graphene.Boolean()
-    message = graphene.String()
-    user_badge = graphene.Field(UserBadgeType)
-
-    @login_required
-    @graphql_ratelimit(rate="5/m")  # More restrictive rate limit for awarding
-    def mutate(root, info, badge_id, user_id, corpus_id=None) -> "AwardBadgeMutation":
-        awarder = info.context.user
-
-        try:
-            # Pre-guard ``from_global_id``: a malformed base64 id raises
-            # before the helper is reached — return the same unified message
-            # as a missing / hidden badge.
-            try:
-                badge_pk = from_global_id(badge_id)[1]
-            except Exception:
-                return AwardBadgeMutation(
-                    ok=False, message="Badge not found", user_badge=None
-                )
-            badge = get_for_user_or_none(Badge, badge_pk, awarder)
-            if badge is None:
-                return AwardBadgeMutation(
-                    ok=False, message="Badge not found", user_badge=None
-                )
-
-            corpus = None
-            if corpus_id:
-                try:
-                    corpus_pk = from_global_id(corpus_id)[1]
-                except Exception:
-                    return AwardBadgeMutation(
-                        ok=False, message="Corpus not found", user_badge=None
-                    )
-                corpus = get_for_user_or_none(Corpus, corpus_pk, awarder)
-                if corpus is None:
-                    return AwardBadgeMutation(
-                        ok=False, message="Corpus not found", user_badge=None
-                    )
-
-            # Permission check: must be moderator/owner of the corpus or superuser
-            # IDOR FIX: Return same "Badge not found" message as above to prevent enumeration
-            if badge.badge_type == "CORPUS" and badge.corpus:
-                # For corpus badges, check corpus permissions.
-                if BaseService.require_permission(
-                    badge.corpus,
-                    awarder,
-                    PermissionTypes.CRUD,
-                    request=info.context,
-                ):
-                    return AwardBadgeMutation(
-                        ok=False,
-                        message="Badge not found",
-                        user_badge=None,
-                    )
-            elif not awarder.is_superuser:
-                return AwardBadgeMutation(
-                    ok=False,
-                    message="Badge not found",
-                    user_badge=None,
-                )
-
-            # Awarding is authorized above (corpus CRUD for corpus badges, or
-            # superuser for global badges). Resolve the recipient with a direct,
-            # unfiltered lookup: awarding to a private-profile recipient is
-            # legitimate once the awarder is authorized, so this no longer
-            # depends on the awarder being able to *see* the recipient's profile
-            # (scoped admin access, 2026-05). Running it after the authorization
-            # gate also keeps the IDOR contract — an unauthorized caller gets
-            # "Badge not found" before any recipient existence is revealed.
-            try:
-                recipient_pk = from_global_id(user_id)[1]
-            except Exception:
-                return AwardBadgeMutation(
-                    ok=False, message="User not found", user_badge=None
-                )
-            recipient = User.objects.filter(pk=recipient_pk, is_active=True).first()
-            if recipient is None:
-                return AwardBadgeMutation(
-                    ok=False, message="User not found", user_badge=None
-                )
-
-            # Check if badge was already awarded
-            existing = UserBadge.objects.filter(
-                user=recipient, badge=badge, corpus=corpus
-            ).first()
-            if existing:
-                return AwardBadgeMutation(
-                    ok=False,
-                    message="Badge already awarded to this user",
-                    user_badge=existing,
-                )
-
-            # Award the badge
-            user_badge = UserBadge.objects.create(
-                user=recipient,
-                badge=badge,
-                awarded_by=awarder,
-                corpus=corpus,
-            )
-
-            return AwardBadgeMutation(
-                ok=True,
-                message="Badge awarded successfully",
-                user_badge=user_badge,
-            )
-
-        except Exception as e:
-            logger.exception("Error awarding badge")
-            return AwardBadgeMutation(
-                ok=False,
-                message=f"Failed to award badge: {str(e)}",
-                user_badge=None,
-            )
-
-
-class RevokeBadgeMutation(graphene.Mutation):
-    """Revoke a badge from a user."""
-
-    class Arguments:
-        user_badge_id = graphene.ID(required=True, description="UserBadge ID to revoke")
-
-    ok = graphene.Boolean()
-    message = graphene.String()
-
-    @login_required
-    @graphql_ratelimit(rate=RateLimits.WRITE_LIGHT)
-    def mutate(root, info, user_badge_id) -> "RevokeBadgeMutation":
-        user = info.context.user
-
-        try:
-            user_badge_pk = from_global_id(user_badge_id)[1]
-            # IDOR FIX: Get user badge, but don't reveal existence vs. permission difference
-            try:
-                user_badge = UserBadge.objects.select_related("badge").get(
-                    pk=user_badge_pk
-                )
-            except UserBadge.DoesNotExist:
-                return RevokeBadgeMutation(
-                    ok=False,
-                    message="User badge not found",
-                )
-
-            # Permission check
-            # IDOR FIX: Return same "User badge not found" message as above to prevent enumeration
-            badge = user_badge.badge
-            if badge.badge_type == "CORPUS" and badge.corpus:
-                if BaseService.require_permission(
-                    badge.corpus, user, PermissionTypes.CRUD, request=info.context
-                ):
-                    return RevokeBadgeMutation(
-                        ok=False,
-                        message="User badge not found",
-                    )
-            elif not user.is_superuser:
-                return RevokeBadgeMutation(
-                    ok=False,
-                    message="User badge not found",
-                )
-
-            user_badge.delete()
-
-            return RevokeBadgeMutation(
-                ok=True,
-                message="Badge revoked successfully",
-            )
-
-        except Exception as e:
-            logger.exception("Error revoking badge")
-            return RevokeBadgeMutation(
-                ok=False,
-                message=f"Failed to revoke badge: {str(e)}",
-            )
+
+
+
+@strawberry.type(name="CreateBadgeMutation", description='Create a new badge (admin/corpus owner only).')
+class CreateBadgeMutation:
+    ok: Optional[bool] = strawberry.field(name="ok", default=None)
+    @strawberry.field(name="message")
+    def message(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "message", None))
+    badge: Optional[Annotated["BadgeType", strawberry.lazy("config.graphql.social_types")]] = strawberry.field(name="badge", default=None)
+
+
+register_type("CreateBadgeMutation", CreateBadgeMutation, model=None)
+
+
+@strawberry.type(name="UpdateBadgeMutation", description='Update an existing badge.')
+class UpdateBadgeMutation:
+    ok: Optional[bool] = strawberry.field(name="ok", default=None)
+    @strawberry.field(name="message")
+    def message(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "message", None))
+    badge: Optional[Annotated["BadgeType", strawberry.lazy("config.graphql.social_types")]] = strawberry.field(name="badge", default=None)
+
+
+register_type("UpdateBadgeMutation", UpdateBadgeMutation, model=None)
+
+
+@strawberry.type(name="DeleteBadgeMutation", description='Delete a badge.')
+class DeleteBadgeMutation:
+    ok: Optional[bool] = strawberry.field(name="ok", default=None)
+    @strawberry.field(name="message")
+    def message(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "message", None))
+
+
+register_type("DeleteBadgeMutation", DeleteBadgeMutation, model=None)
+
+
+@strawberry.type(name="AwardBadgeMutation", description='Manually award a badge to a user.')
+class AwardBadgeMutation:
+    ok: Optional[bool] = strawberry.field(name="ok", default=None)
+    @strawberry.field(name="message")
+    def message(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "message", None))
+    user_badge: Optional[Annotated["UserBadgeType", strawberry.lazy("config.graphql.social_types")]] = strawberry.field(name="userBadge", default=None)
+
+
+register_type("AwardBadgeMutation", AwardBadgeMutation, model=None)
+
+
+@strawberry.type(name="RevokeBadgeMutation", description='Revoke a badge from a user.')
+class RevokeBadgeMutation:
+    ok: Optional[bool] = strawberry.field(name="ok", default=None)
+    @strawberry.field(name="message")
+    def message(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "message", None))
+
+
+register_type("RevokeBadgeMutation", RevokeBadgeMutation, model=None)
+
+
+def _mutate_CreateBadgeMutation(payload_cls, root, info, **kwargs):
+    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:59
+
+    Port of CreateBadgeMutation.mutate
+    """
+    raise NotImplementedError("_mutate_CreateBadgeMutation not yet ported — see manifest")
+
+
+def m_create_badge(info: strawberry.Info, badge_type: Annotated[str, strawberry.argument(name="badgeType", description='Badge type: GLOBAL or CORPUS')] = strawberry.UNSET, color: Annotated[Optional[str], strawberry.argument(name="color", description='Hex color code')] = strawberry.UNSET, corpus_id: Annotated[Optional[strawberry.ID], strawberry.argument(name="corpusId", description='Corpus ID for corpus-specific badges')] = strawberry.UNSET, criteria_config: Annotated[Optional[JSONString], strawberry.argument(name="criteriaConfig", description='JSON configuration for auto-award criteria')] = strawberry.UNSET, description: Annotated[str, strawberry.argument(name="description", description='Badge description')] = strawberry.UNSET, icon: Annotated[str, strawberry.argument(name="icon", description="Icon identifier from lucide-react (e.g., 'Trophy')")] = strawberry.UNSET, is_auto_awarded: Annotated[Optional[bool], strawberry.argument(name="isAutoAwarded", description='Whether badge is automatically awarded')] = False, name: Annotated[str, strawberry.argument(name="name", description='Unique badge name')] = strawberry.UNSET) -> Optional["CreateBadgeMutation"]:
+    kwargs = strip_unset({"badge_type": badge_type, "color": color, "corpus_id": corpus_id, "criteria_config": criteria_config, "description": description, "icon": icon, "is_auto_awarded": is_auto_awarded, "name": name})
+    return _mutate_CreateBadgeMutation(CreateBadgeMutation, None, info, **kwargs)
+
+
+def _mutate_UpdateBadgeMutation(payload_cls, root, info, **kwargs):
+    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:177
+
+    Port of UpdateBadgeMutation.mutate
+    """
+    raise NotImplementedError("_mutate_UpdateBadgeMutation not yet ported — see manifest")
+
+
+def m_update_badge(info: strawberry.Info, badge_id: Annotated[strawberry.ID, strawberry.argument(name="badgeId", description='Badge ID to update')] = strawberry.UNSET, color: Annotated[Optional[str], strawberry.argument(name="color")] = strawberry.UNSET, criteria_config: Annotated[Optional[JSONString], strawberry.argument(name="criteriaConfig")] = strawberry.UNSET, description: Annotated[Optional[str], strawberry.argument(name="description")] = strawberry.UNSET, icon: Annotated[Optional[str], strawberry.argument(name="icon")] = strawberry.UNSET, is_auto_awarded: Annotated[Optional[bool], strawberry.argument(name="isAutoAwarded")] = strawberry.UNSET, name: Annotated[Optional[str], strawberry.argument(name="name")] = strawberry.UNSET) -> Optional["UpdateBadgeMutation"]:
+    kwargs = strip_unset({"badge_id": badge_id, "color": color, "criteria_config": criteria_config, "description": description, "icon": icon, "is_auto_awarded": is_auto_awarded, "name": name})
+    return _mutate_UpdateBadgeMutation(UpdateBadgeMutation, None, info, **kwargs)
+
+
+def _mutate_DeleteBadgeMutation(payload_cls, root, info, **kwargs):
+    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:306
+
+    Port of DeleteBadgeMutation.mutate
+    """
+    raise NotImplementedError("_mutate_DeleteBadgeMutation not yet ported — see manifest")
+
+
+def m_delete_badge(info: strawberry.Info, badge_id: Annotated[strawberry.ID, strawberry.argument(name="badgeId", description='Badge ID to delete')] = strawberry.UNSET) -> Optional["DeleteBadgeMutation"]:
+    kwargs = strip_unset({"badge_id": badge_id})
+    return _mutate_DeleteBadgeMutation(DeleteBadgeMutation, None, info, **kwargs)
+
+
+def _mutate_AwardBadgeMutation(payload_cls, root, info, **kwargs):
+    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:368
+
+    Port of AwardBadgeMutation.mutate
+    """
+    raise NotImplementedError("_mutate_AwardBadgeMutation not yet ported — see manifest")
+
+
+def m_award_badge(info: strawberry.Info, badge_id: Annotated[strawberry.ID, strawberry.argument(name="badgeId", description='Badge ID to award')] = strawberry.UNSET, corpus_id: Annotated[Optional[strawberry.ID], strawberry.argument(name="corpusId", description='Corpus context for corpus-specific badges')] = strawberry.UNSET, user_id: Annotated[strawberry.ID, strawberry.argument(name="userId", description='User ID to award badge to')] = strawberry.UNSET) -> Optional["AwardBadgeMutation"]:
+    kwargs = strip_unset({"badge_id": badge_id, "corpus_id": corpus_id, "user_id": user_id})
+    return _mutate_AwardBadgeMutation(AwardBadgeMutation, None, info, **kwargs)
+
+
+def _mutate_RevokeBadgeMutation(payload_cls, root, info, **kwargs):
+    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:488
+
+    Port of RevokeBadgeMutation.mutate
+    """
+    raise NotImplementedError("_mutate_RevokeBadgeMutation not yet ported — see manifest")
+
+
+def m_revoke_badge(info: strawberry.Info, user_badge_id: Annotated[strawberry.ID, strawberry.argument(name="userBadgeId", description='UserBadge ID to revoke')] = strawberry.UNSET) -> Optional["RevokeBadgeMutation"]:
+    kwargs = strip_unset({"user_badge_id": user_badge_id})
+    return _mutate_RevokeBadgeMutation(RevokeBadgeMutation, None, info, **kwargs)
+
+
+
+MUTATION_FIELDS = {
+    "create_badge": strawberry.field(resolver=m_create_badge, name="createBadge", description='Create a new badge (admin/corpus owner only).'),
+    "update_badge": strawberry.field(resolver=m_update_badge, name="updateBadge", description='Update an existing badge.'),
+    "delete_badge": strawberry.field(resolver=m_delete_badge, name="deleteBadge", description='Delete a badge.'),
+    "award_badge": strawberry.field(resolver=m_award_badge, name="awardBadge", description='Manually award a badge to a user.'),
+    "revoke_badge": strawberry.field(resolver=m_revoke_badge, name="revokeBadge", description='Revoke a badge from a user.'),
+}

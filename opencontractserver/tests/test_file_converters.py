@@ -19,7 +19,7 @@ from unittest.mock import MagicMock, patch
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.test import TestCase
-from graphene.test import Client
+from config.graphql.testing import Client
 from requests.exceptions import ConnectionError, HTTPError, Timeout
 
 from config.graphql.schema import schema

@@ -1,332 +1,126 @@
+"""Generated strawberry GraphQL module (graphene migration).
+
+Shape-generated from the graphene schema; stub functions marked PORT(...)
+carry the ported business logic. See config/graphql_new/manifest.json.
 """
-GraphQL query mixin for corpus action and execution queries.
-"""
+from __future__ import annotations
 
-import logging
-from typing import Any
+import datetime
+import decimal
+import uuid
+from typing import Annotated, Any, Optional
 
-import graphene
-from graphene_django.fields import DjangoConnectionField
-from graphql import GraphQLError
-from graphql_jwt.decorators import login_required
-from graphql_relay import from_global_id
+import strawberry
 
-from config.graphql.graphene_types import (
-    AgentActionResultType,
-    CorpusActionExecutionType,
-    CorpusActionTemplateType,
-    CorpusActionTrailStatsType,
-    CorpusActionType,
-    DocumentCorpusActionsType,
+from config.graphql.core import permissions as core_permissions
+from config.graphql.core.filtering import filterset_factory, setup_filterset
+from config.graphql.core.mutations import drf_deletion, drf_mutation
+from config.graphql.core.relay import (
+    Node,
+    get_node_from_global_id,
+    make_connection_types,
+    register_type,
+    resolve_django_connection,
+    resolve_django_list,
 )
+from config.graphql.core.scalars import BigInt, GenericScalar, JSONString
+from config.graphql._util import coerce_enum, coerce_str, strip_unset
+from config.graphql import enums
+
+from opencontractserver.agents.models import AgentActionResult
 from opencontractserver.corpuses.models import CorpusAction
-from opencontractserver.shared.services.base import BaseService
+from opencontractserver.corpuses.models import CorpusActionExecution
+from opencontractserver.corpuses.models import CorpusActionTemplate
 
-logger = logging.getLogger(__name__)
+
+def _resolve_Query_corpus_action_templates(root, info, **kwargs):
+    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:37
+
+    Port of ActionQueryMixin.resolve_corpus_action_templates
+    """
+    raise NotImplementedError("_resolve_Query_corpus_action_templates not yet ported — see manifest")
 
 
-class ActionQueryMixin:
-    """Query fields and resolvers for corpus action and execution queries."""
+def q_corpus_action_templates(info: strawberry.Info, is_active: Annotated[Optional[bool], strawberry.argument(name="isActive")] = strawberry.UNSET, offset: Annotated[Optional[int], strawberry.argument(name="offset")] = strawberry.UNSET, before: Annotated[Optional[str], strawberry.argument(name="before")] = strawberry.UNSET, after: Annotated[Optional[str], strawberry.argument(name="after")] = strawberry.UNSET, first: Annotated[Optional[int], strawberry.argument(name="first")] = strawberry.UNSET, last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET) -> Optional[Annotated["CorpusActionTemplateTypeConnection", strawberry.lazy("config.graphql.agent_types")]]:
+    kwargs = strip_unset({"is_active": is_active, "offset": offset, "before": before, "after": after, "first": first, "last": last})
+    resolved = _resolve_Query_corpus_action_templates(None, info, **kwargs)
+    return resolve_django_connection(resolved=resolved, info=info, args=kwargs, node_type_name="CorpusActionTemplateType", default_manager=CorpusActionTemplate._default_manager, )
 
-    # CORPUS ACTION TEMPLATE RESOLVERS #####################################
-    corpus_action_templates = DjangoConnectionField(
-        CorpusActionTemplateType,
-        is_active=graphene.Boolean(required=False),
-    )
 
-    @login_required
-    def resolve_corpus_action_templates(self, info, **kwargs) -> Any:
-        """Return available corpus action templates.
+def _resolve_Query_corpus_actions(root, info, **kwargs):
+    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:62
 
-        Templates are system-level and read-only — any authenticated user
-        can see active templates.
-        """
-        from opencontractserver.corpuses.models import CorpusActionTemplate
+    Port of ActionQueryMixin.resolve_corpus_actions
+    """
+    raise NotImplementedError("_resolve_Query_corpus_actions not yet ported — see manifest")
 
-        queryset = CorpusActionTemplate.objects.all()
 
-        is_active = kwargs.get("is_active")
-        if is_active is not None:
-            queryset = queryset.filter(is_active=is_active)
+def q_corpus_actions(info: strawberry.Info, corpus_id: Annotated[Optional[strawberry.ID], strawberry.argument(name="corpusId")] = strawberry.UNSET, trigger: Annotated[Optional[str], strawberry.argument(name="trigger")] = strawberry.UNSET, disabled: Annotated[Optional[bool], strawberry.argument(name="disabled")] = strawberry.UNSET, offset: Annotated[Optional[int], strawberry.argument(name="offset")] = strawberry.UNSET, before: Annotated[Optional[str], strawberry.argument(name="before")] = strawberry.UNSET, after: Annotated[Optional[str], strawberry.argument(name="after")] = strawberry.UNSET, first: Annotated[Optional[int], strawberry.argument(name="first")] = strawberry.UNSET, last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET) -> Optional[Annotated["CorpusActionTypeConnection", strawberry.lazy("config.graphql.agent_types")]]:
+    kwargs = strip_unset({"corpus_id": corpus_id, "trigger": trigger, "disabled": disabled, "offset": offset, "before": before, "after": after, "first": first, "last": last})
+    resolved = _resolve_Query_corpus_actions(None, info, **kwargs)
+    return resolve_django_connection(resolved=resolved, info=info, args=kwargs, node_type_name="CorpusActionType", default_manager=CorpusAction._default_manager, )
 
-        return queryset.order_by("sort_order", "name")
 
-    # CORPUS ACTION RESOLVERS #####################################
-    corpus_actions = DjangoConnectionField(
-        CorpusActionType,
-        corpus_id=graphene.ID(required=False),
-        trigger=graphene.String(required=False),
-        disabled=graphene.Boolean(required=False),
-    )
+def _resolve_Query_agent_action_results(root, info, **kwargs):
+    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:97
 
-    @login_required
-    def resolve_corpus_actions(self, info, **kwargs) -> Any:
-        """
-        Resolver for corpus_actions that returns actions visible to the current user.
-        Can be filtered by corpus_id, trigger type, and disabled status.
-        """
-        user = info.context.user
-        queryset = BaseService.filter_visible(CorpusAction, user, request=info.context)
+    Port of ActionQueryMixin.resolve_agent_action_results
+    """
+    raise NotImplementedError("_resolve_Query_agent_action_results not yet ported — see manifest")
 
-        # Filter by corpus if provided
-        corpus_id = kwargs.get("corpus_id")
-        if corpus_id:
-            corpus_pk = from_global_id(corpus_id)[1]
-            queryset = queryset.filter(corpus_id=corpus_pk)
 
-        # Filter by trigger type if provided
-        trigger = kwargs.get("trigger")
-        if trigger:
-            queryset = queryset.filter(trigger=trigger)
+def q_agent_action_results(info: strawberry.Info, corpus_action_id: Annotated[Optional[strawberry.ID], strawberry.argument(name="corpusActionId")] = strawberry.UNSET, document_id: Annotated[Optional[strawberry.ID], strawberry.argument(name="documentId")] = strawberry.UNSET, status: Annotated[Optional[str], strawberry.argument(name="status")] = strawberry.UNSET, offset: Annotated[Optional[int], strawberry.argument(name="offset")] = strawberry.UNSET, before: Annotated[Optional[str], strawberry.argument(name="before")] = strawberry.UNSET, after: Annotated[Optional[str], strawberry.argument(name="after")] = strawberry.UNSET, first: Annotated[Optional[int], strawberry.argument(name="first")] = strawberry.UNSET, last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET) -> Optional[Annotated["AgentActionResultTypeConnection", strawberry.lazy("config.graphql.agent_types")]]:
+    kwargs = strip_unset({"corpus_action_id": corpus_action_id, "document_id": document_id, "status": status, "offset": offset, "before": before, "after": after, "first": first, "last": last})
+    resolved = _resolve_Query_agent_action_results(None, info, **kwargs)
+    return resolve_django_connection(resolved=resolved, info=info, args=kwargs, node_type_name="AgentActionResultType", default_manager=AgentActionResult._default_manager, )
 
-        # Filter by disabled status if provided
-        disabled = kwargs.get("disabled")
-        if disabled is not None:
-            queryset = queryset.filter(disabled=disabled)
 
-        return queryset.order_by("-created")
+def _resolve_Query_corpus_action_executions(root, info, **kwargs):
+    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:134
 
-    # AGENT ACTION RESULT RESOLVERS #####################################
-    agent_action_results = DjangoConnectionField(
-        AgentActionResultType,
-        corpus_action_id=graphene.ID(required=False),
-        document_id=graphene.ID(required=False),
-        status=graphene.String(required=False),
-    )
+    Port of ActionQueryMixin.resolve_corpus_action_executions
+    """
+    raise NotImplementedError("_resolve_Query_corpus_action_executions not yet ported — see manifest")
 
-    @login_required
-    def resolve_agent_action_results(self, info, **kwargs) -> Any:
-        """
-        Resolver for agent_action_results that returns results visible to the current user.
-        Can be filtered by corpus_action_id, document_id, and status.
-        """
-        from opencontractserver.agents.services import AgentActionResultService
 
-        user = info.context.user
+def q_corpus_action_executions(info: strawberry.Info, corpus_id: Annotated[Optional[strawberry.ID], strawberry.argument(name="corpusId")] = strawberry.UNSET, document_id: Annotated[Optional[strawberry.ID], strawberry.argument(name="documentId")] = strawberry.UNSET, corpus_action_id: Annotated[Optional[strawberry.ID], strawberry.argument(name="corpusActionId")] = strawberry.UNSET, status: Annotated[Optional[str], strawberry.argument(name="status")] = strawberry.UNSET, action_type: Annotated[Optional[str], strawberry.argument(name="actionType")] = strawberry.UNSET, since: Annotated[Optional[datetime.datetime], strawberry.argument(name="since")] = strawberry.UNSET, offset: Annotated[Optional[int], strawberry.argument(name="offset")] = strawberry.UNSET, before: Annotated[Optional[str], strawberry.argument(name="before")] = strawberry.UNSET, after: Annotated[Optional[str], strawberry.argument(name="after")] = strawberry.UNSET, first: Annotated[Optional[int], strawberry.argument(name="first")] = strawberry.UNSET, last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET) -> Optional[Annotated["CorpusActionExecutionTypeConnection", strawberry.lazy("config.graphql.agent_types")]]:
+    kwargs = strip_unset({"corpus_id": corpus_id, "document_id": document_id, "corpus_action_id": corpus_action_id, "status": status, "action_type": action_type, "since": since, "offset": offset, "before": before, "after": after, "first": first, "last": last})
+    resolved = _resolve_Query_corpus_action_executions(None, info, **kwargs)
+    return resolve_django_connection(resolved=resolved, info=info, args=kwargs, node_type_name="CorpusActionExecutionType", default_manager=CorpusActionExecution._default_manager, )
 
-        corpus_action_id = kwargs.get("corpus_action_id")
-        corpus_action_pk = (
-            int(from_global_id(corpus_action_id)[1]) if corpus_action_id else None
-        )
-        document_id = kwargs.get("document_id")
-        document_pk = int(from_global_id(document_id)[1]) if document_id else None
-        status = kwargs.get("status")
 
-        return AgentActionResultService.list_visible_results(
-            user,
-            corpus_action_id=corpus_action_pk,
-            document_id=document_pk,
-            status=status,
-            request=info.context,
-        )
+def _resolve_Query_corpus_action_trail_stats(root, info, **kwargs):
+    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:218
 
-    # CORPUS ACTION EXECUTION QUERIES ##############################################
-    corpus_action_executions = DjangoConnectionField(
-        CorpusActionExecutionType,
-        corpus_id=graphene.ID(required=False),
-        document_id=graphene.ID(required=False),
-        corpus_action_id=graphene.ID(required=False),
-        status=graphene.String(required=False),
-        action_type=graphene.String(required=False),
-        since=graphene.DateTime(required=False),
-    )
+    Port of ActionQueryMixin.resolve_corpus_action_trail_stats
+    """
+    raise NotImplementedError("_resolve_Query_corpus_action_trail_stats not yet ported — see manifest")
 
-    @login_required
-    def resolve_corpus_action_executions(self, info, **kwargs) -> Any:
-        """
-        Resolver for corpus_action_executions that returns executions visible to
-        the current user.
 
-        Can be filtered by corpus_id, document_id, corpus_action_id, status,
-        action_type, and since (datetime).
-        """
-        from opencontractserver.corpuses.models import Corpus, CorpusActionExecution
-        from opencontractserver.documents.models import Document
+def q_corpus_action_trail_stats(info: strawberry.Info, corpus_id: Annotated[strawberry.ID, strawberry.argument(name="corpusId")] = strawberry.UNSET, since: Annotated[Optional[datetime.datetime], strawberry.argument(name="since")] = strawberry.UNSET) -> Optional[Annotated["CorpusActionTrailStatsType", strawberry.lazy("config.graphql.agent_types")]]:
+    kwargs = strip_unset({"corpus_id": corpus_id, "since": since})
+    return _resolve_Query_corpus_action_trail_stats(None, info, **kwargs)
 
-        user = info.context.user
-        queryset = BaseService.filter_visible(
-            CorpusActionExecution, user, request=info.context
-        )
 
-        # Filter by corpus if provided (with access check)
-        corpus_id = kwargs.get("corpus_id")
-        if corpus_id:
-            corpus_pk = int(from_global_id(corpus_id)[1])
-            # Defense-in-depth: verify user has access to this corpus
-            if (
-                not BaseService.filter_visible(Corpus, user, request=info.context)
-                .filter(pk=corpus_pk)
-                .exists()
-            ):
-                return queryset.none()
-            queryset = queryset.for_corpus(corpus_pk)
+def _resolve_Query_document_corpus_actions(root, info, **kwargs):
+    """PORT: config/graphql/action_queries.py:296
 
-        # Filter by document if provided (with access check)
-        document_id = kwargs.get("document_id")
-        if document_id:
-            document_pk = int(from_global_id(document_id)[1])
-            # Defense-in-depth: verify user has access to this document
-            if (
-                not BaseService.filter_visible(Document, user, request=info.context)
-                .filter(pk=document_pk)
-                .exists()
-            ):
-                return queryset.none()
-            queryset = queryset.for_document(document_pk)
+    Port of ActionQueryMixin.resolve_document_corpus_actions
+    """
+    raise NotImplementedError("_resolve_Query_document_corpus_actions not yet ported — see manifest")
 
-        # Filter by corpus_action if provided (with access check)
-        corpus_action_id = kwargs.get("corpus_action_id")
-        if corpus_action_id:
-            from opencontractserver.corpuses.models import CorpusAction
 
-            corpus_action_pk = from_global_id(corpus_action_id)[1]
-            # Defense-in-depth: verify user has access to this corpus action
-            if (
-                not BaseService.filter_visible(CorpusAction, user, request=info.context)
-                .filter(pk=corpus_action_pk)
-                .exists()
-            ):
-                return queryset.none()
-            queryset = queryset.filter(corpus_action_id=corpus_action_pk)
+def q_document_corpus_actions(info: strawberry.Info, document_id: Annotated[strawberry.ID, strawberry.argument(name="documentId")] = strawberry.UNSET, corpus_id: Annotated[Optional[strawberry.ID], strawberry.argument(name="corpusId")] = strawberry.UNSET) -> Optional[Annotated["DocumentCorpusActionsType", strawberry.lazy("config.graphql.document_types")]]:
+    kwargs = strip_unset({"document_id": document_id, "corpus_id": corpus_id})
+    return _resolve_Query_document_corpus_actions(None, info, **kwargs)
 
-        # Filter by status if provided
-        status = kwargs.get("status")
-        if status:
-            queryset = queryset.filter(status=status)
 
-        # Filter by action_type if provided
-        action_type = kwargs.get("action_type")
-        if action_type:
-            queryset = queryset.by_type(action_type)
 
-        # Filter by since datetime if provided
-        since = kwargs.get("since")
-        if since:
-            queryset = queryset.filter(queued_at__gte=since)
-
-        return queryset.select_related("corpus_action", "document", "corpus").order_by(
-            "-queued_at"
-        )
-
-    # CORPUS ACTION TRAIL STATS #####################################
-    corpus_action_trail_stats = graphene.Field(
-        CorpusActionTrailStatsType,
-        corpus_id=graphene.ID(required=True),
-        since=graphene.DateTime(required=False),
-    )
-
-    @login_required
-    def resolve_corpus_action_trail_stats(self, info, corpus_id, since=None) -> Any:
-        """
-        Resolver for corpus_action_trail_stats that returns aggregated statistics
-        for corpus action executions.
-        """
-        from django.db.models import Avg, Count, F, Q
-
-        from opencontractserver.corpuses.models import Corpus, CorpusActionExecution
-
-        user = info.context.user
-        corpus_pk = int(from_global_id(corpus_id)[1])
-
-        # Defense-in-depth: verify user has access to this corpus
-        if (
-            not BaseService.filter_visible(Corpus, user, request=info.context)
-            .filter(pk=corpus_pk)
-            .exists()
-        ):
-            return CorpusActionTrailStatsType(
-                total_executions=0,
-                completed=0,
-                failed=0,
-                running=0,
-                queued=0,
-                skipped=0,
-                avg_duration_seconds=None,
-                fieldset_count=0,
-                analyzer_count=0,
-                agent_count=0,
-            )
-
-        queryset = BaseService.filter_visible(
-            CorpusActionExecution, user, request=info.context
-        )
-        queryset = queryset.for_corpus(corpus_pk)
-
-        if since:
-            queryset = queryset.filter(queued_at__gte=since)
-
-        stats = queryset.aggregate(
-            total=Count("id"),
-            completed=Count("id", filter=Q(status="completed")),
-            failed=Count("id", filter=Q(status="failed")),
-            running=Count("id", filter=Q(status="running")),
-            queued=Count("id", filter=Q(status="queued")),
-            skipped=Count("id", filter=Q(status="skipped")),
-            avg_duration=Avg(
-                F("completed_at") - F("started_at"),
-                filter=Q(completed_at__isnull=False, started_at__isnull=False),
-            ),
-            fieldset_count=Count("id", filter=Q(action_type="fieldset")),
-            analyzer_count=Count("id", filter=Q(action_type="analyzer")),
-            agent_count=Count("id", filter=Q(action_type="agent")),
-        )
-
-        return CorpusActionTrailStatsType(
-            total_executions=stats["total"],
-            completed=stats["completed"],
-            failed=stats["failed"],
-            running=stats["running"],
-            queued=stats["queued"],
-            skipped=stats["skipped"],
-            avg_duration_seconds=(
-                stats["avg_duration"].total_seconds() if stats["avg_duration"] else None
-            ),
-            fieldset_count=stats["fieldset_count"],
-            analyzer_count=stats["analyzer_count"],
-            agent_count=stats["agent_count"],
-        )
-
-    # DOCUMENT CORPUS ACTIONS RESOLVER #####################################
-    document_corpus_actions = graphene.Field(
-        DocumentCorpusActionsType,
-        document_id=graphene.ID(required=True),
-        corpus_id=graphene.ID(required=False),
-    )
-
-    def resolve_document_corpus_actions(self, info, document_id, corpus_id=None) -> Any:
-        """
-        Resolve document actions (corpus actions, extracts, analysis rows) with proper
-        permission filtering.
-
-        SECURITY: Uses DocumentActionsService which follows the least-privilege model:
-        - Document permissions are primary
-        - Corpus permissions are secondary
-        - Effective permission = MIN(document_permission, corpus_permission)
-
-        This prevents unauthorized access to document-related data.
-        """
-        from opencontractserver.documents.services import DocumentActionsService
-
-        user = info.context.user
-
-        # Guard against empty strings - from_global_id('') returns ('', '')
-        document_pk = from_global_id(document_id)[1] if document_id else None
-        corpus_pk = from_global_id(corpus_id)[1] if corpus_id else None
-
-        # Validate document_id is required and not empty
-        if not document_pk:
-            raise GraphQLError("documentId is required and must be a valid ID")
-
-        # Use centralized permission-aware service
-        actions = DocumentActionsService.get_document_actions(
-            user=user,
-            document_id=int(document_pk),
-            corpus_id=int(corpus_pk) if corpus_pk else None,
-            request=info.context,
-        )
-
-        return DocumentCorpusActionsType(
-            corpus_actions=actions["corpus_actions"],
-            extracts=actions["extracts"],
-            analysis_rows=actions["analysis_rows"],
-        )
+QUERY_FIELDS = {
+    "corpus_action_templates": strawberry.field(resolver=q_corpus_action_templates, name="corpusActionTemplates"),
+    "corpus_actions": strawberry.field(resolver=q_corpus_actions, name="corpusActions"),
+    "agent_action_results": strawberry.field(resolver=q_agent_action_results, name="agentActionResults"),
+    "corpus_action_executions": strawberry.field(resolver=q_corpus_action_executions, name="corpusActionExecutions"),
+    "corpus_action_trail_stats": strawberry.field(resolver=q_corpus_action_trail_stats, name="corpusActionTrailStats"),
+    "document_corpus_actions": strawberry.field(resolver=q_document_corpus_actions, name="documentCorpusActions"),
+}

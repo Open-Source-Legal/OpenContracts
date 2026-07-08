@@ -140,7 +140,7 @@ class TestUpdateCorpusEmbedderImmutability(TestCase):
 
     def _execute_mutation(self, mutation_str, variables=None):
         """Execute a GraphQL mutation."""
-        from graphene.test import Client as GrapheneClient
+        from config.graphql.testing import Client as GrapheneClient
 
         from config.graphql.schema import schema
 
@@ -263,7 +263,7 @@ class TestReEmbedCorpusMutation(TestCase):
         self.factory = RequestFactory()
 
     def _execute_mutation(self, mutation_str, variables=None, user=None):
-        from graphene.test import Client as GrapheneClient
+        from config.graphql.testing import Client as GrapheneClient
 
         from config.graphql.schema import schema
 
@@ -684,7 +684,7 @@ class TestConcurrentReEmbedRejection(TestCase):
         self.factory = RequestFactory()
 
     def _execute_mutation(self, mutation_str, variables=None):
-        from graphene.test import Client as GrapheneClient
+        from config.graphql.testing import Client as GrapheneClient
 
         from config.graphql.schema import schema
 
@@ -805,7 +805,7 @@ class TestForkWithEmbedderOverride(TestCase):
         self.factory = RequestFactory()
 
     def _execute_mutation(self, mutation_str, variables=None):
-        from graphene.test import Client as GrapheneClient
+        from config.graphql.testing import Client as GrapheneClient
 
         from config.graphql.schema import schema
 

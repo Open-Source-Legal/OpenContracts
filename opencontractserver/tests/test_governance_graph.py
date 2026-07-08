@@ -70,7 +70,7 @@ class _Ctx:
 
 
 def _run_graph(user, corpus_pk):
-    from graphene.test import Client
+    from config.graphql.testing import Client
 
     from config.graphql.schema import schema
 
@@ -89,7 +89,7 @@ REFS_QUERY = """
 
 
 def _run_refs(user, corpus_pk, document_gid):
-    from graphene.test import Client
+    from config.graphql.testing import Client
 
     from config.graphql.schema import schema
 
@@ -355,7 +355,7 @@ class GovernanceGraphRegimeFieldTests(TestCase):
         )
 
     def _graph_with_regime(self):
-        from graphene.test import Client
+        from config.graphql.testing import Client
 
         from config.graphql.schema import schema
 

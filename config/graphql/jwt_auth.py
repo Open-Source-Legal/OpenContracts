@@ -24,15 +24,15 @@ from config.graphql.core.relay import (
     resolve_django_list,
 )
 from config.graphql.core.scalars import BigInt, GenericScalar, JSONString
-from config.graphql_new._util import coerce_enum, coerce_str, strip_unset
-from config.graphql_new import enums
+from config.graphql._util import coerce_enum, coerce_str, strip_unset
+from config.graphql import enums
 
 
 
 
 @strawberry.type(name="Verify")
 class Verify:
-    payload: GenericScalar = strawberry.field(name="payload")
+    payload: GenericScalar = strawberry.field(name="payload", default=None)
 
 
 register_type("Verify", Verify, model=None)
@@ -40,8 +40,8 @@ register_type("Verify", Verify, model=None)
 
 @strawberry.type(name="Refresh")
 class Refresh:
-    payload: GenericScalar = strawberry.field(name="payload")
-    refresh_expires_in: int = strawberry.field(name="refreshExpiresIn")
+    payload: GenericScalar = strawberry.field(name="payload", default=None)
+    refresh_expires_in: int = strawberry.field(name="refreshExpiresIn", default=None)
     @strawberry.field(name="token")
     def token(self, info: strawberry.Info) -> str:
         return coerce_str(getattr(self, "token", None))

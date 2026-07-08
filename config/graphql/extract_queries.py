@@ -1,482 +1,332 @@
+"""Generated strawberry GraphQL module (graphene migration).
+
+Shape-generated from the graphene schema; stub functions marked PORT(...)
+carry the ported business logic. See config/graphql_new/manifest.json.
 """
-GraphQL query mixin for extract, fieldset, column, and datacell queries.
+from __future__ import annotations
 
-Also contains helper types MetadataCompletionStatusType and DocumentMetadataResultType
-which are used by extract/metadata queries.
-"""
+import datetime
+import decimal
+import uuid
+from typing import Annotated, Any, Optional
 
-import inspect
-import logging
-from typing import Any
+import strawberry
 
-import graphene
-from django.conf import settings
-from graphene import relay
-from graphene.types.generic import GenericScalar
-from graphene_django.filter import DjangoFilterConnectionField
-from graphql_jwt.decorators import login_required
-from graphql_relay import from_global_id
-
-from config.graphql.document_types import DocumentType
-from config.graphql.filters import (
-    AnalysisFilter,
-    AnalyzerFilter,
-    ColumnFilter,
-    DatacellFilter,
-    ExtractFilter,
-    FieldsetFilter,
-    GremlinEngineFilter,
+from config.graphql.core import permissions as core_permissions
+from config.graphql.core.filtering import filterset_factory, setup_filterset
+from config.graphql.core.mutations import drf_deletion, drf_mutation
+from config.graphql.core.relay import (
+    Node,
+    get_node_from_global_id,
+    make_connection_types,
+    register_type,
+    resolve_django_connection,
+    resolve_django_list,
 )
-from config.graphql.graphene_types import (
-    AnalysisType,
-    AnalyzerType,
-    ColumnType,
-    DatacellType,
-    ExtractType,
-    FieldsetType,
-    GremlinEngineType_READ,
-)
-from config.graphql.ratelimits import get_user_tier_rate, graphql_ratelimit_dynamic
-from opencontractserver.analyzer.models import Analyzer, GremlinEngine
-from opencontractserver.constants.extracts import EXTRACT_LIST_MAX_PAGE_SIZE
-from opencontractserver.extracts.models import Column, Datacell, Fieldset
-from opencontractserver.shared.services.base import BaseService
+from config.graphql.core.scalars import BigInt, GenericScalar, JSONString
+from config.graphql._util import coerce_enum, coerce_str, strip_unset
+from config.graphql import enums
 
-logger = logging.getLogger(__name__)
-
-
-class MetadataCompletionStatusType(graphene.ObjectType):
-    """Type for metadata completion status information."""
-
-    total_fields = graphene.Int()
-    filled_fields = graphene.Int()
-    missing_fields = graphene.Int()
-    percentage = graphene.Float()
-    missing_required = graphene.List(graphene.String)
+from config.graphql.filters import AnalysisFilter
+from config.graphql.filters import AnalyzerFilter
+from config.graphql.filters import ColumnFilter
+from config.graphql.filters import DatacellFilter
+from config.graphql.filters import ExtractFilter
+from config.graphql.filters import FieldsetFilter
+from config.graphql.filters import GremlinEngineFilter
+from opencontractserver.analyzer.models import Analysis
+from opencontractserver.analyzer.models import Analyzer
+from opencontractserver.analyzer.models import GremlinEngine
+from opencontractserver.extracts.models import Column
+from opencontractserver.extracts.models import Datacell
+from opencontractserver.extracts.models import Extract
+from opencontractserver.extracts.models import Fieldset
 
 
-# ---------------------------------------------------------------------------
-# Extract iteration diff types
-# ---------------------------------------------------------------------------
+@strawberry.type(name="ExtractDiffType")
+class ExtractDiffType:
+    extract_a: Optional[Annotated["ExtractType", strawberry.lazy("config.graphql.extract_types")]] = strawberry.field(name="extractA", default=None)
+    extract_b: Optional[Annotated["ExtractType", strawberry.lazy("config.graphql.extract_types")]] = strawberry.field(name="extractB", default=None)
+    @strawberry.field(name="cells")
+    def cells(self, info: strawberry.Info) -> list[Optional["ExtractCellDiffType"]]:
+        return resolve_django_list(self, info, getattr(self, "cells"), "ExtractCellDiffType")
+    summary: "ExtractDiffSummaryType" = strawberry.field(name="summary", default=None)
 
 
-class ExtractDiffStatus(graphene.Enum):
-    """Cell-level diff result between two iterations of the same extract."""
-
-    UNCHANGED = "UNCHANGED"
-    CHANGED = "CHANGED"
-    ONLY_IN_A = "ONLY_IN_A"
-    ONLY_IN_B = "ONLY_IN_B"
+register_type("ExtractDiffType", ExtractDiffType, model=None)
 
 
-class ExtractCellDiffType(graphene.ObjectType):
-    """One row of the compare grid: same (column, document) on both sides.
+@strawberry.type(name="ExtractCellDiffType", description="One row of the compare grid: same (column, document) on both sides.\n\n``rowKey`` is a stable identifier for the document row across iterations\n(the document's ``version_tree_id`` when available, else its PK). Using\nthe version-tree key lets the UI render a single row even when the two\niterations point at different content versions of the same logical doc.\n``columnKey`` is the column name, which is stable when fieldsets are\ncloned because the clone preserves the name.")
+class ExtractCellDiffType:
+    @strawberry.field(name="rowKey")
+    def row_key(self, info: strawberry.Info) -> str:
+        return coerce_str(getattr(self, "row_key", None))
+    @strawberry.field(name="columnKey")
+    def column_key(self, info: strawberry.Info) -> str:
+        return coerce_str(getattr(self, "column_key", None))
+    document: Optional[Annotated["DocumentType", strawberry.lazy("config.graphql.document_types")]] = strawberry.field(name="document", description='Representative Document (B side preferred). For DOCUMENT_VERSIONS-axis diffs use documentA / documentB to see the actual version on each side.', default=None)
+    document_a: Optional[Annotated["DocumentType", strawberry.lazy("config.graphql.document_types")]] = strawberry.field(name="documentA", default=None)
+    document_b: Optional[Annotated["DocumentType", strawberry.lazy("config.graphql.document_types")]] = strawberry.field(name="documentB", default=None)
+    cell_a: Optional[Annotated["DatacellType", strawberry.lazy("config.graphql.extract_types")]] = strawberry.field(name="cellA", default=None)
+    cell_b: Optional[Annotated["DatacellType", strawberry.lazy("config.graphql.extract_types")]] = strawberry.field(name="cellB", default=None)
+    @strawberry.field(name="status")
+    def status(self, info: strawberry.Info) -> enums.ExtractDiffStatus:
+        return coerce_enum(enums.ExtractDiffStatus, getattr(self, "status", None))
+    column_config_changed: Optional[bool] = strawberry.field(name="columnConfigChanged", description='True when the column on B has a different prompt / instructions / output_type from the column on A (FIELDSET axis).', default=None)
 
-    ``rowKey`` is a stable identifier for the document row across iterations
-    (the document's ``version_tree_id`` when available, else its PK). Using
-    the version-tree key lets the UI render a single row even when the two
-    iterations point at different content versions of the same logical doc.
-    ``columnKey`` is the column name, which is stable when fieldsets are
-    cloned because the clone preserves the name.
+
+register_type("ExtractCellDiffType", ExtractCellDiffType, model=None)
+
+
+@strawberry.type(name="ExtractDiffSummaryType", description='Aggregate counts for the diff — used for the heatmap legend.')
+class ExtractDiffSummaryType:
+    unchanged: int = strawberry.field(name="unchanged", default=None)
+    changed: int = strawberry.field(name="changed", default=None)
+    only_in_a: int = strawberry.field(name="onlyInA", default=None)
+    only_in_b: int = strawberry.field(name="onlyInB", default=None)
+    total: int = strawberry.field(name="total", default=None)
+
+
+register_type("ExtractDiffSummaryType", ExtractDiffSummaryType, model=None)
+
+
+@strawberry.type(name="MetadataCompletionStatusType", description='Type for metadata completion status information.')
+class MetadataCompletionStatusType:
+    total_fields: Optional[int] = strawberry.field(name="totalFields", default=None)
+    filled_fields: Optional[int] = strawberry.field(name="filledFields", default=None)
+    missing_fields: Optional[int] = strawberry.field(name="missingFields", default=None)
+    percentage: Optional[float] = strawberry.field(name="percentage", default=None)
+    @strawberry.field(name="missingRequired")
+    def missing_required(self, info: strawberry.Info) -> Optional[list[Optional[str]]]:
+        return coerce_str(getattr(self, "missing_required", None))
+
+
+register_type("MetadataCompletionStatusType", MetadataCompletionStatusType, model=None)
+
+
+@strawberry.type(name="DocumentMetadataResultType", description='Type for batch metadata query results - groups datacells by document.')
+class DocumentMetadataResultType:
+    @strawberry.field(name="documentId", description="The document's global ID")
+    def document_id(self, info: strawberry.Info) -> Optional[strawberry.ID]:
+        return coerce_str(getattr(self, "document_id", None))
+    @strawberry.field(name="datacells", description='Metadata datacells for this document')
+    def datacells(self, info: strawberry.Info) -> Optional[list[Optional[Annotated["DatacellType", strawberry.lazy("config.graphql.extract_types")]]]]:
+        return resolve_django_list(self, info, getattr(self, "datacells"), "DatacellType")
+
+
+register_type("DocumentMetadataResultType", DocumentMetadataResultType, model=None)
+
+
+def q_fieldset(info: strawberry.Info, id: Annotated[strawberry.ID, strawberry.argument(name="id", description='The ID of the object')] = strawberry.UNSET) -> Optional[Annotated["FieldsetType", strawberry.lazy("config.graphql.extract_types")]]:
+    return get_node_from_global_id(info, id, only_type_name="FieldsetType")
+
+
+def _resolve_Query_fieldsets(root, info, **kwargs):
+    """PORT: config/graphql/extract_queries.py:146
+
+    Port of ExtractQueryMixin.resolve_fieldsets
     """
+    raise NotImplementedError("_resolve_Query_fieldsets not yet ported — see manifest")
 
-    row_key = graphene.String(required=True)
-    column_key = graphene.String(required=True)
-    document = graphene.Field(
-        DocumentType,
-        description="Representative Document (B side preferred). For "
-        "DOCUMENT_VERSIONS-axis diffs use documentA / documentB to see "
-        "the actual version on each side.",
-    )
-    document_a = graphene.Field(DocumentType)
-    document_b = graphene.Field(DocumentType)
-    cell_a = graphene.Field(DatacellType)
-    cell_b = graphene.Field(DatacellType)
-    status = graphene.Field(ExtractDiffStatus, required=True)
-    column_config_changed = graphene.Boolean(
-        description="True when the column on B has a different prompt / "
-        "instructions / output_type from the column on A (FIELDSET axis)."
-    )
-
-
-class ExtractDiffSummaryType(graphene.ObjectType):
-    """Aggregate counts for the diff — used for the heatmap legend."""
-
-    unchanged = graphene.Int(required=True)
-    changed = graphene.Int(required=True)
-    only_in_a = graphene.Int(required=True)
-    only_in_b = graphene.Int(required=True)
-    total = graphene.Int(required=True)
-
-
-class ExtractDiffType(graphene.ObjectType):
-    extract_a = graphene.Field(ExtractType)
-    extract_b = graphene.Field(ExtractType)
-    cells = graphene.List(ExtractCellDiffType, required=True)
-    summary = graphene.Field(ExtractDiffSummaryType, required=True)
-
-
-class DocumentMetadataResultType(graphene.ObjectType):
-    """Type for batch metadata query results - groups datacells by document."""
-
-    document_id = graphene.ID(description="The document's global ID")
-    datacells = graphene.List(
-        DatacellType, description="Metadata datacells for this document"
-    )
-
-
-class ExtractQueryMixin:
-    """Query fields and resolvers for extract, fieldset, column, datacell, and analyzer queries."""
-
-    fieldset = relay.Node.Field(FieldsetType)
-
-    def resolve_fieldset(self, info, **kwargs) -> Any:
-        django_pk = int(from_global_id(kwargs["id"])[1])
-        obj = BaseService.get_or_none(
-            Fieldset, django_pk, info.context.user, request=info.context
-        )
-        if obj is None:
-            raise Fieldset.DoesNotExist
-        return obj
-
-    fieldsets = DjangoFilterConnectionField(
-        FieldsetType, filterset_class=FieldsetFilter
-    )
-
-    def resolve_fieldsets(self, info, **kwargs) -> Any:
-        return BaseService.filter_visible(
-            Fieldset, info.context.user, request=info.context
-        )
-
-    column = relay.Node.Field(ColumnType)
-
-    def resolve_column(self, info, **kwargs) -> Any:
-        django_pk = int(from_global_id(kwargs["id"])[1])
-        obj = BaseService.get_or_none(
-            Column, django_pk, info.context.user, request=info.context
-        )
-        if obj is None:
-            raise Column.DoesNotExist
-        return obj
-
-    columns = DjangoFilterConnectionField(ColumnType, filterset_class=ColumnFilter)
-
-    def resolve_columns(self, info, **kwargs) -> Any:
-        return BaseService.filter_visible(
-            Column, info.context.user, request=info.context
-        )
-
-    extract = relay.Node.Field(ExtractType)
-
-    def resolve_extract(self, info, **kwargs) -> Any:
-        from opencontractserver.extracts.services import ExtractService
-
-        django_pk = from_global_id(kwargs["id"])[1]
-        has_perm, extract = ExtractService.check_extract_permission(
-            info.context.user, int(django_pk), context=info.context
-        )
-        return extract if has_perm else None
-
-    # ``max_limit`` must match (or exceed) the frontend ``EXTRACT_PAGINATION``
-    # page size — Graphene silently clamps to this value and otherwise pages
-    # never advance past the cap (the bug fixed in PR #1602).
-    extracts = DjangoFilterConnectionField(
-        ExtractType,
-        filterset_class=ExtractFilter,
-        max_limit=EXTRACT_LIST_MAX_PAGE_SIZE,
-    )
-
-    def resolve_extracts(self, info, **kwargs) -> Any:
-        from opencontractserver.extracts.services import ExtractService
-
-        corpus_id = kwargs.get("corpus_id")
-        if corpus_id:
-            corpus_django_pk = int(from_global_id(corpus_id)[1])
-        else:
-            corpus_django_pk = None
-
-        return ExtractService.get_visible_extracts(
-            info.context.user, corpus_id=corpus_django_pk, context=info.context
-        )
-
-    compare_extracts = graphene.Field(
-        ExtractDiffType,
-        extract_a_id=graphene.ID(required=True),
-        extract_b_id=graphene.ID(required=True),
-        description="Cell-level diff between two iterations of the same extract series.",
-    )
-
-    @login_required
-    def resolve_compare_extracts(self, info, extract_a_id, extract_b_id) -> Any:
-        from opencontractserver.extracts.diff import diff_extracts, summarise
-        from opencontractserver.extracts.services import ExtractService
-
-        user = info.context.user
-        a_pk = int(from_global_id(extract_a_id)[1])
-        b_pk = int(from_global_id(extract_b_id)[1])
-
-        # Permission check leverages the same optimizer the extract node
-        # resolver uses, so visibility rules stay consistent.
-        a_ok, extract_a = ExtractService.check_extract_permission(
-            user, a_pk, context=info.context
-        )
-        b_ok, extract_b = ExtractService.check_extract_permission(
-            user, b_pk, context=info.context
-        )
-        if not (a_ok and b_ok and extract_a and extract_b):
-            return None
-
-        cells_a = ExtractService.get_extract_datacells(
-            extract_a, user, document_id=None
-        )
-        cells_b = ExtractService.get_extract_datacells(
-            extract_b, user, document_id=None
-        )
-
-        diffs = diff_extracts(extract_a, extract_b, cells_a=cells_a, cells_b=cells_b)
-        return ExtractDiffType(
-            extract_a=extract_a,
-            extract_b=extract_b,
-            cells=[
-                ExtractCellDiffType(
-                    row_key=d.row_key,
-                    column_key=d.column_key,
-                    document=d.document,
-                    document_a=d.document_a,
-                    document_b=d.document_b,
-                    cell_a=d.cell_a,
-                    cell_b=d.cell_b,
-                    status=d.status,
-                    column_config_changed=d.column_config_changed,
-                )
-                for d in diffs
-            ],
-            summary=ExtractDiffSummaryType(**summarise(diffs)),
-        )
-
-    datacell = relay.Node.Field(DatacellType)
-
-    def resolve_datacell(self, info, **kwargs) -> Any:
-        django_pk = int(from_global_id(kwargs["id"])[1])
-        obj = BaseService.get_or_none(
-            Datacell, django_pk, info.context.user, request=info.context
-        )
-        if obj is None:
-            raise Datacell.DoesNotExist
-        return obj
-
-    datacells = DjangoFilterConnectionField(
-        DatacellType, filterset_class=DatacellFilter
-    )
-
-    def resolve_datacells(self, info, **kwargs) -> Any:
-        return BaseService.filter_visible(
-            Datacell, info.context.user, request=info.context
-        )
-
-    registered_extract_tasks = graphene.Field(GenericScalar)
-
-    @login_required
-    def resolve_registered_extract_tasks(self, info, **kwargs) -> Any:
-        from config import celery_app
-
-        tasks = {}
-
-        # Try to get tasks from the app instance
-        # Get tasks from the app instance
-        try:
-            for task_name, task in celery_app.tasks.items():
-                if not task_name.startswith("celery."):
-                    docstring = inspect.getdoc(task.run) or "No docstring available"
-                    tasks[task_name] = docstring
-
-        except AttributeError as e:
-            logger.warning(f"Couldn't get tasks from app instance: {str(e)}")
-
-        # Filter out Celery's internal tasks
-        return {
-            task: description
-            for task, description in tasks.items()
-            if task.startswith("opencontractserver.tasks.data_extract_tasks")
-        }
-
-    # METADATA QUERIES (Column/Datacell based) ################################
-    document_metadata_datacells = graphene.List(
-        DatacellType,
-        document_id=graphene.ID(required=True),
-        corpus_id=graphene.ID(required=True),
-        description="Get metadata datacells for a document in a corpus",
-    )
-
-    metadata_completion_status_v2 = graphene.Field(
-        MetadataCompletionStatusType,
-        document_id=graphene.ID(required=True),
-        corpus_id=graphene.ID(required=True),
-        description="Get metadata completion status for a document using column/datacell system",
-    )
-
-    documents_metadata_datacells_batch = graphene.List(
-        DocumentMetadataResultType,
-        document_ids=graphene.List(graphene.ID, required=True),
-        corpus_id=graphene.ID(required=True),
-        description="Get metadata datacells for multiple documents in a single query (batch)",
-    )
-
-    def resolve_document_metadata_datacells(self, info, document_id, corpus_id) -> Any:
-        """Get metadata datacells for a document using MetadataService."""
-        from opencontractserver.extracts.services import MetadataService
-
-        user = info.context.user
-        local_doc_id = int(from_global_id(document_id)[1])
-        local_corpus_id = int(from_global_id(corpus_id)[1])
-
-        return MetadataService.get_document_metadata(
-            user, local_doc_id, local_corpus_id, manual_only=True
-        )
-
-    def resolve_metadata_completion_status_v2(
-        self, info, document_id, corpus_id
-    ) -> Any:
-        """Get metadata completion status using MetadataService."""
-        from opencontractserver.extracts.services import MetadataService
-
-        user = info.context.user
-        local_doc_id = int(from_global_id(document_id)[1])
-        local_corpus_id = int(from_global_id(corpus_id)[1])
-
-        return MetadataService.get_metadata_completion_status(
-            user, local_doc_id, local_corpus_id
-        )
-
-    def resolve_documents_metadata_datacells_batch(
-        self, info, document_ids, corpus_id
-    ) -> Any:
-        """
-        Get metadata datacells for multiple documents using MetadataService.
-
-        This batch query solves the N+1 problem when loading metadata for a grid view.
-        Uses the centralized MetadataService which applies proper permission
-        filtering: Effective Permission = MIN(document_permission, corpus_permission)
-        """
-        from opencontractserver.extracts.services import MetadataService
-
-        user = info.context.user
-        local_corpus_id = int(from_global_id(corpus_id)[1])
-
-        # Convert global IDs to local IDs (single pass)
-        local_doc_ids: list[int] = []
-        local_id_by_global: dict[str, int] = {}  # global_id -> local_id
-        for global_id in document_ids:
-            local_id_int = int(from_global_id(global_id)[1])
-            local_doc_ids.append(local_id_int)
-            local_id_by_global[global_id] = local_id_int
-
-        # Use optimizer to get batch metadata with proper permissions
-        datacells_by_doc = MetadataService.get_documents_metadata_batch(
-            user,
-            local_doc_ids,
-            local_corpus_id,
-            manual_only=True,
-            context=info.context,
-        )
-
-        # Build response - maintain order of requested document_ids
-        # The optimizer returns a dict with keys for all readable documents,
-        # so we only include documents the user has permission to read
-        results = []
-        for global_id in document_ids:
-            local_doc_id = local_id_by_global[global_id]
-
-            # Only include documents that are in the result (user has permission)
-            if local_doc_id in datacells_by_doc:
-                results.append(
-                    {
-                        "document_id": global_id,
-                        "datacells": datacells_by_doc[local_doc_id],
-                    }
-                )
-
-        return results
-
-    # CONDITIONAL ANALYZER FIELDS #####################################
-    # These are conditionally defined based on settings.USE_ANALYZER
-    if settings.USE_ANALYZER:
-
-        # GREMLIN ENGINE RESOLVERS #####################################
-        gremlin_engine = relay.Node.Field(GremlinEngineType_READ)
-
-        def resolve_gremlin_engine(self, info, **kwargs) -> Any:
-            django_pk = int(from_global_id(kwargs["id"])[1])
-            obj = BaseService.get_or_none(
-                GremlinEngine, django_pk, info.context.user, request=info.context
-            )
-            if obj is None:
-                raise GremlinEngine.DoesNotExist
-            return obj
-
-        gremlin_engines = DjangoFilterConnectionField(
-            GremlinEngineType_READ, filterset_class=GremlinEngineFilter
-        )
-
-        def resolve_gremlin_engines(self, info, **kwargs) -> Any:
-            return BaseService.filter_visible(
-                GremlinEngine, info.context.user, request=info.context
-            )
-
-        # ANALYZER RESOLVERS #####################################
-        analyzer = relay.Node.Field(AnalyzerType)
-
-        def resolve_analyzer(self, info, **kwargs) -> Any:
-
-            if kwargs.get("id", None) is not None:
-                django_pk = from_global_id(kwargs["id"])[1]
-            elif kwargs.get("analyzerId", None) is not None:
-                django_pk = kwargs["analyzerId"]
-            else:
-                return None
-
-            obj = BaseService.get_or_none(
-                Analyzer, django_pk, info.context.user, request=info.context
-            )
-            if obj is None:
-                raise Analyzer.DoesNotExist
-            return obj
-
-        analyzers = DjangoFilterConnectionField(
-            AnalyzerType, filterset_class=AnalyzerFilter
-        )
-
-        def resolve_analyzers(self, info, **kwargs) -> Any:
-            return BaseService.filter_visible(
-                Analyzer, info.context.user, request=info.context
-            )
-
-        # ANALYSIS RESOLVERS #####################################
-        analysis = relay.Node.Field(AnalysisType)
-
-        def resolve_analysis(self, info, **kwargs) -> Any:
-            from opencontractserver.analyzer.services import AnalysisService
-
-            django_pk = from_global_id(kwargs["id"])[1]
-            has_perm, analysis = AnalysisService.check_analysis_permission(
-                info.context.user, int(django_pk), context=info.context
-            )
-            return analysis if has_perm else None
-
-        analyses = DjangoFilterConnectionField(
-            AnalysisType, filterset_class=AnalysisFilter
-        )
-
-        @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_MEDIUM"))
-        def resolve_analyses(self, info, **kwargs) -> Any:
-            from opencontractserver.analyzer.services import AnalysisService
-
-            corpus_id = kwargs.get("corpus_id")
-            if corpus_id:
-                corpus_django_pk = int(from_global_id(corpus_id)[1])
-            else:
-                corpus_django_pk = None
-
-            return AnalysisService.get_visible_analyses(
-                info.context.user, corpus_id=corpus_django_pk, context=info.context
-            )
+
+def q_fieldsets(info: strawberry.Info, offset: Annotated[Optional[int], strawberry.argument(name="offset")] = strawberry.UNSET, before: Annotated[Optional[str], strawberry.argument(name="before")] = strawberry.UNSET, after: Annotated[Optional[str], strawberry.argument(name="after")] = strawberry.UNSET, first: Annotated[Optional[int], strawberry.argument(name="first")] = strawberry.UNSET, last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET, name: Annotated[Optional[str], strawberry.argument(name="name")] = strawberry.UNSET, name__contains: Annotated[Optional[str], strawberry.argument(name="name_Contains")] = strawberry.UNSET, description__contains: Annotated[Optional[str], strawberry.argument(name="description_Contains")] = strawberry.UNSET) -> Optional[Annotated["FieldsetTypeConnection", strawberry.lazy("config.graphql.extract_types")]]:
+    kwargs = strip_unset({"offset": offset, "before": before, "after": after, "first": first, "last": last, "name": name, "name__contains": name__contains, "description__contains": description__contains})
+    resolved = _resolve_Query_fieldsets(None, info, **kwargs)
+    return resolve_django_connection(resolved=resolved, info=info, args=kwargs, node_type_name="FieldsetType", default_manager=Fieldset._default_manager, filterset_class=setup_filterset(FieldsetFilter), filter_args={"name": "name", "name__contains": "name__contains", "description__contains": "description__contains"}, )
+
+
+def q_column(info: strawberry.Info, id: Annotated[strawberry.ID, strawberry.argument(name="id", description='The ID of the object')] = strawberry.UNSET) -> Optional[Annotated["ColumnType", strawberry.lazy("config.graphql.extract_types")]]:
+    return get_node_from_global_id(info, id, only_type_name="ColumnType")
+
+
+def _resolve_Query_columns(root, info, **kwargs):
+    """PORT: config/graphql/extract_queries.py:164
+
+    Port of ExtractQueryMixin.resolve_columns
+    """
+    raise NotImplementedError("_resolve_Query_columns not yet ported — see manifest")
+
+
+def q_columns(info: strawberry.Info, offset: Annotated[Optional[int], strawberry.argument(name="offset")] = strawberry.UNSET, before: Annotated[Optional[str], strawberry.argument(name="before")] = strawberry.UNSET, after: Annotated[Optional[str], strawberry.argument(name="after")] = strawberry.UNSET, first: Annotated[Optional[int], strawberry.argument(name="first")] = strawberry.UNSET, last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET, query__contains: Annotated[Optional[str], strawberry.argument(name="query_Contains")] = strawberry.UNSET, match_text__contains: Annotated[Optional[str], strawberry.argument(name="matchText_Contains")] = strawberry.UNSET, output_type: Annotated[Optional[str], strawberry.argument(name="outputType")] = strawberry.UNSET, limit_to_label: Annotated[Optional[str], strawberry.argument(name="limitToLabel")] = strawberry.UNSET) -> Optional[Annotated["ColumnTypeConnection", strawberry.lazy("config.graphql.extract_types")]]:
+    kwargs = strip_unset({"offset": offset, "before": before, "after": after, "first": first, "last": last, "query__contains": query__contains, "match_text__contains": match_text__contains, "output_type": output_type, "limit_to_label": limit_to_label})
+    resolved = _resolve_Query_columns(None, info, **kwargs)
+    return resolve_django_connection(resolved=resolved, info=info, args=kwargs, node_type_name="ColumnType", default_manager=Column._default_manager, filterset_class=setup_filterset(ColumnFilter), filter_args={"query__contains": "query__contains", "match_text__contains": "match_text__contains", "output_type": "output_type", "limit_to_label": "limit_to_label"}, )
+
+
+def q_extract(info: strawberry.Info, id: Annotated[strawberry.ID, strawberry.argument(name="id", description='The ID of the object')] = strawberry.UNSET) -> Optional[Annotated["ExtractType", strawberry.lazy("config.graphql.extract_types")]]:
+    return get_node_from_global_id(info, id, only_type_name="ExtractType")
+
+
+def _resolve_Query_extracts(root, info, **kwargs):
+    """PORT: config/graphql/extract_queries.py:189
+
+    Port of ExtractQueryMixin.resolve_extracts
+    """
+    raise NotImplementedError("_resolve_Query_extracts not yet ported — see manifest")
+
+
+def q_extracts(info: strawberry.Info, offset: Annotated[Optional[int], strawberry.argument(name="offset")] = strawberry.UNSET, before: Annotated[Optional[str], strawberry.argument(name="before")] = strawberry.UNSET, after: Annotated[Optional[str], strawberry.argument(name="after")] = strawberry.UNSET, first: Annotated[Optional[int], strawberry.argument(name="first")] = strawberry.UNSET, last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET, corpus_action__isnull: Annotated[Optional[bool], strawberry.argument(name="corpusAction_Isnull")] = strawberry.UNSET, name: Annotated[Optional[str], strawberry.argument(name="name")] = strawberry.UNSET, name__contains: Annotated[Optional[str], strawberry.argument(name="name_Contains")] = strawberry.UNSET, created__lte: Annotated[Optional[datetime.datetime], strawberry.argument(name="created_Lte")] = strawberry.UNSET, created__gte: Annotated[Optional[datetime.datetime], strawberry.argument(name="created_Gte")] = strawberry.UNSET, started__lte: Annotated[Optional[datetime.datetime], strawberry.argument(name="started_Lte")] = strawberry.UNSET, started__gte: Annotated[Optional[datetime.datetime], strawberry.argument(name="started_Gte")] = strawberry.UNSET, finished__lte: Annotated[Optional[datetime.datetime], strawberry.argument(name="finished_Lte")] = strawberry.UNSET, finished__gte: Annotated[Optional[datetime.datetime], strawberry.argument(name="finished_Gte")] = strawberry.UNSET, corpus: Annotated[Optional[strawberry.ID], strawberry.argument(name="corpus")] = strawberry.UNSET) -> Optional[Annotated["ExtractTypeConnection", strawberry.lazy("config.graphql.extract_types")]]:
+    kwargs = strip_unset({"offset": offset, "before": before, "after": after, "first": first, "last": last, "corpus_action__isnull": corpus_action__isnull, "name": name, "name__contains": name__contains, "created__lte": created__lte, "created__gte": created__gte, "started__lte": started__lte, "started__gte": started__gte, "finished__lte": finished__lte, "finished__gte": finished__gte, "corpus": corpus})
+    resolved = _resolve_Query_extracts(None, info, **kwargs)
+    return resolve_django_connection(resolved=resolved, info=info, args=kwargs, node_type_name="ExtractType", default_manager=Extract._default_manager, filterset_class=setup_filterset(ExtractFilter), filter_args={"corpus_action__isnull": "corpus_action__isnull", "name": "name", "name__contains": "name__contains", "created__lte": "created__lte", "created__gte": "created__gte", "started__lte": "started__lte", "started__gte": "started__gte", "finished__lte": "finished__lte", "finished__gte": "finished__gte", "corpus": "corpus"}, )
+
+
+def _resolve_Query_compare_extracts(root, info, **kwargs):
+    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:209
+
+    Port of ExtractQueryMixin.resolve_compare_extracts
+    """
+    raise NotImplementedError("_resolve_Query_compare_extracts not yet ported — see manifest")
+
+
+def q_compare_extracts(info: strawberry.Info, extract_a_id: Annotated[strawberry.ID, strawberry.argument(name="extractAId")] = strawberry.UNSET, extract_b_id: Annotated[strawberry.ID, strawberry.argument(name="extractBId")] = strawberry.UNSET) -> Optional["ExtractDiffType"]:
+    kwargs = strip_unset({"extract_a_id": extract_a_id, "extract_b_id": extract_b_id})
+    return _resolve_Query_compare_extracts(None, info, **kwargs)
+
+
+def q_datacell(info: strawberry.Info, id: Annotated[strawberry.ID, strawberry.argument(name="id", description='The ID of the object')] = strawberry.UNSET) -> Optional[Annotated["DatacellType", strawberry.lazy("config.graphql.extract_types")]]:
+    return get_node_from_global_id(info, id, only_type_name="DatacellType")
+
+
+def _resolve_Query_datacells(root, info, **kwargs):
+    """PORT: config/graphql/extract_queries.py:272
+
+    Port of ExtractQueryMixin.resolve_datacells
+    """
+    raise NotImplementedError("_resolve_Query_datacells not yet ported — see manifest")
+
+
+def q_datacells(info: strawberry.Info, offset: Annotated[Optional[int], strawberry.argument(name="offset")] = strawberry.UNSET, before: Annotated[Optional[str], strawberry.argument(name="before")] = strawberry.UNSET, after: Annotated[Optional[str], strawberry.argument(name="after")] = strawberry.UNSET, first: Annotated[Optional[int], strawberry.argument(name="first")] = strawberry.UNSET, last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET, data_definition: Annotated[Optional[str], strawberry.argument(name="dataDefinition")] = strawberry.UNSET, started__lte: Annotated[Optional[datetime.datetime], strawberry.argument(name="started_Lte")] = strawberry.UNSET, started__gte: Annotated[Optional[datetime.datetime], strawberry.argument(name="started_Gte")] = strawberry.UNSET, completed__lte: Annotated[Optional[datetime.datetime], strawberry.argument(name="completed_Lte")] = strawberry.UNSET, completed__gte: Annotated[Optional[datetime.datetime], strawberry.argument(name="completed_Gte")] = strawberry.UNSET, failed__lte: Annotated[Optional[datetime.datetime], strawberry.argument(name="failed_Lte")] = strawberry.UNSET, failed__gte: Annotated[Optional[datetime.datetime], strawberry.argument(name="failed_Gte")] = strawberry.UNSET, in_corpus_with_id: Annotated[Optional[str], strawberry.argument(name="inCorpusWithId")] = strawberry.UNSET, for_document_with_id: Annotated[Optional[str], strawberry.argument(name="forDocumentWithId")] = strawberry.UNSET) -> Optional[Annotated["DatacellTypeConnection", strawberry.lazy("config.graphql.extract_types")]]:
+    kwargs = strip_unset({"offset": offset, "before": before, "after": after, "first": first, "last": last, "data_definition": data_definition, "started__lte": started__lte, "started__gte": started__gte, "completed__lte": completed__lte, "completed__gte": completed__gte, "failed__lte": failed__lte, "failed__gte": failed__gte, "in_corpus_with_id": in_corpus_with_id, "for_document_with_id": for_document_with_id})
+    resolved = _resolve_Query_datacells(None, info, **kwargs)
+    return resolve_django_connection(resolved=resolved, info=info, args=kwargs, node_type_name="DatacellType", default_manager=Datacell._default_manager, filterset_class=setup_filterset(DatacellFilter), filter_args={"data_definition": "data_definition", "started__lte": "started__lte", "started__gte": "started__gte", "completed__lte": "completed__lte", "completed__gte": "completed__gte", "failed__lte": "failed__lte", "failed__gte": "failed__gte", "in_corpus_with_id": "in_corpus_with_id", "for_document_with_id": "for_document_with_id"}, )
+
+
+def _resolve_Query_registered_extract_tasks(root, info, **kwargs):
+    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:279
+
+    Port of ExtractQueryMixin.resolve_registered_extract_tasks
+    """
+    raise NotImplementedError("_resolve_Query_registered_extract_tasks not yet ported — see manifest")
+
+
+def q_registered_extract_tasks(info: strawberry.Info) -> Optional[GenericScalar]:
+    kwargs = strip_unset({})
+    return _resolve_Query_registered_extract_tasks(None, info, **kwargs)
+
+
+def _resolve_Query_document_metadata_datacells(root, info, **kwargs):
+    """PORT: config/graphql/extract_queries.py:325
+
+    Port of ExtractQueryMixin.resolve_document_metadata_datacells
+    """
+    raise NotImplementedError("_resolve_Query_document_metadata_datacells not yet ported — see manifest")
+
+
+def q_document_metadata_datacells(info: strawberry.Info, document_id: Annotated[strawberry.ID, strawberry.argument(name="documentId")] = strawberry.UNSET, corpus_id: Annotated[strawberry.ID, strawberry.argument(name="corpusId")] = strawberry.UNSET) -> Optional[list[Optional[Annotated["DatacellType", strawberry.lazy("config.graphql.extract_types")]]]]:
+    kwargs = strip_unset({"document_id": document_id, "corpus_id": corpus_id})
+    return _resolve_Query_document_metadata_datacells(None, info, **kwargs)
+
+
+def _resolve_Query_metadata_completion_status_v2(root, info, **kwargs):
+    """PORT: config/graphql/extract_queries.py:337
+
+    Port of ExtractQueryMixin.resolve_metadata_completion_status_v2
+    """
+    raise NotImplementedError("_resolve_Query_metadata_completion_status_v2 not yet ported — see manifest")
+
+
+def q_metadata_completion_status_v2(info: strawberry.Info, document_id: Annotated[strawberry.ID, strawberry.argument(name="documentId")] = strawberry.UNSET, corpus_id: Annotated[strawberry.ID, strawberry.argument(name="corpusId")] = strawberry.UNSET) -> Optional["MetadataCompletionStatusType"]:
+    kwargs = strip_unset({"document_id": document_id, "corpus_id": corpus_id})
+    return _resolve_Query_metadata_completion_status_v2(None, info, **kwargs)
+
+
+def _resolve_Query_documents_metadata_datacells_batch(root, info, **kwargs):
+    """PORT: config/graphql/extract_queries.py:351
+
+    Port of ExtractQueryMixin.resolve_documents_metadata_datacells_batch
+    """
+    raise NotImplementedError("_resolve_Query_documents_metadata_datacells_batch not yet ported — see manifest")
+
+
+def q_documents_metadata_datacells_batch(info: strawberry.Info, document_ids: Annotated[list[Optional[strawberry.ID]], strawberry.argument(name="documentIds")] = strawberry.UNSET, corpus_id: Annotated[strawberry.ID, strawberry.argument(name="corpusId")] = strawberry.UNSET) -> Optional[list[Optional["DocumentMetadataResultType"]]]:
+    kwargs = strip_unset({"document_ids": document_ids, "corpus_id": corpus_id})
+    return _resolve_Query_documents_metadata_datacells_batch(None, info, **kwargs)
+
+
+def q_gremlin_engine(info: strawberry.Info, id: Annotated[strawberry.ID, strawberry.argument(name="id", description='The ID of the object')] = strawberry.UNSET) -> Optional[Annotated["GremlinEngineType_READ", strawberry.lazy("config.graphql.extract_types")]]:
+    return get_node_from_global_id(info, id, only_type_name="GremlinEngineType_READ")
+
+
+def _resolve_Query_gremlin_engines(root, info, **kwargs):
+    """PORT: config/graphql/extract_queries.py:421
+
+    Port of ExtractQueryMixin.resolve_gremlin_engines
+    """
+    raise NotImplementedError("_resolve_Query_gremlin_engines not yet ported — see manifest")
+
+
+def q_gremlin_engines(info: strawberry.Info, offset: Annotated[Optional[int], strawberry.argument(name="offset")] = strawberry.UNSET, before: Annotated[Optional[str], strawberry.argument(name="before")] = strawberry.UNSET, after: Annotated[Optional[str], strawberry.argument(name="after")] = strawberry.UNSET, first: Annotated[Optional[int], strawberry.argument(name="first")] = strawberry.UNSET, last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET, url: Annotated[Optional[str], strawberry.argument(name="url")] = strawberry.UNSET) -> Optional[Annotated["GremlinEngineType_READConnection", strawberry.lazy("config.graphql.extract_types")]]:
+    kwargs = strip_unset({"offset": offset, "before": before, "after": after, "first": first, "last": last, "url": url})
+    resolved = _resolve_Query_gremlin_engines(None, info, **kwargs)
+    return resolve_django_connection(resolved=resolved, info=info, args=kwargs, node_type_name="GremlinEngineType_READ", default_manager=GremlinEngine._default_manager, filterset_class=setup_filterset(GremlinEngineFilter), filter_args={"url": "url"}, )
+
+
+def q_analyzer(info: strawberry.Info, id: Annotated[strawberry.ID, strawberry.argument(name="id", description='The ID of the object')] = strawberry.UNSET) -> Optional[Annotated["AnalyzerType", strawberry.lazy("config.graphql.extract_types")]]:
+    return get_node_from_global_id(info, id, only_type_name="AnalyzerType")
+
+
+def _resolve_Query_analyzers(root, info, **kwargs):
+    """PORT: config/graphql/extract_queries.py:449
+
+    Port of ExtractQueryMixin.resolve_analyzers
+    """
+    raise NotImplementedError("_resolve_Query_analyzers not yet ported — see manifest")
+
+
+def q_analyzers(info: strawberry.Info, offset: Annotated[Optional[int], strawberry.argument(name="offset")] = strawberry.UNSET, before: Annotated[Optional[str], strawberry.argument(name="before")] = strawberry.UNSET, after: Annotated[Optional[str], strawberry.argument(name="after")] = strawberry.UNSET, first: Annotated[Optional[int], strawberry.argument(name="first")] = strawberry.UNSET, last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET, id__contains: Annotated[Optional[strawberry.ID], strawberry.argument(name="id_Contains")] = strawberry.UNSET, id: Annotated[Optional[strawberry.ID], strawberry.argument(name="id")] = strawberry.UNSET, description__contains: Annotated[Optional[str], strawberry.argument(name="description_Contains")] = strawberry.UNSET, disabled: Annotated[Optional[bool], strawberry.argument(name="disabled")] = strawberry.UNSET, analyzer_id: Annotated[Optional[str], strawberry.argument(name="analyzerId")] = strawberry.UNSET, hosted_by_gremlin_engine_id: Annotated[Optional[str], strawberry.argument(name="hostedByGremlinEngineId")] = strawberry.UNSET, used_in_analysis_ids: Annotated[Optional[str], strawberry.argument(name="usedInAnalysisIds")] = strawberry.UNSET) -> Optional[Annotated["AnalyzerTypeConnection", strawberry.lazy("config.graphql.extract_types")]]:
+    kwargs = strip_unset({"offset": offset, "before": before, "after": after, "first": first, "last": last, "id__contains": id__contains, "id": id, "description__contains": description__contains, "disabled": disabled, "analyzer_id": analyzer_id, "hosted_by_gremlin_engine_id": hosted_by_gremlin_engine_id, "used_in_analysis_ids": used_in_analysis_ids})
+    resolved = _resolve_Query_analyzers(None, info, **kwargs)
+    return resolve_django_connection(resolved=resolved, info=info, args=kwargs, node_type_name="AnalyzerType", default_manager=Analyzer._default_manager, filterset_class=setup_filterset(AnalyzerFilter), filter_args={"id__contains": "id__contains", "id": "id", "description__contains": "description__contains", "disabled": "disabled", "analyzer_id": "analyzer_id", "hosted_by_gremlin_engine_id": "hosted_by_gremlin_engine_id", "used_in_analysis_ids": "used_in_analysis_ids"}, )
+
+
+def q_analysis(info: strawberry.Info, id: Annotated[strawberry.ID, strawberry.argument(name="id", description='The ID of the object')] = strawberry.UNSET) -> Optional[Annotated["AnalysisType", strawberry.lazy("config.graphql.extract_types")]]:
+    return get_node_from_global_id(info, id, only_type_name="AnalysisType")
+
+
+def _resolve_Query_analyses(root, info, **kwargs):
+    """PORT: config/ratelimit/decorators.py:470
+
+    Port of ExtractQueryMixin.resolve_analyses
+    """
+    raise NotImplementedError("_resolve_Query_analyses not yet ported — see manifest")
+
+
+def q_analyses(info: strawberry.Info, offset: Annotated[Optional[int], strawberry.argument(name="offset")] = strawberry.UNSET, before: Annotated[Optional[str], strawberry.argument(name="before")] = strawberry.UNSET, after: Annotated[Optional[str], strawberry.argument(name="after")] = strawberry.UNSET, first: Annotated[Optional[int], strawberry.argument(name="first")] = strawberry.UNSET, last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET, analyzed_corpus__isnull: Annotated[Optional[bool], strawberry.argument(name="analyzedCorpus_Isnull")] = strawberry.UNSET, analysis_started__gte: Annotated[Optional[datetime.datetime], strawberry.argument(name="analysisStarted_Gte")] = strawberry.UNSET, analysis_started__lte: Annotated[Optional[datetime.datetime], strawberry.argument(name="analysisStarted_Lte")] = strawberry.UNSET, analysis_completed__gte: Annotated[Optional[datetime.datetime], strawberry.argument(name="analysisCompleted_Gte")] = strawberry.UNSET, analysis_completed__lte: Annotated[Optional[datetime.datetime], strawberry.argument(name="analysisCompleted_Lte")] = strawberry.UNSET, status: Annotated[Optional[enums.AnalyzerAnalysisStatusChoices], strawberry.argument(name="status")] = strawberry.UNSET, analyzer__task_name__in: Annotated[Optional[list[Optional[str]]], strawberry.argument(name="analyzer_TaskName_In")] = strawberry.UNSET, received_callback_results: Annotated[Optional[bool], strawberry.argument(name="receivedCallbackResults")] = strawberry.UNSET, analyzed_corpus_id: Annotated[Optional[str], strawberry.argument(name="analyzedCorpusId")] = strawberry.UNSET, analyzed_document_id: Annotated[Optional[str], strawberry.argument(name="analyzedDocumentId")] = strawberry.UNSET, search_text: Annotated[Optional[str], strawberry.argument(name="searchText")] = strawberry.UNSET) -> Optional[Annotated["AnalysisTypeConnection", strawberry.lazy("config.graphql.extract_types")]]:
+    kwargs = strip_unset({"offset": offset, "before": before, "after": after, "first": first, "last": last, "analyzed_corpus__isnull": analyzed_corpus__isnull, "analysis_started__gte": analysis_started__gte, "analysis_started__lte": analysis_started__lte, "analysis_completed__gte": analysis_completed__gte, "analysis_completed__lte": analysis_completed__lte, "status": status, "analyzer__task_name__in": analyzer__task_name__in, "received_callback_results": received_callback_results, "analyzed_corpus_id": analyzed_corpus_id, "analyzed_document_id": analyzed_document_id, "search_text": search_text})
+    resolved = _resolve_Query_analyses(None, info, **kwargs)
+    return resolve_django_connection(resolved=resolved, info=info, args=kwargs, node_type_name="AnalysisType", default_manager=Analysis._default_manager, filterset_class=setup_filterset(AnalysisFilter), filter_args={"analyzed_corpus__isnull": "analyzed_corpus__isnull", "analysis_started__gte": "analysis_started__gte", "analysis_started__lte": "analysis_started__lte", "analysis_completed__gte": "analysis_completed__gte", "analysis_completed__lte": "analysis_completed__lte", "status": "status", "analyzer__task_name__in": "analyzer__task_name__in", "received_callback_results": "received_callback_results", "analyzed_corpus_id": "analyzed_corpus_id", "analyzed_document_id": "analyzed_document_id", "search_text": "search_text"}, )
+
+
+
+QUERY_FIELDS = {
+    "fieldset": strawberry.field(resolver=q_fieldset, name="fieldset"),
+    "fieldsets": strawberry.field(resolver=q_fieldsets, name="fieldsets"),
+    "column": strawberry.field(resolver=q_column, name="column"),
+    "columns": strawberry.field(resolver=q_columns, name="columns"),
+    "extract": strawberry.field(resolver=q_extract, name="extract"),
+    "extracts": strawberry.field(resolver=q_extracts, name="extracts"),
+    "compare_extracts": strawberry.field(resolver=q_compare_extracts, name="compareExtracts", description='Cell-level diff between two iterations of the same extract series.'),
+    "datacell": strawberry.field(resolver=q_datacell, name="datacell"),
+    "datacells": strawberry.field(resolver=q_datacells, name="datacells"),
+    "registered_extract_tasks": strawberry.field(resolver=q_registered_extract_tasks, name="registeredExtractTasks"),
+    "document_metadata_datacells": strawberry.field(resolver=q_document_metadata_datacells, name="documentMetadataDatacells", description='Get metadata datacells for a document in a corpus'),
+    "metadata_completion_status_v2": strawberry.field(resolver=q_metadata_completion_status_v2, name="metadataCompletionStatusV2", description='Get metadata completion status for a document using column/datacell system'),
+    "documents_metadata_datacells_batch": strawberry.field(resolver=q_documents_metadata_datacells_batch, name="documentsMetadataDatacellsBatch", description='Get metadata datacells for multiple documents in a single query (batch)'),
+    "gremlin_engine": strawberry.field(resolver=q_gremlin_engine, name="gremlinEngine"),
+    "gremlin_engines": strawberry.field(resolver=q_gremlin_engines, name="gremlinEngines"),
+    "analyzer": strawberry.field(resolver=q_analyzer, name="analyzer"),
+    "analyzers": strawberry.field(resolver=q_analyzers, name="analyzers"),
+    "analysis": strawberry.field(resolver=q_analysis, name="analysis"),
+    "analyses": strawberry.field(resolver=q_analyses, name="analyses"),
+}

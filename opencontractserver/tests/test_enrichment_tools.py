@@ -80,7 +80,7 @@ class EnrichmentGraphQLTests(TestCase):
         )
 
     def _run(self, user):
-        from graphene.test import Client
+        from config.graphql.testing import Client
         from graphql_relay import to_global_id
 
         from config.graphql.schema import schema
@@ -144,7 +144,7 @@ class CorpusReferenceDocumentFilterTests(TestCase):
         )
 
     def _run(self, document_pk):
-        from graphene.test import Client
+        from config.graphql.testing import Client
         from graphql_relay import to_global_id
 
         from config.graphql.schema import schema
@@ -223,7 +223,7 @@ class CorpusReferenceTraversalVisibilityTests(TestCase):
         self.ref = ref
 
     def _run(self, user):
-        from graphene.test import Client
+        from config.graphql.testing import Client
         from graphql_relay import to_global_id
 
         from config.graphql.schema import schema
@@ -261,7 +261,7 @@ class CorpusReferenceTraversalVisibilityTests(TestCase):
         # IDOR: a corpus reader filtering by an INVISIBLE document's id must
         # not learn whether it has references — that would probe the private
         # target. The owner, who can see the document, still gets the row.
-        from graphene.test import Client
+        from config.graphql.testing import Client
         from graphql_relay import to_global_id
 
         from config.graphql.schema import schema

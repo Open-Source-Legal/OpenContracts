@@ -11,7 +11,7 @@ from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.test import TestCase, override_settings
 from django.test.client import Client
-from graphene.test import Client as GrapheneClient
+from config.graphql.testing import Client as GrapheneClient
 from graphql_relay import to_global_id
 
 from config.graphql.schema import schema

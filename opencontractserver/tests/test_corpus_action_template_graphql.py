@@ -1,5 +1,5 @@
 from django.contrib.auth import get_user_model
-from graphene_django.utils.testing import GraphQLTestCase
+from config.graphql.testing import GraphQLTestCase
 from graphql_relay import to_global_id
 
 from opencontractserver.corpuses.models import (

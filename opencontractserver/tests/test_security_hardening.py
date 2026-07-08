@@ -13,7 +13,7 @@ Covers:
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
-from graphene.test import Client
+from config.graphql.testing import Client
 from graphql_relay import to_global_id
 from rest_framework.test import APIClient
 
@@ -2009,7 +2009,7 @@ class TestIOSettingsRequiredFieldsGuard(TestCase):
         ``graphene_model.__class__.__name__`` (the metaclass name like
         ``"SubclassWithMeta_Meta"``).
         """
-        from graphene.test import Client
+        from config.graphql.testing import Client
         from graphql_relay import from_global_id
 
         from config.graphql.schema import schema

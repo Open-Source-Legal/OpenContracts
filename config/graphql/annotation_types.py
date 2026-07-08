@@ -1,1217 +1,1254 @@
-"""GraphQL type definitions for annotation, relationship, label, and note types."""
+"""Generated strawberry GraphQL module (graphene migration).
 
-from typing import Any
+Shape-generated from the graphene schema; stub functions marked PORT(...)
+carry the ported business logic. See config/graphql_new/manifest.json.
+"""
+from __future__ import annotations
 
-import graphene
-from django.db.models import Q, QuerySet
-from graphene import relay
-from graphene.types.generic import GenericScalar
-from graphene_django import DjangoObjectType
-from graphene_django.filter import DjangoFilterConnectionField
+import datetime
+import decimal
+import uuid
+from typing import Annotated, Any, Optional
 
-from config.graphql.base import CountableConnection
-from config.graphql.base_types import build_flat_tree
-from config.graphql.filters import AnnotationFilter, LabelFilter
-from config.graphql.permissioning.permission_annotator.mixins import (
-    AnnotatePermissionsForReadMixin,
-    get_anonymous_user_id,
+import strawberry
+
+from config.graphql.core import permissions as core_permissions
+from config.graphql.core.filtering import filterset_factory, setup_filterset
+from config.graphql.core.mutations import drf_deletion, drf_mutation
+from config.graphql.core.relay import (
+    Node,
+    get_node_from_global_id,
+    make_connection_types,
+    register_type,
+    resolve_django_connection,
+    resolve_django_list,
 )
-from opencontractserver.annotations.models import (
-    Annotation,
-    AnnotationLabel,
-    AuthorityFrontier,
-    AuthorityKeyEquivalence,
-    AuthorityNamespace,
-    CorpusReference,
-    LabelSet,
-    Note,
-    NoteRevision,
-    Relationship,
-)
-from opencontractserver.enrichment.services.authority_mapping_service import (
-    MANUAL as MANUAL_SOURCE,
-)
-from opencontractserver.enrichment.services.authority_permissions import (
-    is_authority_admin,
-)
-from opencontractserver.shared.services.base import BaseService
-from opencontractserver.utils.permissioning import get_users_permissions_for_obj
+from config.graphql.core.scalars import BigInt, GenericScalar, JSONString
+from config.graphql._util import coerce_enum, coerce_str, strip_unset
+from config.graphql import enums
+
+from config.graphql.filters import AnnotationFilter
+from config.graphql.filters import AuthorityFrontierFilter
+from config.graphql.filters import AuthorityKeyEquivalenceFilter
+from config.graphql.filters import AuthorityNamespaceFilter
+from config.graphql.filters import LabelFilter
+from opencontractserver.annotations.models import Annotation
+from opencontractserver.annotations.models import AnnotationLabel
+from opencontractserver.annotations.models import AuthorityFrontier
+from opencontractserver.annotations.models import AuthorityKeyEquivalence
+from opencontractserver.annotations.models import AuthorityNamespace
+from opencontractserver.annotations.models import CorpusReference
+from opencontractserver.annotations.models import LabelSet
+from opencontractserver.annotations.models import Note
+from opencontractserver.annotations.models import NoteRevision
+from opencontractserver.annotations.models import Relationship
 
 
-def _get_document_type() -> Any:
-    """Lazy ``DocumentType`` accessor.
+@strawberry.input(name="RelationInputType")
+class RelationInputType:
+    my_permissions: Optional[GenericScalar] = strawberry.field(name="myPermissions", default=strawberry.UNSET)
+    is_published: Optional[bool] = strawberry.field(name="isPublished", default=strawberry.UNSET)
+    object_shared_with: Optional[GenericScalar] = strawberry.field(name="objectSharedWith", default=strawberry.UNSET)
+    id: Optional[str] = strawberry.field(name="id", default=strawberry.UNSET)
+    source_ids: Optional[list[Optional[str]]] = strawberry.field(name="sourceIds", default=strawberry.UNSET)
+    target_ids: Optional[list[Optional[str]]] = strawberry.field(name="targetIds", default=strawberry.UNSET)
+    relationship_label_id: Optional[str] = strawberry.field(name="relationshipLabelId", default=strawberry.UNSET)
+    corpus_id: Optional[str] = strawberry.field(name="corpusId", default=strawberry.UNSET)
+    document_id: Optional[str] = strawberry.field(name="documentId", default=strawberry.UNSET)
 
-    ``document_types`` imports ``annotation_types`` at module load, so a
-    top-level import here would be circular. Resolved at schema-build time.
+
+def _resolve_AnnotationType_annotation_type(root, info, **kwargs):
+    """PORT: config/graphql/annotation_types.py:732
+
+    Port of AnnotationType.resolve_annotation_type
     """
-    from config.graphql.document_types import DocumentType
-
-    return DocumentType
+    raise NotImplementedError("_resolve_AnnotationType_annotation_type not yet ported — see manifest")
 
 
-class RelationshipType(AnnotatePermissionsForReadMixin, DjangoObjectType):
-    class Meta:
-        model = Relationship
-        interfaces = [relay.Node]
-        connection_class = CountableConnection
+def _resolve_AnnotationType_document(root, info, **kwargs):
+    """PORT: config/graphql/annotation_types.py:656
 
-
-class CorpusReferenceType(DjangoObjectType):
-    """Read-only view of an enrichment cross-reference.
-
-    No ``AnnotatePermissionsForReadMixin``: ``CorpusReference`` has no guardian
-    permission tables — visibility derives from the parent corpus and is
-    enforced by ``CorpusReferenceService`` in the resolver.
+    Port of AnnotationType.resolve_document
     """
-
-    normalized_data = GenericScalar()  # noqa
-
-    class Meta:
-        model = CorpusReference
-        interfaces = [relay.Node]
-        connection_class = CountableConnection
+    raise NotImplementedError("_resolve_AnnotationType_document not yet ported — see manifest")
 
 
-class GovernanceGraphCorpusType(graphene.ObjectType):
-    """A corpus participating in the governance graph (filing or authority)."""
+def _resolve_AnnotationType_content_modalities(root, info, **kwargs):
+    """PORT: config/graphql/annotation_types.py:736
 
-    id = graphene.ID(required=True, description="Global CorpusType id.")
-    title = graphene.String()
-    kind = graphene.String(
-        required=True, description='"filing" or "authority" (cited body of law).'
-    )
-
-
-class GovernanceGraphNodeType(graphene.ObjectType):
-    """One governance-graph node: a document or an external-citation ghost."""
-
-    id = graphene.String(
-        required=True,
-        description=(
-            "Node id: the global DocumentType id for document nodes, or "
-            '"key:<canonical_key>" for external ghost nodes.'
-        ),
-    )
-    document_id = graphene.ID(
-        description="Global DocumentType id (null for external ghost nodes)."
-    )
-    title = graphene.String(
-        description="Document title, or the canonical key for ghost nodes."
-    )
-    kind = graphene.String(
-        required=True, description='"primary", "exhibit", "statute" or "external".'
-    )
-    corpus_id = graphene.ID(
-        description="Global CorpusType id of the node's corpus (null for ghosts)."
-    )
-    authority = graphene.String(
-        description='Body-of-law key prefix (e.g. "dgcl") for statute/ghost nodes.'
-    )
-    jurisdiction = graphene.String(
-        description='Jurisdiction code, e.g. "us-de", "us-federal" (null if unknown).'
-    )
-    authority_type = graphene.String(
-        description='Authority type: "statute", "regulation", etc. (null if unknown).'
-    )
-    discovery_state = graphene.String(
-        # Derived from the model so the schema doc can never drift from the live
-        # vocabulary (migration 0100 retired "discovered"/"resolved").
-        description=(
-            "Authority-frontier crawl status for ghost nodes: "
-            + ", ".join(f'"{c[0]}"' for c in AuthorityFrontier.DISCOVERY_STATE_CHOICES)
-            + " — or null when not tracked."
-        )
-    )
-    degree = graphene.Int(
-        required=True, description="Summed mention weight of edges touching the node."
-    )
-
-
-class GovernanceGraphEdgeType(graphene.ObjectType):
-    """One weighted reference edge between two governance-graph nodes."""
-
-    source = graphene.String(required=True, description="Source node id.")
-    target = graphene.String(required=True, description="Target node id.")
-    edge_type = graphene.String(
-        required=True, description='"LAW", "LAW_EXTERNAL" or "DOCUMENT".'
-    )
-    weight = graphene.Int(required=True, description="Mention count.")
-
-
-class GovernanceGraphType(graphene.ObjectType):
-    """The corpus-scoped reference web in node-link form.
-
-    Built by ``GovernanceGraphService`` from corpus-as-gate ``CorpusReference``
-    rows + permission-filtered ``DocumentRelationship`` rows, with every
-    surfaced document independently READ-checked (invisible targets degrade to
-    external ghost nodes). Counts describe the full visible graph; the
-    node/edge lists may be degree-capped (``truncated``).
+    Port of AnnotationType.resolve_content_modalities
     """
-
-    corpora = graphene.List(graphene.NonNull(GovernanceGraphCorpusType), required=True)
-    nodes = graphene.List(graphene.NonNull(GovernanceGraphNodeType), required=True)
-    edges = graphene.List(graphene.NonNull(GovernanceGraphEdgeType), required=True)
-    document_count = graphene.Int(
-        required=True, description="Distinct visible document nodes (pre-cap)."
-    )
-    external_key_count = graphene.Int(
-        required=True, description="Distinct external ghost nodes (pre-cap)."
-    )
-    edge_count = graphene.Int(
-        required=True, description="Distinct edges in the full graph (pre-cap)."
-    )
-    mention_count = graphene.Int(
-        required=True, description="Total reference mentions across all edges."
-    )
-    truncated = graphene.Boolean(
-        required=True,
-        description="True when nodes/edges were dropped to honor the node cap.",
-    )
+    raise NotImplementedError("_resolve_AnnotationType_content_modalities not yet ported — see manifest")
 
 
-class WantedAuthorityKeyType(graphene.ObjectType):
-    """One missing canonical key (rolled up to its section root)."""
+def _resolve_AnnotationType_feedback_count(root, info, **kwargs):
+    """PORT: config/graphql/annotation_types.py:742
 
-    canonical_key = graphene.String(
-        required=True, description='Section-root canonical key, e.g. "dgcl:145".'
-    )
-    mention_count = graphene.Int(
-        required=True, description="EXTERNAL mentions citing this key."
-    )
-    corpus_count = graphene.Int(
-        required=True, description="Distinct corpora citing this key."
-    )
-
-
-class WantedAuthorityType(graphene.ObjectType):
-    """One authority worth bootstrapping, ranked by citation demand.
-
-    Aggregated by ``CorpusReferenceService.wanted_authorities`` from EXTERNAL
-    law references visible to the requesting user — the actionable backlog
-    behind the governance graph's ghost nodes.
+    Port of AnnotationType.resolve_feedback_count
     """
-
-    authority = graphene.String(
-        required=True, description='Authority prefix, e.g. "dgcl".'
-    )
-    mention_count = graphene.Int(
-        required=True, description="Total EXTERNAL mentions for this authority."
-    )
-    key_count = graphene.Int(
-        required=True, description="Distinct section-root keys cited."
-    )
-    corpus_count = graphene.Int(
-        required=True, description="Distinct corpora with unresolved citations."
-    )
-    top_keys = graphene.List(
-        graphene.NonNull(WantedAuthorityKeyType),
-        required=True,
-        description="Most-cited missing keys (capped server-side).",
-    )
+    raise NotImplementedError("_resolve_AnnotationType_feedback_count not yet ported — see manifest")
 
 
-def _frontier_predicted_provider(row):
-    """Provider class-name that would handle ``row.canonical_key`` (or ``None``).
+def _resolve_AnnotationType_all_source_node_in_relationship(root, info, **kwargs):
+    """PORT: config/graphql/annotation_types.py:760
 
-    Memoized on the row instance so the ``ingestable`` and ``predicted_provider``
-    resolvers share a single registry+equivalence lookup per node. ``row`` is the
-    ``AuthorityFrontier`` MODEL instance graphene passes as the resolver root
-    (NOT an ``AuthorityFrontierNode``), so this MUST be a free function — a method
-    defined on the type is invisible on the model-instance root.
+    Port of AnnotationType.resolve_all_source_node_in_relationship
     """
-    if not hasattr(row, "_predicted_provider_cache"):
-        from opencontractserver.enrichment.services.authority_discovery_service import (  # noqa: E501
-            AuthorityDiscoveryService,
-        )
-
-        row._predicted_provider_cache = AuthorityDiscoveryService._provider_for(
-            row.canonical_key
-        )[0]
-    return row._predicted_provider_cache
+    raise NotImplementedError("_resolve_AnnotationType_all_source_node_in_relationship not yet ported — see manifest")
 
 
-class AuthorityFrontierNode(DjangoObjectType):
-    """One ``AuthorityFrontier`` row: the discovery/ingestion state of a wanted
-    section-root canonical key (e.g. ``usc-15:78j``), aggregated instance-wide
-    across all corpora.
+def _resolve_AnnotationType_all_target_node_in_relationship(root, info, **kwargs):
+    """PORT: config/graphql/annotation_types.py:765
 
-    ``AuthorityFrontier`` is a system-managed global queue with no per-object
-    permissions, so the connection is **superuser-only**: ``get_queryset``
-    returns nothing for everyone else and sets the backlog-first default order
-    (``-mention_count``, matching the model's index).
+    Port of AnnotationType.resolve_all_target_node_in_relationship
     """
-
-    candidate_sources = GenericScalar(  # noqa
-        description=(
-            "Per-corpus demand breakdown: "
-            "[{corpus_id, mention_count, top_detection_tier}]."
-        )
-    )
-    ingested_document = graphene.Field(
-        _get_document_type,
-        description="The Document imported for this key once ingested (else null).",
-    )
-    ingestable = graphene.Boolean(
-        description=(
-            "True if a source provider can_handle this key directly or via an "
-            "AuthorityKeyEquivalence bridge (i.e. discovery could ingest it). "
-            "False keys would record 'unsupported' if run."
-        )
-    )
-    predicted_provider = graphene.String(
-        description=(
-            "Registry class name of the provider that would handle this key, or "
-            "null when none can."
-        )
-    )
-
-    class Meta:
-        model = AuthorityFrontier
-        interfaces = [relay.Node]
-        connection_class = CountableConnection
-        # Scalar model fields only; ``candidate_sources`` and
-        # ``ingested_document`` are declared explicitly above.
-        fields = (
-            "id",
-            "canonical_key",
-            "authority",
-            "jurisdiction",
-            "authority_type",
-            "discovery_state",
-            "provider",
-            "mention_count",
-            "distinct_corpus_count",
-            "depth",
-            "last_error",
-            "last_attempt",
-            "created",
-            "modified",
-        )
-
-    @classmethod
-    def get_queryset(cls, queryset: QuerySet, info: Any) -> QuerySet:
-        user = getattr(info.context, "user", None)
-        if not is_authority_admin(user):
-            return queryset.none()
-        # Backlog-first by default (most-cited wanted authorities lead); the
-        # ``-mention_count, discovery_state`` index backs this ordering.
-        return queryset.select_related("ingested_document").order_by(
-            "-mention_count", "discovery_state"
-        )
-
-    def resolve_ingestable(self, info) -> bool:
-        return _frontier_predicted_provider(self) is not None
-
-    def resolve_predicted_provider(self, info):
-        return _frontier_predicted_provider(self)
+    raise NotImplementedError("_resolve_AnnotationType_all_target_node_in_relationship not yet ported — see manifest")
 
 
-class AuthorityFrontierStateCountType(graphene.ObjectType):
-    """One ``discovery_state`` and how many frontier rows are in it."""
+def _resolve_AnnotationType_descendants_tree(root, info, **kwargs):
+    """PORT: config/graphql/annotation_types.py:784
 
-    state = graphene.String(required=True, description="discovery_state value.")
-    count = graphene.Int(required=True)
-
-
-class AuthorityFrontierStatsType(graphene.ObjectType):
-    """Facet-aware summary counts for the authority-sources monitor's chips.
-
-    Counts honour the non-state facets (jurisdiction / authority_type /
-    provider / search) but NOT the state filter, so the chips always show the
-    full state breakdown for the current facet selection.
+    Port of AnnotationType.resolve_descendants_tree
     """
-
-    total_count = graphene.Int(
-        required=True, description="Total frontier rows matching the non-state facets."
-    )
-    by_state = graphene.List(
-        graphene.NonNull(AuthorityFrontierStateCountType),
-        required=True,
-        description="Row count per discovery_state (only non-empty states).",
-    )
+    raise NotImplementedError("_resolve_AnnotationType_descendants_tree not yet ported — see manifest")
 
 
-class AuthorityKeyEquivalenceNode(DjangoObjectType):
-    """One ``AuthorityKeyEquivalence`` row (canonical-key synonym) for the
-    runtime authority-mappings admin panel.
+def _resolve_AnnotationType_full_tree(root, info, **kwargs):
+    """PORT: config/graphql/annotation_types.py:809
 
-    Global system data with no per-object permissions, so the connection is
-    **superuser-only**: ``get_queryset`` returns nothing for everyone else and
-    sets the default order (most-recently-modified first). ``editable`` is True
-    only for ``source="manual"`` rows — loader/importer-owned rows
-    (``baseline`` / ``popular_name`` / ``uslm``) are read-only.
+    Port of AnnotationType.resolve_full_tree
     """
-
-    editable = graphene.Boolean(
-        description="True iff this is a manual row the curator may edit/delete."
-    )
-    created_by_username = graphene.String(
-        description="Username of the curator who created this manual row (else null)."
-    )
-
-    class Meta:
-        model = AuthorityKeyEquivalence
-        interfaces = [relay.Node]
-        connection_class = CountableConnection
-        fields = (
-            "id",
-            "from_key",
-            "to_key",
-            "source",
-            "confidence",
-            "note",
-            "created",
-            "modified",
-        )
-
-    @classmethod
-    def get_queryset(cls, queryset: QuerySet, info: Any) -> QuerySet:
-        user = getattr(info.context, "user", None)
-        if not is_authority_admin(user):
-            return queryset.none()
-        return queryset.select_related("created_by").order_by("-modified")
-
-    def resolve_editable(self, info) -> bool:
-        return self.source == MANUAL_SOURCE
-
-    def resolve_created_by_username(self, info):
-        return self.created_by.username if self.created_by_id else None
+    raise NotImplementedError("_resolve_AnnotationType_full_tree not yet ported — see manifest")
 
 
-class AuthorityMappingSourceCountType(graphene.ObjectType):
-    """One ``source`` value and how many equivalence rows carry it."""
+def _resolve_AnnotationType_subtree(root, info, **kwargs):
+    """PORT: config/graphql/annotation_types.py:839
 
-    source = graphene.String(required=True, description="source value.")
-    count = graphene.Int(required=True)
-
-
-class AuthorityMappingStatsType(graphene.ObjectType):
-    """Per-``source`` summary counts for the authority-mappings panel chips.
-
-    Honours the ``search`` facet but NOT a source filter, so the chips always
-    show the full source breakdown for the current search.
+    Port of AnnotationType.resolve_subtree
     """
-
-    total_count = graphene.Int(
-        required=True, description="Total equivalence rows matching the search."
-    )
-    by_source = graphene.List(
-        graphene.NonNull(AuthorityMappingSourceCountType),
-        required=True,
-        description="Row count per source (only non-empty sources).",
-    )
+    raise NotImplementedError("_resolve_AnnotationType_subtree not yet ported — see manifest")
 
 
-class AuthorityNamespaceNode(DjangoObjectType):
-    """One ``AuthorityNamespace`` row: a body of law (canonical-key prefix) whose
-    ``aliases`` drive Tier-1 citation extraction.
+@strawberry.type(name="AnnotationType")
+class AnnotationType(Node):
+    user_lock: Optional[Annotated["UserType", strawberry.lazy("config.graphql.user_types")]] = strawberry.field(name="userLock", default=None)
+    backend_lock: bool = strawberry.field(name="backendLock", default=None)
+    page: int = strawberry.field(name="page", default=None)
+    @strawberry.field(name="rawText")
+    def raw_text(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "raw_text", None))
+    @strawberry.field(name="longDescription", description='Optional markdown description for this annotation, e.g. a section summary in a document index.')
+    def long_description(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "long_description", None))
+    json: Optional[GenericScalar] = strawberry.field(name="json", default=None)
+    parent: Optional["AnnotationType"] = strawberry.field(name="parent", default=None)
+    @strawberry.field(name="annotationType", description='Annotation type (e.g. TOKEN_LABEL, SPAN_LABEL). Returns raw DB value to avoid enum serialization errors on invalid data.')
+    def annotation_type(self, info: strawberry.Info) -> Optional[str]:
+        kwargs = strip_unset({})
+        return _resolve_AnnotationType_annotation_type(self, info, **kwargs)
+    annotation_label: Optional["AnnotationLabelType"] = strawberry.field(name="annotationLabel", default=None)
+    @strawberry.field(name="document", description='The document this annotation belongs to. Structural annotations (document_id=NULL) resolve it via the shared structural set, scoped to the queried corpus by AnnotationService.structural_document_prefetch.')
+    def document(self, info: strawberry.Info) -> Optional[Annotated["DocumentType", strawberry.lazy("config.graphql.document_types")]]:
+        kwargs = strip_unset({})
+        return _resolve_AnnotationType_document(self, info, **kwargs)
+    corpus: Optional[Annotated["CorpusType", strawberry.lazy("config.graphql.corpus_types")]] = strawberry.field(name="corpus", default=None)
+    analysis: Optional[Annotated["AnalysisType", strawberry.lazy("config.graphql.extract_types")]] = strawberry.field(name="analysis", default=None)
+    created_by_analysis: Optional[Annotated["AnalysisType", strawberry.lazy("config.graphql.extract_types")]] = strawberry.field(name="createdByAnalysis", description='If set, this annotation is private to the analysis that created it', default=None)
+    created_by_extract: Optional[Annotated["ExtractType", strawberry.lazy("config.graphql.extract_types")]] = strawberry.field(name="createdByExtract", description='If set, this annotation is private to the extract that created it', default=None)
+    corpus_action: Optional[Annotated["CorpusActionType", strawberry.lazy("config.graphql.agent_types")]] = strawberry.field(name="corpusAction", description='If set, this annotation was created by a corpus action agent', default=None)
+    structural: bool = strawberry.field(name="structural", default=None)
+    @strawberry.field(name="linkUrl", description='Target URL opened when the annotation is clicked. Only meaningful for annotations labelled OC_URL.')
+    def link_url(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "link_url", None))
+    data: Optional[GenericScalar] = strawberry.field(name="data", default=None)
+    is_grounding_source: bool = strawberry.field(name="isGroundingSource", default=None)
+    @strawberry.field(name="contentModalities", description='Content modalities present in this annotation: TEXT, IMAGE, etc.')
+    def content_modalities(self, info: strawberry.Info) -> Optional[list[Optional[str]]]:
+        kwargs = strip_unset({})
+        return _resolve_AnnotationType_content_modalities(self, info, **kwargs)
+    @strawberry.field(name="imageContentFile", description='JSON file containing extracted image data for IMAGE modality annotations')
+    def image_content_file(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "image_content_file", None))
+    is_public: bool = strawberry.field(name="isPublic", default=None)
+    creator: Annotated["UserType", strawberry.lazy("config.graphql.user_types")] = strawberry.field(name="creator", default=None)
+    created: datetime.datetime = strawberry.field(name="created", default=None)
+    modified: datetime.datetime = strawberry.field(name="modified", default=None)
+    @strawberry.field(name="assignmentSet")
+    def assignment_set(self, info: strawberry.Info, offset: Annotated[Optional[int], strawberry.argument(name="offset")] = strawberry.UNSET, before: Annotated[Optional[str], strawberry.argument(name="before")] = strawberry.UNSET, after: Annotated[Optional[str], strawberry.argument(name="after")] = strawberry.UNSET, first: Annotated[Optional[int], strawberry.argument(name="first")] = strawberry.UNSET, last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET) -> Annotated["AssignmentTypeConnection", strawberry.lazy("config.graphql.user_types")]:
+        kwargs = strip_unset({"offset": offset, "before": before, "after": after, "first": first, "last": last})
+        resolved = getattr(self, "assignment_set", None)
+        return resolve_django_connection(resolved=resolved, info=info, args=kwargs, node_type_name="AssignmentType", )
+    @strawberry.field(name="rows")
+    def rows(self, info: strawberry.Info, offset: Annotated[Optional[int], strawberry.argument(name="offset")] = strawberry.UNSET, before: Annotated[Optional[str], strawberry.argument(name="before")] = strawberry.UNSET, after: Annotated[Optional[str], strawberry.argument(name="after")] = strawberry.UNSET, first: Annotated[Optional[int], strawberry.argument(name="first")] = strawberry.UNSET, last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET) -> Annotated["DocumentAnalysisRowTypeConnection", strawberry.lazy("config.graphql.document_types")]:
+        kwargs = strip_unset({"offset": offset, "before": before, "after": after, "first": first, "last": last})
+        resolved = getattr(self, "rows", None)
+        return resolve_django_connection(resolved=resolved, info=info, args=kwargs, node_type_name="DocumentAnalysisRowType", )
+    @strawberry.field(name="sourceNodeInRelationships")
+    def source_node_in_relationships(self, info: strawberry.Info, offset: Annotated[Optional[int], strawberry.argument(name="offset")] = strawberry.UNSET, before: Annotated[Optional[str], strawberry.argument(name="before")] = strawberry.UNSET, after: Annotated[Optional[str], strawberry.argument(name="after")] = strawberry.UNSET, first: Annotated[Optional[int], strawberry.argument(name="first")] = strawberry.UNSET, last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET) -> "RelationshipTypeConnection":
+        kwargs = strip_unset({"offset": offset, "before": before, "after": after, "first": first, "last": last})
+        resolved = getattr(self, "source_node_in_relationships", None)
+        return resolve_django_connection(resolved=resolved, info=info, args=kwargs, node_type_name="RelationshipType", )
+    @strawberry.field(name="targetNodeInRelationships")
+    def target_node_in_relationships(self, info: strawberry.Info, offset: Annotated[Optional[int], strawberry.argument(name="offset")] = strawberry.UNSET, before: Annotated[Optional[str], strawberry.argument(name="before")] = strawberry.UNSET, after: Annotated[Optional[str], strawberry.argument(name="after")] = strawberry.UNSET, first: Annotated[Optional[int], strawberry.argument(name="first")] = strawberry.UNSET, last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET) -> "RelationshipTypeConnection":
+        kwargs = strip_unset({"offset": offset, "before": before, "after": after, "first": first, "last": last})
+        resolved = getattr(self, "target_node_in_relationships", None)
+        return resolve_django_connection(resolved=resolved, info=info, args=kwargs, node_type_name="RelationshipType", )
+    @strawberry.field(name="children")
+    def children(self, info: strawberry.Info, offset: Annotated[Optional[int], strawberry.argument(name="offset")] = strawberry.UNSET, before: Annotated[Optional[str], strawberry.argument(name="before")] = strawberry.UNSET, after: Annotated[Optional[str], strawberry.argument(name="after")] = strawberry.UNSET, first: Annotated[Optional[int], strawberry.argument(name="first")] = strawberry.UNSET, last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET, raw_text__contains: Annotated[Optional[str], strawberry.argument(name="rawText_Contains")] = strawberry.UNSET, annotation_label_id: Annotated[Optional[strawberry.ID], strawberry.argument(name="annotationLabelId")] = strawberry.UNSET, annotation_label__text: Annotated[Optional[str], strawberry.argument(name="annotationLabel_Text")] = strawberry.UNSET, annotation_label__text__contains: Annotated[Optional[str], strawberry.argument(name="annotationLabel_Text_Contains")] = strawberry.UNSET, annotation_label__description__contains: Annotated[Optional[str], strawberry.argument(name="annotationLabel_Description_Contains")] = strawberry.UNSET, annotation_label__label_type: Annotated[Optional[enums.AnnotationsAnnotationLabelLabelTypeChoices], strawberry.argument(name="annotationLabel_LabelType")] = strawberry.UNSET, analysis__isnull: Annotated[Optional[bool], strawberry.argument(name="analysis_Isnull")] = strawberry.UNSET, document_id: Annotated[Optional[strawberry.ID], strawberry.argument(name="documentId")] = strawberry.UNSET, corpus_id: Annotated[Optional[strawberry.ID], strawberry.argument(name="corpusId")] = strawberry.UNSET, structural: Annotated[Optional[bool], strawberry.argument(name="structural")] = strawberry.UNSET, uses_label_from_labelset_id: Annotated[Optional[str], strawberry.argument(name="usesLabelFromLabelsetId")] = strawberry.UNSET, created_by_analysis_ids: Annotated[Optional[str], strawberry.argument(name="createdByAnalysisIds")] = strawberry.UNSET, created_with_analyzer_id: Annotated[Optional[str], strawberry.argument(name="createdWithAnalyzerId")] = strawberry.UNSET, order_by: Annotated[Optional[str], strawberry.argument(name="orderBy", description='Ordering')] = strawberry.UNSET) -> "AnnotationTypeConnection":
+        kwargs = strip_unset({"offset": offset, "before": before, "after": after, "first": first, "last": last, "raw_text__contains": raw_text__contains, "annotation_label_id": annotation_label_id, "annotation_label__text": annotation_label__text, "annotation_label__text__contains": annotation_label__text__contains, "annotation_label__description__contains": annotation_label__description__contains, "annotation_label__label_type": annotation_label__label_type, "analysis__isnull": analysis__isnull, "document_id": document_id, "corpus_id": corpus_id, "structural": structural, "uses_label_from_labelset_id": uses_label_from_labelset_id, "created_by_analysis_ids": created_by_analysis_ids, "created_with_analyzer_id": created_with_analyzer_id, "order_by": order_by})
+        resolved = getattr(self, "children", None)
+        return resolve_django_connection(resolved=resolved, info=info, args=kwargs, node_type_name="AnnotationType", filterset_class=setup_filterset(AnnotationFilter), filter_args={"raw_text__contains": "raw_text__contains", "annotation_label_id": "annotation_label_id", "annotation_label__text": "annotation_label__text", "annotation_label__text__contains": "annotation_label__text__contains", "annotation_label__description__contains": "annotation_label__description__contains", "annotation_label__label_type": "annotation_label__label_type", "analysis__isnull": "analysis__isnull", "document_id": "document_id", "corpus_id": "corpus_id", "structural": "structural", "uses_label_from_labelset_id": "uses_label_from_labelset_id", "created_by_analysis_ids": "created_by_analysis_ids", "created_with_analyzer_id": "created_with_analyzer_id", "order_by": "order_by"}, )
+    @strawberry.field(name="notes")
+    def notes(self, info: strawberry.Info, offset: Annotated[Optional[int], strawberry.argument(name="offset")] = strawberry.UNSET, before: Annotated[Optional[str], strawberry.argument(name="before")] = strawberry.UNSET, after: Annotated[Optional[str], strawberry.argument(name="after")] = strawberry.UNSET, first: Annotated[Optional[int], strawberry.argument(name="first")] = strawberry.UNSET, last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET) -> "NoteTypeConnection":
+        kwargs = strip_unset({"offset": offset, "before": before, "after": after, "first": first, "last": last})
+        resolved = getattr(self, "notes", None)
+        return resolve_django_connection(resolved=resolved, info=info, args=kwargs, node_type_name="NoteType", )
+    @strawberry.field(name="outboundReferences")
+    def outbound_references(self, info: strawberry.Info, offset: Annotated[Optional[int], strawberry.argument(name="offset")] = strawberry.UNSET, before: Annotated[Optional[str], strawberry.argument(name="before")] = strawberry.UNSET, after: Annotated[Optional[str], strawberry.argument(name="after")] = strawberry.UNSET, first: Annotated[Optional[int], strawberry.argument(name="first")] = strawberry.UNSET, last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET) -> "CorpusReferenceTypeConnection":
+        kwargs = strip_unset({"offset": offset, "before": before, "after": after, "first": first, "last": last})
+        resolved = getattr(self, "outbound_references", None)
+        return resolve_django_connection(resolved=resolved, info=info, args=kwargs, node_type_name="CorpusReferenceType", )
+    @strawberry.field(name="inboundReferences")
+    def inbound_references(self, info: strawberry.Info, offset: Annotated[Optional[int], strawberry.argument(name="offset")] = strawberry.UNSET, before: Annotated[Optional[str], strawberry.argument(name="before")] = strawberry.UNSET, after: Annotated[Optional[str], strawberry.argument(name="after")] = strawberry.UNSET, first: Annotated[Optional[int], strawberry.argument(name="first")] = strawberry.UNSET, last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET) -> "CorpusReferenceTypeConnection":
+        kwargs = strip_unset({"offset": offset, "before": before, "after": after, "first": first, "last": last})
+        resolved = getattr(self, "inbound_references", None)
+        return resolve_django_connection(resolved=resolved, info=info, args=kwargs, node_type_name="CorpusReferenceType", )
+    @strawberry.field(name="referencingCells")
+    def referencing_cells(self, info: strawberry.Info, offset: Annotated[Optional[int], strawberry.argument(name="offset")] = strawberry.UNSET, before: Annotated[Optional[str], strawberry.argument(name="before")] = strawberry.UNSET, after: Annotated[Optional[str], strawberry.argument(name="after")] = strawberry.UNSET, first: Annotated[Optional[int], strawberry.argument(name="first")] = strawberry.UNSET, last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET) -> Annotated["DatacellTypeConnection", strawberry.lazy("config.graphql.extract_types")]:
+        kwargs = strip_unset({"offset": offset, "before": before, "after": after, "first": first, "last": last})
+        resolved = getattr(self, "referencing_cells", None)
+        return resolve_django_connection(resolved=resolved, info=info, args=kwargs, node_type_name="DatacellType", )
+    @strawberry.field(name="userFeedback")
+    def user_feedback(self, info: strawberry.Info, offset: Annotated[Optional[int], strawberry.argument(name="offset")] = strawberry.UNSET, before: Annotated[Optional[str], strawberry.argument(name="before")] = strawberry.UNSET, after: Annotated[Optional[str], strawberry.argument(name="after")] = strawberry.UNSET, first: Annotated[Optional[int], strawberry.argument(name="first")] = strawberry.UNSET, last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET) -> Annotated["UserFeedbackTypeConnection", strawberry.lazy("config.graphql.user_types")]:
+        kwargs = strip_unset({"offset": offset, "before": before, "after": after, "first": first, "last": last})
+        resolved = getattr(self, "user_feedback", None)
+        return resolve_django_connection(resolved=resolved, info=info, args=kwargs, node_type_name="UserFeedbackType", )
+    @strawberry.field(name="chatMessages", description='Annotations that this chat message is based on')
+    def chat_messages(self, info: strawberry.Info, offset: Annotated[Optional[int], strawberry.argument(name="offset")] = strawberry.UNSET, before: Annotated[Optional[str], strawberry.argument(name="before")] = strawberry.UNSET, after: Annotated[Optional[str], strawberry.argument(name="after")] = strawberry.UNSET, first: Annotated[Optional[int], strawberry.argument(name="first")] = strawberry.UNSET, last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET) -> Annotated["MessageTypeConnection", strawberry.lazy("config.graphql.conversation_types")]:
+        kwargs = strip_unset({"offset": offset, "before": before, "after": after, "first": first, "last": last})
+        resolved = getattr(self, "chat_messages", None)
+        return resolve_django_connection(resolved=resolved, info=info, args=kwargs, node_type_name="MessageType", )
+    @strawberry.field(name="createdByChatMessage", description='Annotations that this chat message created')
+    def created_by_chat_message(self, info: strawberry.Info, offset: Annotated[Optional[int], strawberry.argument(name="offset")] = strawberry.UNSET, before: Annotated[Optional[str], strawberry.argument(name="before")] = strawberry.UNSET, after: Annotated[Optional[str], strawberry.argument(name="after")] = strawberry.UNSET, first: Annotated[Optional[int], strawberry.argument(name="first")] = strawberry.UNSET, last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET) -> Annotated["MessageTypeConnection", strawberry.lazy("config.graphql.conversation_types")]:
+        kwargs = strip_unset({"offset": offset, "before": before, "after": after, "first": first, "last": last})
+        resolved = getattr(self, "created_by_chat_message", None)
+        return resolve_django_connection(resolved=resolved, info=info, args=kwargs, node_type_name="MessageType", )
+    @strawberry.field(name="citedInResearchReports", description='Annotations cited in the final report')
+    def cited_in_research_reports(self, info: strawberry.Info, offset: Annotated[Optional[int], strawberry.argument(name="offset")] = strawberry.UNSET, before: Annotated[Optional[str], strawberry.argument(name="before")] = strawberry.UNSET, after: Annotated[Optional[str], strawberry.argument(name="after")] = strawberry.UNSET, first: Annotated[Optional[int], strawberry.argument(name="first")] = strawberry.UNSET, last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET) -> Annotated["ResearchReportTypeConnection", strawberry.lazy("config.graphql.research_types")]:
+        kwargs = strip_unset({"offset": offset, "before": before, "after": after, "first": first, "last": last})
+        resolved = getattr(self, "cited_in_research_reports", None)
+        return resolve_django_connection(resolved=resolved, info=info, args=kwargs, node_type_name="ResearchReportType", )
+    @strawberry.field(name="myPermissions")
+    def my_permissions(self, info: strawberry.Info) -> Optional[GenericScalar]:
+        return core_permissions.resolve_my_permissions(self, info)
+    @strawberry.field(name="isPublished")
+    def is_published(self, info: strawberry.Info) -> Optional[bool]:
+        return core_permissions.resolve_is_published(self, info)
+    @strawberry.field(name="objectSharedWith")
+    def object_shared_with(self, info: strawberry.Info) -> Optional[GenericScalar]:
+        return core_permissions.resolve_object_shared_with(self, info)
+    @strawberry.field(name="feedbackCount", description='Count of user feedback')
+    def feedback_count(self, info: strawberry.Info) -> Optional[int]:
+        kwargs = strip_unset({})
+        return _resolve_AnnotationType_feedback_count(self, info, **kwargs)
+    @strawberry.field(name="allSourceNodeInRelationship")
+    def all_source_node_in_relationship(self, info: strawberry.Info) -> Optional[list[Optional["RelationshipType"]]]:
+        kwargs = strip_unset({})
+        return _resolve_AnnotationType_all_source_node_in_relationship(self, info, **kwargs)
+    @strawberry.field(name="allTargetNodeInRelationship")
+    def all_target_node_in_relationship(self, info: strawberry.Info) -> Optional[list[Optional["RelationshipType"]]]:
+        kwargs = strip_unset({})
+        return _resolve_AnnotationType_all_target_node_in_relationship(self, info, **kwargs)
+    @strawberry.field(name="descendantsTree", description="List of descendant annotations, each with immediate children's IDs.")
+    def descendants_tree(self, info: strawberry.Info) -> Optional[list[Optional[GenericScalar]]]:
+        kwargs = strip_unset({})
+        return _resolve_AnnotationType_descendants_tree(self, info, **kwargs)
+    @strawberry.field(name="fullTree", description="List of annotations from the root ancestor, each with immediate children's IDs.")
+    def full_tree(self, info: strawberry.Info) -> Optional[list[Optional[GenericScalar]]]:
+        kwargs = strip_unset({})
+        return _resolve_AnnotationType_full_tree(self, info, **kwargs)
+    @strawberry.field(name="subtree", description='List representing the path from the root ancestor to this annotation and its descendants.')
+    def subtree(self, info: strawberry.Info) -> Optional[list[Optional[GenericScalar]]]:
+        kwargs = strip_unset({})
+        return _resolve_AnnotationType_subtree(self, info, **kwargs)
 
-    Global reference data with no per-object permissions, so the connection is
-    **superuser-only**: ``get_queryset`` returns nothing for everyone else and
-    orders by ``prefix``. The ``*_count`` and ``effective_provider`` fields are
-    string-joined to the other authority models on demand (graphene resolves
-    them only when selected, so the master list pays only for what it shows).
+
+def _get_queryset_AnnotationType(queryset, info):
+    """PORT: config.graphql.annotation_types.AnnotationType.get_queryset
+
+    Port of AnnotationType.get_queryset
     """
-
-    aliases = graphene.List(
-        graphene.String, description="Lowercased surface forms feeding extraction."
-    )
-    # Choice-bearing model fields exposed as raw String (not the auto-generated
-    # uppercase GraphQL enum) so the values match the String filter + the stats
-    # chips — the same enum-name/value-mismatch guard the filters.py facets use.
-    source = graphene.String(description="'baseline' or 'manual' (ownership).")
-    authority_type = graphene.String(description="Raw authority_type value.")
-    scope = graphene.String(description="'global' or 'corpus' (derived).")
-    equivalence_count = graphene.Int(
-        description="Key-equivalences whose from/to key is under this prefix."
-    )
-    frontier_count = graphene.Int(
-        description="Discovery-queue rows for this authority."
-    )
-    reference_count = graphene.Int(
-        description="CorpusReferences whose canonical_key is under this prefix."
-    )
-    effective_provider = graphene.String(
-        description=(
-            "Registry class-name that would actually handle this prefix "
-            "(by can_handle/priority) — contrast with the advisory 'provider' "
-            "column. Null when no provider can handle it."
-        )
-    )
-    created_by_username = graphene.String(
-        description="Curator who created/edited this manual row (else null)."
-    )
-
-    class Meta:
-        model = AuthorityNamespace
-        interfaces = [relay.Node]
-        connection_class = CountableConnection
-        # ``source`` / ``authority_type`` are declared explicitly above (raw
-        # String, not auto-enum) so they are intentionally absent here.
-        fields = (
-            "id",
-            "prefix",
-            "display_name",
-            "jurisdiction",
-            "provider",
-            "source_root_url",
-            "license",
-            "is_global",
-            # Which baseline writer owns the row ("core" or a pack name; null on
-            # manual/corpus-linked and pre-#2057 rows) — lets the console show
-            # who owns a prefix when a load reports a skipped foreign-baseline
-            # collision. Plain CharField (no choices) → auto-resolves as String.
-            "baseline_origin",
-            "authority_corpus",
-            "created",
-            "modified",
-        )
-
-    @classmethod
-    def get_queryset(cls, queryset: QuerySet, info: Any) -> QuerySet:
-        user = getattr(info.context, "user", None)
-        if not is_authority_admin(user):
-            return queryset.none()
-        return queryset.select_related("authority_corpus", "created_by").order_by(
-            "prefix"
-        )
-
-    def resolve_aliases(self, info):
-        return self.aliases or []
-
-    def resolve_scope(self, info):
-        return "global" if self.is_global else "corpus"
-
-    def resolve_equivalence_count(self, info) -> int:
-        kp = f"{self.prefix}:"
-        return AuthorityKeyEquivalence.objects.filter(
-            Q(from_key__startswith=kp) | Q(to_key__startswith=kp)
-        ).count()
-
-    def resolve_frontier_count(self, info) -> int:
-        return AuthorityFrontier.objects.filter(authority=self.prefix).count()
-
-    def resolve_reference_count(self, info) -> int:
-        return CorpusReference.objects.filter(
-            canonical_key__startswith=f"{self.prefix}:"
-        ).count()
-
-    def resolve_effective_provider(self, info):
-        from opencontractserver.enrichment.services import AuthorityNamespaceService
-
-        return AuthorityNamespaceService._effective_provider(self.prefix)
-
-    def resolve_created_by_username(self, info):
-        return self.created_by.username if self.created_by_id else None
+    raise NotImplementedError("_get_queryset_AnnotationType not yet ported — see manifest")
 
 
-class AuthorityNamespaceFacetCountType(graphene.ObjectType):
-    """One facet value (jurisdiction / authority_type / scope) and its row count."""
-
-    value = graphene.String(description="The facet value (null collapses to '').")
-    count = graphene.Int(required=True)
+register_type("AnnotationType", AnnotationType, model=Annotation, get_queryset=_get_queryset_AnnotationType)
 
 
-class AuthorityNamespaceStatsType(graphene.ObjectType):
-    """Faceted summary counts for the registry panel's chips.
+AnnotationTypeConnection = make_connection_types(AnnotationType, type_name="AnnotationTypeConnection", countable=True, pdf_page_aware=False)
 
-    Honours ``search`` but not the facet selects, so chips show the full
-    breakdown for the current search (mirrors ``AuthorityMappingStatsType``).
+
+def _resolve_AnnotationLabelType_my_permissions(root, info, **kwargs):
+    """PORT: config/graphql/annotation_types.py:930
+
+    Port of AnnotationLabelType.resolve_my_permissions
     """
-
-    total_count = graphene.Int(required=True)
-    by_jurisdiction = graphene.List(
-        graphene.NonNull(AuthorityNamespaceFacetCountType), required=True
-    )
-    by_authority_type = graphene.List(
-        graphene.NonNull(AuthorityNamespaceFacetCountType), required=True
-    )
-    by_scope = graphene.List(
-        graphene.NonNull(AuthorityNamespaceFacetCountType), required=True
-    )
+    raise NotImplementedError("_resolve_AnnotationLabelType_my_permissions not yet ported — see manifest")
 
 
-class AuthorityReferenceStatusCountType(graphene.ObjectType):
-    """One ``resolution_status`` and how many references under a prefix carry it."""
+@strawberry.type(name="AnnotationLabelType")
+class AnnotationLabelType(Node):
+    user_lock: Optional[Annotated["UserType", strawberry.lazy("config.graphql.user_types")]] = strawberry.field(name="userLock", default=None)
+    backend_lock: bool = strawberry.field(name="backendLock", default=None)
+    created: datetime.datetime = strawberry.field(name="created", default=None)
+    modified: datetime.datetime = strawberry.field(name="modified", default=None)
+    @strawberry.field(name="labelType")
+    def label_type(self, info: strawberry.Info) -> enums.AnnotationsAnnotationLabelLabelTypeChoices:
+        return coerce_enum(enums.AnnotationsAnnotationLabelLabelTypeChoices, getattr(self, "label_type", None))
+    analyzer: Optional[Annotated["AnalyzerType", strawberry.lazy("config.graphql.extract_types")]] = strawberry.field(name="analyzer", default=None)
+    read_only: bool = strawberry.field(name="readOnly", default=None)
+    @strawberry.field(name="color")
+    def color(self, info: strawberry.Info) -> str:
+        return coerce_str(getattr(self, "color", None))
+    @strawberry.field(name="description")
+    def description(self, info: strawberry.Info) -> str:
+        return coerce_str(getattr(self, "description", None))
+    @strawberry.field(name="icon")
+    def icon(self, info: strawberry.Info) -> str:
+        return coerce_str(getattr(self, "icon", None))
+    @strawberry.field(name="text")
+    def text(self, info: strawberry.Info) -> str:
+        return coerce_str(getattr(self, "text", None))
+    is_public: bool = strawberry.field(name="isPublic", default=None)
+    creator: Annotated["UserType", strawberry.lazy("config.graphql.user_types")] = strawberry.field(name="creator", default=None)
+    @strawberry.field(name="documentRelationships")
+    def document_relationships(self, info: strawberry.Info, offset: Annotated[Optional[int], strawberry.argument(name="offset")] = strawberry.UNSET, before: Annotated[Optional[str], strawberry.argument(name="before")] = strawberry.UNSET, after: Annotated[Optional[str], strawberry.argument(name="after")] = strawberry.UNSET, first: Annotated[Optional[int], strawberry.argument(name="first")] = strawberry.UNSET, last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET) -> Annotated["DocumentRelationshipTypeConnection", strawberry.lazy("config.graphql.document_types")]:
+        kwargs = strip_unset({"offset": offset, "before": before, "after": after, "first": first, "last": last})
+        resolved = getattr(self, "document_relationships", None)
+        return resolve_django_connection(resolved=resolved, info=info, args=kwargs, node_type_name="DocumentRelationshipType", )
+    @strawberry.field(name="relationships")
+    def relationships(self, info: strawberry.Info, offset: Annotated[Optional[int], strawberry.argument(name="offset")] = strawberry.UNSET, before: Annotated[Optional[str], strawberry.argument(name="before")] = strawberry.UNSET, after: Annotated[Optional[str], strawberry.argument(name="after")] = strawberry.UNSET, first: Annotated[Optional[int], strawberry.argument(name="first")] = strawberry.UNSET, last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET) -> "RelationshipTypeConnection":
+        kwargs = strip_unset({"offset": offset, "before": before, "after": after, "first": first, "last": last})
+        resolved = getattr(self, "relationships", None)
+        return resolve_django_connection(resolved=resolved, info=info, args=kwargs, node_type_name="RelationshipType", )
+    @strawberry.field(name="annotationSet")
+    def annotation_set(self, info: strawberry.Info, offset: Annotated[Optional[int], strawberry.argument(name="offset")] = strawberry.UNSET, before: Annotated[Optional[str], strawberry.argument(name="before")] = strawberry.UNSET, after: Annotated[Optional[str], strawberry.argument(name="after")] = strawberry.UNSET, first: Annotated[Optional[int], strawberry.argument(name="first")] = strawberry.UNSET, last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET, raw_text__contains: Annotated[Optional[str], strawberry.argument(name="rawText_Contains")] = strawberry.UNSET, annotation_label_id: Annotated[Optional[strawberry.ID], strawberry.argument(name="annotationLabelId")] = strawberry.UNSET, annotation_label__text: Annotated[Optional[str], strawberry.argument(name="annotationLabel_Text")] = strawberry.UNSET, annotation_label__text__contains: Annotated[Optional[str], strawberry.argument(name="annotationLabel_Text_Contains")] = strawberry.UNSET, annotation_label__description__contains: Annotated[Optional[str], strawberry.argument(name="annotationLabel_Description_Contains")] = strawberry.UNSET, annotation_label__label_type: Annotated[Optional[enums.AnnotationsAnnotationLabelLabelTypeChoices], strawberry.argument(name="annotationLabel_LabelType")] = strawberry.UNSET, analysis__isnull: Annotated[Optional[bool], strawberry.argument(name="analysis_Isnull")] = strawberry.UNSET, document_id: Annotated[Optional[strawberry.ID], strawberry.argument(name="documentId")] = strawberry.UNSET, corpus_id: Annotated[Optional[strawberry.ID], strawberry.argument(name="corpusId")] = strawberry.UNSET, structural: Annotated[Optional[bool], strawberry.argument(name="structural")] = strawberry.UNSET, uses_label_from_labelset_id: Annotated[Optional[str], strawberry.argument(name="usesLabelFromLabelsetId")] = strawberry.UNSET, created_by_analysis_ids: Annotated[Optional[str], strawberry.argument(name="createdByAnalysisIds")] = strawberry.UNSET, created_with_analyzer_id: Annotated[Optional[str], strawberry.argument(name="createdWithAnalyzerId")] = strawberry.UNSET, order_by: Annotated[Optional[str], strawberry.argument(name="orderBy", description='Ordering')] = strawberry.UNSET) -> "AnnotationTypeConnection":
+        kwargs = strip_unset({"offset": offset, "before": before, "after": after, "first": first, "last": last, "raw_text__contains": raw_text__contains, "annotation_label_id": annotation_label_id, "annotation_label__text": annotation_label__text, "annotation_label__text__contains": annotation_label__text__contains, "annotation_label__description__contains": annotation_label__description__contains, "annotation_label__label_type": annotation_label__label_type, "analysis__isnull": analysis__isnull, "document_id": document_id, "corpus_id": corpus_id, "structural": structural, "uses_label_from_labelset_id": uses_label_from_labelset_id, "created_by_analysis_ids": created_by_analysis_ids, "created_with_analyzer_id": created_with_analyzer_id, "order_by": order_by})
+        resolved = getattr(self, "annotation_set", None)
+        return resolve_django_connection(resolved=resolved, info=info, args=kwargs, node_type_name="AnnotationType", filterset_class=setup_filterset(AnnotationFilter), filter_args={"raw_text__contains": "raw_text__contains", "annotation_label_id": "annotation_label_id", "annotation_label__text": "annotation_label__text", "annotation_label__text__contains": "annotation_label__text__contains", "annotation_label__description__contains": "annotation_label__description__contains", "annotation_label__label_type": "annotation_label__label_type", "analysis__isnull": "analysis__isnull", "document_id": "document_id", "corpus_id": "corpus_id", "structural": "structural", "uses_label_from_labelset_id": "uses_label_from_labelset_id", "created_by_analysis_ids": "created_by_analysis_ids", "created_with_analyzer_id": "created_with_analyzer_id", "order_by": "order_by"}, )
+    @strawberry.field(name="includedInLabelsets")
+    def included_in_labelsets(self, info: strawberry.Info, offset: Annotated[Optional[int], strawberry.argument(name="offset")] = strawberry.UNSET, before: Annotated[Optional[str], strawberry.argument(name="before")] = strawberry.UNSET, after: Annotated[Optional[str], strawberry.argument(name="after")] = strawberry.UNSET, first: Annotated[Optional[int], strawberry.argument(name="first")] = strawberry.UNSET, last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET) -> "LabelSetTypeConnection":
+        kwargs = strip_unset({"offset": offset, "before": before, "after": after, "first": first, "last": last})
+        resolved = getattr(self, "included_in_labelsets", None)
+        return resolve_django_connection(resolved=resolved, info=info, args=kwargs, node_type_name="LabelSetType", )
+    @strawberry.field(name="myPermissions")
+    def my_permissions(self, info: strawberry.Info) -> Optional[GenericScalar]:
+        kwargs = strip_unset({})
+        return _resolve_AnnotationLabelType_my_permissions(self, info, **kwargs)
+    @strawberry.field(name="isPublished")
+    def is_published(self, info: strawberry.Info) -> Optional[bool]:
+        return core_permissions.resolve_is_published(self, info)
+    @strawberry.field(name="objectSharedWith")
+    def object_shared_with(self, info: strawberry.Info) -> Optional[GenericScalar]:
+        return core_permissions.resolve_object_shared_with(self, info)
 
-    status = graphene.String(required=True)
-    count = graphene.Int(required=True)
+
+register_type("AnnotationLabelType", AnnotationLabelType, model=AnnotationLabel)
 
 
-class AuthorityDetailType(graphene.ObjectType):
-    """Everything about one body of law, string-joined across the authority models.
+AnnotationLabelTypeConnection = make_connection_types(AnnotationLabelType, type_name="AnnotationLabelTypeConnection", countable=True, pdf_page_aware=False)
 
-    The console's single-authority view. Superuser-gated at the service layer
-    (``AuthorityNamespaceService.detail``); the nested node types are returned as
-    pre-fetched instances, so their own connection gates are not re-applied (the
-    service already enforced access).
+
+def _resolve_LabelSetType_icon(root, info, **kwargs):
+    """PORT: config/graphql/annotation_types.py:1024
+
+    Port of LabelSetType.resolve_icon
     """
-
-    namespace = graphene.Field(AuthorityNamespaceNode, required=True)
-    equivalences_out = graphene.List(
-        graphene.NonNull(AuthorityKeyEquivalenceNode),
-        required=True,
-        description="Equivalences FROM a key under this prefix.",
-    )
-    equivalences_in = graphene.List(
-        graphene.NonNull(AuthorityKeyEquivalenceNode),
-        required=True,
-        description="Equivalences TO a key under this prefix.",
-    )
-    frontier_rows = graphene.List(
-        graphene.NonNull(AuthorityFrontierNode), required=True
-    )
-    frontier_state_counts = graphene.List(
-        graphene.NonNull(AuthorityFrontierStateCountType), required=True
-    )
-    reference_total = graphene.Int(required=True)
-    reference_status_counts = graphene.List(
-        graphene.NonNull(AuthorityReferenceStatusCountType), required=True
-    )
-    reference_sample = graphene.List(
-        graphene.NonNull(CorpusReferenceType),
-        required=True,
-        description="Most-recent references under this prefix (capped).",
-    )
-    effective_provider = graphene.String()
+    raise NotImplementedError("_resolve_LabelSetType_icon not yet ported — see manifest")
 
 
-class AuthoritySourceProviderType(graphene.ObjectType):
-    """One registered authority source provider (a "scraper").
+def _resolve_LabelSetType_doc_label_count(root, info, **kwargs):
+    """PORT: config/graphql/annotation_types.py:989
 
-    The auto-discovered provider classes (US Code / eCFR / Federal Register /
-    agentic web locator) surfaced read-only for the console's Scrapers tab —
-    they have no DB row, so this is a registry projection. ``has_credentials``
-    reflects whether the encrypted-secrets vault holds anything for this
-    provider's class path (credentials are edited via the existing
-    ``updateComponentSecrets`` mutation, not here).
+    Port of LabelSetType.resolve_doc_label_count
     """
+    raise NotImplementedError("_resolve_LabelSetType_doc_label_count not yet ported — see manifest")
 
-    name = graphene.String(required=True, description="Registry class name.")
-    class_name = graphene.String(description="Full module.ClassName path.")
-    title = graphene.String()
-    supported_prefixes = graphene.List(graphene.String, required=True)
-    license = graphene.String()
-    priority = graphene.Int()
-    requires_approval = graphene.Boolean(required=True)
-    enabled = graphene.Boolean(required=True)
-    has_credentials = graphene.Boolean(required=True)
 
+def _resolve_LabelSetType_span_label_count(root, info, **kwargs):
+    """PORT: config/graphql/annotation_types.py:996
 
-class RelationInputType(AnnotatePermissionsForReadMixin, graphene.InputObjectType):
-    id = graphene.String()
-    source_ids = graphene.List(graphene.String)
-    target_ids = graphene.List(graphene.String)
-    relationship_label_id = graphene.String()
-    corpus_id = graphene.String()
-    document_id = graphene.String()
-
-
-class AnnotationInputType(AnnotatePermissionsForReadMixin, graphene.InputObjectType):
-    id = graphene.String(required=True)
-    page = graphene.Int()
-    raw_text = graphene.String()
-    json = GenericScalar()  # noqa
-    annotation_label = graphene.String()
-    is_public = graphene.Boolean()
-
-
-class AnnotationType(AnnotatePermissionsForReadMixin, DjangoObjectType):
-    json = GenericScalar()  # noqa
-    # ``data`` carries label-specific structured metadata (e.g. the
-    # ``{canonical_name, lat, lng, admin_codes, geocoded}`` payload that
-    # the OC_COUNTRY/OC_STATE/OC_CITY mutations write — see #1819).
-    # Declared explicitly as ``GenericScalar`` so graphene-django doesn't
-    # try to coerce the JSONField into a typed graphene field; the
-    # existing ``json`` declaration above uses the same pattern.
-    data = GenericScalar()  # noqa
-    annotation_type = graphene.String(
-        description="Annotation type (e.g. TOKEN_LABEL, SPAN_LABEL). "
-        "Returns raw DB value to avoid enum serialization errors on invalid data.",
-    )
-    feedback_count = graphene.Int(description="Count of user feedback")
-    content_modalities = graphene.List(
-        graphene.String,
-        description="Content modalities present in this annotation: TEXT, IMAGE, etc.",
-    )
-    # ``document`` is declared explicitly (rather than relying on graphene-django's
-    # auto-generated FK field) so ``resolve_document`` below is ALWAYS invoked.
-    # graphene-django's FK resolver short-circuits to ``None`` whenever the raw
-    # ``document_id`` column is NULL (``converter.py`` reads ``root.document_id``
-    # then ``get_node(None)`` → ``None``) — which is EVERY structural annotation,
-    # since those carry ``document_id=NULL`` and reach their document only via the
-    # shared ``structural_set``. Without this explicit field the resolver never
-    # runs for structural annotations and the corpus cards render "Unknown
-    # Document". Lazy type ref avoids the annotation_types ↔ document_types
-    # import cycle (document_types imports annotation_types).
-    document = graphene.Field(
-        _get_document_type,
-        description=(
-            "The document this annotation belongs to. Structural annotations "
-            "(document_id=NULL) resolve it via the shared structural set, scoped "
-            "to the queried corpus by AnnotationService.structural_document_prefetch."
-        ),
-    )
-
-    def resolve_document(self, info) -> Any:
-        """Return the document, resolving via structural_set for structural annotations.
-
-        Runs because ``document`` is declared as an explicit ``graphene.Field``
-        above — graphene-django's auto-generated FK field would short-circuit to
-        ``None`` for structural annotations (``document_id=NULL``) before this
-        method ever ran.
-        """
-        # Deferred import avoids a module-level cycle: ``annotations.services``
-        # (via ``documents.models``) pulls in ``document_types`` which imports
-        # ``annotation_types``.
-        from opencontractserver.annotations.services import AnnotationService
-
-        user = info.context.user
-
-        if self.document_id:
-            # Non-structural annotation: the document is its own parent. The
-            # annotation list / semantic-search resolvers always
-            # ``select_related("document")``, so the FK is already in memory —
-            # return it directly instead of issuing a per-row ``SELECT``.
-            # ``Field.is_cached`` (``django.db.models.fields.mixins.
-            # FieldCacheMixin``) checks ``instance._state.fields_cache``, i.e.
-            # whether the related ``Document`` object itself was loaded via
-            # ``select_related`` — NOT whether the raw ``document_id`` column
-            # is present on the row (that column is always loaded). So this
-            # correctly distinguishes "FK object in memory" from "FK object
-            # not fetched yet", and the fallback below IS reached whenever a
-            # caller queries ``Annotation`` without ``select_related("document")``.
-            # Annotation READ visibility is inherited from the document, so any
-            # annotation that reached this resolver already implies document
-            # READ; the fallback still re-derives that via a permission-scoped
-            # fetch instead of trusting an un-checked FK traversal.
-            document_field = self._meta.get_field("document")
-            if document_field.is_cached(self):
-                return self.document
-            return AnnotationService.resolve_owned_document(
-                document_id=self.document_id, user=user
-            )
-
-        # Structural annotations carry document_id=NULL; resolve via structural_set.
-        if not self.structural_set_id:
-            return None
-
-        structural_set = self.structural_set
-        if structural_set is not None:
-            # When ``AnnotationService.structural_document_prefetch`` was applied
-            # (the hot list / search paths), the prefetch cache is already scoped
-            # to the queried context AND to documents the user may READ —
-            # evaluated once for the whole page, ordered by slug. The prefetch is
-            # the permission gate (``user`` is required there), so trust it —
-            # including an empty result, which is already a definitive "no
-            # visible member of this set in this context" rather than a
-            # missing-prefetch signal. ``_prefetched_objects_cache`` is a
-            # private Django attribute (same trade-off already accepted in
-            # ``config/graphql/extract_types.py::resolve_document_count``);
-            # regression coverage lives in
-            # ``test_corpus_cards_structural_document_resolution.py`` —
-            # a broken cache-detection here silently degrades every row to
-            # the per-row fallback query below, which that test's captured
-            # query-count assertion catches.
-            prefetched_cache = getattr(structural_set, "_prefetched_objects_cache", {})
-            if "documents" in prefetched_cache:
-                prefetched = list(structural_set.documents.all())
-                return prefetched[0] if prefetched else None
-
-        # Fallback when the caller did not apply
-        # ``AnnotationService.structural_document_prefetch`` at all (no
-        # ``_prefetched_objects_cache`` entry for ``documents``). Best-effort,
-        # corpus-scoped, permission-gated degraded path — see
-        # ``AnnotationService.resolve_structural_document_fallback``.
-        return AnnotationService.resolve_structural_document_fallback(
-            structural_set_id=self.structural_set_id,
-            corpus_id=self.corpus_id,
-            user=user,
-        )
-
-    def resolve_annotation_type(self, info) -> Any:
-        """Return annotation_type as a plain string to tolerate invalid DB values."""
-        return self.annotation_type or ""
-
-    def resolve_content_modalities(self, info) -> Any:
-        """Return content modalities list from model."""
-        return self.content_modalities or []
-
-    all_source_node_in_relationship = graphene.List(lambda: RelationshipType)
-
-    def resolve_feedback_count(self, info) -> int:
-        # If ``feedback_count`` was annotated on the queryset (legacy callers),
-        # honour it — but the optimizer no longer adds the annotation because
-        # it forced a LEFT JOIN + GROUP BY for every annotation in the result.
-        if hasattr(self, "feedback_count"):
-            return self.feedback_count
-        # Prefer the prefetched ``user_feedback`` list when the parent resolver
-        # populated it (see ``AnnotationService.get_document_annotations``);
-        # ``QuerySet.count()`` always issues a fresh ``COUNT(*)`` and would
-        # produce one round-trip per annotation. ``_prefetched_objects_cache``
-        # is a Django internal — if it changes shape in a future release the
-        # ``self.user_feedback.count()`` fallback keeps correctness intact, only
-        # losing the per-row optimisation.
-        prefetched = getattr(self, "_prefetched_objects_cache", {})
-        if "user_feedback" in prefetched:
-            return len(prefetched["user_feedback"])
-        return self.user_feedback.count()
-
-    def resolve_all_source_node_in_relationship(self, info) -> QuerySet[Relationship]:
-        return self.source_node_in_relationships.all()
-
-    all_target_node_in_relationship = graphene.List(lambda: RelationshipType)
-
-    def resolve_all_target_node_in_relationship(self, info) -> Any:
-        return self.target_node_in_relationships.all()
-
-    # Updated fields for tree representations
-    descendants_tree = graphene.List(
-        GenericScalar,
-        description="List of descendant annotations, each with immediate children's IDs.",
-    )
-    full_tree = graphene.List(
-        GenericScalar,
-        description="List of annotations from the root ancestor, each with immediate children's IDs.",
-    )
-
-    subtree = graphene.List(
-        GenericScalar,
-        description="List representing the path from the root ancestor to this annotation and its descendants.",
-    )
-
-    # Resolver for descendants_tree
-    def resolve_descendants_tree(self, info) -> Any:
-        """
-        Returns a flat list of descendant annotations,
-        each including only the IDs of its immediate children.
-        """
-        from django_cte import CTE, with_cte
-
-        def get_descendants(cte):
-            base_qs = Annotation.objects.filter(parent_id=self.id).values(
-                "id", "parent_id", "raw_text"
-            )
-            recursive_qs = cte.join(Annotation, parent_id=cte.col.id).values(
-                "id", "parent_id", "raw_text"
-            )
-            return base_qs.union(recursive_qs, all=True)
-
-        cte = CTE.recursive(get_descendants)
-        descendants_qs = with_cte(cte, select=cte.queryset()).order_by("id")
-        descendants_list = list(descendants_qs)
-
-        return build_flat_tree(
-            descendants_list, type_name="AnnotationType", text_key="raw_text"
-        )
-
-    # Resolver for full_tree
-    def resolve_full_tree(self, info) -> Any:
-        """
-        Returns a flat list of annotations from the root ancestor,
-        each including only the IDs of its immediate children.
-        """
-        from django_cte import CTE, with_cte
-
-        # Find the root ancestor
-        root = self
-        while root.parent_id is not None:
-            root = root.parent
-
-        def get_full_tree(cte):
-            base_qs = Annotation.objects.filter(id=root.id).values(
-                "id", "parent_id", "raw_text"
-            )
-            recursive_qs = cte.join(Annotation, parent_id=cte.col.id).values(
-                "id", "parent_id", "raw_text"
-            )
-            return base_qs.union(recursive_qs, all=True)
-
-        cte = CTE.recursive(get_full_tree)
-        full_tree_qs = with_cte(cte, select=cte.queryset()).order_by("id")
-        nodes = list(full_tree_qs)
-        full_tree = build_flat_tree(
-            nodes, type_name="AnnotationType", text_key="raw_text"
-        )
-        return full_tree
-
-    # Resolver for subtree
-    def resolve_subtree(self, info) -> Any:
-        """
-        Returns a combined tree that includes:
-        - The path from the root ancestor to this annotation (ancestors).
-        - This annotation and all its descendants.
-        """
-        from django_cte import CTE, with_cte
-
-        # Find all ancestors up to the root
-        ancestors = []
-        node = self
-        while node.parent_id is not None:
-            ancestors.append(node)
-            node = node.parent
-        ancestors.append(node)  # Include the root ancestor
-        ancestor_ids = [ancestor.id for ancestor in ancestors]
-
-        # Get all descendants of the current node
-        def get_descendants(cte):
-            base_qs = Annotation.objects.filter(parent_id=self.id).values(
-                "id", "parent_id", "raw_text"
-            )
-            recursive_qs = cte.join(Annotation, parent_id=cte.col.id).values(
-                "id", "parent_id", "raw_text"
-            )
-            return base_qs.union(recursive_qs, all=True)
-
-        descendants_cte = CTE.recursive(get_descendants)
-        descendants_qs = with_cte(
-            descendants_cte, select=descendants_cte.queryset()
-        ).values("id", "parent_id", "raw_text")
-
-        # Combine ancestors and descendants
-        combined_qs = (
-            Annotation.objects.filter(id__in=ancestor_ids)
-            .values("id", "parent_id", "raw_text")
-            .union(descendants_qs, all=True)
-        )
-
-        subtree_nodes = list(combined_qs)
-        subtree = build_flat_tree(
-            subtree_nodes, type_name="AnnotationType", text_key="raw_text"
-        )
-        return subtree
-
-    class Meta:
-        model = Annotation
-        interfaces = [relay.Node]
-        exclude = ("embedding", "search_vector")
-        connection_class = CountableConnection
-
-        # In order for filter options to show up in nested resolvers, you need to specify them
-        # in the Graphene type
-        filterset_class = AnnotationFilter
-
-    @classmethod
-    def get_queryset(cls, queryset, info) -> Any:
-        # Always pre-join the FKs the GraphQL type exposes
-        # (``annotation_label`` and ``corpus``). Without this, graphene-django's
-        # auto-generated FK resolver falls through to ``cls.get_node(info, pk)``
-        # → ``Corpus.objects.get(pk)`` per row — and because ``Corpus`` is a
-        # ``TreeNode`` registered with ``with_tree_fields=True``, every such
-        # ``get`` triggers a recursive ``WITH __rank_table`` CTE.
-        # ``AnnotationService.get_document_annotations`` already adds
-        # ``annotation_label`` / ``creator`` / ``analysis`` but not ``corpus``,
-        # so the join is added here regardless of which path produced the qs.
-        fk_joins = ("annotation_label", "corpus")
-
-        # The query optimizer adds ``_can_*`` annotations and has already
-        # filtered for visibility — don't re-filter.
-        if (
-            hasattr(queryset, "query")
-            and queryset.query.annotations
-            and any(key.startswith("_can_") for key in queryset.query.annotations)
-        ):
-            return queryset.select_related(*fk_joins)
-
-        # Otherwise apply ``visible_to_user`` via the service layer
-        # (the ``opencontracts.E001`` system check forbids inline use here),
-        # then layer the FK joins on top.
-        return BaseService.filter_visible_qs(
-            queryset, info.context.user, request=info.context
-        ).select_related(*fk_joins)
-
-
-class AnnotationLabelType(AnnotatePermissionsForReadMixin, DjangoObjectType):
-    class Meta:
-        model = AnnotationLabel
-        interfaces = [relay.Node]
-        connection_class = CountableConnection
-
-    def resolve_my_permissions(self, info) -> list[str]:
-        """Inherit permissions from the LabelSet(s) that include this label.
-
-        AnnotationLabels deliberately carry no django-guardian object-permission
-        tables of their own — the LabelSet is the permissioned entity that
-        governs its labels. A label can belong to multiple labelsets; the
-        caller's effective permissions are the union of their permissions
-        across those labelsets, with ``*_labelset`` codenames mapped onto
-        ``*_annotationlabel``. Public / built-in (``read_only``) labels are
-        always readable.
-
-        This override replaces the generic mixin resolver, which assumes the
-        model exposes a ``{model}userobjectpermission_set`` reverse accessor
-        and otherwise raises ``AttributeError`` (caught + error-logged) for
-        every annotation-label node.
-        """
-        permissions: set[str] = set()
-
-        if getattr(self, "is_public", False) or getattr(self, "read_only", False):
-            permissions.add("read_annotationlabel")
-
-        context = getattr(info, "context", None)
-        user = getattr(context, "user", None)
-        anon_id = get_anonymous_user_id(info)
-        if (
-            user is not None
-            and getattr(user, "is_authenticated", False)
-            and user.id != anon_id
-        ):
-            # ``get_users_permissions_for_obj`` returns only the perms the
-            # caller actually holds on each labelset (creator / guardian /
-            # group / is_public), so labelsets they cannot see contribute
-            # nothing.
-            #
-            # Known limitation (accepted): this is a per-label N+1 — each label
-            # node runs ``included_in_labelsets.all()`` plus a permission lookup
-            # per labelset, with no resolver-level ``prefetch_related`` to
-            # collapse it. Acceptable only because label↔labelset membership is
-            # small (typically 1) in practice. If ``AnnotationLabelType`` is ever
-            # rendered inside a large connection that also selects
-            # ``myPermissions``, add ``prefetch_related("included_in_labelsets")``
-            # to the source queryset before this fans out.
-            for labelset in self.included_in_labelsets.all():
-                for perm in get_users_permissions_for_obj(user, labelset):
-                    permissions.add(perm.replace("labelset", "annotationlabel"))
-
-        return list(permissions)
-
-
-class LabelSetType(AnnotatePermissionsForReadMixin, DjangoObjectType):
-    annotation_labels = DjangoFilterConnectionField(
-        AnnotationLabelType, filterset_class=LabelFilter
-    )
-
-    # Count fields for different label types
-    doc_label_count = graphene.Int(description="Count of document-level type labels")
-    span_label_count = graphene.Int(description="Count of span-based labels")
-    token_label_count = graphene.Int(description="Count of token-level labels")
-
-    def resolve_doc_label_count(self, info) -> Any:
-        """Return doc label count from annotation or query."""
-        # Check if parent corpus has passed the annotated value
-        if hasattr(self, "_doc_label_count") and self._doc_label_count is not None:
-            return self._doc_label_count
-        return self.annotation_labels.filter(label_type="DOC_TYPE_LABEL").count()
-
-    def resolve_span_label_count(self, info) -> Any:
-        """Return span label count from annotation or query."""
-        if hasattr(self, "_span_label_count") and self._span_label_count is not None:
-            return self._span_label_count
-        return self.annotation_labels.filter(label_type="SPAN_LABEL").count()
-
-    def resolve_token_label_count(self, info) -> Any:
-        """Return token label count from annotation or query."""
-        if hasattr(self, "_token_label_count") and self._token_label_count is not None:
-            return self._token_label_count
-        return self.annotation_labels.filter(label_type="TOKEN_LABEL").count()
-
-    # Count of corpuses using this label set
-    corpus_count = graphene.Int(description="Number of corpuses using this label set")
-
-    def resolve_corpus_count(self, info) -> Any:
-        """Return count of corpuses using this label set that are visible to the user."""
-        return BaseService.filter_visible_qs(
-            self.used_by_corpuses, info.context.user, request=info.context
-        ).count()
-
-    # To get ALL labels for a given labelset
-    all_annotation_labels = graphene.Field(graphene.List(AnnotationLabelType))
-
-    def resolve_all_annotation_labels(self, info) -> Any:
-        return self.annotation_labels.all()
-
-    # Custom resolver for icon field
-    def resolve_icon(self, info) -> Any:
-        return "" if not self.icon else info.context.build_absolute_uri(self.icon.url)
-
-    class Meta:
-        model = LabelSet
-        interfaces = [relay.Node]
-        connection_class = CountableConnection
-
-
-class NoteType(AnnotatePermissionsForReadMixin, DjangoObjectType):
+    Port of LabelSetType.resolve_span_label_count
     """
-    GraphQL type for the Note model with tree-based functionality.
+    raise NotImplementedError("_resolve_LabelSetType_span_label_count not yet ported — see manifest")
+
+
+def _resolve_LabelSetType_token_label_count(root, info, **kwargs):
+    """PORT: config/graphql/annotation_types.py:1002
+
+    Port of LabelSetType.resolve_token_label_count
     """
-
-    # Updated fields for tree representations
-    descendants_tree = graphene.List(
-        GenericScalar,
-        description="List of descendant notes, each with immediate children's IDs.",
-    )
-    full_tree = graphene.List(
-        GenericScalar,
-        description="List of notes from the root ancestor, each with immediate children's IDs.",
-    )
-    subtree = graphene.List(
-        GenericScalar,
-        description="List representing the path from the root ancestor to this note and its descendants.",
-    )
-
-    # Version history
-    revisions = graphene.List(
-        lambda: NoteRevisionType,
-        description="List of all revisions/versions of this note, ordered by version.",
-    )
-    current_version = graphene.Int(description="Current version number of the note")
-
-    content_preview = graphene.String(
-        description=(
-            "First 400 characters of the note body for list/search previews. "
-            "Resolvers may annotate the queryset with `content_preview` to "
-            "avoid shipping the full body over the wire."
-        )
-    )
-
-    def resolve_content_preview(self, info) -> str:
-        annotated = getattr(self, "content_preview", None)
-        if annotated is not None:
-            return annotated
-        return (self.content or "")[:400]
-
-    def resolve_revisions(self, info) -> Any:
-        """Returns all revisions for this note, ordered by version."""
-        return self.revisions.all()
-
-    def resolve_current_version(self, info) -> Any:
-        """Returns the current version number."""
-        latest_revision = self.revisions.order_by("-version").first()
-        return latest_revision.version if latest_revision else 0
-
-    # Resolver for descendants_tree
-    def resolve_descendants_tree(self, info) -> Any:
-        """
-        Returns a flat list of descendant notes,
-        each including only the IDs of its immediate children.
-        """
-        from django_cte import CTE, with_cte
-
-        def get_descendants(cte):
-            base_qs = Note.objects.filter(parent_id=self.id).values(
-                "id", "parent_id", "content"
-            )
-            recursive_qs = cte.join(Note, parent_id=cte.col.id).values(
-                "id", "parent_id", "content"
-            )
-            return base_qs.union(recursive_qs, all=True)
-
-        cte = CTE.recursive(get_descendants)
-        descendants_qs = with_cte(cte, select=cte.queryset()).order_by("id")
-        descendants_list = list(descendants_qs)
-        descendants_tree = build_flat_tree(
-            descendants_list, type_name="NoteType", text_key="content"
-        )
-        return descendants_tree
-
-    # Resolver for full_tree
-    def resolve_full_tree(self, info) -> Any:
-        """
-        Returns a flat list of notes from the root ancestor,
-        each including only the IDs of its immediate children.
-        """
-        from django_cte import CTE, with_cte
-
-        # Find the root ancestor
-        root = self
-        while root.parent_id is not None:
-            root = root.parent
-
-        def get_full_tree(cte):
-            base_qs = Note.objects.filter(id=root.id).values(
-                "id", "parent_id", "content"
-            )
-            recursive_qs = cte.join(Note, parent_id=cte.col.id).values(
-                "id", "parent_id", "content"
-            )
-            return base_qs.union(recursive_qs, all=True)
-
-        cte = CTE.recursive(get_full_tree)
-        full_tree_qs = with_cte(cte, select=cte.queryset()).order_by("id")
-        nodes = list(full_tree_qs)
-        full_tree = build_flat_tree(nodes, type_name="NoteType", text_key="content")
-        return full_tree
-
-    # Resolver for subtree
-    def resolve_subtree(self, info) -> Any:
-        """
-        Returns a combined tree that includes:
-        - The path from the root ancestor to this note (ancestors).
-        - This note and all its descendants.
-        """
-        from django_cte import CTE, with_cte
-
-        # Find all ancestors up to the root
-        ancestors = []
-        node = self
-        while node.parent_id is not None:
-            ancestors.append(node)
-            node = node.parent
-        ancestors.append(node)  # Include the root ancestor
-        ancestor_ids = [ancestor.id for ancestor in ancestors]
-
-        # Get all descendants of the current node
-        def get_descendants(cte):
-            base_qs = Note.objects.filter(parent_id=self.id).values(
-                "id", "parent_id", "content"
-            )
-            recursive_qs = cte.join(Note, parent_id=cte.col.id).values(
-                "id", "parent_id", "content"
-            )
-            return base_qs.union(recursive_qs, all=True)
-
-        descendants_cte = CTE.recursive(get_descendants)
-        descendants_qs = with_cte(
-            descendants_cte, select=descendants_cte.queryset()
-        ).values("id", "parent_id", "content")
-
-        # Combine ancestors and descendants
-        combined_qs = (
-            Note.objects.filter(id__in=ancestor_ids)
-            .values("id", "parent_id", "content")
-            .union(descendants_qs, all=True)
-        )
-
-        subtree_nodes = list(combined_qs)
-        subtree = build_flat_tree(
-            subtree_nodes, type_name="NoteType", text_key="content"
-        )
-        return subtree
-
-    class Meta:
-        model = Note
-        exclude = ("embedding", "search_vector")
-        interfaces = [relay.Node]
-        connection_class = CountableConnection
-
-    @classmethod
-    def get_queryset(cls, queryset, info) -> Any:
-        # Route visibility through the service layer (BaseService) so this
-        # type field resolver does not touch Tier-0 directly. Uses
-        # ``filter_visible_qs`` so the visibility filter chains on the
-        # incoming queryset/manager in a single SQL pass.
-        return BaseService.filter_visible_qs(
-            queryset, info.context.user, request=info.context
-        )
+    raise NotImplementedError("_resolve_LabelSetType_token_label_count not yet ported — see manifest")
 
 
-class NoteRevisionType(DjangoObjectType):
+def _resolve_LabelSetType_corpus_count(root, info, **kwargs):
+    """PORT: config/graphql/annotation_types.py:1011
+
+    Port of LabelSetType.resolve_corpus_count
     """
-    GraphQL type for the NoteRevision model to expose note version history.
-    """
+    raise NotImplementedError("_resolve_LabelSetType_corpus_count not yet ported — see manifest")
 
-    class Meta:
-        model = NoteRevision
-        interfaces = [relay.Node]
-        connection_class = CountableConnection
-        fields = [
-            "id",
-            "note",
-            "author",
-            "version",
-            "diff",
-            "snapshot",
-            "checksum_base",
-            "checksum_full",
-            "created",
-        ]
+
+def _resolve_LabelSetType_all_annotation_labels(root, info, **kwargs):
+    """PORT: config/graphql/annotation_types.py:1020
+
+    Port of LabelSetType.resolve_all_annotation_labels
+    """
+    raise NotImplementedError("_resolve_LabelSetType_all_annotation_labels not yet ported — see manifest")
+
+
+@strawberry.type(name="LabelSetType")
+class LabelSetType(Node):
+    user_lock: Optional[Annotated["UserType", strawberry.lazy("config.graphql.user_types")]] = strawberry.field(name="userLock", default=None)
+    backend_lock: bool = strawberry.field(name="backendLock", default=None)
+    is_public: bool = strawberry.field(name="isPublic", default=None)
+    creator: Annotated["UserType", strawberry.lazy("config.graphql.user_types")] = strawberry.field(name="creator", default=None)
+    created: datetime.datetime = strawberry.field(name="created", default=None)
+    modified: datetime.datetime = strawberry.field(name="modified", default=None)
+    @strawberry.field(name="title")
+    def title(self, info: strawberry.Info) -> str:
+        return coerce_str(getattr(self, "title", None))
+    @strawberry.field(name="description")
+    def description(self, info: strawberry.Info) -> str:
+        return coerce_str(getattr(self, "description", None))
+    @strawberry.field(name="icon")
+    def icon(self, info: strawberry.Info) -> str:
+        kwargs = strip_unset({})
+        return _resolve_LabelSetType_icon(self, info, **kwargs)
+    @strawberry.field(name="annotationLabels")
+    def annotation_labels(self, info: strawberry.Info, offset: Annotated[Optional[int], strawberry.argument(name="offset")] = strawberry.UNSET, before: Annotated[Optional[str], strawberry.argument(name="before")] = strawberry.UNSET, after: Annotated[Optional[str], strawberry.argument(name="after")] = strawberry.UNSET, first: Annotated[Optional[int], strawberry.argument(name="first")] = strawberry.UNSET, last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET, description__contains: Annotated[Optional[str], strawberry.argument(name="description_Contains")] = strawberry.UNSET, text: Annotated[Optional[str], strawberry.argument(name="text")] = strawberry.UNSET, text__contains: Annotated[Optional[str], strawberry.argument(name="text_Contains")] = strawberry.UNSET, label_type: Annotated[Optional[enums.AnnotationsAnnotationLabelLabelTypeChoices], strawberry.argument(name="labelType")] = strawberry.UNSET, used_in_labelset_id: Annotated[Optional[str], strawberry.argument(name="usedInLabelsetId")] = strawberry.UNSET, used_in_labelset_for_corpus_id: Annotated[Optional[str], strawberry.argument(name="usedInLabelsetForCorpusId")] = strawberry.UNSET, used_in_analysis_ids: Annotated[Optional[str], strawberry.argument(name="usedInAnalysisIds")] = strawberry.UNSET) -> Optional["AnnotationLabelTypeConnection"]:
+        kwargs = strip_unset({"offset": offset, "before": before, "after": after, "first": first, "last": last, "description__contains": description__contains, "text": text, "text__contains": text__contains, "label_type": label_type, "used_in_labelset_id": used_in_labelset_id, "used_in_labelset_for_corpus_id": used_in_labelset_for_corpus_id, "used_in_analysis_ids": used_in_analysis_ids})
+        resolved = getattr(self, "annotation_labels", None)
+        return resolve_django_connection(resolved=resolved, info=info, args=kwargs, node_type_name="AnnotationLabelType", filterset_class=setup_filterset(LabelFilter), filter_args={"description__contains": "description__contains", "text": "text", "text__contains": "text__contains", "label_type": "label_type", "used_in_labelset_id": "used_in_labelset_id", "used_in_labelset_for_corpus_id": "used_in_labelset_for_corpus_id", "used_in_analysis_ids": "used_in_analysis_ids"}, )
+    analyzer: Optional[Annotated["AnalyzerType", strawberry.lazy("config.graphql.extract_types")]] = strawberry.field(name="analyzer", default=None)
+    is_default: bool = strawberry.field(name="isDefault", default=None)
+    @strawberry.field(name="usedByCorpuses")
+    def used_by_corpuses(self, info: strawberry.Info, offset: Annotated[Optional[int], strawberry.argument(name="offset")] = strawberry.UNSET, before: Annotated[Optional[str], strawberry.argument(name="before")] = strawberry.UNSET, after: Annotated[Optional[str], strawberry.argument(name="after")] = strawberry.UNSET, first: Annotated[Optional[int], strawberry.argument(name="first")] = strawberry.UNSET, last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET) -> Annotated["CorpusTypeConnection", strawberry.lazy("config.graphql.corpus_types")]:
+        kwargs = strip_unset({"offset": offset, "before": before, "after": after, "first": first, "last": last})
+        resolved = getattr(self, "used_by_corpuses", None)
+        return resolve_django_connection(resolved=resolved, info=info, args=kwargs, node_type_name="CorpusType", )
+    @strawberry.field(name="myPermissions")
+    def my_permissions(self, info: strawberry.Info) -> Optional[GenericScalar]:
+        return core_permissions.resolve_my_permissions(self, info)
+    @strawberry.field(name="isPublished")
+    def is_published(self, info: strawberry.Info) -> Optional[bool]:
+        return core_permissions.resolve_is_published(self, info)
+    @strawberry.field(name="objectSharedWith")
+    def object_shared_with(self, info: strawberry.Info) -> Optional[GenericScalar]:
+        return core_permissions.resolve_object_shared_with(self, info)
+    @strawberry.field(name="docLabelCount", description='Count of document-level type labels')
+    def doc_label_count(self, info: strawberry.Info) -> Optional[int]:
+        kwargs = strip_unset({})
+        return _resolve_LabelSetType_doc_label_count(self, info, **kwargs)
+    @strawberry.field(name="spanLabelCount", description='Count of span-based labels')
+    def span_label_count(self, info: strawberry.Info) -> Optional[int]:
+        kwargs = strip_unset({})
+        return _resolve_LabelSetType_span_label_count(self, info, **kwargs)
+    @strawberry.field(name="tokenLabelCount", description='Count of token-level labels')
+    def token_label_count(self, info: strawberry.Info) -> Optional[int]:
+        kwargs = strip_unset({})
+        return _resolve_LabelSetType_token_label_count(self, info, **kwargs)
+    @strawberry.field(name="corpusCount", description='Number of corpuses using this label set')
+    def corpus_count(self, info: strawberry.Info) -> Optional[int]:
+        kwargs = strip_unset({})
+        return _resolve_LabelSetType_corpus_count(self, info, **kwargs)
+    @strawberry.field(name="allAnnotationLabels")
+    def all_annotation_labels(self, info: strawberry.Info) -> Optional[list[Optional["AnnotationLabelType"]]]:
+        kwargs = strip_unset({})
+        return _resolve_LabelSetType_all_annotation_labels(self, info, **kwargs)
+
+
+register_type("LabelSetType", LabelSetType, model=LabelSet)
+
+
+LabelSetTypeConnection = make_connection_types(LabelSetType, type_name="LabelSetTypeConnection", countable=True, pdf_page_aware=False)
+
+
+@strawberry.type(name="RelationshipType")
+class RelationshipType(Node):
+    user_lock: Optional[Annotated["UserType", strawberry.lazy("config.graphql.user_types")]] = strawberry.field(name="userLock", default=None)
+    backend_lock: bool = strawberry.field(name="backendLock", default=None)
+    relationship_label: Optional["AnnotationLabelType"] = strawberry.field(name="relationshipLabel", default=None)
+    corpus: Optional[Annotated["CorpusType", strawberry.lazy("config.graphql.corpus_types")]] = strawberry.field(name="corpus", default=None)
+    document: Optional[Annotated["DocumentType", strawberry.lazy("config.graphql.document_types")]] = strawberry.field(name="document", default=None)
+    @strawberry.field(name="sourceAnnotations")
+    def source_annotations(self, info: strawberry.Info, offset: Annotated[Optional[int], strawberry.argument(name="offset")] = strawberry.UNSET, before: Annotated[Optional[str], strawberry.argument(name="before")] = strawberry.UNSET, after: Annotated[Optional[str], strawberry.argument(name="after")] = strawberry.UNSET, first: Annotated[Optional[int], strawberry.argument(name="first")] = strawberry.UNSET, last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET, raw_text__contains: Annotated[Optional[str], strawberry.argument(name="rawText_Contains")] = strawberry.UNSET, annotation_label_id: Annotated[Optional[strawberry.ID], strawberry.argument(name="annotationLabelId")] = strawberry.UNSET, annotation_label__text: Annotated[Optional[str], strawberry.argument(name="annotationLabel_Text")] = strawberry.UNSET, annotation_label__text__contains: Annotated[Optional[str], strawberry.argument(name="annotationLabel_Text_Contains")] = strawberry.UNSET, annotation_label__description__contains: Annotated[Optional[str], strawberry.argument(name="annotationLabel_Description_Contains")] = strawberry.UNSET, annotation_label__label_type: Annotated[Optional[enums.AnnotationsAnnotationLabelLabelTypeChoices], strawberry.argument(name="annotationLabel_LabelType")] = strawberry.UNSET, analysis__isnull: Annotated[Optional[bool], strawberry.argument(name="analysis_Isnull")] = strawberry.UNSET, document_id: Annotated[Optional[strawberry.ID], strawberry.argument(name="documentId")] = strawberry.UNSET, corpus_id: Annotated[Optional[strawberry.ID], strawberry.argument(name="corpusId")] = strawberry.UNSET, structural: Annotated[Optional[bool], strawberry.argument(name="structural")] = strawberry.UNSET, uses_label_from_labelset_id: Annotated[Optional[str], strawberry.argument(name="usesLabelFromLabelsetId")] = strawberry.UNSET, created_by_analysis_ids: Annotated[Optional[str], strawberry.argument(name="createdByAnalysisIds")] = strawberry.UNSET, created_with_analyzer_id: Annotated[Optional[str], strawberry.argument(name="createdWithAnalyzerId")] = strawberry.UNSET, order_by: Annotated[Optional[str], strawberry.argument(name="orderBy", description='Ordering')] = strawberry.UNSET) -> "AnnotationTypeConnection":
+        kwargs = strip_unset({"offset": offset, "before": before, "after": after, "first": first, "last": last, "raw_text__contains": raw_text__contains, "annotation_label_id": annotation_label_id, "annotation_label__text": annotation_label__text, "annotation_label__text__contains": annotation_label__text__contains, "annotation_label__description__contains": annotation_label__description__contains, "annotation_label__label_type": annotation_label__label_type, "analysis__isnull": analysis__isnull, "document_id": document_id, "corpus_id": corpus_id, "structural": structural, "uses_label_from_labelset_id": uses_label_from_labelset_id, "created_by_analysis_ids": created_by_analysis_ids, "created_with_analyzer_id": created_with_analyzer_id, "order_by": order_by})
+        resolved = getattr(self, "source_annotations", None)
+        return resolve_django_connection(resolved=resolved, info=info, args=kwargs, node_type_name="AnnotationType", filterset_class=setup_filterset(AnnotationFilter), filter_args={"raw_text__contains": "raw_text__contains", "annotation_label_id": "annotation_label_id", "annotation_label__text": "annotation_label__text", "annotation_label__text__contains": "annotation_label__text__contains", "annotation_label__description__contains": "annotation_label__description__contains", "annotation_label__label_type": "annotation_label__label_type", "analysis__isnull": "analysis__isnull", "document_id": "document_id", "corpus_id": "corpus_id", "structural": "structural", "uses_label_from_labelset_id": "uses_label_from_labelset_id", "created_by_analysis_ids": "created_by_analysis_ids", "created_with_analyzer_id": "created_with_analyzer_id", "order_by": "order_by"}, )
+    @strawberry.field(name="targetAnnotations")
+    def target_annotations(self, info: strawberry.Info, offset: Annotated[Optional[int], strawberry.argument(name="offset")] = strawberry.UNSET, before: Annotated[Optional[str], strawberry.argument(name="before")] = strawberry.UNSET, after: Annotated[Optional[str], strawberry.argument(name="after")] = strawberry.UNSET, first: Annotated[Optional[int], strawberry.argument(name="first")] = strawberry.UNSET, last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET, raw_text__contains: Annotated[Optional[str], strawberry.argument(name="rawText_Contains")] = strawberry.UNSET, annotation_label_id: Annotated[Optional[strawberry.ID], strawberry.argument(name="annotationLabelId")] = strawberry.UNSET, annotation_label__text: Annotated[Optional[str], strawberry.argument(name="annotationLabel_Text")] = strawberry.UNSET, annotation_label__text__contains: Annotated[Optional[str], strawberry.argument(name="annotationLabel_Text_Contains")] = strawberry.UNSET, annotation_label__description__contains: Annotated[Optional[str], strawberry.argument(name="annotationLabel_Description_Contains")] = strawberry.UNSET, annotation_label__label_type: Annotated[Optional[enums.AnnotationsAnnotationLabelLabelTypeChoices], strawberry.argument(name="annotationLabel_LabelType")] = strawberry.UNSET, analysis__isnull: Annotated[Optional[bool], strawberry.argument(name="analysis_Isnull")] = strawberry.UNSET, document_id: Annotated[Optional[strawberry.ID], strawberry.argument(name="documentId")] = strawberry.UNSET, corpus_id: Annotated[Optional[strawberry.ID], strawberry.argument(name="corpusId")] = strawberry.UNSET, structural: Annotated[Optional[bool], strawberry.argument(name="structural")] = strawberry.UNSET, uses_label_from_labelset_id: Annotated[Optional[str], strawberry.argument(name="usesLabelFromLabelsetId")] = strawberry.UNSET, created_by_analysis_ids: Annotated[Optional[str], strawberry.argument(name="createdByAnalysisIds")] = strawberry.UNSET, created_with_analyzer_id: Annotated[Optional[str], strawberry.argument(name="createdWithAnalyzerId")] = strawberry.UNSET, order_by: Annotated[Optional[str], strawberry.argument(name="orderBy", description='Ordering')] = strawberry.UNSET) -> "AnnotationTypeConnection":
+        kwargs = strip_unset({"offset": offset, "before": before, "after": after, "first": first, "last": last, "raw_text__contains": raw_text__contains, "annotation_label_id": annotation_label_id, "annotation_label__text": annotation_label__text, "annotation_label__text__contains": annotation_label__text__contains, "annotation_label__description__contains": annotation_label__description__contains, "annotation_label__label_type": annotation_label__label_type, "analysis__isnull": analysis__isnull, "document_id": document_id, "corpus_id": corpus_id, "structural": structural, "uses_label_from_labelset_id": uses_label_from_labelset_id, "created_by_analysis_ids": created_by_analysis_ids, "created_with_analyzer_id": created_with_analyzer_id, "order_by": order_by})
+        resolved = getattr(self, "target_annotations", None)
+        return resolve_django_connection(resolved=resolved, info=info, args=kwargs, node_type_name="AnnotationType", filterset_class=setup_filterset(AnnotationFilter), filter_args={"raw_text__contains": "raw_text__contains", "annotation_label_id": "annotation_label_id", "annotation_label__text": "annotation_label__text", "annotation_label__text__contains": "annotation_label__text__contains", "annotation_label__description__contains": "annotation_label__description__contains", "annotation_label__label_type": "annotation_label__label_type", "analysis__isnull": "analysis__isnull", "document_id": "document_id", "corpus_id": "corpus_id", "structural": "structural", "uses_label_from_labelset_id": "uses_label_from_labelset_id", "created_by_analysis_ids": "created_by_analysis_ids", "created_with_analyzer_id": "created_with_analyzer_id", "order_by": "order_by"}, )
+    analyzer: Optional[Annotated["AnalyzerType", strawberry.lazy("config.graphql.extract_types")]] = strawberry.field(name="analyzer", default=None)
+    analysis: Optional[Annotated["AnalysisType", strawberry.lazy("config.graphql.extract_types")]] = strawberry.field(name="analysis", default=None)
+    created_by_analysis: Optional[Annotated["AnalysisType", strawberry.lazy("config.graphql.extract_types")]] = strawberry.field(name="createdByAnalysis", description='If set, this relationship is private to the analysis that created it', default=None)
+    created_by_extract: Optional[Annotated["ExtractType", strawberry.lazy("config.graphql.extract_types")]] = strawberry.field(name="createdByExtract", description='If set, this relationship is private to the extract that created it', default=None)
+    structural: bool = strawberry.field(name="structural", default=None)
+    is_public: bool = strawberry.field(name="isPublic", default=None)
+    creator: Annotated["UserType", strawberry.lazy("config.graphql.user_types")] = strawberry.field(name="creator", default=None)
+    created: datetime.datetime = strawberry.field(name="created", default=None)
+    modified: datetime.datetime = strawberry.field(name="modified", default=None)
+    @strawberry.field(name="assignmentSet")
+    def assignment_set(self, info: strawberry.Info, offset: Annotated[Optional[int], strawberry.argument(name="offset")] = strawberry.UNSET, before: Annotated[Optional[str], strawberry.argument(name="before")] = strawberry.UNSET, after: Annotated[Optional[str], strawberry.argument(name="after")] = strawberry.UNSET, first: Annotated[Optional[int], strawberry.argument(name="first")] = strawberry.UNSET, last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET) -> Annotated["AssignmentTypeConnection", strawberry.lazy("config.graphql.user_types")]:
+        kwargs = strip_unset({"offset": offset, "before": before, "after": after, "first": first, "last": last})
+        resolved = getattr(self, "assignment_set", None)
+        return resolve_django_connection(resolved=resolved, info=info, args=kwargs, node_type_name="AssignmentType", )
+    @strawberry.field(name="myPermissions")
+    def my_permissions(self, info: strawberry.Info) -> Optional[GenericScalar]:
+        return core_permissions.resolve_my_permissions(self, info)
+    @strawberry.field(name="isPublished")
+    def is_published(self, info: strawberry.Info) -> Optional[bool]:
+        return core_permissions.resolve_is_published(self, info)
+    @strawberry.field(name="objectSharedWith")
+    def object_shared_with(self, info: strawberry.Info) -> Optional[GenericScalar]:
+        return core_permissions.resolve_object_shared_with(self, info)
+
+
+register_type("RelationshipType", RelationshipType, model=Relationship)
+
+
+RelationshipTypeConnection = make_connection_types(RelationshipType, type_name="RelationshipTypeConnection", countable=True, pdf_page_aware=False)
+
+
+@strawberry.type(name="CorpusReferenceType", description='Read-only view of an enrichment cross-reference.\n\nNo ``AnnotatePermissionsForReadMixin``: ``CorpusReference`` has no guardian\npermission tables — visibility derives from the parent corpus and is\nenforced by ``CorpusReferenceService`` in the resolver.')
+class CorpusReferenceType(Node):
+    user_lock: Optional[Annotated["UserType", strawberry.lazy("config.graphql.user_types")]] = strawberry.field(name="userLock", default=None)
+    backend_lock: bool = strawberry.field(name="backendLock", default=None)
+    is_public: bool = strawberry.field(name="isPublic", default=None)
+    creator: Annotated["UserType", strawberry.lazy("config.graphql.user_types")] = strawberry.field(name="creator", default=None)
+    created: datetime.datetime = strawberry.field(name="created", default=None)
+    modified: datetime.datetime = strawberry.field(name="modified", default=None)
+    corpus: Annotated["CorpusType", strawberry.lazy("config.graphql.corpus_types")] = strawberry.field(name="corpus", default=None)
+    @strawberry.field(name="referenceType")
+    def reference_type(self, info: strawberry.Info) -> enums.AnnotationsCorpusReferenceReferenceTypeChoices:
+        return coerce_enum(enums.AnnotationsCorpusReferenceReferenceTypeChoices, getattr(self, "reference_type", None))
+    source_annotation: "AnnotationType" = strawberry.field(name="sourceAnnotation", default=None)
+    target_annotation: Optional["AnnotationType"] = strawberry.field(name="targetAnnotation", default=None)
+    target_document: Optional[Annotated["DocumentType", strawberry.lazy("config.graphql.document_types")]] = strawberry.field(name="targetDocument", default=None)
+    target_corpus: Optional[Annotated["CorpusType", strawberry.lazy("config.graphql.corpus_types")]] = strawberry.field(name="targetCorpus", default=None)
+    @strawberry.field(name="canonicalKey")
+    def canonical_key(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "canonical_key", None))
+    normalized_data: Optional[GenericScalar] = strawberry.field(name="normalizedData", default=None)
+    confidence: float = strawberry.field(name="confidence", default=None)
+    @strawberry.field(name="jurisdiction")
+    def jurisdiction(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "jurisdiction", None))
+    @strawberry.field(name="authorityType")
+    def authority_type(self, info: strawberry.Info) -> Optional[enums.AnnotationsCorpusReferenceAuthorityTypeChoices]:
+        return coerce_enum(enums.AnnotationsCorpusReferenceAuthorityTypeChoices, getattr(self, "authority_type", None))
+    @strawberry.field(name="detectionTier")
+    def detection_tier(self, info: strawberry.Info) -> enums.AnnotationsCorpusReferenceDetectionTierChoices:
+        return coerce_enum(enums.AnnotationsCorpusReferenceDetectionTierChoices, getattr(self, "detection_tier", None))
+    detection_confidence: float = strawberry.field(name="detectionConfidence", default=None)
+    @strawberry.field(name="resolutionStatus")
+    def resolution_status(self, info: strawberry.Info) -> enums.AnnotationsCorpusReferenceResolutionStatusChoices:
+        return coerce_enum(enums.AnnotationsCorpusReferenceResolutionStatusChoices, getattr(self, "resolution_status", None))
+    created_by_analysis: Optional[Annotated["AnalysisType", strawberry.lazy("config.graphql.extract_types")]] = strawberry.field(name="createdByAnalysis", default=None)
+    is_provisional: bool = strawberry.field(name="isProvisional", default=None)
+
+
+register_type("CorpusReferenceType", CorpusReferenceType, model=CorpusReference)
+
+
+CorpusReferenceTypeConnection = make_connection_types(CorpusReferenceType, type_name="CorpusReferenceTypeConnection", countable=True, pdf_page_aware=False)
+
+
+def _resolve_NoteType_revisions(root, info, **kwargs):
+    """PORT: config/graphql/annotation_types.py:1073
+
+    Port of NoteType.resolve_revisions
+    """
+    raise NotImplementedError("_resolve_NoteType_revisions not yet ported — see manifest")
+
+
+def _resolve_NoteType_descendants_tree(root, info, **kwargs):
+    """PORT: config/graphql/annotation_types.py:1083
+
+    Port of NoteType.resolve_descendants_tree
+    """
+    raise NotImplementedError("_resolve_NoteType_descendants_tree not yet ported — see manifest")
+
+
+def _resolve_NoteType_full_tree(root, info, **kwargs):
+    """PORT: config/graphql/annotation_types.py:1108
+
+    Port of NoteType.resolve_full_tree
+    """
+    raise NotImplementedError("_resolve_NoteType_full_tree not yet ported — see manifest")
+
+
+def _resolve_NoteType_subtree(root, info, **kwargs):
+    """PORT: config/graphql/annotation_types.py:1136
+
+    Port of NoteType.resolve_subtree
+    """
+    raise NotImplementedError("_resolve_NoteType_subtree not yet ported — see manifest")
+
+
+def _resolve_NoteType_current_version(root, info, **kwargs):
+    """PORT: config/graphql/annotation_types.py:1077
+
+    Port of NoteType.resolve_current_version
+    """
+    raise NotImplementedError("_resolve_NoteType_current_version not yet ported — see manifest")
+
+
+def _resolve_NoteType_content_preview(root, info, **kwargs):
+    """PORT: config/graphql/annotation_types.py:1067
+
+    Port of NoteType.resolve_content_preview
+    """
+    raise NotImplementedError("_resolve_NoteType_content_preview not yet ported — see manifest")
+
+
+@strawberry.type(name="NoteType", description='GraphQL type for the Note model with tree-based functionality.')
+class NoteType(Node):
+    user_lock: Optional[Annotated["UserType", strawberry.lazy("config.graphql.user_types")]] = strawberry.field(name="userLock", default=None)
+    backend_lock: bool = strawberry.field(name="backendLock", default=None)
+    @strawberry.field(name="title")
+    def title(self, info: strawberry.Info) -> str:
+        return coerce_str(getattr(self, "title", None))
+    @strawberry.field(name="content")
+    def content(self, info: strawberry.Info) -> str:
+        return coerce_str(getattr(self, "content", None))
+    parent: Optional["NoteType"] = strawberry.field(name="parent", default=None)
+    corpus: Optional[Annotated["CorpusType", strawberry.lazy("config.graphql.corpus_types")]] = strawberry.field(name="corpus", default=None)
+    document: Annotated["DocumentType", strawberry.lazy("config.graphql.document_types")] = strawberry.field(name="document", default=None)
+    annotation: Optional["AnnotationType"] = strawberry.field(name="annotation", default=None)
+    is_public: bool = strawberry.field(name="isPublic", default=None)
+    creator: Annotated["UserType", strawberry.lazy("config.graphql.user_types")] = strawberry.field(name="creator", default=None)
+    created: datetime.datetime = strawberry.field(name="created", default=None)
+    modified: datetime.datetime = strawberry.field(name="modified", default=None)
+    @strawberry.field(name="children")
+    def children(self, info: strawberry.Info, offset: Annotated[Optional[int], strawberry.argument(name="offset")] = strawberry.UNSET, before: Annotated[Optional[str], strawberry.argument(name="before")] = strawberry.UNSET, after: Annotated[Optional[str], strawberry.argument(name="after")] = strawberry.UNSET, first: Annotated[Optional[int], strawberry.argument(name="first")] = strawberry.UNSET, last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET) -> "NoteTypeConnection":
+        kwargs = strip_unset({"offset": offset, "before": before, "after": after, "first": first, "last": last})
+        resolved = getattr(self, "children", None)
+        return resolve_django_connection(resolved=resolved, info=info, args=kwargs, node_type_name="NoteType", )
+    @strawberry.field(name="revisions", description='List of all revisions/versions of this note, ordered by version.')
+    def revisions(self, info: strawberry.Info) -> Optional[list[Optional["NoteRevisionType"]]]:
+        kwargs = strip_unset({})
+        return _resolve_NoteType_revisions(self, info, **kwargs)
+    @strawberry.field(name="myPermissions")
+    def my_permissions(self, info: strawberry.Info) -> Optional[GenericScalar]:
+        return core_permissions.resolve_my_permissions(self, info)
+    @strawberry.field(name="isPublished")
+    def is_published(self, info: strawberry.Info) -> Optional[bool]:
+        return core_permissions.resolve_is_published(self, info)
+    @strawberry.field(name="objectSharedWith")
+    def object_shared_with(self, info: strawberry.Info) -> Optional[GenericScalar]:
+        return core_permissions.resolve_object_shared_with(self, info)
+    @strawberry.field(name="descendantsTree", description="List of descendant notes, each with immediate children's IDs.")
+    def descendants_tree(self, info: strawberry.Info) -> Optional[list[Optional[GenericScalar]]]:
+        kwargs = strip_unset({})
+        return _resolve_NoteType_descendants_tree(self, info, **kwargs)
+    @strawberry.field(name="fullTree", description="List of notes from the root ancestor, each with immediate children's IDs.")
+    def full_tree(self, info: strawberry.Info) -> Optional[list[Optional[GenericScalar]]]:
+        kwargs = strip_unset({})
+        return _resolve_NoteType_full_tree(self, info, **kwargs)
+    @strawberry.field(name="subtree", description='List representing the path from the root ancestor to this note and its descendants.')
+    def subtree(self, info: strawberry.Info) -> Optional[list[Optional[GenericScalar]]]:
+        kwargs = strip_unset({})
+        return _resolve_NoteType_subtree(self, info, **kwargs)
+    @strawberry.field(name="currentVersion", description='Current version number of the note')
+    def current_version(self, info: strawberry.Info) -> Optional[int]:
+        kwargs = strip_unset({})
+        return _resolve_NoteType_current_version(self, info, **kwargs)
+    @strawberry.field(name="contentPreview", description='First 400 characters of the note body for list/search previews. Resolvers may annotate the queryset with `content_preview` to avoid shipping the full body over the wire.')
+    def content_preview(self, info: strawberry.Info) -> Optional[str]:
+        kwargs = strip_unset({})
+        return _resolve_NoteType_content_preview(self, info, **kwargs)
+
+
+def _get_queryset_NoteType(queryset, info):
+    """PORT: config.graphql.annotation_types.NoteType.get_queryset
+
+    Port of NoteType.get_queryset
+    """
+    raise NotImplementedError("_get_queryset_NoteType not yet ported — see manifest")
+
+
+register_type("NoteType", NoteType, model=Note, get_queryset=_get_queryset_NoteType)
+
+
+NoteTypeConnection = make_connection_types(NoteType, type_name="NoteTypeConnection", countable=True, pdf_page_aware=False)
+
+
+@strawberry.type(name="NoteRevisionType", description='GraphQL type for the NoteRevision model to expose note version history.')
+class NoteRevisionType(Node):
+    note: "NoteType" = strawberry.field(name="note", default=None)
+    author: Optional[Annotated["UserType", strawberry.lazy("config.graphql.user_types")]] = strawberry.field(name="author", default=None)
+    version: int = strawberry.field(name="version", default=None)
+    @strawberry.field(name="diff")
+    def diff(self, info: strawberry.Info) -> str:
+        return coerce_str(getattr(self, "diff", None))
+    @strawberry.field(name="snapshot")
+    def snapshot(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "snapshot", None))
+    @strawberry.field(name="checksumBase")
+    def checksum_base(self, info: strawberry.Info) -> str:
+        return coerce_str(getattr(self, "checksum_base", None))
+    @strawberry.field(name="checksumFull")
+    def checksum_full(self, info: strawberry.Info) -> str:
+        return coerce_str(getattr(self, "checksum_full", None))
+    created: datetime.datetime = strawberry.field(name="created", default=None)
+
+
+register_type("NoteRevisionType", NoteRevisionType, model=NoteRevision)
+
+
+NoteRevisionTypeConnection = make_connection_types(NoteRevisionType, type_name="NoteRevisionTypeConnection", countable=True, pdf_page_aware=False)
+
+
+def _resolve_AuthorityNamespaceNode_aliases(root, info, **kwargs):
+    """PORT: config/graphql/annotation_types.py:479
+
+    Port of AuthorityNamespaceNode.resolve_aliases
+    """
+    raise NotImplementedError("_resolve_AuthorityNamespaceNode_aliases not yet ported — see manifest")
+
+
+def _resolve_AuthorityNamespaceNode_scope(root, info, **kwargs):
+    """PORT: config/graphql/annotation_types.py:482
+
+    Port of AuthorityNamespaceNode.resolve_scope
+    """
+    raise NotImplementedError("_resolve_AuthorityNamespaceNode_scope not yet ported — see manifest")
+
+
+def _resolve_AuthorityNamespaceNode_equivalence_count(root, info, **kwargs):
+    """PORT: config/graphql/annotation_types.py:485
+
+    Port of AuthorityNamespaceNode.resolve_equivalence_count
+    """
+    raise NotImplementedError("_resolve_AuthorityNamespaceNode_equivalence_count not yet ported — see manifest")
+
+
+def _resolve_AuthorityNamespaceNode_frontier_count(root, info, **kwargs):
+    """PORT: config/graphql/annotation_types.py:491
+
+    Port of AuthorityNamespaceNode.resolve_frontier_count
+    """
+    raise NotImplementedError("_resolve_AuthorityNamespaceNode_frontier_count not yet ported — see manifest")
+
+
+def _resolve_AuthorityNamespaceNode_reference_count(root, info, **kwargs):
+    """PORT: config/graphql/annotation_types.py:494
+
+    Port of AuthorityNamespaceNode.resolve_reference_count
+    """
+    raise NotImplementedError("_resolve_AuthorityNamespaceNode_reference_count not yet ported — see manifest")
+
+
+def _resolve_AuthorityNamespaceNode_effective_provider(root, info, **kwargs):
+    """PORT: config/graphql/annotation_types.py:499
+
+    Port of AuthorityNamespaceNode.resolve_effective_provider
+    """
+    raise NotImplementedError("_resolve_AuthorityNamespaceNode_effective_provider not yet ported — see manifest")
+
+
+def _resolve_AuthorityNamespaceNode_created_by_username(root, info, **kwargs):
+    """PORT: config/graphql/annotation_types.py:504
+
+    Port of AuthorityNamespaceNode.resolve_created_by_username
+    """
+    raise NotImplementedError("_resolve_AuthorityNamespaceNode_created_by_username not yet ported — see manifest")
+
+
+@strawberry.type(name="AuthorityNamespaceNode", description='One ``AuthorityNamespace`` row: a body of law (canonical-key prefix) whose\n``aliases`` drive Tier-1 citation extraction.\n\nGlobal reference data with no per-object permissions, so the connection is\n**superuser-only**: ``get_queryset`` returns nothing for everyone else and\norders by ``prefix``. The ``*_count`` and ``effective_provider`` fields are\nstring-joined to the other authority models on demand (graphene resolves\nthem only when selected, so the master list pays only for what it shows).')
+class AuthorityNamespaceNode(Node):
+    @strawberry.field(name="prefix")
+    def prefix(self, info: strawberry.Info) -> str:
+        return coerce_str(getattr(self, "prefix", None))
+    @strawberry.field(name="displayName")
+    def display_name(self, info: strawberry.Info) -> str:
+        return coerce_str(getattr(self, "display_name", None))
+    @strawberry.field(name="jurisdiction")
+    def jurisdiction(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "jurisdiction", None))
+    @strawberry.field(name="provider")
+    def provider(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "provider", None))
+    @strawberry.field(name="sourceRootUrl")
+    def source_root_url(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "source_root_url", None))
+    @strawberry.field(name="license")
+    def license(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "license", None))
+    @strawberry.field(name="baselineOrigin")
+    def baseline_origin(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "baseline_origin", None))
+    is_global: bool = strawberry.field(name="isGlobal", default=None)
+    authority_corpus: Optional[Annotated["CorpusType", strawberry.lazy("config.graphql.corpus_types")]] = strawberry.field(name="authorityCorpus", default=None)
+    created: datetime.datetime = strawberry.field(name="created", default=None)
+    modified: datetime.datetime = strawberry.field(name="modified", default=None)
+    @strawberry.field(name="aliases", description='Lowercased surface forms feeding extraction.')
+    def aliases(self, info: strawberry.Info) -> Optional[list[Optional[str]]]:
+        kwargs = strip_unset({})
+        return _resolve_AuthorityNamespaceNode_aliases(self, info, **kwargs)
+    @strawberry.field(name="source", description="'baseline' or 'manual' (ownership).")
+    def source(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "source", None))
+    @strawberry.field(name="authorityType", description='Raw authority_type value.')
+    def authority_type(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "authority_type", None))
+    @strawberry.field(name="scope", description="'global' or 'corpus' (derived).")
+    def scope(self, info: strawberry.Info) -> Optional[str]:
+        kwargs = strip_unset({})
+        return _resolve_AuthorityNamespaceNode_scope(self, info, **kwargs)
+    @strawberry.field(name="equivalenceCount", description='Key-equivalences whose from/to key is under this prefix.')
+    def equivalence_count(self, info: strawberry.Info) -> Optional[int]:
+        kwargs = strip_unset({})
+        return _resolve_AuthorityNamespaceNode_equivalence_count(self, info, **kwargs)
+    @strawberry.field(name="frontierCount", description='Discovery-queue rows for this authority.')
+    def frontier_count(self, info: strawberry.Info) -> Optional[int]:
+        kwargs = strip_unset({})
+        return _resolve_AuthorityNamespaceNode_frontier_count(self, info, **kwargs)
+    @strawberry.field(name="referenceCount", description='CorpusReferences whose canonical_key is under this prefix.')
+    def reference_count(self, info: strawberry.Info) -> Optional[int]:
+        kwargs = strip_unset({})
+        return _resolve_AuthorityNamespaceNode_reference_count(self, info, **kwargs)
+    @strawberry.field(name="effectiveProvider", description="Registry class-name that would actually handle this prefix (by can_handle/priority) — contrast with the advisory 'provider' column. Null when no provider can handle it.")
+    def effective_provider(self, info: strawberry.Info) -> Optional[str]:
+        kwargs = strip_unset({})
+        return _resolve_AuthorityNamespaceNode_effective_provider(self, info, **kwargs)
+    @strawberry.field(name="createdByUsername", description='Curator who created/edited this manual row (else null).')
+    def created_by_username(self, info: strawberry.Info) -> Optional[str]:
+        kwargs = strip_unset({})
+        return _resolve_AuthorityNamespaceNode_created_by_username(self, info, **kwargs)
+
+
+def _get_queryset_AuthorityNamespaceNode(queryset, info):
+    """PORT: config.graphql.annotation_types.AuthorityNamespaceNode.get_queryset
+
+    Port of AuthorityNamespaceNode.get_queryset
+    """
+    raise NotImplementedError("_get_queryset_AuthorityNamespaceNode not yet ported — see manifest")
+
+
+register_type("AuthorityNamespaceNode", AuthorityNamespaceNode, model=AuthorityNamespace, get_queryset=_get_queryset_AuthorityNamespaceNode)
+
+
+AuthorityNamespaceNodeConnection = make_connection_types(AuthorityNamespaceNode, type_name="AuthorityNamespaceNodeConnection", countable=True, pdf_page_aware=False)
+
+
+def _resolve_AuthorityFrontierNode_ingestable(root, info, **kwargs):
+    """PORT: config/graphql/annotation_types.py:302
+
+    Port of AuthorityFrontierNode.resolve_ingestable
+    """
+    raise NotImplementedError("_resolve_AuthorityFrontierNode_ingestable not yet ported — see manifest")
+
+
+def _resolve_AuthorityFrontierNode_predicted_provider(root, info, **kwargs):
+    """PORT: config/graphql/annotation_types.py:305
+
+    Port of AuthorityFrontierNode.resolve_predicted_provider
+    """
+    raise NotImplementedError("_resolve_AuthorityFrontierNode_predicted_provider not yet ported — see manifest")
+
+
+@strawberry.type(name="AuthorityFrontierNode", description="One ``AuthorityFrontier`` row: the discovery/ingestion state of a wanted\nsection-root canonical key (e.g. ``usc-15:78j``), aggregated instance-wide\nacross all corpora.\n\n``AuthorityFrontier`` is a system-managed global queue with no per-object\npermissions, so the connection is **superuser-only**: ``get_queryset``\nreturns nothing for everyone else and sets the backlog-first default order\n(``-mention_count``, matching the model's index).")
+class AuthorityFrontierNode(Node):
+    @strawberry.field(name="canonicalKey")
+    def canonical_key(self, info: strawberry.Info) -> str:
+        return coerce_str(getattr(self, "canonical_key", None))
+    @strawberry.field(name="authority")
+    def authority(self, info: strawberry.Info) -> str:
+        return coerce_str(getattr(self, "authority", None))
+    @strawberry.field(name="jurisdiction")
+    def jurisdiction(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "jurisdiction", None))
+    @strawberry.field(name="authorityType")
+    def authority_type(self, info: strawberry.Info) -> Optional[enums.AnnotationsAuthorityFrontierAuthorityTypeChoices]:
+        return coerce_enum(enums.AnnotationsAuthorityFrontierAuthorityTypeChoices, getattr(self, "authority_type", None))
+    mention_count: int = strawberry.field(name="mentionCount", default=None)
+    distinct_corpus_count: int = strawberry.field(name="distinctCorpusCount", default=None)
+    @strawberry.field(name="discoveryState")
+    def discovery_state(self, info: strawberry.Info) -> enums.AnnotationsAuthorityFrontierDiscoveryStateChoices:
+        return coerce_enum(enums.AnnotationsAuthorityFrontierDiscoveryStateChoices, getattr(self, "discovery_state", None))
+    depth: int = strawberry.field(name="depth", default=None)
+    @strawberry.field(name="provider")
+    def provider(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "provider", None))
+    @strawberry.field(name="lastError")
+    def last_error(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "last_error", None))
+    last_attempt: Optional[datetime.datetime] = strawberry.field(name="lastAttempt", default=None)
+    created: datetime.datetime = strawberry.field(name="created", default=None)
+    modified: datetime.datetime = strawberry.field(name="modified", default=None)
+    candidate_sources: Optional[GenericScalar] = strawberry.field(name="candidateSources", description='Per-corpus demand breakdown: [{corpus_id, mention_count, top_detection_tier}].', default=None)
+    ingested_document: Optional[Annotated["DocumentType", strawberry.lazy("config.graphql.document_types")]] = strawberry.field(name="ingestedDocument", description='The Document imported for this key once ingested (else null).', default=None)
+    @strawberry.field(name="ingestable", description="True if a source provider can_handle this key directly or via an AuthorityKeyEquivalence bridge (i.e. discovery could ingest it). False keys would record 'unsupported' if run.")
+    def ingestable(self, info: strawberry.Info) -> Optional[bool]:
+        kwargs = strip_unset({})
+        return _resolve_AuthorityFrontierNode_ingestable(self, info, **kwargs)
+    @strawberry.field(name="predictedProvider", description='Registry class name of the provider that would handle this key, or null when none can.')
+    def predicted_provider(self, info: strawberry.Info) -> Optional[str]:
+        kwargs = strip_unset({})
+        return _resolve_AuthorityFrontierNode_predicted_provider(self, info, **kwargs)
+
+
+def _get_queryset_AuthorityFrontierNode(queryset, info):
+    """PORT: config.graphql.annotation_types.AuthorityFrontierNode.get_queryset
+
+    Port of AuthorityFrontierNode.get_queryset
+    """
+    raise NotImplementedError("_get_queryset_AuthorityFrontierNode not yet ported — see manifest")
+
+
+register_type("AuthorityFrontierNode", AuthorityFrontierNode, model=AuthorityFrontier, get_queryset=_get_queryset_AuthorityFrontierNode)
+
+
+AuthorityFrontierNodeConnection = make_connection_types(AuthorityFrontierNode, type_name="AuthorityFrontierNodeConnection", countable=True, pdf_page_aware=False)
+
+
+def _resolve_AuthorityKeyEquivalenceNode_editable(root, info, **kwargs):
+    """PORT: config/graphql/annotation_types.py:374
+
+    Port of AuthorityKeyEquivalenceNode.resolve_editable
+    """
+    raise NotImplementedError("_resolve_AuthorityKeyEquivalenceNode_editable not yet ported — see manifest")
+
+
+def _resolve_AuthorityKeyEquivalenceNode_created_by_username(root, info, **kwargs):
+    """PORT: config/graphql/annotation_types.py:377
+
+    Port of AuthorityKeyEquivalenceNode.resolve_created_by_username
+    """
+    raise NotImplementedError("_resolve_AuthorityKeyEquivalenceNode_created_by_username not yet ported — see manifest")
+
+
+@strawberry.type(name="AuthorityKeyEquivalenceNode", description='One ``AuthorityKeyEquivalence`` row (canonical-key synonym) for the\nruntime authority-mappings admin panel.\n\nGlobal system data with no per-object permissions, so the connection is\n**superuser-only**: ``get_queryset`` returns nothing for everyone else and\nsets the default order (most-recently-modified first). ``editable`` is True\nonly for ``source="manual"`` rows — loader/importer-owned rows\n(``baseline`` / ``popular_name`` / ``uslm``) are read-only.')
+class AuthorityKeyEquivalenceNode(Node):
+    @strawberry.field(name="fromKey")
+    def from_key(self, info: strawberry.Info) -> str:
+        return coerce_str(getattr(self, "from_key", None))
+    @strawberry.field(name="toKey")
+    def to_key(self, info: strawberry.Info) -> str:
+        return coerce_str(getattr(self, "to_key", None))
+    @strawberry.field(name="source")
+    def source(self, info: strawberry.Info) -> enums.AnnotationsAuthorityKeyEquivalenceSourceChoices:
+        return coerce_enum(enums.AnnotationsAuthorityKeyEquivalenceSourceChoices, getattr(self, "source", None))
+    confidence: float = strawberry.field(name="confidence", default=None)
+    @strawberry.field(name="note")
+    def note(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "note", None))
+    created: datetime.datetime = strawberry.field(name="created", default=None)
+    modified: datetime.datetime = strawberry.field(name="modified", default=None)
+    @strawberry.field(name="editable", description='True iff this is a manual row the curator may edit/delete.')
+    def editable(self, info: strawberry.Info) -> Optional[bool]:
+        kwargs = strip_unset({})
+        return _resolve_AuthorityKeyEquivalenceNode_editable(self, info, **kwargs)
+    @strawberry.field(name="createdByUsername", description='Username of the curator who created this manual row (else null).')
+    def created_by_username(self, info: strawberry.Info) -> Optional[str]:
+        kwargs = strip_unset({})
+        return _resolve_AuthorityKeyEquivalenceNode_created_by_username(self, info, **kwargs)
+
+
+def _get_queryset_AuthorityKeyEquivalenceNode(queryset, info):
+    """PORT: config.graphql.annotation_types.AuthorityKeyEquivalenceNode.get_queryset
+
+    Port of AuthorityKeyEquivalenceNode.get_queryset
+    """
+    raise NotImplementedError("_get_queryset_AuthorityKeyEquivalenceNode not yet ported — see manifest")
+
+
+register_type("AuthorityKeyEquivalenceNode", AuthorityKeyEquivalenceNode, model=AuthorityKeyEquivalence, get_queryset=_get_queryset_AuthorityKeyEquivalenceNode)
+
+
+AuthorityKeyEquivalenceNodeConnection = make_connection_types(AuthorityKeyEquivalenceNode, type_name="AuthorityKeyEquivalenceNodeConnection", countable=True, pdf_page_aware=False)
+
+
+@strawberry.type(name="GovernanceGraphType", description='The corpus-scoped reference web in node-link form.\n\nBuilt by ``GovernanceGraphService`` from corpus-as-gate ``CorpusReference``\nrows + permission-filtered ``DocumentRelationship`` rows, with every\nsurfaced document independently READ-checked (invisible targets degrade to\nexternal ghost nodes). Counts describe the full visible graph; the\nnode/edge lists may be degree-capped (``truncated``).')
+class GovernanceGraphType:
+    @strawberry.field(name="corpora")
+    def corpora(self, info: strawberry.Info) -> list["GovernanceGraphCorpusType"]:
+        return resolve_django_list(self, info, getattr(self, "corpora"), "GovernanceGraphCorpusType")
+    @strawberry.field(name="nodes")
+    def nodes(self, info: strawberry.Info) -> list["GovernanceGraphNodeType"]:
+        return resolve_django_list(self, info, getattr(self, "nodes"), "GovernanceGraphNodeType")
+    @strawberry.field(name="edges")
+    def edges(self, info: strawberry.Info) -> list["GovernanceGraphEdgeType"]:
+        return resolve_django_list(self, info, getattr(self, "edges"), "GovernanceGraphEdgeType")
+    document_count: int = strawberry.field(name="documentCount", description='Distinct visible document nodes (pre-cap).', default=None)
+    external_key_count: int = strawberry.field(name="externalKeyCount", description='Distinct external ghost nodes (pre-cap).', default=None)
+    edge_count: int = strawberry.field(name="edgeCount", description='Distinct edges in the full graph (pre-cap).', default=None)
+    mention_count: int = strawberry.field(name="mentionCount", description='Total reference mentions across all edges.', default=None)
+    truncated: bool = strawberry.field(name="truncated", description='True when nodes/edges were dropped to honor the node cap.', default=None)
+
+
+register_type("GovernanceGraphType", GovernanceGraphType, model=None)
+
+
+@strawberry.type(name="GovernanceGraphCorpusType", description='A corpus participating in the governance graph (filing or authority).')
+class GovernanceGraphCorpusType:
+    @strawberry.field(name="id", description='Global CorpusType id.')
+    def id(self, info: strawberry.Info) -> strawberry.ID:
+        return coerce_str(getattr(self, "id", None))
+    @strawberry.field(name="title")
+    def title(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "title", None))
+    @strawberry.field(name="kind", description='"filing" or "authority" (cited body of law).')
+    def kind(self, info: strawberry.Info) -> str:
+        return coerce_str(getattr(self, "kind", None))
+
+
+register_type("GovernanceGraphCorpusType", GovernanceGraphCorpusType, model=None)
+
+
+@strawberry.type(name="GovernanceGraphNodeType", description='One governance-graph node: a document or an external-citation ghost.')
+class GovernanceGraphNodeType:
+    @strawberry.field(name="id", description='Node id: the global DocumentType id for document nodes, or "key:<canonical_key>" for external ghost nodes.')
+    def id(self, info: strawberry.Info) -> str:
+        return coerce_str(getattr(self, "id", None))
+    @strawberry.field(name="documentId", description='Global DocumentType id (null for external ghost nodes).')
+    def document_id(self, info: strawberry.Info) -> Optional[strawberry.ID]:
+        return coerce_str(getattr(self, "document_id", None))
+    @strawberry.field(name="title", description='Document title, or the canonical key for ghost nodes.')
+    def title(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "title", None))
+    @strawberry.field(name="kind", description='"primary", "exhibit", "statute" or "external".')
+    def kind(self, info: strawberry.Info) -> str:
+        return coerce_str(getattr(self, "kind", None))
+    @strawberry.field(name="corpusId", description="Global CorpusType id of the node's corpus (null for ghosts).")
+    def corpus_id(self, info: strawberry.Info) -> Optional[strawberry.ID]:
+        return coerce_str(getattr(self, "corpus_id", None))
+    @strawberry.field(name="authority", description='Body-of-law key prefix (e.g. "dgcl") for statute/ghost nodes.')
+    def authority(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "authority", None))
+    @strawberry.field(name="jurisdiction", description='Jurisdiction code, e.g. "us-de", "us-federal" (null if unknown).')
+    def jurisdiction(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "jurisdiction", None))
+    @strawberry.field(name="authorityType", description='Authority type: "statute", "regulation", etc. (null if unknown).')
+    def authority_type(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "authority_type", None))
+    @strawberry.field(name="discoveryState", description='Authority-frontier crawl status for ghost nodes: "queued", "in_progress", "ingested", "failed", "unsupported", "blocked_license", "blocked_domain", "unlocated", "pending_approval", "deferred_cap" — or null when not tracked.')
+    def discovery_state(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "discovery_state", None))
+    degree: int = strawberry.field(name="degree", description='Summed mention weight of edges touching the node.', default=None)
+
+
+register_type("GovernanceGraphNodeType", GovernanceGraphNodeType, model=None)
+
+
+@strawberry.type(name="GovernanceGraphEdgeType", description='One weighted reference edge between two governance-graph nodes.')
+class GovernanceGraphEdgeType:
+    @strawberry.field(name="source", description='Source node id.')
+    def source(self, info: strawberry.Info) -> str:
+        return coerce_str(getattr(self, "source", None))
+    @strawberry.field(name="target", description='Target node id.')
+    def target(self, info: strawberry.Info) -> str:
+        return coerce_str(getattr(self, "target", None))
+    @strawberry.field(name="edgeType", description='"LAW", "LAW_EXTERNAL" or "DOCUMENT".')
+    def edge_type(self, info: strawberry.Info) -> str:
+        return coerce_str(getattr(self, "edge_type", None))
+    weight: int = strawberry.field(name="weight", description='Mention count.', default=None)
+
+
+register_type("GovernanceGraphEdgeType", GovernanceGraphEdgeType, model=None)
+
+
+@strawberry.type(name="WantedAuthorityType", description="One authority worth bootstrapping, ranked by citation demand.\n\nAggregated by ``CorpusReferenceService.wanted_authorities`` from EXTERNAL\nlaw references visible to the requesting user — the actionable backlog\nbehind the governance graph's ghost nodes.")
+class WantedAuthorityType:
+    @strawberry.field(name="authority", description='Authority prefix, e.g. "dgcl".')
+    def authority(self, info: strawberry.Info) -> str:
+        return coerce_str(getattr(self, "authority", None))
+    mention_count: int = strawberry.field(name="mentionCount", description='Total EXTERNAL mentions for this authority.', default=None)
+    key_count: int = strawberry.field(name="keyCount", description='Distinct section-root keys cited.', default=None)
+    corpus_count: int = strawberry.field(name="corpusCount", description='Distinct corpora with unresolved citations.', default=None)
+    @strawberry.field(name="topKeys", description='Most-cited missing keys (capped server-side).')
+    def top_keys(self, info: strawberry.Info) -> list["WantedAuthorityKeyType"]:
+        return resolve_django_list(self, info, getattr(self, "top_keys"), "WantedAuthorityKeyType")
+
+
+register_type("WantedAuthorityType", WantedAuthorityType, model=None)
+
+
+@strawberry.type(name="WantedAuthorityKeyType", description='One missing canonical key (rolled up to its section root).')
+class WantedAuthorityKeyType:
+    @strawberry.field(name="canonicalKey", description='Section-root canonical key, e.g. "dgcl:145".')
+    def canonical_key(self, info: strawberry.Info) -> str:
+        return coerce_str(getattr(self, "canonical_key", None))
+    mention_count: int = strawberry.field(name="mentionCount", description='EXTERNAL mentions citing this key.', default=None)
+    corpus_count: int = strawberry.field(name="corpusCount", description='Distinct corpora citing this key.', default=None)
+
+
+register_type("WantedAuthorityKeyType", WantedAuthorityKeyType, model=None)
+
+
+@strawberry.type(name="AuthorityFrontierStatsType", description="Facet-aware summary counts for the authority-sources monitor's chips.\n\nCounts honour the non-state facets (jurisdiction / authority_type /\nprovider / search) but NOT the state filter, so the chips always show the\nfull state breakdown for the current facet selection.")
+class AuthorityFrontierStatsType:
+    total_count: int = strawberry.field(name="totalCount", description='Total frontier rows matching the non-state facets.', default=None)
+    @strawberry.field(name="byState", description='Row count per discovery_state (only non-empty states).')
+    def by_state(self, info: strawberry.Info) -> list["AuthorityFrontierStateCountType"]:
+        return resolve_django_list(self, info, getattr(self, "by_state"), "AuthorityFrontierStateCountType")
+
+
+register_type("AuthorityFrontierStatsType", AuthorityFrontierStatsType, model=None)
+
+
+@strawberry.type(name="AuthorityFrontierStateCountType", description='One ``discovery_state`` and how many frontier rows are in it.')
+class AuthorityFrontierStateCountType:
+    @strawberry.field(name="state", description='discovery_state value.')
+    def state(self, info: strawberry.Info) -> str:
+        return coerce_str(getattr(self, "state", None))
+    count: int = strawberry.field(name="count", default=None)
+
+
+register_type("AuthorityFrontierStateCountType", AuthorityFrontierStateCountType, model=None)
+
+
+@strawberry.type(name="AuthorityMappingStatsType", description='Per-``source`` summary counts for the authority-mappings panel chips.\n\nHonours the ``search`` facet but NOT a source filter, so the chips always\nshow the full source breakdown for the current search.')
+class AuthorityMappingStatsType:
+    total_count: int = strawberry.field(name="totalCount", description='Total equivalence rows matching the search.', default=None)
+    @strawberry.field(name="bySource", description='Row count per source (only non-empty sources).')
+    def by_source(self, info: strawberry.Info) -> list["AuthorityMappingSourceCountType"]:
+        return resolve_django_list(self, info, getattr(self, "by_source"), "AuthorityMappingSourceCountType")
+
+
+register_type("AuthorityMappingStatsType", AuthorityMappingStatsType, model=None)
+
+
+@strawberry.type(name="AuthorityMappingSourceCountType", description='One ``source`` value and how many equivalence rows carry it.')
+class AuthorityMappingSourceCountType:
+    @strawberry.field(name="source", description='source value.')
+    def source(self, info: strawberry.Info) -> str:
+        return coerce_str(getattr(self, "source", None))
+    count: int = strawberry.field(name="count", default=None)
+
+
+register_type("AuthorityMappingSourceCountType", AuthorityMappingSourceCountType, model=None)
+
+
+@strawberry.type(name="AuthorityNamespaceStatsType", description="Faceted summary counts for the registry panel's chips.\n\nHonours ``search`` but not the facet selects, so chips show the full\nbreakdown for the current search (mirrors ``AuthorityMappingStatsType``).")
+class AuthorityNamespaceStatsType:
+    total_count: int = strawberry.field(name="totalCount", default=None)
+    @strawberry.field(name="byJurisdiction")
+    def by_jurisdiction(self, info: strawberry.Info) -> list["AuthorityNamespaceFacetCountType"]:
+        return resolve_django_list(self, info, getattr(self, "by_jurisdiction"), "AuthorityNamespaceFacetCountType")
+    @strawberry.field(name="byAuthorityType")
+    def by_authority_type(self, info: strawberry.Info) -> list["AuthorityNamespaceFacetCountType"]:
+        return resolve_django_list(self, info, getattr(self, "by_authority_type"), "AuthorityNamespaceFacetCountType")
+    @strawberry.field(name="byScope")
+    def by_scope(self, info: strawberry.Info) -> list["AuthorityNamespaceFacetCountType"]:
+        return resolve_django_list(self, info, getattr(self, "by_scope"), "AuthorityNamespaceFacetCountType")
+
+
+register_type("AuthorityNamespaceStatsType", AuthorityNamespaceStatsType, model=None)
+
+
+@strawberry.type(name="AuthorityNamespaceFacetCountType", description='One facet value (jurisdiction / authority_type / scope) and its row count.')
+class AuthorityNamespaceFacetCountType:
+    @strawberry.field(name="value", description="The facet value (null collapses to '').")
+    def value(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "value", None))
+    count: int = strawberry.field(name="count", default=None)
+
+
+register_type("AuthorityNamespaceFacetCountType", AuthorityNamespaceFacetCountType, model=None)
+
+
+@strawberry.type(name="AuthorityDetailType", description="Everything about one body of law, string-joined across the authority models.\n\nThe console's single-authority view. Superuser-gated at the service layer\n(``AuthorityNamespaceService.detail``); the nested node types are returned as\npre-fetched instances, so their own connection gates are not re-applied (the\nservice already enforced access).")
+class AuthorityDetailType:
+    namespace: "AuthorityNamespaceNode" = strawberry.field(name="namespace", default=None)
+    @strawberry.field(name="equivalencesOut", description='Equivalences FROM a key under this prefix.')
+    def equivalences_out(self, info: strawberry.Info) -> list["AuthorityKeyEquivalenceNode"]:
+        return resolve_django_list(self, info, getattr(self, "equivalences_out"), "AuthorityKeyEquivalenceNode")
+    @strawberry.field(name="equivalencesIn", description='Equivalences TO a key under this prefix.')
+    def equivalences_in(self, info: strawberry.Info) -> list["AuthorityKeyEquivalenceNode"]:
+        return resolve_django_list(self, info, getattr(self, "equivalences_in"), "AuthorityKeyEquivalenceNode")
+    @strawberry.field(name="frontierRows")
+    def frontier_rows(self, info: strawberry.Info) -> list["AuthorityFrontierNode"]:
+        return resolve_django_list(self, info, getattr(self, "frontier_rows"), "AuthorityFrontierNode")
+    @strawberry.field(name="frontierStateCounts")
+    def frontier_state_counts(self, info: strawberry.Info) -> list["AuthorityFrontierStateCountType"]:
+        return resolve_django_list(self, info, getattr(self, "frontier_state_counts"), "AuthorityFrontierStateCountType")
+    reference_total: int = strawberry.field(name="referenceTotal", default=None)
+    @strawberry.field(name="referenceStatusCounts")
+    def reference_status_counts(self, info: strawberry.Info) -> list["AuthorityReferenceStatusCountType"]:
+        return resolve_django_list(self, info, getattr(self, "reference_status_counts"), "AuthorityReferenceStatusCountType")
+    @strawberry.field(name="referenceSample", description='Most-recent references under this prefix (capped).')
+    def reference_sample(self, info: strawberry.Info) -> list["CorpusReferenceType"]:
+        return resolve_django_list(self, info, getattr(self, "reference_sample"), "CorpusReferenceType")
+    @strawberry.field(name="effectiveProvider")
+    def effective_provider(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "effective_provider", None))
+
+
+register_type("AuthorityDetailType", AuthorityDetailType, model=None)
+
+
+@strawberry.type(name="AuthorityReferenceStatusCountType", description='One ``resolution_status`` and how many references under a prefix carry it.')
+class AuthorityReferenceStatusCountType:
+    @strawberry.field(name="status")
+    def status(self, info: strawberry.Info) -> str:
+        return coerce_str(getattr(self, "status", None))
+    count: int = strawberry.field(name="count", default=None)
+
+
+register_type("AuthorityReferenceStatusCountType", AuthorityReferenceStatusCountType, model=None)
+
+
+@strawberry.type(name="AuthoritySourceProviderType", description='One registered authority source provider (a "scraper").\n\nThe auto-discovered provider classes (US Code / eCFR / Federal Register /\nagentic web locator) surfaced read-only for the console\'s Scrapers tab —\nthey have no DB row, so this is a registry projection. ``has_credentials``\nreflects whether the encrypted-secrets vault holds anything for this\nprovider\'s class path (credentials are edited via the existing\n``updateComponentSecrets`` mutation, not here).')
+class AuthoritySourceProviderType:
+    @strawberry.field(name="name", description='Registry class name.')
+    def name(self, info: strawberry.Info) -> str:
+        return coerce_str(getattr(self, "name", None))
+    @strawberry.field(name="className", description='Full module.ClassName path.')
+    def class_name(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "class_name", None))
+    @strawberry.field(name="title")
+    def title(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "title", None))
+    @strawberry.field(name="supportedPrefixes")
+    def supported_prefixes(self, info: strawberry.Info) -> list[Optional[str]]:
+        return resolve_django_list(self, info, getattr(self, "supported_prefixes"), "String")
+    @strawberry.field(name="license")
+    def license(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "license", None))
+    priority: Optional[int] = strawberry.field(name="priority", default=None)
+    requires_approval: bool = strawberry.field(name="requiresApproval", default=None)
+    enabled: bool = strawberry.field(name="enabled", default=None)
+    has_credentials: bool = strawberry.field(name="hasCredentials", default=None)
+
+
+register_type("AuthoritySourceProviderType", AuthoritySourceProviderType, model=None)
+
+
+def q_authority_frontier(info: strawberry.Info, offset: Annotated[Optional[int], strawberry.argument(name="offset")] = strawberry.UNSET, before: Annotated[Optional[str], strawberry.argument(name="before")] = strawberry.UNSET, after: Annotated[Optional[str], strawberry.argument(name="after")] = strawberry.UNSET, first: Annotated[Optional[int], strawberry.argument(name="first")] = strawberry.UNSET, last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET, jurisdiction: Annotated[Optional[str], strawberry.argument(name="jurisdiction")] = strawberry.UNSET, provider: Annotated[Optional[str], strawberry.argument(name="provider")] = strawberry.UNSET, authority: Annotated[Optional[str], strawberry.argument(name="authority")] = strawberry.UNSET, discovery_state: Annotated[Optional[str], strawberry.argument(name="discoveryState")] = strawberry.UNSET, authority_type: Annotated[Optional[str], strawberry.argument(name="authorityType")] = strawberry.UNSET, search: Annotated[Optional[str], strawberry.argument(name="search")] = strawberry.UNSET) -> Optional["AuthorityFrontierNodeConnection"]:
+    kwargs = strip_unset({"offset": offset, "before": before, "after": after, "first": first, "last": last, "jurisdiction": jurisdiction, "provider": provider, "authority": authority, "discovery_state": discovery_state, "authority_type": authority_type, "search": search})
+    resolved = None
+    return resolve_django_connection(resolved=resolved, info=info, args=kwargs, node_type_name="AuthorityFrontierNode", default_manager=AuthorityFrontier._default_manager, filterset_class=setup_filterset(AuthorityFrontierFilter), filter_args={"jurisdiction": "jurisdiction", "provider": "provider", "authority": "authority", "discovery_state": "discovery_state", "authority_type": "authority_type", "search": "search"}, )
+
+
+def q_authority_key_equivalences(info: strawberry.Info, offset: Annotated[Optional[int], strawberry.argument(name="offset")] = strawberry.UNSET, before: Annotated[Optional[str], strawberry.argument(name="before")] = strawberry.UNSET, after: Annotated[Optional[str], strawberry.argument(name="after")] = strawberry.UNSET, first: Annotated[Optional[int], strawberry.argument(name="first")] = strawberry.UNSET, last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET, source: Annotated[Optional[str], strawberry.argument(name="source")] = strawberry.UNSET, search: Annotated[Optional[str], strawberry.argument(name="search")] = strawberry.UNSET) -> Optional["AuthorityKeyEquivalenceNodeConnection"]:
+    kwargs = strip_unset({"offset": offset, "before": before, "after": after, "first": first, "last": last, "source": source, "search": search})
+    resolved = None
+    return resolve_django_connection(resolved=resolved, info=info, args=kwargs, node_type_name="AuthorityKeyEquivalenceNode", default_manager=AuthorityKeyEquivalence._default_manager, filterset_class=setup_filterset(AuthorityKeyEquivalenceFilter), filter_args={"source": "source", "search": "search"}, )
+
+
+def q_authority_namespaces(info: strawberry.Info, offset: Annotated[Optional[int], strawberry.argument(name="offset")] = strawberry.UNSET, before: Annotated[Optional[str], strawberry.argument(name="before")] = strawberry.UNSET, after: Annotated[Optional[str], strawberry.argument(name="after")] = strawberry.UNSET, first: Annotated[Optional[int], strawberry.argument(name="first")] = strawberry.UNSET, last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET, jurisdiction: Annotated[Optional[str], strawberry.argument(name="jurisdiction")] = strawberry.UNSET, authority_type: Annotated[Optional[str], strawberry.argument(name="authorityType")] = strawberry.UNSET, scope: Annotated[Optional[str], strawberry.argument(name="scope")] = strawberry.UNSET, search: Annotated[Optional[str], strawberry.argument(name="search")] = strawberry.UNSET) -> Optional["AuthorityNamespaceNodeConnection"]:
+    kwargs = strip_unset({"offset": offset, "before": before, "after": after, "first": first, "last": last, "jurisdiction": jurisdiction, "authority_type": authority_type, "scope": scope, "search": search})
+    resolved = None
+    return resolve_django_connection(resolved=resolved, info=info, args=kwargs, node_type_name="AuthorityNamespaceNode", default_manager=AuthorityNamespace._default_manager, filterset_class=setup_filterset(AuthorityNamespaceFilter), filter_args={"jurisdiction": "jurisdiction", "authority_type": "authority_type", "scope": "scope", "search": "search"}, )
+
+
+
+QUERY_FIELDS = {
+    "authority_frontier": strawberry.field(resolver=q_authority_frontier, name="authorityFrontier", description="Global authority-source discovery queue (AuthorityFrontier): the crawl/ingestion state of every wanted section-root key across all corpora, ranked by citation demand. SUPERUSER-ONLY (empty otherwise) — gating + default order live on the node's get_queryset."),
+    "authority_key_equivalences": strawberry.field(resolver=q_authority_key_equivalences, name="authorityKeyEquivalences", description="Runtime authority key-equivalence registry (AuthorityKeyEquivalence): act-section ↔ USC/CFR codification synonyms used to bridge citations across namespaces. SUPERUSER-ONLY (empty otherwise) — gating + default order live on the node's get_queryset."),
+    "authority_namespaces": strawberry.field(resolver=q_authority_namespaces, name="authorityNamespaces", description="The registry of bodies of law (AuthorityNamespace): one row per canonical-key prefix (e.g. 'usc-15', 'dgcl') whose aliases drive Tier-1 citation extraction. SUPERUSER-ONLY (empty otherwise) — gating + default order live on the node's get_queryset."),
+}

@@ -1,103 +1,143 @@
+"""Generated strawberry GraphQL module (graphene migration).
+
+Shape-generated from the graphene schema; stub functions marked PORT(...)
+carry the ported business logic. See config/graphql_new/manifest.json.
 """
-GraphQL types for the worker upload system.
+from __future__ import annotations
 
-Includes both mutation-return types (WorkerAccountType, CorpusAccessTokenCreatedType)
-and read-only query projection types (WorkerAccountQueryType, etc.).
-"""
+import datetime
+import decimal
+import uuid
+from typing import Annotated, Any, Optional
 
-import graphene
+import strawberry
 
-# ============================================================================
-# Mutation return types
-# ============================================================================
-
-
-class WorkerAccountType(graphene.ObjectType):
-    id = graphene.Int()
-    name = graphene.String()
-    description = graphene.String()
-    is_active = graphene.Boolean()
-    created = graphene.DateTime()
-
-
-class CorpusAccessTokenType(graphene.ObjectType):
-    id = graphene.Int()
-    # Only show the full key on creation; afterwards show a masked version
-    key = graphene.String()
-    worker_account_name = graphene.String()
-    corpus_id = graphene.Int()
-    expires_at = graphene.DateTime()
-    is_active = graphene.Boolean()
-    rate_limit_per_minute = graphene.Int()
-    created = graphene.DateTime()
+from config.graphql.core import permissions as core_permissions
+from config.graphql.core.filtering import filterset_factory, setup_filterset
+from config.graphql.core.mutations import drf_deletion, drf_mutation
+from config.graphql.core.relay import (
+    Node,
+    get_node_from_global_id,
+    make_connection_types,
+    register_type,
+    resolve_django_connection,
+    resolve_django_list,
+)
+from config.graphql.core.scalars import BigInt, GenericScalar, JSONString
+from config.graphql._util import coerce_enum, coerce_str, strip_unset
+from config.graphql import enums
 
 
-class CorpusAccessTokenCreatedType(graphene.ObjectType):
-    """Returned only on token creation — includes the full key."""
-
-    id = graphene.Int()
-    key = graphene.String(
-        description="Full token key. Store securely — shown only once."
-    )
-    worker_account_name = graphene.String()
-    corpus_id = graphene.Int()
-    expires_at = graphene.DateTime()
-    rate_limit_per_minute = graphene.Int()
-    created = graphene.DateTime()
 
 
-# ============================================================================
-# Query projection types (read-only, used by resolvers in queries.py)
-# ============================================================================
+@strawberry.type(name="WorkerAccountQueryType", description='Worker account with computed fields for listing.')
+class WorkerAccountQueryType:
+    id: Optional[int] = strawberry.field(name="id", default=None)
+    @strawberry.field(name="name")
+    def name(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "name", None))
+    @strawberry.field(name="description")
+    def description(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "description", None))
+    is_active: Optional[bool] = strawberry.field(name="isActive", default=None)
+    @strawberry.field(name="creatorName")
+    def creator_name(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "creator_name", None))
+    created: Optional[datetime.datetime] = strawberry.field(name="created", default=None)
+    modified: Optional[datetime.datetime] = strawberry.field(name="modified", default=None)
+    token_count: Optional[int] = strawberry.field(name="tokenCount", description='Number of access tokens for this account', default=None)
 
 
-class WorkerAccountQueryType(graphene.ObjectType):
-    """Worker account with computed fields for listing."""
-
-    id = graphene.Int()
-    name = graphene.String()
-    description = graphene.String()
-    is_active = graphene.Boolean()
-    creator_name = graphene.String()
-    created = graphene.DateTime()
-    modified = graphene.DateTime()
-    token_count = graphene.Int(description="Number of access tokens for this account")
+register_type("WorkerAccountQueryType", WorkerAccountQueryType, model=None)
 
 
-class CorpusAccessTokenQueryType(graphene.ObjectType):
-    """Corpus access token for listing. Never exposes the hashed key."""
-
-    id = graphene.Int()
-    key_prefix = graphene.String(description="First 8 characters of the original token")
-    worker_account_id = graphene.Int()
-    worker_account_name = graphene.String()
-    corpus_id = graphene.Int()
-    is_active = graphene.Boolean()
-    expires_at = graphene.DateTime()
-    rate_limit_per_minute = graphene.Int()
-    created = graphene.DateTime()
-    upload_count_pending = graphene.Int()
-    upload_count_completed = graphene.Int()
-    upload_count_failed = graphene.Int()
-
-
-class WorkerDocumentUploadQueryType(graphene.ObjectType):
-    """Worker document upload for listing."""
-
-    id = graphene.String(description="UUID of the upload")
-    corpus_id = graphene.Int()
-    status = graphene.String()
-    error_message = graphene.String()
-    result_document_id = graphene.Int()
-    created = graphene.DateTime()
-    processing_started = graphene.DateTime()
-    processing_finished = graphene.DateTime()
+@strawberry.type(name="CorpusAccessTokenQueryType", description='Corpus access token for listing. Never exposes the hashed key.')
+class CorpusAccessTokenQueryType:
+    id: Optional[int] = strawberry.field(name="id", default=None)
+    @strawberry.field(name="keyPrefix", description='First 8 characters of the original token')
+    def key_prefix(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "key_prefix", None))
+    worker_account_id: Optional[int] = strawberry.field(name="workerAccountId", default=None)
+    @strawberry.field(name="workerAccountName")
+    def worker_account_name(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "worker_account_name", None))
+    corpus_id: Optional[int] = strawberry.field(name="corpusId", default=None)
+    is_active: Optional[bool] = strawberry.field(name="isActive", default=None)
+    expires_at: Optional[datetime.datetime] = strawberry.field(name="expiresAt", default=None)
+    rate_limit_per_minute: Optional[int] = strawberry.field(name="rateLimitPerMinute", default=None)
+    created: Optional[datetime.datetime] = strawberry.field(name="created", default=None)
+    upload_count_pending: Optional[int] = strawberry.field(name="uploadCountPending", default=None)
+    upload_count_completed: Optional[int] = strawberry.field(name="uploadCountCompleted", default=None)
+    upload_count_failed: Optional[int] = strawberry.field(name="uploadCountFailed", default=None)
 
 
-class WorkerDocumentUploadPageType(graphene.ObjectType):
-    """Paginated wrapper for worker document uploads."""
+register_type("CorpusAccessTokenQueryType", CorpusAccessTokenQueryType, model=None)
 
-    items = graphene.List(graphene.NonNull(WorkerDocumentUploadQueryType))
-    total_count = graphene.Int(description="Total matching uploads before pagination")
-    limit = graphene.Int(description="Max items returned")
-    offset = graphene.Int(description="Items skipped")
+
+@strawberry.type(name="WorkerDocumentUploadPageType", description='Paginated wrapper for worker document uploads.')
+class WorkerDocumentUploadPageType:
+    @strawberry.field(name="items")
+    def items(self, info: strawberry.Info) -> Optional[list["WorkerDocumentUploadQueryType"]]:
+        return resolve_django_list(self, info, getattr(self, "items"), "WorkerDocumentUploadQueryType")
+    total_count: Optional[int] = strawberry.field(name="totalCount", description='Total matching uploads before pagination', default=None)
+    limit: Optional[int] = strawberry.field(name="limit", description='Max items returned', default=None)
+    offset: Optional[int] = strawberry.field(name="offset", description='Items skipped', default=None)
+
+
+register_type("WorkerDocumentUploadPageType", WorkerDocumentUploadPageType, model=None)
+
+
+@strawberry.type(name="WorkerDocumentUploadQueryType", description='Worker document upload for listing.')
+class WorkerDocumentUploadQueryType:
+    @strawberry.field(name="id", description='UUID of the upload')
+    def id(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "id", None))
+    corpus_id: Optional[int] = strawberry.field(name="corpusId", default=None)
+    @strawberry.field(name="status")
+    def status(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "status", None))
+    @strawberry.field(name="errorMessage")
+    def error_message(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "error_message", None))
+    result_document_id: Optional[int] = strawberry.field(name="resultDocumentId", default=None)
+    created: Optional[datetime.datetime] = strawberry.field(name="created", default=None)
+    processing_started: Optional[datetime.datetime] = strawberry.field(name="processingStarted", default=None)
+    processing_finished: Optional[datetime.datetime] = strawberry.field(name="processingFinished", default=None)
+
+
+register_type("WorkerDocumentUploadQueryType", WorkerDocumentUploadQueryType, model=None)
+
+
+@strawberry.type(name="WorkerAccountType")
+class WorkerAccountType:
+    id: Optional[int] = strawberry.field(name="id", default=None)
+    @strawberry.field(name="name")
+    def name(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "name", None))
+    @strawberry.field(name="description")
+    def description(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "description", None))
+    is_active: Optional[bool] = strawberry.field(name="isActive", default=None)
+    created: Optional[datetime.datetime] = strawberry.field(name="created", default=None)
+
+
+register_type("WorkerAccountType", WorkerAccountType, model=None)
+
+
+@strawberry.type(name="CorpusAccessTokenCreatedType", description='Returned only on token creation — includes the full key.')
+class CorpusAccessTokenCreatedType:
+    id: Optional[int] = strawberry.field(name="id", default=None)
+    @strawberry.field(name="key", description='Full token key. Store securely — shown only once.')
+    def key(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "key", None))
+    @strawberry.field(name="workerAccountName")
+    def worker_account_name(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "worker_account_name", None))
+    corpus_id: Optional[int] = strawberry.field(name="corpusId", default=None)
+    expires_at: Optional[datetime.datetime] = strawberry.field(name="expiresAt", default=None)
+    rate_limit_per_minute: Optional[int] = strawberry.field(name="rateLimitPerMinute", default=None)
+    created: Optional[datetime.datetime] = strawberry.field(name="created", default=None)
+
+
+register_type("CorpusAccessTokenCreatedType", CorpusAccessTokenCreatedType, model=None)
+

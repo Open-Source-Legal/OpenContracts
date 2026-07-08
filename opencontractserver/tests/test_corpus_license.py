@@ -14,7 +14,7 @@ Covers:
 
 from django.core.exceptions import ValidationError
 from django.test import TestCase
-from graphene.test import Client as GrapheneClient
+from config.graphql.testing import Client as GrapheneClient
 from graphql_relay import to_global_id
 
 from config.graphql.schema import schema

@@ -13,7 +13,7 @@ Note: The Django/Graphene type ``MessageType`` is what the plan calls
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
-from graphene.test import Client as GrapheneClient
+from config.graphql.testing import Client as GrapheneClient
 from graphql_relay import to_global_id
 
 from config.graphql.schema import schema

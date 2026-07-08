@@ -596,7 +596,7 @@ class ModerationMutationIDORTest(TestCase):
     def setUp(self):
         """Set up test data."""
         from django.contrib.auth import get_user_model
-        from graphene.test import Client
+        from config.graphql.testing import Client
 
         from config.graphql.schema import schema
 
@@ -782,7 +782,7 @@ class DeleteRestoreThreadMutationTest(TestCase):
 
     def setUp(self):
         """Set up test data."""
-        from graphene.test import Client
+        from config.graphql.testing import Client
 
         from config.graphql.schema import schema
 
@@ -942,7 +942,7 @@ class RollbackModerationActionMutationTest(TestCase):
 
     def setUp(self):
         """Set up test data."""
-        from graphene.test import Client
+        from config.graphql.testing import Client
 
         from config.graphql.schema import schema
 
@@ -1180,7 +1180,7 @@ class ModerationQueriesTest(TestCase):
 
     def setUp(self):
         """Set up test data."""
-        from graphene.test import Client
+        from config.graphql.testing import Client
 
         from config.graphql.schema import schema
 
@@ -1316,7 +1316,7 @@ class ResolveModerationActionAuthGateTest(TestCase):
     """
 
     def setUp(self):
-        from graphene.test import Client
+        from config.graphql.testing import Client
 
         from config.graphql.schema import schema
         from opencontractserver.documents.models import Document

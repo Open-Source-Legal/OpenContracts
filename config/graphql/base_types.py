@@ -1,254 +1,151 @@
-"""GraphQL type definitions for shared utilities, enums, and simple types."""
+"""Generated strawberry GraphQL module (graphene migration).
 
+Shape-generated from the graphene schema; stub functions marked PORT(...)
+carry the ported business logic. See config/graphql_new/manifest.json.
+"""
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+import datetime
+import decimal
+import uuid
+from typing import Annotated, Any, Optional
 
-import graphene
-from graphene.types.generic import GenericScalar
-from graphql_relay import to_global_id
+import strawberry
 
-if TYPE_CHECKING:
-    from config.graphql.annotation_types import AnnotationType
-    from config.graphql.corpus_types import CorpusFolderType
-    from config.graphql.user_types import UserType
-
-
-def build_flat_tree(
-    nodes: list[dict[str, Any]],
-    type_name: str = "AnnotationType",
-    text_key: str = "raw_text",
-) -> list[dict[str, Any]]:
-    """
-    Builds a flat list of node representations from a list of dictionaries where each
-    has at least 'id' and 'parent_id', plus an additional text field (default "raw_text")
-    that may differ depending on the model (Annotation or Note).
-
-    Args:
-        nodes (list): A list of dicts with fields "id", "parent_id", and a text field.
-        type_name (str): GraphQL type name used by to_global_id (e.g. "AnnotationType" or "NoteType").
-        text_key (str): The dictionary key to use for the text field (e.g. "raw_text" or "content").
-
-    Returns:
-        list: A list of node dicts in which each node has:
-            - "id" (global ID),
-            - text field under "raw_text",
-            - "children": list of child node global IDs.
-    """
-    # Map node IDs to their immediate children IDs
-    id_to_children: dict[int | str, list[int | str]] = {}
-    for node in nodes:
-        node_id = node["id"]
-        parent_id = node["parent_id"]
-        if parent_id:
-            id_to_children.setdefault(parent_id, []).append(node_id)
-
-    # Build the flat list of nodes
-    node_list = []
-    for node in nodes:
-        node_id = node["id"]
-        node_id_global = to_global_id(type_name, node_id)
-        # Convert child IDs to global IDs
-        children_ids = id_to_children.get(node_id, [])
-        children_global_ids = [to_global_id(type_name, cid) for cid in children_ids]
-        # Use the appropriate text field key, defaulting to empty if missing
-        node_dict = {
-            "id": node_id_global,
-            text_key: node.get(text_key, ""),
-            "children": children_global_ids,
-        }
-        node_list.append(node_dict)
-
-    return node_list
+from config.graphql.core import permissions as core_permissions
+from config.graphql.core.filtering import filterset_factory, setup_filterset
+from config.graphql.core.mutations import drf_deletion, drf_mutation
+from config.graphql.core.relay import (
+    Node,
+    get_node_from_global_id,
+    make_connection_types,
+    register_type,
+    resolve_django_connection,
+    resolve_django_list,
+)
+from config.graphql.core.scalars import BigInt, GenericScalar, JSONString
+from config.graphql._util import coerce_enum, coerce_str, strip_unset
+from config.graphql import enums
 
 
-class PdfPageInfoType(graphene.ObjectType):
-    page_count = graphene.Int()
-    current_page = graphene.Int()
-    has_next_page = graphene.Boolean()
-    has_previous_page = graphene.Boolean()
-    corpus_id = graphene.ID()
-    document_id = graphene.ID()
-    for_analysis_ids = graphene.String()
-    label_type = graphene.String()
 
 
-class LabelTypeEnum(graphene.Enum):
-    RELATIONSHIP_LABEL = "RELATIONSHIP_LABEL"
-    DOC_TYPE_LABEL = "DOC_TYPE_LABEL"
-    TOKEN_LABEL = "TOKEN_LABEL"
-    SPAN_LABEL = "SPAN_LABEL"
+@strawberry.type(name="VersionHistoryType", description='Complete version history for a document.')
+class VersionHistoryType:
+    @strawberry.field(name="versions", description='All versions of this document')
+    def versions(self, info: strawberry.Info) -> list["DocumentVersionType"]:
+        return resolve_django_list(self, info, getattr(self, "versions"), "DocumentVersionType")
+    current_version: "DocumentVersionType" = strawberry.field(name="currentVersion", description='The current active version', default=None)
+    version_tree: Optional[GenericScalar] = strawberry.field(name="versionTree", description='Tree structure of version relationships', default=None)
 
 
-class ConversationTypeEnum(graphene.Enum):
-    """Enum for conversation types."""
-
-    CHAT = "chat"
-    THREAD = "thread"
+register_type("VersionHistoryType", VersionHistoryType, model=None)
 
 
-class AgentTypeEnum(graphene.Enum):
-    """Enum for agent types in messages."""
-
-    DOCUMENT_AGENT = "document_agent"
-    CORPUS_AGENT = "corpus_agent"
-
-
-class DocumentProcessingStatusEnum(graphene.Enum):
-    """Enum for document processing status in the parsing pipeline."""
-
-    PENDING = "pending"
-    PROCESSING = "processing"
-    COMPLETED = "completed"
-    FAILED = "failed"
-
-
-# -------------------- Versioning Types (Phase 1) -------------------- #
-
-
-class PathActionEnum(graphene.Enum):
-    """Enum for document path lifecycle actions."""
-
-    IMPORTED = "IMPORTED"
-    MOVED = "MOVED"
-    RENAMED = "RENAMED"
-    DELETED = "DELETED"
-    RESTORED = "RESTORED"
-    UPDATED = "UPDATED"
+@strawberry.type(name="DocumentVersionType", description="Represents a single version in the document's content history.")
+class DocumentVersionType:
+    @strawberry.field(name="id", description='Global ID of the document version')
+    def id(self, info: strawberry.Info) -> strawberry.ID:
+        return coerce_str(getattr(self, "id", None))
+    version_number: int = strawberry.field(name="versionNumber", description='Sequential version number', default=None)
+    @strawberry.field(name="hash", description='SHA-256 hash of PDF content')
+    def hash(self, info: strawberry.Info) -> str:
+        return coerce_str(getattr(self, "hash", None))
+    created_at: datetime.datetime = strawberry.field(name="createdAt", description='When version was created', default=None)
+    created_by: Annotated["UserType", strawberry.lazy("config.graphql.user_types")] = strawberry.field(name="createdBy", description='User who created this version', default=None)
+    size_bytes: Optional[int] = strawberry.field(name="sizeBytes", description='File size in bytes', default=None)
+    @strawberry.field(name="changeType", description='Type of change from previous version')
+    def change_type(self, info: strawberry.Info) -> enums.VersionChangeTypeEnum:
+        return coerce_enum(enums.VersionChangeTypeEnum, getattr(self, "change_type", None))
+    parent_version: Optional["DocumentVersionType"] = strawberry.field(name="parentVersion", description='Previous version in content tree', default=None)
 
 
-class VersionChangeTypeEnum(graphene.Enum):
-    """Enum for types of version changes."""
-
-    INITIAL = "INITIAL"
-    CONTENT_UPDATE = "CONTENT_UPDATE"
-    MINOR_EDIT = "MINOR_EDIT"
-    MAJOR_REVISION = "MAJOR_REVISION"
+register_type("DocumentVersionType", DocumentVersionType, model=None)
 
 
-class DocumentVersionType(graphene.ObjectType):
-    """Represents a single version in the document's content history."""
-
-    id = graphene.ID(required=True, description="Global ID of the document version")
-    version_number = graphene.Int(
-        required=True, description="Sequential version number"
-    )
-    hash = graphene.String(required=True, description="SHA-256 hash of PDF content")
-    created_at = graphene.DateTime(
-        required=True, description="When version was created"
-    )
-    created_by = graphene.Field(
-        lambda: _get_user_type(),
-        required=True,
-        description="User who created this version",
-    )
-    size_bytes = graphene.Int(description="File size in bytes")
-    change_type = graphene.Field(
-        VersionChangeTypeEnum,
-        required=True,
-        description="Type of change from previous version",
-    )
-    parent_version = graphene.Field(
-        lambda: DocumentVersionType, description="Previous version in content tree"
-    )
+@strawberry.type(name="PathHistoryType", description='Complete path history for a document in a corpus.')
+class PathHistoryType:
+    @strawberry.field(name="events", description='All path events in chronological order')
+    def events(self, info: strawberry.Info) -> list["PathEventType"]:
+        return resolve_django_list(self, info, getattr(self, "events"), "PathEventType")
+    @strawberry.field(name="currentPath", description='Current path of document')
+    def current_path(self, info: strawberry.Info) -> str:
+        return coerce_str(getattr(self, "current_path", None))
+    @strawberry.field(name="originalPath", description='Original import path')
+    def original_path(self, info: strawberry.Info) -> str:
+        return coerce_str(getattr(self, "original_path", None))
+    move_count: int = strawberry.field(name="moveCount", description='Number of move/rename operations', default=None)
 
 
-class VersionHistoryType(graphene.ObjectType):
-    """Complete version history for a document."""
-
-    versions = graphene.List(
-        graphene.NonNull(DocumentVersionType),
-        required=True,
-        description="All versions of this document",
-    )
-    current_version = graphene.Field(
-        DocumentVersionType, required=True, description="The current active version"
-    )
-    version_tree = GenericScalar(description="Tree structure of version relationships")
+register_type("PathHistoryType", PathHistoryType, model=None)
 
 
-class PathEventType(graphene.ObjectType):
-    """A single event in the document's path history."""
-
-    id = graphene.ID(required=True, description="Global ID of the path event")
-    action = graphene.Field(
-        PathActionEnum, required=True, description="Type of path action"
-    )
-    path = graphene.String(required=True, description="Path at time of event")
-    folder = graphene.Field(
-        lambda: _get_corpus_folder_type(),
-        description="Folder at time of event (null if at root)",
-    )
-    timestamp = graphene.DateTime(required=True, description="When this event occurred")
-    user = graphene.Field(
-        lambda: _get_user_type(),
-        required=True,
-        description="User who performed the action",
-    )
-    version_number = graphene.Int(
-        required=True, description="Content version at time of event"
-    )
+@strawberry.type(name="PathEventType", description="A single event in the document's path history.")
+class PathEventType:
+    @strawberry.field(name="id", description='Global ID of the path event')
+    def id(self, info: strawberry.Info) -> strawberry.ID:
+        return coerce_str(getattr(self, "id", None))
+    @strawberry.field(name="action", description='Type of path action')
+    def action(self, info: strawberry.Info) -> enums.PathActionEnum:
+        return coerce_enum(enums.PathActionEnum, getattr(self, "action", None))
+    @strawberry.field(name="path", description='Path at time of event')
+    def path(self, info: strawberry.Info) -> str:
+        return coerce_str(getattr(self, "path", None))
+    folder: Optional[Annotated["CorpusFolderType", strawberry.lazy("config.graphql.corpus_types")]] = strawberry.field(name="folder", description='Folder at time of event (null if at root)', default=None)
+    timestamp: datetime.datetime = strawberry.field(name="timestamp", description='When this event occurred', default=None)
+    user: Annotated["UserType", strawberry.lazy("config.graphql.user_types")] = strawberry.field(name="user", description='User who performed the action', default=None)
+    version_number: int = strawberry.field(name="versionNumber", description='Content version at time of event', default=None)
 
 
-class PathHistoryType(graphene.ObjectType):
-    """Complete path history for a document in a corpus."""
-
-    events = graphene.List(
-        graphene.NonNull(PathEventType),
-        required=True,
-        description="All path events in chronological order",
-    )
-    current_path = graphene.String(
-        required=True, description="Current path of document"
-    )
-    original_path = graphene.String(required=True, description="Original import path")
-    move_count = graphene.Int(
-        required=True, description="Number of move/rename operations"
-    )
+register_type("PathEventType", PathEventType, model=None)
 
 
-class CorpusVersionInfoType(graphene.ObjectType):
-    """Version information for a document within a specific corpus.
-
-    Used by the version selector UI to show available versions and allow
-    switching between them via the ?v= URL parameter.
-    """
-
-    version_number = graphene.Int(
-        required=True, description="Version number in this corpus"
-    )
-    document_id = graphene.ID(
-        required=True, description="Global ID of the Document at this version"
-    )
-    document_slug = graphene.String(
-        description="Slug of the Document at this version (for URL building)"
-    )
-    created = graphene.DateTime(
-        required=True, description="When this version was created"
-    )
-    is_current = graphene.Boolean(
-        required=True, description="Whether this is the current (latest) version"
-    )
+@strawberry.type(name="CorpusVersionInfoType", description='Version information for a document within a specific corpus.\n\nUsed by the version selector UI to show available versions and allow\nswitching between them via the ?v= URL parameter.')
+class CorpusVersionInfoType:
+    version_number: int = strawberry.field(name="versionNumber", description='Version number in this corpus', default=None)
+    @strawberry.field(name="documentId", description='Global ID of the Document at this version')
+    def document_id(self, info: strawberry.Info) -> strawberry.ID:
+        return coerce_str(getattr(self, "document_id", None))
+    @strawberry.field(name="documentSlug", description='Slug of the Document at this version (for URL building)')
+    def document_slug(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "document_slug", None))
+    created: datetime.datetime = strawberry.field(name="created", description='When this version was created', default=None)
+    is_current: bool = strawberry.field(name="isCurrent", description='Whether this is the current (latest) version', default=None)
 
 
-class PageAwareAnnotationType(graphene.ObjectType):
-    pdf_page_info = graphene.Field(PdfPageInfoType)
-    page_annotations = graphene.List(lambda: _get_annotation_type())
+register_type("CorpusVersionInfoType", CorpusVersionInfoType, model=None)
 
 
-def _get_user_type() -> type[UserType]:
-    from config.graphql.user_types import UserType
-
-    return UserType
-
-
-def _get_corpus_folder_type() -> type[CorpusFolderType]:
-    from config.graphql.corpus_types import CorpusFolderType
-
-    return CorpusFolderType
+@strawberry.type(name="PageAwareAnnotationType")
+class PageAwareAnnotationType:
+    pdf_page_info: Optional["PdfPageInfoType"] = strawberry.field(name="pdfPageInfo", default=None)
+    @strawberry.field(name="pageAnnotations")
+    def page_annotations(self, info: strawberry.Info) -> Optional[list[Optional[Annotated["AnnotationType", strawberry.lazy("config.graphql.annotation_types")]]]]:
+        return resolve_django_list(self, info, getattr(self, "page_annotations"), "AnnotationType")
 
 
-def _get_annotation_type() -> type[AnnotationType]:
-    from config.graphql.annotation_types import AnnotationType
+register_type("PageAwareAnnotationType", PageAwareAnnotationType, model=None)
 
-    return AnnotationType
+
+@strawberry.type(name="PdfPageInfoType")
+class PdfPageInfoType:
+    page_count: Optional[int] = strawberry.field(name="pageCount", default=None)
+    current_page: Optional[int] = strawberry.field(name="currentPage", default=None)
+    has_next_page: Optional[bool] = strawberry.field(name="hasNextPage", default=None)
+    has_previous_page: Optional[bool] = strawberry.field(name="hasPreviousPage", default=None)
+    @strawberry.field(name="corpusId")
+    def corpus_id(self, info: strawberry.Info) -> Optional[strawberry.ID]:
+        return coerce_str(getattr(self, "corpus_id", None))
+    @strawberry.field(name="documentId")
+    def document_id(self, info: strawberry.Info) -> Optional[strawberry.ID]:
+        return coerce_str(getattr(self, "document_id", None))
+    @strawberry.field(name="forAnalysisIds")
+    def for_analysis_ids(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "for_analysis_ids", None))
+    @strawberry.field(name="labelType")
+    def label_type(self, info: strawberry.Info) -> Optional[str]:
+        return coerce_str(getattr(self, "label_type", None))
+
+
+register_type("PdfPageInfoType", PdfPageInfoType, model=None)
+

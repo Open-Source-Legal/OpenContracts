@@ -1,192 +1,147 @@
+"""Generated strawberry GraphQL module (graphene migration).
+
+Shape-generated from the graphene schema; stub functions marked PORT(...)
+carry the ported business logic. See config/graphql_new/manifest.json.
 """
-GraphQL mutations for managing worker accounts and corpus access tokens.
+from __future__ import annotations
 
-Superusers can manage all worker accounts and tokens.
-Corpus creators can create/revoke tokens scoped to their own corpuses.
+import datetime
+import decimal
+import uuid
+from typing import Annotated, Any, Optional
 
-All permission and lifecycle logic lives in
-:mod:`opencontractserver.worker_uploads.services`; the mutations forward
-arguments to the service and project the result onto the GraphQL output
-type.
-"""
+import strawberry
 
-import logging
-from typing import TYPE_CHECKING, cast
-
-import graphene
-from graphql import GraphQLError
-from graphql_jwt.decorators import login_required, user_passes_test
-
-from config.graphql.worker_types import (
-    CorpusAccessTokenCreatedType,
-    WorkerAccountType,
+from config.graphql.core import permissions as core_permissions
+from config.graphql.core.filtering import filterset_factory, setup_filterset
+from config.graphql.core.mutations import drf_deletion, drf_mutation
+from config.graphql.core.relay import (
+    Node,
+    get_node_from_global_id,
+    make_connection_types,
+    register_type,
+    resolve_django_connection,
+    resolve_django_list,
 )
-from opencontractserver.worker_uploads.services import (
-    CorpusAccessTokenService,
-    WorkerAccountService,
-)
-
-if TYPE_CHECKING:
-    from opencontractserver.worker_uploads.models import (
-        CorpusAccessToken,
-        WorkerAccount,
-    )
-
-logger = logging.getLogger(__name__)
+from config.graphql.core.scalars import BigInt, GenericScalar, JSONString
+from config.graphql._util import coerce_enum, coerce_str, strip_unset
+from config.graphql import enums
 
 
-# ============================================================================
-# Mutations
-# ============================================================================
 
 
-class CreateWorkerAccount(graphene.Mutation):
-    """Create a new worker service account. Superuser only."""
-
-    class Arguments:
-        name = graphene.String(required=True)
-        description = graphene.String(default_value="")
-
-    ok = graphene.Boolean()
-    worker_account = graphene.Field(WorkerAccountType)
-
-    @user_passes_test(lambda user: user.is_superuser)
-    def mutate(root, info, name, description="") -> "CreateWorkerAccount":
-        result = WorkerAccountService.create_worker_account(
-            info.context.user,
-            name=name,
-            description=description,
-            request=info.context,
-        )
-        if not result.ok:
-            raise GraphQLError(result.error)
-
-        # ``result.ok`` invariant: success carries a non-None value. ``cast``
-        # narrows the type for mypy without relying on ``assert`` (which is
-        # stripped under ``python -O``).
-        account = cast("WorkerAccount", result.value)
-        return CreateWorkerAccount(
-            ok=True,
-            worker_account=WorkerAccountType(
-                id=account.id,
-                name=account.name,
-                description=account.description,
-                is_active=account.is_active,
-                created=account.created,
-            ),
-        )
+@strawberry.type(name="CreateWorkerAccount", description='Create a new worker service account. Superuser only.')
+class CreateWorkerAccount:
+    ok: Optional[bool] = strawberry.field(name="ok", default=None)
+    worker_account: Optional[Annotated["WorkerAccountType", strawberry.lazy("config.graphql.worker_types")]] = strawberry.field(name="workerAccount", default=None)
 
 
-class DeactivateWorkerAccount(graphene.Mutation):
-    """Deactivate a worker account (revokes all its tokens implicitly). Superuser only."""
-
-    class Arguments:
-        worker_account_id = graphene.Int(required=True)
-
-    ok = graphene.Boolean()
-
-    @user_passes_test(lambda user: user.is_superuser)
-    def mutate(root, info, worker_account_id) -> "DeactivateWorkerAccount":
-        result = WorkerAccountService.set_active(
-            info.context.user,
-            worker_account_id,
-            active=False,
-            request=info.context,
-        )
-        if not result.ok:
-            raise GraphQLError(result.error)
-        return DeactivateWorkerAccount(ok=True)
+register_type("CreateWorkerAccount", CreateWorkerAccount, model=None)
 
 
-class ReactivateWorkerAccount(graphene.Mutation):
-    """Reactivate a previously deactivated worker account. Superuser only."""
-
-    class Arguments:
-        worker_account_id = graphene.Int(required=True)
-
-    ok = graphene.Boolean()
-
-    @user_passes_test(lambda user: user.is_superuser)
-    def mutate(root, info, worker_account_id) -> "ReactivateWorkerAccount":
-        result = WorkerAccountService.set_active(
-            info.context.user,
-            worker_account_id,
-            active=True,
-            request=info.context,
-        )
-        if not result.ok:
-            raise GraphQLError(result.error)
-        return ReactivateWorkerAccount(ok=True)
+@strawberry.type(name="DeactivateWorkerAccount", description='Deactivate a worker account (revokes all its tokens implicitly). Superuser only.')
+class DeactivateWorkerAccount:
+    ok: Optional[bool] = strawberry.field(name="ok", default=None)
 
 
-class CreateCorpusAccessTokenMutation(graphene.Mutation):
+register_type("DeactivateWorkerAccount", DeactivateWorkerAccount, model=None)
+
+
+@strawberry.type(name="ReactivateWorkerAccount", description='Reactivate a previously deactivated worker account. Superuser only.')
+class ReactivateWorkerAccount:
+    ok: Optional[bool] = strawberry.field(name="ok", default=None)
+
+
+register_type("ReactivateWorkerAccount", ReactivateWorkerAccount, model=None)
+
+
+@strawberry.type(name="CreateCorpusAccessTokenMutation", description='Create a scoped access token granting a worker upload access to a corpus.\n\nReturns the full token key — it is only shown once.\nAllowed for superusers and the corpus creator.')
+class CreateCorpusAccessTokenMutation:
+    ok: Optional[bool] = strawberry.field(name="ok", default=None)
+    token: Optional[Annotated["CorpusAccessTokenCreatedType", strawberry.lazy("config.graphql.worker_types")]] = strawberry.field(name="token", default=None)
+
+
+register_type("CreateCorpusAccessTokenMutation", CreateCorpusAccessTokenMutation, model=None)
+
+
+@strawberry.type(name="RevokeCorpusAccessTokenMutation", description='Revoke a corpus access token. Allowed for superusers and the corpus creator.')
+class RevokeCorpusAccessTokenMutation:
+    ok: Optional[bool] = strawberry.field(name="ok", default=None)
+
+
+register_type("RevokeCorpusAccessTokenMutation", RevokeCorpusAccessTokenMutation, model=None)
+
+
+def _mutate_CreateWorkerAccount(payload_cls, root, info, **kwargs):
+    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:53
+
+    Port of CreateWorkerAccount.mutate
     """
-    Create a scoped access token granting a worker upload access to a corpus.
+    raise NotImplementedError("_mutate_CreateWorkerAccount not yet ported — see manifest")
 
-    Returns the full token key — it is only shown once.
-    Allowed for superusers and the corpus creator.
+
+def m_create_worker_account(info: strawberry.Info, description: Annotated[Optional[str], strawberry.argument(name="description")] = '', name: Annotated[str, strawberry.argument(name="name")] = strawberry.UNSET) -> Optional["CreateWorkerAccount"]:
+    kwargs = strip_unset({"description": description, "name": name})
+    return _mutate_CreateWorkerAccount(CreateWorkerAccount, None, info, **kwargs)
+
+
+def _mutate_DeactivateWorkerAccount(payload_cls, root, info, **kwargs):
+    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:88
+
+    Port of DeactivateWorkerAccount.mutate
     """
-
-    class Arguments:
-        worker_account_id = graphene.Int(required=True)
-        corpus_id = graphene.Int(required=True)
-        expires_at = graphene.DateTime(required=False, default_value=None)
-        rate_limit_per_minute = graphene.Int(required=False, default_value=0)
-
-    ok = graphene.Boolean()
-    token = graphene.Field(CorpusAccessTokenCreatedType)
-
-    @login_required
-    def mutate(
-        root,
-        info,
-        worker_account_id,
-        corpus_id,
-        expires_at=None,
-        rate_limit_per_minute=0,
-    ) -> "CreateCorpusAccessTokenMutation":
-        result = CorpusAccessTokenService.create_token(
-            info.context.user,
-            worker_account_id=worker_account_id,
-            corpus_id=corpus_id,
-            expires_at=expires_at,
-            rate_limit_per_minute=rate_limit_per_minute,
-            request=info.context,
-        )
-        if not result.ok:
-            raise GraphQLError(result.error)
-
-        # ``result.ok`` invariant: success carries a non-None value. ``cast``
-        # narrows the type for mypy without relying on ``assert`` (which is
-        # stripped under ``python -O``).
-        token, plaintext_key = cast("tuple[CorpusAccessToken, str]", result.value)
-        return CreateCorpusAccessTokenMutation(
-            ok=True,
-            token=CorpusAccessTokenCreatedType(
-                id=token.id,
-                key=plaintext_key,
-                worker_account_name=token.worker_account.name,
-                corpus_id=token.corpus_id,
-                expires_at=token.expires_at,
-                rate_limit_per_minute=token.rate_limit_per_minute,
-                created=token.created,
-            ),
-        )
+    raise NotImplementedError("_mutate_DeactivateWorkerAccount not yet ported — see manifest")
 
 
-class RevokeCorpusAccessTokenMutation(graphene.Mutation):
-    """Revoke a corpus access token. Allowed for superusers and the corpus creator."""
+def m_deactivate_worker_account(info: strawberry.Info, worker_account_id: Annotated[int, strawberry.argument(name="workerAccountId")] = strawberry.UNSET) -> Optional["DeactivateWorkerAccount"]:
+    kwargs = strip_unset({"worker_account_id": worker_account_id})
+    return _mutate_DeactivateWorkerAccount(DeactivateWorkerAccount, None, info, **kwargs)
 
-    class Arguments:
-        token_id = graphene.Int(required=True)
 
-    ok = graphene.Boolean()
+def _mutate_ReactivateWorkerAccount(payload_cls, root, info, **kwargs):
+    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:109
 
-    @login_required
-    def mutate(root, info, token_id) -> "RevokeCorpusAccessTokenMutation":
-        result = CorpusAccessTokenService.revoke_token(
-            info.context.user, token_id, request=info.context
-        )
-        if not result.ok:
-            raise GraphQLError(result.error)
-        return RevokeCorpusAccessTokenMutation(ok=True)
+    Port of ReactivateWorkerAccount.mutate
+    """
+    raise NotImplementedError("_mutate_ReactivateWorkerAccount not yet ported — see manifest")
+
+
+def m_reactivate_worker_account(info: strawberry.Info, worker_account_id: Annotated[int, strawberry.argument(name="workerAccountId")] = strawberry.UNSET) -> Optional["ReactivateWorkerAccount"]:
+    kwargs = strip_unset({"worker_account_id": worker_account_id})
+    return _mutate_ReactivateWorkerAccount(ReactivateWorkerAccount, None, info, **kwargs)
+
+
+def _mutate_CreateCorpusAccessTokenMutation(payload_cls, root, info, **kwargs):
+    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:139
+
+    Port of CreateCorpusAccessTokenMutation.mutate
+    """
+    raise NotImplementedError("_mutate_CreateCorpusAccessTokenMutation not yet ported — see manifest")
+
+
+def m_create_corpus_access_token(info: strawberry.Info, corpus_id: Annotated[int, strawberry.argument(name="corpusId")] = strawberry.UNSET, expires_at: Annotated[Optional[datetime.datetime], strawberry.argument(name="expiresAt")] = None, rate_limit_per_minute: Annotated[Optional[int], strawberry.argument(name="rateLimitPerMinute")] = 0, worker_account_id: Annotated[int, strawberry.argument(name="workerAccountId")] = strawberry.UNSET) -> Optional["CreateCorpusAccessTokenMutation"]:
+    kwargs = strip_unset({"corpus_id": corpus_id, "expires_at": expires_at, "rate_limit_per_minute": rate_limit_per_minute, "worker_account_id": worker_account_id})
+    return _mutate_CreateCorpusAccessTokenMutation(CreateCorpusAccessTokenMutation, None, info, **kwargs)
+
+
+def _mutate_RevokeCorpusAccessTokenMutation(payload_cls, root, info, **kwargs):
+    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:185
+
+    Port of RevokeCorpusAccessTokenMutation.mutate
+    """
+    raise NotImplementedError("_mutate_RevokeCorpusAccessTokenMutation not yet ported — see manifest")
+
+
+def m_revoke_corpus_access_token(info: strawberry.Info, token_id: Annotated[int, strawberry.argument(name="tokenId")] = strawberry.UNSET) -> Optional["RevokeCorpusAccessTokenMutation"]:
+    kwargs = strip_unset({"token_id": token_id})
+    return _mutate_RevokeCorpusAccessTokenMutation(RevokeCorpusAccessTokenMutation, None, info, **kwargs)
+
+
+
+MUTATION_FIELDS = {
+    "create_worker_account": strawberry.field(resolver=m_create_worker_account, name="createWorkerAccount", description='Create a new worker service account. Superuser only.'),
+    "deactivate_worker_account": strawberry.field(resolver=m_deactivate_worker_account, name="deactivateWorkerAccount", description='Deactivate a worker account (revokes all its tokens implicitly). Superuser only.'),
+    "reactivate_worker_account": strawberry.field(resolver=m_reactivate_worker_account, name="reactivateWorkerAccount", description='Reactivate a previously deactivated worker account. Superuser only.'),
+    "create_corpus_access_token": strawberry.field(resolver=m_create_corpus_access_token, name="createCorpusAccessToken", description='Create a scoped access token granting a worker upload access to a corpus.\n\nReturns the full token key — it is only shown once.\nAllowed for superusers and the corpus creator.'),
+    "revoke_corpus_access_token": strawberry.field(resolver=m_revoke_corpus_access_token, name="revokeCorpusAccessToken", description='Revoke a corpus access token. Allowed for superusers and the corpus creator.'),
+}
