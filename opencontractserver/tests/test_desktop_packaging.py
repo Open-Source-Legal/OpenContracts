@@ -1068,10 +1068,11 @@ class DesktopBootstrapCommandInvocationTests(TestCase):
     """Full call_command path: argument parsing, handle(), nltk seeding."""
 
     def test_call_command_end_to_end(self):
-        from contextlib import nullcontext
+        from contextlib import AbstractContextManager, nullcontext
 
         from django.core.management import call_command
 
+        nltk_patch: AbstractContextManager  # a real patch or a no-op
         try:
             import nltk
 
