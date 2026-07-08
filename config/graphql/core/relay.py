@@ -1,0 +1,489 @@
+"""Relay machinery reproducing graphene / graphene-django wire semantics.
+
+Provides:
+
+* ``Node`` — the relay interface with graphene-format global IDs
+  (``base64("TypeName:pk")``).
+* a **type registry** mapping GraphQL type names to their Django model and
+  per-type hooks (``get_queryset`` / ``get_node``), mirroring
+  ``DjangoObjectType`` Meta behaviour.
+* ``PageInfo`` / connection factories producing ``XTypeConnection`` /
+  ``XTypeEdge`` types byte-compatible with graphene's SDL output
+  (including ``CountableConnection.totalCount`` and
+  ``PdfPageAwareConnection.currentPage`` / ``pageCount``).
+* ``resolve_django_connection`` — a faithful port of
+  ``graphene_django.fields.DjangoConnectionField.connection_resolver`` +
+  ``DjangoFilterConnectionField`` filterset application, including the
+  1-based ``offset``→``after`` conversion, ``RELAY_CONNECTION_MAX_LIMIT``
+  enforcement and ``arrayconnection`` cursors.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Any, Callable, Optional
+
+import django.db.models
+import strawberry
+from django.db.models import Manager, QuerySet
+from graphql_relay import (
+    connection_from_array_slice,
+    cursor_to_offset,
+    from_global_id,
+    get_offset_with_default,
+    offset_to_cursor,
+    to_global_id,
+)
+
+logger = logging.getLogger(__name__)
+
+# graphene's GRAPHENE["RELAY_CONNECTION_MAX_LIMIT"] equivalent.
+RELAY_CONNECTION_MAX_LIMIT = 100
+
+
+# --------------------------------------------------------------------------- #
+# Type registry                                                               #
+# --------------------------------------------------------------------------- #
+
+
+class TypeRegistryEntry:
+    __slots__ = ("type_name", "strawberry_type", "model", "get_queryset", "get_node")
+
+    def __init__(
+        self,
+        type_name: str,
+        strawberry_type: type,
+        model: type[django.db.models.Model] | None,
+        get_queryset: Callable[[QuerySet, Any], QuerySet] | None = None,
+        get_node: Callable[[Any, str], Any] | None = None,
+    ) -> None:
+        self.type_name = type_name
+        self.strawberry_type = strawberry_type
+        self.model = model
+        self.get_queryset = get_queryset
+        self.get_node = get_node
+
+
+_TYPE_REGISTRY: dict[str, TypeRegistryEntry] = {}
+_MODEL_PRIMARY_TYPE: dict[type, str] = {}
+
+
+def register_type(
+    type_name: str,
+    strawberry_type: type,
+    model: type[django.db.models.Model] | None = None,
+    *,
+    get_queryset: Callable[[QuerySet, Any], QuerySet] | None = None,
+    get_node: Callable[[Any, str], Any] | None = None,
+    primary: bool = True,
+) -> None:
+    """Register a strawberry type so relay helpers can find its model/hooks.
+
+    ``primary=False`` keeps a secondary type (e.g. a ``_WRITE`` variant of a
+    model that already has a canonical read type) out of the model→type map
+    used for interface type resolution.
+    """
+    _TYPE_REGISTRY[type_name] = TypeRegistryEntry(
+        type_name, strawberry_type, model, get_queryset, get_node
+    )
+    if model is not None and primary and model not in _MODEL_PRIMARY_TYPE:
+        _MODEL_PRIMARY_TYPE[model] = type_name
+
+
+def get_registry_entry(type_name: str) -> TypeRegistryEntry | None:
+    return _TYPE_REGISTRY.get(type_name)
+
+
+def type_name_for_instance(instance: Any) -> str | None:
+    """Best-effort GraphQL type name for a Django model instance."""
+    for klass in type(instance).__mro__:
+        name = _MODEL_PRIMARY_TYPE.get(klass)
+        if name is not None:
+            return name
+    return None
+
+
+def apply_type_get_queryset(type_name: str, queryset: Any, info: Any) -> Any:
+    """Apply the registered per-type ``get_queryset`` hook (graphene-django's
+    ``DjangoObjectType.get_queryset``) if one exists."""
+    entry = _TYPE_REGISTRY.get(type_name)
+    if entry is not None and entry.get_queryset is not None:
+        return entry.get_queryset(queryset, info)
+    return queryset
+
+
+# --------------------------------------------------------------------------- #
+# Node interface + global-id resolution                                        #
+# --------------------------------------------------------------------------- #
+
+
+def _resolve_node_id(root: Any, info: Any) -> str:
+    """Global-ID resolver — graphene format ``base64("TypeName:pk")``.
+
+    The concrete runtime parent type name is used, matching graphene's
+    behaviour for types that implement the ``Node`` interface.
+    """
+    type_name = info._raw_info.parent_type.name
+    return to_global_id(type_name, root.pk)
+
+
+@strawberry.interface(name="Node", description="An object with an ID")
+class Node:
+    @strawberry.field(name="id", description="The ID of the object")
+    def id(self, info: strawberry.Info) -> strawberry.ID:
+        return strawberry.ID(_resolve_node_id(self, info))
+
+
+def get_node_from_global_id(
+    info: Any, global_id: str, only_type_name: str | None = None
+) -> Any:
+    """Port of ``config.graphql.base.OpenContractsNode.get_node_from_global_id``.
+
+    Permission-aware relay node fetch routed through the service layer
+    (``BaseService.get_or_none``). Returns the model instance or raises the
+    model's ``DoesNotExist`` with a unified (IDOR-safe) message. If the
+    registered type declares a custom ``get_node`` hook, that hook is used
+    instead (mirrors ``DjangoObjectType.get_node`` overrides).
+    """
+    from opencontractserver.shared.services.base import BaseService
+
+    _type, _pk = from_global_id(global_id)
+    entry = _TYPE_REGISTRY.get(_type)
+    if entry is None or entry.model is None:
+        raise Exception(f'Relay Node "{_type}" not found in schema')
+
+    if only_type_name is not None and _type != only_type_name:
+        raise AssertionError(f"Must receive a {only_type_name} id.")
+
+    # Stash the type name announced by the global id so interface
+    # type resolution can honour it (e.g. ``node(id:)`` fields).
+    try:
+        info.context._node_type_hint = _type
+    except AttributeError:
+        pass
+
+    if entry.get_node is not None:
+        node = entry.get_node(info, _pk)
+        if node is None:
+            raise entry.model.DoesNotExist(
+                f"{entry.model.__name__} matching query does not exist."
+            )
+        return node
+
+    obj = BaseService.get_or_none(
+        entry.model, _pk, info.context.user, request=info.context
+    )
+    if obj is None:
+        raise entry.model.DoesNotExist(
+            f"{entry.model.__name__} matching query does not exist."
+        )
+    return obj
+
+
+# --------------------------------------------------------------------------- #
+# PageInfo + connection value objects                                          #
+# --------------------------------------------------------------------------- #
+
+
+@strawberry.type(
+    name="PageInfo",
+    description=(
+        "The Relay compliant `PageInfo` type, containing data necessary to"
+        " paginate this connection."
+    ),
+)
+class PageInfo:
+    has_next_page: bool = strawberry.field(
+        description="When paginating forwards, are there more items?"
+    )
+    has_previous_page: bool = strawberry.field(
+        description="When paginating backwards, are there more items?"
+    )
+    start_cursor: Optional[str] = strawberry.field(
+        description="When paginating backwards, the cursor to continue."
+    )
+    end_cursor: Optional[str] = strawberry.field(
+        description="When paginating forwards, the cursor to continue."
+    )
+
+
+class ConnectionValue:
+    """Runtime value returned by connection resolvers.
+
+    Plain attribute container — the strawberry connection types generated by
+    ``make_connection_types`` read ``edges`` / ``page_info`` off it via
+    default (getattr) resolution, and the ``totalCount`` / page-aware
+    resolvers read ``iterable`` / ``length``.
+    """
+
+    __slots__ = ("edges", "page_info", "iterable", "length")
+
+    def __init__(self, edges: list[Any], page_info: PageInfo) -> None:
+        self.edges = edges
+        self.page_info = page_info
+        self.iterable = None
+        self.length = None
+
+
+class EdgeValue:
+    __slots__ = ("node", "cursor")
+
+    def __init__(self, node: Any, cursor: str) -> None:
+        self.node = node
+        self.cursor = cursor
+
+
+def _resolve_total_count(root: ConnectionValue, info: strawberry.Info) -> int:
+    """Port of ``config.graphql.base.CountableConnection.resolve_total_count``."""
+    iterable = root.iterable
+    if isinstance(iterable, QuerySet):
+        if iterable._result_cache is not None:
+            return len(iterable._result_cache)
+        return iterable.count()
+    return len(iterable) if iterable is not None else 0
+
+
+def _resolve_current_page(root: ConnectionValue, info: strawberry.Info) -> int:
+    """Port of ``PdfPageAwareConnection.resolve_current_page``."""
+    return 1
+
+
+def _resolve_page_count(root: ConnectionValue, info: strawberry.Info) -> int:
+    """Port of ``PdfPageAwareConnection.resolve_page_count``."""
+    return max(list(root.iterable.values_list("page", flat=True).distinct()))
+
+
+def make_connection_types(
+    node_type: type,
+    *,
+    type_name: str,
+    countable: bool = True,
+    pdf_page_aware: bool = False,
+) -> type:
+    """Create ``{X}Connection`` + ``{X}Edge`` strawberry types.
+
+    Field names, nullability, and descriptions match graphene's relay
+    connection output exactly (see the golden SDL). Returns the connection
+    class; the edge class is attached as ``.Edge``.
+    """
+    node_doc = node_type.__strawberry_definition__.name  # noqa: F841
+
+    connection_name = type_name
+    assert connection_name.endswith("Connection"), connection_name
+    edge_name = connection_name[: -len("Connection")] + "Edge"
+
+    edge_cls = type(
+        edge_name,
+        (),
+        {
+            "__annotations__": {
+                "node": Optional[node_type],
+                "cursor": str,
+            },
+            "node": strawberry.field(
+                description="The item at the end of the edge"
+            ),
+            "cursor": strawberry.field(
+                description="A cursor for use in pagination"
+            ),
+        },
+    )
+    edge_cls = strawberry.type(
+        edge_cls,
+        name=edge_name,
+        description=(
+            f"A Relay edge containing a `{connection_name[: -len('Connection')]}`"
+            " and its cursor."
+        ),
+    )
+
+    namespace: dict[str, Any] = {
+        "__annotations__": {
+            "page_info": PageInfo,
+            "edges": list[Optional[edge_cls]],
+        },
+        "page_info": strawberry.field(
+            description="Pagination data for this connection."
+        ),
+        "edges": strawberry.field(
+            description="Contains the nodes in this connection."
+        ),
+    }
+    if countable:
+        namespace["total_count"] = strawberry.field(
+            resolver=_resolve_total_count, graphql_type=Optional[int]
+        )
+    if pdf_page_aware:
+        namespace["current_page"] = strawberry.field(
+            resolver=_resolve_current_page, graphql_type=Optional[int]
+        )
+        namespace["page_count"] = strawberry.field(
+            resolver=_resolve_page_count, graphql_type=Optional[int]
+        )
+
+    connection_cls = type(connection_name, (), namespace)
+    connection_cls = strawberry.type(connection_cls, name=connection_name)
+    connection_cls.Edge = edge_cls
+    return connection_cls
+
+
+# --------------------------------------------------------------------------- #
+# Connection resolution (graphene-django port)                                 #
+# --------------------------------------------------------------------------- #
+
+
+def maybe_queryset(value: Any) -> Any:
+    if isinstance(value, Manager):
+        return value.get_queryset()
+    return value
+
+
+def resolve_connection_from_iterable(
+    iterable: Any,
+    args: dict[str, Any],
+    max_limit: int | None = RELAY_CONNECTION_MAX_LIMIT,
+) -> ConnectionValue:
+    """Port of ``DjangoConnectionField.resolve_connection``."""
+    args = dict(args)
+
+    # Remove the offset parameter and convert it to an after cursor
+    # (1-based offset, exactly like graphene-django).
+    offset = args.pop("offset", None)
+    after = args.get("after")
+    if offset:
+        if after:
+            offset += cursor_to_offset(after) + 1
+        args["after"] = offset_to_cursor(offset - 1)
+
+    iterable = maybe_queryset(iterable)
+
+    if isinstance(iterable, QuerySet):
+        array_length = iterable.count()
+    else:
+        array_length = len(iterable)
+
+    slice_start = min(
+        get_offset_with_default(args.get("after"), -1) + 1,
+        array_length,
+    )
+    array_slice_length = array_length - slice_start
+
+    if (
+        max_limit is not None
+        and args.get("first", None) is None
+        and args.get("last", None) is None
+    ):
+        args["first"] = max_limit
+
+    connection = connection_from_array_slice(
+        iterable[slice_start:],
+        args,
+        slice_start=slice_start,
+        array_length=array_length,
+        array_slice_length=array_slice_length,
+        connection_type=lambda edges, pageInfo: ConnectionValue(edges, pageInfo),
+        edge_type=EdgeValue,
+        page_info_type=lambda startCursor, endCursor, hasPreviousPage, hasNextPage: (
+            PageInfo(
+                has_next_page=hasNextPage,
+                has_previous_page=hasPreviousPage,
+                start_cursor=startCursor,
+                end_cursor=endCursor,
+            )
+        ),
+    )
+    connection.iterable = iterable
+    connection.length = array_length
+    return connection
+
+
+def resolve_django_connection(
+    *,
+    resolved: Any,
+    info: Any,
+    args: dict[str, Any],
+    node_type_name: str,
+    default_manager: Manager | None = None,
+    filterset_class: type | None = None,
+    filter_args: dict[str, str] | None = None,
+    max_limit: int | None = RELAY_CONNECTION_MAX_LIMIT,
+) -> ConnectionValue:
+    """Port of ``DjangoConnectionField.connection_resolver`` +
+    ``DjangoFilterConnectionField.resolve_queryset``.
+
+    ``args`` maps **filter/relay argument names** (django-filter filter names
+    for filterset args, i.e. snake/dunder case) to provided values; absent
+    arguments must be omitted by the caller (strawberry ``UNSET`` stripped).
+    ``filter_args`` maps filter names to themselves for filterset-backed
+    fields (which subset of ``args`` belongs to the filterset).
+    """
+    first = args.get("first")
+    last = args.get("last")
+    offset = args.get("offset")
+    before = args.get("before")
+
+    if max_limit:
+        if first:
+            assert first <= max_limit, (
+                "Requesting {} records on the `{}` connection exceeds the "
+                "`first` limit of {} records."
+            ).format(first, info.field_name, max_limit)
+            args["first"] = min(first, max_limit)
+
+        if last:
+            assert last <= max_limit, (
+                "Requesting {} records on the `{}` connection exceeds the "
+                "`last` limit of {} records."
+            ).format(last, info.field_name, max_limit)
+            args["last"] = min(last, max_limit)
+
+    if offset is not None:
+        assert before is None, (
+            "You can't provide a `before` value at the same time as an "
+            "`offset` value to properly paginate the `{}` connection."
+        ).format(info.field_name)
+
+    iterable = resolved
+    if iterable is None:
+        if default_manager is None:
+            iterable = []
+        else:
+            iterable = default_manager
+    iterable = maybe_queryset(iterable)
+
+    if isinstance(iterable, QuerySet):
+        iterable = maybe_queryset(apply_type_get_queryset(node_type_name, iterable, info))
+
+    if filterset_class is not None and isinstance(iterable, QuerySet):
+        filter_kwargs = {
+            name: value
+            for name, value in args.items()
+            if filter_args is not None and name in filter_args
+        }
+        filterset = filterset_class(
+            data=filter_kwargs, queryset=iterable, request=info.context
+        )
+        if filterset.is_valid():
+            iterable = filterset.qs
+        else:
+            from django.core.exceptions import ValidationError
+
+            raise ValidationError(filterset.form.errors.as_json())
+
+    relay_args = {
+        key: value
+        for key, value in args.items()
+        if key in ("first", "last", "before", "after", "offset")
+    }
+    return resolve_connection_from_iterable(iterable, relay_args, max_limit=max_limit)
+
+
+def resolve_django_list(root: Any, info: Any, value: Any, node_type_name: str) -> Any:
+    """Port of ``DjangoListField.list_resolver`` — applies the node type's
+    ``get_queryset`` hook to manager/queryset results."""
+    queryset = maybe_queryset(value)
+    if isinstance(queryset, QuerySet):
+        queryset = maybe_queryset(
+            apply_type_get_queryset(node_type_name, queryset, info)
+        )
+    return queryset

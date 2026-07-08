@@ -1,0 +1,2327 @@
+[
+ {
+  "stub": "_resolve_ResearchReportType_duration_seconds",
+  "module": "research_types",
+  "ref": "config/graphql/research_types.py:52"
+ },
+ {
+  "stub": "_resolve_ResearchReportType_my_permissions",
+  "module": "research_types",
+  "ref": "config/graphql/research_types.py:55"
+ },
+ {
+  "stub": "_resolve_ResearchReportType_full_source_annotation_list",
+  "module": "research_types",
+  "ref": "config/graphql/research_types.py:73"
+ },
+ {
+  "stub": "_resolve_ResearchReportType_full_source_document_list",
+  "module": "research_types",
+  "ref": "config/graphql/research_types.py:76"
+ },
+ {
+  "stub": "_get_node_ResearchReportType",
+  "module": "research_types",
+  "ref": "config.graphql.research_types.ResearchReportType.get_node"
+ },
+ {
+  "stub": "_resolve_UserType_username",
+  "module": "user_types",
+  "ref": "config/graphql/user_types.py:238"
+ },
+ {
+  "stub": "_resolve_UserType_name",
+  "module": "user_types",
+  "ref": "config/graphql/user_types.py:241"
+ },
+ {
+  "stub": "_resolve_UserType_first_name",
+  "module": "user_types",
+  "ref": "config/graphql/user_types.py:244"
+ },
+ {
+  "stub": "_resolve_UserType_last_name",
+  "module": "user_types",
+  "ref": "config/graphql/user_types.py:247"
+ },
+ {
+  "stub": "_resolve_UserType_given_name",
+  "module": "user_types",
+  "ref": "config/graphql/user_types.py:250"
+ },
+ {
+  "stub": "_resolve_UserType_family_name",
+  "module": "user_types",
+  "ref": "config/graphql/user_types.py:253"
+ },
+ {
+  "stub": "_resolve_UserType_phone",
+  "module": "user_types",
+  "ref": "config/graphql/user_types.py:256"
+ },
+ {
+  "stub": "_resolve_UserType_email",
+  "module": "user_types",
+  "ref": "config/graphql/user_types.py:235"
+ },
+ {
+  "stub": "_resolve_UserType_email_verified",
+  "module": "user_types",
+  "ref": "config/graphql/user_types.py:259"
+ },
+ {
+  "stub": "_resolve_UserType_is_social_user",
+  "module": "user_types",
+  "ref": "config/graphql/user_types.py:264"
+ },
+ {
+  "stub": "_resolve_UserType_is_usage_capped",
+  "module": "user_types",
+  "ref": "config/graphql/user_types.py:280"
+ },
+ {
+  "stub": "_resolve_UserType_display_name",
+  "module": "user_types",
+  "ref": "config/graphql/user_types.py:291"
+ },
+ {
+  "stub": "_resolve_UserType_reputation_global",
+  "module": "user_types",
+  "ref": "config/graphql/user_types.py:356"
+ },
+ {
+  "stub": "_resolve_UserType_reputation_for_corpus",
+  "module": "user_types",
+  "ref": "config/graphql/user_types.py:375"
+ },
+ {
+  "stub": "_resolve_UserType_total_messages",
+  "module": "user_types",
+  "ref": "config/graphql/user_types.py:389"
+ },
+ {
+  "stub": "_resolve_UserType_total_threads_created",
+  "module": "user_types",
+  "ref": "config/graphql/user_types.py:403"
+ },
+ {
+  "stub": "_resolve_UserType_total_annotations_created",
+  "module": "user_types",
+  "ref": "config/graphql/user_types.py:414"
+ },
+ {
+  "stub": "_resolve_UserType_total_documents_uploaded",
+  "module": "user_types",
+  "ref": "config/graphql/user_types.py:426"
+ },
+ {
+  "stub": "_resolve_UserType_can_import_corpus",
+  "module": "user_types",
+  "ref": "config/graphql/user_types.py:269"
+ },
+ {
+  "stub": "_resolve_DocumentType_icon",
+  "module": "document_types",
+  "ref": "config/graphql/optimized_file_resolvers.py:38"
+ },
+ {
+  "stub": "_resolve_DocumentType_pdf_file",
+  "module": "document_types",
+  "ref": "config/graphql/optimized_file_resolvers.py:38"
+ },
+ {
+  "stub": "_resolve_DocumentType_txt_extract_file",
+  "module": "document_types",
+  "ref": "config/graphql/optimized_file_resolvers.py:38"
+ },
+ {
+  "stub": "_resolve_DocumentType_md_summary_file",
+  "module": "document_types",
+  "ref": "config/graphql/optimized_file_resolvers.py:38"
+ },
+ {
+  "stub": "_resolve_DocumentType_pawls_parse_file",
+  "module": "document_types",
+  "ref": "config/graphql/optimized_file_resolvers.py:38"
+ },
+ {
+  "stub": "_resolve_DocumentType_processing_status",
+  "module": "document_types",
+  "ref": "config/graphql/document_types.py:1032"
+ },
+ {
+  "stub": "_resolve_DocumentType_processing_error",
+  "module": "document_types",
+  "ref": "config/graphql/document_types.py:1042"
+ },
+ {
+  "stub": "_resolve_DocumentType_summary_revisions",
+  "module": "document_types",
+  "ref": "config/graphql/document_types.py:583"
+ },
+ {
+  "stub": "_resolve_DocumentType_doc_annotations",
+  "module": "document_types",
+  "ref": "config/graphql/custom_resolvers.py:83"
+ },
+ {
+  "stub": "_resolve_DocumentType_doc_type_labels",
+  "module": "document_types",
+  "ref": "config/graphql/document_types.py:303"
+ },
+ {
+  "stub": "_resolve_DocumentType_all_structural_annotations",
+  "module": "document_types",
+  "ref": "config/graphql/document_types.py:334"
+ },
+ {
+  "stub": "_resolve_DocumentType_all_annotations",
+  "module": "document_types",
+  "ref": "config/graphql/document_types.py:355"
+ },
+ {
+  "stub": "_resolve_DocumentType_all_relationships",
+  "module": "document_types",
+  "ref": "config/graphql/document_types.py:384"
+ },
+ {
+  "stub": "_resolve_DocumentType_all_structural_relationships",
+  "module": "document_types",
+  "ref": "config/graphql/document_types.py:424"
+ },
+ {
+  "stub": "_resolve_DocumentType_all_doc_relationships",
+  "module": "document_types",
+  "ref": "config/graphql/document_types.py:505"
+ },
+ {
+  "stub": "_resolve_DocumentType_doc_relationship_count",
+  "module": "document_types",
+  "ref": "config/graphql/document_types.py:470"
+ },
+ {
+  "stub": "_resolve_DocumentType_all_notes",
+  "module": "document_types",
+  "ref": "config/graphql/document_types.py:545"
+ },
+ {
+  "stub": "_resolve_DocumentType_current_summary_version",
+  "module": "document_types",
+  "ref": "config/graphql/document_types.py:602"
+ },
+ {
+  "stub": "_resolve_DocumentType_summary_content",
+  "module": "document_types",
+  "ref": "config/graphql/document_types.py:627"
+ },
+ {
+  "stub": "_resolve_DocumentType_version_number",
+  "module": "document_types",
+  "ref": "config/graphql/document_types.py:694"
+ },
+ {
+  "stub": "_resolve_DocumentType_has_version_history",
+  "module": "document_types",
+  "ref": "config/graphql/document_types.py:703"
+ },
+ {
+  "stub": "_resolve_DocumentType_version_count",
+  "module": "document_types",
+  "ref": "config/graphql/document_types.py:712"
+ },
+ {
+  "stub": "_resolve_DocumentType_is_latest_version",
+  "module": "document_types",
+  "ref": "config/graphql/document_types.py:743"
+ },
+ {
+  "stub": "_resolve_DocumentType_last_modified",
+  "module": "document_types",
+  "ref": "config/graphql/document_types.py:747"
+ },
+ {
+  "stub": "_resolve_DocumentType_version_history",
+  "module": "document_types",
+  "ref": "config/graphql/document_types.py:756"
+ },
+ {
+  "stub": "_resolve_DocumentType_path_history",
+  "module": "document_types",
+  "ref": "config/graphql/document_types.py:819"
+ },
+ {
+  "stub": "_resolve_DocumentType_corpus_versions",
+  "module": "document_types",
+  "ref": "config/graphql/document_types.py:884"
+ },
+ {
+  "stub": "_resolve_DocumentType_can_restore",
+  "module": "document_types",
+  "ref": "config/graphql/document_types.py:972"
+ },
+ {
+  "stub": "_resolve_DocumentType_can_view_history",
+  "module": "document_types",
+  "ref": "config/graphql/document_types.py:1001"
+ },
+ {
+  "stub": "_resolve_DocumentType_can_retry",
+  "module": "document_types",
+  "ref": "config/graphql/document_types.py:1048"
+ },
+ {
+  "stub": "_resolve_DocumentType_page_annotations",
+  "module": "document_types",
+  "ref": "config/graphql/document_types.py:1100"
+ },
+ {
+  "stub": "_resolve_DocumentType_page_relationships",
+  "module": "document_types",
+  "ref": "config/graphql/document_types.py:1145"
+ },
+ {
+  "stub": "_resolve_DocumentType_relationship_summary",
+  "module": "document_types",
+  "ref": "config/graphql/document_types.py:1195"
+ },
+ {
+  "stub": "_resolve_DocumentType_extract_annotation_summary",
+  "module": "document_types",
+  "ref": "config/graphql/document_types.py:1206"
+ },
+ {
+  "stub": "_resolve_DocumentType_folder_in_corpus",
+  "module": "document_types",
+  "ref": "config/graphql/document_types.py:1224"
+ },
+ {
+  "stub": "_get_queryset_DocumentType",
+  "module": "document_types",
+  "ref": "config.graphql.document_types.DocumentType.get_queryset"
+ },
+ {
+  "stub": "_resolve_AnnotationType_annotation_type",
+  "module": "annotation_types",
+  "ref": "config/graphql/annotation_types.py:732"
+ },
+ {
+  "stub": "_resolve_AnnotationType_document",
+  "module": "annotation_types",
+  "ref": "config/graphql/annotation_types.py:656"
+ },
+ {
+  "stub": "_resolve_AnnotationType_content_modalities",
+  "module": "annotation_types",
+  "ref": "config/graphql/annotation_types.py:736"
+ },
+ {
+  "stub": "_resolve_AnnotationType_feedback_count",
+  "module": "annotation_types",
+  "ref": "config/graphql/annotation_types.py:742"
+ },
+ {
+  "stub": "_resolve_AnnotationType_all_source_node_in_relationship",
+  "module": "annotation_types",
+  "ref": "config/graphql/annotation_types.py:760"
+ },
+ {
+  "stub": "_resolve_AnnotationType_all_target_node_in_relationship",
+  "module": "annotation_types",
+  "ref": "config/graphql/annotation_types.py:765"
+ },
+ {
+  "stub": "_resolve_AnnotationType_descendants_tree",
+  "module": "annotation_types",
+  "ref": "config/graphql/annotation_types.py:784"
+ },
+ {
+  "stub": "_resolve_AnnotationType_full_tree",
+  "module": "annotation_types",
+  "ref": "config/graphql/annotation_types.py:809"
+ },
+ {
+  "stub": "_resolve_AnnotationType_subtree",
+  "module": "annotation_types",
+  "ref": "config/graphql/annotation_types.py:839"
+ },
+ {
+  "stub": "_get_queryset_AnnotationType",
+  "module": "annotation_types",
+  "ref": "config.graphql.annotation_types.AnnotationType.get_queryset"
+ },
+ {
+  "stub": "_resolve_AnnotationLabelType_my_permissions",
+  "module": "annotation_types",
+  "ref": "config/graphql/annotation_types.py:930"
+ },
+ {
+  "stub": "_resolve_AnalyzerType_icon",
+  "module": "extract_types",
+  "ref": "config/graphql/extract_types.py:275"
+ },
+ {
+  "stub": "_resolve_AnalyzerType_analyzer_id",
+  "module": "extract_types",
+  "ref": "config/graphql/extract_types.py:261"
+ },
+ {
+  "stub": "_resolve_AnalyzerType_full_label_list",
+  "module": "extract_types",
+  "ref": "config/graphql/extract_types.py:272"
+ },
+ {
+  "stub": "_resolve_CorpusActionType_pre_authorized_tools",
+  "module": "agent_types",
+  "ref": "config/graphql/agent_types.py:42"
+ },
+ {
+  "stub": "_resolve_CorpusType_readme_caml_document",
+  "module": "corpus_types",
+  "ref": "config/graphql/corpus_types.py:458"
+ },
+ {
+  "stub": "_resolve_CorpusType_icon",
+  "module": "corpus_types",
+  "ref": "config/graphql/corpus_types.py:420"
+ },
+ {
+  "stub": "_resolve_CorpusType_categories",
+  "module": "corpus_types",
+  "ref": "config/graphql/corpus_types.py:570"
+ },
+ {
+  "stub": "_resolve_CorpusType_label_set",
+  "module": "corpus_types",
+  "ref": "config/graphql/corpus_types.py:652"
+ },
+ {
+  "stub": "_resolve_CorpusType_engagement_metrics",
+  "module": "corpus_types",
+  "ref": "config/graphql/corpus_types.py:535"
+ },
+ {
+  "stub": "_resolve_CorpusType_folders",
+  "module": "corpus_types",
+  "ref": "config/graphql/corpus_types.py:526"
+ },
+ {
+  "stub": "_resolve_CorpusType_annotations",
+  "module": "corpus_types",
+  "ref": "config/graphql/corpus_types.py:360"
+ },
+ {
+  "stub": "_resolve_CorpusType_all_annotation_summaries",
+  "module": "corpus_types",
+  "ref": "config/graphql/corpus_types.py:386"
+ },
+ {
+  "stub": "_resolve_CorpusType_documents",
+  "module": "corpus_types",
+  "ref": "config/graphql/corpus_types.py:330"
+ },
+ {
+  "stub": "_resolve_CorpusType_applied_analyzer_ids",
+  "module": "corpus_types",
+  "ref": "config/graphql/corpus_types.py:415"
+ },
+ {
+  "stub": "_resolve_CorpusType_description_revisions",
+  "module": "corpus_types",
+  "ref": "config/graphql/corpus_types.py:484"
+ },
+ {
+  "stub": "_resolve_CorpusType_memory_active_warning",
+  "module": "corpus_types",
+  "ref": "config/graphql/corpus_types.py:557"
+ },
+ {
+  "stub": "_resolve_CorpusType_document_count",
+  "module": "corpus_types",
+  "ref": "config/graphql/corpus_types.py:579"
+ },
+ {
+  "stub": "_resolve_CorpusType_my_vote",
+  "module": "corpus_types",
+  "ref": "config/graphql/corpus_types.py:602"
+ },
+ {
+  "stub": "_resolve_CorpusType_annotation_count",
+  "module": "corpus_types",
+  "ref": "config/graphql/corpus_types.py:636"
+ },
+ {
+  "stub": "_get_queryset_CorpusType",
+  "module": "corpus_types",
+  "ref": "config.graphql.corpus_types.CorpusType.get_queryset"
+ },
+ {
+  "stub": "_get_node_CorpusType",
+  "module": "corpus_types",
+  "ref": "config.graphql.corpus_types.CorpusType.get_node"
+ },
+ {
+  "stub": "_resolve_CorpusCategoryType_corpus_count",
+  "module": "corpus_types",
+  "ref": "config/graphql/corpus_types.py:72"
+ },
+ {
+  "stub": "_resolve_LabelSetType_icon",
+  "module": "annotation_types",
+  "ref": "config/graphql/annotation_types.py:1024"
+ },
+ {
+  "stub": "_resolve_LabelSetType_doc_label_count",
+  "module": "annotation_types",
+  "ref": "config/graphql/annotation_types.py:989"
+ },
+ {
+  "stub": "_resolve_LabelSetType_span_label_count",
+  "module": "annotation_types",
+  "ref": "config/graphql/annotation_types.py:996"
+ },
+ {
+  "stub": "_resolve_LabelSetType_token_label_count",
+  "module": "annotation_types",
+  "ref": "config/graphql/annotation_types.py:1002"
+ },
+ {
+  "stub": "_resolve_LabelSetType_corpus_count",
+  "module": "annotation_types",
+  "ref": "config/graphql/annotation_types.py:1011"
+ },
+ {
+  "stub": "_resolve_LabelSetType_all_annotation_labels",
+  "module": "annotation_types",
+  "ref": "config/graphql/annotation_types.py:1020"
+ },
+ {
+  "stub": "_get_queryset_DocumentRelationshipType",
+  "module": "document_types",
+  "ref": "config.graphql.document_types.DocumentRelationshipType.get_queryset"
+ },
+ {
+  "stub": "_resolve_DocumentPathType_action",
+  "module": "document_types",
+  "ref": "config/graphql/document_types.py:153"
+ },
+ {
+  "stub": "_get_queryset_DocumentPathType",
+  "module": "document_types",
+  "ref": "config.graphql.document_types.DocumentPathType.get_queryset"
+ },
+ {
+  "stub": "_resolve_CorpusFolderType_parent",
+  "module": "corpus_types",
+  "ref": "config/graphql/corpus_types.py:205"
+ },
+ {
+  "stub": "_resolve_CorpusFolderType_children",
+  "module": "corpus_types",
+  "ref": "config/graphql/corpus_types.py:199"
+ },
+ {
+  "stub": "_resolve_CorpusFolderType_my_permissions",
+  "module": "corpus_types",
+  "ref": "config/graphql/corpus_types.py:238"
+ },
+ {
+  "stub": "_resolve_CorpusFolderType_is_published",
+  "module": "corpus_types",
+  "ref": "config/graphql/corpus_types.py:290"
+ },
+ {
+  "stub": "_resolve_CorpusFolderType_path",
+  "module": "corpus_types",
+  "ref": "config/graphql/corpus_types.py:162"
+ },
+ {
+  "stub": "_resolve_CorpusFolderType_document_count",
+  "module": "corpus_types",
+  "ref": "config/graphql/corpus_types.py:175"
+ },
+ {
+  "stub": "_resolve_CorpusFolderType_descendant_document_count",
+  "module": "corpus_types",
+  "ref": "config/graphql/corpus_types.py:187"
+ },
+ {
+  "stub": "_get_queryset_CorpusFolderType",
+  "module": "corpus_types",
+  "ref": "config.graphql.corpus_types.CorpusFolderType.get_queryset"
+ },
+ {
+  "stub": "_get_queryset_IngestionSourceType",
+  "module": "document_types",
+  "ref": "config.graphql.document_types.IngestionSourceType.get_queryset"
+ },
+ {
+  "stub": "_resolve_CorpusActionExecutionType_affected_objects",
+  "module": "agent_types",
+  "ref": "config/graphql/agent_types.py:113"
+ },
+ {
+  "stub": "_resolve_CorpusActionExecutionType_execution_metadata",
+  "module": "agent_types",
+  "ref": "config/graphql/agent_types.py:117"
+ },
+ {
+  "stub": "_resolve_CorpusActionExecutionType_duration_seconds",
+  "module": "agent_types",
+  "ref": "config/graphql/agent_types.py:105"
+ },
+ {
+  "stub": "_resolve_CorpusActionExecutionType_wait_time_seconds",
+  "module": "agent_types",
+  "ref": "config/graphql/agent_types.py:109"
+ },
+ {
+  "stub": "_resolve_ConversationType_conversation_type",
+  "module": "conversation_types",
+  "ref": "config/graphql/conversation_types.py:473"
+ },
+ {
+  "stub": "_resolve_ConversationType_all_messages",
+  "module": "conversation_types",
+  "ref": "config/graphql/conversation_types.py:470"
+ },
+ {
+  "stub": "_resolve_ConversationType_user_vote",
+  "module": "conversation_types",
+  "ref": "config/graphql/conversation_types.py:479"
+ },
+ {
+  "stub": "_get_queryset_ConversationType",
+  "module": "conversation_types",
+  "ref": "config.graphql.conversation_types.ConversationType.get_queryset"
+ },
+ {
+  "stub": "_get_node_ConversationType",
+  "module": "conversation_types",
+  "ref": "config.graphql.conversation_types.ConversationType.get_node"
+ },
+ {
+  "stub": "_resolve_MessageType_msg_type",
+  "module": "conversation_types",
+  "ref": "config/graphql/conversation_types.py:399"
+ },
+ {
+  "stub": "_resolve_MessageType_agent_type",
+  "module": "conversation_types",
+  "ref": "config/graphql/conversation_types.py:408"
+ },
+ {
+  "stub": "_resolve_MessageType_agent_configuration",
+  "module": "conversation_types",
+  "ref": "config/graphql/conversation_types.py:414"
+ },
+ {
+  "stub": "_resolve_MessageType_mentioned_resources",
+  "module": "conversation_types",
+  "ref": "config/graphql/conversation_types.py:438"
+ },
+ {
+  "stub": "_resolve_MessageType_user_vote",
+  "module": "conversation_types",
+  "ref": "config/graphql/conversation_types.py:418"
+ },
+ {
+  "stub": "_resolve_AgentConfigurationType_available_tools",
+  "module": "agent_types",
+  "ref": "config/graphql/agent_types.py:192"
+ },
+ {
+  "stub": "_resolve_AgentConfigurationType_permission_required_tools",
+  "module": "agent_types",
+  "ref": "config/graphql/agent_types.py:196"
+ },
+ {
+  "stub": "_resolve_AgentConfigurationType_mention_format",
+  "module": "agent_types",
+  "ref": "config/graphql/agent_types.py:186"
+ },
+ {
+  "stub": "_resolve_ModerationActionType_corpus_id",
+  "module": "conversation_types",
+  "ref": "config/graphql/conversation_types.py:569"
+ },
+ {
+  "stub": "_resolve_ModerationActionType_is_automated",
+  "module": "conversation_types",
+  "ref": "config/graphql/conversation_types.py:575"
+ },
+ {
+  "stub": "_resolve_ModerationActionType_can_rollback",
+  "module": "conversation_types",
+  "ref": "config/graphql/conversation_types.py:579"
+ },
+ {
+  "stub": "_resolve_NotificationType_message",
+  "module": "social_types",
+  "ref": "config/graphql/social_types.py:149"
+ },
+ {
+  "stub": "_resolve_NotificationType_conversation",
+  "module": "social_types",
+  "ref": "config/graphql/social_types.py:170"
+ },
+ {
+  "stub": "_resolve_NotificationType_data",
+  "module": "social_types",
+  "ref": "config/graphql/social_types.py:191"
+ },
+ {
+  "stub": "_resolve_AgentActionResultType_tools_executed",
+  "module": "agent_types",
+  "ref": "config/graphql/agent_types.py:66"
+ },
+ {
+  "stub": "_resolve_AgentActionResultType_execution_metadata",
+  "module": "agent_types",
+  "ref": "config/graphql/agent_types.py:70"
+ },
+ {
+  "stub": "_resolve_AgentActionResultType_duration_seconds",
+  "module": "agent_types",
+  "ref": "config/graphql/agent_types.py:74"
+ },
+ {
+  "stub": "_resolve_ExtractType_full_datacell_list",
+  "module": "extract_types",
+  "ref": "config/graphql/extract_types.py:178"
+ },
+ {
+  "stub": "_resolve_ExtractType_full_document_list",
+  "module": "extract_types",
+  "ref": "config/graphql/extract_types.py:226"
+ },
+ {
+  "stub": "_resolve_ExtractType_document_count",
+  "module": "extract_types",
+  "ref": "config/graphql/extract_types.py:200"
+ },
+ {
+  "stub": "_resolve_ExtractType_datacell_count",
+  "module": "extract_types",
+  "ref": "config/graphql/extract_types.py:194"
+ },
+ {
+  "stub": "_resolve_ExtractType_iteration_axis",
+  "module": "extract_types",
+  "ref": "config/graphql/extract_types.py:240"
+ },
+ {
+  "stub": "_resolve_ExtractType_full_iteration_list",
+  "module": "extract_types",
+  "ref": "config/graphql/extract_types.py:234"
+ },
+ {
+  "stub": "_get_node_ExtractType",
+  "module": "extract_types",
+  "ref": "config.graphql.extract_types.ExtractType.get_node"
+ },
+ {
+  "stub": "_resolve_FieldsetType_in_use",
+  "module": "extract_types",
+  "ref": "config/graphql/extract_types.py:51"
+ },
+ {
+  "stub": "_resolve_FieldsetType_full_column_list",
+  "module": "extract_types",
+  "ref": "config/graphql/extract_types.py:57"
+ },
+ {
+  "stub": "_resolve_FieldsetType_column_count",
+  "module": "extract_types",
+  "ref": "config/graphql/extract_types.py:60"
+ },
+ {
+  "stub": "_resolve_DatacellType_full_source_list",
+  "module": "extract_types",
+  "ref": "config/graphql/extract_types.py:76"
+ },
+ {
+  "stub": "_resolve_AnalysisType_full_annotation_list",
+  "module": "extract_types",
+  "ref": "config/graphql/extract_types.py:305"
+ },
+ {
+  "stub": "_get_node_AnalysisType",
+  "module": "extract_types",
+  "ref": "config.graphql.extract_types.AnalysisType.get_node"
+ },
+ {
+  "stub": "_resolve_NoteType_revisions",
+  "module": "annotation_types",
+  "ref": "config/graphql/annotation_types.py:1073"
+ },
+ {
+  "stub": "_resolve_NoteType_descendants_tree",
+  "module": "annotation_types",
+  "ref": "config/graphql/annotation_types.py:1083"
+ },
+ {
+  "stub": "_resolve_NoteType_full_tree",
+  "module": "annotation_types",
+  "ref": "config/graphql/annotation_types.py:1108"
+ },
+ {
+  "stub": "_resolve_NoteType_subtree",
+  "module": "annotation_types",
+  "ref": "config/graphql/annotation_types.py:1136"
+ },
+ {
+  "stub": "_resolve_NoteType_current_version",
+  "module": "annotation_types",
+  "ref": "config/graphql/annotation_types.py:1077"
+ },
+ {
+  "stub": "_resolve_NoteType_content_preview",
+  "module": "annotation_types",
+  "ref": "config/graphql/annotation_types.py:1067"
+ },
+ {
+  "stub": "_get_queryset_NoteType",
+  "module": "annotation_types",
+  "ref": "config.graphql.annotation_types.NoteType.get_queryset"
+ },
+ {
+  "stub": "_resolve_AuthorityNamespaceNode_aliases",
+  "module": "annotation_types",
+  "ref": "config/graphql/annotation_types.py:479"
+ },
+ {
+  "stub": "_resolve_AuthorityNamespaceNode_scope",
+  "module": "annotation_types",
+  "ref": "config/graphql/annotation_types.py:482"
+ },
+ {
+  "stub": "_resolve_AuthorityNamespaceNode_equivalence_count",
+  "module": "annotation_types",
+  "ref": "config/graphql/annotation_types.py:485"
+ },
+ {
+  "stub": "_resolve_AuthorityNamespaceNode_frontier_count",
+  "module": "annotation_types",
+  "ref": "config/graphql/annotation_types.py:491"
+ },
+ {
+  "stub": "_resolve_AuthorityNamespaceNode_reference_count",
+  "module": "annotation_types",
+  "ref": "config/graphql/annotation_types.py:494"
+ },
+ {
+  "stub": "_resolve_AuthorityNamespaceNode_effective_provider",
+  "module": "annotation_types",
+  "ref": "config/graphql/annotation_types.py:499"
+ },
+ {
+  "stub": "_resolve_AuthorityNamespaceNode_created_by_username",
+  "module": "annotation_types",
+  "ref": "config/graphql/annotation_types.py:504"
+ },
+ {
+  "stub": "_get_queryset_AuthorityNamespaceNode",
+  "module": "annotation_types",
+  "ref": "config.graphql.annotation_types.AuthorityNamespaceNode.get_queryset"
+ },
+ {
+  "stub": "_resolve_CorpusDescriptionRevisionType_id",
+  "module": "corpus_types",
+  "ref": "config/graphql/corpus_types.py:917"
+ },
+ {
+  "stub": "_resolve_CorpusDescriptionRevisionType_version",
+  "module": "corpus_types",
+  "ref": "config/graphql/corpus_types.py:921"
+ },
+ {
+  "stub": "_resolve_CorpusDescriptionRevisionType_author",
+  "module": "corpus_types",
+  "ref": "config/graphql/corpus_types.py:955"
+ },
+ {
+  "stub": "_resolve_CorpusDescriptionRevisionType_snapshot",
+  "module": "corpus_types",
+  "ref": "config/graphql/corpus_types.py:959"
+ },
+ {
+  "stub": "_resolve_CorpusDescriptionRevisionType_created",
+  "module": "corpus_types",
+  "ref": "config/graphql/corpus_types.py:987"
+ },
+ {
+  "stub": "_resolve_CorpusActionTemplateType_pre_authorized_tools",
+  "module": "agent_types",
+  "ref": "config/graphql/agent_types.py:267"
+ },
+ {
+  "stub": "_get_queryset_UserFeedbackType",
+  "module": "user_types",
+  "ref": "config.graphql.user_types.UserFeedbackType.get_queryset"
+ },
+ {
+  "stub": "_resolve_AuthorityFrontierNode_ingestable",
+  "module": "annotation_types",
+  "ref": "config/graphql/annotation_types.py:302"
+ },
+ {
+  "stub": "_resolve_AuthorityFrontierNode_predicted_provider",
+  "module": "annotation_types",
+  "ref": "config/graphql/annotation_types.py:305"
+ },
+ {
+  "stub": "_get_queryset_AuthorityFrontierNode",
+  "module": "annotation_types",
+  "ref": "config.graphql.annotation_types.AuthorityFrontierNode.get_queryset"
+ },
+ {
+  "stub": "_resolve_UserExportType_file",
+  "module": "user_types",
+  "ref": "config/graphql/user_types.py:465"
+ },
+ {
+  "stub": "_resolve_UserImportType_zip",
+  "module": "user_types",
+  "ref": "config/graphql/user_types.py:475"
+ },
+ {
+  "stub": "_resolve_AuthorityKeyEquivalenceNode_editable",
+  "module": "annotation_types",
+  "ref": "config/graphql/annotation_types.py:374"
+ },
+ {
+  "stub": "_resolve_AuthorityKeyEquivalenceNode_created_by_username",
+  "module": "annotation_types",
+  "ref": "config/graphql/annotation_types.py:377"
+ },
+ {
+  "stub": "_get_queryset_AuthorityKeyEquivalenceNode",
+  "module": "annotation_types",
+  "ref": "config.graphql.annotation_types.AuthorityKeyEquivalenceNode.get_queryset"
+ },
+ {
+  "stub": "_resolve_SemanticSearchResultType_document",
+  "module": "social_types",
+  "ref": "config/graphql/social_types.py:419"
+ },
+ {
+  "stub": "_resolve_SemanticSearchResultType_corpus",
+  "module": "social_types",
+  "ref": "config/graphql/social_types.py:432"
+ },
+ {
+  "stub": "_resolve_GeographicAnnotationPinType_sample_document_ids",
+  "module": "annotation_queries",
+  "ref": "config/graphql/annotation_queries.py:1302"
+ },
+ {
+  "stub": "_resolve_Query_admin_document_ingestion",
+  "module": "ingestion_admin_queries",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:141"
+ },
+ {
+  "stub": "_resolve_Query_admin_worker_uploads",
+  "module": "ingestion_admin_queries",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:192"
+ },
+ {
+  "stub": "_resolve_Query_admin_corpus_imports",
+  "module": "ingestion_admin_queries",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:250"
+ },
+ {
+  "stub": "_resolve_Query_admin_bulk_import_sessions",
+  "module": "ingestion_admin_queries",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:305"
+ },
+ {
+  "stub": "_resolve_Query_system_stats",
+  "module": "stats_queries",
+  "ref": "config/graphql/stats_queries.py:52"
+ },
+ {
+  "stub": "_resolve_Query_research_reports",
+  "module": "research_queries",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:50"
+ },
+ {
+  "stub": "_resolve_Query_research_report_by_slug",
+  "module": "research_queries",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:84"
+ },
+ {
+  "stub": "_resolve_Query_worker_accounts",
+  "module": "worker_queries",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:64"
+ },
+ {
+  "stub": "_resolve_Query_corpus_access_tokens",
+  "module": "worker_queries",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:99"
+ },
+ {
+  "stub": "_resolve_Query_worker_document_uploads",
+  "module": "worker_queries",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:136"
+ },
+ {
+  "stub": "_resolve_Query_og_corpus_metadata",
+  "module": "og_metadata_queries",
+  "ref": "config/ratelimit/decorators.py:72"
+ },
+ {
+  "stub": "_resolve_Query_og_document_metadata",
+  "module": "og_metadata_queries",
+  "ref": "config/ratelimit/decorators.py:112"
+ },
+ {
+  "stub": "_resolve_Query_og_document_in_corpus_metadata",
+  "module": "og_metadata_queries",
+  "ref": "config/ratelimit/decorators.py:147"
+ },
+ {
+  "stub": "_resolve_Query_og_thread_metadata",
+  "module": "og_metadata_queries",
+  "ref": "config/ratelimit/decorators.py:201"
+ },
+ {
+  "stub": "_resolve_Query_og_extract_metadata",
+  "module": "og_metadata_queries",
+  "ref": "config/ratelimit/decorators.py:252"
+ },
+ {
+  "stub": "_resolve_Query_pipeline_components",
+  "module": "pipeline_queries",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:43"
+ },
+ {
+  "stub": "_resolve_Query_supported_mime_types",
+  "module": "pipeline_queries",
+  "ref": "config/graphql/pipeline_queries.py:258"
+ },
+ {
+  "stub": "_resolve_Query_convertible_extensions",
+  "module": "pipeline_queries",
+  "ref": "config/graphql/pipeline_queries.py:294"
+ },
+ {
+  "stub": "_resolve_Query_pipeline_settings",
+  "module": "pipeline_queries",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:311"
+ },
+ {
+  "stub": "_resolve_Query_corpus_action_templates",
+  "module": "action_queries",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:37"
+ },
+ {
+  "stub": "_resolve_Query_corpus_actions",
+  "module": "action_queries",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:62"
+ },
+ {
+  "stub": "_resolve_Query_agent_action_results",
+  "module": "action_queries",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:97"
+ },
+ {
+  "stub": "_resolve_Query_corpus_action_executions",
+  "module": "action_queries",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:134"
+ },
+ {
+  "stub": "_resolve_Query_corpus_action_trail_stats",
+  "module": "action_queries",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:218"
+ },
+ {
+  "stub": "_resolve_Query_document_corpus_actions",
+  "module": "action_queries",
+  "ref": "config/graphql/action_queries.py:296"
+ },
+ {
+  "stub": "_resolve_Query_badges",
+  "module": "social_queries",
+  "ref": "config/graphql/social_queries.py:57"
+ },
+ {
+  "stub": "_resolve_Query_user_badges",
+  "module": "social_queries",
+  "ref": "config/graphql/social_queries.py:75"
+ },
+ {
+  "stub": "_resolve_Query_badge_criteria_types",
+  "module": "social_queries",
+  "ref": "config/graphql/social_queries.py:122"
+ },
+ {
+  "stub": "_resolve_Query_agents",
+  "module": "social_queries",
+  "ref": "config/graphql/social_queries.py:174"
+ },
+ {
+  "stub": "_resolve_Query_agent_configurations",
+  "module": "social_queries",
+  "ref": "config/graphql/social_queries.py:182"
+ },
+ {
+  "stub": "_resolve_Query_available_tools",
+  "module": "social_queries",
+  "ref": "config/graphql/social_queries.py:221"
+ },
+ {
+  "stub": "_resolve_Query_available_tool_categories",
+  "module": "social_queries",
+  "ref": "config/graphql/social_queries.py:240"
+ },
+ {
+  "stub": "_resolve_Query_notifications",
+  "module": "social_queries",
+  "ref": "config/graphql/social_queries.py:257"
+ },
+ {
+  "stub": "_resolve_Query_unread_notification_count",
+  "module": "social_queries",
+  "ref": "config/graphql/social_queries.py:289"
+ },
+ {
+  "stub": "_resolve_Query_corpus_leaderboard",
+  "module": "social_queries",
+  "ref": "config/graphql/social_queries.py:308"
+ },
+ {
+  "stub": "_resolve_Query_global_leaderboard",
+  "module": "social_queries",
+  "ref": "config/graphql/social_queries.py:351"
+ },
+ {
+  "stub": "_resolve_Query_leaderboard",
+  "module": "social_queries",
+  "ref": "config/graphql/social_queries.py:396"
+ },
+ {
+  "stub": "_resolve_Query_community_stats",
+  "module": "social_queries",
+  "ref": "config/graphql/social_queries.py:634"
+ },
+ {
+  "stub": "_resolve_Query_discover_annotations",
+  "module": "discover_queries",
+  "ref": "config/ratelimit/decorators.py:303"
+ },
+ {
+  "stub": "_resolve_Query_discover_documents",
+  "module": "discover_queries",
+  "ref": "config/ratelimit/decorators.py:339"
+ },
+ {
+  "stub": "_resolve_Query_discover_notes",
+  "module": "discover_queries",
+  "ref": "config/ratelimit/decorators.py:363"
+ },
+ {
+  "stub": "_resolve_Query_discover_corpuses",
+  "module": "discover_queries",
+  "ref": "config/ratelimit/decorators.py:395"
+ },
+ {
+  "stub": "_resolve_Query_discover_discussions",
+  "module": "discover_queries",
+  "ref": "config/ratelimit/decorators.py:478"
+ },
+ {
+  "stub": "_resolve_Query_search_corpuses_for_mention",
+  "module": "search_queries",
+  "ref": "config/ratelimit/decorators.py:96"
+ },
+ {
+  "stub": "_resolve_Query_search_documents_for_mention",
+  "module": "search_queries",
+  "ref": "config/ratelimit/decorators.py:148"
+ },
+ {
+  "stub": "_resolve_Query_search_annotations_for_mention",
+  "module": "search_queries",
+  "ref": "config/ratelimit/decorators.py:279"
+ },
+ {
+  "stub": "_resolve_Query_search_users_for_mention",
+  "module": "search_queries",
+  "ref": "config/ratelimit/decorators.py:360"
+ },
+ {
+  "stub": "_resolve_Query_search_agents_for_mention",
+  "module": "search_queries",
+  "ref": "config/ratelimit/decorators.py:408"
+ },
+ {
+  "stub": "_resolve_Query_search_notes_for_mention",
+  "module": "search_queries",
+  "ref": "config/ratelimit/decorators.py:447"
+ },
+ {
+  "stub": "_resolve_Query_semantic_search",
+  "module": "search_queries",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:547"
+ },
+ {
+  "stub": "_resolve_Query_semantic_search_relationships",
+  "module": "search_queries",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:830"
+ },
+ {
+  "stub": "_resolve_Query_conversations",
+  "module": "conversation_queries",
+  "ref": "config/graphql/conversation_queries.py:46"
+ },
+ {
+  "stub": "_resolve_Query_search_conversations",
+  "module": "conversation_queries",
+  "ref": "config/graphql/conversation_queries.py:96"
+ },
+ {
+  "stub": "_resolve_Query_search_messages",
+  "module": "conversation_queries",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:190"
+ },
+ {
+  "stub": "_resolve_Query_chat_messages",
+  "module": "conversation_queries",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:260"
+ },
+ {
+  "stub": "_resolve_Query_user_messages",
+  "module": "conversation_queries",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:317"
+ },
+ {
+  "stub": "_resolve_Query_moderation_actions",
+  "module": "conversation_queries",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:408"
+ },
+ {
+  "stub": "_resolve_Query_moderation_action",
+  "module": "conversation_queries",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:482"
+ },
+ {
+  "stub": "_resolve_Query_moderation_metrics",
+  "module": "conversation_queries",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:542"
+ },
+ {
+  "stub": "_resolve_Query_fieldsets",
+  "module": "extract_queries",
+  "ref": "config/graphql/extract_queries.py:146"
+ },
+ {
+  "stub": "_resolve_Query_columns",
+  "module": "extract_queries",
+  "ref": "config/graphql/extract_queries.py:164"
+ },
+ {
+  "stub": "_resolve_Query_extracts",
+  "module": "extract_queries",
+  "ref": "config/graphql/extract_queries.py:189"
+ },
+ {
+  "stub": "_resolve_Query_compare_extracts",
+  "module": "extract_queries",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:209"
+ },
+ {
+  "stub": "_resolve_Query_datacells",
+  "module": "extract_queries",
+  "ref": "config/graphql/extract_queries.py:272"
+ },
+ {
+  "stub": "_resolve_Query_registered_extract_tasks",
+  "module": "extract_queries",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:279"
+ },
+ {
+  "stub": "_resolve_Query_document_metadata_datacells",
+  "module": "extract_queries",
+  "ref": "config/graphql/extract_queries.py:325"
+ },
+ {
+  "stub": "_resolve_Query_metadata_completion_status_v2",
+  "module": "extract_queries",
+  "ref": "config/graphql/extract_queries.py:337"
+ },
+ {
+  "stub": "_resolve_Query_documents_metadata_datacells_batch",
+  "module": "extract_queries",
+  "ref": "config/graphql/extract_queries.py:351"
+ },
+ {
+  "stub": "_resolve_Query_gremlin_engines",
+  "module": "extract_queries",
+  "ref": "config/graphql/extract_queries.py:421"
+ },
+ {
+  "stub": "_resolve_Query_analyzers",
+  "module": "extract_queries",
+  "ref": "config/graphql/extract_queries.py:449"
+ },
+ {
+  "stub": "_resolve_Query_analyses",
+  "module": "extract_queries",
+  "ref": "config/ratelimit/decorators.py:470"
+ },
+ {
+  "stub": "_resolve_Query_corpuses",
+  "module": "corpus_queries",
+  "ref": "config/ratelimit/decorators.py:113"
+ },
+ {
+  "stub": "_resolve_Query_corpus_filter_counts",
+  "module": "corpus_queries",
+  "ref": "config/ratelimit/decorators.py:176"
+ },
+ {
+  "stub": "_resolve_Query_corpus_categories",
+  "module": "corpus_queries",
+  "ref": "config/ratelimit/decorators.py:218"
+ },
+ {
+  "stub": "_resolve_Query_corpus_folders",
+  "module": "corpus_queries",
+  "ref": "config/ratelimit/decorators.py:260"
+ },
+ {
+  "stub": "_resolve_Query_corpus_folder",
+  "module": "corpus_queries",
+  "ref": "config/ratelimit/decorators.py:289"
+ },
+ {
+  "stub": "_resolve_Query_deleted_documents_in_corpus",
+  "module": "corpus_queries",
+  "ref": "config/ratelimit/decorators.py:312"
+ },
+ {
+  "stub": "_resolve_Query_corpus_intelligence_setup_status",
+  "module": "corpus_queries",
+  "ref": "config/ratelimit/decorators.py:341"
+ },
+ {
+  "stub": "_resolve_Query_corpus_stats",
+  "module": "corpus_queries",
+  "ref": "config/ratelimit/decorators.py:368"
+ },
+ {
+  "stub": "_resolve_Query_corpus_document_graph",
+  "module": "corpus_queries",
+  "ref": "config/ratelimit/decorators.py:508"
+ },
+ {
+  "stub": "_resolve_Query_corpus_intelligence_aggregates",
+  "module": "corpus_queries",
+  "ref": "config/ratelimit/decorators.py:654"
+ },
+ {
+  "stub": "_resolve_Query_corpus_data_story",
+  "module": "corpus_queries",
+  "ref": "config/ratelimit/decorators.py:745"
+ },
+ {
+  "stub": "_resolve_Query_artifact_by_slug",
+  "module": "corpus_queries",
+  "ref": "config/ratelimit/decorators.py:785"
+ },
+ {
+  "stub": "_resolve_Query_corpus_artifacts",
+  "module": "corpus_queries",
+  "ref": "config/ratelimit/decorators.py:802"
+ },
+ {
+  "stub": "_resolve_Query_corpus_artifact_templates",
+  "module": "corpus_queries",
+  "ref": "config/ratelimit/decorators.py:824"
+ },
+ {
+  "stub": "_resolve_Query_corpus_metadata_columns",
+  "module": "corpus_queries",
+  "ref": "config/graphql/corpus_queries.py:853"
+ },
+ {
+  "stub": "_resolve_Query_documents",
+  "module": "document_queries",
+  "ref": "config/ratelimit/decorators.py:57"
+ },
+ {
+  "stub": "_resolve_Query_document",
+  "module": "document_queries",
+  "ref": "config/graphql/document_queries.py:79"
+ },
+ {
+  "stub": "_resolve_Query_corpus_document_ids",
+  "module": "document_queries",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:128"
+ },
+ {
+  "stub": "_resolve_Query_document_stats",
+  "module": "document_queries",
+  "ref": "config/ratelimit/decorators.py:200"
+ },
+ {
+  "stub": "_resolve_Query_document_relationships",
+  "module": "document_queries",
+  "ref": "config/ratelimit/decorators.py:250"
+ },
+ {
+  "stub": "_resolve_Query_bulk_doc_relationships",
+  "module": "document_queries",
+  "ref": "config/ratelimit/decorators.py:319"
+ },
+ {
+  "stub": "_resolve_Query_bulk_document_upload_status",
+  "module": "document_queries",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:358"
+ },
+ {
+  "stub": "_resolve_Query_ingestion_sources",
+  "module": "document_queries",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:488"
+ },
+ {
+  "stub": "_resolve_Query_ingestion_source",
+  "module": "document_queries",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:509"
+ },
+ {
+  "stub": "_resolve_Query_corpus_references",
+  "module": "annotation_queries",
+  "ref": "config/graphql/annotation_queries.py:88"
+ },
+ {
+  "stub": "_resolve_Query_governance_graph",
+  "module": "annotation_queries",
+  "ref": "config/ratelimit/decorators.py:151"
+ },
+ {
+  "stub": "_resolve_Query_wanted_authorities",
+  "module": "annotation_queries",
+  "ref": "config/ratelimit/decorators.py:270"
+ },
+ {
+  "stub": "_resolve_Query_authority_frontier_stats",
+  "module": "annotation_queries",
+  "ref": "config/ratelimit/decorators.py:314"
+ },
+ {
+  "stub": "_resolve_Query_authority_mapping_stats",
+  "module": "annotation_queries",
+  "ref": "config/ratelimit/decorators.py:360"
+ },
+ {
+  "stub": "_resolve_Query_authority_namespace_stats",
+  "module": "annotation_queries",
+  "ref": "config/ratelimit/decorators.py:404"
+ },
+ {
+  "stub": "_resolve_Query_authority_namespace_detail",
+  "module": "annotation_queries",
+  "ref": "config/ratelimit/decorators.py:410"
+ },
+ {
+  "stub": "_resolve_Query_authority_source_providers",
+  "module": "annotation_queries",
+  "ref": "config/ratelimit/decorators.py:428"
+ },
+ {
+  "stub": "_resolve_Query_annotations",
+  "module": "annotation_queries",
+  "ref": "config/ratelimit/decorators.py:459"
+ },
+ {
+  "stub": "_resolve_Query_bulk_doc_relationships_in_corpus",
+  "module": "annotation_queries",
+  "ref": "config/graphql/annotation_queries.py:682"
+ },
+ {
+  "stub": "_resolve_Query_bulk_doc_annotations_in_corpus",
+  "module": "annotation_queries",
+  "ref": "config/graphql/annotation_queries.py:717"
+ },
+ {
+  "stub": "_resolve_Query_page_annotations",
+  "module": "annotation_queries",
+  "ref": "config/ratelimit/decorators.py:784"
+ },
+ {
+  "stub": "_resolve_Query_relationships",
+  "module": "annotation_queries",
+  "ref": "config/graphql/annotation_queries.py:977"
+ },
+ {
+  "stub": "_resolve_Query_annotation_labels",
+  "module": "annotation_queries",
+  "ref": "config/graphql/annotation_queries.py:1016"
+ },
+ {
+  "stub": "_resolve_Query_labelsets",
+  "module": "annotation_queries",
+  "ref": "config/ratelimit/decorators.py:1035"
+ },
+ {
+  "stub": "_resolve_Query_default_labelset",
+  "module": "annotation_queries",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:1058"
+ },
+ {
+  "stub": "_resolve_Query_notes",
+  "module": "annotation_queries",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:1078"
+ },
+ {
+  "stub": "_resolve_Query_geographic_annotations_for_corpus",
+  "module": "annotation_queries",
+  "ref": "config/ratelimit/decorators.py:1166"
+ },
+ {
+  "stub": "_resolve_Query_global_geographic_annotations",
+  "module": "annotation_queries",
+  "ref": "config/ratelimit/decorators.py:1229"
+ },
+ {
+  "stub": "_resolve_Query_corpus_by_slugs",
+  "module": "slug_queries",
+  "ref": "config/graphql/slug_queries.py:47"
+ },
+ {
+  "stub": "_resolve_Query_document_by_slugs",
+  "module": "slug_queries",
+  "ref": "config/graphql/slug_queries.py:72"
+ },
+ {
+  "stub": "_resolve_Query_document_in_corpus_by_slugs",
+  "module": "slug_queries",
+  "ref": "config/graphql/slug_queries.py:90"
+ },
+ {
+  "stub": "_resolve_Query_me",
+  "module": "user_queries",
+  "ref": "config/graphql/user_queries.py:40"
+ },
+ {
+  "stub": "_resolve_Query_user_by_slug",
+  "module": "user_queries",
+  "ref": "config/graphql/user_queries.py:46"
+ },
+ {
+  "stub": "_resolve_Query_userimports",
+  "module": "user_queries",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:74"
+ },
+ {
+  "stub": "_resolve_Query_userexports",
+  "module": "user_queries",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:105"
+ },
+ {
+  "stub": "_resolve_Query_assignments",
+  "module": "user_queries",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:135"
+ },
+ {
+  "stub": "_mutate_ObtainJSONWebTokenWithUser",
+  "module": "user_mutations",
+  "ref": "config/graphql/user_mutations.py:75"
+ },
+ {
+  "stub": "_mutate_Verify",
+  "module": "jwt_auth",
+  "ref": "graphql_jwt.mutations.Verify.mutate"
+ },
+ {
+  "stub": "_mutate_Refresh",
+  "module": "jwt_auth",
+  "ref": "graphql_jwt.mutations.Refresh.mutate"
+ },
+ {
+  "stub": "_mutate_AddAnnotation",
+  "module": "annotation_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:257"
+ },
+ {
+  "stub": "_mutate_AddUrlAnnotation",
+  "module": "annotation_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:365"
+ },
+ {
+  "stub": "_mutate_AddCountryAnnotation",
+  "module": "annotation_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:632"
+ },
+ {
+  "stub": "_mutate_AddStateAnnotation",
+  "module": "annotation_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:710"
+ },
+ {
+  "stub": "_mutate_AddCityAnnotation",
+  "module": "annotation_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:798"
+ },
+ {
+  "stub": "_mutate_RemoveAnnotation",
+  "module": "annotation_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:65"
+ },
+ {
+  "stub": "_mutate_AddDocTypeAnnotation",
+  "module": "annotation_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:856"
+ },
+ {
+  "stub": "_mutate_RemoveAnnotation",
+  "module": "annotation_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:65"
+ },
+ {
+  "stub": "_mutate_ApproveAnnotation",
+  "module": "annotation_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:141"
+ },
+ {
+  "stub": "_mutate_RejectAnnotation",
+  "module": "annotation_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:112"
+ },
+ {
+  "stub": "_mutate_AddRelationship",
+  "module": "annotation_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:968"
+ },
+ {
+  "stub": "_mutate_RemoveRelationship",
+  "module": "annotation_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:905"
+ },
+ {
+  "stub": "_mutate_RemoveRelationships",
+  "module": "annotation_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:1096"
+ },
+ {
+  "stub": "_mutate_UpdateRelationship",
+  "module": "annotation_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:1151"
+ },
+ {
+  "stub": "_mutate_UpdateRelations",
+  "module": "annotation_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:1289"
+ },
+ {
+  "stub": "_mutate_CreateDocumentRelationship",
+  "module": "document_relationship_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:66"
+ },
+ {
+  "stub": "_mutate_UpdateDocumentRelationship",
+  "module": "document_relationship_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:249"
+ },
+ {
+  "stub": "_mutate_DeleteDocumentRelationship",
+  "module": "document_relationship_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:423"
+ },
+ {
+  "stub": "_mutate_DeleteDocumentRelationships",
+  "module": "document_relationship_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:486"
+ },
+ {
+  "stub": "_mutate_CreateLabelset",
+  "module": "label_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:49"
+ },
+ {
+  "stub": "_mutate_DeleteMultipleLabelMutation",
+  "module": "label_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:169"
+ },
+ {
+  "stub": "_mutate_CreateLabelForLabelsetMutation",
+  "module": "label_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:235"
+ },
+ {
+  "stub": "_mutate_RemoveLabelsFromLabelsetMutation",
+  "module": "label_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:369"
+ },
+ {
+  "stub": "_mutate_SmartLabelSearchOrCreateMutation",
+  "module": "smart_label_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:92"
+ },
+ {
+  "stub": "_mutate_SmartLabelListMutation",
+  "module": "smart_label_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:269"
+ },
+ {
+  "stub": "_mutate_UploadDocument",
+  "module": "document_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:119"
+ },
+ {
+  "stub": "_mutate_UpdateDocumentSummary",
+  "module": "document_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:266"
+ },
+ {
+  "stub": "_mutate_DeleteMultipleDocuments",
+  "module": "document_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:389"
+ },
+ {
+  "stub": "_mutate_UploadDocumentsZip",
+  "module": "document_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:447"
+ },
+ {
+  "stub": "_mutate_RetryDocumentProcessing",
+  "module": "document_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:515"
+ },
+ {
+  "stub": "_mutate_RestoreDeletedDocument",
+  "module": "document_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:884"
+ },
+ {
+  "stub": "_mutate_RestoreDocumentToVersion",
+  "module": "document_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:1185"
+ },
+ {
+  "stub": "_mutate_PermanentlyDeleteDocument",
+  "module": "document_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:983"
+ },
+ {
+  "stub": "_mutate_EmptyTrash",
+  "module": "document_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:1047"
+ },
+ {
+  "stub": "_mutate_EmptyCorpus",
+  "module": "document_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:1115"
+ },
+ {
+  "stub": "_mutate_StartCorpusFork",
+  "module": "corpus_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:558"
+ },
+ {
+  "stub": "_mutate_ReEmbedCorpus",
+  "module": "corpus_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:699"
+ },
+ {
+  "stub": "_mutate_SetCorpusVisibility",
+  "module": "corpus_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:81"
+ },
+ {
+  "stub": "_mutate_CreateCorpusMutation",
+  "module": "corpus_mutations",
+  "ref": "config.graphql.corpus_mutations.CreateCorpusMutation.mutate"
+ },
+ {
+  "stub": "_mutate_UpdateCorpusMutation",
+  "module": "corpus_mutations",
+  "ref": "config.graphql.corpus_mutations.UpdateCorpusMutation.mutate"
+ },
+ {
+  "stub": "_mutate_UpdateMe",
+  "module": "user_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:59"
+ },
+ {
+  "stub": "_mutate_UpdateCorpusDescription",
+  "module": "corpus_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:278"
+ },
+ {
+  "stub": "_mutate_DeleteCorpusMutation",
+  "module": "corpus_mutations",
+  "ref": "config.graphql.corpus_mutations.DeleteCorpusMutation.mutate"
+ },
+ {
+  "stub": "_mutate_AddDocumentsToCorpus",
+  "module": "corpus_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:411"
+ },
+ {
+  "stub": "_mutate_RemoveDocumentsFromCorpus",
+  "module": "corpus_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:485"
+ },
+ {
+  "stub": "_mutate_CreateCorpusAction",
+  "module": "corpus_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:853"
+ },
+ {
+  "stub": "_mutate_UpdateCorpusAction",
+  "module": "corpus_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:1195"
+ },
+ {
+  "stub": "_mutate_RunCorpusAction",
+  "module": "corpus_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:1387"
+ },
+ {
+  "stub": "_mutate_StartCorpusActionBatchRun",
+  "module": "corpus_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:1503"
+ },
+ {
+  "stub": "_mutate_AddTemplateToCorpus",
+  "module": "corpus_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:1575"
+ },
+ {
+  "stub": "_mutate_SetupCorpusIntelligence",
+  "module": "corpus_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:1665"
+ },
+ {
+  "stub": "_mutate_ToggleCorpusMemory",
+  "module": "corpus_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:1719"
+ },
+ {
+  "stub": "_mutate_CreateArtifact",
+  "module": "corpus_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:1776"
+ },
+ {
+  "stub": "_mutate_UpdateArtifact",
+  "module": "corpus_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:1836"
+ },
+ {
+  "stub": "_mutate_SetArtifactImage",
+  "module": "corpus_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:1892"
+ },
+ {
+  "stub": "_mutate_CreateCorpusCategory",
+  "module": "corpus_category_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:80"
+ },
+ {
+  "stub": "_mutate_UpdateCorpusCategory",
+  "module": "corpus_category_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:126"
+ },
+ {
+  "stub": "_mutate_DeleteCorpusCategory",
+  "module": "corpus_category_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:181"
+ },
+ {
+  "stub": "_mutate_CreateCorpusFolderMutation",
+  "module": "corpus_folder_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:65"
+ },
+ {
+  "stub": "_mutate_UpdateCorpusFolderMutation",
+  "module": "corpus_folder_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:156"
+ },
+ {
+  "stub": "_mutate_MoveCorpusFolderMutation",
+  "module": "corpus_folder_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:244"
+ },
+ {
+  "stub": "_mutate_DeleteCorpusFolderMutation",
+  "module": "corpus_folder_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:327"
+ },
+ {
+  "stub": "_mutate_MoveDocumentToFolderMutation",
+  "module": "corpus_folder_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:400"
+ },
+ {
+  "stub": "_mutate_MoveDocumentsToFolderMutation",
+  "module": "corpus_folder_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:503"
+ },
+ {
+  "stub": "_mutate_UploadAnnotatedDocument",
+  "module": "document_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:584"
+ },
+ {
+  "stub": "_mutate_StartCorpusExport",
+  "module": "document_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:662"
+ },
+ {
+  "stub": "_mutate_AcceptCookieConsent",
+  "module": "user_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:19"
+ },
+ {
+  "stub": "_mutate_DismissGettingStarted",
+  "module": "user_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:33"
+ },
+ {
+  "stub": "_mutate_StartDocumentAnalysisMutation",
+  "module": "analysis_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:79"
+ },
+ {
+  "stub": "_mutate_DeleteAnalysisMutation",
+  "module": "analysis_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:145"
+ },
+ {
+  "stub": "_mutate_MakeAnalysisPublic",
+  "module": "analysis_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:35"
+ },
+ {
+  "stub": "_mutate_RunCorpusEnrichmentMutation",
+  "module": "enrichment_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:141"
+ },
+ {
+  "stub": "_mutate_RunAuthorityDiscoveryMutation",
+  "module": "enrichment_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:389"
+ },
+ {
+  "stub": "_mutate_CreateAuthorityKeyEquivalenceMutation",
+  "module": "authority_mapping_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:48"
+ },
+ {
+  "stub": "_mutate_UpdateAuthorityKeyEquivalenceMutation",
+  "module": "authority_mapping_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:71"
+ },
+ {
+  "stub": "_mutate_DeleteAuthorityKeyEquivalenceMutation",
+  "module": "authority_mapping_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:99"
+ },
+ {
+  "stub": "_mutate_CreateAuthorityNamespaceMutation",
+  "module": "authority_namespace_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:63"
+ },
+ {
+  "stub": "_mutate_UpdateAuthorityNamespaceMutation",
+  "module": "authority_namespace_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:124"
+ },
+ {
+  "stub": "_mutate_SetAuthorityNamespaceAliasesMutation",
+  "module": "authority_namespace_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:184"
+ },
+ {
+  "stub": "_mutate_DeleteAuthorityNamespaceMutation",
+  "module": "authority_namespace_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:208"
+ },
+ {
+  "stub": "_mutate_RequeueAuthorityFrontierMutation",
+  "module": "authority_frontier_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:53"
+ },
+ {
+  "stub": "_mutate_ResetAuthorityFrontierMutation",
+  "module": "authority_frontier_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:68"
+ },
+ {
+  "stub": "_mutate_RerouteAuthorityFrontierMutation",
+  "module": "authority_frontier_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:101"
+ },
+ {
+  "stub": "_mutate_ApproveAuthorityFrontierMutation",
+  "module": "authority_frontier_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:83"
+ },
+ {
+  "stub": "_mutate_DeleteAuthorityFrontierMutation",
+  "module": "authority_frontier_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:122"
+ },
+ {
+  "stub": "_mutate_CreateFieldset",
+  "module": "extract_mutations",
+  "ref": "config.graphql.extract_mutations.CreateFieldset.mutate"
+ },
+ {
+  "stub": "_mutate_UpdateFieldset",
+  "module": "extract_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:656"
+ },
+ {
+  "stub": "_mutate_CreateColumn",
+  "module": "extract_mutations",
+  "ref": "config.graphql.extract_mutations.CreateColumn.mutate"
+ },
+ {
+  "stub": "_mutate_UpdateColumnMutation",
+  "module": "extract_mutations",
+  "ref": "config.graphql.extract_mutations.UpdateColumnMutation.mutate"
+ },
+ {
+  "stub": "_mutate_DeleteColumn",
+  "module": "extract_mutations",
+  "ref": "config.graphql.extract_mutations.DeleteColumn.mutate"
+ },
+ {
+  "stub": "_mutate_CreateExtract",
+  "module": "extract_mutations",
+  "ref": "config.graphql.extract_mutations.CreateExtract.mutate"
+ },
+ {
+  "stub": "_mutate_CreateExtractIteration",
+  "module": "extract_mutations",
+  "ref": "config.graphql.extract_mutations.CreateExtractIteration.mutate"
+ },
+ {
+  "stub": "_mutate_StartExtract",
+  "module": "extract_mutations",
+  "ref": "config.graphql.extract_mutations.StartExtract.mutate"
+ },
+ {
+  "stub": "_mutate_UpdateExtractMutation",
+  "module": "extract_mutations",
+  "ref": "config.graphql.extract_mutations.UpdateExtractMutation.mutate"
+ },
+ {
+  "stub": "_mutate_AddDocumentsToExtract",
+  "module": "extract_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:1121"
+ },
+ {
+  "stub": "_mutate_RemoveDocumentsFromExtract",
+  "module": "extract_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:1175"
+ },
+ {
+  "stub": "_mutate_ApproveDatacell",
+  "module": "extract_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:87"
+ },
+ {
+  "stub": "_mutate_RejectDatacell",
+  "module": "extract_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:125"
+ },
+ {
+  "stub": "_mutate_EditDatacell",
+  "module": "extract_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:162"
+ },
+ {
+  "stub": "_mutate_StartDocumentExtract",
+  "module": "extract_mutations",
+  "ref": "config.graphql.extract_mutations.StartDocumentExtract.mutate"
+ },
+ {
+  "stub": "_mutate_UpdateNote",
+  "module": "annotation_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:1355"
+ },
+ {
+  "stub": "_mutate_CreateNote",
+  "module": "annotation_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:1458"
+ },
+ {
+  "stub": "_mutate_CreateMetadataColumn",
+  "module": "extract_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:206"
+ },
+ {
+  "stub": "_mutate_UpdateMetadataColumn",
+  "module": "extract_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:336"
+ },
+ {
+  "stub": "_mutate_DeleteMetadataColumn",
+  "module": "extract_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:409"
+ },
+ {
+  "stub": "_mutate_SetMetadataValue",
+  "module": "extract_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:477"
+ },
+ {
+  "stub": "_mutate_DeleteMetadataValue",
+  "module": "extract_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:562"
+ },
+ {
+  "stub": "_mutate_CreateBadgeMutation",
+  "module": "badge_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:59"
+ },
+ {
+  "stub": "_mutate_UpdateBadgeMutation",
+  "module": "badge_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:177"
+ },
+ {
+  "stub": "_mutate_DeleteBadgeMutation",
+  "module": "badge_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:306"
+ },
+ {
+  "stub": "_mutate_AwardBadgeMutation",
+  "module": "badge_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:368"
+ },
+ {
+  "stub": "_mutate_RevokeBadgeMutation",
+  "module": "badge_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:488"
+ },
+ {
+  "stub": "_mutate_CreateThreadMutation",
+  "module": "conversation_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:81"
+ },
+ {
+  "stub": "_mutate_CreateThreadMessageMutation",
+  "module": "conversation_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:223"
+ },
+ {
+  "stub": "_mutate_ReplyToMessageMutation",
+  "module": "conversation_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:321"
+ },
+ {
+  "stub": "_mutate_UpdateMessageMutation",
+  "module": "conversation_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:514"
+ },
+ {
+  "stub": "_mutate_DeleteConversationMutation",
+  "module": "conversation_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:433"
+ },
+ {
+  "stub": "_mutate_DeleteMessageMutation",
+  "module": "conversation_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:689"
+ },
+ {
+  "stub": "_mutate_LockThreadMutation",
+  "module": "moderation_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:83"
+ },
+ {
+  "stub": "_mutate_UnlockThreadMutation",
+  "module": "moderation_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:135"
+ },
+ {
+  "stub": "_mutate_PinThreadMutation",
+  "module": "moderation_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:187"
+ },
+ {
+  "stub": "_mutate_UnpinThreadMutation",
+  "module": "moderation_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:239"
+ },
+ {
+  "stub": "_mutate_DeleteThreadMutation",
+  "module": "moderation_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:289"
+ },
+ {
+  "stub": "_mutate_RestoreThreadMutation",
+  "module": "moderation_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:342"
+ },
+ {
+  "stub": "_mutate_AddModeratorMutation",
+  "module": "moderation_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:400"
+ },
+ {
+  "stub": "_mutate_RemoveModeratorMutation",
+  "module": "moderation_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:479"
+ },
+ {
+  "stub": "_mutate_UpdateModeratorPermissionsMutation",
+  "module": "moderation_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:541"
+ },
+ {
+  "stub": "_mutate_RollbackModerationActionMutation",
+  "module": "moderation_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:632"
+ },
+ {
+  "stub": "_mutate_VoteMessageMutation",
+  "module": "voting_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:131"
+ },
+ {
+  "stub": "_mutate_RemoveVoteMutation",
+  "module": "voting_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:218"
+ },
+ {
+  "stub": "_mutate_VoteConversationMutation",
+  "module": "voting_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:280"
+ },
+ {
+  "stub": "_mutate_RemoveConversationVoteMutation",
+  "module": "voting_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:374"
+ },
+ {
+  "stub": "_mutate_VoteCorpusMutation",
+  "module": "voting_mutations",
+  "ref": "config/ratelimit/decorators.py:455"
+ },
+ {
+  "stub": "_mutate_RemoveCorpusVoteMutation",
+  "module": "voting_mutations",
+  "ref": "config/ratelimit/decorators.py:523"
+ },
+ {
+  "stub": "_mutate_MarkNotificationReadMutation",
+  "module": "notification_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:39"
+ },
+ {
+  "stub": "_mutate_MarkNotificationUnreadMutation",
+  "module": "notification_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:83"
+ },
+ {
+  "stub": "_mutate_MarkAllNotificationsReadMutation",
+  "module": "notification_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:122"
+ },
+ {
+  "stub": "_mutate_DeleteNotificationMutation",
+  "module": "notification_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:162"
+ },
+ {
+  "stub": "_mutate_StartResearchReport",
+  "module": "research_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:43"
+ },
+ {
+  "stub": "_mutate_CancelResearchReport",
+  "module": "research_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:96"
+ },
+ {
+  "stub": "_mutate_CreateAgentConfigurationMutation",
+  "module": "agent_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:75"
+ },
+ {
+  "stub": "_mutate_UpdateAgentConfigurationMutation",
+  "module": "agent_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:198"
+ },
+ {
+  "stub": "_mutate_DeleteAgentConfigurationMutation",
+  "module": "agent_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:290"
+ },
+ {
+  "stub": "_mutate_CreateIngestionSourceMutation",
+  "module": "ingestion_source_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:77"
+ },
+ {
+  "stub": "_mutate_UpdateIngestionSourceMutation",
+  "module": "ingestion_source_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:128"
+ },
+ {
+  "stub": "_mutate_DeleteIngestionSourceMutation",
+  "module": "ingestion_source_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:196"
+ },
+ {
+  "stub": "_mutate_UpdatePipelineSettingsMutation",
+  "module": "pipeline_settings_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:412"
+ },
+ {
+  "stub": "_mutate_ResetPipelineSettingsMutation",
+  "module": "pipeline_settings_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:999"
+ },
+ {
+  "stub": "_mutate_UpdateComponentSecretsMutation",
+  "module": "pipeline_settings_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:1144"
+ },
+ {
+  "stub": "_mutate_DeleteComponentSecretsMutation",
+  "module": "pipeline_settings_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:1487"
+ },
+ {
+  "stub": "_mutate_UpdateToolSecretsMutation",
+  "module": "pipeline_settings_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:1269"
+ },
+ {
+  "stub": "_mutate_DeleteToolSecretsMutation",
+  "module": "pipeline_settings_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:1414"
+ },
+ {
+  "stub": "_mutate_CreateWorkerAccount",
+  "module": "worker_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:53"
+ },
+ {
+  "stub": "_mutate_DeactivateWorkerAccount",
+  "module": "worker_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:88"
+ },
+ {
+  "stub": "_mutate_ReactivateWorkerAccount",
+  "module": "worker_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:109"
+ },
+ {
+  "stub": "_mutate_CreateCorpusAccessTokenMutation",
+  "module": "worker_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:139"
+ },
+ {
+  "stub": "_mutate_RevokeCorpusAccessTokenMutation",
+  "module": "worker_mutations",
+  "ref": "/home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:185"
+ }
+]

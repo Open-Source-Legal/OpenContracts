@@ -1,0 +1,150 @@
+"""Generated strawberry GraphQL module (graphene migration).
+
+Shape-generated from the graphene schema; stub functions marked PORT(...)
+carry the ported business logic. See config/graphql_new/manifest.json.
+"""
+from __future__ import annotations
+
+import datetime
+import decimal
+import uuid
+from typing import Annotated, Any, Optional
+
+import strawberry
+
+from config.graphql.core import permissions as core_permissions
+from config.graphql.core.filtering import filterset_factory, setup_filterset
+from config.graphql.core.mutations import drf_deletion, drf_mutation
+from config.graphql.core.relay import (
+    Node,
+    get_node_from_global_id,
+    make_connection_types,
+    register_type,
+    resolve_django_connection,
+    resolve_django_list,
+)
+from config.graphql.core.scalars import BigInt, GenericScalar, JSONString
+from config.graphql_new._util import coerce_enum, coerce_str, strip_unset
+from config.graphql_new import enums
+
+from config.graphql.filters import AnnotationFilter
+from opencontractserver.research.models import ResearchReport
+
+
+def _resolve_ResearchReportType_duration_seconds(root, info, **kwargs):
+    """PORT: config/graphql/research_types.py:52
+
+    Port of ResearchReportType.resolve_duration_seconds
+    """
+    raise NotImplementedError("_resolve_ResearchReportType_duration_seconds not yet ported — see manifest")
+
+
+def _resolve_ResearchReportType_my_permissions(root, info, **kwargs):
+    """PORT: config/graphql/research_types.py:55
+
+    Port of ResearchReportType.resolve_my_permissions
+    """
+    raise NotImplementedError("_resolve_ResearchReportType_my_permissions not yet ported — see manifest")
+
+
+def _resolve_ResearchReportType_full_source_annotation_list(root, info, **kwargs):
+    """PORT: config/graphql/research_types.py:73
+
+    Port of ResearchReportType.resolve_full_source_annotation_list
+    """
+    raise NotImplementedError("_resolve_ResearchReportType_full_source_annotation_list not yet ported — see manifest")
+
+
+def _resolve_ResearchReportType_full_source_document_list(root, info, **kwargs):
+    """PORT: config/graphql/research_types.py:76
+
+    Port of ResearchReportType.resolve_full_source_document_list
+    """
+    raise NotImplementedError("_resolve_ResearchReportType_full_source_document_list not yet ported — see manifest")
+
+
+@strawberry.type(name="ResearchReportType", description="Deep-research job + final report.\n\nPermissions are intentionally **creator-only** in v1 — there is no\nsharing surface (no `is_public`, no `object_shared_with`), so we\nskip `AnnotatePermissionsForReadMixin` (which assumes guardian\npermission tables that ``ResearchReport`` does not allocate, and\nwould silently swallow the resulting AttributeError as ``[]``).\nThe custom ``my_permissions`` resolver below mirrors what the mixin\nwould return for the creator's own row.")
+class ResearchReportType(Node):
+    user_lock: Optional[Annotated["UserType", strawberry.lazy("config.graphql_new.user_types")]] = strawberry.field(name="userLock")
+    backend_lock: bool = strawberry.field(name="backendLock")
+    is_public: bool = strawberry.field(name="isPublic")
+    creator: Annotated["UserType", strawberry.lazy("config.graphql_new.user_types")] = strawberry.field(name="creator")
+    created: datetime.datetime = strawberry.field(name="created")
+    modified: datetime.datetime = strawberry.field(name="modified")
+    corpus: Annotated["CorpusType", strawberry.lazy("config.graphql_new.corpus_types")] = strawberry.field(name="corpus")
+    @strawberry.field(name="title")
+    def title(self, info: strawberry.Info) -> str:
+        return coerce_str(getattr(self, "title", None))
+    @strawberry.field(name="slug")
+    def slug(self, info: strawberry.Info) -> str:
+        return coerce_str(getattr(self, "slug", None))
+    @strawberry.field(name="prompt", description="The user's research task")
+    def prompt(self, info: strawberry.Info) -> str:
+        return coerce_str(getattr(self, "prompt", None))
+    @strawberry.field(name="status")
+    def status(self, info: strawberry.Info) -> enums.ResearchResearchReportStatusChoices:
+        return coerce_enum(enums.ResearchResearchReportStatusChoices, getattr(self, "status", None))
+    started_at: Optional[datetime.datetime] = strawberry.field(name="startedAt")
+    completed_at: Optional[datetime.datetime] = strawberry.field(name="completedAt")
+    last_progress_at: Optional[datetime.datetime] = strawberry.field(name="lastProgressAt")
+    @strawberry.field(name="errorMessage")
+    def error_message(self, info: strawberry.Info) -> str:
+        return coerce_str(getattr(self, "error_message", None))
+    cancel_requested: bool = strawberry.field(name="cancelRequested")
+    max_steps: int = strawberry.field(name="maxSteps")
+    step_count: int = strawberry.field(name="stepCount")
+    @strawberry.field(name="content", description='Rendered final markdown report with footnote citations')
+    def content(self, info: strawberry.Info) -> str:
+        return coerce_str(getattr(self, "content", None))
+    @strawberry.field(name="plan", description="The agent's living high-level plan. Re-injected into the system prompt at the start of every run so the original task and strategy survive context compaction and worker restarts.")
+    def plan(self, info: strawberry.Info) -> str:
+        return coerce_str(getattr(self, "plan", None))
+    memory: JSONString = strawberry.field(name="memory", description='Durable key->entry memory store the agent writes to offload content beyond the context window. Each entry is {content, updated_at}. Survives compaction and worker restarts.')
+    findings: Optional[GenericScalar] = strawberry.field(name="findings")
+    citations: Optional[GenericScalar] = strawberry.field(name="citations")
+    tool_call_log: Optional[GenericScalar] = strawberry.field(name="toolCallLog")
+    model_usage: Optional[GenericScalar] = strawberry.field(name="modelUsage")
+    warnings: Optional[GenericScalar] = strawberry.field(name="warnings")
+    @strawberry.field(name="sourceAnnotations", description='Annotations cited in the final report')
+    def source_annotations(self, info: strawberry.Info, offset: Annotated[Optional[int], strawberry.argument(name="offset")] = strawberry.UNSET, before: Annotated[Optional[str], strawberry.argument(name="before")] = strawberry.UNSET, after: Annotated[Optional[str], strawberry.argument(name="after")] = strawberry.UNSET, first: Annotated[Optional[int], strawberry.argument(name="first")] = strawberry.UNSET, last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET, raw_text__contains: Annotated[Optional[str], strawberry.argument(name="rawText_Contains")] = strawberry.UNSET, annotation_label_id: Annotated[Optional[strawberry.ID], strawberry.argument(name="annotationLabelId")] = strawberry.UNSET, annotation_label__text: Annotated[Optional[str], strawberry.argument(name="annotationLabel_Text")] = strawberry.UNSET, annotation_label__text__contains: Annotated[Optional[str], strawberry.argument(name="annotationLabel_Text_Contains")] = strawberry.UNSET, annotation_label__description__contains: Annotated[Optional[str], strawberry.argument(name="annotationLabel_Description_Contains")] = strawberry.UNSET, annotation_label__label_type: Annotated[Optional[enums.AnnotationsAnnotationLabelLabelTypeChoices], strawberry.argument(name="annotationLabel_LabelType")] = strawberry.UNSET, analysis__isnull: Annotated[Optional[bool], strawberry.argument(name="analysis_Isnull")] = strawberry.UNSET, document_id: Annotated[Optional[strawberry.ID], strawberry.argument(name="documentId")] = strawberry.UNSET, corpus_id: Annotated[Optional[strawberry.ID], strawberry.argument(name="corpusId")] = strawberry.UNSET, structural: Annotated[Optional[bool], strawberry.argument(name="structural")] = strawberry.UNSET, uses_label_from_labelset_id: Annotated[Optional[str], strawberry.argument(name="usesLabelFromLabelsetId")] = strawberry.UNSET, created_by_analysis_ids: Annotated[Optional[str], strawberry.argument(name="createdByAnalysisIds")] = strawberry.UNSET, created_with_analyzer_id: Annotated[Optional[str], strawberry.argument(name="createdWithAnalyzerId")] = strawberry.UNSET, order_by: Annotated[Optional[str], strawberry.argument(name="orderBy", description='Ordering')] = strawberry.UNSET) -> Annotated["AnnotationTypeConnection", strawberry.lazy("config.graphql_new.annotation_types")]:
+        kwargs = strip_unset({"offset": offset, "before": before, "after": after, "first": first, "last": last, "raw_text__contains": raw_text__contains, "annotation_label_id": annotation_label_id, "annotation_label__text": annotation_label__text, "annotation_label__text__contains": annotation_label__text__contains, "annotation_label__description__contains": annotation_label__description__contains, "annotation_label__label_type": annotation_label__label_type, "analysis__isnull": analysis__isnull, "document_id": document_id, "corpus_id": corpus_id, "structural": structural, "uses_label_from_labelset_id": uses_label_from_labelset_id, "created_by_analysis_ids": created_by_analysis_ids, "created_with_analyzer_id": created_with_analyzer_id, "order_by": order_by})
+        resolved = getattr(self, "source_annotations", None)
+        return resolve_django_connection(resolved=resolved, info=info, args=kwargs, node_type_name="AnnotationType", filterset_class=setup_filterset(AnnotationFilter), filter_args={"raw_text__contains": "raw_text__contains", "annotation_label_id": "annotation_label_id", "annotation_label__text": "annotation_label__text", "annotation_label__text__contains": "annotation_label__text__contains", "annotation_label__description__contains": "annotation_label__description__contains", "annotation_label__label_type": "annotation_label__label_type", "analysis__isnull": "analysis__isnull", "document_id": "document_id", "corpus_id": "corpus_id", "structural": "structural", "uses_label_from_labelset_id": "uses_label_from_labelset_id", "created_by_analysis_ids": "created_by_analysis_ids", "created_with_analyzer_id": "created_with_analyzer_id", "order_by": "order_by"}, )
+    @strawberry.field(name="sourceDocuments", description='Documents touched (vector-search hits, summaries loaded, etc.)')
+    def source_documents(self, info: strawberry.Info, offset: Annotated[Optional[int], strawberry.argument(name="offset")] = strawberry.UNSET, before: Annotated[Optional[str], strawberry.argument(name="before")] = strawberry.UNSET, after: Annotated[Optional[str], strawberry.argument(name="after")] = strawberry.UNSET, first: Annotated[Optional[int], strawberry.argument(name="first")] = strawberry.UNSET, last: Annotated[Optional[int], strawberry.argument(name="last")] = strawberry.UNSET) -> Annotated["DocumentTypeConnection", strawberry.lazy("config.graphql_new.document_types")]:
+        kwargs = strip_unset({"offset": offset, "before": before, "after": after, "first": first, "last": last})
+        resolved = getattr(self, "source_documents", None)
+        return resolve_django_connection(resolved=resolved, info=info, args=kwargs, node_type_name="DocumentType", )
+    conversation: Optional[Annotated["ConversationType", strawberry.lazy("config.graphql_new.conversation_types")]] = strawberry.field(name="conversation", description='Chat conversation that kicked this off, if any')
+    originating_message: Optional[Annotated["MessageType", strawberry.lazy("config.graphql_new.conversation_types")]] = strawberry.field(name="originatingMessage", description='User chat message that triggered this run, if any')
+    @strawberry.field(name="durationSeconds", description='Seconds between start and completion (null if not finished).')
+    def duration_seconds(self, info: strawberry.Info) -> Optional[float]:
+        kwargs = strip_unset({})
+        return _resolve_ResearchReportType_duration_seconds(self, info, **kwargs)
+    @strawberry.field(name="myPermissions", description='Action verbs the calling user is allowed on this report.')
+    def my_permissions(self, info: strawberry.Info) -> Optional[list[Optional[str]]]:
+        kwargs = strip_unset({})
+        return _resolve_ResearchReportType_my_permissions(self, info, **kwargs)
+    @strawberry.field(name="fullSourceAnnotationList", description='Annotations cited in the final report (creator-only in v1).')
+    def full_source_annotation_list(self, info: strawberry.Info) -> Optional[list[Optional[Annotated["AnnotationType", strawberry.lazy("config.graphql_new.annotation_types")]]]]:
+        kwargs = strip_unset({})
+        return _resolve_ResearchReportType_full_source_annotation_list(self, info, **kwargs)
+    @strawberry.field(name="fullSourceDocumentList", description='Documents touched by the research run.')
+    def full_source_document_list(self, info: strawberry.Info) -> Optional[list[Optional[Annotated["DocumentType", strawberry.lazy("config.graphql_new.document_types")]]]]:
+        kwargs = strip_unset({})
+        return _resolve_ResearchReportType_full_source_document_list(self, info, **kwargs)
+
+
+def _get_node_ResearchReportType(info, pk):
+    """PORT: config.graphql.research_types.ResearchReportType.get_node
+
+    Port of ResearchReportType.get_node
+    """
+    raise NotImplementedError("_get_node_ResearchReportType not yet ported — see manifest")
+
+
+register_type("ResearchReportType", ResearchReportType, model=ResearchReport, get_node=_get_node_ResearchReportType)
+
+
+ResearchReportTypeConnection = make_connection_types(ResearchReportType, type_name="ResearchReportTypeConnection", countable=True, pdf_page_aware=False)
+
