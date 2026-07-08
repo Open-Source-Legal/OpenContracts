@@ -723,6 +723,23 @@ class ObjectStorageBackendIntegrationTests(TestCase):
         )
         self.assertGreater(results[0].similarity_score, 0.99)
 
+    def test_sync_task_declares_transient_retry_policy(self):
+        """
+        Write-path resilience: the sync task must carry an autoretry policy
+        so a transient object-store failure re-runs the idempotent upsert
+        instead of silently dropping the embedding from the index. (Eager
+        Celery cannot re-execute retries, so the policy is asserted
+        declaratively — Celery honors these attributes at runtime.)
+        """
+        from opencontractserver.tasks.vector_index_tasks import (
+            sync_embedding_to_object_index,
+        )
+
+        self.assertEqual(sync_embedding_to_object_index.autoretry_for, (Exception,))
+        self.assertEqual(sync_embedding_to_object_index.max_retries, 3)
+        self.assertTrue(sync_embedding_to_object_index.retry_backoff)
+        self.assertTrue(sync_embedding_to_object_index.retry_jitter)
+
     def test_worker_upload_direct_writes_fan_out(self):
         """
         The external-worker upload pipeline writes Embedding rows via
