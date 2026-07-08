@@ -110,6 +110,13 @@ component_management:
 
 ignore:
   - "opencontractserver/tasks/data_extract_tasks.py"
+  # Desktop launcher: process-supervision entry point (spawns Postgres/Daphne/
+  # Celery, opens the browser) — validated by the live end-to-end procedure in
+  # docs/test_scripts/desktop_one_step_setup.md, not unit tests. Must be
+  # ignored HERE, not only via setup.cfg's coverage omit: omitted files carry
+  # no line data in coverage.xml, and Codecov counts no-data diff lines as
+  # MISSES in the patch status, which would hard-fail any PR touching it.
+  - "opencontractserver/desktop/launcher.py"
   - "opencontractserver/tests/**"
   - "**/migrations/**"
   - "opencontractserver/**/migrations/*.py"

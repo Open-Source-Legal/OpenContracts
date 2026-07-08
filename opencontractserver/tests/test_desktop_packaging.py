@@ -905,3 +905,190 @@ class ZipBombGuardTests(SimpleTestCase):
                     with self.assertRaises(ValueError):
                         spa_dist.safe_extract_zip(archive, dest)
             self.assertFalse((dest / "dist").exists())
+
+
+class InstallLockTests(SimpleTestCase):
+    """Cross-process install lock: acquire/release, contention, stale reclaim."""
+
+    def test_acquire_release_and_stale_pid_reclaim(self):
+        from opencontractserver.desktop import bootstrap
+
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
+            os.environ, {paths.DATA_DIR_ENV: tmp}, clear=False
+        ):
+            venv_path = paths.subdir("venv")
+            lock = venv_path.parent / bootstrap._LOCK_FILENAME
+            with bootstrap._install_lock(venv_path):
+                self.assertTrue(lock.exists())
+            self.assertFalse(lock.exists())  # released
+
+            # A lock naming a dead PID is stale and gets reclaimed.
+            lock.write_text("999999999\n")
+            self.assertTrue(bootstrap._lock_is_stale(lock))
+            with bootstrap._install_lock(venv_path):
+                self.assertTrue(lock.exists())
+            self.assertFalse(lock.exists())
+
+    def test_live_holder_blocks_second_launch(self):
+        from opencontractserver.desktop import bootstrap
+
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
+            os.environ, {paths.DATA_DIR_ENV: tmp}, clear=False
+        ):
+            venv_path = paths.subdir("venv")
+            lock = venv_path.parent / bootstrap._LOCK_FILENAME
+            paths.ensure_private_dir(venv_path.parent)
+            lock.write_text(f"{os.getpid()}\n")  # this test process = alive
+            self.assertFalse(bootstrap._lock_is_stale(lock))
+            with self.assertRaises(SystemExit) as ctx:
+                with bootstrap._install_lock(venv_path):
+                    pass  # pragma: no cover - must not be reached
+            self.assertIn("already", str(ctx.exception))
+            lock.unlink()
+
+    def test_unreadable_lock_falls_back_to_age(self):
+        from opencontractserver.desktop import bootstrap
+
+        with tempfile.TemporaryDirectory() as tmp:
+            lock = Path(tmp) / "lock"
+            lock.write_text("not-a-pid\n")
+            # Fresh file, no parseable PID → age-based → not stale yet.
+            self.assertFalse(bootstrap._lock_is_stale(lock))
+
+
+class BootstrapVenvHelperTests(SimpleTestCase):
+    def test_venv_dir_and_fingerprint_marker_locations(self):
+        from opencontractserver.desktop import bootstrap
+
+        with mock.patch.dict(os.environ, {paths.DATA_DIR_ENV: "/d"}, clear=False):
+            self.assertEqual(bootstrap.venv_dir(), Path("/d/venv"))
+        self.assertEqual(
+            bootstrap._fingerprint_marker(Path("/d/venv")),
+            Path("/d/venv/.requirements-fingerprint"),
+        )
+
+    def test_venv_is_current_logic(self):
+        from opencontractserver.desktop import bootstrap
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "repo"
+            (root / "requirements").mkdir(parents=True)
+            (root / "requirements" / "desktop.txt").write_text("a==1\n")
+            (root / "requirements" / "base.txt").write_text("b==2\n")
+            venv_path = Path(tmp) / "venv"
+            # Missing interpreter → not current.
+            self.assertFalse(bootstrap._venv_is_current(root, venv_path))
+            vpy = bootstrap.venv_python(venv_path)
+            vpy.parent.mkdir(parents=True)
+            vpy.write_text("")
+            # Interpreter but no marker → not current.
+            self.assertFalse(bootstrap._venv_is_current(root, venv_path))
+            bootstrap._fingerprint_marker(venv_path).write_text(
+                bootstrap.requirements_fingerprint(bootstrap.requirement_files(root))
+            )
+            self.assertTrue(bootstrap._venv_is_current(root, venv_path))
+            # Requirements change → stale again.
+            (root / "requirements" / "base.txt").write_text("b==3\n")
+            self.assertFalse(bootstrap._venv_is_current(root, venv_path))
+
+    def test_prompt_retries_on_mismatch(self):
+        from opencontractserver.desktop import bootstrap
+
+        answers = iter(["first-answer1", "different-1", "matching-pw1", "matching-pw1"])
+        with mock.patch(
+            "opencontractserver.desktop.bootstrap.sys.stdin.isatty",
+            return_value=True,
+        ), mock.patch("getpass.getpass", side_effect=lambda *_: next(answers)):
+            self.assertEqual(bootstrap.prompt_for_password(), "matching-pw1")
+
+
+class SpaDistBranchTests(SimpleTestCase):
+    def test_ssl_context_uses_certifi_without_env_override(self):
+        from opencontractserver.desktop import spa_dist
+
+        env = {k: v for k, v in os.environ.items()}
+        env.pop("SSL_CERT_FILE", None)
+        env.pop("SSL_CERT_DIR", None)
+        with mock.patch.dict(os.environ, env, clear=True):
+            context = spa_dist._ssl_context()
+        self.assertIsNotNone(context)
+
+    def test_safe_extract_rejects_symlink_member(self):
+        import stat
+        import zipfile
+
+        from opencontractserver.desktop import spa_dist
+
+        with tempfile.TemporaryDirectory() as tmp:
+            archive_path = Path(tmp) / "link.zip"
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                info = zipfile.ZipInfo("dist/evil-link")
+                info.external_attr = (stat.S_IFLNK | 0o777) << 16
+                archive.writestr(info, "/etc")
+            dest = Path(tmp) / "dest"
+            dest.mkdir()
+            with zipfile.ZipFile(archive_path) as archive:
+                with self.assertRaises(ValueError):
+                    spa_dist.safe_extract_zip(archive, dest)
+
+    def test_dist_dir_within_none_when_no_index(self):
+        from opencontractserver.desktop import spa_dist
+
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertIsNone(spa_dist._dist_dir_within(Path(tmp)))
+
+    def test_ensure_spa_none_when_nothing_available(self):
+        from opencontractserver.desktop import spa_dist
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            repo.mkdir()
+            with mock.patch.dict(
+                os.environ,
+                {paths.DATA_DIR_ENV: str(Path(tmp) / "appdata")},
+                clear=False,
+            ), mock.patch.object(
+                spa_dist, "download_spa", return_value=None
+            ), mock.patch.object(
+                spa_dist, "build_spa_with_yarn", return_value=None
+            ):
+                self.assertIsNone(spa_dist.ensure_spa(repo, "0.0.0"))
+
+
+class SpaFallbackMissingIndexTests(SimpleTestCase):
+    def test_missing_index_raises_404(self):
+        factory = RequestFactory()
+        with tempfile.TemporaryDirectory() as tmp:
+            with override_settings(OC_DESKTOP_SPA_ROOT=tmp):
+                with self.assertRaises(Http404):
+                    spa_fallback(factory.get("/route"), "route")
+
+
+class DesktopBootstrapCommandInvocationTests(TestCase):
+    """Full call_command path: argument parsing, handle(), nltk seeding."""
+
+    def test_call_command_end_to_end(self):
+        from contextlib import nullcontext
+
+        from django.core.management import call_command
+
+        try:
+            import nltk
+
+            # No network in tests: pretend the corpora download succeeded.
+            nltk_patch = mock.patch.object(nltk, "download", return_value=True)
+        except ImportError:  # command handles a missing nltk gracefully
+            nltk_patch = nullcontext()
+
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
+            os.environ,
+            {"OC_DESKTOP_PASSWORD": "cli-password-1", paths.DATA_DIR_ENV: tmp},
+            clear=False,
+        ), nltk_patch, mock.patch(
+            "opencontractserver.documents.management.commands."
+            "desktop_bootstrap.call_command"
+        ) as inner:
+            call_command("desktop_bootstrap", "--username", "cliuser")
+        inner.assert_called_once_with("migrate_pipeline_settings")
+        user = User.objects.get(username="cliuser")
+        self.assertTrue(user.check_password("cli-password-1"))

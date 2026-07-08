@@ -148,7 +148,10 @@ if getattr(settings, "SERVE_MEDIA_WITHOUT_DEBUG", False) and not settings.DEBUG:
 # SPA dir). Registered LAST so it never shadows /api/, /graphql/, /admin/, /mcp*,
 # /ws/ or static/media routes,
 # and only when the desktop profile points OC_DESKTOP_SPA_ROOT at a built dist/.
-if getattr(settings, "OC_DESKTOP_SPA_ROOT", ""):
+if getattr(settings, "OC_DESKTOP_SPA_ROOT", ""):  # pragma: no cover
+    # Import-time wiring, active only under the desktop profile — the test
+    # settings never set OC_DESKTOP_SPA_ROOT, so this block can't execute in
+    # CI. The view it registers (config.spa.spa_fallback) is fully tested.
     from django.urls import re_path as _re_path
 
     from config.spa import spa_fallback

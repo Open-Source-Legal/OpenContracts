@@ -222,3 +222,46 @@ class WarpIngestLocalParserTests(TestCase):
         assert result is not None
         self.assertGreater(len(result["labelled_text"]), 0)
         self.assertGreater(len(result["pawls_file_content"]), 0)
+
+
+class WarpIngestLocalParserGuardTests(TestCase):
+    """The pre-parse guards added in review: size cap, flag conflict, shape."""
+
+    def setUp(self):
+        with transaction.atomic():
+            self.user = User.objects.create_user(username="warp2", password="12345678")
+        self.doc = Document.objects.create(
+            title="Guarded", file_type="pdf", creator=self.user
+        )
+        self.doc.pdf_file.save("guard.pdf", ContentFile(_PDF_BYTES))
+        self.parser = WarpIngestLocalParser()
+
+    def test_oversized_pdf_raises_permanent_error(self):
+        from unittest.mock import patch
+
+        with _FakeWarpIngest(), patch(
+            "opencontractserver.pipeline.parsers.warp_ingest_local_parser."
+            "default_storage.size",
+            return_value=999 * 1024 * 1024,
+        ):
+            with self.assertRaises(DocumentParsingError) as ctx:
+                self.parser._parse_document_impl(self.user.id, self.doc.id)
+        self.assertFalse(ctx.exception.is_transient)
+        self.assertIn("MB", str(ctx.exception))
+
+    def test_conflicting_ocr_flags_raise_permanent_error(self):
+        with _FakeWarpIngest():
+            with self.assertRaises(DocumentParsingError) as ctx:
+                self.parser._parse_document_impl(
+                    self.user.id, self.doc.id, apply_ocr=True, disable_ocr=True
+                )
+        self.assertFalse(ctx.exception.is_transient)
+        self.assertIn("mutually exclusive", str(ctx.exception))
+
+    def test_non_dict_export_raises_permanent_error(self):
+        with _FakeWarpIngest() as fake:
+            fake.parse_to_opencontracts.return_value = []
+            with self.assertRaises(DocumentParsingError) as ctx:
+                self.parser._parse_document_impl(self.user.id, self.doc.id)
+        self.assertFalse(ctx.exception.is_transient)
+        self.assertIn("unexpected export", str(ctx.exception))
