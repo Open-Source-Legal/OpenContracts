@@ -33,12 +33,8 @@ from config.graphql import enums
 @strawberry.type(name="SmartLabelSearchOrCreateMutation", description='Smart mutation that handles label search and creation with automatic labelset management.\n\nThis mutation encapsulates the following logic:\n1. If no labelset exists for the corpus and createIfNotFound is true:\n   - Creates a new labelset\n   - Assigns it to the corpus\n   - Creates the label in the new labelset\n\n2. If labelset exists:\n   - Searches for existing labels matching the search term\n   - If matches found: returns the matching labels\n   - If no matches and createIfNotFound is true: creates the label\n   - If no matches and createIfNotFound is false: returns empty list')
 class SmartLabelSearchOrCreateMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
-    @strawberry.field(name="labels", description='List of matching or created labels')
-    def labels(self, info: strawberry.Info) -> Optional[list[Optional[Annotated["AnnotationLabelType", strawberry.lazy("config.graphql.annotation_types")]]]]:
-        return resolve_django_list(self, info, getattr(self, "labels"), "AnnotationLabelType")
+    message: Optional[str] = strawberry.field(name="message", default=None)
+    labels: Optional[list[Optional[Annotated["AnnotationLabelType", strawberry.lazy("config.graphql.annotation_types")]]]] = strawberry.field(name="labels", description='List of matching or created labels', default=None)
     labelset: Optional[Annotated["LabelSetType", strawberry.lazy("config.graphql.annotation_types")]] = strawberry.field(name="labelset", description='The labelset (existing or newly created)', default=None)
     labelset_created: Optional[bool] = strawberry.field(name="labelsetCreated", description='Whether a new labelset was created', default=None)
     label_created: Optional[bool] = strawberry.field(name="labelCreated", description='Whether a new label was created', default=None)
@@ -50,12 +46,8 @@ register_type("SmartLabelSearchOrCreateMutation", SmartLabelSearchOrCreateMutati
 @strawberry.type(name="SmartLabelListMutation", description='Simplified mutation to get all available labels for a corpus with helpful status info.')
 class SmartLabelListMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
-    @strawberry.field(name="labels")
-    def labels(self, info: strawberry.Info) -> Optional[list[Optional[Annotated["AnnotationLabelType", strawberry.lazy("config.graphql.annotation_types")]]]]:
-        return resolve_django_list(self, info, getattr(self, "labels"), "AnnotationLabelType")
+    message: Optional[str] = strawberry.field(name="message", default=None)
+    labels: Optional[list[Optional[Annotated["AnnotationLabelType", strawberry.lazy("config.graphql.annotation_types")]]]] = strawberry.field(name="labels", default=None)
     has_labelset: Optional[bool] = strawberry.field(name="hasLabelset", default=None)
     can_create_labels: Optional[bool] = strawberry.field(name="canCreateLabels", default=None)
 

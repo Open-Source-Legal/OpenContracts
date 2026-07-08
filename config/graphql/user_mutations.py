@@ -35,12 +35,8 @@ class ObtainJSONWebTokenWithUser:
     payload: GenericScalar = strawberry.field(name="payload", default=None)
     refresh_expires_in: int = strawberry.field(name="refreshExpiresIn", default=None)
     user: Optional[Annotated["UserType", strawberry.lazy("config.graphql.user_types")]] = strawberry.field(name="user", default=None)
-    @strawberry.field(name="token")
-    def token(self, info: strawberry.Info) -> str:
-        return coerce_str(getattr(self, "token", None))
-    @strawberry.field(name="refreshToken")
-    def refresh_token(self, info: strawberry.Info) -> str:
-        return coerce_str(getattr(self, "refresh_token", None))
+    token: str = strawberry.field(name="token", default=None)
+    refresh_token: str = strawberry.field(name="refreshToken", default=None)
 
 
 register_type("ObtainJSONWebTokenWithUser", ObtainJSONWebTokenWithUser, model=None)
@@ -49,9 +45,7 @@ register_type("ObtainJSONWebTokenWithUser", ObtainJSONWebTokenWithUser, model=No
 @strawberry.type(name="UpdateMe", description='Update basic profile fields for the current user, including slug.')
 class UpdateMe:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     user: Optional[Annotated["UserType", strawberry.lazy("config.graphql.user_types")]] = strawberry.field(name="user", default=None)
 
 
@@ -69,16 +63,14 @@ register_type("AcceptCookieConsent", AcceptCookieConsent, model=None)
 @strawberry.type(name="DismissGettingStarted", description='Mutation to dismiss the getting-started guide for the current user.')
 class DismissGettingStarted:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
 
 
 register_type("DismissGettingStarted", DismissGettingStarted, model=None)
 
 
 def _mutate_ObtainJSONWebTokenWithUser(payload_cls, root, info, **kwargs):
-    """PORT: config/graphql/user_mutations.py:75
+    """PORT: /home/user/oc-graphene-ref/config/graphql/user_mutations.py:75
 
     Port of ObtainJSONWebTokenWithUser.mutate
     """

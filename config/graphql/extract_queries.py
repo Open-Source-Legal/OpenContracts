@@ -47,9 +47,7 @@ from opencontractserver.extracts.models import Fieldset
 class ExtractDiffType:
     extract_a: Optional[Annotated["ExtractType", strawberry.lazy("config.graphql.extract_types")]] = strawberry.field(name="extractA", default=None)
     extract_b: Optional[Annotated["ExtractType", strawberry.lazy("config.graphql.extract_types")]] = strawberry.field(name="extractB", default=None)
-    @strawberry.field(name="cells")
-    def cells(self, info: strawberry.Info) -> list[Optional["ExtractCellDiffType"]]:
-        return resolve_django_list(self, info, getattr(self, "cells"), "ExtractCellDiffType")
+    cells: list[Optional["ExtractCellDiffType"]] = strawberry.field(name="cells", default=None)
     summary: "ExtractDiffSummaryType" = strawberry.field(name="summary", default=None)
 
 
@@ -58,20 +56,14 @@ register_type("ExtractDiffType", ExtractDiffType, model=None)
 
 @strawberry.type(name="ExtractCellDiffType", description="One row of the compare grid: same (column, document) on both sides.\n\n``rowKey`` is a stable identifier for the document row across iterations\n(the document's ``version_tree_id`` when available, else its PK). Using\nthe version-tree key lets the UI render a single row even when the two\niterations point at different content versions of the same logical doc.\n``columnKey`` is the column name, which is stable when fieldsets are\ncloned because the clone preserves the name.")
 class ExtractCellDiffType:
-    @strawberry.field(name="rowKey")
-    def row_key(self, info: strawberry.Info) -> str:
-        return coerce_str(getattr(self, "row_key", None))
-    @strawberry.field(name="columnKey")
-    def column_key(self, info: strawberry.Info) -> str:
-        return coerce_str(getattr(self, "column_key", None))
+    row_key: str = strawberry.field(name="rowKey", default=None)
+    column_key: str = strawberry.field(name="columnKey", default=None)
     document: Optional[Annotated["DocumentType", strawberry.lazy("config.graphql.document_types")]] = strawberry.field(name="document", description='Representative Document (B side preferred). For DOCUMENT_VERSIONS-axis diffs use documentA / documentB to see the actual version on each side.', default=None)
     document_a: Optional[Annotated["DocumentType", strawberry.lazy("config.graphql.document_types")]] = strawberry.field(name="documentA", default=None)
     document_b: Optional[Annotated["DocumentType", strawberry.lazy("config.graphql.document_types")]] = strawberry.field(name="documentB", default=None)
     cell_a: Optional[Annotated["DatacellType", strawberry.lazy("config.graphql.extract_types")]] = strawberry.field(name="cellA", default=None)
     cell_b: Optional[Annotated["DatacellType", strawberry.lazy("config.graphql.extract_types")]] = strawberry.field(name="cellB", default=None)
-    @strawberry.field(name="status")
-    def status(self, info: strawberry.Info) -> enums.ExtractDiffStatus:
-        return coerce_enum(enums.ExtractDiffStatus, getattr(self, "status", None))
+    status: enums.ExtractDiffStatus = strawberry.field(name="status", default=None)
     column_config_changed: Optional[bool] = strawberry.field(name="columnConfigChanged", description='True when the column on B has a different prompt / instructions / output_type from the column on A (FIELDSET axis).', default=None)
 
 
@@ -96,9 +88,7 @@ class MetadataCompletionStatusType:
     filled_fields: Optional[int] = strawberry.field(name="filledFields", default=None)
     missing_fields: Optional[int] = strawberry.field(name="missingFields", default=None)
     percentage: Optional[float] = strawberry.field(name="percentage", default=None)
-    @strawberry.field(name="missingRequired")
-    def missing_required(self, info: strawberry.Info) -> Optional[list[Optional[str]]]:
-        return coerce_str(getattr(self, "missing_required", None))
+    missing_required: Optional[list[Optional[str]]] = strawberry.field(name="missingRequired", default=None)
 
 
 register_type("MetadataCompletionStatusType", MetadataCompletionStatusType, model=None)
@@ -106,12 +96,8 @@ register_type("MetadataCompletionStatusType", MetadataCompletionStatusType, mode
 
 @strawberry.type(name="DocumentMetadataResultType", description='Type for batch metadata query results - groups datacells by document.')
 class DocumentMetadataResultType:
-    @strawberry.field(name="documentId", description="The document's global ID")
-    def document_id(self, info: strawberry.Info) -> Optional[strawberry.ID]:
-        return coerce_str(getattr(self, "document_id", None))
-    @strawberry.field(name="datacells", description='Metadata datacells for this document')
-    def datacells(self, info: strawberry.Info) -> Optional[list[Optional[Annotated["DatacellType", strawberry.lazy("config.graphql.extract_types")]]]]:
-        return resolve_django_list(self, info, getattr(self, "datacells"), "DatacellType")
+    document_id: Optional[strawberry.ID] = strawberry.field(name="documentId", description="The document's global ID", default=None)
+    datacells: Optional[list[Optional[Annotated["DatacellType", strawberry.lazy("config.graphql.extract_types")]]]] = strawberry.field(name="datacells", description='Metadata datacells for this document', default=None)
 
 
 register_type("DocumentMetadataResultType", DocumentMetadataResultType, model=None)
@@ -122,7 +108,7 @@ def q_fieldset(info: strawberry.Info, id: Annotated[strawberry.ID, strawberry.ar
 
 
 def _resolve_Query_fieldsets(root, info, **kwargs):
-    """PORT: config/graphql/extract_queries.py:146
+    """PORT: /home/user/oc-graphene-ref/config/graphql/extract_queries.py:146
 
     Port of ExtractQueryMixin.resolve_fieldsets
     """
@@ -140,7 +126,7 @@ def q_column(info: strawberry.Info, id: Annotated[strawberry.ID, strawberry.argu
 
 
 def _resolve_Query_columns(root, info, **kwargs):
-    """PORT: config/graphql/extract_queries.py:164
+    """PORT: /home/user/oc-graphene-ref/config/graphql/extract_queries.py:164
 
     Port of ExtractQueryMixin.resolve_columns
     """
@@ -158,7 +144,7 @@ def q_extract(info: strawberry.Info, id: Annotated[strawberry.ID, strawberry.arg
 
 
 def _resolve_Query_extracts(root, info, **kwargs):
-    """PORT: config/graphql/extract_queries.py:189
+    """PORT: /home/user/oc-graphene-ref/config/graphql/extract_queries.py:189
 
     Port of ExtractQueryMixin.resolve_extracts
     """
@@ -189,7 +175,7 @@ def q_datacell(info: strawberry.Info, id: Annotated[strawberry.ID, strawberry.ar
 
 
 def _resolve_Query_datacells(root, info, **kwargs):
-    """PORT: config/graphql/extract_queries.py:272
+    """PORT: /home/user/oc-graphene-ref/config/graphql/extract_queries.py:272
 
     Port of ExtractQueryMixin.resolve_datacells
     """
@@ -216,7 +202,7 @@ def q_registered_extract_tasks(info: strawberry.Info) -> Optional[GenericScalar]
 
 
 def _resolve_Query_document_metadata_datacells(root, info, **kwargs):
-    """PORT: config/graphql/extract_queries.py:325
+    """PORT: /home/user/oc-graphene-ref/config/graphql/extract_queries.py:325
 
     Port of ExtractQueryMixin.resolve_document_metadata_datacells
     """
@@ -229,7 +215,7 @@ def q_document_metadata_datacells(info: strawberry.Info, document_id: Annotated[
 
 
 def _resolve_Query_metadata_completion_status_v2(root, info, **kwargs):
-    """PORT: config/graphql/extract_queries.py:337
+    """PORT: /home/user/oc-graphene-ref/config/graphql/extract_queries.py:337
 
     Port of ExtractQueryMixin.resolve_metadata_completion_status_v2
     """
@@ -242,7 +228,7 @@ def q_metadata_completion_status_v2(info: strawberry.Info, document_id: Annotate
 
 
 def _resolve_Query_documents_metadata_datacells_batch(root, info, **kwargs):
-    """PORT: config/graphql/extract_queries.py:351
+    """PORT: /home/user/oc-graphene-ref/config/graphql/extract_queries.py:351
 
     Port of ExtractQueryMixin.resolve_documents_metadata_datacells_batch
     """
@@ -259,7 +245,7 @@ def q_gremlin_engine(info: strawberry.Info, id: Annotated[strawberry.ID, strawbe
 
 
 def _resolve_Query_gremlin_engines(root, info, **kwargs):
-    """PORT: config/graphql/extract_queries.py:421
+    """PORT: /home/user/oc-graphene-ref/config/graphql/extract_queries.py:421
 
     Port of ExtractQueryMixin.resolve_gremlin_engines
     """
@@ -277,7 +263,7 @@ def q_analyzer(info: strawberry.Info, id: Annotated[strawberry.ID, strawberry.ar
 
 
 def _resolve_Query_analyzers(root, info, **kwargs):
-    """PORT: config/graphql/extract_queries.py:449
+    """PORT: /home/user/oc-graphene-ref/config/graphql/extract_queries.py:449
 
     Port of ExtractQueryMixin.resolve_analyzers
     """
@@ -295,7 +281,7 @@ def q_analysis(info: strawberry.Info, id: Annotated[strawberry.ID, strawberry.ar
 
 
 def _resolve_Query_analyses(root, info, **kwargs):
-    """PORT: config/ratelimit/decorators.py:470
+    """PORT: /home/user/oc-graphene-ref/config/ratelimit/decorators.py:470
 
     Port of ExtractQueryMixin.resolve_analyses
     """

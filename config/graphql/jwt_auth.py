@@ -42,12 +42,8 @@ register_type("Verify", Verify, model=None)
 class Refresh:
     payload: GenericScalar = strawberry.field(name="payload", default=None)
     refresh_expires_in: int = strawberry.field(name="refreshExpiresIn", default=None)
-    @strawberry.field(name="token")
-    def token(self, info: strawberry.Info) -> str:
-        return coerce_str(getattr(self, "token", None))
-    @strawberry.field(name="refreshToken")
-    def refresh_token(self, info: strawberry.Info) -> str:
-        return coerce_str(getattr(self, "refresh_token", None))
+    token: str = strawberry.field(name="token", default=None)
+    refresh_token: str = strawberry.field(name="refreshToken", default=None)
 
 
 register_type("Refresh", Refresh, model=None)

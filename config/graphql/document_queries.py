@@ -34,7 +34,7 @@ from opencontractserver.documents.models import DocumentRelationship
 
 
 def _resolve_Query_documents(root, info, **kwargs):
-    """PORT: config/ratelimit/decorators.py:57
+    """PORT: /home/user/oc-graphene-ref/config/ratelimit/decorators.py:57
 
     Port of DocumentQueryMixin.resolve_documents
     """
@@ -48,7 +48,7 @@ def q_documents(info: strawberry.Info, offset: Annotated[Optional[int], strawber
 
 
 def _resolve_Query_document(root, info, **kwargs):
-    """PORT: config/graphql/document_queries.py:79
+    """PORT: /home/user/oc-graphene-ref/config/graphql/document_queries.py:79
 
     Port of DocumentQueryMixin.resolve_document
     """
@@ -74,7 +74,7 @@ def q_corpus_document_ids(info: strawberry.Info, in_corpus_with_id: Annotated[st
 
 
 def _resolve_Query_document_stats(root, info, **kwargs):
-    """PORT: config/ratelimit/decorators.py:200
+    """PORT: /home/user/oc-graphene-ref/config/ratelimit/decorators.py:200
 
     Port of DocumentQueryMixin.resolve_document_stats
     """
@@ -87,7 +87,7 @@ def q_document_stats(info: strawberry.Info, in_corpus_with_id: Annotated[Optiona
 
 
 def _resolve_Query_document_relationships(root, info, **kwargs):
-    """PORT: config/ratelimit/decorators.py:250
+    """PORT: /home/user/oc-graphene-ref/config/ratelimit/decorators.py:250
 
     Port of DocumentQueryMixin.resolve_document_relationships
     """
@@ -105,7 +105,7 @@ def q_document_relationship(info: strawberry.Info, id: Annotated[strawberry.ID, 
 
 
 def _resolve_Query_bulk_doc_relationships(root, info, **kwargs):
-    """PORT: config/ratelimit/decorators.py:319
+    """PORT: /home/user/oc-graphene-ref/config/ratelimit/decorators.py:319
 
     Port of DocumentQueryMixin.resolve_bulk_doc_relationships
     """

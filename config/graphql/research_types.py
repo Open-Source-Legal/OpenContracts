@@ -32,7 +32,7 @@ from opencontractserver.research.models import ResearchReport
 
 
 def _resolve_ResearchReportType_duration_seconds(root, info, **kwargs):
-    """PORT: config/graphql/research_types.py:52
+    """PORT: /home/user/oc-graphene-ref/config/graphql/research_types.py:52
 
     Port of ResearchReportType.resolve_duration_seconds
     """
@@ -40,7 +40,7 @@ def _resolve_ResearchReportType_duration_seconds(root, info, **kwargs):
 
 
 def _resolve_ResearchReportType_my_permissions(root, info, **kwargs):
-    """PORT: config/graphql/research_types.py:55
+    """PORT: /home/user/oc-graphene-ref/config/graphql/research_types.py:55
 
     Port of ResearchReportType.resolve_my_permissions
     """
@@ -48,7 +48,7 @@ def _resolve_ResearchReportType_my_permissions(root, info, **kwargs):
 
 
 def _resolve_ResearchReportType_full_source_annotation_list(root, info, **kwargs):
-    """PORT: config/graphql/research_types.py:73
+    """PORT: /home/user/oc-graphene-ref/config/graphql/research_types.py:73
 
     Port of ResearchReportType.resolve_full_source_annotation_list
     """
@@ -56,7 +56,7 @@ def _resolve_ResearchReportType_full_source_annotation_list(root, info, **kwargs
 
 
 def _resolve_ResearchReportType_full_source_document_list(root, info, **kwargs):
-    """PORT: config/graphql/research_types.py:76
+    """PORT: /home/user/oc-graphene-ref/config/graphql/research_types.py:76
 
     Port of ResearchReportType.resolve_full_source_document_list
     """

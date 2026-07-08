@@ -33,9 +33,7 @@ from config.graphql import enums
 @strawberry.type(name="CreateCorpusFolderMutation", description='Create a new folder in a corpus.\n\nDelegates to FolderCRUDService.create_folder() for:\n- Permission checking (corpus UPDATE permission)\n- Validation (unique name, parent in same corpus)\n- Folder creation')
 class CreateCorpusFolderMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     folder: Optional[Annotated["CorpusFolderType", strawberry.lazy("config.graphql.corpus_types")]] = strawberry.field(name="folder", default=None)
 
 
@@ -45,9 +43,7 @@ register_type("CreateCorpusFolderMutation", CreateCorpusFolderMutation, model=No
 @strawberry.type(name="UpdateCorpusFolderMutation", description='Update folder properties (name, description, color, icon, tags).\n\nDelegates to FolderCRUDService.update_folder() for:\n- Permission checking (corpus UPDATE permission)\n- Validation (unique name within parent)\n- Folder update')
 class UpdateCorpusFolderMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     folder: Optional[Annotated["CorpusFolderType", strawberry.lazy("config.graphql.corpus_types")]] = strawberry.field(name="folder", default=None)
 
 
@@ -57,9 +53,7 @@ register_type("UpdateCorpusFolderMutation", UpdateCorpusFolderMutation, model=No
 @strawberry.type(name="MoveCorpusFolderMutation", description='Move a folder to a different parent (or to root if parent_id is null).\n\nDelegates to FolderCRUDService.move_folder() for:\n- Permission checking (corpus UPDATE permission)\n- Validation (no self-move, no move into descendants, same corpus)\n- Folder move')
 class MoveCorpusFolderMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     folder: Optional[Annotated["CorpusFolderType", strawberry.lazy("config.graphql.corpus_types")]] = strawberry.field(name="folder", default=None)
 
 
@@ -69,9 +63,7 @@ register_type("MoveCorpusFolderMutation", MoveCorpusFolderMutation, model=None)
 @strawberry.type(name="DeleteCorpusFolderMutation", description='Delete a folder and optionally its contents.\n\nDelegates to FolderCRUDService.delete_folder() for:\n- Permission checking (corpus DELETE permission)\n- Child folder handling (reparent or cascade)\n- Document folder assignment cleanup via DocumentPath')
 class DeleteCorpusFolderMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
 
 
 register_type("DeleteCorpusFolderMutation", DeleteCorpusFolderMutation, model=None)
@@ -80,9 +72,7 @@ register_type("DeleteCorpusFolderMutation", DeleteCorpusFolderMutation, model=No
 @strawberry.type(name="MoveDocumentToFolderMutation", description='Move a document to a specific folder (or to corpus root if folder_id is null).\n\nDelegates to FolderDocumentService.move_document_to_folder() for:\n- Permission checking (corpus UPDATE permission)\n- Validation (document in corpus, folder in corpus)\n- DocumentPath folder assignment update')
 class MoveDocumentToFolderMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     document: Optional[Annotated["DocumentType", strawberry.lazy("config.graphql.document_types")]] = strawberry.field(name="document", default=None)
 
 
@@ -92,9 +82,7 @@ register_type("MoveDocumentToFolderMutation", MoveDocumentToFolderMutation, mode
 @strawberry.type(name="MoveDocumentsToFolderMutation", description='Move multiple documents to a specific folder in bulk.\n\nDelegates to FolderDocumentService.move_documents_to_folder() for:\n- Permission checking (corpus UPDATE permission)\n- Validation (all documents in corpus, folder in corpus)\n- Bulk DocumentPath folder assignment update')
 class MoveDocumentsToFolderMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     moved_count: Optional[int] = strawberry.field(name="movedCount", description='Number of documents successfully moved', default=None)
 
 

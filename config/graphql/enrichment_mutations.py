@@ -44,12 +44,8 @@ class RunEnrichmentOptionsInput:
 @strawberry.type(name="RunCorpusEnrichmentMutation", description='Dispatch the enrichment and/or crawl analyzer on a corpus.\n\nThe caller must hold UPDATE on the corpus — both analyzers write\nreferences and/or publish authority documents into it.  At least one of\n``run_enrichment`` / ``run_crawl`` must be True.  On success every\ndispatched :class:`~opencontractserver.analyzer.models.Analysis` row is\nreturned; the rows are created synchronously even though the underlying\nCelery tasks are queued on transaction commit.')
 class RunCorpusEnrichmentMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
-    @strawberry.field(name="analyses")
-    def analyses(self, info: strawberry.Info) -> Optional[list[Optional[Annotated["AnalysisType", strawberry.lazy("config.graphql.extract_types")]]]]:
-        return resolve_django_list(self, info, getattr(self, "analyses"), "AnalysisType")
+    message: Optional[str] = strawberry.field(name="message", default=None)
+    analyses: Optional[list[Optional[Annotated["AnalysisType", strawberry.lazy("config.graphql.extract_types")]]]] = strawberry.field(name="analyses", default=None)
     partial: Optional[bool] = strawberry.field(name="partial", description='True when some requested jobs dispatched but others failed (e.g. enrichment started but the crawl could not be dispatched). Only meaningful when ``ok`` is True; lets callers surface the non-fatal ``message`` without coupling to its text.', default=None)
 
 
@@ -59,9 +55,7 @@ register_type("RunCorpusEnrichmentMutation", RunCorpusEnrichmentMutation, model=
 @strawberry.type(name="RunAuthorityDiscoveryMutation", description="Run authority discovery on a hand-picked set of ``AuthorityFrontier`` rows.\n\nThe corpus-agnostic counterpart to :class:`RunCorpusEnrichmentMutation`'s\ncrawl: instead of seeding + dequeuing the whole frontier under a corpus\n``Analysis``, this ingests *exactly* the selected rows (depth 0, no\nrecursion), so the global Authority Sources monitor can drain a chosen\nsubset of the queue.\n\n**Superuser-only.** The ``AuthorityFrontier`` is a global, system-managed\nqueue with no per-object permissions — mirroring the ``authorityFrontier``\nquery gate, there is no corpus to check ``UPDATE`` against. The work is\nenqueued fire-and-forget; the monitor reflects each row's ``discovery_state``\nas it transitions.")
 class RunAuthorityDiscoveryMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     count: Optional[int] = strawberry.field(name="count", default=None)
 
 

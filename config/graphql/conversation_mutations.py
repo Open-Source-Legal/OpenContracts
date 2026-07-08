@@ -33,9 +33,7 @@ from config.graphql import enums
 @strawberry.type(name="CreateThreadMutation", description='Create a new discussion thread linked to a corpus and/or document.\n\nSupports three modes:\n- corpus_id only: Thread is linked to corpus (corpus-level discussion)\n- document_id only: Thread is linked to document (standalone document discussion)\n- both corpus_id AND document_id: Thread is linked to both (doc-in-corpus discussion)\n\nSecurity Note: Message content is stored as Markdown from TipTap editor.\nMarkdown is safer than HTML (no script injection), and mention links use\nstandard Markdown syntax [text](url) which is parsed to create database relationships.\nPart of Issue #623 - @ Mentions Feature (Extended)\nPart of Issue #677 - Document Discussions UI Enhancement')
 class CreateThreadMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     obj: Optional[Annotated["ConversationType", strawberry.lazy("config.graphql.conversation_types")]] = strawberry.field(name="obj", default=None)
 
 
@@ -45,9 +43,7 @@ register_type("CreateThreadMutation", CreateThreadMutation, model=None)
 @strawberry.type(name="CreateThreadMessageMutation", description='Post a new message to an existing thread.')
 class CreateThreadMessageMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     obj: Optional[Annotated["MessageType", strawberry.lazy("config.graphql.conversation_types")]] = strawberry.field(name="obj", default=None)
 
 
@@ -57,9 +53,7 @@ register_type("CreateThreadMessageMutation", CreateThreadMessageMutation, model=
 @strawberry.type(name="ReplyToMessageMutation", description='Create a nested reply to an existing message.')
 class ReplyToMessageMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     obj: Optional[Annotated["MessageType", strawberry.lazy("config.graphql.conversation_types")]] = strawberry.field(name="obj", default=None)
 
 
@@ -69,9 +63,7 @@ register_type("ReplyToMessageMutation", ReplyToMessageMutation, model=None)
 @strawberry.type(name="UpdateMessageMutation", description="Update the content of an existing message.\n\nSecurity Note: Only the message creator or a moderator can edit messages.\nMention links are re-parsed when content is updated.\n\nXSS Prevention Note: The content field contains user-generated markdown text\nthat must be properly escaped when rendered in the frontend to prevent XSS\nattacks. GraphQL's GenericScalar handles JSON serialization safely, but the\nfrontend must use a markdown renderer that sanitizes HTML output.\n\nPart of Issue #686 - Mobile UI for Edit Message Modal")
 class UpdateMessageMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     obj: Optional[Annotated["MessageType", strawberry.lazy("config.graphql.conversation_types")]] = strawberry.field(name="obj", default=None)
 
 
@@ -81,9 +73,7 @@ register_type("UpdateMessageMutation", UpdateMessageMutation, model=None)
 @strawberry.type(name="DeleteConversationMutation", description='Soft delete a conversation/thread.')
 class DeleteConversationMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
 
 
 register_type("DeleteConversationMutation", DeleteConversationMutation, model=None)
@@ -92,9 +82,7 @@ register_type("DeleteConversationMutation", DeleteConversationMutation, model=No
 @strawberry.type(name="DeleteMessageMutation", description='Soft delete a message.')
 class DeleteMessageMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
 
 
 register_type("DeleteMessageMutation", DeleteMessageMutation, model=None)

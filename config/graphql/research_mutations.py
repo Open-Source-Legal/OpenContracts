@@ -33,9 +33,7 @@ from config.graphql import enums
 @strawberry.type(name="StartResearchReport", description='Kick off a deep-research job over a corpus (explicit, non-chat path).')
 class StartResearchReport:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     obj: Optional[Annotated["ResearchReportType", strawberry.lazy("config.graphql.research_types")]] = strawberry.field(name="obj", default=None)
 
 
@@ -45,9 +43,7 @@ register_type("StartResearchReport", StartResearchReport, model=None)
 @strawberry.type(name="CancelResearchReport", description='Request cooperative cancellation of an in-flight research job.')
 class CancelResearchReport:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     obj: Optional[Annotated["ResearchReportType", strawberry.lazy("config.graphql.research_types")]] = strawberry.field(name="obj", default=None)
 
 

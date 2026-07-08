@@ -36,7 +36,7 @@ from opencontractserver.corpuses.models import CorpusActionTemplate
 
 
 def _resolve_CorpusActionType_pre_authorized_tools(root, info, **kwargs):
-    """PORT: config/graphql/agent_types.py:42
+    """PORT: /home/user/oc-graphene-ref/config/graphql/agent_types.py:42
 
     Port of CorpusActionType.resolve_pre_authorized_tools
     """
@@ -114,7 +114,7 @@ CorpusActionTypeConnection = make_connection_types(CorpusActionType, type_name="
 
 
 def _resolve_CorpusActionExecutionType_affected_objects(root, info, **kwargs):
-    """PORT: config/graphql/agent_types.py:113
+    """PORT: /home/user/oc-graphene-ref/config/graphql/agent_types.py:113
 
     Port of CorpusActionExecutionType.resolve_affected_objects
     """
@@ -122,7 +122,7 @@ def _resolve_CorpusActionExecutionType_affected_objects(root, info, **kwargs):
 
 
 def _resolve_CorpusActionExecutionType_execution_metadata(root, info, **kwargs):
-    """PORT: config/graphql/agent_types.py:117
+    """PORT: /home/user/oc-graphene-ref/config/graphql/agent_types.py:117
 
     Port of CorpusActionExecutionType.resolve_execution_metadata
     """
@@ -130,7 +130,7 @@ def _resolve_CorpusActionExecutionType_execution_metadata(root, info, **kwargs):
 
 
 def _resolve_CorpusActionExecutionType_duration_seconds(root, info, **kwargs):
-    """PORT: config/graphql/agent_types.py:105
+    """PORT: /home/user/oc-graphene-ref/config/graphql/agent_types.py:105
 
     Port of CorpusActionExecutionType.resolve_duration_seconds
     """
@@ -138,7 +138,7 @@ def _resolve_CorpusActionExecutionType_duration_seconds(root, info, **kwargs):
 
 
 def _resolve_CorpusActionExecutionType_wait_time_seconds(root, info, **kwargs):
-    """PORT: config/graphql/agent_types.py:109
+    """PORT: /home/user/oc-graphene-ref/config/graphql/agent_types.py:109
 
     Port of CorpusActionExecutionType.resolve_wait_time_seconds
     """
@@ -213,7 +213,7 @@ CorpusActionExecutionTypeConnection = make_connection_types(CorpusActionExecutio
 
 
 def _resolve_AgentConfigurationType_available_tools(root, info, **kwargs):
-    """PORT: config/graphql/agent_types.py:192
+    """PORT: /home/user/oc-graphene-ref/config/graphql/agent_types.py:192
 
     Port of AgentConfigurationType.resolve_available_tools
     """
@@ -221,7 +221,7 @@ def _resolve_AgentConfigurationType_available_tools(root, info, **kwargs):
 
 
 def _resolve_AgentConfigurationType_permission_required_tools(root, info, **kwargs):
-    """PORT: config/graphql/agent_types.py:196
+    """PORT: /home/user/oc-graphene-ref/config/graphql/agent_types.py:196
 
     Port of AgentConfigurationType.resolve_permission_required_tools
     """
@@ -229,7 +229,7 @@ def _resolve_AgentConfigurationType_permission_required_tools(root, info, **kwar
 
 
 def _resolve_AgentConfigurationType_mention_format(root, info, **kwargs):
-    """PORT: config/graphql/agent_types.py:186
+    """PORT: /home/user/oc-graphene-ref/config/graphql/agent_types.py:186
 
     Port of AgentConfigurationType.resolve_mention_format
     """
@@ -296,7 +296,7 @@ AgentConfigurationTypeConnection = make_connection_types(AgentConfigurationType,
 
 
 def _resolve_AgentActionResultType_tools_executed(root, info, **kwargs):
-    """PORT: config/graphql/agent_types.py:66
+    """PORT: /home/user/oc-graphene-ref/config/graphql/agent_types.py:66
 
     Port of AgentActionResultType.resolve_tools_executed
     """
@@ -304,7 +304,7 @@ def _resolve_AgentActionResultType_tools_executed(root, info, **kwargs):
 
 
 def _resolve_AgentActionResultType_execution_metadata(root, info, **kwargs):
-    """PORT: config/graphql/agent_types.py:70
+    """PORT: /home/user/oc-graphene-ref/config/graphql/agent_types.py:70
 
     Port of AgentActionResultType.resolve_execution_metadata
     """
@@ -312,7 +312,7 @@ def _resolve_AgentActionResultType_execution_metadata(root, info, **kwargs):
 
 
 def _resolve_AgentActionResultType_duration_seconds(root, info, **kwargs):
-    """PORT: config/graphql/agent_types.py:74
+    """PORT: /home/user/oc-graphene-ref/config/graphql/agent_types.py:74
 
     Port of AgentActionResultType.resolve_duration_seconds
     """
@@ -378,7 +378,7 @@ AgentActionResultTypeConnection = make_connection_types(AgentActionResultType, t
 
 
 def _resolve_CorpusActionTemplateType_pre_authorized_tools(root, info, **kwargs):
-    """PORT: config/graphql/agent_types.py:267
+    """PORT: /home/user/oc-graphene-ref/config/graphql/agent_types.py:267
 
     Port of CorpusActionTemplateType.resolve_pre_authorized_tools
     """
@@ -432,20 +432,12 @@ register_type("CorpusActionTrailStatsType", CorpusActionTrailStatsType, model=No
 
 @strawberry.type(name="AvailableToolType", description='GraphQL type for available tools that can be assigned to agents.\n\nThis provides metadata about each tool, including its description,\ncategory, and requirements.')
 class AvailableToolType:
-    @strawberry.field(name="name", description='Tool name (used in configuration)')
-    def name(self, info: strawberry.Info) -> str:
-        return coerce_str(getattr(self, "name", None))
-    @strawberry.field(name="description", description='Human-readable description of the tool')
-    def description(self, info: strawberry.Info) -> str:
-        return coerce_str(getattr(self, "description", None))
-    @strawberry.field(name="category", description='Tool category (search, document, corpus, notes, annotations, coordination)')
-    def category(self, info: strawberry.Info) -> str:
-        return coerce_str(getattr(self, "category", None))
+    name: str = strawberry.field(name="name", description='Tool name (used in configuration)', default=None)
+    description: str = strawberry.field(name="description", description='Human-readable description of the tool', default=None)
+    category: str = strawberry.field(name="category", description='Tool category (search, document, corpus, notes, annotations, coordination)', default=None)
     requiresCorpus: bool = strawberry.field(name="requiresCorpus", description='Whether this tool requires a corpus context', default=None)
     requiresApproval: bool = strawberry.field(name="requiresApproval", description='Whether this tool requires user approval before execution', default=None)
-    @strawberry.field(name="parameters", description='List of parameters accepted by this tool')
-    def parameters(self, info: strawberry.Info) -> list["ToolParameterType"]:
-        return resolve_django_list(self, info, getattr(self, "parameters"), "ToolParameterType")
+    parameters: list["ToolParameterType"] = strawberry.field(name="parameters", description='List of parameters accepted by this tool', default=None)
 
 
 register_type("AvailableToolType", AvailableToolType, model=None)
@@ -453,12 +445,8 @@ register_type("AvailableToolType", AvailableToolType, model=None)
 
 @strawberry.type(name="ToolParameterType", description='GraphQL type for tool parameter definitions.')
 class ToolParameterType:
-    @strawberry.field(name="name", description='Parameter name')
-    def name(self, info: strawberry.Info) -> str:
-        return coerce_str(getattr(self, "name", None))
-    @strawberry.field(name="description", description='Parameter description')
-    def description(self, info: strawberry.Info) -> str:
-        return coerce_str(getattr(self, "description", None))
+    name: str = strawberry.field(name="name", description='Parameter name', default=None)
+    description: str = strawberry.field(name="description", description='Parameter description', default=None)
     required: bool = strawberry.field(name="required", description='Whether the parameter is required', default=None)
 
 

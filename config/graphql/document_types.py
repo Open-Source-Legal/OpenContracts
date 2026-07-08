@@ -39,7 +39,7 @@ from opencontractserver.documents.models import IngestionSource
 
 
 def _resolve_DocumentType_icon(root, info, **kwargs):
-    """PORT: config/graphql/optimized_file_resolvers.py:38
+    """PORT: /home/user/oc-graphene-ref/config/graphql/optimized_file_resolvers.py:38
 
     Port of DocumentType.resolve_icon
     """
@@ -47,7 +47,7 @@ def _resolve_DocumentType_icon(root, info, **kwargs):
 
 
 def _resolve_DocumentType_pdf_file(root, info, **kwargs):
-    """PORT: config/graphql/optimized_file_resolvers.py:38
+    """PORT: /home/user/oc-graphene-ref/config/graphql/optimized_file_resolvers.py:38
 
     Port of DocumentType.resolve_pdf_file
     """
@@ -55,7 +55,7 @@ def _resolve_DocumentType_pdf_file(root, info, **kwargs):
 
 
 def _resolve_DocumentType_txt_extract_file(root, info, **kwargs):
-    """PORT: config/graphql/optimized_file_resolvers.py:38
+    """PORT: /home/user/oc-graphene-ref/config/graphql/optimized_file_resolvers.py:38
 
     Port of DocumentType.resolve_txt_extract_file
     """
@@ -63,7 +63,7 @@ def _resolve_DocumentType_txt_extract_file(root, info, **kwargs):
 
 
 def _resolve_DocumentType_md_summary_file(root, info, **kwargs):
-    """PORT: config/graphql/optimized_file_resolvers.py:38
+    """PORT: /home/user/oc-graphene-ref/config/graphql/optimized_file_resolvers.py:38
 
     Port of DocumentType.resolve_md_summary_file
     """
@@ -71,7 +71,7 @@ def _resolve_DocumentType_md_summary_file(root, info, **kwargs):
 
 
 def _resolve_DocumentType_pawls_parse_file(root, info, **kwargs):
-    """PORT: config/graphql/optimized_file_resolvers.py:38
+    """PORT: /home/user/oc-graphene-ref/config/graphql/optimized_file_resolvers.py:38
 
     Port of DocumentType.resolve_pawls_parse_file
     """
@@ -79,7 +79,7 @@ def _resolve_DocumentType_pawls_parse_file(root, info, **kwargs):
 
 
 def _resolve_DocumentType_processing_status(root, info, **kwargs):
-    """PORT: config/graphql/document_types.py:1032
+    """PORT: /home/user/oc-graphene-ref/config/graphql/document_types.py:1032
 
     Port of DocumentType.resolve_processing_status
     """
@@ -87,7 +87,7 @@ def _resolve_DocumentType_processing_status(root, info, **kwargs):
 
 
 def _resolve_DocumentType_processing_error(root, info, **kwargs):
-    """PORT: config/graphql/document_types.py:1042
+    """PORT: /home/user/oc-graphene-ref/config/graphql/document_types.py:1042
 
     Port of DocumentType.resolve_processing_error
     """
@@ -95,7 +95,7 @@ def _resolve_DocumentType_processing_error(root, info, **kwargs):
 
 
 def _resolve_DocumentType_summary_revisions(root, info, **kwargs):
-    """PORT: config/graphql/document_types.py:583
+    """PORT: /home/user/oc-graphene-ref/config/graphql/document_types.py:583
 
     Port of DocumentType.resolve_summary_revisions
     """
@@ -103,7 +103,7 @@ def _resolve_DocumentType_summary_revisions(root, info, **kwargs):
 
 
 def _resolve_DocumentType_doc_annotations(root, info, **kwargs):
-    """PORT: config/graphql/custom_resolvers.py:83
+    """PORT: /home/user/oc-graphene-ref/config/graphql/custom_resolvers.py:83
 
     Port of DocumentType.resolve_doc_annotations
     """
@@ -111,7 +111,7 @@ def _resolve_DocumentType_doc_annotations(root, info, **kwargs):
 
 
 def _resolve_DocumentType_doc_type_labels(root, info, **kwargs):
-    """PORT: config/graphql/document_types.py:303
+    """PORT: /home/user/oc-graphene-ref/config/graphql/document_types.py:303
 
     Port of DocumentType.resolve_doc_type_labels
     """
@@ -119,7 +119,7 @@ def _resolve_DocumentType_doc_type_labels(root, info, **kwargs):
 
 
 def _resolve_DocumentType_all_structural_annotations(root, info, **kwargs):
-    """PORT: config/graphql/document_types.py:334
+    """PORT: /home/user/oc-graphene-ref/config/graphql/document_types.py:334
 
     Port of DocumentType.resolve_all_structural_annotations
     """
@@ -127,7 +127,7 @@ def _resolve_DocumentType_all_structural_annotations(root, info, **kwargs):
 
 
 def _resolve_DocumentType_all_annotations(root, info, **kwargs):
-    """PORT: config/graphql/document_types.py:355
+    """PORT: /home/user/oc-graphene-ref/config/graphql/document_types.py:355
 
     Port of DocumentType.resolve_all_annotations
     """
@@ -135,7 +135,7 @@ def _resolve_DocumentType_all_annotations(root, info, **kwargs):
 
 
 def _resolve_DocumentType_all_relationships(root, info, **kwargs):
-    """PORT: config/graphql/document_types.py:384
+    """PORT: /home/user/oc-graphene-ref/config/graphql/document_types.py:384
 
     Port of DocumentType.resolve_all_relationships
     """
@@ -143,7 +143,7 @@ def _resolve_DocumentType_all_relationships(root, info, **kwargs):
 
 
 def _resolve_DocumentType_all_structural_relationships(root, info, **kwargs):
-    """PORT: config/graphql/document_types.py:424
+    """PORT: /home/user/oc-graphene-ref/config/graphql/document_types.py:424
 
     Port of DocumentType.resolve_all_structural_relationships
     """
@@ -151,7 +151,7 @@ def _resolve_DocumentType_all_structural_relationships(root, info, **kwargs):
 
 
 def _resolve_DocumentType_all_doc_relationships(root, info, **kwargs):
-    """PORT: config/graphql/document_types.py:505
+    """PORT: /home/user/oc-graphene-ref/config/graphql/document_types.py:505
 
     Port of DocumentType.resolve_all_doc_relationships
     """
@@ -159,7 +159,7 @@ def _resolve_DocumentType_all_doc_relationships(root, info, **kwargs):
 
 
 def _resolve_DocumentType_doc_relationship_count(root, info, **kwargs):
-    """PORT: config/graphql/document_types.py:470
+    """PORT: /home/user/oc-graphene-ref/config/graphql/document_types.py:470
 
     Port of DocumentType.resolve_doc_relationship_count
     """
@@ -167,7 +167,7 @@ def _resolve_DocumentType_doc_relationship_count(root, info, **kwargs):
 
 
 def _resolve_DocumentType_all_notes(root, info, **kwargs):
-    """PORT: config/graphql/document_types.py:545
+    """PORT: /home/user/oc-graphene-ref/config/graphql/document_types.py:545
 
     Port of DocumentType.resolve_all_notes
     """
@@ -175,7 +175,7 @@ def _resolve_DocumentType_all_notes(root, info, **kwargs):
 
 
 def _resolve_DocumentType_current_summary_version(root, info, **kwargs):
-    """PORT: config/graphql/document_types.py:602
+    """PORT: /home/user/oc-graphene-ref/config/graphql/document_types.py:602
 
     Port of DocumentType.resolve_current_summary_version
     """
@@ -183,7 +183,7 @@ def _resolve_DocumentType_current_summary_version(root, info, **kwargs):
 
 
 def _resolve_DocumentType_summary_content(root, info, **kwargs):
-    """PORT: config/graphql/document_types.py:627
+    """PORT: /home/user/oc-graphene-ref/config/graphql/document_types.py:627
 
     Port of DocumentType.resolve_summary_content
     """
@@ -191,7 +191,7 @@ def _resolve_DocumentType_summary_content(root, info, **kwargs):
 
 
 def _resolve_DocumentType_version_number(root, info, **kwargs):
-    """PORT: config/graphql/document_types.py:694
+    """PORT: /home/user/oc-graphene-ref/config/graphql/document_types.py:694
 
     Port of DocumentType.resolve_version_number
     """
@@ -199,7 +199,7 @@ def _resolve_DocumentType_version_number(root, info, **kwargs):
 
 
 def _resolve_DocumentType_has_version_history(root, info, **kwargs):
-    """PORT: config/graphql/document_types.py:703
+    """PORT: /home/user/oc-graphene-ref/config/graphql/document_types.py:703
 
     Port of DocumentType.resolve_has_version_history
     """
@@ -207,7 +207,7 @@ def _resolve_DocumentType_has_version_history(root, info, **kwargs):
 
 
 def _resolve_DocumentType_version_count(root, info, **kwargs):
-    """PORT: config/graphql/document_types.py:712
+    """PORT: /home/user/oc-graphene-ref/config/graphql/document_types.py:712
 
     Port of DocumentType.resolve_version_count
     """
@@ -215,7 +215,7 @@ def _resolve_DocumentType_version_count(root, info, **kwargs):
 
 
 def _resolve_DocumentType_is_latest_version(root, info, **kwargs):
-    """PORT: config/graphql/document_types.py:743
+    """PORT: /home/user/oc-graphene-ref/config/graphql/document_types.py:743
 
     Port of DocumentType.resolve_is_latest_version
     """
@@ -223,7 +223,7 @@ def _resolve_DocumentType_is_latest_version(root, info, **kwargs):
 
 
 def _resolve_DocumentType_last_modified(root, info, **kwargs):
-    """PORT: config/graphql/document_types.py:747
+    """PORT: /home/user/oc-graphene-ref/config/graphql/document_types.py:747
 
     Port of DocumentType.resolve_last_modified
     """
@@ -231,7 +231,7 @@ def _resolve_DocumentType_last_modified(root, info, **kwargs):
 
 
 def _resolve_DocumentType_version_history(root, info, **kwargs):
-    """PORT: config/graphql/document_types.py:756
+    """PORT: /home/user/oc-graphene-ref/config/graphql/document_types.py:756
 
     Port of DocumentType.resolve_version_history
     """
@@ -239,7 +239,7 @@ def _resolve_DocumentType_version_history(root, info, **kwargs):
 
 
 def _resolve_DocumentType_path_history(root, info, **kwargs):
-    """PORT: config/graphql/document_types.py:819
+    """PORT: /home/user/oc-graphene-ref/config/graphql/document_types.py:819
 
     Port of DocumentType.resolve_path_history
     """
@@ -247,7 +247,7 @@ def _resolve_DocumentType_path_history(root, info, **kwargs):
 
 
 def _resolve_DocumentType_corpus_versions(root, info, **kwargs):
-    """PORT: config/graphql/document_types.py:884
+    """PORT: /home/user/oc-graphene-ref/config/graphql/document_types.py:884
 
     Port of DocumentType.resolve_corpus_versions
     """
@@ -255,7 +255,7 @@ def _resolve_DocumentType_corpus_versions(root, info, **kwargs):
 
 
 def _resolve_DocumentType_can_restore(root, info, **kwargs):
-    """PORT: config/graphql/document_types.py:972
+    """PORT: /home/user/oc-graphene-ref/config/graphql/document_types.py:972
 
     Port of DocumentType.resolve_can_restore
     """
@@ -263,7 +263,7 @@ def _resolve_DocumentType_can_restore(root, info, **kwargs):
 
 
 def _resolve_DocumentType_can_view_history(root, info, **kwargs):
-    """PORT: config/graphql/document_types.py:1001
+    """PORT: /home/user/oc-graphene-ref/config/graphql/document_types.py:1001
 
     Port of DocumentType.resolve_can_view_history
     """
@@ -271,7 +271,7 @@ def _resolve_DocumentType_can_view_history(root, info, **kwargs):
 
 
 def _resolve_DocumentType_can_retry(root, info, **kwargs):
-    """PORT: config/graphql/document_types.py:1048
+    """PORT: /home/user/oc-graphene-ref/config/graphql/document_types.py:1048
 
     Port of DocumentType.resolve_can_retry
     """
@@ -279,7 +279,7 @@ def _resolve_DocumentType_can_retry(root, info, **kwargs):
 
 
 def _resolve_DocumentType_page_annotations(root, info, **kwargs):
-    """PORT: config/graphql/document_types.py:1100
+    """PORT: /home/user/oc-graphene-ref/config/graphql/document_types.py:1100
 
     Port of DocumentType.resolve_page_annotations
     """
@@ -287,7 +287,7 @@ def _resolve_DocumentType_page_annotations(root, info, **kwargs):
 
 
 def _resolve_DocumentType_page_relationships(root, info, **kwargs):
-    """PORT: config/graphql/document_types.py:1145
+    """PORT: /home/user/oc-graphene-ref/config/graphql/document_types.py:1145
 
     Port of DocumentType.resolve_page_relationships
     """
@@ -295,7 +295,7 @@ def _resolve_DocumentType_page_relationships(root, info, **kwargs):
 
 
 def _resolve_DocumentType_relationship_summary(root, info, **kwargs):
-    """PORT: config/graphql/document_types.py:1195
+    """PORT: /home/user/oc-graphene-ref/config/graphql/document_types.py:1195
 
     Port of DocumentType.resolve_relationship_summary
     """
@@ -303,7 +303,7 @@ def _resolve_DocumentType_relationship_summary(root, info, **kwargs):
 
 
 def _resolve_DocumentType_extract_annotation_summary(root, info, **kwargs):
-    """PORT: config/graphql/document_types.py:1206
+    """PORT: /home/user/oc-graphene-ref/config/graphql/document_types.py:1206
 
     Port of DocumentType.resolve_extract_annotation_summary
     """
@@ -311,7 +311,7 @@ def _resolve_DocumentType_extract_annotation_summary(root, info, **kwargs):
 
 
 def _resolve_DocumentType_folder_in_corpus(root, info, **kwargs):
-    """PORT: config/graphql/document_types.py:1224
+    """PORT: /home/user/oc-graphene-ref/config/graphql/document_types.py:1224
 
     Port of DocumentType.resolve_folder_in_corpus
     """
@@ -697,7 +697,7 @@ DocumentRelationshipTypeConnection = make_connection_types(DocumentRelationshipT
 
 
 def _resolve_DocumentPathType_action(root, info, **kwargs):
-    """PORT: config/graphql/document_types.py:153
+    """PORT: /home/user/oc-graphene-ref/config/graphql/document_types.py:153
 
     Port of DocumentPathType.resolve_action
     """
@@ -836,15 +836,9 @@ DocumentSummaryRevisionTypeConnection = make_connection_types(DocumentSummaryRev
 
 @strawberry.type(name="DocumentCorpusActionsType")
 class DocumentCorpusActionsType:
-    @strawberry.field(name="corpusActions")
-    def corpus_actions(self, info: strawberry.Info) -> Optional[list[Optional[Annotated["CorpusActionType", strawberry.lazy("config.graphql.agent_types")]]]]:
-        return resolve_django_list(self, info, getattr(self, "corpus_actions"), "CorpusActionType")
-    @strawberry.field(name="extracts")
-    def extracts(self, info: strawberry.Info) -> Optional[list[Optional[Annotated["ExtractType", strawberry.lazy("config.graphql.extract_types")]]]]:
-        return resolve_django_list(self, info, getattr(self, "extracts"), "ExtractType")
-    @strawberry.field(name="analysisRows")
-    def analysis_rows(self, info: strawberry.Info) -> Optional[list[Optional["DocumentAnalysisRowType"]]]:
-        return resolve_django_list(self, info, getattr(self, "analysis_rows"), "DocumentAnalysisRowType")
+    corpus_actions: Optional[list[Optional[Annotated["CorpusActionType", strawberry.lazy("config.graphql.agent_types")]]]] = strawberry.field(name="corpusActions", default=None)
+    extracts: Optional[list[Optional[Annotated["ExtractType", strawberry.lazy("config.graphql.extract_types")]]]] = strawberry.field(name="extracts", default=None)
+    analysis_rows: Optional[list[Optional["DocumentAnalysisRowType"]]] = strawberry.field(name="analysisRows", default=None)
 
 
 register_type("DocumentCorpusActionsType", DocumentCorpusActionsType, model=None)

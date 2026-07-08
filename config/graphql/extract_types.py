@@ -41,7 +41,7 @@ from opencontractserver.notifications.models import Notification
 
 
 def _resolve_AnalyzerType_icon(root, info, **kwargs):
-    """PORT: config/graphql/extract_types.py:275
+    """PORT: /home/user/oc-graphene-ref/config/graphql/extract_types.py:275
 
     Port of AnalyzerType.resolve_icon
     """
@@ -49,7 +49,7 @@ def _resolve_AnalyzerType_icon(root, info, **kwargs):
 
 
 def _resolve_AnalyzerType_analyzer_id(root, info, **kwargs):
-    """PORT: config/graphql/extract_types.py:261
+    """PORT: /home/user/oc-graphene-ref/config/graphql/extract_types.py:261
 
     Port of AnalyzerType.resolve_analyzer_id
     """
@@ -57,7 +57,7 @@ def _resolve_AnalyzerType_analyzer_id(root, info, **kwargs):
 
 
 def _resolve_AnalyzerType_full_label_list(root, info, **kwargs):
-    """PORT: config/graphql/extract_types.py:272
+    """PORT: /home/user/oc-graphene-ref/config/graphql/extract_types.py:272
 
     Port of AnalyzerType.resolve_full_label_list
     """
@@ -176,7 +176,7 @@ GremlinEngineType_WRITEConnection = make_connection_types(GremlinEngineType_WRIT
 
 
 def _resolve_ExtractType_full_datacell_list(root, info, **kwargs):
-    """PORT: config/graphql/extract_types.py:178
+    """PORT: /home/user/oc-graphene-ref/config/graphql/extract_types.py:178
 
     Port of ExtractType.resolve_full_datacell_list
     """
@@ -184,7 +184,7 @@ def _resolve_ExtractType_full_datacell_list(root, info, **kwargs):
 
 
 def _resolve_ExtractType_full_document_list(root, info, **kwargs):
-    """PORT: config/graphql/extract_types.py:226
+    """PORT: /home/user/oc-graphene-ref/config/graphql/extract_types.py:226
 
     Port of ExtractType.resolve_full_document_list
     """
@@ -192,7 +192,7 @@ def _resolve_ExtractType_full_document_list(root, info, **kwargs):
 
 
 def _resolve_ExtractType_document_count(root, info, **kwargs):
-    """PORT: config/graphql/extract_types.py:200
+    """PORT: /home/user/oc-graphene-ref/config/graphql/extract_types.py:200
 
     Port of ExtractType.resolve_document_count
     """
@@ -200,7 +200,7 @@ def _resolve_ExtractType_document_count(root, info, **kwargs):
 
 
 def _resolve_ExtractType_datacell_count(root, info, **kwargs):
-    """PORT: config/graphql/extract_types.py:194
+    """PORT: /home/user/oc-graphene-ref/config/graphql/extract_types.py:194
 
     Port of ExtractType.resolve_datacell_count
     """
@@ -208,7 +208,7 @@ def _resolve_ExtractType_datacell_count(root, info, **kwargs):
 
 
 def _resolve_ExtractType_iteration_axis(root, info, **kwargs):
-    """PORT: config/graphql/extract_types.py:240
+    """PORT: /home/user/oc-graphene-ref/config/graphql/extract_types.py:240
 
     Port of ExtractType.resolve_iteration_axis
     """
@@ -216,7 +216,7 @@ def _resolve_ExtractType_iteration_axis(root, info, **kwargs):
 
 
 def _resolve_ExtractType_full_iteration_list(root, info, **kwargs):
-    """PORT: config/graphql/extract_types.py:234
+    """PORT: /home/user/oc-graphene-ref/config/graphql/extract_types.py:234
 
     Port of ExtractType.resolve_full_iteration_list
     """
@@ -329,7 +329,7 @@ ExtractTypeConnection = make_connection_types(ExtractType, type_name="ExtractTyp
 
 
 def _resolve_FieldsetType_in_use(root, info, **kwargs):
-    """PORT: config/graphql/extract_types.py:51
+    """PORT: /home/user/oc-graphene-ref/config/graphql/extract_types.py:51
 
     Port of FieldsetType.resolve_in_use
     """
@@ -337,7 +337,7 @@ def _resolve_FieldsetType_in_use(root, info, **kwargs):
 
 
 def _resolve_FieldsetType_full_column_list(root, info, **kwargs):
-    """PORT: config/graphql/extract_types.py:57
+    """PORT: /home/user/oc-graphene-ref/config/graphql/extract_types.py:57
 
     Port of FieldsetType.resolve_full_column_list
     """
@@ -345,7 +345,7 @@ def _resolve_FieldsetType_full_column_list(root, info, **kwargs):
 
 
 def _resolve_FieldsetType_column_count(root, info, **kwargs):
-    """PORT: config/graphql/extract_types.py:60
+    """PORT: /home/user/oc-graphene-ref/config/graphql/extract_types.py:60
 
     Port of FieldsetType.resolve_column_count
     """
@@ -478,7 +478,7 @@ ColumnTypeConnection = make_connection_types(ColumnType, type_name="ColumnTypeCo
 
 
 def _resolve_DatacellType_full_source_list(root, info, **kwargs):
-    """PORT: config/graphql/extract_types.py:76
+    """PORT: /home/user/oc-graphene-ref/config/graphql/extract_types.py:76
 
     Port of DatacellType.resolve_full_source_list
     """
@@ -544,7 +544,7 @@ DatacellTypeConnection = make_connection_types(DatacellType, type_name="Datacell
 
 
 def _resolve_AnalysisType_full_annotation_list(root, info, **kwargs):
-    """PORT: config/graphql/extract_types.py:305
+    """PORT: /home/user/oc-graphene-ref/config/graphql/extract_types.py:305
 
     Port of AnalysisType.resolve_full_annotation_list
     """

@@ -33,9 +33,7 @@ from config.graphql import enums
 @strawberry.type(name="CreateCorpusCategory", description='Create a new corpus category. Superuser-only.')
 class CreateCorpusCategory:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     obj: Optional[Annotated["CorpusCategoryType", strawberry.lazy("config.graphql.corpus_types")]] = strawberry.field(name="obj", default=None)
 
 
@@ -45,9 +43,7 @@ register_type("CreateCorpusCategory", CreateCorpusCategory, model=None)
 @strawberry.type(name="UpdateCorpusCategory", description='Update an existing corpus category. Superuser-only.')
 class UpdateCorpusCategory:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     obj: Optional[Annotated["CorpusCategoryType", strawberry.lazy("config.graphql.corpus_types")]] = strawberry.field(name="obj", default=None)
 
 
@@ -57,9 +53,7 @@ register_type("UpdateCorpusCategory", UpdateCorpusCategory, model=None)
 @strawberry.type(name="DeleteCorpusCategory", description='Delete a corpus category. Superuser-only.\n\nDeleting a category removes it from every corpus that referenced it (the\n``Corpus.categories`` M2M through-rows are cleaned up automatically) but\ndoes not affect the corpuses themselves.')
 class DeleteCorpusCategory:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
 
 
 register_type("DeleteCorpusCategory", DeleteCorpusCategory, model=None)

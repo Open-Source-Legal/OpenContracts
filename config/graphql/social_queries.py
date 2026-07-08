@@ -37,7 +37,7 @@ from opencontractserver.notifications.models import Notification
 
 
 def _resolve_Query_badges(root, info, **kwargs):
-    """PORT: config/graphql/social_queries.py:57
+    """PORT: /home/user/oc-graphene-ref/config/graphql/social_queries.py:57
 
     Port of SocialQueryMixin.resolve_badges
     """
@@ -55,7 +55,7 @@ def q_badge(info: strawberry.Info, id: Annotated[strawberry.ID, strawberry.argum
 
 
 def _resolve_Query_user_badges(root, info, **kwargs):
-    """PORT: config/graphql/social_queries.py:75
+    """PORT: /home/user/oc-graphene-ref/config/graphql/social_queries.py:75
 
     Port of SocialQueryMixin.resolve_user_badges
     """
@@ -73,7 +73,7 @@ def q_user_badge(info: strawberry.Info, id: Annotated[strawberry.ID, strawberry.
 
 
 def _resolve_Query_badge_criteria_types(root, info, **kwargs):
-    """PORT: config/graphql/social_queries.py:122
+    """PORT: /home/user/oc-graphene-ref/config/graphql/social_queries.py:122
 
     Port of SocialQueryMixin.resolve_badge_criteria_types
     """
@@ -86,7 +86,7 @@ def q_badge_criteria_types(info: strawberry.Info, scope: Annotated[Optional[str]
 
 
 def _resolve_Query_agents(root, info, **kwargs):
-    """PORT: config/graphql/social_queries.py:174
+    """PORT: /home/user/oc-graphene-ref/config/graphql/social_queries.py:174
 
     Port of SocialQueryMixin.resolve_agents
     """
@@ -100,7 +100,7 @@ def q_agents(info: strawberry.Info, offset: Annotated[Optional[int], strawberry.
 
 
 def _resolve_Query_agent_configurations(root, info, **kwargs):
-    """PORT: config/graphql/social_queries.py:182
+    """PORT: /home/user/oc-graphene-ref/config/graphql/social_queries.py:182
 
     Port of SocialQueryMixin.resolve_agent_configurations
     """
@@ -118,7 +118,7 @@ def q_agent(info: strawberry.Info, id: Annotated[strawberry.ID, strawberry.argum
 
 
 def _resolve_Query_available_tools(root, info, **kwargs):
-    """PORT: config/graphql/social_queries.py:221
+    """PORT: /home/user/oc-graphene-ref/config/graphql/social_queries.py:221
 
     Port of SocialQueryMixin.resolve_available_tools
     """
@@ -131,7 +131,7 @@ def q_available_tools(info: strawberry.Info, category: Annotated[Optional[str], 
 
 
 def _resolve_Query_available_tool_categories(root, info, **kwargs):
-    """PORT: config/graphql/social_queries.py:240
+    """PORT: /home/user/oc-graphene-ref/config/graphql/social_queries.py:240
 
     Port of SocialQueryMixin.resolve_available_tool_categories
     """
@@ -144,7 +144,7 @@ def q_available_tool_categories(info: strawberry.Info) -> Optional[list[str]]:
 
 
 def _resolve_Query_notifications(root, info, **kwargs):
-    """PORT: config/graphql/social_queries.py:257
+    """PORT: /home/user/oc-graphene-ref/config/graphql/social_queries.py:257
 
     Port of SocialQueryMixin.resolve_notifications
     """
@@ -162,7 +162,7 @@ def q_notification(info: strawberry.Info, id: Annotated[strawberry.ID, strawberr
 
 
 def _resolve_Query_unread_notification_count(root, info, **kwargs):
-    """PORT: config/graphql/social_queries.py:289
+    """PORT: /home/user/oc-graphene-ref/config/graphql/social_queries.py:289
 
     Port of SocialQueryMixin.resolve_unread_notification_count
     """
@@ -175,7 +175,7 @@ def q_unread_notification_count(info: strawberry.Info) -> Optional[int]:
 
 
 def _resolve_Query_corpus_leaderboard(root, info, **kwargs):
-    """PORT: config/graphql/social_queries.py:308
+    """PORT: /home/user/oc-graphene-ref/config/graphql/social_queries.py:308
 
     Port of SocialQueryMixin.resolve_corpus_leaderboard
     """
@@ -188,7 +188,7 @@ def q_corpus_leaderboard(info: strawberry.Info, corpus_id: Annotated[strawberry.
 
 
 def _resolve_Query_global_leaderboard(root, info, **kwargs):
-    """PORT: config/graphql/social_queries.py:351
+    """PORT: /home/user/oc-graphene-ref/config/graphql/social_queries.py:351
 
     Port of SocialQueryMixin.resolve_global_leaderboard
     """
@@ -201,7 +201,7 @@ def q_global_leaderboard(info: strawberry.Info, limit: Annotated[Optional[int], 
 
 
 def _resolve_Query_leaderboard(root, info, **kwargs):
-    """PORT: config/graphql/social_queries.py:396
+    """PORT: /home/user/oc-graphene-ref/config/graphql/social_queries.py:396
 
     Port of SocialQueryMixin.resolve_leaderboard
     """
@@ -214,7 +214,7 @@ def q_leaderboard(info: strawberry.Info, metric: Annotated[enums.LeaderboardMetr
 
 
 def _resolve_Query_community_stats(root, info, **kwargs):
-    """PORT: config/graphql/social_queries.py:634
+    """PORT: /home/user/oc-graphene-ref/config/graphql/social_queries.py:634
 
     Port of SocialQueryMixin.resolve_community_stats
     """

@@ -38,7 +38,7 @@ from opencontractserver.notifications.models import Notification
 
 
 def _resolve_ConversationType_conversation_type(root, info, **kwargs):
-    """PORT: config/graphql/conversation_types.py:473
+    """PORT: /home/user/oc-graphene-ref/config/graphql/conversation_types.py:473
 
     Port of ConversationType.resolve_conversation_type
     """
@@ -46,7 +46,7 @@ def _resolve_ConversationType_conversation_type(root, info, **kwargs):
 
 
 def _resolve_ConversationType_all_messages(root, info, **kwargs):
-    """PORT: config/graphql/conversation_types.py:470
+    """PORT: /home/user/oc-graphene-ref/config/graphql/conversation_types.py:470
 
     Port of ConversationType.resolve_all_messages
     """
@@ -54,7 +54,7 @@ def _resolve_ConversationType_all_messages(root, info, **kwargs):
 
 
 def _resolve_ConversationType_user_vote(root, info, **kwargs):
-    """PORT: config/graphql/conversation_types.py:479
+    """PORT: /home/user/oc-graphene-ref/config/graphql/conversation_types.py:479
 
     Port of ConversationType.resolve_user_vote
     """
@@ -177,7 +177,7 @@ ConversationConnection = make_connection_types(ConversationType, type_name="Conv
 
 
 def _resolve_MessageType_msg_type(root, info, **kwargs):
-    """PORT: config/graphql/conversation_types.py:399
+    """PORT: /home/user/oc-graphene-ref/config/graphql/conversation_types.py:399
 
     Port of MessageType.resolve_msg_type
     """
@@ -185,7 +185,7 @@ def _resolve_MessageType_msg_type(root, info, **kwargs):
 
 
 def _resolve_MessageType_agent_type(root, info, **kwargs):
-    """PORT: config/graphql/conversation_types.py:408
+    """PORT: /home/user/oc-graphene-ref/config/graphql/conversation_types.py:408
 
     Port of MessageType.resolve_agent_type
     """
@@ -193,7 +193,7 @@ def _resolve_MessageType_agent_type(root, info, **kwargs):
 
 
 def _resolve_MessageType_agent_configuration(root, info, **kwargs):
-    """PORT: config/graphql/conversation_types.py:414
+    """PORT: /home/user/oc-graphene-ref/config/graphql/conversation_types.py:414
 
     Port of MessageType.resolve_agent_configuration
     """
@@ -201,7 +201,7 @@ def _resolve_MessageType_agent_configuration(root, info, **kwargs):
 
 
 def _resolve_MessageType_mentioned_resources(root, info, **kwargs):
-    """PORT: config/graphql/conversation_types.py:438
+    """PORT: /home/user/oc-graphene-ref/config/graphql/conversation_types.py:438
 
     Port of MessageType.resolve_mentioned_resources
     """
@@ -209,7 +209,7 @@ def _resolve_MessageType_mentioned_resources(root, info, **kwargs):
 
 
 def _resolve_MessageType_user_vote(root, info, **kwargs):
-    """PORT: config/graphql/conversation_types.py:418
+    """PORT: /home/user/oc-graphene-ref/config/graphql/conversation_types.py:418
 
     Port of MessageType.resolve_user_vote
     """
@@ -321,7 +321,7 @@ MessageTypeConnection = make_connection_types(MessageType, type_name="MessageTyp
 
 
 def _resolve_ModerationActionType_corpus_id(root, info, **kwargs):
-    """PORT: config/graphql/conversation_types.py:569
+    """PORT: /home/user/oc-graphene-ref/config/graphql/conversation_types.py:569
 
     Port of ModerationActionType.resolve_corpus_id
     """
@@ -329,7 +329,7 @@ def _resolve_ModerationActionType_corpus_id(root, info, **kwargs):
 
 
 def _resolve_ModerationActionType_is_automated(root, info, **kwargs):
-    """PORT: config/graphql/conversation_types.py:575
+    """PORT: /home/user/oc-graphene-ref/config/graphql/conversation_types.py:575
 
     Port of ModerationActionType.resolve_is_automated
     """
@@ -337,7 +337,7 @@ def _resolve_ModerationActionType_is_automated(root, info, **kwargs):
 
 
 def _resolve_ModerationActionType_can_rollback(root, info, **kwargs):
-    """PORT: config/graphql/conversation_types.py:579
+    """PORT: /home/user/oc-graphene-ref/config/graphql/conversation_types.py:579
 
     Port of ModerationActionType.resolve_can_rollback
     """
@@ -379,28 +379,14 @@ ModerationActionTypeConnection = make_connection_types(ModerationActionType, typ
 
 @strawberry.type(name="MentionedResourceType", description='Represents a corpus, document, annotation, or agent mentioned in a message.\n\nMention patterns:\n  @corpus:legal-contracts\n  @document:contract-template\n  @corpus:legal-contracts/document:contract-template\n  [text](/d/.../doc?ann=id) -> Annotation mention via markdown link\n  [text](/agents/{slug}) -> Global agent mention via markdown link\n  [text](/c/.../agents/{slug}) -> Corpus-scoped agent mention via markdown link\n\nFor annotations, includes full metadata for rich tooltip display.\nPermission-safe: Only returns resources visible to the requesting user.')
 class MentionedResourceType:
-    @strawberry.field(name="type", description='Resource type: "corpus", "document", "annotation", or "agent"')
-    def type(self, info: strawberry.Info) -> str:
-        return coerce_str(getattr(self, "type", None))
-    @strawberry.field(name="id", description='Global ID of the resource')
-    def id(self, info: strawberry.Info) -> strawberry.ID:
-        return coerce_str(getattr(self, "id", None))
-    @strawberry.field(name="slug", description='URL-safe slug (null for annotations)')
-    def slug(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "slug", None))
-    @strawberry.field(name="title", description='Display title of the resource')
-    def title(self, info: strawberry.Info) -> str:
-        return coerce_str(getattr(self, "title", None))
-    @strawberry.field(name="url", description='Frontend URL path to navigate to the resource')
-    def url(self, info: strawberry.Info) -> str:
-        return coerce_str(getattr(self, "url", None))
+    type: str = strawberry.field(name="type", description='Resource type: "corpus", "document", "annotation", or "agent"', default=None)
+    id: strawberry.ID = strawberry.field(name="id", description='Global ID of the resource', default=None)
+    slug: Optional[str] = strawberry.field(name="slug", description='URL-safe slug (null for annotations)', default=None)
+    title: str = strawberry.field(name="title", description='Display title of the resource', default=None)
+    url: str = strawberry.field(name="url", description='Frontend URL path to navigate to the resource', default=None)
     corpus: Optional["MentionedResourceType"] = strawberry.field(name="corpus", description='Parent corpus context (for documents within a corpus)', default=None)
-    @strawberry.field(name="rawText", description='Full annotation text content')
-    def raw_text(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "raw_text", None))
-    @strawberry.field(name="annotationLabel", description="Annotation label name (e.g., 'Section Header', 'Definition')")
-    def annotation_label(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "annotation_label", None))
+    raw_text: Optional[str] = strawberry.field(name="rawText", description='Full annotation text content', default=None)
+    annotation_label: Optional[str] = strawberry.field(name="annotationLabel", description="Annotation label name (e.g., 'Section Header', 'Definition')", default=None)
     document: Optional["MentionedResourceType"] = strawberry.field(name="document", description='Parent document (for annotations)', default=None)
 
 
@@ -415,9 +401,7 @@ class ModerationMetricsType:
     actions_by_type: Optional[GenericScalar] = strawberry.field(name="actionsByType", default=None)
     hourly_action_rate: Optional[float] = strawberry.field(name="hourlyActionRate", default=None)
     is_above_threshold: Optional[bool] = strawberry.field(name="isAboveThreshold", default=None)
-    @strawberry.field(name="thresholdExceededTypes")
-    def threshold_exceeded_types(self, info: strawberry.Info) -> Optional[list[Optional[str]]]:
-        return coerce_str(getattr(self, "threshold_exceeded_types", None))
+    threshold_exceeded_types: Optional[list[Optional[str]]] = strawberry.field(name="thresholdExceededTypes", default=None)
     time_range_hours: Optional[int] = strawberry.field(name="timeRangeHours", default=None)
     start_time: Optional[datetime.datetime] = strawberry.field(name="startTime", default=None)
     end_time: Optional[datetime.datetime] = strawberry.field(name="endTime", default=None)

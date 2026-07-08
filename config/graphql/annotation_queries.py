@@ -47,7 +47,7 @@ class BBoxInputType:
 
 
 def _resolve_GeographicAnnotationPinType_sample_document_ids(root, info, **kwargs):
-    """PORT: config/graphql/annotation_queries.py:1302
+    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_queries.py:1302
 
     Port of GeographicAnnotationPinType.resolve_sample_document_ids
     """
@@ -56,12 +56,8 @@ def _resolve_GeographicAnnotationPinType_sample_document_ids(root, info, **kwarg
 
 @strawberry.type(name="GeographicAnnotationPinType", description='A single aggregated geographic pin returned to the map UI.\n\nMirrors :class:`GeographicPin` from the service layer one-to-one — the\nresolver projects the dataclass directly into this type via field\nresolvers below. ``label_type`` is a literal string ("country" /\n"state" / "city") rather than an enum so a future label-type expansion\ndoesn\'t break the schema.')
 class GeographicAnnotationPinType:
-    @strawberry.field(name="canonicalName")
-    def canonical_name(self, info: strawberry.Info) -> str:
-        return coerce_str(getattr(self, "canonical_name", None))
-    @strawberry.field(name="labelType")
-    def label_type(self, info: strawberry.Info) -> str:
-        return coerce_str(getattr(self, "label_type", None))
+    canonical_name: str = strawberry.field(name="canonicalName", default=None)
+    label_type: str = strawberry.field(name="labelType", default=None)
     lat: float = strawberry.field(name="lat", default=None)
     lng: float = strawberry.field(name="lng", default=None)
     document_count: int = strawberry.field(name="documentCount", default=None)
@@ -75,7 +71,7 @@ register_type("GeographicAnnotationPinType", GeographicAnnotationPinType, model=
 
 
 def _resolve_Query_corpus_references(root, info, **kwargs):
-    """PORT: config/graphql/annotation_queries.py:88
+    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_queries.py:88
 
     Port of AnnotationQueryMixin.resolve_corpus_references
     """
@@ -89,7 +85,7 @@ def q_corpus_references(info: strawberry.Info, corpus_id: Annotated[strawberry.I
 
 
 def _resolve_Query_governance_graph(root, info, **kwargs):
-    """PORT: config/ratelimit/decorators.py:151
+    """PORT: /home/user/oc-graphene-ref/config/ratelimit/decorators.py:151
 
     Port of AnnotationQueryMixin.resolve_governance_graph
     """
@@ -102,7 +98,7 @@ def q_governance_graph(info: strawberry.Info, corpus_id: Annotated[strawberry.ID
 
 
 def _resolve_Query_wanted_authorities(root, info, **kwargs):
-    """PORT: config/ratelimit/decorators.py:270
+    """PORT: /home/user/oc-graphene-ref/config/ratelimit/decorators.py:270
 
     Port of AnnotationQueryMixin.resolve_wanted_authorities
     """
@@ -115,7 +111,7 @@ def q_wanted_authorities(info: strawberry.Info, corpus_id: Annotated[Optional[st
 
 
 def _resolve_Query_authority_frontier_stats(root, info, **kwargs):
-    """PORT: config/ratelimit/decorators.py:314
+    """PORT: /home/user/oc-graphene-ref/config/ratelimit/decorators.py:314
 
     Port of AnnotationQueryMixin.resolve_authority_frontier_stats
     """
@@ -128,7 +124,7 @@ def q_authority_frontier_stats(info: strawberry.Info, jurisdiction: Annotated[Op
 
 
 def _resolve_Query_authority_mapping_stats(root, info, **kwargs):
-    """PORT: config/ratelimit/decorators.py:360
+    """PORT: /home/user/oc-graphene-ref/config/ratelimit/decorators.py:360
 
     Port of AnnotationQueryMixin.resolve_authority_mapping_stats
     """
@@ -141,7 +137,7 @@ def q_authority_mapping_stats(info: strawberry.Info, search: Annotated[Optional[
 
 
 def _resolve_Query_authority_namespace_stats(root, info, **kwargs):
-    """PORT: config/ratelimit/decorators.py:404
+    """PORT: /home/user/oc-graphene-ref/config/ratelimit/decorators.py:404
 
     Port of AnnotationQueryMixin.resolve_authority_namespace_stats
     """
@@ -154,7 +150,7 @@ def q_authority_namespace_stats(info: strawberry.Info, search: Annotated[Optiona
 
 
 def _resolve_Query_authority_namespace_detail(root, info, **kwargs):
-    """PORT: config/ratelimit/decorators.py:410
+    """PORT: /home/user/oc-graphene-ref/config/ratelimit/decorators.py:410
 
     Port of AnnotationQueryMixin.resolve_authority_namespace_detail
     """
@@ -167,7 +163,7 @@ def q_authority_namespace_detail(info: strawberry.Info, prefix: Annotated[str, s
 
 
 def _resolve_Query_authority_source_providers(root, info, **kwargs):
-    """PORT: config/ratelimit/decorators.py:428
+    """PORT: /home/user/oc-graphene-ref/config/ratelimit/decorators.py:428
 
     Port of AnnotationQueryMixin.resolve_authority_source_providers
     """
@@ -180,7 +176,7 @@ def q_authority_source_providers(info: strawberry.Info) -> list[Annotated["Autho
 
 
 def _resolve_Query_annotations(root, info, **kwargs):
-    """PORT: config/ratelimit/decorators.py:459
+    """PORT: /home/user/oc-graphene-ref/config/ratelimit/decorators.py:459
 
     Port of AnnotationQueryMixin.resolve_annotations
     """
@@ -194,7 +190,7 @@ def q_annotations(info: strawberry.Info, raw_text_contains: Annotated[Optional[s
 
 
 def _resolve_Query_bulk_doc_relationships_in_corpus(root, info, **kwargs):
-    """PORT: config/graphql/annotation_queries.py:682
+    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_queries.py:682
 
     Port of AnnotationQueryMixin.resolve_bulk_doc_relationships_in_corpus
     """
@@ -207,7 +203,7 @@ def q_bulk_doc_relationships_in_corpus(info: strawberry.Info, corpus_id: Annotat
 
 
 def _resolve_Query_bulk_doc_annotations_in_corpus(root, info, **kwargs):
-    """PORT: config/graphql/annotation_queries.py:717
+    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_queries.py:717
 
     Port of AnnotationQueryMixin.resolve_bulk_doc_annotations_in_corpus
     """
@@ -220,7 +216,7 @@ def q_bulk_doc_annotations_in_corpus(info: strawberry.Info, corpus_id: Annotated
 
 
 def _resolve_Query_page_annotations(root, info, **kwargs):
-    """PORT: config/ratelimit/decorators.py:784
+    """PORT: /home/user/oc-graphene-ref/config/ratelimit/decorators.py:784
 
     Port of AnnotationQueryMixin.resolve_page_annotations
     """
@@ -237,7 +233,7 @@ def q_annotation(info: strawberry.Info, id: Annotated[strawberry.ID, strawberry.
 
 
 def _resolve_Query_relationships(root, info, **kwargs):
-    """PORT: config/graphql/annotation_queries.py:977
+    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_queries.py:977
 
     Port of AnnotationQueryMixin.resolve_relationships
     """
@@ -255,7 +251,7 @@ def q_relationship(info: strawberry.Info, id: Annotated[strawberry.ID, strawberr
 
 
 def _resolve_Query_annotation_labels(root, info, **kwargs):
-    """PORT: config/graphql/annotation_queries.py:1016
+    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_queries.py:1016
 
     Port of AnnotationQueryMixin.resolve_annotation_labels
     """
@@ -273,7 +269,7 @@ def q_annotation_label(info: strawberry.Info, id: Annotated[strawberry.ID, straw
 
 
 def _resolve_Query_labelsets(root, info, **kwargs):
-    """PORT: config/ratelimit/decorators.py:1035
+    """PORT: /home/user/oc-graphene-ref/config/ratelimit/decorators.py:1035
 
     Port of AnnotationQueryMixin.resolve_labelsets
     """
@@ -322,7 +318,7 @@ def q_note(info: strawberry.Info, id: Annotated[strawberry.ID, strawberry.argume
 
 
 def _resolve_Query_geographic_annotations_for_corpus(root, info, **kwargs):
-    """PORT: config/ratelimit/decorators.py:1166
+    """PORT: /home/user/oc-graphene-ref/config/ratelimit/decorators.py:1166
 
     Port of AnnotationQueryMixin.resolve_geographic_annotations_for_corpus
     """
@@ -335,7 +331,7 @@ def q_geographic_annotations_for_corpus(info: strawberry.Info, corpus_id: Annota
 
 
 def _resolve_Query_global_geographic_annotations(root, info, **kwargs):
-    """PORT: config/ratelimit/decorators.py:1229
+    """PORT: /home/user/oc-graphene-ref/config/ratelimit/decorators.py:1229
 
     Port of AnnotationQueryMixin.resolve_global_geographic_annotations
     """

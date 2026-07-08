@@ -33,9 +33,7 @@ from opencontractserver.extracts.models import Extract
 @strawberry.type(name="CreateFieldset")
 class CreateFieldset:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     obj: Optional[Annotated["FieldsetType", strawberry.lazy("config.graphql.extract_types")]] = strawberry.field(name="obj", default=None)
 
 
@@ -45,9 +43,7 @@ register_type("CreateFieldset", CreateFieldset, model=None)
 @strawberry.type(name="UpdateFieldset", description='Rename / re-describe a fieldset the caller may UPDATE.')
 class UpdateFieldset:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     obj: Optional[Annotated["FieldsetType", strawberry.lazy("config.graphql.extract_types")]] = strawberry.field(name="obj", default=None)
 
 
@@ -57,9 +53,7 @@ register_type("UpdateFieldset", UpdateFieldset, model=None)
 @strawberry.type(name="CreateColumn")
 class CreateColumn:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     obj: Optional[Annotated["ColumnType", strawberry.lazy("config.graphql.extract_types")]] = strawberry.field(name="obj", default=None)
 
 
@@ -69,12 +63,8 @@ register_type("CreateColumn", CreateColumn, model=None)
 @strawberry.type(name="UpdateColumnMutation")
 class UpdateColumnMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
-    @strawberry.field(name="objId")
-    def obj_id(self, info: strawberry.Info) -> Optional[strawberry.ID]:
-        return coerce_str(getattr(self, "obj_id", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
+    obj_id: Optional[strawberry.ID] = strawberry.field(name="objId", default=None)
     obj: Optional[Annotated["ColumnType", strawberry.lazy("config.graphql.extract_types")]] = strawberry.field(name="obj", default=None)
 
 
@@ -84,12 +74,8 @@ register_type("UpdateColumnMutation", UpdateColumnMutation, model=None)
 @strawberry.type(name="DeleteColumn")
 class DeleteColumn:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
-    @strawberry.field(name="deletedId")
-    def deleted_id(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "deleted_id", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
+    deleted_id: Optional[str] = strawberry.field(name="deletedId", default=None)
 
 
 register_type("DeleteColumn", DeleteColumn, model=None)
@@ -98,9 +84,7 @@ register_type("DeleteColumn", DeleteColumn, model=None)
 @strawberry.type(name="CreateExtract", description='Create a new extract. If fieldset_id is provided, attach existing fieldset.\nOtherwise, a new fieldset is created. If no name is provided, fieldset name has\nform "[Extract name] Fieldset"')
 class CreateExtract:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="msg")
-    def msg(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "msg", None))
+    msg: Optional[str] = strawberry.field(name="msg", default=None)
     obj: Optional[Annotated["ExtractType", strawberry.lazy("config.graphql.extract_types")]] = strawberry.field(name="obj", default=None)
 
 
@@ -110,9 +94,7 @@ register_type("CreateExtract", CreateExtract, model=None)
 @strawberry.type(name="CreateExtractIteration", description='Fork an existing Extract into a new iteration along a single axis.\n\nThree axes are supported, mirroring the three eval workflows:\n  * ``MODEL`` — same fieldset + same documents, new model_config.\n  * ``DOCUMENT_VERSIONS`` — same fieldset + same model_config, but each\n    document is replaced by the current row in its version tree.\n  * ``FIELDSET`` — clone the fieldset (with optional per-column\n    overrides), keep documents + model_config.\n\nThe new extract has ``parent_extract`` set to the source so the UI can\nwalk the iteration series. If ``auto_start`` is true the standard\n``run_extract`` task is queued exactly as ``StartExtract`` would.')
 class CreateExtractIteration:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     obj: Optional[Annotated["ExtractType", strawberry.lazy("config.graphql.extract_types")]] = strawberry.field(name="obj", default=None)
 
 
@@ -122,9 +104,7 @@ register_type("CreateExtractIteration", CreateExtractIteration, model=None)
 @strawberry.type(name="StartExtract")
 class StartExtract:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     obj: Optional[Annotated["ExtractType", strawberry.lazy("config.graphql.extract_types")]] = strawberry.field(name="obj", default=None)
 
 
@@ -134,9 +114,7 @@ register_type("StartExtract", StartExtract, model=None)
 @strawberry.type(name="DeleteExtract")
 class DeleteExtract:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
 
 
 register_type("DeleteExtract", DeleteExtract, model=None)
@@ -145,9 +123,7 @@ register_type("DeleteExtract", DeleteExtract, model=None)
 @strawberry.type(name="UpdateExtractMutation", description='Mutation to update an existing Extract object.\n\nSupports updating the name (title), corpus, fieldset, and error fields.\nEnsures proper permission checks are applied.')
 class UpdateExtractMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     obj: Optional[Annotated["ExtractType", strawberry.lazy("config.graphql.extract_types")]] = strawberry.field(name="obj", default=None)
 
 
@@ -157,15 +133,9 @@ register_type("UpdateExtractMutation", UpdateExtractMutation, model=None)
 @strawberry.type(name="AddDocumentsToExtract")
 class AddDocumentsToExtract:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
-    @strawberry.field(name="objId")
-    def obj_id(self, info: strawberry.Info) -> Optional[strawberry.ID]:
-        return coerce_str(getattr(self, "obj_id", None))
-    @strawberry.field(name="objs")
-    def objs(self, info: strawberry.Info) -> Optional[list[Optional[Annotated["DocumentType", strawberry.lazy("config.graphql.document_types")]]]]:
-        return resolve_django_list(self, info, getattr(self, "objs"), "DocumentType")
+    message: Optional[str] = strawberry.field(name="message", default=None)
+    obj_id: Optional[strawberry.ID] = strawberry.field(name="objId", default=None)
+    objs: Optional[list[Optional[Annotated["DocumentType", strawberry.lazy("config.graphql.document_types")]]]] = strawberry.field(name="objs", default=None)
 
 
 register_type("AddDocumentsToExtract", AddDocumentsToExtract, model=None)
@@ -174,12 +144,8 @@ register_type("AddDocumentsToExtract", AddDocumentsToExtract, model=None)
 @strawberry.type(name="RemoveDocumentsFromExtract")
 class RemoveDocumentsFromExtract:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
-    @strawberry.field(name="idsRemoved")
-    def ids_removed(self, info: strawberry.Info) -> Optional[list[Optional[str]]]:
-        return coerce_str(getattr(self, "ids_removed", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
+    ids_removed: Optional[list[Optional[str]]] = strawberry.field(name="idsRemoved", default=None)
 
 
 register_type("RemoveDocumentsFromExtract", RemoveDocumentsFromExtract, model=None)
@@ -188,9 +154,7 @@ register_type("RemoveDocumentsFromExtract", RemoveDocumentsFromExtract, model=No
 @strawberry.type(name="ApproveDatacell")
 class ApproveDatacell:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     obj: Optional[Annotated["DatacellType", strawberry.lazy("config.graphql.extract_types")]] = strawberry.field(name="obj", default=None)
 
 
@@ -200,9 +164,7 @@ register_type("ApproveDatacell", ApproveDatacell, model=None)
 @strawberry.type(name="RejectDatacell")
 class RejectDatacell:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     obj: Optional[Annotated["DatacellType", strawberry.lazy("config.graphql.extract_types")]] = strawberry.field(name="obj", default=None)
 
 
@@ -212,9 +174,7 @@ register_type("RejectDatacell", RejectDatacell, model=None)
 @strawberry.type(name="EditDatacell")
 class EditDatacell:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     obj: Optional[Annotated["DatacellType", strawberry.lazy("config.graphql.extract_types")]] = strawberry.field(name="obj", default=None)
 
 
@@ -224,9 +184,7 @@ register_type("EditDatacell", EditDatacell, model=None)
 @strawberry.type(name="StartDocumentExtract")
 class StartDocumentExtract:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     obj: Optional[Annotated["ExtractType", strawberry.lazy("config.graphql.extract_types")]] = strawberry.field(name="obj", default=None)
 
 
@@ -236,9 +194,7 @@ register_type("StartDocumentExtract", StartDocumentExtract, model=None)
 @strawberry.type(name="CreateMetadataColumn", description='Create a metadata column for a corpus.')
 class CreateMetadataColumn:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     obj: Optional[Annotated["ColumnType", strawberry.lazy("config.graphql.extract_types")]] = strawberry.field(name="obj", default=None)
 
 
@@ -248,9 +204,7 @@ register_type("CreateMetadataColumn", CreateMetadataColumn, model=None)
 @strawberry.type(name="UpdateMetadataColumn", description='Update a metadata column.')
 class UpdateMetadataColumn:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     obj: Optional[Annotated["ColumnType", strawberry.lazy("config.graphql.extract_types")]] = strawberry.field(name="obj", default=None)
 
 
@@ -260,9 +214,7 @@ register_type("UpdateMetadataColumn", UpdateMetadataColumn, model=None)
 @strawberry.type(name="DeleteMetadataColumn", description='Delete a manual-entry metadata column definition (values cascade).')
 class DeleteMetadataColumn:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
 
 
 register_type("DeleteMetadataColumn", DeleteMetadataColumn, model=None)
@@ -271,9 +223,7 @@ register_type("DeleteMetadataColumn", DeleteMetadataColumn, model=None)
 @strawberry.type(name="SetMetadataValue", description='Set a metadata value for a document.\n\nPermission model:\n- Requires Corpus UPDATE permission + Document READ permission\n- Metadata is a corpus-level feature, so corpus permission controls editing\n- Uses MetadataService for consistent permission checking')
 class SetMetadataValue:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     obj: Optional[Annotated["DatacellType", strawberry.lazy("config.graphql.extract_types")]] = strawberry.field(name="obj", default=None)
 
 
@@ -283,9 +233,7 @@ register_type("SetMetadataValue", SetMetadataValue, model=None)
 @strawberry.type(name="DeleteMetadataValue", description='Delete a metadata value for a document.\n\nPermission model:\n- Requires Corpus DELETE permission + Document READ permission\n- Metadata is a corpus-level feature, so corpus permission controls deletion\n- Uses MetadataService for consistent permission checking')
 class DeleteMetadataValue:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
 
 
 register_type("DeleteMetadataValue", DeleteMetadataValue, model=None)

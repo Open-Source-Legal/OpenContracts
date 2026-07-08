@@ -37,7 +37,7 @@ from opencontractserver.corpuses.models import CorpusFolder
 
 
 def _resolve_CorpusType_readme_caml_document(root, info, **kwargs):
-    """PORT: config/graphql/corpus_types.py:458
+    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:458
 
     Port of CorpusType.resolve_readme_caml_document
     """
@@ -45,7 +45,7 @@ def _resolve_CorpusType_readme_caml_document(root, info, **kwargs):
 
 
 def _resolve_CorpusType_icon(root, info, **kwargs):
-    """PORT: config/graphql/corpus_types.py:420
+    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:420
 
     Port of CorpusType.resolve_icon
     """
@@ -53,7 +53,7 @@ def _resolve_CorpusType_icon(root, info, **kwargs):
 
 
 def _resolve_CorpusType_categories(root, info, **kwargs):
-    """PORT: config/graphql/corpus_types.py:570
+    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:570
 
     Port of CorpusType.resolve_categories
     """
@@ -61,7 +61,7 @@ def _resolve_CorpusType_categories(root, info, **kwargs):
 
 
 def _resolve_CorpusType_label_set(root, info, **kwargs):
-    """PORT: config/graphql/corpus_types.py:652
+    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:652
 
     Port of CorpusType.resolve_label_set
     """
@@ -69,7 +69,7 @@ def _resolve_CorpusType_label_set(root, info, **kwargs):
 
 
 def _resolve_CorpusType_engagement_metrics(root, info, **kwargs):
-    """PORT: config/graphql/corpus_types.py:535
+    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:535
 
     Port of CorpusType.resolve_engagement_metrics
     """
@@ -77,7 +77,7 @@ def _resolve_CorpusType_engagement_metrics(root, info, **kwargs):
 
 
 def _resolve_CorpusType_folders(root, info, **kwargs):
-    """PORT: config/graphql/corpus_types.py:526
+    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:526
 
     Port of CorpusType.resolve_folders
     """
@@ -85,7 +85,7 @@ def _resolve_CorpusType_folders(root, info, **kwargs):
 
 
 def _resolve_CorpusType_annotations(root, info, **kwargs):
-    """PORT: config/graphql/corpus_types.py:360
+    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:360
 
     Port of CorpusType.resolve_annotations
     """
@@ -93,7 +93,7 @@ def _resolve_CorpusType_annotations(root, info, **kwargs):
 
 
 def _resolve_CorpusType_all_annotation_summaries(root, info, **kwargs):
-    """PORT: config/graphql/corpus_types.py:386
+    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:386
 
     Port of CorpusType.resolve_all_annotation_summaries
     """
@@ -101,7 +101,7 @@ def _resolve_CorpusType_all_annotation_summaries(root, info, **kwargs):
 
 
 def _resolve_CorpusType_documents(root, info, **kwargs):
-    """PORT: config/graphql/corpus_types.py:330
+    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:330
 
     Port of CorpusType.resolve_documents
     """
@@ -109,7 +109,7 @@ def _resolve_CorpusType_documents(root, info, **kwargs):
 
 
 def _resolve_CorpusType_applied_analyzer_ids(root, info, **kwargs):
-    """PORT: config/graphql/corpus_types.py:415
+    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:415
 
     Port of CorpusType.resolve_applied_analyzer_ids
     """
@@ -117,7 +117,7 @@ def _resolve_CorpusType_applied_analyzer_ids(root, info, **kwargs):
 
 
 def _resolve_CorpusType_description_revisions(root, info, **kwargs):
-    """PORT: config/graphql/corpus_types.py:484
+    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:484
 
     Port of CorpusType.resolve_description_revisions
     """
@@ -125,7 +125,7 @@ def _resolve_CorpusType_description_revisions(root, info, **kwargs):
 
 
 def _resolve_CorpusType_memory_active_warning(root, info, **kwargs):
-    """PORT: config/graphql/corpus_types.py:557
+    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:557
 
     Port of CorpusType.resolve_memory_active_warning
     """
@@ -133,7 +133,7 @@ def _resolve_CorpusType_memory_active_warning(root, info, **kwargs):
 
 
 def _resolve_CorpusType_document_count(root, info, **kwargs):
-    """PORT: config/graphql/corpus_types.py:579
+    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:579
 
     Port of CorpusType.resolve_document_count
     """
@@ -141,7 +141,7 @@ def _resolve_CorpusType_document_count(root, info, **kwargs):
 
 
 def _resolve_CorpusType_my_vote(root, info, **kwargs):
-    """PORT: config/graphql/corpus_types.py:602
+    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:602
 
     Port of CorpusType.resolve_my_vote
     """
@@ -149,7 +149,7 @@ def _resolve_CorpusType_my_vote(root, info, **kwargs):
 
 
 def _resolve_CorpusType_annotation_count(root, info, **kwargs):
-    """PORT: config/graphql/corpus_types.py:636
+    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:636
 
     Port of CorpusType.resolve_annotation_count
     """
@@ -403,7 +403,7 @@ CorpusTypeConnection = make_connection_types(CorpusType, type_name="CorpusTypeCo
 
 
 def _resolve_CorpusCategoryType_corpus_count(root, info, **kwargs):
-    """PORT: config/graphql/corpus_types.py:72
+    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:72
 
     Port of CorpusCategoryType.resolve_corpus_count
     """
@@ -442,7 +442,7 @@ CorpusCategoryTypeConnection = make_connection_types(CorpusCategoryType, type_na
 
 
 def _resolve_CorpusFolderType_parent(root, info, **kwargs):
-    """PORT: config/graphql/corpus_types.py:205
+    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:205
 
     Port of CorpusFolderType.resolve_parent
     """
@@ -450,7 +450,7 @@ def _resolve_CorpusFolderType_parent(root, info, **kwargs):
 
 
 def _resolve_CorpusFolderType_children(root, info, **kwargs):
-    """PORT: config/graphql/corpus_types.py:199
+    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:199
 
     Port of CorpusFolderType.resolve_children
     """
@@ -458,7 +458,7 @@ def _resolve_CorpusFolderType_children(root, info, **kwargs):
 
 
 def _resolve_CorpusFolderType_my_permissions(root, info, **kwargs):
-    """PORT: config/graphql/corpus_types.py:238
+    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:238
 
     Port of CorpusFolderType.resolve_my_permissions
     """
@@ -466,7 +466,7 @@ def _resolve_CorpusFolderType_my_permissions(root, info, **kwargs):
 
 
 def _resolve_CorpusFolderType_is_published(root, info, **kwargs):
-    """PORT: config/graphql/corpus_types.py:290
+    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:290
 
     Port of CorpusFolderType.resolve_is_published
     """
@@ -474,7 +474,7 @@ def _resolve_CorpusFolderType_is_published(root, info, **kwargs):
 
 
 def _resolve_CorpusFolderType_path(root, info, **kwargs):
-    """PORT: config/graphql/corpus_types.py:162
+    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:162
 
     Port of CorpusFolderType.resolve_path
     """
@@ -482,7 +482,7 @@ def _resolve_CorpusFolderType_path(root, info, **kwargs):
 
 
 def _resolve_CorpusFolderType_document_count(root, info, **kwargs):
-    """PORT: config/graphql/corpus_types.py:175
+    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:175
 
     Port of CorpusFolderType.resolve_document_count
     """
@@ -490,7 +490,7 @@ def _resolve_CorpusFolderType_document_count(root, info, **kwargs):
 
 
 def _resolve_CorpusFolderType_descendant_document_count(root, info, **kwargs):
-    """PORT: config/graphql/corpus_types.py:187
+    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:187
 
     Port of CorpusFolderType.resolve_descendant_document_count
     """
@@ -587,7 +587,7 @@ register_type("CorpusEngagementMetricsType", CorpusEngagementMetricsType, model=
 
 
 def _resolve_CorpusDescriptionRevisionType_id(root, info, **kwargs):
-    """PORT: config/graphql/corpus_types.py:917
+    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:917
 
     Port of CorpusDescriptionRevisionType.resolve_id
     """
@@ -595,7 +595,7 @@ def _resolve_CorpusDescriptionRevisionType_id(root, info, **kwargs):
 
 
 def _resolve_CorpusDescriptionRevisionType_version(root, info, **kwargs):
-    """PORT: config/graphql/corpus_types.py:921
+    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:921
 
     Port of CorpusDescriptionRevisionType.resolve_version
     """
@@ -603,7 +603,7 @@ def _resolve_CorpusDescriptionRevisionType_version(root, info, **kwargs):
 
 
 def _resolve_CorpusDescriptionRevisionType_author(root, info, **kwargs):
-    """PORT: config/graphql/corpus_types.py:955
+    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:955
 
     Port of CorpusDescriptionRevisionType.resolve_author
     """
@@ -611,7 +611,7 @@ def _resolve_CorpusDescriptionRevisionType_author(root, info, **kwargs):
 
 
 def _resolve_CorpusDescriptionRevisionType_snapshot(root, info, **kwargs):
-    """PORT: config/graphql/corpus_types.py:959
+    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:959
 
     Port of CorpusDescriptionRevisionType.resolve_snapshot
     """
@@ -619,7 +619,7 @@ def _resolve_CorpusDescriptionRevisionType_snapshot(root, info, **kwargs):
 
 
 def _resolve_CorpusDescriptionRevisionType_created(root, info, **kwargs):
-    """PORT: config/graphql/corpus_types.py:987
+    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_types.py:987
 
     Port of CorpusDescriptionRevisionType.resolve_created
     """
@@ -668,12 +668,8 @@ register_type("CorpusFilterCountsType", CorpusFilterCountsType, model=None)
 class CorpusIntelligenceSetupStatusType:
     reference_available: bool = strawberry.field(name="referenceAvailable", description='The reference-enrichment analyzer is registered on this deployment.', default=None)
     reference_action_installed: bool = strawberry.field(name="referenceActionInstalled", default=None)
-    @strawberry.field(name="installedTemplateNames")
-    def installed_template_names(self, info: strawberry.Info) -> list[str]:
-        return resolve_django_list(self, info, getattr(self, "installed_template_names"), "String")
-    @strawberry.field(name="missingTemplateNames")
-    def missing_template_names(self, info: strawberry.Info) -> list[str]:
-        return resolve_django_list(self, info, getattr(self, "missing_template_names"), "String")
+    installed_template_names: list[str] = strawberry.field(name="installedTemplateNames", default=None)
+    missing_template_names: list[str] = strawberry.field(name="missingTemplateNames", default=None)
     is_fully_set_up: bool = strawberry.field(name="isFullySetUp", description='Every deployment-installable bundle piece is installed (unavailable pieces — unregistered analyzer, inactive template — are excluded).', default=None)
     can_setup: bool = strawberry.field(name="canSetup", description="The requesting user holds the permission setupCorpusIntelligence requires (CRUD) — drives the setup CTA's visibility.", default=None)
 
@@ -698,12 +694,8 @@ register_type("CorpusStatsType", CorpusStatsType, model=None)
 
 @strawberry.type(name="CorpusDocumentGraphType", description='The corpus document-relationship graph (node-link form).\n\nBuilt entirely from permission-filtered ``DocumentRelationship`` rows via\n``DocumentRelationshipService`` — documents that participate in at least\none visible relationship, ranked by degree and capped for the glimpse.')
 class CorpusDocumentGraphType:
-    @strawberry.field(name="nodes")
-    def nodes(self, info: strawberry.Info) -> list["CorpusDocumentGraphNodeType"]:
-        return resolve_django_list(self, info, getattr(self, "nodes"), "CorpusDocumentGraphNodeType")
-    @strawberry.field(name="edges")
-    def edges(self, info: strawberry.Info) -> list["CorpusDocumentGraphEdgeType"]:
-        return resolve_django_list(self, info, getattr(self, "edges"), "CorpusDocumentGraphEdgeType")
+    nodes: list["CorpusDocumentGraphNodeType"] = strawberry.field(name="nodes", default=None)
+    edges: list["CorpusDocumentGraphEdgeType"] = strawberry.field(name="edges", default=None)
     total_node_count: int = strawberry.field(name="totalNodeCount", description='Distinct documents participating in any visible relationship.', default=None)
     total_edge_count: int = strawberry.field(name="totalEdgeCount", description='Total visible relationships in the corpus.', default=None)
     truncated: bool = strawberry.field(name="truncated", description='True when nodes/edges were dropped to honor the limit.', default=None)
@@ -714,15 +706,9 @@ register_type("CorpusDocumentGraphType", CorpusDocumentGraphType, model=None)
 
 @strawberry.type(name="CorpusDocumentGraphNodeType", description='A single document node in the corpus document-relationship graph.\n\nPowers the ``DocumentGraphGlimpse`` on the Corpus Intelligence home — a\nnode is a document, sized by ``degree`` (its visible relationship count).')
 class CorpusDocumentGraphNodeType:
-    @strawberry.field(name="id", description='Global DocumentType id (navigable).')
-    def id(self, info: strawberry.Info) -> strawberry.ID:
-        return coerce_str(getattr(self, "id", None))
-    @strawberry.field(name="title")
-    def title(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "title", None))
-    @strawberry.field(name="fileType")
-    def file_type(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "file_type", None))
+    id: strawberry.ID = strawberry.field(name="id", description='Global DocumentType id (navigable).', default=None)
+    title: Optional[str] = strawberry.field(name="title", default=None)
+    file_type: Optional[str] = strawberry.field(name="fileType", default=None)
     degree: int = strawberry.field(name="degree", description='Number of visible relationships touching this document.', default=None)
 
 
@@ -731,21 +717,11 @@ register_type("CorpusDocumentGraphNodeType", CorpusDocumentGraphNodeType, model=
 
 @strawberry.type(name="CorpusDocumentGraphEdgeType", description='A labeled directed edge between two document nodes.')
 class CorpusDocumentGraphEdgeType:
-    @strawberry.field(name="id")
-    def id(self, info: strawberry.Info) -> strawberry.ID:
-        return coerce_str(getattr(self, "id", None))
-    @strawberry.field(name="source", description='Global id of the source document.')
-    def source(self, info: strawberry.Info) -> strawberry.ID:
-        return coerce_str(getattr(self, "source", None))
-    @strawberry.field(name="target", description='Global id of the target document.')
-    def target(self, info: strawberry.Info) -> strawberry.ID:
-        return coerce_str(getattr(self, "target", None))
-    @strawberry.field(name="label", description='Relationship label text (null for NOTES).')
-    def label(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "label", None))
-    @strawberry.field(name="relationshipType")
-    def relationship_type(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "relationship_type", None))
+    id: strawberry.ID = strawberry.field(name="id", default=None)
+    source: strawberry.ID = strawberry.field(name="source", description='Global id of the source document.', default=None)
+    target: strawberry.ID = strawberry.field(name="target", description='Global id of the target document.', default=None)
+    label: Optional[str] = strawberry.field(name="label", description='Relationship label text (null for NOTES).', default=None)
+    relationship_type: Optional[str] = strawberry.field(name="relationshipType", default=None)
 
 
 register_type("CorpusDocumentGraphEdgeType", CorpusDocumentGraphEdgeType, model=None)
@@ -753,9 +729,7 @@ register_type("CorpusDocumentGraphEdgeType", CorpusDocumentGraphEdgeType, model=
 
 @strawberry.type(name="CorpusIntelligenceAggregatesType", description='At-a-glance corpus intelligence framed as insight, not raw counts.\n\nFeeds the ``IntelligencePanel`` on the Corpus Intelligence home. Counts\nrespect the permission model (visible documents only).')
 class CorpusIntelligenceAggregatesType:
-    @strawberry.field(name="labelDistribution", description='Top annotation labels by frequency across visible documents.')
-    def label_distribution(self, info: strawberry.Info) -> list["LabelDistributionEntryType"]:
-        return resolve_django_list(self, info, getattr(self, "label_distribution"), "LabelDistributionEntryType")
+    label_distribution: list["LabelDistributionEntryType"] = strawberry.field(name="labelDistribution", description='Top annotation labels by frequency across visible documents.', default=None)
     documents_with_summary: int = strawberry.field(name="documentsWithSummary", description='Visible documents that have a markdown summary.', default=None)
     total_documents: int = strawberry.field(name="totalDocuments", description='Visible documents with an active path in the corpus.', default=None)
 
@@ -765,12 +739,8 @@ register_type("CorpusIntelligenceAggregatesType", CorpusIntelligenceAggregatesTy
 
 @strawberry.type(name="LabelDistributionEntryType", description="One label and how often it appears across the corpus's visible annotations.")
 class LabelDistributionEntryType:
-    @strawberry.field(name="label")
-    def label(self, info: strawberry.Info) -> str:
-        return coerce_str(getattr(self, "label", None))
-    @strawberry.field(name="color")
-    def color(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "color", None))
+    label: str = strawberry.field(name="label", default=None)
+    color: Optional[str] = strawberry.field(name="color", default=None)
     count: int = strawberry.field(name="count", default=None)
 
 
@@ -780,9 +750,7 @@ register_type("LabelDistributionEntryType", LabelDistributionEntryType, model=No
 @strawberry.type(name="CorpusDataStoryType", description='Per-document structured profiles for the corpus-home data story.\n\nThe frontend aggregates these rows into composition / timeline / value views.\nBuilt corpus-as-gate from the default ``Collection Profile`` extract (the\nsource corpus must be READ-visible); ``null`` when no profile extract exists\nyet, so the embed self-hides until the extraction has run.')
 class CorpusDataStoryType:
     total_documents: int = strawberry.field(name="totalDocuments", default=None)
-    @strawberry.field(name="profiles")
-    def profiles(self, info: strawberry.Info) -> list["CorpusDataStoryProfileType"]:
-        return resolve_django_list(self, info, getattr(self, "profiles"), "CorpusDataStoryProfileType")
+    profiles: list["CorpusDataStoryProfileType"] = strawberry.field(name="profiles", default=None)
 
 
 register_type("CorpusDataStoryType", CorpusDataStoryType, model=None)
@@ -790,24 +758,12 @@ register_type("CorpusDataStoryType", CorpusDataStoryType, model=None)
 
 @strawberry.type(name="CorpusDataStoryProfileType", description="One document's normalised structured profile for the corpus data story.\n\nValues are cleaned server-side (markdown stripped, dates parsed to ISO out of\nLLM prose, value coerced to a positive float) so the frontend only renders.")
 class CorpusDataStoryProfileType:
-    @strawberry.field(name="documentId")
-    def document_id(self, info: strawberry.Info) -> strawberry.ID:
-        return coerce_str(getattr(self, "document_id", None))
-    @strawberry.field(name="title")
-    def title(self, info: strawberry.Info) -> str:
-        return coerce_str(getattr(self, "title", None))
-    @strawberry.field(name="slug")
-    def slug(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "slug", None))
-    @strawberry.field(name="type", description='Short document/agreement category.')
-    def type(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "type", None))
-    @strawberry.field(name="party", description='Primary counterparty / organisation.')
-    def party(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "party", None))
-    @strawberry.field(name="effectiveDate", description='Effective date, ISO YYYY-MM-DD.')
-    def effective_date(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "effective_date", None))
+    document_id: strawberry.ID = strawberry.field(name="documentId", default=None)
+    title: str = strawberry.field(name="title", default=None)
+    slug: Optional[str] = strawberry.field(name="slug", default=None)
+    type: Optional[str] = strawberry.field(name="type", description='Short document/agreement category.', default=None)
+    party: Optional[str] = strawberry.field(name="party", description='Primary counterparty / organisation.', default=None)
+    effective_date: Optional[str] = strawberry.field(name="effectiveDate", description='Effective date, ISO YYYY-MM-DD.', default=None)
     value: Optional[float] = strawberry.field(name="value", description='Primary dollar value, positive or null.', default=None)
 
 
@@ -816,37 +772,17 @@ register_type("CorpusDataStoryProfileType", CorpusDataStoryProfileType, model=No
 
 @strawberry.type(name="ArtifactType", description='A shareable, data-driven corpus poster (an :class:`Artifact`).\n\nBuilt corpus-as-gate by ``ArtifactService`` — exposed only when the source\ncorpus is READ-visible to the caller. Carries the template id + configurable\ncaptions the public ``/a/<slug>`` poster route renders from live corpus data.')
 class ArtifactType:
-    @strawberry.field(name="id")
-    def id(self, info: strawberry.Info) -> strawberry.ID:
-        return coerce_str(getattr(self, "id", None))
-    @strawberry.field(name="slug")
-    def slug(self, info: strawberry.Info) -> str:
-        return coerce_str(getattr(self, "slug", None))
-    @strawberry.field(name="template")
-    def template(self, info: strawberry.Info) -> str:
-        return coerce_str(getattr(self, "template", None))
-    @strawberry.field(name="title")
-    def title(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "title", None))
-    @strawberry.field(name="subtitle")
-    def subtitle(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "subtitle", None))
-    @strawberry.field(name="byline")
-    def byline(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "byline", None))
+    id: strawberry.ID = strawberry.field(name="id", default=None)
+    slug: str = strawberry.field(name="slug", default=None)
+    template: str = strawberry.field(name="template", default=None)
+    title: Optional[str] = strawberry.field(name="title", default=None)
+    subtitle: Optional[str] = strawberry.field(name="subtitle", default=None)
+    byline: Optional[str] = strawberry.field(name="byline", default=None)
     config: Optional[GenericScalar] = strawberry.field(name="config", default=None)
-    @strawberry.field(name="corpusId")
-    def corpus_id(self, info: strawberry.Info) -> strawberry.ID:
-        return coerce_str(getattr(self, "corpus_id", None))
-    @strawberry.field(name="corpusSlug")
-    def corpus_slug(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "corpus_slug", None))
-    @strawberry.field(name="creatorSlug")
-    def creator_slug(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "creator_slug", None))
-    @strawberry.field(name="imageUrl")
-    def image_url(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "image_url", None))
+    corpus_id: strawberry.ID = strawberry.field(name="corpusId", default=None)
+    corpus_slug: Optional[str] = strawberry.field(name="corpusSlug", default=None)
+    creator_slug: Optional[str] = strawberry.field(name="creatorSlug", default=None)
+    image_url: Optional[str] = strawberry.field(name="imageUrl", default=None)
     created: Optional[datetime.datetime] = strawberry.field(name="created", default=None)
 
 
@@ -855,19 +791,11 @@ register_type("ArtifactType", ArtifactType, model=None)
 
 @strawberry.type(name="ArtifactTemplateType", description='A template the artifact gallery can offer a corpus, with data-gated\neligibility (a corpus only sees templates its own data can fill).')
 class ArtifactTemplateType:
-    @strawberry.field(name="id")
-    def id(self, info: strawberry.Info) -> str:
-        return coerce_str(getattr(self, "id", None))
-    @strawberry.field(name="label")
-    def label(self, info: strawberry.Info) -> str:
-        return coerce_str(getattr(self, "label", None))
-    @strawberry.field(name="description")
-    def description(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "description", None))
+    id: str = strawberry.field(name="id", default=None)
+    label: str = strawberry.field(name="label", default=None)
+    description: Optional[str] = strawberry.field(name="description", default=None)
     eligible: bool = strawberry.field(name="eligible", default=None)
-    @strawberry.field(name="reason")
-    def reason(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "reason", None))
+    reason: Optional[str] = strawberry.field(name="reason", default=None)
 
 
 register_type("ArtifactTemplateType", ArtifactTemplateType, model=None)
@@ -880,9 +808,7 @@ class CorpusIntelligenceSetupSummaryType:
     reference_action_already_installed: bool = strawberry.field(name="referenceActionAlreadyInstalled", default=None)
     reference_analysis_started: bool = strawberry.field(name="referenceAnalysisStarted", description='An immediate reference-web weave was started.', default=None)
     total_active_documents: int = strawberry.field(name="totalActiveDocuments", default=None)
-    @strawberry.field(name="templates")
-    def templates(self, info: strawberry.Info) -> list["IntelligenceTemplateOutcomeType"]:
-        return resolve_django_list(self, info, getattr(self, "templates"), "IntelligenceTemplateOutcomeType")
+    templates: list["IntelligenceTemplateOutcomeType"] = strawberry.field(name="templates", default=None)
 
 
 register_type("CorpusIntelligenceSetupSummaryType", CorpusIntelligenceSetupSummaryType, model=None)
@@ -890,16 +816,12 @@ register_type("CorpusIntelligenceSetupSummaryType", CorpusIntelligenceSetupSumma
 
 @strawberry.type(name="IntelligenceTemplateOutcomeType", description='Per-template result from the one-click intelligence setup.')
 class IntelligenceTemplateOutcomeType:
-    @strawberry.field(name="templateName")
-    def template_name(self, info: strawberry.Info) -> str:
-        return coerce_str(getattr(self, "template_name", None))
+    template_name: str = strawberry.field(name="templateName", default=None)
     installed_now: bool = strawberry.field(name="installedNow", description='Template was cloned into the corpus by this call.', default=None)
     already_installed: bool = strawberry.field(name="alreadyInstalled", description="The corpus already had this template's action.", default=None)
     queued_count: int = strawberry.field(name="queuedCount", description='Documents queued for an agent run by this call.', default=None)
     skipped_already_run_count: int = strawberry.field(name="skippedAlreadyRunCount", description='Documents skipped because they already ran.', default=None)
-    @strawberry.field(name="error", description='Per-template failure (empty string when the step succeeded).')
-    def error(self, info: strawberry.Info) -> str:
-        return coerce_str(getattr(self, "error", None))
+    error: str = strawberry.field(name="error", description='Per-template failure (empty string when the step succeeded).', default=None)
     remaining_count: int = strawberry.field(name="remainingCount", description='Documents deferred past the per-call batch cap — re-run setup (or wait for the add_document trigger) to process them.', default=None)
 
 

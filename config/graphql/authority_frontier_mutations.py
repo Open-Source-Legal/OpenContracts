@@ -33,9 +33,7 @@ from config.graphql import enums
 @strawberry.type(name="RequeueAuthorityFrontierMutation", description='Re-queue a row (clears document + error) — un-sticks deferred_cap/failed.')
 class RequeueAuthorityFrontierMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     obj: Optional[Annotated["AuthorityFrontierNode", strawberry.lazy("config.graphql.annotation_types")]] = strawberry.field(name="obj", default=None)
 
 
@@ -45,9 +43,7 @@ register_type("RequeueAuthorityFrontierMutation", RequeueAuthorityFrontierMutati
 @strawberry.type(name="ResetAuthorityFrontierMutation", description='Hard reset (clears document + provider + error) and re-queue.')
 class ResetAuthorityFrontierMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     obj: Optional[Annotated["AuthorityFrontierNode", strawberry.lazy("config.graphql.annotation_types")]] = strawberry.field(name="obj", default=None)
 
 
@@ -57,9 +53,7 @@ register_type("ResetAuthorityFrontierMutation", ResetAuthorityFrontierMutation, 
 @strawberry.type(name="RerouteAuthorityFrontierMutation", description='Re-assign the provider (validated against the registry) and re-queue.')
 class RerouteAuthorityFrontierMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     obj: Optional[Annotated["AuthorityFrontierNode", strawberry.lazy("config.graphql.annotation_types")]] = strawberry.field(name="obj", default=None)
 
 
@@ -69,9 +63,7 @@ register_type("RerouteAuthorityFrontierMutation", RerouteAuthorityFrontierMutati
 @strawberry.type(name="ApproveAuthorityFrontierMutation", description='Approve a pending_approval candidate so it re-enters the queue.')
 class ApproveAuthorityFrontierMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     obj: Optional[Annotated["AuthorityFrontierNode", strawberry.lazy("config.graphql.annotation_types")]] = strawberry.field(name="obj", default=None)
 
 
@@ -81,9 +73,7 @@ register_type("ApproveAuthorityFrontierMutation", ApproveAuthorityFrontierMutati
 @strawberry.type(name="DeleteAuthorityFrontierMutation", description='Delete one or more frontier rows (superuser-only bulk action).')
 class DeleteAuthorityFrontierMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     count: Optional[int] = strawberry.field(name="count", default=None)
 
 

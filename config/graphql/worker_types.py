@@ -33,16 +33,10 @@ from config.graphql import enums
 @strawberry.type(name="WorkerAccountQueryType", description='Worker account with computed fields for listing.')
 class WorkerAccountQueryType:
     id: Optional[int] = strawberry.field(name="id", default=None)
-    @strawberry.field(name="name")
-    def name(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "name", None))
-    @strawberry.field(name="description")
-    def description(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "description", None))
+    name: Optional[str] = strawberry.field(name="name", default=None)
+    description: Optional[str] = strawberry.field(name="description", default=None)
     is_active: Optional[bool] = strawberry.field(name="isActive", default=None)
-    @strawberry.field(name="creatorName")
-    def creator_name(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "creator_name", None))
+    creator_name: Optional[str] = strawberry.field(name="creatorName", default=None)
     created: Optional[datetime.datetime] = strawberry.field(name="created", default=None)
     modified: Optional[datetime.datetime] = strawberry.field(name="modified", default=None)
     token_count: Optional[int] = strawberry.field(name="tokenCount", description='Number of access tokens for this account', default=None)
@@ -54,13 +48,9 @@ register_type("WorkerAccountQueryType", WorkerAccountQueryType, model=None)
 @strawberry.type(name="CorpusAccessTokenQueryType", description='Corpus access token for listing. Never exposes the hashed key.')
 class CorpusAccessTokenQueryType:
     id: Optional[int] = strawberry.field(name="id", default=None)
-    @strawberry.field(name="keyPrefix", description='First 8 characters of the original token')
-    def key_prefix(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "key_prefix", None))
+    key_prefix: Optional[str] = strawberry.field(name="keyPrefix", description='First 8 characters of the original token', default=None)
     worker_account_id: Optional[int] = strawberry.field(name="workerAccountId", default=None)
-    @strawberry.field(name="workerAccountName")
-    def worker_account_name(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "worker_account_name", None))
+    worker_account_name: Optional[str] = strawberry.field(name="workerAccountName", default=None)
     corpus_id: Optional[int] = strawberry.field(name="corpusId", default=None)
     is_active: Optional[bool] = strawberry.field(name="isActive", default=None)
     expires_at: Optional[datetime.datetime] = strawberry.field(name="expiresAt", default=None)
@@ -76,9 +66,7 @@ register_type("CorpusAccessTokenQueryType", CorpusAccessTokenQueryType, model=No
 
 @strawberry.type(name="WorkerDocumentUploadPageType", description='Paginated wrapper for worker document uploads.')
 class WorkerDocumentUploadPageType:
-    @strawberry.field(name="items")
-    def items(self, info: strawberry.Info) -> Optional[list["WorkerDocumentUploadQueryType"]]:
-        return resolve_django_list(self, info, getattr(self, "items"), "WorkerDocumentUploadQueryType")
+    items: Optional[list["WorkerDocumentUploadQueryType"]] = strawberry.field(name="items", default=None)
     total_count: Optional[int] = strawberry.field(name="totalCount", description='Total matching uploads before pagination', default=None)
     limit: Optional[int] = strawberry.field(name="limit", description='Max items returned', default=None)
     offset: Optional[int] = strawberry.field(name="offset", description='Items skipped', default=None)
@@ -89,16 +77,10 @@ register_type("WorkerDocumentUploadPageType", WorkerDocumentUploadPageType, mode
 
 @strawberry.type(name="WorkerDocumentUploadQueryType", description='Worker document upload for listing.')
 class WorkerDocumentUploadQueryType:
-    @strawberry.field(name="id", description='UUID of the upload')
-    def id(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "id", None))
+    id: Optional[str] = strawberry.field(name="id", description='UUID of the upload', default=None)
     corpus_id: Optional[int] = strawberry.field(name="corpusId", default=None)
-    @strawberry.field(name="status")
-    def status(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "status", None))
-    @strawberry.field(name="errorMessage")
-    def error_message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "error_message", None))
+    status: Optional[str] = strawberry.field(name="status", default=None)
+    error_message: Optional[str] = strawberry.field(name="errorMessage", default=None)
     result_document_id: Optional[int] = strawberry.field(name="resultDocumentId", default=None)
     created: Optional[datetime.datetime] = strawberry.field(name="created", default=None)
     processing_started: Optional[datetime.datetime] = strawberry.field(name="processingStarted", default=None)
@@ -111,12 +93,8 @@ register_type("WorkerDocumentUploadQueryType", WorkerDocumentUploadQueryType, mo
 @strawberry.type(name="WorkerAccountType")
 class WorkerAccountType:
     id: Optional[int] = strawberry.field(name="id", default=None)
-    @strawberry.field(name="name")
-    def name(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "name", None))
-    @strawberry.field(name="description")
-    def description(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "description", None))
+    name: Optional[str] = strawberry.field(name="name", default=None)
+    description: Optional[str] = strawberry.field(name="description", default=None)
     is_active: Optional[bool] = strawberry.field(name="isActive", default=None)
     created: Optional[datetime.datetime] = strawberry.field(name="created", default=None)
 
@@ -127,12 +105,8 @@ register_type("WorkerAccountType", WorkerAccountType, model=None)
 @strawberry.type(name="CorpusAccessTokenCreatedType", description='Returned only on token creation — includes the full key.')
 class CorpusAccessTokenCreatedType:
     id: Optional[int] = strawberry.field(name="id", default=None)
-    @strawberry.field(name="key", description='Full token key. Store securely — shown only once.')
-    def key(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "key", None))
-    @strawberry.field(name="workerAccountName")
-    def worker_account_name(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "worker_account_name", None))
+    key: Optional[str] = strawberry.field(name="key", description='Full token key. Store securely — shown only once.', default=None)
+    worker_account_name: Optional[str] = strawberry.field(name="workerAccountName", default=None)
     corpus_id: Optional[int] = strawberry.field(name="corpusId", default=None)
     expires_at: Optional[datetime.datetime] = strawberry.field(name="expiresAt", default=None)
     rate_limit_per_minute: Optional[int] = strawberry.field(name="rateLimitPerMinute", default=None)

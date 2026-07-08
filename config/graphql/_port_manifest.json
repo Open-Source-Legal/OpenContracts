@@ -2,22 +2,22 @@
  {
   "stub": "_resolve_ResearchReportType_duration_seconds",
   "module": "research_types",
-  "ref": "config/graphql/research_types.py:52"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/research_types.py:52"
  },
  {
   "stub": "_resolve_ResearchReportType_my_permissions",
   "module": "research_types",
-  "ref": "config/graphql/research_types.py:55"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/research_types.py:55"
  },
  {
   "stub": "_resolve_ResearchReportType_full_source_annotation_list",
   "module": "research_types",
-  "ref": "config/graphql/research_types.py:73"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/research_types.py:73"
  },
  {
   "stub": "_resolve_ResearchReportType_full_source_document_list",
   "module": "research_types",
-  "ref": "config/graphql/research_types.py:76"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/research_types.py:76"
  },
  {
   "stub": "_get_node_ResearchReportType",
@@ -27,272 +27,272 @@
  {
   "stub": "_resolve_UserType_username",
   "module": "user_types",
-  "ref": "config/graphql/user_types.py:238"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/user_types.py:238"
  },
  {
   "stub": "_resolve_UserType_name",
   "module": "user_types",
-  "ref": "config/graphql/user_types.py:241"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/user_types.py:241"
  },
  {
   "stub": "_resolve_UserType_first_name",
   "module": "user_types",
-  "ref": "config/graphql/user_types.py:244"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/user_types.py:244"
  },
  {
   "stub": "_resolve_UserType_last_name",
   "module": "user_types",
-  "ref": "config/graphql/user_types.py:247"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/user_types.py:247"
  },
  {
   "stub": "_resolve_UserType_given_name",
   "module": "user_types",
-  "ref": "config/graphql/user_types.py:250"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/user_types.py:250"
  },
  {
   "stub": "_resolve_UserType_family_name",
   "module": "user_types",
-  "ref": "config/graphql/user_types.py:253"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/user_types.py:253"
  },
  {
   "stub": "_resolve_UserType_phone",
   "module": "user_types",
-  "ref": "config/graphql/user_types.py:256"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/user_types.py:256"
  },
  {
   "stub": "_resolve_UserType_email",
   "module": "user_types",
-  "ref": "config/graphql/user_types.py:235"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/user_types.py:235"
  },
  {
   "stub": "_resolve_UserType_email_verified",
   "module": "user_types",
-  "ref": "config/graphql/user_types.py:259"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/user_types.py:259"
  },
  {
   "stub": "_resolve_UserType_is_social_user",
   "module": "user_types",
-  "ref": "config/graphql/user_types.py:264"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/user_types.py:264"
  },
  {
   "stub": "_resolve_UserType_is_usage_capped",
   "module": "user_types",
-  "ref": "config/graphql/user_types.py:280"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/user_types.py:280"
  },
  {
   "stub": "_resolve_UserType_display_name",
   "module": "user_types",
-  "ref": "config/graphql/user_types.py:291"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/user_types.py:291"
  },
  {
   "stub": "_resolve_UserType_reputation_global",
   "module": "user_types",
-  "ref": "config/graphql/user_types.py:356"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/user_types.py:356"
  },
  {
   "stub": "_resolve_UserType_reputation_for_corpus",
   "module": "user_types",
-  "ref": "config/graphql/user_types.py:375"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/user_types.py:375"
  },
  {
   "stub": "_resolve_UserType_total_messages",
   "module": "user_types",
-  "ref": "config/graphql/user_types.py:389"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/user_types.py:389"
  },
  {
   "stub": "_resolve_UserType_total_threads_created",
   "module": "user_types",
-  "ref": "config/graphql/user_types.py:403"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/user_types.py:403"
  },
  {
   "stub": "_resolve_UserType_total_annotations_created",
   "module": "user_types",
-  "ref": "config/graphql/user_types.py:414"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/user_types.py:414"
  },
  {
   "stub": "_resolve_UserType_total_documents_uploaded",
   "module": "user_types",
-  "ref": "config/graphql/user_types.py:426"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/user_types.py:426"
  },
  {
   "stub": "_resolve_UserType_can_import_corpus",
   "module": "user_types",
-  "ref": "config/graphql/user_types.py:269"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/user_types.py:269"
  },
  {
   "stub": "_resolve_DocumentType_icon",
   "module": "document_types",
-  "ref": "config/graphql/optimized_file_resolvers.py:38"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/optimized_file_resolvers.py:38"
  },
  {
   "stub": "_resolve_DocumentType_pdf_file",
   "module": "document_types",
-  "ref": "config/graphql/optimized_file_resolvers.py:38"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/optimized_file_resolvers.py:38"
  },
  {
   "stub": "_resolve_DocumentType_txt_extract_file",
   "module": "document_types",
-  "ref": "config/graphql/optimized_file_resolvers.py:38"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/optimized_file_resolvers.py:38"
  },
  {
   "stub": "_resolve_DocumentType_md_summary_file",
   "module": "document_types",
-  "ref": "config/graphql/optimized_file_resolvers.py:38"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/optimized_file_resolvers.py:38"
  },
  {
   "stub": "_resolve_DocumentType_pawls_parse_file",
   "module": "document_types",
-  "ref": "config/graphql/optimized_file_resolvers.py:38"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/optimized_file_resolvers.py:38"
  },
  {
   "stub": "_resolve_DocumentType_processing_status",
   "module": "document_types",
-  "ref": "config/graphql/document_types.py:1032"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/document_types.py:1032"
  },
  {
   "stub": "_resolve_DocumentType_processing_error",
   "module": "document_types",
-  "ref": "config/graphql/document_types.py:1042"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/document_types.py:1042"
  },
  {
   "stub": "_resolve_DocumentType_summary_revisions",
   "module": "document_types",
-  "ref": "config/graphql/document_types.py:583"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/document_types.py:583"
  },
  {
   "stub": "_resolve_DocumentType_doc_annotations",
   "module": "document_types",
-  "ref": "config/graphql/custom_resolvers.py:83"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/custom_resolvers.py:83"
  },
  {
   "stub": "_resolve_DocumentType_doc_type_labels",
   "module": "document_types",
-  "ref": "config/graphql/document_types.py:303"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/document_types.py:303"
  },
  {
   "stub": "_resolve_DocumentType_all_structural_annotations",
   "module": "document_types",
-  "ref": "config/graphql/document_types.py:334"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/document_types.py:334"
  },
  {
   "stub": "_resolve_DocumentType_all_annotations",
   "module": "document_types",
-  "ref": "config/graphql/document_types.py:355"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/document_types.py:355"
  },
  {
   "stub": "_resolve_DocumentType_all_relationships",
   "module": "document_types",
-  "ref": "config/graphql/document_types.py:384"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/document_types.py:384"
  },
  {
   "stub": "_resolve_DocumentType_all_structural_relationships",
   "module": "document_types",
-  "ref": "config/graphql/document_types.py:424"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/document_types.py:424"
  },
  {
   "stub": "_resolve_DocumentType_all_doc_relationships",
   "module": "document_types",
-  "ref": "config/graphql/document_types.py:505"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/document_types.py:505"
  },
  {
   "stub": "_resolve_DocumentType_doc_relationship_count",
   "module": "document_types",
-  "ref": "config/graphql/document_types.py:470"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/document_types.py:470"
  },
  {
   "stub": "_resolve_DocumentType_all_notes",
   "module": "document_types",
-  "ref": "config/graphql/document_types.py:545"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/document_types.py:545"
  },
  {
   "stub": "_resolve_DocumentType_current_summary_version",
   "module": "document_types",
-  "ref": "config/graphql/document_types.py:602"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/document_types.py:602"
  },
  {
   "stub": "_resolve_DocumentType_summary_content",
   "module": "document_types",
-  "ref": "config/graphql/document_types.py:627"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/document_types.py:627"
  },
  {
   "stub": "_resolve_DocumentType_version_number",
   "module": "document_types",
-  "ref": "config/graphql/document_types.py:694"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/document_types.py:694"
  },
  {
   "stub": "_resolve_DocumentType_has_version_history",
   "module": "document_types",
-  "ref": "config/graphql/document_types.py:703"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/document_types.py:703"
  },
  {
   "stub": "_resolve_DocumentType_version_count",
   "module": "document_types",
-  "ref": "config/graphql/document_types.py:712"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/document_types.py:712"
  },
  {
   "stub": "_resolve_DocumentType_is_latest_version",
   "module": "document_types",
-  "ref": "config/graphql/document_types.py:743"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/document_types.py:743"
  },
  {
   "stub": "_resolve_DocumentType_last_modified",
   "module": "document_types",
-  "ref": "config/graphql/document_types.py:747"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/document_types.py:747"
  },
  {
   "stub": "_resolve_DocumentType_version_history",
   "module": "document_types",
-  "ref": "config/graphql/document_types.py:756"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/document_types.py:756"
  },
  {
   "stub": "_resolve_DocumentType_path_history",
   "module": "document_types",
-  "ref": "config/graphql/document_types.py:819"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/document_types.py:819"
  },
  {
   "stub": "_resolve_DocumentType_corpus_versions",
   "module": "document_types",
-  "ref": "config/graphql/document_types.py:884"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/document_types.py:884"
  },
  {
   "stub": "_resolve_DocumentType_can_restore",
   "module": "document_types",
-  "ref": "config/graphql/document_types.py:972"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/document_types.py:972"
  },
  {
   "stub": "_resolve_DocumentType_can_view_history",
   "module": "document_types",
-  "ref": "config/graphql/document_types.py:1001"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/document_types.py:1001"
  },
  {
   "stub": "_resolve_DocumentType_can_retry",
   "module": "document_types",
-  "ref": "config/graphql/document_types.py:1048"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/document_types.py:1048"
  },
  {
   "stub": "_resolve_DocumentType_page_annotations",
   "module": "document_types",
-  "ref": "config/graphql/document_types.py:1100"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/document_types.py:1100"
  },
  {
   "stub": "_resolve_DocumentType_page_relationships",
   "module": "document_types",
-  "ref": "config/graphql/document_types.py:1145"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/document_types.py:1145"
  },
  {
   "stub": "_resolve_DocumentType_relationship_summary",
   "module": "document_types",
-  "ref": "config/graphql/document_types.py:1195"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/document_types.py:1195"
  },
  {
   "stub": "_resolve_DocumentType_extract_annotation_summary",
   "module": "document_types",
-  "ref": "config/graphql/document_types.py:1206"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/document_types.py:1206"
  },
  {
   "stub": "_resolve_DocumentType_folder_in_corpus",
   "module": "document_types",
-  "ref": "config/graphql/document_types.py:1224"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/document_types.py:1224"
  },
  {
   "stub": "_get_queryset_DocumentType",
@@ -302,47 +302,47 @@
  {
   "stub": "_resolve_AnnotationType_annotation_type",
   "module": "annotation_types",
-  "ref": "config/graphql/annotation_types.py:732"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/annotation_types.py:732"
  },
  {
   "stub": "_resolve_AnnotationType_document",
   "module": "annotation_types",
-  "ref": "config/graphql/annotation_types.py:656"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/annotation_types.py:656"
  },
  {
   "stub": "_resolve_AnnotationType_content_modalities",
   "module": "annotation_types",
-  "ref": "config/graphql/annotation_types.py:736"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/annotation_types.py:736"
  },
  {
   "stub": "_resolve_AnnotationType_feedback_count",
   "module": "annotation_types",
-  "ref": "config/graphql/annotation_types.py:742"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/annotation_types.py:742"
  },
  {
   "stub": "_resolve_AnnotationType_all_source_node_in_relationship",
   "module": "annotation_types",
-  "ref": "config/graphql/annotation_types.py:760"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/annotation_types.py:760"
  },
  {
   "stub": "_resolve_AnnotationType_all_target_node_in_relationship",
   "module": "annotation_types",
-  "ref": "config/graphql/annotation_types.py:765"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/annotation_types.py:765"
  },
  {
   "stub": "_resolve_AnnotationType_descendants_tree",
   "module": "annotation_types",
-  "ref": "config/graphql/annotation_types.py:784"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/annotation_types.py:784"
  },
  {
   "stub": "_resolve_AnnotationType_full_tree",
   "module": "annotation_types",
-  "ref": "config/graphql/annotation_types.py:809"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/annotation_types.py:809"
  },
  {
   "stub": "_resolve_AnnotationType_subtree",
   "module": "annotation_types",
-  "ref": "config/graphql/annotation_types.py:839"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/annotation_types.py:839"
  },
  {
   "stub": "_get_queryset_AnnotationType",
@@ -352,102 +352,102 @@
  {
   "stub": "_resolve_AnnotationLabelType_my_permissions",
   "module": "annotation_types",
-  "ref": "config/graphql/annotation_types.py:930"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/annotation_types.py:930"
  },
  {
   "stub": "_resolve_AnalyzerType_icon",
   "module": "extract_types",
-  "ref": "config/graphql/extract_types.py:275"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/extract_types.py:275"
  },
  {
   "stub": "_resolve_AnalyzerType_analyzer_id",
   "module": "extract_types",
-  "ref": "config/graphql/extract_types.py:261"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/extract_types.py:261"
  },
  {
   "stub": "_resolve_AnalyzerType_full_label_list",
   "module": "extract_types",
-  "ref": "config/graphql/extract_types.py:272"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/extract_types.py:272"
  },
  {
   "stub": "_resolve_CorpusActionType_pre_authorized_tools",
   "module": "agent_types",
-  "ref": "config/graphql/agent_types.py:42"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/agent_types.py:42"
  },
  {
   "stub": "_resolve_CorpusType_readme_caml_document",
   "module": "corpus_types",
-  "ref": "config/graphql/corpus_types.py:458"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/corpus_types.py:458"
  },
  {
   "stub": "_resolve_CorpusType_icon",
   "module": "corpus_types",
-  "ref": "config/graphql/corpus_types.py:420"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/corpus_types.py:420"
  },
  {
   "stub": "_resolve_CorpusType_categories",
   "module": "corpus_types",
-  "ref": "config/graphql/corpus_types.py:570"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/corpus_types.py:570"
  },
  {
   "stub": "_resolve_CorpusType_label_set",
   "module": "corpus_types",
-  "ref": "config/graphql/corpus_types.py:652"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/corpus_types.py:652"
  },
  {
   "stub": "_resolve_CorpusType_engagement_metrics",
   "module": "corpus_types",
-  "ref": "config/graphql/corpus_types.py:535"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/corpus_types.py:535"
  },
  {
   "stub": "_resolve_CorpusType_folders",
   "module": "corpus_types",
-  "ref": "config/graphql/corpus_types.py:526"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/corpus_types.py:526"
  },
  {
   "stub": "_resolve_CorpusType_annotations",
   "module": "corpus_types",
-  "ref": "config/graphql/corpus_types.py:360"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/corpus_types.py:360"
  },
  {
   "stub": "_resolve_CorpusType_all_annotation_summaries",
   "module": "corpus_types",
-  "ref": "config/graphql/corpus_types.py:386"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/corpus_types.py:386"
  },
  {
   "stub": "_resolve_CorpusType_documents",
   "module": "corpus_types",
-  "ref": "config/graphql/corpus_types.py:330"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/corpus_types.py:330"
  },
  {
   "stub": "_resolve_CorpusType_applied_analyzer_ids",
   "module": "corpus_types",
-  "ref": "config/graphql/corpus_types.py:415"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/corpus_types.py:415"
  },
  {
   "stub": "_resolve_CorpusType_description_revisions",
   "module": "corpus_types",
-  "ref": "config/graphql/corpus_types.py:484"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/corpus_types.py:484"
  },
  {
   "stub": "_resolve_CorpusType_memory_active_warning",
   "module": "corpus_types",
-  "ref": "config/graphql/corpus_types.py:557"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/corpus_types.py:557"
  },
  {
   "stub": "_resolve_CorpusType_document_count",
   "module": "corpus_types",
-  "ref": "config/graphql/corpus_types.py:579"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/corpus_types.py:579"
  },
  {
   "stub": "_resolve_CorpusType_my_vote",
   "module": "corpus_types",
-  "ref": "config/graphql/corpus_types.py:602"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/corpus_types.py:602"
  },
  {
   "stub": "_resolve_CorpusType_annotation_count",
   "module": "corpus_types",
-  "ref": "config/graphql/corpus_types.py:636"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/corpus_types.py:636"
  },
  {
   "stub": "_get_queryset_CorpusType",
@@ -462,37 +462,37 @@
  {
   "stub": "_resolve_CorpusCategoryType_corpus_count",
   "module": "corpus_types",
-  "ref": "config/graphql/corpus_types.py:72"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/corpus_types.py:72"
  },
  {
   "stub": "_resolve_LabelSetType_icon",
   "module": "annotation_types",
-  "ref": "config/graphql/annotation_types.py:1024"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/annotation_types.py:1024"
  },
  {
   "stub": "_resolve_LabelSetType_doc_label_count",
   "module": "annotation_types",
-  "ref": "config/graphql/annotation_types.py:989"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/annotation_types.py:989"
  },
  {
   "stub": "_resolve_LabelSetType_span_label_count",
   "module": "annotation_types",
-  "ref": "config/graphql/annotation_types.py:996"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/annotation_types.py:996"
  },
  {
   "stub": "_resolve_LabelSetType_token_label_count",
   "module": "annotation_types",
-  "ref": "config/graphql/annotation_types.py:1002"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/annotation_types.py:1002"
  },
  {
   "stub": "_resolve_LabelSetType_corpus_count",
   "module": "annotation_types",
-  "ref": "config/graphql/annotation_types.py:1011"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/annotation_types.py:1011"
  },
  {
   "stub": "_resolve_LabelSetType_all_annotation_labels",
   "module": "annotation_types",
-  "ref": "config/graphql/annotation_types.py:1020"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/annotation_types.py:1020"
  },
  {
   "stub": "_get_queryset_DocumentRelationshipType",
@@ -502,7 +502,7 @@
  {
   "stub": "_resolve_DocumentPathType_action",
   "module": "document_types",
-  "ref": "config/graphql/document_types.py:153"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/document_types.py:153"
  },
  {
   "stub": "_get_queryset_DocumentPathType",
@@ -512,37 +512,37 @@
  {
   "stub": "_resolve_CorpusFolderType_parent",
   "module": "corpus_types",
-  "ref": "config/graphql/corpus_types.py:205"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/corpus_types.py:205"
  },
  {
   "stub": "_resolve_CorpusFolderType_children",
   "module": "corpus_types",
-  "ref": "config/graphql/corpus_types.py:199"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/corpus_types.py:199"
  },
  {
   "stub": "_resolve_CorpusFolderType_my_permissions",
   "module": "corpus_types",
-  "ref": "config/graphql/corpus_types.py:238"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/corpus_types.py:238"
  },
  {
   "stub": "_resolve_CorpusFolderType_is_published",
   "module": "corpus_types",
-  "ref": "config/graphql/corpus_types.py:290"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/corpus_types.py:290"
  },
  {
   "stub": "_resolve_CorpusFolderType_path",
   "module": "corpus_types",
-  "ref": "config/graphql/corpus_types.py:162"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/corpus_types.py:162"
  },
  {
   "stub": "_resolve_CorpusFolderType_document_count",
   "module": "corpus_types",
-  "ref": "config/graphql/corpus_types.py:175"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/corpus_types.py:175"
  },
  {
   "stub": "_resolve_CorpusFolderType_descendant_document_count",
   "module": "corpus_types",
-  "ref": "config/graphql/corpus_types.py:187"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/corpus_types.py:187"
  },
  {
   "stub": "_get_queryset_CorpusFolderType",
@@ -557,37 +557,37 @@
  {
   "stub": "_resolve_CorpusActionExecutionType_affected_objects",
   "module": "agent_types",
-  "ref": "config/graphql/agent_types.py:113"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/agent_types.py:113"
  },
  {
   "stub": "_resolve_CorpusActionExecutionType_execution_metadata",
   "module": "agent_types",
-  "ref": "config/graphql/agent_types.py:117"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/agent_types.py:117"
  },
  {
   "stub": "_resolve_CorpusActionExecutionType_duration_seconds",
   "module": "agent_types",
-  "ref": "config/graphql/agent_types.py:105"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/agent_types.py:105"
  },
  {
   "stub": "_resolve_CorpusActionExecutionType_wait_time_seconds",
   "module": "agent_types",
-  "ref": "config/graphql/agent_types.py:109"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/agent_types.py:109"
  },
  {
   "stub": "_resolve_ConversationType_conversation_type",
   "module": "conversation_types",
-  "ref": "config/graphql/conversation_types.py:473"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/conversation_types.py:473"
  },
  {
   "stub": "_resolve_ConversationType_all_messages",
   "module": "conversation_types",
-  "ref": "config/graphql/conversation_types.py:470"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/conversation_types.py:470"
  },
  {
   "stub": "_resolve_ConversationType_user_vote",
   "module": "conversation_types",
-  "ref": "config/graphql/conversation_types.py:479"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/conversation_types.py:479"
  },
  {
   "stub": "_get_queryset_ConversationType",
@@ -602,117 +602,117 @@
  {
   "stub": "_resolve_MessageType_msg_type",
   "module": "conversation_types",
-  "ref": "config/graphql/conversation_types.py:399"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/conversation_types.py:399"
  },
  {
   "stub": "_resolve_MessageType_agent_type",
   "module": "conversation_types",
-  "ref": "config/graphql/conversation_types.py:408"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/conversation_types.py:408"
  },
  {
   "stub": "_resolve_MessageType_agent_configuration",
   "module": "conversation_types",
-  "ref": "config/graphql/conversation_types.py:414"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/conversation_types.py:414"
  },
  {
   "stub": "_resolve_MessageType_mentioned_resources",
   "module": "conversation_types",
-  "ref": "config/graphql/conversation_types.py:438"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/conversation_types.py:438"
  },
  {
   "stub": "_resolve_MessageType_user_vote",
   "module": "conversation_types",
-  "ref": "config/graphql/conversation_types.py:418"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/conversation_types.py:418"
  },
  {
   "stub": "_resolve_AgentConfigurationType_available_tools",
   "module": "agent_types",
-  "ref": "config/graphql/agent_types.py:192"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/agent_types.py:192"
  },
  {
   "stub": "_resolve_AgentConfigurationType_permission_required_tools",
   "module": "agent_types",
-  "ref": "config/graphql/agent_types.py:196"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/agent_types.py:196"
  },
  {
   "stub": "_resolve_AgentConfigurationType_mention_format",
   "module": "agent_types",
-  "ref": "config/graphql/agent_types.py:186"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/agent_types.py:186"
  },
  {
   "stub": "_resolve_ModerationActionType_corpus_id",
   "module": "conversation_types",
-  "ref": "config/graphql/conversation_types.py:569"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/conversation_types.py:569"
  },
  {
   "stub": "_resolve_ModerationActionType_is_automated",
   "module": "conversation_types",
-  "ref": "config/graphql/conversation_types.py:575"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/conversation_types.py:575"
  },
  {
   "stub": "_resolve_ModerationActionType_can_rollback",
   "module": "conversation_types",
-  "ref": "config/graphql/conversation_types.py:579"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/conversation_types.py:579"
  },
  {
   "stub": "_resolve_NotificationType_message",
   "module": "social_types",
-  "ref": "config/graphql/social_types.py:149"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/social_types.py:149"
  },
  {
   "stub": "_resolve_NotificationType_conversation",
   "module": "social_types",
-  "ref": "config/graphql/social_types.py:170"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/social_types.py:170"
  },
  {
   "stub": "_resolve_NotificationType_data",
   "module": "social_types",
-  "ref": "config/graphql/social_types.py:191"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/social_types.py:191"
  },
  {
   "stub": "_resolve_AgentActionResultType_tools_executed",
   "module": "agent_types",
-  "ref": "config/graphql/agent_types.py:66"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/agent_types.py:66"
  },
  {
   "stub": "_resolve_AgentActionResultType_execution_metadata",
   "module": "agent_types",
-  "ref": "config/graphql/agent_types.py:70"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/agent_types.py:70"
  },
  {
   "stub": "_resolve_AgentActionResultType_duration_seconds",
   "module": "agent_types",
-  "ref": "config/graphql/agent_types.py:74"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/agent_types.py:74"
  },
  {
   "stub": "_resolve_ExtractType_full_datacell_list",
   "module": "extract_types",
-  "ref": "config/graphql/extract_types.py:178"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/extract_types.py:178"
  },
  {
   "stub": "_resolve_ExtractType_full_document_list",
   "module": "extract_types",
-  "ref": "config/graphql/extract_types.py:226"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/extract_types.py:226"
  },
  {
   "stub": "_resolve_ExtractType_document_count",
   "module": "extract_types",
-  "ref": "config/graphql/extract_types.py:200"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/extract_types.py:200"
  },
  {
   "stub": "_resolve_ExtractType_datacell_count",
   "module": "extract_types",
-  "ref": "config/graphql/extract_types.py:194"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/extract_types.py:194"
  },
  {
   "stub": "_resolve_ExtractType_iteration_axis",
   "module": "extract_types",
-  "ref": "config/graphql/extract_types.py:240"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/extract_types.py:240"
  },
  {
   "stub": "_resolve_ExtractType_full_iteration_list",
   "module": "extract_types",
-  "ref": "config/graphql/extract_types.py:234"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/extract_types.py:234"
  },
  {
   "stub": "_get_node_ExtractType",
@@ -722,27 +722,27 @@
  {
   "stub": "_resolve_FieldsetType_in_use",
   "module": "extract_types",
-  "ref": "config/graphql/extract_types.py:51"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/extract_types.py:51"
  },
  {
   "stub": "_resolve_FieldsetType_full_column_list",
   "module": "extract_types",
-  "ref": "config/graphql/extract_types.py:57"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/extract_types.py:57"
  },
  {
   "stub": "_resolve_FieldsetType_column_count",
   "module": "extract_types",
-  "ref": "config/graphql/extract_types.py:60"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/extract_types.py:60"
  },
  {
   "stub": "_resolve_DatacellType_full_source_list",
   "module": "extract_types",
-  "ref": "config/graphql/extract_types.py:76"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/extract_types.py:76"
  },
  {
   "stub": "_resolve_AnalysisType_full_annotation_list",
   "module": "extract_types",
-  "ref": "config/graphql/extract_types.py:305"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/extract_types.py:305"
  },
  {
   "stub": "_get_node_AnalysisType",
@@ -752,32 +752,32 @@
  {
   "stub": "_resolve_NoteType_revisions",
   "module": "annotation_types",
-  "ref": "config/graphql/annotation_types.py:1073"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/annotation_types.py:1073"
  },
  {
   "stub": "_resolve_NoteType_descendants_tree",
   "module": "annotation_types",
-  "ref": "config/graphql/annotation_types.py:1083"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/annotation_types.py:1083"
  },
  {
   "stub": "_resolve_NoteType_full_tree",
   "module": "annotation_types",
-  "ref": "config/graphql/annotation_types.py:1108"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/annotation_types.py:1108"
  },
  {
   "stub": "_resolve_NoteType_subtree",
   "module": "annotation_types",
-  "ref": "config/graphql/annotation_types.py:1136"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/annotation_types.py:1136"
  },
  {
   "stub": "_resolve_NoteType_current_version",
   "module": "annotation_types",
-  "ref": "config/graphql/annotation_types.py:1077"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/annotation_types.py:1077"
  },
  {
   "stub": "_resolve_NoteType_content_preview",
   "module": "annotation_types",
-  "ref": "config/graphql/annotation_types.py:1067"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/annotation_types.py:1067"
  },
  {
   "stub": "_get_queryset_NoteType",
@@ -787,37 +787,37 @@
  {
   "stub": "_resolve_AuthorityNamespaceNode_aliases",
   "module": "annotation_types",
-  "ref": "config/graphql/annotation_types.py:479"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/annotation_types.py:479"
  },
  {
   "stub": "_resolve_AuthorityNamespaceNode_scope",
   "module": "annotation_types",
-  "ref": "config/graphql/annotation_types.py:482"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/annotation_types.py:482"
  },
  {
   "stub": "_resolve_AuthorityNamespaceNode_equivalence_count",
   "module": "annotation_types",
-  "ref": "config/graphql/annotation_types.py:485"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/annotation_types.py:485"
  },
  {
   "stub": "_resolve_AuthorityNamespaceNode_frontier_count",
   "module": "annotation_types",
-  "ref": "config/graphql/annotation_types.py:491"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/annotation_types.py:491"
  },
  {
   "stub": "_resolve_AuthorityNamespaceNode_reference_count",
   "module": "annotation_types",
-  "ref": "config/graphql/annotation_types.py:494"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/annotation_types.py:494"
  },
  {
   "stub": "_resolve_AuthorityNamespaceNode_effective_provider",
   "module": "annotation_types",
-  "ref": "config/graphql/annotation_types.py:499"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/annotation_types.py:499"
  },
  {
   "stub": "_resolve_AuthorityNamespaceNode_created_by_username",
   "module": "annotation_types",
-  "ref": "config/graphql/annotation_types.py:504"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/annotation_types.py:504"
  },
  {
   "stub": "_get_queryset_AuthorityNamespaceNode",
@@ -827,32 +827,32 @@
  {
   "stub": "_resolve_CorpusDescriptionRevisionType_id",
   "module": "corpus_types",
-  "ref": "config/graphql/corpus_types.py:917"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/corpus_types.py:917"
  },
  {
   "stub": "_resolve_CorpusDescriptionRevisionType_version",
   "module": "corpus_types",
-  "ref": "config/graphql/corpus_types.py:921"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/corpus_types.py:921"
  },
  {
   "stub": "_resolve_CorpusDescriptionRevisionType_author",
   "module": "corpus_types",
-  "ref": "config/graphql/corpus_types.py:955"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/corpus_types.py:955"
  },
  {
   "stub": "_resolve_CorpusDescriptionRevisionType_snapshot",
   "module": "corpus_types",
-  "ref": "config/graphql/corpus_types.py:959"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/corpus_types.py:959"
  },
  {
   "stub": "_resolve_CorpusDescriptionRevisionType_created",
   "module": "corpus_types",
-  "ref": "config/graphql/corpus_types.py:987"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/corpus_types.py:987"
  },
  {
   "stub": "_resolve_CorpusActionTemplateType_pre_authorized_tools",
   "module": "agent_types",
-  "ref": "config/graphql/agent_types.py:267"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/agent_types.py:267"
  },
  {
   "stub": "_get_queryset_UserFeedbackType",
@@ -862,12 +862,12 @@
  {
   "stub": "_resolve_AuthorityFrontierNode_ingestable",
   "module": "annotation_types",
-  "ref": "config/graphql/annotation_types.py:302"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/annotation_types.py:302"
  },
  {
   "stub": "_resolve_AuthorityFrontierNode_predicted_provider",
   "module": "annotation_types",
-  "ref": "config/graphql/annotation_types.py:305"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/annotation_types.py:305"
  },
  {
   "stub": "_get_queryset_AuthorityFrontierNode",
@@ -877,22 +877,22 @@
  {
   "stub": "_resolve_UserExportType_file",
   "module": "user_types",
-  "ref": "config/graphql/user_types.py:465"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/user_types.py:465"
  },
  {
   "stub": "_resolve_UserImportType_zip",
   "module": "user_types",
-  "ref": "config/graphql/user_types.py:475"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/user_types.py:475"
  },
  {
   "stub": "_resolve_AuthorityKeyEquivalenceNode_editable",
   "module": "annotation_types",
-  "ref": "config/graphql/annotation_types.py:374"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/annotation_types.py:374"
  },
  {
   "stub": "_resolve_AuthorityKeyEquivalenceNode_created_by_username",
   "module": "annotation_types",
-  "ref": "config/graphql/annotation_types.py:377"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/annotation_types.py:377"
  },
  {
   "stub": "_get_queryset_AuthorityKeyEquivalenceNode",
@@ -902,17 +902,17 @@
  {
   "stub": "_resolve_SemanticSearchResultType_document",
   "module": "social_types",
-  "ref": "config/graphql/social_types.py:419"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/social_types.py:419"
  },
  {
   "stub": "_resolve_SemanticSearchResultType_corpus",
   "module": "social_types",
-  "ref": "config/graphql/social_types.py:432"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/social_types.py:432"
  },
  {
   "stub": "_resolve_GeographicAnnotationPinType_sample_document_ids",
   "module": "annotation_queries",
-  "ref": "config/graphql/annotation_queries.py:1302"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/annotation_queries.py:1302"
  },
  {
   "stub": "_resolve_Query_admin_document_ingestion",
@@ -937,7 +937,7 @@
  {
   "stub": "_resolve_Query_system_stats",
   "module": "stats_queries",
-  "ref": "config/graphql/stats_queries.py:52"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/stats_queries.py:52"
  },
  {
   "stub": "_resolve_Query_research_reports",
@@ -967,27 +967,27 @@
  {
   "stub": "_resolve_Query_og_corpus_metadata",
   "module": "og_metadata_queries",
-  "ref": "config/ratelimit/decorators.py:72"
+  "ref": "/home/user/oc-graphene-ref/config/ratelimit/decorators.py:72"
  },
  {
   "stub": "_resolve_Query_og_document_metadata",
   "module": "og_metadata_queries",
-  "ref": "config/ratelimit/decorators.py:112"
+  "ref": "/home/user/oc-graphene-ref/config/ratelimit/decorators.py:112"
  },
  {
   "stub": "_resolve_Query_og_document_in_corpus_metadata",
   "module": "og_metadata_queries",
-  "ref": "config/ratelimit/decorators.py:147"
+  "ref": "/home/user/oc-graphene-ref/config/ratelimit/decorators.py:147"
  },
  {
   "stub": "_resolve_Query_og_thread_metadata",
   "module": "og_metadata_queries",
-  "ref": "config/ratelimit/decorators.py:201"
+  "ref": "/home/user/oc-graphene-ref/config/ratelimit/decorators.py:201"
  },
  {
   "stub": "_resolve_Query_og_extract_metadata",
   "module": "og_metadata_queries",
-  "ref": "config/ratelimit/decorators.py:252"
+  "ref": "/home/user/oc-graphene-ref/config/ratelimit/decorators.py:252"
  },
  {
   "stub": "_resolve_Query_pipeline_components",
@@ -997,12 +997,12 @@
  {
   "stub": "_resolve_Query_supported_mime_types",
   "module": "pipeline_queries",
-  "ref": "config/graphql/pipeline_queries.py:258"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/pipeline_queries.py:258"
  },
  {
   "stub": "_resolve_Query_convertible_extensions",
   "module": "pipeline_queries",
-  "ref": "config/graphql/pipeline_queries.py:294"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/pipeline_queries.py:294"
  },
  {
   "stub": "_resolve_Query_pipeline_settings",
@@ -1037,127 +1037,127 @@
  {
   "stub": "_resolve_Query_document_corpus_actions",
   "module": "action_queries",
-  "ref": "config/graphql/action_queries.py:296"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/action_queries.py:296"
  },
  {
   "stub": "_resolve_Query_badges",
   "module": "social_queries",
-  "ref": "config/graphql/social_queries.py:57"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/social_queries.py:57"
  },
  {
   "stub": "_resolve_Query_user_badges",
   "module": "social_queries",
-  "ref": "config/graphql/social_queries.py:75"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/social_queries.py:75"
  },
  {
   "stub": "_resolve_Query_badge_criteria_types",
   "module": "social_queries",
-  "ref": "config/graphql/social_queries.py:122"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/social_queries.py:122"
  },
  {
   "stub": "_resolve_Query_agents",
   "module": "social_queries",
-  "ref": "config/graphql/social_queries.py:174"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/social_queries.py:174"
  },
  {
   "stub": "_resolve_Query_agent_configurations",
   "module": "social_queries",
-  "ref": "config/graphql/social_queries.py:182"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/social_queries.py:182"
  },
  {
   "stub": "_resolve_Query_available_tools",
   "module": "social_queries",
-  "ref": "config/graphql/social_queries.py:221"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/social_queries.py:221"
  },
  {
   "stub": "_resolve_Query_available_tool_categories",
   "module": "social_queries",
-  "ref": "config/graphql/social_queries.py:240"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/social_queries.py:240"
  },
  {
   "stub": "_resolve_Query_notifications",
   "module": "social_queries",
-  "ref": "config/graphql/social_queries.py:257"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/social_queries.py:257"
  },
  {
   "stub": "_resolve_Query_unread_notification_count",
   "module": "social_queries",
-  "ref": "config/graphql/social_queries.py:289"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/social_queries.py:289"
  },
  {
   "stub": "_resolve_Query_corpus_leaderboard",
   "module": "social_queries",
-  "ref": "config/graphql/social_queries.py:308"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/social_queries.py:308"
  },
  {
   "stub": "_resolve_Query_global_leaderboard",
   "module": "social_queries",
-  "ref": "config/graphql/social_queries.py:351"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/social_queries.py:351"
  },
  {
   "stub": "_resolve_Query_leaderboard",
   "module": "social_queries",
-  "ref": "config/graphql/social_queries.py:396"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/social_queries.py:396"
  },
  {
   "stub": "_resolve_Query_community_stats",
   "module": "social_queries",
-  "ref": "config/graphql/social_queries.py:634"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/social_queries.py:634"
  },
  {
   "stub": "_resolve_Query_discover_annotations",
   "module": "discover_queries",
-  "ref": "config/ratelimit/decorators.py:303"
+  "ref": "/home/user/oc-graphene-ref/config/ratelimit/decorators.py:303"
  },
  {
   "stub": "_resolve_Query_discover_documents",
   "module": "discover_queries",
-  "ref": "config/ratelimit/decorators.py:339"
+  "ref": "/home/user/oc-graphene-ref/config/ratelimit/decorators.py:339"
  },
  {
   "stub": "_resolve_Query_discover_notes",
   "module": "discover_queries",
-  "ref": "config/ratelimit/decorators.py:363"
+  "ref": "/home/user/oc-graphene-ref/config/ratelimit/decorators.py:363"
  },
  {
   "stub": "_resolve_Query_discover_corpuses",
   "module": "discover_queries",
-  "ref": "config/ratelimit/decorators.py:395"
+  "ref": "/home/user/oc-graphene-ref/config/ratelimit/decorators.py:395"
  },
  {
   "stub": "_resolve_Query_discover_discussions",
   "module": "discover_queries",
-  "ref": "config/ratelimit/decorators.py:478"
+  "ref": "/home/user/oc-graphene-ref/config/ratelimit/decorators.py:478"
  },
  {
   "stub": "_resolve_Query_search_corpuses_for_mention",
   "module": "search_queries",
-  "ref": "config/ratelimit/decorators.py:96"
+  "ref": "/home/user/oc-graphene-ref/config/ratelimit/decorators.py:96"
  },
  {
   "stub": "_resolve_Query_search_documents_for_mention",
   "module": "search_queries",
-  "ref": "config/ratelimit/decorators.py:148"
+  "ref": "/home/user/oc-graphene-ref/config/ratelimit/decorators.py:148"
  },
  {
   "stub": "_resolve_Query_search_annotations_for_mention",
   "module": "search_queries",
-  "ref": "config/ratelimit/decorators.py:279"
+  "ref": "/home/user/oc-graphene-ref/config/ratelimit/decorators.py:279"
  },
  {
   "stub": "_resolve_Query_search_users_for_mention",
   "module": "search_queries",
-  "ref": "config/ratelimit/decorators.py:360"
+  "ref": "/home/user/oc-graphene-ref/config/ratelimit/decorators.py:360"
  },
  {
   "stub": "_resolve_Query_search_agents_for_mention",
   "module": "search_queries",
-  "ref": "config/ratelimit/decorators.py:408"
+  "ref": "/home/user/oc-graphene-ref/config/ratelimit/decorators.py:408"
  },
  {
   "stub": "_resolve_Query_search_notes_for_mention",
   "module": "search_queries",
-  "ref": "config/ratelimit/decorators.py:447"
+  "ref": "/home/user/oc-graphene-ref/config/ratelimit/decorators.py:447"
  },
  {
   "stub": "_resolve_Query_semantic_search",
@@ -1172,12 +1172,12 @@
  {
   "stub": "_resolve_Query_conversations",
   "module": "conversation_queries",
-  "ref": "config/graphql/conversation_queries.py:46"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/conversation_queries.py:46"
  },
  {
   "stub": "_resolve_Query_search_conversations",
   "module": "conversation_queries",
-  "ref": "config/graphql/conversation_queries.py:96"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/conversation_queries.py:96"
  },
  {
   "stub": "_resolve_Query_search_messages",
@@ -1212,17 +1212,17 @@
  {
   "stub": "_resolve_Query_fieldsets",
   "module": "extract_queries",
-  "ref": "config/graphql/extract_queries.py:146"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/extract_queries.py:146"
  },
  {
   "stub": "_resolve_Query_columns",
   "module": "extract_queries",
-  "ref": "config/graphql/extract_queries.py:164"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/extract_queries.py:164"
  },
  {
   "stub": "_resolve_Query_extracts",
   "module": "extract_queries",
-  "ref": "config/graphql/extract_queries.py:189"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/extract_queries.py:189"
  },
  {
   "stub": "_resolve_Query_compare_extracts",
@@ -1232,7 +1232,7 @@
  {
   "stub": "_resolve_Query_datacells",
   "module": "extract_queries",
-  "ref": "config/graphql/extract_queries.py:272"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/extract_queries.py:272"
  },
  {
   "stub": "_resolve_Query_registered_extract_tasks",
@@ -1242,117 +1242,117 @@
  {
   "stub": "_resolve_Query_document_metadata_datacells",
   "module": "extract_queries",
-  "ref": "config/graphql/extract_queries.py:325"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/extract_queries.py:325"
  },
  {
   "stub": "_resolve_Query_metadata_completion_status_v2",
   "module": "extract_queries",
-  "ref": "config/graphql/extract_queries.py:337"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/extract_queries.py:337"
  },
  {
   "stub": "_resolve_Query_documents_metadata_datacells_batch",
   "module": "extract_queries",
-  "ref": "config/graphql/extract_queries.py:351"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/extract_queries.py:351"
  },
  {
   "stub": "_resolve_Query_gremlin_engines",
   "module": "extract_queries",
-  "ref": "config/graphql/extract_queries.py:421"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/extract_queries.py:421"
  },
  {
   "stub": "_resolve_Query_analyzers",
   "module": "extract_queries",
-  "ref": "config/graphql/extract_queries.py:449"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/extract_queries.py:449"
  },
  {
   "stub": "_resolve_Query_analyses",
   "module": "extract_queries",
-  "ref": "config/ratelimit/decorators.py:470"
+  "ref": "/home/user/oc-graphene-ref/config/ratelimit/decorators.py:470"
  },
  {
   "stub": "_resolve_Query_corpuses",
   "module": "corpus_queries",
-  "ref": "config/ratelimit/decorators.py:113"
+  "ref": "/home/user/oc-graphene-ref/config/ratelimit/decorators.py:113"
  },
  {
   "stub": "_resolve_Query_corpus_filter_counts",
   "module": "corpus_queries",
-  "ref": "config/ratelimit/decorators.py:176"
+  "ref": "/home/user/oc-graphene-ref/config/ratelimit/decorators.py:176"
  },
  {
   "stub": "_resolve_Query_corpus_categories",
   "module": "corpus_queries",
-  "ref": "config/ratelimit/decorators.py:218"
+  "ref": "/home/user/oc-graphene-ref/config/ratelimit/decorators.py:218"
  },
  {
   "stub": "_resolve_Query_corpus_folders",
   "module": "corpus_queries",
-  "ref": "config/ratelimit/decorators.py:260"
+  "ref": "/home/user/oc-graphene-ref/config/ratelimit/decorators.py:260"
  },
  {
   "stub": "_resolve_Query_corpus_folder",
   "module": "corpus_queries",
-  "ref": "config/ratelimit/decorators.py:289"
+  "ref": "/home/user/oc-graphene-ref/config/ratelimit/decorators.py:289"
  },
  {
   "stub": "_resolve_Query_deleted_documents_in_corpus",
   "module": "corpus_queries",
-  "ref": "config/ratelimit/decorators.py:312"
+  "ref": "/home/user/oc-graphene-ref/config/ratelimit/decorators.py:312"
  },
  {
   "stub": "_resolve_Query_corpus_intelligence_setup_status",
   "module": "corpus_queries",
-  "ref": "config/ratelimit/decorators.py:341"
+  "ref": "/home/user/oc-graphene-ref/config/ratelimit/decorators.py:341"
  },
  {
   "stub": "_resolve_Query_corpus_stats",
   "module": "corpus_queries",
-  "ref": "config/ratelimit/decorators.py:368"
+  "ref": "/home/user/oc-graphene-ref/config/ratelimit/decorators.py:368"
  },
  {
   "stub": "_resolve_Query_corpus_document_graph",
   "module": "corpus_queries",
-  "ref": "config/ratelimit/decorators.py:508"
+  "ref": "/home/user/oc-graphene-ref/config/ratelimit/decorators.py:508"
  },
  {
   "stub": "_resolve_Query_corpus_intelligence_aggregates",
   "module": "corpus_queries",
-  "ref": "config/ratelimit/decorators.py:654"
+  "ref": "/home/user/oc-graphene-ref/config/ratelimit/decorators.py:654"
  },
  {
   "stub": "_resolve_Query_corpus_data_story",
   "module": "corpus_queries",
-  "ref": "config/ratelimit/decorators.py:745"
+  "ref": "/home/user/oc-graphene-ref/config/ratelimit/decorators.py:745"
  },
  {
   "stub": "_resolve_Query_artifact_by_slug",
   "module": "corpus_queries",
-  "ref": "config/ratelimit/decorators.py:785"
+  "ref": "/home/user/oc-graphene-ref/config/ratelimit/decorators.py:785"
  },
  {
   "stub": "_resolve_Query_corpus_artifacts",
   "module": "corpus_queries",
-  "ref": "config/ratelimit/decorators.py:802"
+  "ref": "/home/user/oc-graphene-ref/config/ratelimit/decorators.py:802"
  },
  {
   "stub": "_resolve_Query_corpus_artifact_templates",
   "module": "corpus_queries",
-  "ref": "config/ratelimit/decorators.py:824"
+  "ref": "/home/user/oc-graphene-ref/config/ratelimit/decorators.py:824"
  },
  {
   "stub": "_resolve_Query_corpus_metadata_columns",
   "module": "corpus_queries",
-  "ref": "config/graphql/corpus_queries.py:853"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/corpus_queries.py:853"
  },
  {
   "stub": "_resolve_Query_documents",
   "module": "document_queries",
-  "ref": "config/ratelimit/decorators.py:57"
+  "ref": "/home/user/oc-graphene-ref/config/ratelimit/decorators.py:57"
  },
  {
   "stub": "_resolve_Query_document",
   "module": "document_queries",
-  "ref": "config/graphql/document_queries.py:79"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/document_queries.py:79"
  },
  {
   "stub": "_resolve_Query_corpus_document_ids",
@@ -1362,17 +1362,17 @@
  {
   "stub": "_resolve_Query_document_stats",
   "module": "document_queries",
-  "ref": "config/ratelimit/decorators.py:200"
+  "ref": "/home/user/oc-graphene-ref/config/ratelimit/decorators.py:200"
  },
  {
   "stub": "_resolve_Query_document_relationships",
   "module": "document_queries",
-  "ref": "config/ratelimit/decorators.py:250"
+  "ref": "/home/user/oc-graphene-ref/config/ratelimit/decorators.py:250"
  },
  {
   "stub": "_resolve_Query_bulk_doc_relationships",
   "module": "document_queries",
-  "ref": "config/ratelimit/decorators.py:319"
+  "ref": "/home/user/oc-graphene-ref/config/ratelimit/decorators.py:319"
  },
  {
   "stub": "_resolve_Query_bulk_document_upload_status",
@@ -1392,77 +1392,77 @@
  {
   "stub": "_resolve_Query_corpus_references",
   "module": "annotation_queries",
-  "ref": "config/graphql/annotation_queries.py:88"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/annotation_queries.py:88"
  },
  {
   "stub": "_resolve_Query_governance_graph",
   "module": "annotation_queries",
-  "ref": "config/ratelimit/decorators.py:151"
+  "ref": "/home/user/oc-graphene-ref/config/ratelimit/decorators.py:151"
  },
  {
   "stub": "_resolve_Query_wanted_authorities",
   "module": "annotation_queries",
-  "ref": "config/ratelimit/decorators.py:270"
+  "ref": "/home/user/oc-graphene-ref/config/ratelimit/decorators.py:270"
  },
  {
   "stub": "_resolve_Query_authority_frontier_stats",
   "module": "annotation_queries",
-  "ref": "config/ratelimit/decorators.py:314"
+  "ref": "/home/user/oc-graphene-ref/config/ratelimit/decorators.py:314"
  },
  {
   "stub": "_resolve_Query_authority_mapping_stats",
   "module": "annotation_queries",
-  "ref": "config/ratelimit/decorators.py:360"
+  "ref": "/home/user/oc-graphene-ref/config/ratelimit/decorators.py:360"
  },
  {
   "stub": "_resolve_Query_authority_namespace_stats",
   "module": "annotation_queries",
-  "ref": "config/ratelimit/decorators.py:404"
+  "ref": "/home/user/oc-graphene-ref/config/ratelimit/decorators.py:404"
  },
  {
   "stub": "_resolve_Query_authority_namespace_detail",
   "module": "annotation_queries",
-  "ref": "config/ratelimit/decorators.py:410"
+  "ref": "/home/user/oc-graphene-ref/config/ratelimit/decorators.py:410"
  },
  {
   "stub": "_resolve_Query_authority_source_providers",
   "module": "annotation_queries",
-  "ref": "config/ratelimit/decorators.py:428"
+  "ref": "/home/user/oc-graphene-ref/config/ratelimit/decorators.py:428"
  },
  {
   "stub": "_resolve_Query_annotations",
   "module": "annotation_queries",
-  "ref": "config/ratelimit/decorators.py:459"
+  "ref": "/home/user/oc-graphene-ref/config/ratelimit/decorators.py:459"
  },
  {
   "stub": "_resolve_Query_bulk_doc_relationships_in_corpus",
   "module": "annotation_queries",
-  "ref": "config/graphql/annotation_queries.py:682"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/annotation_queries.py:682"
  },
  {
   "stub": "_resolve_Query_bulk_doc_annotations_in_corpus",
   "module": "annotation_queries",
-  "ref": "config/graphql/annotation_queries.py:717"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/annotation_queries.py:717"
  },
  {
   "stub": "_resolve_Query_page_annotations",
   "module": "annotation_queries",
-  "ref": "config/ratelimit/decorators.py:784"
+  "ref": "/home/user/oc-graphene-ref/config/ratelimit/decorators.py:784"
  },
  {
   "stub": "_resolve_Query_relationships",
   "module": "annotation_queries",
-  "ref": "config/graphql/annotation_queries.py:977"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/annotation_queries.py:977"
  },
  {
   "stub": "_resolve_Query_annotation_labels",
   "module": "annotation_queries",
-  "ref": "config/graphql/annotation_queries.py:1016"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/annotation_queries.py:1016"
  },
  {
   "stub": "_resolve_Query_labelsets",
   "module": "annotation_queries",
-  "ref": "config/ratelimit/decorators.py:1035"
+  "ref": "/home/user/oc-graphene-ref/config/ratelimit/decorators.py:1035"
  },
  {
   "stub": "_resolve_Query_default_labelset",
@@ -1477,37 +1477,37 @@
  {
   "stub": "_resolve_Query_geographic_annotations_for_corpus",
   "module": "annotation_queries",
-  "ref": "config/ratelimit/decorators.py:1166"
+  "ref": "/home/user/oc-graphene-ref/config/ratelimit/decorators.py:1166"
  },
  {
   "stub": "_resolve_Query_global_geographic_annotations",
   "module": "annotation_queries",
-  "ref": "config/ratelimit/decorators.py:1229"
+  "ref": "/home/user/oc-graphene-ref/config/ratelimit/decorators.py:1229"
  },
  {
   "stub": "_resolve_Query_corpus_by_slugs",
   "module": "slug_queries",
-  "ref": "config/graphql/slug_queries.py:47"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/slug_queries.py:47"
  },
  {
   "stub": "_resolve_Query_document_by_slugs",
   "module": "slug_queries",
-  "ref": "config/graphql/slug_queries.py:72"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/slug_queries.py:72"
  },
  {
   "stub": "_resolve_Query_document_in_corpus_by_slugs",
   "module": "slug_queries",
-  "ref": "config/graphql/slug_queries.py:90"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/slug_queries.py:90"
  },
  {
   "stub": "_resolve_Query_me",
   "module": "user_queries",
-  "ref": "config/graphql/user_queries.py:40"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/user_queries.py:40"
  },
  {
   "stub": "_resolve_Query_user_by_slug",
   "module": "user_queries",
-  "ref": "config/graphql/user_queries.py:46"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/user_queries.py:46"
  },
  {
   "stub": "_resolve_Query_userimports",
@@ -1527,7 +1527,7 @@
  {
   "stub": "_mutate_ObtainJSONWebTokenWithUser",
   "module": "user_mutations",
-  "ref": "config/graphql/user_mutations.py:75"
+  "ref": "/home/user/oc-graphene-ref/config/graphql/user_mutations.py:75"
  },
  {
   "stub": "_mutate_Verify",
@@ -2202,12 +2202,12 @@
  {
   "stub": "_mutate_VoteCorpusMutation",
   "module": "voting_mutations",
-  "ref": "config/ratelimit/decorators.py:455"
+  "ref": "/home/user/oc-graphene-ref/config/ratelimit/decorators.py:455"
  },
  {
   "stub": "_mutate_RemoveCorpusVoteMutation",
   "module": "voting_mutations",
-  "ref": "config/ratelimit/decorators.py:523"
+  "ref": "/home/user/oc-graphene-ref/config/ratelimit/decorators.py:523"
  },
  {
   "stub": "_mutate_MarkNotificationReadMutation",

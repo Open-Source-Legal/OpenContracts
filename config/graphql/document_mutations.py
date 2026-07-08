@@ -35,9 +35,7 @@ from opencontractserver.users.models import UserExport
 @strawberry.type(name="UploadDocument")
 class UploadDocument:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     document: Optional[Annotated["DocumentType", strawberry.lazy("config.graphql.document_types")]] = strawberry.field(name="document", default=None)
 
 
@@ -47,12 +45,8 @@ register_type("UploadDocument", UploadDocument, model=None)
 @strawberry.type(name="UpdateDocument")
 class UpdateDocument:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
-    @strawberry.field(name="objId")
-    def obj_id(self, info: strawberry.Info) -> Optional[strawberry.ID]:
-        return coerce_str(getattr(self, "obj_id", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
+    obj_id: Optional[strawberry.ID] = strawberry.field(name="objId", default=None)
 
 
 register_type("UpdateDocument", UpdateDocument, model=None)
@@ -61,9 +55,7 @@ register_type("UpdateDocument", UpdateDocument, model=None)
 @strawberry.type(name="UpdateDocumentSummary", description="Mutation to update a document's markdown summary for a specific corpus, creating a new version in the process.\nUsers can create/update summaries if:\n- No summary exists yet and they have permission on the corpus (public or their corpus)\n- A summary exists and they are the original author")
 class UpdateDocumentSummary:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     obj: Optional[Annotated["DocumentType", strawberry.lazy("config.graphql.document_types")]] = strawberry.field(name="obj", default=None)
     version: Optional[int] = strawberry.field(name="version", description='The new version number after update', default=None)
 
@@ -74,9 +66,7 @@ register_type("UpdateDocumentSummary", UpdateDocumentSummary, model=None)
 @strawberry.type(name="DeleteDocument")
 class DeleteDocument:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
 
 
 register_type("DeleteDocument", DeleteDocument, model=None)
@@ -85,9 +75,7 @@ register_type("DeleteDocument", DeleteDocument, model=None)
 @strawberry.type(name="DeleteMultipleDocuments")
 class DeleteMultipleDocuments:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
 
 
 register_type("DeleteMultipleDocuments", DeleteMultipleDocuments, model=None)
@@ -96,12 +84,8 @@ register_type("DeleteMultipleDocuments", DeleteMultipleDocuments, model=None)
 @strawberry.type(name="UploadDocumentsZip", description='Mutation for uploading multiple documents via a zip file.\nThe zip is stored as a temporary file and processed asynchronously.\nOnly files with allowed MIME types will be created as documents.')
 class UploadDocumentsZip:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
-    @strawberry.field(name="jobId", description='ID to track the processing job')
-    def job_id(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "job_id", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
+    job_id: Optional[str] = strawberry.field(name="jobId", description='ID to track the processing job', default=None)
 
 
 register_type("UploadDocumentsZip", UploadDocumentsZip, model=None)
@@ -110,9 +94,7 @@ register_type("UploadDocumentsZip", UploadDocumentsZip, model=None)
 @strawberry.type(name="RetryDocumentProcessing", description="Retry processing for a failed document.\n\nThis mutation allows users to manually trigger reprocessing of a document\nthat failed during the parsing pipeline. It's useful when transient errors\n(like network timeouts or service unavailability) have been resolved.\n\nRequirements:\n- Document must be in FAILED processing state\n- User must have UPDATE permission on the document")
 class RetryDocumentProcessing:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     document: Optional[Annotated["DocumentType", strawberry.lazy("config.graphql.document_types")]] = strawberry.field(name="document", default=None)
 
 
@@ -122,9 +104,7 @@ register_type("RetryDocumentProcessing", RetryDocumentProcessing, model=None)
 @strawberry.type(name="RestoreDeletedDocument", description='Restore a soft-deleted document path within a corpus.\n\nDelegates to DocumentLifecycleService.restore_document() for:\n- Permission checking (corpus UPDATE permission)\n- Creating new DocumentPath with is_deleted=False')
 class RestoreDeletedDocument:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     document: Optional[Annotated["DocumentType", strawberry.lazy("config.graphql.document_types")]] = strawberry.field(name="document", default=None)
 
 
@@ -134,9 +114,7 @@ register_type("RestoreDeletedDocument", RestoreDeletedDocument, model=None)
 @strawberry.type(name="RestoreDocumentToVersion", description='Restore a document to a previous content version.\nCreates a new version that is a copy of the specified version.')
 class RestoreDocumentToVersion:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     document: Optional[Annotated["DocumentType", strawberry.lazy("config.graphql.document_types")]] = strawberry.field(name="document", default=None)
     new_version_number: Optional[int] = strawberry.field(name="newVersionNumber", default=None)
 
@@ -147,9 +125,7 @@ register_type("RestoreDocumentToVersion", RestoreDocumentToVersion, model=None)
 @strawberry.type(name="PermanentlyDeleteDocument", description='Permanently delete a soft-deleted document from a corpus.\n\nThis is IRREVERSIBLE and removes:\n- All DocumentPath history for the document in this corpus\n- User annotations (non-structural) on the document\n- Relationships involving those annotations\n- DocumentSummaryRevision records\n- The Document itself if no other corpus references it\n\nRequires DELETE permission on the corpus.')
 class PermanentlyDeleteDocument:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
 
 
 register_type("PermanentlyDeleteDocument", PermanentlyDeleteDocument, model=None)
@@ -158,9 +134,7 @@ register_type("PermanentlyDeleteDocument", PermanentlyDeleteDocument, model=None
 @strawberry.type(name="EmptyTrash", description='Permanently delete ALL soft-deleted documents in a corpus (empty trash).\n\nThis is IRREVERSIBLE and removes all documents currently in the corpus trash.\n\nRequires DELETE permission on the corpus.')
 class EmptyTrash:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     deleted_count: Optional[int] = strawberry.field(name="deletedCount", default=None)
 
 
@@ -170,9 +144,7 @@ register_type("EmptyTrash", EmptyTrash, model=None)
 @strawberry.type(name="EmptyCorpus", description='Move EVERY document in a corpus to Trash and remove ALL of its folders.\n\nThis is the "empty everything" action. Documents are soft-deleted (they\nremain in the trash and are restorable until the trash is emptied); the\nfolder tree is removed. Nothing is permanently deleted here — callers can\nfollow up with ``emptyTrash`` to purge.\n\nRequires DELETE permission on the corpus.')
 class EmptyCorpus:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     trashed_count: Optional[int] = strawberry.field(name="trashedCount", default=None)
 
 
@@ -182,9 +154,7 @@ register_type("EmptyCorpus", EmptyCorpus, model=None)
 @strawberry.type(name="UploadAnnotatedDocument")
 class UploadAnnotatedDocument:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
 
 
 register_type("UploadAnnotatedDocument", UploadAnnotatedDocument, model=None)
@@ -193,9 +163,7 @@ register_type("UploadAnnotatedDocument", UploadAnnotatedDocument, model=None)
 @strawberry.type(name="StartCorpusExport", description='Mutation entrypoint for starting a corpus export.\nNow refactored to optionally accept a list of Analysis IDs (analyses_ids)\nthat should be included in the export. If analyses_ids are provided, then\nonly annotations/labels from those analyses are included. Otherwise, all\nannotations/labels for the corpus are included.')
 class StartCorpusExport:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     export: Optional[Annotated["UserExportType", strawberry.lazy("config.graphql.user_types")]] = strawberry.field(name="export", default=None)
 
 
@@ -205,9 +173,7 @@ register_type("StartCorpusExport", StartCorpusExport, model=None)
 @strawberry.type(name="DeleteExport")
 class DeleteExport:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
 
 
 register_type("DeleteExport", DeleteExport, model=None)

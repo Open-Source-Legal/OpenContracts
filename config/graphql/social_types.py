@@ -33,7 +33,7 @@ from opencontractserver.notifications.models import Notification
 
 
 def _resolve_NotificationType_message(root, info, **kwargs):
-    """PORT: config/graphql/social_types.py:149
+    """PORT: /home/user/oc-graphene-ref/config/graphql/social_types.py:149
 
     Port of NotificationType.resolve_message
     """
@@ -41,7 +41,7 @@ def _resolve_NotificationType_message(root, info, **kwargs):
 
 
 def _resolve_NotificationType_conversation(root, info, **kwargs):
-    """PORT: config/graphql/social_types.py:170
+    """PORT: /home/user/oc-graphene-ref/config/graphql/social_types.py:170
 
     Port of NotificationType.resolve_conversation
     """
@@ -49,7 +49,7 @@ def _resolve_NotificationType_conversation(root, info, **kwargs):
 
 
 def _resolve_NotificationType_data(root, info, **kwargs):
-    """PORT: config/graphql/social_types.py:191
+    """PORT: /home/user/oc-graphene-ref/config/graphql/social_types.py:191
 
     Port of NotificationType.resolve_data
     """
@@ -153,21 +153,11 @@ UserBadgeTypeConnection = make_connection_types(UserBadgeType, type_name="UserBa
 
 @strawberry.type(name="CriteriaTypeDefinitionType", description='GraphQL type for criteria type definition from the registry.')
 class CriteriaTypeDefinitionType:
-    @strawberry.field(name="typeId", description='Unique identifier for this criteria type')
-    def type_id(self, info: strawberry.Info) -> str:
-        return coerce_str(getattr(self, "type_id", None))
-    @strawberry.field(name="name", description='Display name for UI')
-    def name(self, info: strawberry.Info) -> str:
-        return coerce_str(getattr(self, "name", None))
-    @strawberry.field(name="description", description='Explanation of what this criteria checks')
-    def description(self, info: strawberry.Info) -> str:
-        return coerce_str(getattr(self, "description", None))
-    @strawberry.field(name="scope", description="Where this criteria can be used: 'global', 'corpus', or 'both'")
-    def scope(self, info: strawberry.Info) -> str:
-        return coerce_str(getattr(self, "scope", None))
-    @strawberry.field(name="fields", description='Configuration fields required for this criteria type')
-    def fields(self, info: strawberry.Info) -> list["CriteriaFieldType"]:
-        return resolve_django_list(self, info, getattr(self, "fields"), "CriteriaFieldType")
+    type_id: str = strawberry.field(name="typeId", description='Unique identifier for this criteria type', default=None)
+    name: str = strawberry.field(name="name", description='Display name for UI', default=None)
+    description: str = strawberry.field(name="description", description='Explanation of what this criteria checks', default=None)
+    scope: str = strawberry.field(name="scope", description="Where this criteria can be used: 'global', 'corpus', or 'both'", default=None)
+    fields: list["CriteriaFieldType"] = strawberry.field(name="fields", description='Configuration fields required for this criteria type', default=None)
     implemented: bool = strawberry.field(name="implemented", description='Whether the evaluation logic is implemented', default=None)
 
 
@@ -176,24 +166,14 @@ register_type("CriteriaTypeDefinitionType", CriteriaTypeDefinitionType, model=No
 
 @strawberry.type(name="CriteriaFieldType", description='GraphQL type for criteria field definition from the registry.')
 class CriteriaFieldType:
-    @strawberry.field(name="name", description='Field identifier used in criteria_config JSON')
-    def name(self, info: strawberry.Info) -> str:
-        return coerce_str(getattr(self, "name", None))
-    @strawberry.field(name="label", description='Human-readable label for UI display')
-    def label(self, info: strawberry.Info) -> str:
-        return coerce_str(getattr(self, "label", None))
-    @strawberry.field(name="fieldType", description="Field data type: 'number', 'text', or 'boolean'")
-    def field_type(self, info: strawberry.Info) -> str:
-        return coerce_str(getattr(self, "field_type", None))
+    name: str = strawberry.field(name="name", description='Field identifier used in criteria_config JSON', default=None)
+    label: str = strawberry.field(name="label", description='Human-readable label for UI display', default=None)
+    field_type: str = strawberry.field(name="fieldType", description="Field data type: 'number', 'text', or 'boolean'", default=None)
     required: bool = strawberry.field(name="required", description='Whether this field must be present in configuration', default=None)
-    @strawberry.field(name="description", description="Help text explaining the field's purpose")
-    def description(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "description", None))
+    description: Optional[str] = strawberry.field(name="description", description="Help text explaining the field's purpose", default=None)
     min_value: Optional[int] = strawberry.field(name="minValue", description='Minimum allowed value (for number fields only)', default=None)
     max_value: Optional[int] = strawberry.field(name="maxValue", description='Maximum allowed value (for number fields only)', default=None)
-    @strawberry.field(name="allowedValues", description='List of allowed values (for enum-like text fields)')
-    def allowed_values(self, info: strawberry.Info) -> Optional[list[Optional[str]]]:
-        return coerce_str(getattr(self, "allowed_values", None))
+    allowed_values: Optional[list[Optional[str]]] = strawberry.field(name="allowedValues", description='List of allowed values (for enum-like text fields)', default=None)
 
 
 register_type("CriteriaFieldType", CriteriaFieldType, model=None)
@@ -201,19 +181,11 @@ register_type("CriteriaFieldType", CriteriaFieldType, model=None)
 
 @strawberry.type(name="LeaderboardType", description='Complete leaderboard with entries and metadata.\n\nIssue: #613 - Create leaderboard and community stats dashboard\nEpic: #572 - Social Features Epic')
 class LeaderboardType:
-    @strawberry.field(name="metric", description='The metric this leaderboard is sorted by')
-    def metric(self, info: strawberry.Info) -> Optional[enums.LeaderboardMetricEnum]:
-        return coerce_enum(enums.LeaderboardMetricEnum, getattr(self, "metric", None))
-    @strawberry.field(name="scope", description='The time period for this leaderboard')
-    def scope(self, info: strawberry.Info) -> Optional[enums.LeaderboardScopeEnum]:
-        return coerce_enum(enums.LeaderboardScopeEnum, getattr(self, "scope", None))
-    @strawberry.field(name="corpusId", description='If corpus-specific leaderboard, the corpus ID')
-    def corpus_id(self, info: strawberry.Info) -> Optional[strawberry.ID]:
-        return coerce_str(getattr(self, "corpus_id", None))
+    metric: Optional[enums.LeaderboardMetricEnum] = strawberry.field(name="metric", description='The metric this leaderboard is sorted by', default=None)
+    scope: Optional[enums.LeaderboardScopeEnum] = strawberry.field(name="scope", description='The time period for this leaderboard', default=None)
+    corpus_id: Optional[strawberry.ID] = strawberry.field(name="corpusId", description='If corpus-specific leaderboard, the corpus ID', default=None)
     total_users: Optional[int] = strawberry.field(name="totalUsers", description='Total number of users in leaderboard', default=None)
-    @strawberry.field(name="entries", description='Leaderboard entries in rank order')
-    def entries(self, info: strawberry.Info) -> Optional[list[Optional["LeaderboardEntryType"]]]:
-        return resolve_django_list(self, info, getattr(self, "entries"), "LeaderboardEntryType")
+    entries: Optional[list[Optional["LeaderboardEntryType"]]] = strawberry.field(name="entries", description='Leaderboard entries in rank order', default=None)
     current_user_rank: Optional[int] = strawberry.field(name="currentUserRank", description="Current user's rank in this leaderboard (null if not ranked)", default=None)
 
 
@@ -243,9 +215,7 @@ class CommunityStatsType:
     total_threads: Optional[int] = strawberry.field(name="totalThreads", description='Total threads created', default=None)
     total_annotations: Optional[int] = strawberry.field(name="totalAnnotations", description='Total annotations created', default=None)
     total_badges_awarded: Optional[int] = strawberry.field(name="totalBadgesAwarded", description='Total badge awards', default=None)
-    @strawberry.field(name="badgeDistribution", description='Badge distribution across users')
-    def badge_distribution(self, info: strawberry.Info) -> Optional[list[Optional["BadgeDistributionType"]]]:
-        return resolve_django_list(self, info, getattr(self, "badge_distribution"), "BadgeDistributionType")
+    badge_distribution: Optional[list[Optional["BadgeDistributionType"]]] = strawberry.field(name="badgeDistribution", description='Badge distribution across users', default=None)
     messages_this_week: Optional[int] = strawberry.field(name="messagesThisWeek", description='Messages posted in last 7 days', default=None)
     messages_this_month: Optional[int] = strawberry.field(name="messagesThisMonth", description='Messages posted in last 30 days', default=None)
     active_users_this_week: Optional[int] = strawberry.field(name="activeUsersThisWeek", description='Users who posted in last 7 days', default=None)
@@ -266,7 +236,7 @@ register_type("BadgeDistributionType", BadgeDistributionType, model=None)
 
 
 def _resolve_SemanticSearchResultType_document(root, info, **kwargs):
-    """PORT: config/graphql/social_types.py:419
+    """PORT: /home/user/oc-graphene-ref/config/graphql/social_types.py:419
 
     Port of SemanticSearchResultType.resolve_document
     """
@@ -274,7 +244,7 @@ def _resolve_SemanticSearchResultType_document(root, info, **kwargs):
 
 
 def _resolve_SemanticSearchResultType_corpus(root, info, **kwargs):
-    """PORT: config/graphql/social_types.py:432
+    """PORT: /home/user/oc-graphene-ref/config/graphql/social_types.py:432
 
     Port of SemanticSearchResultType.resolve_corpus
     """
@@ -301,21 +271,11 @@ register_type("SemanticSearchResultType", SemanticSearchResultType, model=None)
 
 @strawberry.type(name="BlockContextType", description='The smallest enclosing ``OC_SUBTREE_GROUP`` block for a vector hit.\n\nLets clients deep-link directly to the materialised subtree relationship\n(``Relationship.id``) instead of recursively walking ``parent_id`` —\nused by the document viewer\'s "jump to surfaced block" affordance.')
 class BlockContextType:
-    @strawberry.field(name="relationshipId", description='Database PK of the OC_SUBTREE_GROUP relationship. NOTE: this is the raw Django PK (matching ``Relationship.id``), NOT a global Relay ID — frontend deep-links pass it through directly.')
-    def relationship_id(self, info: strawberry.Info) -> strawberry.ID:
-        return coerce_str(getattr(self, "relationship_id", None))
-    @strawberry.field(name="sourceAnnotationId", description='PK of the ancestor annotation that anchors this block. Useful for highlighting the block root in the document viewer.')
-    def source_annotation_id(self, info: strawberry.Info) -> strawberry.ID:
-        return coerce_str(getattr(self, "source_annotation_id", None))
-    @strawberry.field(name="sourceText", description='Raw text of the ancestor annotation. May be empty for image-only structural rows; clients should treat empty as valid rather than missing.')
-    def source_text(self, info: strawberry.Info) -> str:
-        return coerce_str(getattr(self, "source_text", None))
-    @strawberry.field(name="targetAnnotationIds", description='PKs of every annotation transitively under the block source — i.e. the descendants the document viewer should also highlight when jumping to this block.')
-    def target_annotation_ids(self, info: strawberry.Info) -> list[strawberry.ID]:
-        return resolve_django_list(self, info, getattr(self, "target_annotation_ids"), "ID")
-    @strawberry.field(name="blockText", description='Source + targets concatenated newline-separated, capped at ``SUBTREE_GROUP_BLOCK_TEXT_MAX_CHARS`` characters. Safe to render directly; no further truncation needed.')
-    def block_text(self, info: strawberry.Info) -> str:
-        return coerce_str(getattr(self, "block_text", None))
+    relationship_id: strawberry.ID = strawberry.field(name="relationshipId", description='Database PK of the OC_SUBTREE_GROUP relationship. NOTE: this is the raw Django PK (matching ``Relationship.id``), NOT a global Relay ID — frontend deep-links pass it through directly.', default=None)
+    source_annotation_id: strawberry.ID = strawberry.field(name="sourceAnnotationId", description='PK of the ancestor annotation that anchors this block. Useful for highlighting the block root in the document viewer.', default=None)
+    source_text: str = strawberry.field(name="sourceText", description='Raw text of the ancestor annotation. May be empty for image-only structural rows; clients should treat empty as valid rather than missing.', default=None)
+    target_annotation_ids: list[strawberry.ID] = strawberry.field(name="targetAnnotationIds", description='PKs of every annotation transitively under the block source — i.e. the descendants the document viewer should also highlight when jumping to this block.', default=None)
+    block_text: str = strawberry.field(name="blockText", description='Source + targets concatenated newline-separated, capped at ``SUBTREE_GROUP_BLOCK_TEXT_MAX_CHARS`` characters. Safe to render directly; no further truncation needed.', default=None)
 
 
 register_type("BlockContextType", BlockContextType, model=None)
@@ -323,28 +283,14 @@ register_type("BlockContextType", BlockContextType, model=None)
 
 @strawberry.type(name="SemanticSearchRelationshipResultType", description='Semantic search hit where the matched object is a *Relationship*.\n\nSurfaces ``OC_SUBTREE_GROUP`` rows (or, in the future, any embedded\nrelationship type) ranked by vector similarity. The doc viewer uses\n``source_annotation_id`` + ``target_annotation_ids`` to scroll-and-select\nthe whole block in a single navigation, mirroring the existing\n``RelationGroup`` selection flow.\n\nID convention\n-------------\n``relationship_id``, ``source_annotation_id``, ``target_annotation_ids``,\n``document_id``, and ``corpus_id`` are ALL raw Django PKs (not Relay\nglobal IDs). The frontend deep-link path consumes them directly without\n``from_global_id``. Do NOT feed these values into resolvers that expect\na Relay global ID (e.g. ``node(id: $documentId)``) — they will silently\nfail. Use the corresponding Relay-encoded type if you need that contract.')
 class SemanticSearchRelationshipResultType:
-    @strawberry.field(name="relationshipId", description='Database PK of the Relationship. NOTE: this is the raw Django PK (matching ``Relationship.id``), NOT a global Relay ID — frontend deep-links and selection setters pass it through directly without ``from_global_id``.')
-    def relationship_id(self, info: strawberry.Info) -> strawberry.ID:
-        return coerce_str(getattr(self, "relationship_id", None))
+    relationship_id: strawberry.ID = strawberry.field(name="relationshipId", description='Database PK of the Relationship. NOTE: this is the raw Django PK (matching ``Relationship.id``), NOT a global Relay ID — frontend deep-links and selection setters pass it through directly without ``from_global_id``.', default=None)
     similarity_score: float = strawberry.field(name="similarityScore", description='Cosine similarity (0.0-1.0, higher is more similar).', default=None)
-    @strawberry.field(name="label", description='Relationship label text (e.g. ``OC_SUBTREE_GROUP``). Provided so callers can filter or branch on the relationship kind without a follow-up fetch.')
-    def label(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "label", None))
-    @strawberry.field(name="sourceAnnotationId", description="PK of the (typically single) source annotation — the block's root. Null only when the relationship has no source row, which the materialiser does not produce but defensive frontends should still handle.")
-    def source_annotation_id(self, info: strawberry.Info) -> Optional[strawberry.ID]:
-        return coerce_str(getattr(self, "source_annotation_id", None))
-    @strawberry.field(name="targetAnnotationIds", description="PKs of the relationship's target annotations.")
-    def target_annotation_ids(self, info: strawberry.Info) -> list[strawberry.ID]:
-        return resolve_django_list(self, info, getattr(self, "target_annotation_ids"), "ID")
-    @strawberry.field(name="blockText", description='Source + targets concatenated newline-separated, capped at ``SUBTREE_GROUP_BLOCK_TEXT_MAX_CHARS`` — the same string the embedder saw, suitable for snippet display.')
-    def block_text(self, info: strawberry.Info) -> str:
-        return coerce_str(getattr(self, "block_text", None))
-    @strawberry.field(name="documentId", description='PK of the document this relationship is anchored to (or that shares the ``StructuralAnnotationSet`` for structural rows). Null when the relationship is global and not tied to any single document.')
-    def document_id(self, info: strawberry.Info) -> Optional[strawberry.ID]:
-        return coerce_str(getattr(self, "document_id", None))
-    @strawberry.field(name="corpusId", description='PK of the corpus this relationship belongs to. Null for non-corpus relationships.')
-    def corpus_id(self, info: strawberry.Info) -> Optional[strawberry.ID]:
-        return coerce_str(getattr(self, "corpus_id", None))
+    label: Optional[str] = strawberry.field(name="label", description='Relationship label text (e.g. ``OC_SUBTREE_GROUP``). Provided so callers can filter or branch on the relationship kind without a follow-up fetch.', default=None)
+    source_annotation_id: Optional[strawberry.ID] = strawberry.field(name="sourceAnnotationId", description="PK of the (typically single) source annotation — the block's root. Null only when the relationship has no source row, which the materialiser does not produce but defensive frontends should still handle.", default=None)
+    target_annotation_ids: list[strawberry.ID] = strawberry.field(name="targetAnnotationIds", description="PKs of the relationship's target annotations.", default=None)
+    block_text: str = strawberry.field(name="blockText", description='Source + targets concatenated newline-separated, capped at ``SUBTREE_GROUP_BLOCK_TEXT_MAX_CHARS`` — the same string the embedder saw, suitable for snippet display.', default=None)
+    document_id: Optional[strawberry.ID] = strawberry.field(name="documentId", description='PK of the document this relationship is anchored to (or that shares the ``StructuralAnnotationSet`` for structural rows). Null when the relationship is global and not tied to any single document.', default=None)
+    corpus_id: Optional[strawberry.ID] = strawberry.field(name="corpusId", description='PK of the corpus this relationship belongs to. Null for non-corpus relationships.', default=None)
 
 
 register_type("SemanticSearchRelationshipResultType", SemanticSearchRelationshipResultType, model=None)

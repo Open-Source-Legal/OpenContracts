@@ -34,7 +34,7 @@ from opencontractserver.corpuses.models import CorpusCategory
 
 
 def _resolve_Query_corpuses(root, info, **kwargs):
-    """PORT: config/ratelimit/decorators.py:113
+    """PORT: /home/user/oc-graphene-ref/config/ratelimit/decorators.py:113
 
     Port of CorpusQueryMixin.resolve_corpuses
     """
@@ -48,7 +48,7 @@ def q_corpuses(info: strawberry.Info, offset: Annotated[Optional[int], strawberr
 
 
 def _resolve_Query_corpus_filter_counts(root, info, **kwargs):
-    """PORT: config/ratelimit/decorators.py:176
+    """PORT: /home/user/oc-graphene-ref/config/ratelimit/decorators.py:176
 
     Port of CorpusQueryMixin.resolve_corpus_filter_counts
     """
@@ -61,7 +61,7 @@ def q_corpus_filter_counts(info: strawberry.Info, text_search: Annotated[Optiona
 
 
 def _resolve_Query_corpus_categories(root, info, **kwargs):
-    """PORT: config/ratelimit/decorators.py:218
+    """PORT: /home/user/oc-graphene-ref/config/ratelimit/decorators.py:218
 
     Port of CorpusQueryMixin.resolve_corpus_categories
     """
@@ -75,7 +75,7 @@ def q_corpus_categories(info: strawberry.Info, offset: Annotated[Optional[int], 
 
 
 def _resolve_Query_corpus_folders(root, info, **kwargs):
-    """PORT: config/ratelimit/decorators.py:260
+    """PORT: /home/user/oc-graphene-ref/config/ratelimit/decorators.py:260
 
     Port of CorpusQueryMixin.resolve_corpus_folders
     """
@@ -88,7 +88,7 @@ def q_corpus_folders(info: strawberry.Info, corpus_id: Annotated[strawberry.ID, 
 
 
 def _resolve_Query_corpus_folder(root, info, **kwargs):
-    """PORT: config/ratelimit/decorators.py:289
+    """PORT: /home/user/oc-graphene-ref/config/ratelimit/decorators.py:289
 
     Port of CorpusQueryMixin.resolve_corpus_folder
     """
@@ -101,7 +101,7 @@ def q_corpus_folder(info: strawberry.Info, id: Annotated[strawberry.ID, strawber
 
 
 def _resolve_Query_deleted_documents_in_corpus(root, info, **kwargs):
-    """PORT: config/ratelimit/decorators.py:312
+    """PORT: /home/user/oc-graphene-ref/config/ratelimit/decorators.py:312
 
     Port of CorpusQueryMixin.resolve_deleted_documents_in_corpus
     """
@@ -114,7 +114,7 @@ def q_deleted_documents_in_corpus(info: strawberry.Info, corpus_id: Annotated[st
 
 
 def _resolve_Query_corpus_intelligence_setup_status(root, info, **kwargs):
-    """PORT: config/ratelimit/decorators.py:341
+    """PORT: /home/user/oc-graphene-ref/config/ratelimit/decorators.py:341
 
     Port of CorpusQueryMixin.resolve_corpus_intelligence_setup_status
     """
@@ -127,7 +127,7 @@ def q_corpus_intelligence_setup_status(info: strawberry.Info, corpus_id: Annotat
 
 
 def _resolve_Query_corpus_stats(root, info, **kwargs):
-    """PORT: config/ratelimit/decorators.py:368
+    """PORT: /home/user/oc-graphene-ref/config/ratelimit/decorators.py:368
 
     Port of CorpusQueryMixin.resolve_corpus_stats
     """
@@ -140,7 +140,7 @@ def q_corpus_stats(info: strawberry.Info, corpus_id: Annotated[strawberry.ID, st
 
 
 def _resolve_Query_corpus_document_graph(root, info, **kwargs):
-    """PORT: config/ratelimit/decorators.py:508
+    """PORT: /home/user/oc-graphene-ref/config/ratelimit/decorators.py:508
 
     Port of CorpusQueryMixin.resolve_corpus_document_graph
     """
@@ -153,7 +153,7 @@ def q_corpus_document_graph(info: strawberry.Info, corpus_id: Annotated[strawber
 
 
 def _resolve_Query_corpus_intelligence_aggregates(root, info, **kwargs):
-    """PORT: config/ratelimit/decorators.py:654
+    """PORT: /home/user/oc-graphene-ref/config/ratelimit/decorators.py:654
 
     Port of CorpusQueryMixin.resolve_corpus_intelligence_aggregates
     """
@@ -166,7 +166,7 @@ def q_corpus_intelligence_aggregates(info: strawberry.Info, corpus_id: Annotated
 
 
 def _resolve_Query_corpus_data_story(root, info, **kwargs):
-    """PORT: config/ratelimit/decorators.py:745
+    """PORT: /home/user/oc-graphene-ref/config/ratelimit/decorators.py:745
 
     Port of CorpusQueryMixin.resolve_corpus_data_story
     """
@@ -179,7 +179,7 @@ def q_corpus_data_story(info: strawberry.Info, corpus_id: Annotated[strawberry.I
 
 
 def _resolve_Query_artifact_by_slug(root, info, **kwargs):
-    """PORT: config/ratelimit/decorators.py:785
+    """PORT: /home/user/oc-graphene-ref/config/ratelimit/decorators.py:785
 
     Port of CorpusQueryMixin.resolve_artifact_by_slug
     """
@@ -192,7 +192,7 @@ def q_artifact_by_slug(info: strawberry.Info, slug: Annotated[str, strawberry.ar
 
 
 def _resolve_Query_corpus_artifacts(root, info, **kwargs):
-    """PORT: config/ratelimit/decorators.py:802
+    """PORT: /home/user/oc-graphene-ref/config/ratelimit/decorators.py:802
 
     Port of CorpusQueryMixin.resolve_corpus_artifacts
     """
@@ -205,7 +205,7 @@ def q_corpus_artifacts(info: strawberry.Info, corpus_id: Annotated[strawberry.ID
 
 
 def _resolve_Query_corpus_artifact_templates(root, info, **kwargs):
-    """PORT: config/ratelimit/decorators.py:824
+    """PORT: /home/user/oc-graphene-ref/config/ratelimit/decorators.py:824
 
     Port of CorpusQueryMixin.resolve_corpus_artifact_templates
     """
@@ -218,7 +218,7 @@ def q_corpus_artifact_templates(info: strawberry.Info, corpus_id: Annotated[stra
 
 
 def _resolve_Query_corpus_metadata_columns(root, info, **kwargs):
-    """PORT: config/graphql/corpus_queries.py:853
+    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_queries.py:853
 
     Port of CorpusQueryMixin.resolve_corpus_metadata_columns
     """

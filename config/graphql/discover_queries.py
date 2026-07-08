@@ -31,7 +31,7 @@ from config.graphql import enums
 
 
 def _resolve_Query_discover_annotations(root, info, **kwargs):
-    """PORT: config/ratelimit/decorators.py:303
+    """PORT: /home/user/oc-graphene-ref/config/ratelimit/decorators.py:303
 
     Port of DiscoverSearchQueryMixin.resolve_discover_annotations
     """
@@ -44,7 +44,7 @@ def q_discover_annotations(info: strawberry.Info, text_search: Annotated[str, st
 
 
 def _resolve_Query_discover_documents(root, info, **kwargs):
-    """PORT: config/ratelimit/decorators.py:339
+    """PORT: /home/user/oc-graphene-ref/config/ratelimit/decorators.py:339
 
     Port of DiscoverSearchQueryMixin.resolve_discover_documents
     """
@@ -57,7 +57,7 @@ def q_discover_documents(info: strawberry.Info, text_search: Annotated[str, stra
 
 
 def _resolve_Query_discover_notes(root, info, **kwargs):
-    """PORT: config/ratelimit/decorators.py:363
+    """PORT: /home/user/oc-graphene-ref/config/ratelimit/decorators.py:363
 
     Port of DiscoverSearchQueryMixin.resolve_discover_notes
     """
@@ -70,7 +70,7 @@ def q_discover_notes(info: strawberry.Info, text_search: Annotated[str, strawber
 
 
 def _resolve_Query_discover_corpuses(root, info, **kwargs):
-    """PORT: config/ratelimit/decorators.py:395
+    """PORT: /home/user/oc-graphene-ref/config/ratelimit/decorators.py:395
 
     Port of DiscoverSearchQueryMixin.resolve_discover_corpuses
     """
@@ -83,7 +83,7 @@ def q_discover_corpuses(info: strawberry.Info, text_search: Annotated[str, straw
 
 
 def _resolve_Query_discover_discussions(root, info, **kwargs):
-    """PORT: config/ratelimit/decorators.py:478
+    """PORT: /home/user/oc-graphene-ref/config/ratelimit/decorators.py:478
 
     Port of DiscoverSearchQueryMixin.resolve_discover_discussions
     """

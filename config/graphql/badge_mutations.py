@@ -33,9 +33,7 @@ from config.graphql import enums
 @strawberry.type(name="CreateBadgeMutation", description='Create a new badge (admin/corpus owner only).')
 class CreateBadgeMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     badge: Optional[Annotated["BadgeType", strawberry.lazy("config.graphql.social_types")]] = strawberry.field(name="badge", default=None)
 
 
@@ -45,9 +43,7 @@ register_type("CreateBadgeMutation", CreateBadgeMutation, model=None)
 @strawberry.type(name="UpdateBadgeMutation", description='Update an existing badge.')
 class UpdateBadgeMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     badge: Optional[Annotated["BadgeType", strawberry.lazy("config.graphql.social_types")]] = strawberry.field(name="badge", default=None)
 
 
@@ -57,9 +53,7 @@ register_type("UpdateBadgeMutation", UpdateBadgeMutation, model=None)
 @strawberry.type(name="DeleteBadgeMutation", description='Delete a badge.')
 class DeleteBadgeMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
 
 
 register_type("DeleteBadgeMutation", DeleteBadgeMutation, model=None)
@@ -68,9 +62,7 @@ register_type("DeleteBadgeMutation", DeleteBadgeMutation, model=None)
 @strawberry.type(name="AwardBadgeMutation", description='Manually award a badge to a user.')
 class AwardBadgeMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     user_badge: Optional[Annotated["UserBadgeType", strawberry.lazy("config.graphql.social_types")]] = strawberry.field(name="userBadge", default=None)
 
 
@@ -80,9 +72,7 @@ register_type("AwardBadgeMutation", AwardBadgeMutation, model=None)
 @strawberry.type(name="RevokeBadgeMutation", description='Revoke a badge from a user.')
 class RevokeBadgeMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
 
 
 register_type("RevokeBadgeMutation", RevokeBadgeMutation, model=None)

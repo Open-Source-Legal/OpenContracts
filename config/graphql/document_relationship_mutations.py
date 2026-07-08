@@ -34,9 +34,7 @@ from config.graphql import enums
 class CreateDocumentRelationship:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
     document_relationship: Optional[Annotated["DocumentRelationshipType", strawberry.lazy("config.graphql.document_types")]] = strawberry.field(name="documentRelationship", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
 
 
 register_type("CreateDocumentRelationship", CreateDocumentRelationship, model=None)
@@ -46,9 +44,7 @@ register_type("CreateDocumentRelationship", CreateDocumentRelationship, model=No
 class UpdateDocumentRelationship:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
     document_relationship: Optional[Annotated["DocumentRelationshipType", strawberry.lazy("config.graphql.document_types")]] = strawberry.field(name="documentRelationship", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
 
 
 register_type("UpdateDocumentRelationship", UpdateDocumentRelationship, model=None)
@@ -57,9 +53,7 @@ register_type("UpdateDocumentRelationship", UpdateDocumentRelationship, model=No
 @strawberry.type(name="DeleteDocumentRelationship", description='Delete a document relationship.\n\nPermission requirements:\n- User must have DELETE permission on the document relationship\n- OR DELETE permission on BOTH source and target documents')
 class DeleteDocumentRelationship:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
 
 
 register_type("DeleteDocumentRelationship", DeleteDocumentRelationship, model=None)
@@ -68,9 +62,7 @@ register_type("DeleteDocumentRelationship", DeleteDocumentRelationship, model=No
 @strawberry.type(name="DeleteDocumentRelationships", description='Delete multiple document relationships at once.\n\nPermission requirements:\n- User must have DELETE permission on each document relationship')
 class DeleteDocumentRelationships:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     deleted_count: Optional[int] = strawberry.field(name="deletedCount", default=None)
 
 

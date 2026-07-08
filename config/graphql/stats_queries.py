@@ -45,7 +45,7 @@ register_type("SystemStatsType", SystemStatsType, model=None)
 
 
 def _resolve_Query_system_stats(root, info, **kwargs):
-    """PORT: config/graphql/stats_queries.py:52
+    """PORT: /home/user/oc-graphene-ref/config/graphql/stats_queries.py:52
 
     Port of StatsQueryMixin.resolve_system_stats
     """

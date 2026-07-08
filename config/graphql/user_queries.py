@@ -35,7 +35,7 @@ from opencontractserver.users.models import UserImport
 
 
 def _resolve_Query_me(root, info, **kwargs):
-    """PORT: config/graphql/user_queries.py:40
+    """PORT: /home/user/oc-graphene-ref/config/graphql/user_queries.py:40
 
     Port of UserQueryMixin.resolve_me
     """
@@ -48,7 +48,7 @@ def q_me(info: strawberry.Info) -> Optional[Annotated["UserType", strawberry.laz
 
 
 def _resolve_Query_user_by_slug(root, info, **kwargs):
-    """PORT: config/graphql/user_queries.py:46
+    """PORT: /home/user/oc-graphene-ref/config/graphql/user_queries.py:46
 
     Port of UserQueryMixin.resolve_user_by_slug
     """

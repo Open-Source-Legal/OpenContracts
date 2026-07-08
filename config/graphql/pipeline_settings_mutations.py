@@ -33,9 +33,7 @@ from config.graphql import enums
 @strawberry.type(name="UpdatePipelineSettingsMutation", description='Update the singleton pipeline settings.\n\nOnly superusers can modify these settings. Changes take effect immediately\nfor all new document processing tasks.\n\nArguments:\n    preferred_parsers: Dict mapping MIME types to parser class paths\n    preferred_embedders: Dict mapping MIME types to embedder class paths\n    preferred_thumbnailers: Dict mapping MIME types to thumbnailer class paths\n    preferred_enrichers: Dict mapping MIME types to ORDERED LISTS of enricher class paths\n    parser_kwargs: Dict mapping parser class paths to their configuration kwargs\n    component_settings: Dict mapping component class paths to settings overrides\n    default_embedder: Default embedder class path\n\nReturns:\n    ok: Whether the update succeeded\n    message: Status message\n    pipeline_settings: The updated settings')
 class UpdatePipelineSettingsMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     pipeline_settings: Optional[Annotated["PipelineSettingsType", strawberry.lazy("config.graphql.pipeline_types")]] = strawberry.field(name="pipelineSettings", default=None)
 
 
@@ -45,9 +43,7 @@ register_type("UpdatePipelineSettingsMutation", UpdatePipelineSettingsMutation, 
 @strawberry.type(name="ResetPipelineSettingsMutation", description='Reset pipeline settings to Django settings defaults.\n\nThis mutation resets all pipeline settings to their default values from\nDjango settings (PREFERRED_PARSERS, PREFERRED_EMBEDDERS, etc.).\n\nOnly superusers can perform this operation.')
 class ResetPipelineSettingsMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     pipeline_settings: Optional[Annotated["PipelineSettingsType", strawberry.lazy("config.graphql.pipeline_types")]] = strawberry.field(name="pipelineSettings", default=None)
 
 
@@ -57,12 +53,8 @@ register_type("ResetPipelineSettingsMutation", ResetPipelineSettingsMutation, mo
 @strawberry.type(name="UpdateComponentSecretsMutation", description="Update encrypted secrets for a specific pipeline component.\n\nThis mutation allows superusers to securely store API keys, tokens, and\nother credentials for pipeline components. The secrets are encrypted at\nrest using Fernet symmetric encryption.\n\nOnly superusers can perform this operation.\n\nArguments:\n    component_path: Full class path of the component (e.g.,\n        'opencontractserver.pipeline.parsers.llamaparse_parser.LlamaParseParser')\n    secrets: Dict of secret key-value pairs to store (e.g., {'api_key': '...'})\n    merge: If True, merge with existing secrets. If False, replace all secrets\n        for this component. Default: True\n\nReturns:\n    ok: Whether the update succeeded\n    message: Status message\n    components_with_secrets: List of component paths that have secrets stored")
 class UpdateComponentSecretsMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
-    @strawberry.field(name="componentsWithSecrets", description='List of component paths that have secrets stored.')
-    def components_with_secrets(self, info: strawberry.Info) -> Optional[list[Optional[str]]]:
-        return coerce_str(getattr(self, "components_with_secrets", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
+    components_with_secrets: Optional[list[Optional[str]]] = strawberry.field(name="componentsWithSecrets", description='List of component paths that have secrets stored.', default=None)
 
 
 register_type("UpdateComponentSecretsMutation", UpdateComponentSecretsMutation, model=None)
@@ -71,12 +63,8 @@ register_type("UpdateComponentSecretsMutation", UpdateComponentSecretsMutation, 
 @strawberry.type(name="DeleteComponentSecretsMutation", description='Delete all encrypted secrets for a specific pipeline component.\n\nOnly superusers can perform this operation.\n\nArguments:\n    component_path: Full class path of the component\n\nReturns:\n    ok: Whether the deletion succeeded\n    message: Status message\n    components_with_secrets: Updated list of component paths that have secrets')
 class DeleteComponentSecretsMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
-    @strawberry.field(name="componentsWithSecrets")
-    def components_with_secrets(self, info: strawberry.Info) -> Optional[list[Optional[str]]]:
-        return coerce_str(getattr(self, "components_with_secrets", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
+    components_with_secrets: Optional[list[Optional[str]]] = strawberry.field(name="componentsWithSecrets", default=None)
 
 
 register_type("DeleteComponentSecretsMutation", DeleteComponentSecretsMutation, model=None)
@@ -85,12 +73,8 @@ register_type("DeleteComponentSecretsMutation", DeleteComponentSecretsMutation, 
 @strawberry.type(name="UpdateToolSecretsMutation", description='Update encrypted secrets for an agent tool (e.g. web search API keys).\n\nTool secrets are stored in PipelineSettings alongside component secrets,\nunder a ``tool:`` namespace prefix. Only superusers can perform this.\n\nArguments:\n    tool_key: Tool identifier, e.g. ``"tool:web_search"``\n    secrets: Dict of secret key-value pairs, e.g. ``{"api_key": "..."}``\n    settings: Optional non-sensitive settings, e.g. ``{"provider": "brave"}``\n    merge: If True (default), merge with existing; if False, replace.')
 class UpdateToolSecretsMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
-    @strawberry.field(name="toolsWithSecrets", description='Tool keys that have secrets stored.')
-    def tools_with_secrets(self, info: strawberry.Info) -> Optional[list[Optional[str]]]:
-        return coerce_str(getattr(self, "tools_with_secrets", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
+    tools_with_secrets: Optional[list[Optional[str]]] = strawberry.field(name="toolsWithSecrets", description='Tool keys that have secrets stored.', default=None)
 
 
 register_type("UpdateToolSecretsMutation", UpdateToolSecretsMutation, model=None)
@@ -99,12 +83,8 @@ register_type("UpdateToolSecretsMutation", UpdateToolSecretsMutation, model=None
 @strawberry.type(name="DeleteToolSecretsMutation", description='Delete all settings and secrets for an agent tool.\n\nOnly superusers can perform this operation.')
 class DeleteToolSecretsMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
-    @strawberry.field(name="toolsWithSecrets")
-    def tools_with_secrets(self, info: strawberry.Info) -> Optional[list[Optional[str]]]:
-        return coerce_str(getattr(self, "tools_with_secrets", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
+    tools_with_secrets: Optional[list[Optional[str]]] = strawberry.field(name="toolsWithSecrets", default=None)
 
 
 register_type("DeleteToolSecretsMutation", DeleteToolSecretsMutation, model=None)

@@ -31,7 +31,7 @@ from config.graphql import enums
 
 
 def _resolve_Query_corpus_by_slugs(root, info, **kwargs):
-    """PORT: config/graphql/slug_queries.py:47
+    """PORT: /home/user/oc-graphene-ref/config/graphql/slug_queries.py:47
 
     Port of SlugQueryMixin.resolve_corpus_by_slugs
     """
@@ -44,7 +44,7 @@ def q_corpus_by_slugs(info: strawberry.Info, user_slug: Annotated[str, strawberr
 
 
 def _resolve_Query_document_by_slugs(root, info, **kwargs):
-    """PORT: config/graphql/slug_queries.py:72
+    """PORT: /home/user/oc-graphene-ref/config/graphql/slug_queries.py:72
 
     Port of SlugQueryMixin.resolve_document_by_slugs
     """
@@ -57,7 +57,7 @@ def q_document_by_slugs(info: strawberry.Info, user_slug: Annotated[str, strawbe
 
 
 def _resolve_Query_document_in_corpus_by_slugs(root, info, **kwargs):
-    """PORT: config/graphql/slug_queries.py:90
+    """PORT: /home/user/oc-graphene-ref/config/graphql/slug_queries.py:90
 
     Port of SlugQueryMixin.resolve_document_in_corpus_by_slugs
     """

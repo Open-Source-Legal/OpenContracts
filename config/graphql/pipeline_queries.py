@@ -44,7 +44,7 @@ def q_pipeline_components(info: strawberry.Info, mimetype: Annotated[Optional[en
 
 
 def _resolve_Query_supported_mime_types(root, info, **kwargs):
-    """PORT: config/graphql/pipeline_queries.py:258
+    """PORT: /home/user/oc-graphene-ref/config/graphql/pipeline_queries.py:258
 
     Port of PipelineQueryMixin.resolve_supported_mime_types
     """
@@ -57,7 +57,7 @@ def q_supported_mime_types(info: strawberry.Info) -> Optional[list[Optional[Anno
 
 
 def _resolve_Query_convertible_extensions(root, info, **kwargs):
-    """PORT: config/graphql/pipeline_queries.py:294
+    """PORT: /home/user/oc-graphene-ref/config/graphql/pipeline_queries.py:294
 
     Port of PipelineQueryMixin.resolve_convertible_extensions
     """

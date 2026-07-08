@@ -32,30 +32,14 @@ from config.graphql import enums
 
 @strawberry.type(name="PipelineComponentsType", description='Graphene type for grouping pipeline components.')
 class PipelineComponentsType:
-    @strawberry.field(name="parsers", description='List of available parsers.')
-    def parsers(self, info: strawberry.Info) -> Optional[list[Optional["PipelineComponentType"]]]:
-        return resolve_django_list(self, info, getattr(self, "parsers"), "PipelineComponentType")
-    @strawberry.field(name="embedders", description='List of available embedders.')
-    def embedders(self, info: strawberry.Info) -> Optional[list[Optional["PipelineComponentType"]]]:
-        return resolve_django_list(self, info, getattr(self, "embedders"), "PipelineComponentType")
-    @strawberry.field(name="thumbnailers", description='List of available thumbnail generators.')
-    def thumbnailers(self, info: strawberry.Info) -> Optional[list[Optional["PipelineComponentType"]]]:
-        return resolve_django_list(self, info, getattr(self, "thumbnailers"), "PipelineComponentType")
-    @strawberry.field(name="postProcessors", description='List of available post-processors.')
-    def post_processors(self, info: strawberry.Info) -> Optional[list[Optional["PipelineComponentType"]]]:
-        return resolve_django_list(self, info, getattr(self, "post_processors"), "PipelineComponentType")
-    @strawberry.field(name="rerankers", description='List of available post-retrieval rerankers.')
-    def rerankers(self, info: strawberry.Info) -> Optional[list[Optional["PipelineComponentType"]]]:
-        return resolve_django_list(self, info, getattr(self, "rerankers"), "PipelineComponentType")
-    @strawberry.field(name="enrichers", description='List of available document enrichers (run between parsing and persistence).')
-    def enrichers(self, info: strawberry.Info) -> Optional[list[Optional["PipelineComponentType"]]]:
-        return resolve_django_list(self, info, getattr(self, "enrichers"), "PipelineComponentType")
-    @strawberry.field(name="llmProviders", description='List of available LLM providers (pydantic-ai model families) that can be set as Corpus.preferred_llm or AgentConfiguration.preferred_llm.')
-    def llm_providers(self, info: strawberry.Info) -> Optional[list[Optional["PipelineComponentType"]]]:
-        return resolve_django_list(self, info, getattr(self, "llm_providers"), "PipelineComponentType")
-    @strawberry.field(name="fileConverters", description='List of available pre-parse file converters (convert non-native upload formats to PDF before parsing).')
-    def file_converters(self, info: strawberry.Info) -> Optional[list[Optional["PipelineComponentType"]]]:
-        return resolve_django_list(self, info, getattr(self, "file_converters"), "PipelineComponentType")
+    parsers: Optional[list[Optional["PipelineComponentType"]]] = strawberry.field(name="parsers", description='List of available parsers.', default=None)
+    embedders: Optional[list[Optional["PipelineComponentType"]]] = strawberry.field(name="embedders", description='List of available embedders.', default=None)
+    thumbnailers: Optional[list[Optional["PipelineComponentType"]]] = strawberry.field(name="thumbnailers", description='List of available thumbnail generators.', default=None)
+    post_processors: Optional[list[Optional["PipelineComponentType"]]] = strawberry.field(name="postProcessors", description='List of available post-processors.', default=None)
+    rerankers: Optional[list[Optional["PipelineComponentType"]]] = strawberry.field(name="rerankers", description='List of available post-retrieval rerankers.', default=None)
+    enrichers: Optional[list[Optional["PipelineComponentType"]]] = strawberry.field(name="enrichers", description='List of available document enrichers (run between parsing and persistence).', default=None)
+    llm_providers: Optional[list[Optional["PipelineComponentType"]]] = strawberry.field(name="llmProviders", description='List of available LLM providers (pydantic-ai model families) that can be set as Corpus.preferred_llm or AgentConfiguration.preferred_llm.', default=None)
+    file_converters: Optional[list[Optional["PipelineComponentType"]]] = strawberry.field(name="fileConverters", description='List of available pre-parse file converters (convert non-native upload formats to PDF before parsing).', default=None)
 
 
 register_type("PipelineComponentsType", PipelineComponentsType, model=None)
@@ -63,50 +47,24 @@ register_type("PipelineComponentsType", PipelineComponentsType, model=None)
 
 @strawberry.type(name="PipelineComponentType", description='Graphene type for pipeline components.')
 class PipelineComponentType:
-    @strawberry.field(name="name", description='Name of the component class.')
-    def name(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "name", None))
-    @strawberry.field(name="className", description='Full Python path to the component class.')
-    def class_name(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "class_name", None))
-    @strawberry.field(name="moduleName", description='Name of the module the component is in.')
-    def module_name(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "module_name", None))
-    @strawberry.field(name="title", description='Title of the component.')
-    def title(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "title", None))
-    @strawberry.field(name="description", description='Description of the component.')
-    def description(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "description", None))
-    @strawberry.field(name="author", description='Author of the component.')
-    def author(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "author", None))
-    @strawberry.field(name="dependencies", description='List of dependencies required by the component.')
-    def dependencies(self, info: strawberry.Info) -> Optional[list[Optional[str]]]:
-        return coerce_str(getattr(self, "dependencies", None))
+    name: Optional[str] = strawberry.field(name="name", description='Name of the component class.', default=None)
+    class_name: Optional[str] = strawberry.field(name="className", description='Full Python path to the component class.', default=None)
+    module_name: Optional[str] = strawberry.field(name="moduleName", description='Name of the module the component is in.', default=None)
+    title: Optional[str] = strawberry.field(name="title", description='Title of the component.', default=None)
+    description: Optional[str] = strawberry.field(name="description", description='Description of the component.', default=None)
+    author: Optional[str] = strawberry.field(name="author", description='Author of the component.', default=None)
+    dependencies: Optional[list[Optional[str]]] = strawberry.field(name="dependencies", description='List of dependencies required by the component.', default=None)
     vector_size: Optional[int] = strawberry.field(name="vectorSize", description='Vector size for embedders.', default=None)
-    @strawberry.field(name="supportedFileTypes", description='List of supported file types.')
-    def supported_file_types(self, info: strawberry.Info) -> Optional[list[Optional[enums.FileTypeEnum]]]:
-        return coerce_enum(enums.FileTypeEnum, getattr(self, "supported_file_types", None))
-    @strawberry.field(name="supportedExtensions", description='File converters: source-file extensions the converter can turn into PDF (plain strings, since converters target formats with no FileTypeEnum member). Empty for other component types.')
-    def supported_extensions(self, info: strawberry.Info) -> Optional[list[Optional[str]]]:
-        return coerce_str(getattr(self, "supported_extensions", None))
-    @strawberry.field(name="componentType", description='Type of the component (parser, embedder, or thumbnailer).')
-    def component_type(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "component_type", None))
+    supported_file_types: Optional[list[Optional[enums.FileTypeEnum]]] = strawberry.field(name="supportedFileTypes", description='List of supported file types.', default=None)
+    supported_extensions: Optional[list[Optional[str]]] = strawberry.field(name="supportedExtensions", description='File converters: source-file extensions the converter can turn into PDF (plain strings, since converters target formats with no FileTypeEnum member). Empty for other component types.', default=None)
+    component_type: Optional[str] = strawberry.field(name="componentType", description='Type of the component (parser, embedder, or thumbnailer).', default=None)
     input_schema: Optional[GenericScalar] = strawberry.field(name="inputSchema", description='JSONSchema schema for inputs supported from user (experimental - not fully implemented).', default=None)
-    @strawberry.field(name="settingsSchema", description='Schema for component configuration settings stored in PipelineSettings.')
-    def settings_schema(self, info: strawberry.Info) -> Optional[list[Optional["ComponentSettingSchemaType"]]]:
-        return resolve_django_list(self, info, getattr(self, "settings_schema"), "ComponentSettingSchemaType")
+    settings_schema: Optional[list[Optional["ComponentSettingSchemaType"]]] = strawberry.field(name="settingsSchema", description='Schema for component configuration settings stored in PipelineSettings.', default=None)
     is_multimodal: Optional[bool] = strawberry.field(name="isMultimodal", description='Whether this embedder supports multiple modalities (text + images).', default=None)
     supports_text: Optional[bool] = strawberry.field(name="supportsText", description='Whether this embedder supports text input.', default=None)
     supports_images: Optional[bool] = strawberry.field(name="supportsImages", description='Whether this embedder supports image input.', default=None)
-    @strawberry.field(name="providerKey", description="LLM providers: pydantic-ai prefix (e.g. 'anthropic'). Null for other component types.")
-    def provider_key(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "provider_key", None))
-    @strawberry.field(name="supportedModels", description='LLM providers: suggested bare model names exposed to the UI. Empty for other component types.')
-    def supported_models(self, info: strawberry.Info) -> Optional[list[Optional[str]]]:
-        return coerce_str(getattr(self, "supported_models", None))
+    provider_key: Optional[str] = strawberry.field(name="providerKey", description="LLM providers: pydantic-ai prefix (e.g. 'anthropic'). Null for other component types.", default=None)
+    supported_models: Optional[list[Optional[str]]] = strawberry.field(name="supportedModels", description='LLM providers: suggested bare model names exposed to the UI. Empty for other component types.', default=None)
     requires_api_key: Optional[bool] = strawberry.field(name="requiresApiKey", description='LLM providers: whether the provider needs an API credential.', default=None)
     enabled: bool = strawberry.field(name="enabled", description='Whether this component is enabled for use in pipeline configuration.', default=None)
 
@@ -116,23 +74,13 @@ register_type("PipelineComponentType", PipelineComponentType, model=None)
 
 @strawberry.type(name="ComponentSettingSchemaType", description='Schema for a single pipeline component setting.\n\nDescribes a configuration option that can be set in PipelineSettings\nfor a specific component.')
 class ComponentSettingSchemaType:
-    @strawberry.field(name="name", description='Setting name (used as key in component_settings dict).')
-    def name(self, info: strawberry.Info) -> str:
-        return coerce_str(getattr(self, "name", None))
-    @strawberry.field(name="settingType", description="Type: 'required', 'optional', or 'secret'.")
-    def setting_type(self, info: strawberry.Info) -> str:
-        return coerce_str(getattr(self, "setting_type", None))
-    @strawberry.field(name="pythonType", description="Python type hint (e.g., 'str', 'int', 'bool').")
-    def python_type(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "python_type", None))
+    name: str = strawberry.field(name="name", description='Setting name (used as key in component_settings dict).', default=None)
+    setting_type: str = strawberry.field(name="settingType", description="Type: 'required', 'optional', or 'secret'.", default=None)
+    python_type: Optional[str] = strawberry.field(name="pythonType", description="Python type hint (e.g., 'str', 'int', 'bool').", default=None)
     required: bool = strawberry.field(name="required", description='Whether this setting must have a value for the component to work.', default=None)
-    @strawberry.field(name="description", description='Human-readable description of the setting.')
-    def description(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "description", None))
+    description: Optional[str] = strawberry.field(name="description", description='Human-readable description of the setting.', default=None)
     default: Optional[GenericScalar] = strawberry.field(name="default", description='Default value if not configured.', default=None)
-    @strawberry.field(name="envVar", description='Environment variable name used during migration seeding.')
-    def env_var(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "env_var", None))
+    env_var: Optional[str] = strawberry.field(name="envVar", description='Environment variable name used during migration seeding.', default=None)
     has_value: Optional[bool] = strawberry.field(name="hasValue", description='Whether this setting currently has a value configured.', default=None)
     current_value: Optional[GenericScalar] = strawberry.field(name="currentValue", description='Current value (always null for secrets to avoid exposure).', default=None)
 
@@ -142,15 +90,9 @@ register_type("ComponentSettingSchemaType", ComponentSettingSchemaType, model=No
 
 @strawberry.type(name="SupportedMimeTypeType", description="Information about a MIME type's support level in the pipeline.\n\nDerived dynamically from registered pipeline components.")
 class SupportedMimeTypeType:
-    @strawberry.field(name="mimetype", description="Canonical MIME type string (e.g. 'application/pdf').")
-    def mimetype(self, info: strawberry.Info) -> str:
-        return coerce_str(getattr(self, "mimetype", None))
-    @strawberry.field(name="fileType", description="Short file type label (e.g. 'pdf').")
-    def file_type(self, info: strawberry.Info) -> str:
-        return coerce_str(getattr(self, "file_type", None))
-    @strawberry.field(name="label", description="Human-readable label (e.g. 'PDF').")
-    def label(self, info: strawberry.Info) -> str:
-        return coerce_str(getattr(self, "label", None))
+    mimetype: str = strawberry.field(name="mimetype", description="Canonical MIME type string (e.g. 'application/pdf').", default=None)
+    file_type: str = strawberry.field(name="fileType", description="Short file type label (e.g. 'pdf').", default=None)
+    label: str = strawberry.field(name="label", description="Human-readable label (e.g. 'PDF').", default=None)
     fully_supported: bool = strawberry.field(name="fullySupported", description='Whether the required pipeline stages (parser and embedder) have at least one component for this file type. Thumbnailer is optional — file types without one are still uploadable.', default=None)
     stage_coverage: "StageCoverageType" = strawberry.field(name="stageCoverage", description='Per-stage availability for this file type.', default=None)
 
@@ -176,27 +118,13 @@ class PipelineSettingsType:
     preferred_enrichers: Optional[GenericScalar] = strawberry.field(name="preferredEnrichers", description='Mapping of MIME types to ORDERED LISTS of preferred enricher class paths (the enrichment chain run between parsing and persistence).', default=None)
     parser_kwargs: Optional[GenericScalar] = strawberry.field(name="parserKwargs", description='Mapping of parser class paths to their configuration kwargs', default=None)
     component_settings: Optional[GenericScalar] = strawberry.field(name="componentSettings", description='Mapping of component class paths to settings overrides', default=None)
-    @strawberry.field(name="defaultEmbedder", description='Default embedder class path used for all ingest embedding. There is no MIME-specific override; see preferred_embedders.')
-    def default_embedder(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "default_embedder", None))
-    @strawberry.field(name="defaultReranker", description='Default post-retrieval reranker class path. Empty string means reranking is disabled and first-stage retrieval results are returned as-is.')
-    def default_reranker(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "default_reranker", None))
-    @strawberry.field(name="defaultFileConverter", description='File converter class path used to convert non-native upload formats to PDF before parsing. Empty string disables the conversion step.')
-    def default_file_converter(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "default_file_converter", None))
-    @strawberry.field(name="defaultLlm", description="Install-wide default LLM model spec (pydantic-ai '{provider}:{model}' form, e.g. 'anthropic:claude-opus-4-6') used by agents when no per-corpus or per-agent override is set. Empty string means the Django settings default is used.")
-    def default_llm(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "default_llm", None))
-    @strawberry.field(name="componentsWithSecrets", description='List of component paths that have encrypted secrets configured. Actual secret values are never exposed via GraphQL.')
-    def components_with_secrets(self, info: strawberry.Info) -> Optional[list[Optional[str]]]:
-        return coerce_str(getattr(self, "components_with_secrets", None))
-    @strawberry.field(name="toolsWithSecrets", description="List of tool keys (e.g. 'tool:web_search') that have encrypted secrets configured. Actual secret values are never exposed.")
-    def tools_with_secrets(self, info: strawberry.Info) -> Optional[list[Optional[str]]]:
-        return coerce_str(getattr(self, "tools_with_secrets", None))
-    @strawberry.field(name="enabledComponents", description='List of enabled component class paths. Empty means all enabled.')
-    def enabled_components(self, info: strawberry.Info) -> Optional[list[Optional[str]]]:
-        return coerce_str(getattr(self, "enabled_components", None))
+    default_embedder: Optional[str] = strawberry.field(name="defaultEmbedder", description='Default embedder class path used for all ingest embedding. There is no MIME-specific override; see preferred_embedders.', default=None)
+    default_reranker: Optional[str] = strawberry.field(name="defaultReranker", description='Default post-retrieval reranker class path. Empty string means reranking is disabled and first-stage retrieval results are returned as-is.', default=None)
+    default_file_converter: Optional[str] = strawberry.field(name="defaultFileConverter", description='File converter class path used to convert non-native upload formats to PDF before parsing. Empty string disables the conversion step.', default=None)
+    default_llm: Optional[str] = strawberry.field(name="defaultLlm", description="Install-wide default LLM model spec (pydantic-ai '{provider}:{model}' form, e.g. 'anthropic:claude-opus-4-6') used by agents when no per-corpus or per-agent override is set. Empty string means the Django settings default is used.", default=None)
+    components_with_secrets: Optional[list[Optional[str]]] = strawberry.field(name="componentsWithSecrets", description='List of component paths that have encrypted secrets configured. Actual secret values are never exposed via GraphQL.', default=None)
+    tools_with_secrets: Optional[list[Optional[str]]] = strawberry.field(name="toolsWithSecrets", description="List of tool keys (e.g. 'tool:web_search') that have encrypted secrets configured. Actual secret values are never exposed.", default=None)
+    enabled_components: Optional[list[Optional[str]]] = strawberry.field(name="enabledComponents", description='List of enabled component class paths. Empty means all enabled.', default=None)
     modified: Optional[datetime.datetime] = strawberry.field(name="modified", description='When these settings were last modified', default=None)
     modified_by: Optional[Annotated["UserType", strawberry.lazy("config.graphql.user_types")]] = strawberry.field(name="modifiedBy", description='User who last modified these settings', default=None)
 

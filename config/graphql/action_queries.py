@@ -103,7 +103,7 @@ def q_corpus_action_trail_stats(info: strawberry.Info, corpus_id: Annotated[stra
 
 
 def _resolve_Query_document_corpus_actions(root, info, **kwargs):
-    """PORT: config/graphql/action_queries.py:296
+    """PORT: /home/user/oc-graphene-ref/config/graphql/action_queries.py:296
 
     Port of ActionQueryMixin.resolve_document_corpus_actions
     """

@@ -36,7 +36,7 @@ from opencontractserver.users.models import User
 
 
 def _resolve_Query_search_corpuses_for_mention(root, info, **kwargs):
-    """PORT: config/ratelimit/decorators.py:96
+    """PORT: /home/user/oc-graphene-ref/config/ratelimit/decorators.py:96
 
     Port of SearchQueryMixin.resolve_search_corpuses_for_mention
     """
@@ -50,7 +50,7 @@ def q_search_corpuses_for_mention(info: strawberry.Info, text_search: Annotated[
 
 
 def _resolve_Query_search_documents_for_mention(root, info, **kwargs):
-    """PORT: config/ratelimit/decorators.py:148
+    """PORT: /home/user/oc-graphene-ref/config/ratelimit/decorators.py:148
 
     Port of SearchQueryMixin.resolve_search_documents_for_mention
     """
@@ -64,7 +64,7 @@ def q_search_documents_for_mention(info: strawberry.Info, text_search: Annotated
 
 
 def _resolve_Query_search_annotations_for_mention(root, info, **kwargs):
-    """PORT: config/ratelimit/decorators.py:279
+    """PORT: /home/user/oc-graphene-ref/config/ratelimit/decorators.py:279
 
     Port of SearchQueryMixin.resolve_search_annotations_for_mention
     """
@@ -78,7 +78,7 @@ def q_search_annotations_for_mention(info: strawberry.Info, text_search: Annotat
 
 
 def _resolve_Query_search_users_for_mention(root, info, **kwargs):
-    """PORT: config/ratelimit/decorators.py:360
+    """PORT: /home/user/oc-graphene-ref/config/ratelimit/decorators.py:360
 
     Port of SearchQueryMixin.resolve_search_users_for_mention
     """
@@ -92,7 +92,7 @@ def q_search_users_for_mention(info: strawberry.Info, text_search: Annotated[Opt
 
 
 def _resolve_Query_search_agents_for_mention(root, info, **kwargs):
-    """PORT: config/ratelimit/decorators.py:408
+    """PORT: /home/user/oc-graphene-ref/config/ratelimit/decorators.py:408
 
     Port of SearchQueryMixin.resolve_search_agents_for_mention
     """
@@ -106,7 +106,7 @@ def q_search_agents_for_mention(info: strawberry.Info, text_search: Annotated[Op
 
 
 def _resolve_Query_search_notes_for_mention(root, info, **kwargs):
-    """PORT: config/ratelimit/decorators.py:447
+    """PORT: /home/user/oc-graphene-ref/config/ratelimit/decorators.py:447
 
     Port of SearchQueryMixin.resolve_search_notes_for_mention
     """

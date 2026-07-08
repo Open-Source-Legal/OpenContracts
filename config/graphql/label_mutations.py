@@ -36,9 +36,7 @@ from opencontractserver.annotations.models import LabelSet
 @strawberry.type(name="CreateLabelset")
 class CreateLabelset:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     obj: Optional[Annotated["LabelSetType", strawberry.lazy("config.graphql.annotation_types")]] = strawberry.field(name="obj", default=None)
 
 
@@ -48,12 +46,8 @@ register_type("CreateLabelset", CreateLabelset, model=None)
 @strawberry.type(name="UpdateLabelset")
 class UpdateLabelset:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
-    @strawberry.field(name="objId")
-    def obj_id(self, info: strawberry.Info) -> Optional[strawberry.ID]:
-        return coerce_str(getattr(self, "obj_id", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
+    obj_id: Optional[strawberry.ID] = strawberry.field(name="objId", default=None)
 
 
 register_type("UpdateLabelset", UpdateLabelset, model=None)
@@ -62,9 +56,7 @@ register_type("UpdateLabelset", UpdateLabelset, model=None)
 @strawberry.type(name="DeleteLabelset")
 class DeleteLabelset:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
 
 
 register_type("DeleteLabelset", DeleteLabelset, model=None)
@@ -73,12 +65,8 @@ register_type("DeleteLabelset", DeleteLabelset, model=None)
 @strawberry.type(name="CreateLabelMutation")
 class CreateLabelMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
-    @strawberry.field(name="objId")
-    def obj_id(self, info: strawberry.Info) -> Optional[strawberry.ID]:
-        return coerce_str(getattr(self, "obj_id", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
+    obj_id: Optional[strawberry.ID] = strawberry.field(name="objId", default=None)
 
 
 register_type("CreateLabelMutation", CreateLabelMutation, model=None)
@@ -87,12 +75,8 @@ register_type("CreateLabelMutation", CreateLabelMutation, model=None)
 @strawberry.type(name="UpdateLabelMutation")
 class UpdateLabelMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
-    @strawberry.field(name="objId")
-    def obj_id(self, info: strawberry.Info) -> Optional[strawberry.ID]:
-        return coerce_str(getattr(self, "obj_id", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
+    obj_id: Optional[strawberry.ID] = strawberry.field(name="objId", default=None)
 
 
 register_type("UpdateLabelMutation", UpdateLabelMutation, model=None)
@@ -101,9 +85,7 @@ register_type("UpdateLabelMutation", UpdateLabelMutation, model=None)
 @strawberry.type(name="DeleteLabelMutation")
 class DeleteLabelMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
 
 
 register_type("DeleteLabelMutation", DeleteLabelMutation, model=None)
@@ -112,9 +94,7 @@ register_type("DeleteLabelMutation", DeleteLabelMutation, model=None)
 @strawberry.type(name="DeleteMultipleLabelMutation")
 class DeleteMultipleLabelMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
 
 
 register_type("DeleteMultipleLabelMutation", DeleteMultipleLabelMutation, model=None)
@@ -123,13 +103,9 @@ register_type("DeleteMultipleLabelMutation", DeleteMultipleLabelMutation, model=
 @strawberry.type(name="CreateLabelForLabelsetMutation")
 class CreateLabelForLabelsetMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     obj: Optional[Annotated["AnnotationLabelType", strawberry.lazy("config.graphql.annotation_types")]] = strawberry.field(name="obj", default=None)
-    @strawberry.field(name="objId")
-    def obj_id(self, info: strawberry.Info) -> Optional[strawberry.ID]:
-        return coerce_str(getattr(self, "obj_id", None))
+    obj_id: Optional[strawberry.ID] = strawberry.field(name="objId", default=None)
 
 
 register_type("CreateLabelForLabelsetMutation", CreateLabelForLabelsetMutation, model=None)
@@ -138,9 +114,7 @@ register_type("CreateLabelForLabelsetMutation", CreateLabelForLabelsetMutation, 
 @strawberry.type(name="RemoveLabelsFromLabelsetMutation")
 class RemoveLabelsFromLabelsetMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
 
 
 register_type("RemoveLabelsFromLabelsetMutation", RemoveLabelsFromLabelsetMutation, model=None)

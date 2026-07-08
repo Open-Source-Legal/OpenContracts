@@ -33,9 +33,7 @@ from config.graphql import enums
 @strawberry.type(name="CreateAgentConfigurationMutation", description='Create a new agent configuration (admin/corpus owner only).')
 class CreateAgentConfigurationMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     agent: Optional[Annotated["AgentConfigurationType", strawberry.lazy("config.graphql.agent_types")]] = strawberry.field(name="agent", default=None)
 
 
@@ -45,9 +43,7 @@ register_type("CreateAgentConfigurationMutation", CreateAgentConfigurationMutati
 @strawberry.type(name="UpdateAgentConfigurationMutation", description='Update an existing agent configuration.')
 class UpdateAgentConfigurationMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     agent: Optional[Annotated["AgentConfigurationType", strawberry.lazy("config.graphql.agent_types")]] = strawberry.field(name="agent", default=None)
 
 
@@ -57,9 +53,7 @@ register_type("UpdateAgentConfigurationMutation", UpdateAgentConfigurationMutati
 @strawberry.type(name="DeleteAgentConfigurationMutation", description='Delete an agent configuration.')
 class DeleteAgentConfigurationMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
 
 
 register_type("DeleteAgentConfigurationMutation", DeleteAgentConfigurationMutation, model=None)

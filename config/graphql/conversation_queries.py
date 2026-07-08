@@ -34,7 +34,7 @@ from opencontractserver.conversations.models import ModerationAction
 
 
 def _resolve_Query_conversations(root, info, **kwargs):
-    """PORT: config/graphql/conversation_queries.py:46
+    """PORT: /home/user/oc-graphene-ref/config/graphql/conversation_queries.py:46
 
     Port of ConversationQueryMixin.resolve_conversations
     """
@@ -48,7 +48,7 @@ def q_conversations(info: strawberry.Info, offset: Annotated[Optional[int], stra
 
 
 def _resolve_Query_search_conversations(root, info, **kwargs):
-    """PORT: config/graphql/conversation_queries.py:96
+    """PORT: /home/user/oc-graphene-ref/config/graphql/conversation_queries.py:96
 
     Port of ConversationQueryMixin.resolve_search_conversations
     """

@@ -33,9 +33,7 @@ from config.graphql import enums
 @strawberry.type(name="StartDocumentAnalysisMutation")
 class StartDocumentAnalysisMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     obj: Optional[Annotated["AnalysisType", strawberry.lazy("config.graphql.extract_types")]] = strawberry.field(name="obj", default=None)
 
 
@@ -45,9 +43,7 @@ register_type("StartDocumentAnalysisMutation", StartDocumentAnalysisMutation, mo
 @strawberry.type(name="DeleteAnalysisMutation")
 class DeleteAnalysisMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
 
 
 register_type("DeleteAnalysisMutation", DeleteAnalysisMutation, model=None)
@@ -56,9 +52,7 @@ register_type("DeleteAnalysisMutation", DeleteAnalysisMutation, model=None)
 @strawberry.type(name="MakeAnalysisPublic")
 class MakeAnalysisPublic:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     obj: Optional[Annotated["AnalysisType", strawberry.lazy("config.graphql.extract_types")]] = strawberry.field(name="obj", default=None)
 
 

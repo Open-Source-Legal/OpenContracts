@@ -33,9 +33,7 @@ from config.graphql import enums
 @strawberry.type(name="CreateAuthorityKeyEquivalenceMutation", description='Create a manual canonical-key equivalence (superuser-only).')
 class CreateAuthorityKeyEquivalenceMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     obj: Optional[Annotated["AuthorityKeyEquivalenceNode", strawberry.lazy("config.graphql.annotation_types")]] = strawberry.field(name="obj", default=None)
 
 
@@ -45,9 +43,7 @@ register_type("CreateAuthorityKeyEquivalenceMutation", CreateAuthorityKeyEquival
 @strawberry.type(name="UpdateAuthorityKeyEquivalenceMutation", description='Edit a manual equivalence (superuser-only; managed rows are read-only).')
 class UpdateAuthorityKeyEquivalenceMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     obj: Optional[Annotated["AuthorityKeyEquivalenceNode", strawberry.lazy("config.graphql.annotation_types")]] = strawberry.field(name="obj", default=None)
 
 
@@ -57,9 +53,7 @@ register_type("UpdateAuthorityKeyEquivalenceMutation", UpdateAuthorityKeyEquival
 @strawberry.type(name="DeleteAuthorityKeyEquivalenceMutation", description='Delete a manual equivalence (superuser-only; managed rows are read-only).')
 class DeleteAuthorityKeyEquivalenceMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
 
 
 register_type("DeleteAuthorityKeyEquivalenceMutation", DeleteAuthorityKeyEquivalenceMutation, model=None)

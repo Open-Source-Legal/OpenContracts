@@ -33,9 +33,7 @@ from config.graphql import enums
 @strawberry.type(name="LockThreadMutation", description='Lock a conversation/thread to prevent new messages.\nOnly corpus owners or moderators with lock_threads permission can lock threads.')
 class LockThreadMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     obj: Optional[Annotated["ConversationType", strawberry.lazy("config.graphql.conversation_types")]] = strawberry.field(name="obj", default=None)
 
 
@@ -45,9 +43,7 @@ register_type("LockThreadMutation", LockThreadMutation, model=None)
 @strawberry.type(name="UnlockThreadMutation", description='Unlock a conversation/thread to allow new messages.\nOnly corpus owners or moderators with lock_threads permission can unlock threads.')
 class UnlockThreadMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     obj: Optional[Annotated["ConversationType", strawberry.lazy("config.graphql.conversation_types")]] = strawberry.field(name="obj", default=None)
 
 
@@ -57,9 +53,7 @@ register_type("UnlockThreadMutation", UnlockThreadMutation, model=None)
 @strawberry.type(name="PinThreadMutation", description='Pin a conversation/thread to the top of the list.\nOnly corpus owners or moderators with pin_threads permission can pin threads.')
 class PinThreadMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     obj: Optional[Annotated["ConversationType", strawberry.lazy("config.graphql.conversation_types")]] = strawberry.field(name="obj", default=None)
 
 
@@ -69,9 +63,7 @@ register_type("PinThreadMutation", PinThreadMutation, model=None)
 @strawberry.type(name="UnpinThreadMutation", description='Unpin a conversation/thread from the top of the list.\nOnly corpus owners or moderators with pin_threads permission can unpin threads.')
 class UnpinThreadMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     obj: Optional[Annotated["ConversationType", strawberry.lazy("config.graphql.conversation_types")]] = strawberry.field(name="obj", default=None)
 
 
@@ -81,9 +73,7 @@ register_type("UnpinThreadMutation", UnpinThreadMutation, model=None)
 @strawberry.type(name="DeleteThreadMutation", description='Soft delete a thread (conversation).\nOnly moderators or thread creators can delete threads.')
 class DeleteThreadMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     conversation: Optional[Annotated["ConversationType", strawberry.lazy("config.graphql.conversation_types")]] = strawberry.field(name="conversation", default=None)
 
 
@@ -93,9 +83,7 @@ register_type("DeleteThreadMutation", DeleteThreadMutation, model=None)
 @strawberry.type(name="RestoreThreadMutation", description='Restore a soft-deleted thread.\nOnly moderators or thread creators can restore threads.')
 class RestoreThreadMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     conversation: Optional[Annotated["ConversationType", strawberry.lazy("config.graphql.conversation_types")]] = strawberry.field(name="conversation", default=None)
 
 
@@ -105,9 +93,7 @@ register_type("RestoreThreadMutation", RestoreThreadMutation, model=None)
 @strawberry.type(name="AddModeratorMutation", description='Add a moderator to a corpus with specific permissions.\nOnly corpus owners can add moderators.')
 class AddModeratorMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
 
 
 register_type("AddModeratorMutation", AddModeratorMutation, model=None)
@@ -116,9 +102,7 @@ register_type("AddModeratorMutation", AddModeratorMutation, model=None)
 @strawberry.type(name="RemoveModeratorMutation", description='Remove a moderator from a corpus.\nOnly corpus owners can remove moderators.')
 class RemoveModeratorMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
 
 
 register_type("RemoveModeratorMutation", RemoveModeratorMutation, model=None)
@@ -127,9 +111,7 @@ register_type("RemoveModeratorMutation", RemoveModeratorMutation, model=None)
 @strawberry.type(name="UpdateModeratorPermissionsMutation", description="Update a moderator's permissions for a corpus.\nOnly corpus owners can update moderator permissions.")
 class UpdateModeratorPermissionsMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
 
 
 register_type("UpdateModeratorPermissionsMutation", UpdateModeratorPermissionsMutation, model=None)
@@ -138,9 +120,7 @@ register_type("UpdateModeratorPermissionsMutation", UpdateModeratorPermissionsMu
 @strawberry.type(name="RollbackModerationActionMutation", description='Rollback a moderation action by executing its inverse.\n- delete_message -> restore_message\n- delete_thread -> restore_thread\n- lock_thread -> unlock_thread\n- pin_thread -> unpin_thread\n\nOnly moderators with appropriate permissions can rollback.\nCreates a new ModerationAction record for the rollback.')
 class RollbackModerationActionMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     rollback_action: Optional[Annotated["ModerationActionType", strawberry.lazy("config.graphql.conversation_types")]] = strawberry.field(name="rollbackAction", default=None)
 
 

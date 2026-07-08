@@ -58,7 +58,7 @@ class RelationInputType:
 
 
 def _resolve_AnnotationType_annotation_type(root, info, **kwargs):
-    """PORT: config/graphql/annotation_types.py:732
+    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:732
 
     Port of AnnotationType.resolve_annotation_type
     """
@@ -66,7 +66,7 @@ def _resolve_AnnotationType_annotation_type(root, info, **kwargs):
 
 
 def _resolve_AnnotationType_document(root, info, **kwargs):
-    """PORT: config/graphql/annotation_types.py:656
+    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:656
 
     Port of AnnotationType.resolve_document
     """
@@ -74,7 +74,7 @@ def _resolve_AnnotationType_document(root, info, **kwargs):
 
 
 def _resolve_AnnotationType_content_modalities(root, info, **kwargs):
-    """PORT: config/graphql/annotation_types.py:736
+    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:736
 
     Port of AnnotationType.resolve_content_modalities
     """
@@ -82,7 +82,7 @@ def _resolve_AnnotationType_content_modalities(root, info, **kwargs):
 
 
 def _resolve_AnnotationType_feedback_count(root, info, **kwargs):
-    """PORT: config/graphql/annotation_types.py:742
+    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:742
 
     Port of AnnotationType.resolve_feedback_count
     """
@@ -90,7 +90,7 @@ def _resolve_AnnotationType_feedback_count(root, info, **kwargs):
 
 
 def _resolve_AnnotationType_all_source_node_in_relationship(root, info, **kwargs):
-    """PORT: config/graphql/annotation_types.py:760
+    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:760
 
     Port of AnnotationType.resolve_all_source_node_in_relationship
     """
@@ -98,7 +98,7 @@ def _resolve_AnnotationType_all_source_node_in_relationship(root, info, **kwargs
 
 
 def _resolve_AnnotationType_all_target_node_in_relationship(root, info, **kwargs):
-    """PORT: config/graphql/annotation_types.py:765
+    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:765
 
     Port of AnnotationType.resolve_all_target_node_in_relationship
     """
@@ -106,7 +106,7 @@ def _resolve_AnnotationType_all_target_node_in_relationship(root, info, **kwargs
 
 
 def _resolve_AnnotationType_descendants_tree(root, info, **kwargs):
-    """PORT: config/graphql/annotation_types.py:784
+    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:784
 
     Port of AnnotationType.resolve_descendants_tree
     """
@@ -114,7 +114,7 @@ def _resolve_AnnotationType_descendants_tree(root, info, **kwargs):
 
 
 def _resolve_AnnotationType_full_tree(root, info, **kwargs):
-    """PORT: config/graphql/annotation_types.py:809
+    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:809
 
     Port of AnnotationType.resolve_full_tree
     """
@@ -122,7 +122,7 @@ def _resolve_AnnotationType_full_tree(root, info, **kwargs):
 
 
 def _resolve_AnnotationType_subtree(root, info, **kwargs):
-    """PORT: config/graphql/annotation_types.py:839
+    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:839
 
     Port of AnnotationType.resolve_subtree
     """
@@ -288,7 +288,7 @@ AnnotationTypeConnection = make_connection_types(AnnotationType, type_name="Anno
 
 
 def _resolve_AnnotationLabelType_my_permissions(root, info, **kwargs):
-    """PORT: config/graphql/annotation_types.py:930
+    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:930
 
     Port of AnnotationLabelType.resolve_my_permissions
     """
@@ -359,7 +359,7 @@ AnnotationLabelTypeConnection = make_connection_types(AnnotationLabelType, type_
 
 
 def _resolve_LabelSetType_icon(root, info, **kwargs):
-    """PORT: config/graphql/annotation_types.py:1024
+    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:1024
 
     Port of LabelSetType.resolve_icon
     """
@@ -367,7 +367,7 @@ def _resolve_LabelSetType_icon(root, info, **kwargs):
 
 
 def _resolve_LabelSetType_doc_label_count(root, info, **kwargs):
-    """PORT: config/graphql/annotation_types.py:989
+    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:989
 
     Port of LabelSetType.resolve_doc_label_count
     """
@@ -375,7 +375,7 @@ def _resolve_LabelSetType_doc_label_count(root, info, **kwargs):
 
 
 def _resolve_LabelSetType_span_label_count(root, info, **kwargs):
-    """PORT: config/graphql/annotation_types.py:996
+    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:996
 
     Port of LabelSetType.resolve_span_label_count
     """
@@ -383,7 +383,7 @@ def _resolve_LabelSetType_span_label_count(root, info, **kwargs):
 
 
 def _resolve_LabelSetType_token_label_count(root, info, **kwargs):
-    """PORT: config/graphql/annotation_types.py:1002
+    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:1002
 
     Port of LabelSetType.resolve_token_label_count
     """
@@ -391,7 +391,7 @@ def _resolve_LabelSetType_token_label_count(root, info, **kwargs):
 
 
 def _resolve_LabelSetType_corpus_count(root, info, **kwargs):
-    """PORT: config/graphql/annotation_types.py:1011
+    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:1011
 
     Port of LabelSetType.resolve_corpus_count
     """
@@ -399,7 +399,7 @@ def _resolve_LabelSetType_corpus_count(root, info, **kwargs):
 
 
 def _resolve_LabelSetType_all_annotation_labels(root, info, **kwargs):
-    """PORT: config/graphql/annotation_types.py:1020
+    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:1020
 
     Port of LabelSetType.resolve_all_annotation_labels
     """
@@ -566,7 +566,7 @@ CorpusReferenceTypeConnection = make_connection_types(CorpusReferenceType, type_
 
 
 def _resolve_NoteType_revisions(root, info, **kwargs):
-    """PORT: config/graphql/annotation_types.py:1073
+    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:1073
 
     Port of NoteType.resolve_revisions
     """
@@ -574,7 +574,7 @@ def _resolve_NoteType_revisions(root, info, **kwargs):
 
 
 def _resolve_NoteType_descendants_tree(root, info, **kwargs):
-    """PORT: config/graphql/annotation_types.py:1083
+    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:1083
 
     Port of NoteType.resolve_descendants_tree
     """
@@ -582,7 +582,7 @@ def _resolve_NoteType_descendants_tree(root, info, **kwargs):
 
 
 def _resolve_NoteType_full_tree(root, info, **kwargs):
-    """PORT: config/graphql/annotation_types.py:1108
+    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:1108
 
     Port of NoteType.resolve_full_tree
     """
@@ -590,7 +590,7 @@ def _resolve_NoteType_full_tree(root, info, **kwargs):
 
 
 def _resolve_NoteType_subtree(root, info, **kwargs):
-    """PORT: config/graphql/annotation_types.py:1136
+    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:1136
 
     Port of NoteType.resolve_subtree
     """
@@ -598,7 +598,7 @@ def _resolve_NoteType_subtree(root, info, **kwargs):
 
 
 def _resolve_NoteType_current_version(root, info, **kwargs):
-    """PORT: config/graphql/annotation_types.py:1077
+    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:1077
 
     Port of NoteType.resolve_current_version
     """
@@ -606,7 +606,7 @@ def _resolve_NoteType_current_version(root, info, **kwargs):
 
 
 def _resolve_NoteType_content_preview(root, info, **kwargs):
-    """PORT: config/graphql/annotation_types.py:1067
+    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:1067
 
     Port of NoteType.resolve_content_preview
     """
@@ -712,7 +712,7 @@ NoteRevisionTypeConnection = make_connection_types(NoteRevisionType, type_name="
 
 
 def _resolve_AuthorityNamespaceNode_aliases(root, info, **kwargs):
-    """PORT: config/graphql/annotation_types.py:479
+    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:479
 
     Port of AuthorityNamespaceNode.resolve_aliases
     """
@@ -720,7 +720,7 @@ def _resolve_AuthorityNamespaceNode_aliases(root, info, **kwargs):
 
 
 def _resolve_AuthorityNamespaceNode_scope(root, info, **kwargs):
-    """PORT: config/graphql/annotation_types.py:482
+    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:482
 
     Port of AuthorityNamespaceNode.resolve_scope
     """
@@ -728,7 +728,7 @@ def _resolve_AuthorityNamespaceNode_scope(root, info, **kwargs):
 
 
 def _resolve_AuthorityNamespaceNode_equivalence_count(root, info, **kwargs):
-    """PORT: config/graphql/annotation_types.py:485
+    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:485
 
     Port of AuthorityNamespaceNode.resolve_equivalence_count
     """
@@ -736,7 +736,7 @@ def _resolve_AuthorityNamespaceNode_equivalence_count(root, info, **kwargs):
 
 
 def _resolve_AuthorityNamespaceNode_frontier_count(root, info, **kwargs):
-    """PORT: config/graphql/annotation_types.py:491
+    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:491
 
     Port of AuthorityNamespaceNode.resolve_frontier_count
     """
@@ -744,7 +744,7 @@ def _resolve_AuthorityNamespaceNode_frontier_count(root, info, **kwargs):
 
 
 def _resolve_AuthorityNamespaceNode_reference_count(root, info, **kwargs):
-    """PORT: config/graphql/annotation_types.py:494
+    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:494
 
     Port of AuthorityNamespaceNode.resolve_reference_count
     """
@@ -752,7 +752,7 @@ def _resolve_AuthorityNamespaceNode_reference_count(root, info, **kwargs):
 
 
 def _resolve_AuthorityNamespaceNode_effective_provider(root, info, **kwargs):
-    """PORT: config/graphql/annotation_types.py:499
+    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:499
 
     Port of AuthorityNamespaceNode.resolve_effective_provider
     """
@@ -760,7 +760,7 @@ def _resolve_AuthorityNamespaceNode_effective_provider(root, info, **kwargs):
 
 
 def _resolve_AuthorityNamespaceNode_created_by_username(root, info, **kwargs):
-    """PORT: config/graphql/annotation_types.py:504
+    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:504
 
     Port of AuthorityNamespaceNode.resolve_created_by_username
     """
@@ -845,7 +845,7 @@ AuthorityNamespaceNodeConnection = make_connection_types(AuthorityNamespaceNode,
 
 
 def _resolve_AuthorityFrontierNode_ingestable(root, info, **kwargs):
-    """PORT: config/graphql/annotation_types.py:302
+    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:302
 
     Port of AuthorityFrontierNode.resolve_ingestable
     """
@@ -853,7 +853,7 @@ def _resolve_AuthorityFrontierNode_ingestable(root, info, **kwargs):
 
 
 def _resolve_AuthorityFrontierNode_predicted_provider(root, info, **kwargs):
-    """PORT: config/graphql/annotation_types.py:305
+    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:305
 
     Port of AuthorityFrontierNode.resolve_predicted_provider
     """
@@ -916,7 +916,7 @@ AuthorityFrontierNodeConnection = make_connection_types(AuthorityFrontierNode, t
 
 
 def _resolve_AuthorityKeyEquivalenceNode_editable(root, info, **kwargs):
-    """PORT: config/graphql/annotation_types.py:374
+    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:374
 
     Port of AuthorityKeyEquivalenceNode.resolve_editable
     """
@@ -924,7 +924,7 @@ def _resolve_AuthorityKeyEquivalenceNode_editable(root, info, **kwargs):
 
 
 def _resolve_AuthorityKeyEquivalenceNode_created_by_username(root, info, **kwargs):
-    """PORT: config/graphql/annotation_types.py:377
+    """PORT: /home/user/oc-graphene-ref/config/graphql/annotation_types.py:377
 
     Port of AuthorityKeyEquivalenceNode.resolve_created_by_username
     """
@@ -974,15 +974,9 @@ AuthorityKeyEquivalenceNodeConnection = make_connection_types(AuthorityKeyEquiva
 
 @strawberry.type(name="GovernanceGraphType", description='The corpus-scoped reference web in node-link form.\n\nBuilt by ``GovernanceGraphService`` from corpus-as-gate ``CorpusReference``\nrows + permission-filtered ``DocumentRelationship`` rows, with every\nsurfaced document independently READ-checked (invisible targets degrade to\nexternal ghost nodes). Counts describe the full visible graph; the\nnode/edge lists may be degree-capped (``truncated``).')
 class GovernanceGraphType:
-    @strawberry.field(name="corpora")
-    def corpora(self, info: strawberry.Info) -> list["GovernanceGraphCorpusType"]:
-        return resolve_django_list(self, info, getattr(self, "corpora"), "GovernanceGraphCorpusType")
-    @strawberry.field(name="nodes")
-    def nodes(self, info: strawberry.Info) -> list["GovernanceGraphNodeType"]:
-        return resolve_django_list(self, info, getattr(self, "nodes"), "GovernanceGraphNodeType")
-    @strawberry.field(name="edges")
-    def edges(self, info: strawberry.Info) -> list["GovernanceGraphEdgeType"]:
-        return resolve_django_list(self, info, getattr(self, "edges"), "GovernanceGraphEdgeType")
+    corpora: list["GovernanceGraphCorpusType"] = strawberry.field(name="corpora", default=None)
+    nodes: list["GovernanceGraphNodeType"] = strawberry.field(name="nodes", default=None)
+    edges: list["GovernanceGraphEdgeType"] = strawberry.field(name="edges", default=None)
     document_count: int = strawberry.field(name="documentCount", description='Distinct visible document nodes (pre-cap).', default=None)
     external_key_count: int = strawberry.field(name="externalKeyCount", description='Distinct external ghost nodes (pre-cap).', default=None)
     edge_count: int = strawberry.field(name="edgeCount", description='Distinct edges in the full graph (pre-cap).', default=None)
@@ -995,15 +989,9 @@ register_type("GovernanceGraphType", GovernanceGraphType, model=None)
 
 @strawberry.type(name="GovernanceGraphCorpusType", description='A corpus participating in the governance graph (filing or authority).')
 class GovernanceGraphCorpusType:
-    @strawberry.field(name="id", description='Global CorpusType id.')
-    def id(self, info: strawberry.Info) -> strawberry.ID:
-        return coerce_str(getattr(self, "id", None))
-    @strawberry.field(name="title")
-    def title(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "title", None))
-    @strawberry.field(name="kind", description='"filing" or "authority" (cited body of law).')
-    def kind(self, info: strawberry.Info) -> str:
-        return coerce_str(getattr(self, "kind", None))
+    id: strawberry.ID = strawberry.field(name="id", description='Global CorpusType id.', default=None)
+    title: Optional[str] = strawberry.field(name="title", default=None)
+    kind: str = strawberry.field(name="kind", description='"filing" or "authority" (cited body of law).', default=None)
 
 
 register_type("GovernanceGraphCorpusType", GovernanceGraphCorpusType, model=None)
@@ -1011,33 +999,15 @@ register_type("GovernanceGraphCorpusType", GovernanceGraphCorpusType, model=None
 
 @strawberry.type(name="GovernanceGraphNodeType", description='One governance-graph node: a document or an external-citation ghost.')
 class GovernanceGraphNodeType:
-    @strawberry.field(name="id", description='Node id: the global DocumentType id for document nodes, or "key:<canonical_key>" for external ghost nodes.')
-    def id(self, info: strawberry.Info) -> str:
-        return coerce_str(getattr(self, "id", None))
-    @strawberry.field(name="documentId", description='Global DocumentType id (null for external ghost nodes).')
-    def document_id(self, info: strawberry.Info) -> Optional[strawberry.ID]:
-        return coerce_str(getattr(self, "document_id", None))
-    @strawberry.field(name="title", description='Document title, or the canonical key for ghost nodes.')
-    def title(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "title", None))
-    @strawberry.field(name="kind", description='"primary", "exhibit", "statute" or "external".')
-    def kind(self, info: strawberry.Info) -> str:
-        return coerce_str(getattr(self, "kind", None))
-    @strawberry.field(name="corpusId", description="Global CorpusType id of the node's corpus (null for ghosts).")
-    def corpus_id(self, info: strawberry.Info) -> Optional[strawberry.ID]:
-        return coerce_str(getattr(self, "corpus_id", None))
-    @strawberry.field(name="authority", description='Body-of-law key prefix (e.g. "dgcl") for statute/ghost nodes.')
-    def authority(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "authority", None))
-    @strawberry.field(name="jurisdiction", description='Jurisdiction code, e.g. "us-de", "us-federal" (null if unknown).')
-    def jurisdiction(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "jurisdiction", None))
-    @strawberry.field(name="authorityType", description='Authority type: "statute", "regulation", etc. (null if unknown).')
-    def authority_type(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "authority_type", None))
-    @strawberry.field(name="discoveryState", description='Authority-frontier crawl status for ghost nodes: "queued", "in_progress", "ingested", "failed", "unsupported", "blocked_license", "blocked_domain", "unlocated", "pending_approval", "deferred_cap" — or null when not tracked.')
-    def discovery_state(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "discovery_state", None))
+    id: str = strawberry.field(name="id", description='Node id: the global DocumentType id for document nodes, or "key:<canonical_key>" for external ghost nodes.', default=None)
+    document_id: Optional[strawberry.ID] = strawberry.field(name="documentId", description='Global DocumentType id (null for external ghost nodes).', default=None)
+    title: Optional[str] = strawberry.field(name="title", description='Document title, or the canonical key for ghost nodes.', default=None)
+    kind: str = strawberry.field(name="kind", description='"primary", "exhibit", "statute" or "external".', default=None)
+    corpus_id: Optional[strawberry.ID] = strawberry.field(name="corpusId", description="Global CorpusType id of the node's corpus (null for ghosts).", default=None)
+    authority: Optional[str] = strawberry.field(name="authority", description='Body-of-law key prefix (e.g. "dgcl") for statute/ghost nodes.', default=None)
+    jurisdiction: Optional[str] = strawberry.field(name="jurisdiction", description='Jurisdiction code, e.g. "us-de", "us-federal" (null if unknown).', default=None)
+    authority_type: Optional[str] = strawberry.field(name="authorityType", description='Authority type: "statute", "regulation", etc. (null if unknown).', default=None)
+    discovery_state: Optional[str] = strawberry.field(name="discoveryState", description='Authority-frontier crawl status for ghost nodes: "queued", "in_progress", "ingested", "failed", "unsupported", "blocked_license", "blocked_domain", "unlocated", "pending_approval", "deferred_cap" — or null when not tracked.', default=None)
     degree: int = strawberry.field(name="degree", description='Summed mention weight of edges touching the node.', default=None)
 
 
@@ -1046,15 +1016,9 @@ register_type("GovernanceGraphNodeType", GovernanceGraphNodeType, model=None)
 
 @strawberry.type(name="GovernanceGraphEdgeType", description='One weighted reference edge between two governance-graph nodes.')
 class GovernanceGraphEdgeType:
-    @strawberry.field(name="source", description='Source node id.')
-    def source(self, info: strawberry.Info) -> str:
-        return coerce_str(getattr(self, "source", None))
-    @strawberry.field(name="target", description='Target node id.')
-    def target(self, info: strawberry.Info) -> str:
-        return coerce_str(getattr(self, "target", None))
-    @strawberry.field(name="edgeType", description='"LAW", "LAW_EXTERNAL" or "DOCUMENT".')
-    def edge_type(self, info: strawberry.Info) -> str:
-        return coerce_str(getattr(self, "edge_type", None))
+    source: str = strawberry.field(name="source", description='Source node id.', default=None)
+    target: str = strawberry.field(name="target", description='Target node id.', default=None)
+    edge_type: str = strawberry.field(name="edgeType", description='"LAW", "LAW_EXTERNAL" or "DOCUMENT".', default=None)
     weight: int = strawberry.field(name="weight", description='Mention count.', default=None)
 
 
@@ -1063,15 +1027,11 @@ register_type("GovernanceGraphEdgeType", GovernanceGraphEdgeType, model=None)
 
 @strawberry.type(name="WantedAuthorityType", description="One authority worth bootstrapping, ranked by citation demand.\n\nAggregated by ``CorpusReferenceService.wanted_authorities`` from EXTERNAL\nlaw references visible to the requesting user — the actionable backlog\nbehind the governance graph's ghost nodes.")
 class WantedAuthorityType:
-    @strawberry.field(name="authority", description='Authority prefix, e.g. "dgcl".')
-    def authority(self, info: strawberry.Info) -> str:
-        return coerce_str(getattr(self, "authority", None))
+    authority: str = strawberry.field(name="authority", description='Authority prefix, e.g. "dgcl".', default=None)
     mention_count: int = strawberry.field(name="mentionCount", description='Total EXTERNAL mentions for this authority.', default=None)
     key_count: int = strawberry.field(name="keyCount", description='Distinct section-root keys cited.', default=None)
     corpus_count: int = strawberry.field(name="corpusCount", description='Distinct corpora with unresolved citations.', default=None)
-    @strawberry.field(name="topKeys", description='Most-cited missing keys (capped server-side).')
-    def top_keys(self, info: strawberry.Info) -> list["WantedAuthorityKeyType"]:
-        return resolve_django_list(self, info, getattr(self, "top_keys"), "WantedAuthorityKeyType")
+    top_keys: list["WantedAuthorityKeyType"] = strawberry.field(name="topKeys", description='Most-cited missing keys (capped server-side).', default=None)
 
 
 register_type("WantedAuthorityType", WantedAuthorityType, model=None)
@@ -1079,9 +1039,7 @@ register_type("WantedAuthorityType", WantedAuthorityType, model=None)
 
 @strawberry.type(name="WantedAuthorityKeyType", description='One missing canonical key (rolled up to its section root).')
 class WantedAuthorityKeyType:
-    @strawberry.field(name="canonicalKey", description='Section-root canonical key, e.g. "dgcl:145".')
-    def canonical_key(self, info: strawberry.Info) -> str:
-        return coerce_str(getattr(self, "canonical_key", None))
+    canonical_key: str = strawberry.field(name="canonicalKey", description='Section-root canonical key, e.g. "dgcl:145".', default=None)
     mention_count: int = strawberry.field(name="mentionCount", description='EXTERNAL mentions citing this key.', default=None)
     corpus_count: int = strawberry.field(name="corpusCount", description='Distinct corpora citing this key.', default=None)
 
@@ -1092,9 +1050,7 @@ register_type("WantedAuthorityKeyType", WantedAuthorityKeyType, model=None)
 @strawberry.type(name="AuthorityFrontierStatsType", description="Facet-aware summary counts for the authority-sources monitor's chips.\n\nCounts honour the non-state facets (jurisdiction / authority_type /\nprovider / search) but NOT the state filter, so the chips always show the\nfull state breakdown for the current facet selection.")
 class AuthorityFrontierStatsType:
     total_count: int = strawberry.field(name="totalCount", description='Total frontier rows matching the non-state facets.', default=None)
-    @strawberry.field(name="byState", description='Row count per discovery_state (only non-empty states).')
-    def by_state(self, info: strawberry.Info) -> list["AuthorityFrontierStateCountType"]:
-        return resolve_django_list(self, info, getattr(self, "by_state"), "AuthorityFrontierStateCountType")
+    by_state: list["AuthorityFrontierStateCountType"] = strawberry.field(name="byState", description='Row count per discovery_state (only non-empty states).', default=None)
 
 
 register_type("AuthorityFrontierStatsType", AuthorityFrontierStatsType, model=None)
@@ -1102,9 +1058,7 @@ register_type("AuthorityFrontierStatsType", AuthorityFrontierStatsType, model=No
 
 @strawberry.type(name="AuthorityFrontierStateCountType", description='One ``discovery_state`` and how many frontier rows are in it.')
 class AuthorityFrontierStateCountType:
-    @strawberry.field(name="state", description='discovery_state value.')
-    def state(self, info: strawberry.Info) -> str:
-        return coerce_str(getattr(self, "state", None))
+    state: str = strawberry.field(name="state", description='discovery_state value.', default=None)
     count: int = strawberry.field(name="count", default=None)
 
 
@@ -1114,9 +1068,7 @@ register_type("AuthorityFrontierStateCountType", AuthorityFrontierStateCountType
 @strawberry.type(name="AuthorityMappingStatsType", description='Per-``source`` summary counts for the authority-mappings panel chips.\n\nHonours the ``search`` facet but NOT a source filter, so the chips always\nshow the full source breakdown for the current search.')
 class AuthorityMappingStatsType:
     total_count: int = strawberry.field(name="totalCount", description='Total equivalence rows matching the search.', default=None)
-    @strawberry.field(name="bySource", description='Row count per source (only non-empty sources).')
-    def by_source(self, info: strawberry.Info) -> list["AuthorityMappingSourceCountType"]:
-        return resolve_django_list(self, info, getattr(self, "by_source"), "AuthorityMappingSourceCountType")
+    by_source: list["AuthorityMappingSourceCountType"] = strawberry.field(name="bySource", description='Row count per source (only non-empty sources).', default=None)
 
 
 register_type("AuthorityMappingStatsType", AuthorityMappingStatsType, model=None)
@@ -1124,9 +1076,7 @@ register_type("AuthorityMappingStatsType", AuthorityMappingStatsType, model=None
 
 @strawberry.type(name="AuthorityMappingSourceCountType", description='One ``source`` value and how many equivalence rows carry it.')
 class AuthorityMappingSourceCountType:
-    @strawberry.field(name="source", description='source value.')
-    def source(self, info: strawberry.Info) -> str:
-        return coerce_str(getattr(self, "source", None))
+    source: str = strawberry.field(name="source", description='source value.', default=None)
     count: int = strawberry.field(name="count", default=None)
 
 
@@ -1136,15 +1086,9 @@ register_type("AuthorityMappingSourceCountType", AuthorityMappingSourceCountType
 @strawberry.type(name="AuthorityNamespaceStatsType", description="Faceted summary counts for the registry panel's chips.\n\nHonours ``search`` but not the facet selects, so chips show the full\nbreakdown for the current search (mirrors ``AuthorityMappingStatsType``).")
 class AuthorityNamespaceStatsType:
     total_count: int = strawberry.field(name="totalCount", default=None)
-    @strawberry.field(name="byJurisdiction")
-    def by_jurisdiction(self, info: strawberry.Info) -> list["AuthorityNamespaceFacetCountType"]:
-        return resolve_django_list(self, info, getattr(self, "by_jurisdiction"), "AuthorityNamespaceFacetCountType")
-    @strawberry.field(name="byAuthorityType")
-    def by_authority_type(self, info: strawberry.Info) -> list["AuthorityNamespaceFacetCountType"]:
-        return resolve_django_list(self, info, getattr(self, "by_authority_type"), "AuthorityNamespaceFacetCountType")
-    @strawberry.field(name="byScope")
-    def by_scope(self, info: strawberry.Info) -> list["AuthorityNamespaceFacetCountType"]:
-        return resolve_django_list(self, info, getattr(self, "by_scope"), "AuthorityNamespaceFacetCountType")
+    by_jurisdiction: list["AuthorityNamespaceFacetCountType"] = strawberry.field(name="byJurisdiction", default=None)
+    by_authority_type: list["AuthorityNamespaceFacetCountType"] = strawberry.field(name="byAuthorityType", default=None)
+    by_scope: list["AuthorityNamespaceFacetCountType"] = strawberry.field(name="byScope", default=None)
 
 
 register_type("AuthorityNamespaceStatsType", AuthorityNamespaceStatsType, model=None)
@@ -1152,9 +1096,7 @@ register_type("AuthorityNamespaceStatsType", AuthorityNamespaceStatsType, model=
 
 @strawberry.type(name="AuthorityNamespaceFacetCountType", description='One facet value (jurisdiction / authority_type / scope) and its row count.')
 class AuthorityNamespaceFacetCountType:
-    @strawberry.field(name="value", description="The facet value (null collapses to '').")
-    def value(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "value", None))
+    value: Optional[str] = strawberry.field(name="value", description="The facet value (null collapses to '').", default=None)
     count: int = strawberry.field(name="count", default=None)
 
 
@@ -1164,28 +1106,14 @@ register_type("AuthorityNamespaceFacetCountType", AuthorityNamespaceFacetCountTy
 @strawberry.type(name="AuthorityDetailType", description="Everything about one body of law, string-joined across the authority models.\n\nThe console's single-authority view. Superuser-gated at the service layer\n(``AuthorityNamespaceService.detail``); the nested node types are returned as\npre-fetched instances, so their own connection gates are not re-applied (the\nservice already enforced access).")
 class AuthorityDetailType:
     namespace: "AuthorityNamespaceNode" = strawberry.field(name="namespace", default=None)
-    @strawberry.field(name="equivalencesOut", description='Equivalences FROM a key under this prefix.')
-    def equivalences_out(self, info: strawberry.Info) -> list["AuthorityKeyEquivalenceNode"]:
-        return resolve_django_list(self, info, getattr(self, "equivalences_out"), "AuthorityKeyEquivalenceNode")
-    @strawberry.field(name="equivalencesIn", description='Equivalences TO a key under this prefix.')
-    def equivalences_in(self, info: strawberry.Info) -> list["AuthorityKeyEquivalenceNode"]:
-        return resolve_django_list(self, info, getattr(self, "equivalences_in"), "AuthorityKeyEquivalenceNode")
-    @strawberry.field(name="frontierRows")
-    def frontier_rows(self, info: strawberry.Info) -> list["AuthorityFrontierNode"]:
-        return resolve_django_list(self, info, getattr(self, "frontier_rows"), "AuthorityFrontierNode")
-    @strawberry.field(name="frontierStateCounts")
-    def frontier_state_counts(self, info: strawberry.Info) -> list["AuthorityFrontierStateCountType"]:
-        return resolve_django_list(self, info, getattr(self, "frontier_state_counts"), "AuthorityFrontierStateCountType")
+    equivalences_out: list["AuthorityKeyEquivalenceNode"] = strawberry.field(name="equivalencesOut", description='Equivalences FROM a key under this prefix.', default=None)
+    equivalences_in: list["AuthorityKeyEquivalenceNode"] = strawberry.field(name="equivalencesIn", description='Equivalences TO a key under this prefix.', default=None)
+    frontier_rows: list["AuthorityFrontierNode"] = strawberry.field(name="frontierRows", default=None)
+    frontier_state_counts: list["AuthorityFrontierStateCountType"] = strawberry.field(name="frontierStateCounts", default=None)
     reference_total: int = strawberry.field(name="referenceTotal", default=None)
-    @strawberry.field(name="referenceStatusCounts")
-    def reference_status_counts(self, info: strawberry.Info) -> list["AuthorityReferenceStatusCountType"]:
-        return resolve_django_list(self, info, getattr(self, "reference_status_counts"), "AuthorityReferenceStatusCountType")
-    @strawberry.field(name="referenceSample", description='Most-recent references under this prefix (capped).')
-    def reference_sample(self, info: strawberry.Info) -> list["CorpusReferenceType"]:
-        return resolve_django_list(self, info, getattr(self, "reference_sample"), "CorpusReferenceType")
-    @strawberry.field(name="effectiveProvider")
-    def effective_provider(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "effective_provider", None))
+    reference_status_counts: list["AuthorityReferenceStatusCountType"] = strawberry.field(name="referenceStatusCounts", default=None)
+    reference_sample: list["CorpusReferenceType"] = strawberry.field(name="referenceSample", description='Most-recent references under this prefix (capped).', default=None)
+    effective_provider: Optional[str] = strawberry.field(name="effectiveProvider", default=None)
 
 
 register_type("AuthorityDetailType", AuthorityDetailType, model=None)
@@ -1193,9 +1121,7 @@ register_type("AuthorityDetailType", AuthorityDetailType, model=None)
 
 @strawberry.type(name="AuthorityReferenceStatusCountType", description='One ``resolution_status`` and how many references under a prefix carry it.')
 class AuthorityReferenceStatusCountType:
-    @strawberry.field(name="status")
-    def status(self, info: strawberry.Info) -> str:
-        return coerce_str(getattr(self, "status", None))
+    status: str = strawberry.field(name="status", default=None)
     count: int = strawberry.field(name="count", default=None)
 
 
@@ -1204,21 +1130,11 @@ register_type("AuthorityReferenceStatusCountType", AuthorityReferenceStatusCount
 
 @strawberry.type(name="AuthoritySourceProviderType", description='One registered authority source provider (a "scraper").\n\nThe auto-discovered provider classes (US Code / eCFR / Federal Register /\nagentic web locator) surfaced read-only for the console\'s Scrapers tab —\nthey have no DB row, so this is a registry projection. ``has_credentials``\nreflects whether the encrypted-secrets vault holds anything for this\nprovider\'s class path (credentials are edited via the existing\n``updateComponentSecrets`` mutation, not here).')
 class AuthoritySourceProviderType:
-    @strawberry.field(name="name", description='Registry class name.')
-    def name(self, info: strawberry.Info) -> str:
-        return coerce_str(getattr(self, "name", None))
-    @strawberry.field(name="className", description='Full module.ClassName path.')
-    def class_name(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "class_name", None))
-    @strawberry.field(name="title")
-    def title(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "title", None))
-    @strawberry.field(name="supportedPrefixes")
-    def supported_prefixes(self, info: strawberry.Info) -> list[Optional[str]]:
-        return resolve_django_list(self, info, getattr(self, "supported_prefixes"), "String")
-    @strawberry.field(name="license")
-    def license(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "license", None))
+    name: str = strawberry.field(name="name", description='Registry class name.', default=None)
+    class_name: Optional[str] = strawberry.field(name="className", description='Full module.ClassName path.', default=None)
+    title: Optional[str] = strawberry.field(name="title", default=None)
+    supported_prefixes: list[Optional[str]] = strawberry.field(name="supportedPrefixes", default=None)
+    license: Optional[str] = strawberry.field(name="license", default=None)
     priority: Optional[int] = strawberry.field(name="priority", default=None)
     requires_approval: bool = strawberry.field(name="requiresApproval", default=None)
     enabled: bool = strawberry.field(name="enabled", default=None)

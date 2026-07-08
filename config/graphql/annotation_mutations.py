@@ -35,9 +35,7 @@ from opencontractserver.annotations.models import Note
 @strawberry.type(name="AddAnnotation")
 class AddAnnotation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     annotation: Optional[Annotated["AnnotationType", strawberry.lazy("config.graphql.annotation_types")]] = strawberry.field(name="annotation", default=None)
 
 
@@ -47,9 +45,7 @@ register_type("AddAnnotation", AddAnnotation, model=None)
 @strawberry.type(name="AddUrlAnnotation", description='Create an annotation labelled ``OC_URL`` with a click-through URL.\n\nConvenience wrapper over ``AddAnnotation``: ensures the corpus has an\n``OC_URL`` label (creating it if absent) and stamps ``link_url`` on the\nresulting annotation so the frontend renders the highlighted text as a\nclickable hyperlink.')
 class AddUrlAnnotation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     annotation: Optional[Annotated["AnnotationType", strawberry.lazy("config.graphql.annotation_types")]] = strawberry.field(name="annotation", default=None)
 
 
@@ -59,9 +55,7 @@ register_type("AddUrlAnnotation", AddUrlAnnotation, model=None)
 @strawberry.type(name="AddCountryAnnotation", description='Create an annotation labelled ``OC_COUNTRY`` with offline-geocoded data.\n\nMirrors :class:`AddUrlAnnotation` but routes through the bundled\ngeocoding service (see :mod:`opencontractserver.utils.geocoding`).\n``country_hint`` is intentionally absent — the country lookup is\nself-disambiguating.')
 class AddCountryAnnotation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     annotation: Optional[Annotated["AnnotationType", strawberry.lazy("config.graphql.annotation_types")]] = strawberry.field(name="annotation", default=None)
     geocoded: Optional[bool] = strawberry.field(name="geocoded", description='True if the offline geocoder resolved the span; False when the annotation was created but no map pin was generated.', default=None)
 
@@ -72,9 +66,7 @@ register_type("AddCountryAnnotation", AddCountryAnnotation, model=None)
 @strawberry.type(name="AddStateAnnotation", description='Create an annotation labelled ``OC_STATE`` with offline-geocoded data.\n\n``country_hint`` narrows the candidate pool to a single country; today\nthe bundled state dataset is US-only, so the hint mostly exists as a\nforward-compatibility hook for when non-US first-level admin\ndivisions are added.')
 class AddStateAnnotation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     annotation: Optional[Annotated["AnnotationType", strawberry.lazy("config.graphql.annotation_types")]] = strawberry.field(name="annotation", default=None)
     geocoded: Optional[bool] = strawberry.field(name="geocoded", description='True if the offline geocoder resolved the span; False when the annotation was created but no map pin was generated.', default=None)
 
@@ -85,9 +77,7 @@ register_type("AddStateAnnotation", AddStateAnnotation, model=None)
 @strawberry.type(name="AddCityAnnotation", description='Create an annotation labelled ``OC_CITY`` with offline-geocoded data.\n\n``country_hint`` / ``state_hint`` resolve via the same indexes the\nmain lookup uses, so any recognised form ("France" / "FR" / "Texas"\n/ "TX") works. Hints narrow the candidate pool BEFORE the\nexact / alias / fuzzy chain runs, so a hinted ambiguous string\n(e.g. "Paris" + state_hint="TX") prefers the right row even when\nmultiple rows are exact name matches.')
 class AddCityAnnotation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     annotation: Optional[Annotated["AnnotationType", strawberry.lazy("config.graphql.annotation_types")]] = strawberry.field(name="annotation", default=None)
     geocoded: Optional[bool] = strawberry.field(name="geocoded", description='True if the offline geocoder resolved the span; False when the annotation was created but no map pin was generated.', default=None)
 
@@ -98,9 +88,7 @@ register_type("AddCityAnnotation", AddCityAnnotation, model=None)
 @strawberry.type(name="RemoveAnnotation")
 class RemoveAnnotation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
 
 
 register_type("RemoveAnnotation", RemoveAnnotation, model=None)
@@ -109,12 +97,8 @@ register_type("RemoveAnnotation", RemoveAnnotation, model=None)
 @strawberry.type(name="UpdateAnnotation")
 class UpdateAnnotation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
-    @strawberry.field(name="objId")
-    def obj_id(self, info: strawberry.Info) -> Optional[strawberry.ID]:
-        return coerce_str(getattr(self, "obj_id", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
+    obj_id: Optional[strawberry.ID] = strawberry.field(name="objId", default=None)
 
 
 register_type("UpdateAnnotation", UpdateAnnotation, model=None)
@@ -123,9 +107,7 @@ register_type("UpdateAnnotation", UpdateAnnotation, model=None)
 @strawberry.type(name="AddDocTypeAnnotation")
 class AddDocTypeAnnotation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     annotation: Optional[Annotated["AnnotationType", strawberry.lazy("config.graphql.annotation_types")]] = strawberry.field(name="annotation", default=None)
 
 
@@ -136,9 +118,7 @@ register_type("AddDocTypeAnnotation", AddDocTypeAnnotation, model=None)
 class ApproveAnnotation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
     user_feedback: Optional[Annotated["UserFeedbackType", strawberry.lazy("config.graphql.user_types")]] = strawberry.field(name="userFeedback", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
 
 
 register_type("ApproveAnnotation", ApproveAnnotation, model=None)
@@ -148,9 +128,7 @@ register_type("ApproveAnnotation", ApproveAnnotation, model=None)
 class RejectAnnotation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
     user_feedback: Optional[Annotated["UserFeedbackType", strawberry.lazy("config.graphql.user_types")]] = strawberry.field(name="userFeedback", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
 
 
 register_type("RejectAnnotation", RejectAnnotation, model=None)
@@ -160,9 +138,7 @@ register_type("RejectAnnotation", RejectAnnotation, model=None)
 class AddRelationship:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
     relationship: Optional[Annotated["RelationshipType", strawberry.lazy("config.graphql.annotation_types")]] = strawberry.field(name="relationship", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
 
 
 register_type("AddRelationship", AddRelationship, model=None)
@@ -171,9 +147,7 @@ register_type("AddRelationship", AddRelationship, model=None)
 @strawberry.type(name="RemoveRelationship")
 class RemoveRelationship:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
 
 
 register_type("RemoveRelationship", RemoveRelationship, model=None)
@@ -182,9 +156,7 @@ register_type("RemoveRelationship", RemoveRelationship, model=None)
 @strawberry.type(name="RemoveRelationships")
 class RemoveRelationships:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
 
 
 register_type("RemoveRelationships", RemoveRelationships, model=None)
@@ -194,9 +166,7 @@ register_type("RemoveRelationships", RemoveRelationships, model=None)
 class UpdateRelationship:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
     relationship: Optional[Annotated["RelationshipType", strawberry.lazy("config.graphql.annotation_types")]] = strawberry.field(name="relationship", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
 
 
 register_type("UpdateRelationship", UpdateRelationship, model=None)
@@ -205,9 +175,7 @@ register_type("UpdateRelationship", UpdateRelationship, model=None)
 @strawberry.type(name="UpdateRelations")
 class UpdateRelations:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
 
 
 register_type("UpdateRelations", UpdateRelations, model=None)
@@ -216,9 +184,7 @@ register_type("UpdateRelations", UpdateRelations, model=None)
 @strawberry.type(name="UpdateNote", description="Mutation to update a note's content, creating a new version in the process.\nOnly the note creator can update their notes.")
 class UpdateNote:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     obj: Optional[Annotated["NoteType", strawberry.lazy("config.graphql.annotation_types")]] = strawberry.field(name="obj", default=None)
     version: Optional[int] = strawberry.field(name="version", description='The new version number after update', default=None)
 
@@ -229,9 +195,7 @@ register_type("UpdateNote", UpdateNote, model=None)
 @strawberry.type(name="DeleteNote", description='Mutation to delete a note. Only the creator can delete their notes.')
 class DeleteNote:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
 
 
 register_type("DeleteNote", DeleteNote, model=None)
@@ -240,9 +204,7 @@ register_type("DeleteNote", DeleteNote, model=None)
 @strawberry.type(name="CreateNote", description='Mutation to create a new note for a document.')
 class CreateNote:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     obj: Optional[Annotated["NoteType", strawberry.lazy("config.graphql.annotation_types")]] = strawberry.field(name="obj", default=None)
 
 

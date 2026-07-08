@@ -33,9 +33,7 @@ from opencontractserver.corpuses.models import CorpusAction
 @strawberry.type(name="StartCorpusFork")
 class StartCorpusFork:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     new_corpus: Optional[Annotated["CorpusType", strawberry.lazy("config.graphql.corpus_types")]] = strawberry.field(name="newCorpus", default=None)
 
 
@@ -45,9 +43,7 @@ register_type("StartCorpusFork", StartCorpusFork, model=None)
 @strawberry.type(name="ReEmbedCorpus", description="Re-embed all annotations in a corpus with a different embedder (Issue #437).\n\nThis is the controlled migration path for changing a corpus's embedder\nafter documents have been added. It:\n1. Validates the new embedder exists in the registry\n2. Locks the corpus (backend_lock=True)\n3. Queues a background task that updates preferred_embedder and\n   generates new embeddings for all annotations\n4. The corpus unlocks automatically when re-embedding completes\n\nOnly the corpus creator can trigger re-embedding.")
 class ReEmbedCorpus:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
 
 
 register_type("ReEmbedCorpus", ReEmbedCorpus, model=None)
@@ -56,9 +52,7 @@ register_type("ReEmbedCorpus", ReEmbedCorpus, model=None)
 @strawberry.type(name="SetCorpusVisibility", description='Set corpus visibility (public/private).\n\nRequires one of:\n- User is the corpus creator (owner), OR\n- User has PERMISSION permission on the corpus, OR\n- User is superuser\n\nSecurity notes:\n- Permission check prevents users from escalating access\n- Uses existing make_corpus_public_task for cascading public visibility\n- Making private only affects the corpus flag (child objects remain public)')
 class SetCorpusVisibility:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
 
 
 register_type("SetCorpusVisibility", SetCorpusVisibility, model=None)
@@ -67,12 +61,8 @@ register_type("SetCorpusVisibility", SetCorpusVisibility, model=None)
 @strawberry.type(name="CreateCorpusMutation")
 class CreateCorpusMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
-    @strawberry.field(name="objId")
-    def obj_id(self, info: strawberry.Info) -> Optional[strawberry.ID]:
-        return coerce_str(getattr(self, "obj_id", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
+    obj_id: Optional[strawberry.ID] = strawberry.field(name="objId", default=None)
 
 
 register_type("CreateCorpusMutation", CreateCorpusMutation, model=None)
@@ -81,12 +71,8 @@ register_type("CreateCorpusMutation", CreateCorpusMutation, model=None)
 @strawberry.type(name="UpdateCorpusMutation")
 class UpdateCorpusMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
-    @strawberry.field(name="objId")
-    def obj_id(self, info: strawberry.Info) -> Optional[strawberry.ID]:
-        return coerce_str(getattr(self, "obj_id", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
+    obj_id: Optional[strawberry.ID] = strawberry.field(name="objId", default=None)
 
 
 register_type("UpdateCorpusMutation", UpdateCorpusMutation, model=None)
@@ -95,9 +81,7 @@ register_type("UpdateCorpusMutation", UpdateCorpusMutation, model=None)
 @strawberry.type(name="UpdateCorpusDescription", description="Mutation to update a corpus's markdown description, creating a new version in the process.\nOnly the corpus creator can update the description.")
 class UpdateCorpusDescription:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     obj: Optional[Annotated["CorpusType", strawberry.lazy("config.graphql.corpus_types")]] = strawberry.field(name="obj", default=None)
     version: Optional[int] = strawberry.field(name="version", description='The new version number after update', default=None)
 
@@ -108,9 +92,7 @@ register_type("UpdateCorpusDescription", UpdateCorpusDescription, model=None)
 @strawberry.type(name="DeleteCorpusMutation")
 class DeleteCorpusMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
 
 
 register_type("DeleteCorpusMutation", DeleteCorpusMutation, model=None)
@@ -119,9 +101,7 @@ register_type("DeleteCorpusMutation", DeleteCorpusMutation, model=None)
 @strawberry.type(name="AddDocumentsToCorpus", description='Add existing documents to a corpus.\n\nDelegates to CorpusDocumentService.add_documents_to_corpus() for:\n- Permission checking (corpus UPDATE permission)\n- Document validation (user owns or public)\n- Dual-system update (DocumentPath + corpus.add_document)')
 class AddDocumentsToCorpus:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
 
 
 register_type("AddDocumentsToCorpus", AddDocumentsToCorpus, model=None)
@@ -130,9 +110,7 @@ register_type("AddDocumentsToCorpus", AddDocumentsToCorpus, model=None)
 @strawberry.type(name="RemoveDocumentsFromCorpus", description='Remove documents from a corpus (soft-delete).\n\nDelegates to CorpusDocumentService.remove_documents_from_corpus() for:\n- Permission checking (corpus UPDATE permission)\n- Soft-delete via DocumentPath (creates is_deleted=True record)\n- Audit trail')
 class RemoveDocumentsFromCorpus:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
 
 
 register_type("RemoveDocumentsFromCorpus", RemoveDocumentsFromCorpus, model=None)
@@ -141,9 +119,7 @@ register_type("RemoveDocumentsFromCorpus", RemoveDocumentsFromCorpus, model=None
 @strawberry.type(name="CreateCorpusAction", description='Create a new CorpusAction that will be triggered when events occur in a corpus.\n\nAction types:\n- **Fieldset**: Run data extraction (fieldset_id)\n- **Analyzer**: Run classification/annotation (analyzer_id)\n- **Agent**: Execute an AI agent task. Provide task_instructions describing what the\n  agent should do. Optionally link an agent_config_id for custom persona/tool defaults,\n  or use create_agent_inline=True for thread/message moderation.\n- **Lightweight agent**: Just provide task_instructions (no agent_config needed).\n  The system auto-selects tools based on the trigger type.\n\nRequires UPDATE permission on the corpus.')
 class CreateCorpusAction:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     obj: Optional[Annotated["CorpusActionType", strawberry.lazy("config.graphql.agent_types")]] = strawberry.field(name="obj", default=None)
 
 
@@ -153,9 +129,7 @@ register_type("CreateCorpusAction", CreateCorpusAction, model=None)
 @strawberry.type(name="UpdateCorpusAction", description='Update an existing CorpusAction.\nAllows updating name, trigger, action type (fieldset/analyzer/agent), disabled state,\nand agent-specific settings.\nRequires the user to be the creator of the action.')
 class UpdateCorpusAction:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     obj: Optional[Annotated["CorpusActionType", strawberry.lazy("config.graphql.agent_types")]] = strawberry.field(name="obj", default=None)
 
 
@@ -165,9 +139,7 @@ register_type("UpdateCorpusAction", UpdateCorpusAction, model=None)
 @strawberry.type(name="DeleteCorpusAction", description='Mutation to delete a CorpusAction.\nRequires the user to be the creator of the action or have appropriate permissions.')
 class DeleteCorpusAction:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
 
 
 register_type("DeleteCorpusAction", DeleteCorpusAction, model=None)
@@ -176,9 +148,7 @@ register_type("DeleteCorpusAction", DeleteCorpusAction, model=None)
 @strawberry.type(name="RunCorpusAction", description='Manually trigger a specific agent-based corpus action on a document.\n\nSuperuser-only. Creates a CorpusActionExecution record and dispatches\nthe run_agent_corpus_action Celery task.')
 class RunCorpusAction:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     obj: Optional[Annotated["CorpusActionExecutionType", strawberry.lazy("config.graphql.agent_types")]] = strawberry.field(name="obj", default=None)
 
 
@@ -188,15 +158,11 @@ register_type("RunCorpusAction", RunCorpusAction, model=None)
 @strawberry.type(name="StartCorpusActionBatchRun", description='Run an agent-based corpus action against every eligible document in the corpus.')
 class StartCorpusActionBatchRun:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     queued_count: Optional[int] = strawberry.field(name="queuedCount", description='Number of new CorpusActionExecution rows created.', default=None)
     skipped_already_run_count: Optional[int] = strawberry.field(name="skippedAlreadyRunCount", description='Active documents skipped because they already have a queued, running, or completed execution for this action.', default=None)
     total_active_documents: Optional[int] = strawberry.field(name="totalActiveDocuments", description='Total active documents in the corpus at evaluation time.', default=None)
-    @strawberry.field(name="executions", description='The freshly created execution rows (status=QUEUED).')
-    def executions(self, info: strawberry.Info) -> Optional[list[Optional[Annotated["CorpusActionExecutionType", strawberry.lazy("config.graphql.agent_types")]]]]:
-        return resolve_django_list(self, info, getattr(self, "executions"), "CorpusActionExecutionType")
+    executions: Optional[list[Optional[Annotated["CorpusActionExecutionType", strawberry.lazy("config.graphql.agent_types")]]]] = strawberry.field(name="executions", description='The freshly created execution rows (status=QUEUED).', default=None)
 
 
 register_type("StartCorpusActionBatchRun", StartCorpusActionBatchRun, model=None)
@@ -205,9 +171,7 @@ register_type("StartCorpusActionBatchRun", StartCorpusActionBatchRun, model=None
 @strawberry.type(name="AddTemplateToCorpus", description='Add an action template to a corpus by cloning it into a CorpusAction.\n\nThis is the core of the Action Library feature: users browse available\ntemplates and opt-in per corpus. Once cloned, the action is a regular\nCorpusAction that can be edited/toggled/deleted like any other.\n\nPrevents duplicates: the same template cannot be added twice to the same\ncorpus (checked via source_template FK).\n\nRequires the user to be the corpus creator or have CRUD permission.')
 class AddTemplateToCorpus:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     obj: Optional[Annotated["CorpusActionType", strawberry.lazy("config.graphql.agent_types")]] = strawberry.field(name="obj", default=None)
 
 
@@ -217,9 +181,7 @@ register_type("AddTemplateToCorpus", AddTemplateToCorpus, model=None)
 @strawberry.type(name="SetupCorpusIntelligence", description='One-click collection-intelligence setup.\n\nComposes the default enrichment bundle in a single idempotent call:\ninstalls the reference-enrichment analyzer as an ``add_document`` action\nand starts the first weave (deterministic), then clones the description +\nsummary action templates and batch-runs each over every document already\nin the corpus (LLM). Safe to repeat — every step skips work that already\nexists. Requires CRUD permission on the corpus — the tier\nAddTemplateToCorpus and CreateCorpusAction gate the identical writes at.')
 class SetupCorpusIntelligence:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     summary: Optional[Annotated["CorpusIntelligenceSetupSummaryType", strawberry.lazy("config.graphql.corpus_types")]] = strawberry.field(name="summary", default=None)
 
 
@@ -229,9 +191,7 @@ register_type("SetupCorpusIntelligence", SetupCorpusIntelligence, model=None)
 @strawberry.type(name="ToggleCorpusMemory", description='Toggle the agent memory system on/off for a corpus.\n\nWhen enabled, agents accumulate reusable insights from conversations\ninto a memory document. The memory document is a first-class Document\nin the corpus, visible and editable by users.\n\nIMPORTANT: When memory is enabled, conversation patterns (NOT specific\ncontent) may be distilled into the memory document. Users should be\naware of this when discussing sensitive topics.\n\nRequires CRUD permission on the corpus.')
 class ToggleCorpusMemory:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     corpus: Optional[Annotated["CorpusType", strawberry.lazy("config.graphql.corpus_types")]] = strawberry.field(name="corpus", default=None)
 
 
@@ -241,9 +201,7 @@ register_type("ToggleCorpusMemory", ToggleCorpusMemory, model=None)
 @strawberry.type(name="CreateArtifact", description="Create a shareable poster (Artifact) of a corpus from a template.\n\nREAD-gated on the corpus (you can make a poster of any collection you can\nsee): its ``/a/<slug>`` link is shareable to anyone who can read the\nsource corpus (corpus-as-gate ONLY — there is no per-artifact visibility\noverride), and its data still only renders to viewers who can read the\ncorpus. ``template`` is validated against the service's registry.")
 class CreateArtifact:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     artifact: Optional[Annotated["ArtifactType", strawberry.lazy("config.graphql.corpus_types")]] = strawberry.field(name="artifact", default=None)
 
 
@@ -253,9 +211,7 @@ register_type("CreateArtifact", CreateArtifact, model=None)
 @strawberry.type(name="UpdateArtifact", description="Edit an artifact's configurable captions — creator only.")
 class UpdateArtifact:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     artifact: Optional[Annotated["ArtifactType", strawberry.lazy("config.graphql.corpus_types")]] = strawberry.field(name="artifact", default=None)
 
 
@@ -265,12 +221,8 @@ register_type("UpdateArtifact", UpdateArtifact, model=None)
 @strawberry.type(name="SetArtifactImage", description='Persist the rendered poster PNG so ``/a/<slug>`` has a stable og:image.\n\nThe poster is an SVG rendered client-side; the editor rasterises it and\nuploads the bytes here on save. (A production deploy can swap in a headless\nserver render behind the same field without changing the contract.)\nCreator-only.')
 class SetArtifactImage:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
-    @strawberry.field(name="imageUrl")
-    def image_url(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "image_url", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
+    image_url: Optional[str] = strawberry.field(name="imageUrl", default=None)
 
 
 register_type("SetArtifactImage", SetArtifactImage, model=None)

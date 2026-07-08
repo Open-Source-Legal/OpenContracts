@@ -33,9 +33,7 @@ from config.graphql import enums
 @strawberry.type(name="CreateIngestionSourceMutation", description='Create a new ingestion source for document lineage tracking.')
 class CreateIngestionSourceMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     ingestion_source: Optional[Annotated["IngestionSourceType", strawberry.lazy("config.graphql.document_types")]] = strawberry.field(name="ingestionSource", default=None)
 
 
@@ -45,9 +43,7 @@ register_type("CreateIngestionSourceMutation", CreateIngestionSourceMutation, mo
 @strawberry.type(name="UpdateIngestionSourceMutation", description='Update an existing ingestion source.')
 class UpdateIngestionSourceMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     ingestion_source: Optional[Annotated["IngestionSourceType", strawberry.lazy("config.graphql.document_types")]] = strawberry.field(name="ingestionSource", default=None)
 
 
@@ -57,9 +53,7 @@ register_type("UpdateIngestionSourceMutation", UpdateIngestionSourceMutation, mo
 @strawberry.type(name="DeleteIngestionSourceMutation", description='Delete an ingestion source. Existing DocumentPath references become NULL.')
 class DeleteIngestionSourceMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
 
 
 register_type("DeleteIngestionSourceMutation", DeleteIngestionSourceMutation, model=None)

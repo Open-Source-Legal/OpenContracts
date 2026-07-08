@@ -33,9 +33,7 @@ from config.graphql import enums
 @strawberry.type(name="CreateAuthorityNamespaceMutation", description='Create a manual AuthorityNamespace (superuser-only).')
 class CreateAuthorityNamespaceMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     obj: Optional[Annotated["AuthorityNamespaceNode", strawberry.lazy("config.graphql.annotation_types")]] = strawberry.field(name="obj", default=None)
 
 
@@ -45,9 +43,7 @@ register_type("CreateAuthorityNamespaceMutation", CreateAuthorityNamespaceMutati
 @strawberry.type(name="UpdateAuthorityNamespaceMutation", description="Edit an AuthorityNamespace (superuser-only; stamps source='manual').")
 class UpdateAuthorityNamespaceMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     obj: Optional[Annotated["AuthorityNamespaceNode", strawberry.lazy("config.graphql.annotation_types")]] = strawberry.field(name="obj", default=None)
 
 
@@ -57,9 +53,7 @@ register_type("UpdateAuthorityNamespaceMutation", UpdateAuthorityNamespaceMutati
 @strawberry.type(name="SetAuthorityNamespaceAliasesMutation", description="Replace a namespace's alias set (superuser-only).")
 class SetAuthorityNamespaceAliasesMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     obj: Optional[Annotated["AuthorityNamespaceNode", strawberry.lazy("config.graphql.annotation_types")]] = strawberry.field(name="obj", default=None)
 
 
@@ -69,9 +63,7 @@ register_type("SetAuthorityNamespaceAliasesMutation", SetAuthorityNamespaceAlias
 @strawberry.type(name="DeleteAuthorityNamespaceMutation", description='Delete an AuthorityNamespace (superuser-only; guarded against orphaning).')
 class DeleteAuthorityNamespaceMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
 
 
 register_type("DeleteAuthorityNamespaceMutation", DeleteAuthorityNamespaceMutation, model=None)

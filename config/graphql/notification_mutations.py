@@ -33,9 +33,7 @@ from config.graphql import enums
 @strawberry.type(name="MarkNotificationReadMutation", description='Mark a single notification as read.')
 class MarkNotificationReadMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     notification: Optional[Annotated["NotificationType", strawberry.lazy("config.graphql.social_types")]] = strawberry.field(name="notification", default=None)
 
 
@@ -45,9 +43,7 @@ register_type("MarkNotificationReadMutation", MarkNotificationReadMutation, mode
 @strawberry.type(name="MarkNotificationUnreadMutation", description='Mark a single notification as unread.')
 class MarkNotificationUnreadMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     notification: Optional[Annotated["NotificationType", strawberry.lazy("config.graphql.social_types")]] = strawberry.field(name="notification", default=None)
 
 
@@ -57,9 +53,7 @@ register_type("MarkNotificationUnreadMutation", MarkNotificationUnreadMutation, 
 @strawberry.type(name="MarkAllNotificationsReadMutation", description="Mark all of the current user's notifications as read.")
 class MarkAllNotificationsReadMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
     count: Optional[int] = strawberry.field(name="count", description='Number of notifications marked as read', default=None)
 
 
@@ -69,9 +63,7 @@ register_type("MarkAllNotificationsReadMutation", MarkAllNotificationsReadMutati
 @strawberry.type(name="DeleteNotificationMutation", description='Delete a notification.')
 class DeleteNotificationMutation:
     ok: Optional[bool] = strawberry.field(name="ok", default=None)
-    @strawberry.field(name="message")
-    def message(self, info: strawberry.Info) -> Optional[str]:
-        return coerce_str(getattr(self, "message", None))
+    message: Optional[str] = strawberry.field(name="message", default=None)
 
 
 register_type("DeleteNotificationMutation", DeleteNotificationMutation, model=None)
