@@ -324,9 +324,15 @@ def find_documents_citing(
     # Same IDOR-safe existence check get_document_references applies: a
     # document_id anchor that doesn't resolve to a visible document must error,
     # not return a false-empty "nobody cites this" envelope (an agent passing a
-    # corpus_id where a document_id belongs would otherwise be misled). Only
-    # guards the document_id anchor; a canonical_key anchor is validated by
-    # candidate_keys resolution below.
+    # corpus_id where a document_id belongs would otherwise be misled).
+    #
+    # Only the document_id anchor is guarded — and deliberately so. A
+    # canonical_key is a semantic key, not an object id: an empty result for a
+    # well-formed key is a legitimate "no visible document cites this authority"
+    # answer (there is no registry of valid keys to check against, and zero
+    # citers is a normal outcome). candidate_keys() below only normalizes /
+    # expands the key string (underscore→hyphen, subsection→section root); it
+    # does not validate the key, so no analogous existence error is raised here.
     if (
         not canonical_key
         and BaseService.get_or_none(Document, document_id, user) is None
