@@ -100,15 +100,17 @@ docker compose -f production.yml up
 
 ### Backend Architecture
 
-**Stack**: Django 4.x + GraphQL (Graphene) + PostgreSQL + pgvector + Celery
+**Stack**: Django 4.x + GraphQL (strawberry-graphql) + PostgreSQL + pgvector + Celery
 
 **Key Patterns**:
 
-1. **GraphQL Schema Organization**:
-   - `config/graphql/graphene_types.py` - All GraphQL type definitions
-   - `config/graphql/queries.py` - Query resolvers
-   - `config/graphql/*_mutations.py` - Mutation files (organized by feature)
-   - `config/graphql/schema.py` - Schema composition
+1. **GraphQL Schema Organization** (strawberry; migrated from graphene — query shapes pinned):
+   - `config/graphql/core/` - shared runtime: relay global IDs/`Node`, connection factories + graphene-parity pagination, FilterSet arg mapping, scalars, permission resolvers, DRF mutation bases, auth decorators
+   - `config/graphql/*_types.py` - GraphQL type definitions (organized by feature)
+   - `config/graphql/*_queries.py` / `*_mutations.py` - Query/Mutation fields + resolvers (each module exports `QUERY_FIELDS` / `MUTATION_FIELDS`)
+   - `config/graphql/schema.py` - Schema composition + validation rules
+   - `config/graphql/schema.graphql` - **golden SDL contract**; `opencontractserver/tests/test_schema_parity.py` fails on ANY shape drift. Regenerate it deliberately when changing the API surface (command in that test's docstring).
+   - `config/graphql/views.py` - HTTP view; per-request auth (JWT/Auth0/API-key) happens in `get_context` via `AUTHENTICATION_BACKENDS` (no per-resolver auth middleware)
 
 2. **Permission System** (CRITICAL - see `docs/permissioning/consolidated_permissioning_guide.md`):
    - **Annotations & Relationships**: NO individual permissions - inherited from document + corpus
@@ -120,11 +122,11 @@ docker compose -f production.yml up
    - For corpus-scoped document access (the most common pattern), prefer `CorpusDocumentService.get_corpus_documents(user, corpus)` over composing `visible_to_user` filters by hand — the service is the canonical entry point and prevents IDOR-prone copy-paste fusions of `corpus.get_documents()` + `Document.objects.visible_to_user(user)`.
    - **Corpus document access — two deliberate semantics (issue #1682)**: `CorpusDocumentService.get_corpus_documents(user, corpus)` is **corpus-as-gate** — corpus READ unlocks *every* document with an active path in that corpus. It is the documented default for pipeline-facing callers (MCP, badge/analysis tasks) that legitimately operate over a whole readable corpus and never return or persist verbatim document content to the caller. `CorpusDocumentService.get_corpus_documents_visible_to_user(user, corpus)` enforces **`MIN(document_permission, corpus_permission)`** — a private document inside a public (or merely shared) corpus stays hidden from users who lack document-level READ. User-facing surfaces that must not leak private documents (e.g. the GraphQL `CorpusType.documents` resolver) MUST use the `_visible_to_user` variant. **Authority enrichment is `_visible_to_user`, not corpus-as-gate** (PR #2084): `EnrichmentService.discover`/`scan`/`apply` (`opencontractserver/enrichment/services/enrichment_service.py::_load`) return verbatim excerpts and persist `Annotation`/`CorpusReference` rows derived from document text, so they load through the MIN variant and surface a `documents_excluded_by_visibility` count (+ a WARNING) when the caller's `creator_id` lacks per-document READ on some documents. Choose the method by caller intent; never silently swap one semantic for the other.
 
-3. **AnnotatePermissionsForReadMixin**:
-   - Most GraphQL types inherit this mixin (see `config/graphql/permissioning/permission_annotator/mixins.py`)
-   - Adds `my_permissions`, `is_published`, `object_shared_with` fields
+3. **Permission-annotation fields** (`myPermissions`, `isPublished`, `objectSharedWith`):
+   - Resolved by `config/graphql/core/permissions.py` (port of the graphene-era `AnnotatePermissionsForReadMixin`); most GraphQL types expose them
    - Requires model to have guardian permission tables (`{model}userobjectpermission_set`)
-   - Notifications use simple ownership model and DON'T use this mixin
+   - Per-request model-permission maps are memoised on `info.context.permission_annotations`
+   - Notifications use simple ownership model and DON'T expose these fields
 
 4. **Django Signal Handlers**:
    - Automatic notification creation on model changes (see `opencontractserver/notifications/signals.py`)
