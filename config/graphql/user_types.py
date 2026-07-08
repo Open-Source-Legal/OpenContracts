@@ -4919,11 +4919,11 @@ class BulkDocumentUploadStatusType:
 
     @strawberry.field(name="documentIds")
     def document_ids(self, info: strawberry.Info) -> Optional[list[Optional[str]]]:
-        return coerce_str(getattr(self, "document_ids", None))
+        return getattr(self, "document_ids", None)
 
     @strawberry.field(name="errors")
     def errors(self, info: strawberry.Info) -> Optional[list[Optional[str]]]:
-        return coerce_str(getattr(self, "errors", None))
+        return getattr(self, "errors", None)
 
     completed: Optional[bool] = strawberry.field(name="completed", default=None)
 

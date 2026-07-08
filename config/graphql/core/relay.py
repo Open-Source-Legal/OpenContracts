@@ -137,6 +137,12 @@ def _install_graphene_resolver_aliases(type_name: str, strawberry_type: type) ->
                 fn = getattr(module, attr_name)
                 if callable(fn) and not hasattr(strawberry_type, f"resolve_{field}"):
                     setattr(strawberry_type, f"resolve_{field}", staticmethod(fn))
+        # graphene ``get_node`` / ``get_queryset`` classmethods (some unit
+        # tests — e.g. test_doc_annotations_prefetch — call them directly).
+        for hook in ("get_node", "get_queryset"):
+            hook_fn = getattr(module, f"_{hook}_{type_name}", None)
+            if callable(hook_fn) and not hasattr(strawberry_type, hook):
+                setattr(strawberry_type, hook, staticmethod(hook_fn))
 
     # Permission-annotation fields live in the shared core module, not the
     # per-type module, so alias them explicitly.

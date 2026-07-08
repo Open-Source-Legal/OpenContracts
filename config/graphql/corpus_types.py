@@ -1764,12 +1764,23 @@ def _get_node_CorpusType(info, pk):
     return corpus
 
 
+# NOTE: ``get_node`` is intentionally NOT registered here. graphene served the
+# top-level ``corpus(id:)`` query via ``OpenContractsNode.Field`` — an
+# UNCACHED ``BaseService.get_or_none`` fetched fresh on every request — while
+# the cached ``CorpusType.get_node`` (``_get_node_CorpusType``) served
+# FK-via-Node access. Routing ``corpus(id:)`` through the cached hook leaked a
+# stale ``Corpus`` object across requests that reuse one context object (the
+# permissioning tests do exactly this, changing perms between executes), so
+# the top-level query uses the default node path (the visibility-filtered
+# ``get_queryset`` + ``.get(pk)`` — equivalent to graphene's uncached
+# ``get_or_none`` READ). ``_get_node_CorpusType`` is still installed on the
+# class as a graphene-compat ``get_node`` (for the request-cache unit test)
+# via ``_install_graphene_resolver_aliases``.
 register_type(
     "CorpusType",
     CorpusType,
     model=Corpus,
     get_queryset=_get_queryset_CorpusType,
-    get_node=_get_node_CorpusType,
 )
 
 
