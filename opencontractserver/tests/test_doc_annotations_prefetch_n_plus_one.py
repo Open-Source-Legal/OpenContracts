@@ -55,9 +55,7 @@ from config.graphql.custom_resolvers import (
     UNSUPPORTED_FILTER_KEYS,
 )
 from config.graphql.filters import AnnotationFilter
-from config.graphql.permissioning.permission_annotator.mixins import (
-    get_anonymous_user_id,
-)
+from config.graphql.core.permissions import get_anonymous_user_id
 from config.graphql.schema import schema
 from opencontractserver.annotations.models import (
     DOC_TYPE_LABEL,

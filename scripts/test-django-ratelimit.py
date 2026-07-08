@@ -95,35 +95,25 @@ def test_graphql_integration():
 
     print("Testing GraphQL integration...")
 
-    # Import mutations and queries
-    from config.graphql.mutations import CreateLabelset
-    from config.graphql.queries import Query
+    # After the strawberry migration, each mutation/resolver is a
+    # module-level ``_mutate_<Payload>`` / ``_resolve_<Type>_<field>``
+    # function carrying the rate-limit decorator (see the ported modules);
+    # the graphene ``XMutation.mutate`` classmethods / ``Query`` root are gone.
+    from config.graphql import annotation_queries, corpus_queries, label_mutations
 
-    # Check that mutations have rate limiting decorators
-    mutations_to_check = [
-        ("CreateLabelset.mutate", CreateLabelset.mutate),
+    resolvers_to_check = [
+        ("_mutate_CreateLabelset", label_mutations._mutate_CreateLabelset),
+        (
+            "_resolve_Query_annotations",
+            annotation_queries._resolve_Query_annotations,
+        ),
+        (
+            "_resolve_Query_corpus_stats",
+            corpus_queries._resolve_Query_corpus_stats,
+        ),
     ]
 
-    for name, method in mutations_to_check:
-        # Check if the method has been wrapped
-        if hasattr(method, "__wrapped__"):
-            print(f"  {name}: ✓ Has rate limiting")
-        else:
-            # The decorator might be applied differently
-            # Check for rate limit attributes
-            if "__closure__" in dir(method):
-                print(f"  {name}: ✓ Likely has rate limiting (closure detected)")
-            else:
-                print(f"  {name}: ⚠ May not have rate limiting")
-
-    # Check queries
-    query_instance = Query()
-    queries_to_check = [
-        ("resolve_annotations", query_instance.resolve_annotations),
-        ("resolve_corpus_stats", query_instance.resolve_corpus_stats),
-    ]
-
-    for name, method in queries_to_check:
+    for name, method in resolvers_to_check:
         if hasattr(method, "__wrapped__"):
             print(f"  {name}: ✓ Has rate limiting")
         elif "__closure__" in dir(method):
