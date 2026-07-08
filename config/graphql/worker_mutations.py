@@ -27,7 +27,22 @@ from config.graphql.core.scalars import BigInt, GenericScalar, JSONString
 from config.graphql._util import coerce_enum, coerce_str, strip_unset
 from config.graphql import enums
 
+import logging
+from typing import cast
 
+from graphql import GraphQLError
+
+from config.graphql.core.auth import PermissionDenied
+from config.graphql.worker_types import (
+    CorpusAccessTokenCreatedType,
+    WorkerAccountType,
+)
+from opencontractserver.worker_uploads.services import (
+    CorpusAccessTokenService,
+    WorkerAccountService,
+)
+
+logger = logging.getLogger(__name__)
 
 
 @strawberry.type(name="CreateWorkerAccount", description='Create a new worker service account. Superuser only.')
@@ -72,12 +87,35 @@ class RevokeCorpusAccessTokenMutation:
 register_type("RevokeCorpusAccessTokenMutation", RevokeCorpusAccessTokenMutation, model=None)
 
 
-def _mutate_CreateWorkerAccount(payload_cls, root, info, **kwargs):
-    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:53
+def _mutate_CreateWorkerAccount(payload_cls, root, info, name, description=""):
+    """Port of CreateWorkerAccount.mutate"""
+    # @user_passes_test(lambda user: user.is_superuser) — inlined.
+    if not getattr(info.context.user, "is_superuser", False):
+        raise PermissionDenied()
 
-    Port of CreateWorkerAccount.mutate
-    """
-    raise NotImplementedError("_mutate_CreateWorkerAccount not yet ported — see manifest")
+    result = WorkerAccountService.create_worker_account(
+        info.context.user,
+        name=name,
+        description=description,
+        request=info.context,
+    )
+    if not result.ok:
+        raise GraphQLError(result.error)
+
+    # ``result.ok`` invariant: success carries a non-None value. ``cast``
+    # narrows the type for mypy without relying on ``assert`` (which is
+    # stripped under ``python -O``).
+    account = cast("WorkerAccount", result.value)
+    return payload_cls(
+        ok=True,
+        worker_account=WorkerAccountType(
+            id=account.id,
+            name=account.name,
+            description=account.description,
+            is_active=account.is_active,
+            created=account.created,
+        ),
+    )
 
 
 def m_create_worker_account(info: strawberry.Info, description: Annotated[Optional[str], strawberry.argument(name="description")] = '', name: Annotated[str, strawberry.argument(name="name")] = strawberry.UNSET) -> Optional["CreateWorkerAccount"]:
@@ -85,12 +123,21 @@ def m_create_worker_account(info: strawberry.Info, description: Annotated[Option
     return _mutate_CreateWorkerAccount(CreateWorkerAccount, None, info, **kwargs)
 
 
-def _mutate_DeactivateWorkerAccount(payload_cls, root, info, **kwargs):
-    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:88
+def _mutate_DeactivateWorkerAccount(payload_cls, root, info, worker_account_id):
+    """Port of DeactivateWorkerAccount.mutate"""
+    # @user_passes_test(lambda user: user.is_superuser) — inlined.
+    if not getattr(info.context.user, "is_superuser", False):
+        raise PermissionDenied()
 
-    Port of DeactivateWorkerAccount.mutate
-    """
-    raise NotImplementedError("_mutate_DeactivateWorkerAccount not yet ported — see manifest")
+    result = WorkerAccountService.set_active(
+        info.context.user,
+        worker_account_id,
+        active=False,
+        request=info.context,
+    )
+    if not result.ok:
+        raise GraphQLError(result.error)
+    return payload_cls(ok=True)
 
 
 def m_deactivate_worker_account(info: strawberry.Info, worker_account_id: Annotated[int, strawberry.argument(name="workerAccountId")] = strawberry.UNSET) -> Optional["DeactivateWorkerAccount"]:
@@ -98,12 +145,21 @@ def m_deactivate_worker_account(info: strawberry.Info, worker_account_id: Annota
     return _mutate_DeactivateWorkerAccount(DeactivateWorkerAccount, None, info, **kwargs)
 
 
-def _mutate_ReactivateWorkerAccount(payload_cls, root, info, **kwargs):
-    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:109
+def _mutate_ReactivateWorkerAccount(payload_cls, root, info, worker_account_id):
+    """Port of ReactivateWorkerAccount.mutate"""
+    # @user_passes_test(lambda user: user.is_superuser) — inlined.
+    if not getattr(info.context.user, "is_superuser", False):
+        raise PermissionDenied()
 
-    Port of ReactivateWorkerAccount.mutate
-    """
-    raise NotImplementedError("_mutate_ReactivateWorkerAccount not yet ported — see manifest")
+    result = WorkerAccountService.set_active(
+        info.context.user,
+        worker_account_id,
+        active=True,
+        request=info.context,
+    )
+    if not result.ok:
+        raise GraphQLError(result.error)
+    return payload_cls(ok=True)
 
 
 def m_reactivate_worker_account(info: strawberry.Info, worker_account_id: Annotated[int, strawberry.argument(name="workerAccountId")] = strawberry.UNSET) -> Optional["ReactivateWorkerAccount"]:
@@ -111,12 +167,47 @@ def m_reactivate_worker_account(info: strawberry.Info, worker_account_id: Annota
     return _mutate_ReactivateWorkerAccount(ReactivateWorkerAccount, None, info, **kwargs)
 
 
-def _mutate_CreateCorpusAccessTokenMutation(payload_cls, root, info, **kwargs):
-    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:139
+def _mutate_CreateCorpusAccessTokenMutation(
+    payload_cls,
+    root,
+    info,
+    worker_account_id,
+    corpus_id,
+    expires_at=None,
+    rate_limit_per_minute=0,
+):
+    """Port of CreateCorpusAccessTokenMutation.mutate"""
+    # @login_required — inlined.
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
 
-    Port of CreateCorpusAccessTokenMutation.mutate
-    """
-    raise NotImplementedError("_mutate_CreateCorpusAccessTokenMutation not yet ported — see manifest")
+    result = CorpusAccessTokenService.create_token(
+        info.context.user,
+        worker_account_id=worker_account_id,
+        corpus_id=corpus_id,
+        expires_at=expires_at,
+        rate_limit_per_minute=rate_limit_per_minute,
+        request=info.context,
+    )
+    if not result.ok:
+        raise GraphQLError(result.error)
+
+    # ``result.ok`` invariant: success carries a non-None value. ``cast``
+    # narrows the type for mypy without relying on ``assert`` (which is
+    # stripped under ``python -O``).
+    token, plaintext_key = cast("tuple[CorpusAccessToken, str]", result.value)
+    return payload_cls(
+        ok=True,
+        token=CorpusAccessTokenCreatedType(
+            id=token.id,
+            key=plaintext_key,
+            worker_account_name=token.worker_account.name,
+            corpus_id=token.corpus_id,
+            expires_at=token.expires_at,
+            rate_limit_per_minute=token.rate_limit_per_minute,
+            created=token.created,
+        ),
+    )
 
 
 def m_create_corpus_access_token(info: strawberry.Info, corpus_id: Annotated[int, strawberry.argument(name="corpusId")] = strawberry.UNSET, expires_at: Annotated[Optional[datetime.datetime], strawberry.argument(name="expiresAt")] = None, rate_limit_per_minute: Annotated[Optional[int], strawberry.argument(name="rateLimitPerMinute")] = 0, worker_account_id: Annotated[int, strawberry.argument(name="workerAccountId")] = strawberry.UNSET) -> Optional["CreateCorpusAccessTokenMutation"]:
@@ -124,12 +215,18 @@ def m_create_corpus_access_token(info: strawberry.Info, corpus_id: Annotated[int
     return _mutate_CreateCorpusAccessTokenMutation(CreateCorpusAccessTokenMutation, None, info, **kwargs)
 
 
-def _mutate_RevokeCorpusAccessTokenMutation(payload_cls, root, info, **kwargs):
-    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:185
+def _mutate_RevokeCorpusAccessTokenMutation(payload_cls, root, info, token_id):
+    """Port of RevokeCorpusAccessTokenMutation.mutate"""
+    # @login_required — inlined.
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
 
-    Port of RevokeCorpusAccessTokenMutation.mutate
-    """
-    raise NotImplementedError("_mutate_RevokeCorpusAccessTokenMutation not yet ported — see manifest")
+    result = CorpusAccessTokenService.revoke_token(
+        info.context.user, token_id, request=info.context
+    )
+    if not result.ok:
+        raise GraphQLError(result.error)
+    return payload_cls(ok=True)
 
 
 def m_revoke_corpus_access_token(info: strawberry.Info, token_id: Annotated[int, strawberry.argument(name="tokenId")] = strawberry.UNSET) -> Optional["RevokeCorpusAccessTokenMutation"]:

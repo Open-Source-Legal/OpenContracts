@@ -255,8 +255,8 @@ def q_search_documents_for_mention(info: strawberry.Info, text_search: Annotated
 
 
 @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
-def resolve_search_annotations_for_mention(
-    self, info, text_search=None, corpus_id=None, **kwargs
+def _resolve_Query_search_annotations_for_mention(
+    root, info, text_search=None, corpus_id=None, **kwargs
 ) -> Any:
     """
     Search annotations for @ mention autocomplete.
@@ -343,7 +343,7 @@ def q_search_annotations_for_mention(info: strawberry.Info, text_search: Annotat
 
 
 @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
-def resolve_search_users_for_mention(self, info, text_search=None, **kwargs) -> Any:
+def _resolve_Query_search_users_for_mention(root, info, text_search=None, **kwargs) -> Any:
     """
     Search users for @ mention autocomplete.
 

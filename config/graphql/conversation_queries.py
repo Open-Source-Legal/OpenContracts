@@ -451,18 +451,20 @@ def _resolve_Query_moderation_metrics(root, info, corpus_id, time_range_hours=24
         if count / time_range_hours > MODERATION_HOURLY_RATE_THRESHOLD
     ]
 
-    return {
-        "total_actions": total,
-        "automated_actions": automated,
-        "manual_actions": manual,
-        "actions_by_type": by_type,
-        "hourly_action_rate": round(hourly_rate, 2),
-        "is_above_threshold": len(exceeded_types) > 0,
-        "threshold_exceeded_types": exceeded_types,
-        "time_range_hours": time_range_hours,
-        "start_time": start_time,
-        "end_time": end_time,
-    }
+    from config.graphql.conversation_types import ModerationMetricsType
+
+    return ModerationMetricsType(
+        total_actions=total,
+        automated_actions=automated,
+        manual_actions=manual,
+        actions_by_type=by_type,
+        hourly_action_rate=round(hourly_rate, 2),
+        is_above_threshold=len(exceeded_types) > 0,
+        threshold_exceeded_types=exceeded_types,
+        time_range_hours=time_range_hours,
+        start_time=start_time,
+        end_time=end_time,
+    )
 
 
 def q_moderation_metrics(info: strawberry.Info, corpus_id: Annotated[strawberry.ID, strawberry.argument(name="corpusId")] = strawberry.UNSET, time_range_hours: Annotated[Optional[int], strawberry.argument(name="timeRangeHours")] = 24) -> Optional[Annotated["ModerationMetricsType", strawberry.lazy("config.graphql.conversation_types")]]:

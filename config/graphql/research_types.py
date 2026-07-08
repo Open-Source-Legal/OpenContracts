@@ -36,7 +36,7 @@ def _resolve_ResearchReportType_duration_seconds(root, info, **kwargs):
 
     Port of ResearchReportType.resolve_duration_seconds
     """
-    raise NotImplementedError("_resolve_ResearchReportType_duration_seconds not yet ported — see manifest")
+    return root.duration_seconds
 
 
 def _resolve_ResearchReportType_my_permissions(root, info, **kwargs):
@@ -44,7 +44,22 @@ def _resolve_ResearchReportType_my_permissions(root, info, **kwargs):
 
     Port of ResearchReportType.resolve_my_permissions
     """
-    raise NotImplementedError("_resolve_ResearchReportType_my_permissions not yet ported — see manifest")
+    # Return creator-only permissions; v1 has no sharing surface.
+    user = getattr(info.context, "user", None)
+    if user is None or not getattr(user, "is_authenticated", False):
+        return []
+    # Scoped admin access (2026-05): superusers are computed like a normal
+    # user — no synthetic full-permission grant. A report is visible (and
+    # editable) only to its creator in v1.
+    if root.creator_id == getattr(user, "id", None):
+        # Creator sees their own report end-to-end; cancel routes
+        # through the dedicated mutation, not a guardian grant.
+        return [
+            "read_researchreport",
+            "update_researchreport",
+            "remove_researchreport",
+        ]
+    return []
 
 
 def _resolve_ResearchReportType_full_source_annotation_list(root, info, **kwargs):
@@ -52,7 +67,7 @@ def _resolve_ResearchReportType_full_source_annotation_list(root, info, **kwargs
 
     Port of ResearchReportType.resolve_full_source_annotation_list
     """
-    raise NotImplementedError("_resolve_ResearchReportType_full_source_annotation_list not yet ported — see manifest")
+    return root.source_annotations.all()
 
 
 def _resolve_ResearchReportType_full_source_document_list(root, info, **kwargs):
@@ -60,7 +75,7 @@ def _resolve_ResearchReportType_full_source_document_list(root, info, **kwargs):
 
     Port of ResearchReportType.resolve_full_source_document_list
     """
-    raise NotImplementedError("_resolve_ResearchReportType_full_source_document_list not yet ported — see manifest")
+    return root.source_documents.all()
 
 
 @strawberry.type(name="ResearchReportType", description="Deep-research job + final report.\n\nPermissions are intentionally **creator-only** in v1 — there is no\nsharing surface (no `is_public`, no `object_shared_with`), so we\nskip `AnnotatePermissionsForReadMixin` (which assumes guardian\npermission tables that ``ResearchReport`` does not allocate, and\nwould silently swallow the resulting AttributeError as ``[]``).\nThe custom ``my_permissions`` resolver below mirrors what the mixin\nwould return for the creator's own row.")
@@ -140,7 +155,13 @@ def _get_node_ResearchReportType(info, pk):
 
     Port of ResearchReportType.get_node
     """
-    raise NotImplementedError("_get_node_ResearchReportType not yet ported — see manifest")
+    # Permission-checked node resolution.
+    from opencontractserver.shared.services.base import BaseService
+
+    obj = BaseService.get_or_none(
+        ResearchReport, int(pk), info.context.user, request=info.context
+    )
+    return obj
 
 
 register_type("ResearchReportType", ResearchReportType, model=ResearchReport, get_node=_get_node_ResearchReportType)
