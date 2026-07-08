@@ -115,3 +115,58 @@ class PdfPageInfoType:
 
 register_type("PdfPageInfoType", PdfPageInfoType, model=None)
 
+
+
+# ---------------------------------------------------------------------------
+# Module-level helpers preserved from the graphene base_types module.
+# ---------------------------------------------------------------------------
+
+from graphql_relay import to_global_id  # noqa: E402
+
+
+def build_flat_tree(
+    nodes: list[dict[str, Any]],
+    type_name: str = "AnnotationType",
+    text_key: str = "raw_text",
+) -> list[dict[str, Any]]:
+    """
+    Builds a flat list of node representations from a list of dictionaries where each
+    has at least 'id' and 'parent_id', plus an additional text field (default "raw_text")
+    that may differ depending on the model (Annotation or Note).
+
+    Args:
+        nodes (list): A list of dicts with fields "id", "parent_id", and a text field.
+        type_name (str): GraphQL type name used by to_global_id (e.g. "AnnotationType" or "NoteType").
+        text_key (str): The dictionary key to use for the text field (e.g. "raw_text" or "content").
+
+    Returns:
+        list: A list of node dicts in which each node has:
+            - "id" (global ID),
+            - text field under "raw_text",
+            - "children": list of child node global IDs.
+    """
+    # Map node IDs to their immediate children IDs
+    id_to_children: dict[int | str, list[int | str]] = {}
+    for node in nodes:
+        node_id = node["id"]
+        parent_id = node["parent_id"]
+        if parent_id:
+            id_to_children.setdefault(parent_id, []).append(node_id)
+
+    # Build the flat list of nodes
+    node_list = []
+    for node in nodes:
+        node_id = node["id"]
+        node_id_global = to_global_id(type_name, node_id)
+        # Convert child IDs to global IDs
+        children_ids = id_to_children.get(node_id, [])
+        children_global_ids = [to_global_id(type_name, cid) for cid in children_ids]
+        # Use the appropriate text field key, defaulting to empty if missing
+        node_dict = {
+            "id": node_id_global,
+            text_key: node.get(text_key, ""),
+            "children": children_global_ids,
+        }
+        node_list.append(node_dict)
+
+    return node_list

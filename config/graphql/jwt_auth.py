@@ -26,6 +26,20 @@ from config.graphql.core.relay import (
 from config.graphql.core.scalars import BigInt, GenericScalar, JSONString
 from config.graphql._util import coerce_enum, coerce_str, strip_unset
 from config.graphql import enums
+from calendar import timegm
+from datetime import datetime
+
+from django.middleware.csrf import rotate_token
+from graphql_jwt import signals as jwt_signals
+from graphql_jwt.exceptions import JSONWebTokenError
+from graphql_jwt.refresh_token import signals as refresh_token_signals
+from graphql_jwt.refresh_token.shortcuts import (
+    create_refresh_token,
+    get_refresh_token,
+    refresh_token_lazy,
+)
+from graphql_jwt.settings import jwt_settings
+from graphql_jwt.utils import get_payload
 
 
 
@@ -49,12 +63,31 @@ class Refresh:
 register_type("Refresh", Refresh, model=None)
 
 
-def _mutate_Verify(payload_cls, root, info, **kwargs):
-    """PORT: graphql_jwt.mutations.Verify.mutate
+def _ensure_token(info, token):
+    """Port of ``graphql_jwt.decorators.ensure_token``."""
+    if token is None:
+        token = info.context.COOKIES.get(jwt_settings.JWT_COOKIE_NAME)
+        if token is None:
+            raise JSONWebTokenError("Token is required")
+    return token
 
-    Port of Verify.mutate
-    """
-    raise NotImplementedError("_mutate_Verify not yet ported — see manifest")
+
+def _refresh_expires_in(orig_iat=None):
+    """Port of ``graphql_jwt.decorators.refresh_expiration`` timestamping."""
+    base = orig_iat if orig_iat is not None else timegm(datetime.utcnow().utctimetuple())
+    return base + jwt_settings.JWT_REFRESH_EXPIRATION_DELTA.total_seconds()
+
+
+def _maybe_rotate_csrf(info):
+    """Port of ``graphql_jwt.decorators.csrf_rotation``."""
+    if jwt_settings.JWT_CSRF_ROTATION:
+        rotate_token(info.context)
+
+
+def _mutate_Verify(payload_cls, root, info, token=None):
+    """Port of ``graphql_jwt.mutations.Verify`` (VerifyMixin.verify)."""
+    token = _ensure_token(info, token)
+    return payload_cls(payload=get_payload(token, info.context))
 
 
 def m_verify_token(info: strawberry.Info, token: Annotated[Optional[str], strawberry.argument(name="token")] = strawberry.UNSET) -> Optional["Verify"]:
@@ -62,12 +95,52 @@ def m_verify_token(info: strawberry.Info, token: Annotated[Optional[str], strawb
     return _mutate_Verify(Verify, None, info, **kwargs)
 
 
-def _mutate_Refresh(payload_cls, root, info, **kwargs):
-    """PORT: graphql_jwt.mutations.Refresh.mutate
+def _mutate_Refresh(payload_cls, root, info, refresh_token=None):
+    """Port of ``graphql_jwt.refresh_token.mixins.RefreshTokenMixin.refresh``
+    (the long-running-refresh-token variant selected by
+    ``JWT_LONG_RUNNING_REFRESH_TOKEN=True``), including the
+    ``refresh_expiration`` / ``csrf_rotation`` decorator behaviour."""
+    context = info.context
 
-    Port of Refresh.mutate
-    """
-    raise NotImplementedError("_mutate_Refresh not yet ported — see manifest")
+    # ensure_refresh_token
+    if refresh_token is None:
+        refresh_token = context.COOKIES.get(
+            jwt_settings.JWT_REFRESH_TOKEN_COOKIE_NAME
+        )
+        if refresh_token is None:
+            raise JSONWebTokenError("Refresh token is required")
+
+    old_refresh_token = get_refresh_token(refresh_token, context)
+
+    if old_refresh_token.is_expired(context):
+        raise JSONWebTokenError("Refresh token is expired")
+
+    payload = jwt_settings.JWT_PAYLOAD_HANDLER(old_refresh_token.user, context)
+    token = jwt_settings.JWT_ENCODE_HANDLER(payload, context)
+
+    if getattr(context, "jwt_cookie", False):
+        context.jwt_refresh_token = create_refresh_token(
+            old_refresh_token.user, old_refresh_token
+        )
+        new_refresh_token = context.jwt_refresh_token.get_token()
+    else:
+        new_refresh_token = refresh_token_lazy(
+            old_refresh_token.user, old_refresh_token
+        )
+
+    refresh_token_signals.refresh_token_rotated.send(
+        sender=payload_cls,
+        request=context,
+        refresh_token=old_refresh_token,
+        refresh_token_issued=new_refresh_token,
+    )
+
+    result = payload_cls(payload=payload)
+    result.token = token
+    result.refresh_token = new_refresh_token
+    result.refresh_expires_in = _refresh_expires_in()
+    _maybe_rotate_csrf(info)
+    return result
 
 
 def m_refresh_token(info: strawberry.Info, refresh_token: Annotated[Optional[str], strawberry.argument(name="refreshToken")] = strawberry.UNSET) -> Optional["Refresh"]:
