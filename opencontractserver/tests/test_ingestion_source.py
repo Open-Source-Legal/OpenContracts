@@ -10,7 +10,6 @@ from django.test import TestCase
 from config.graphql.testing import Client
 from graphql_relay import to_global_id
 
-from config.graphql.document_types import DocumentPathType
 from config.graphql.schema import schema
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import (
@@ -699,7 +698,8 @@ class TestIngestionSourceListQuery(TestCase):
 
 
 # ------------------------------------------------------------------ #
-# DocumentPathType.resolve_action coverage
+# DocumentPath.infer_action coverage (the source of truth the GraphQL
+# DocumentPathType.action resolver delegates to)
 # ------------------------------------------------------------------ #
 
 
@@ -725,7 +725,7 @@ class TestDocumentPathResolveAction(TestCase):
             is_deleted=False,
             creator=self.user,
         )
-        result = DocumentPathType.resolve_action(path, info=None)
+        result = path.infer_action()
         self.assertEqual(result, "IMPORTED")
 
     def test_action_deleted(self):
@@ -750,7 +750,7 @@ class TestDocumentPathResolveAction(TestCase):
             is_deleted=True,
             creator=self.user,
         )
-        result = DocumentPathType.resolve_action(deleted_path, info=None)
+        result = deleted_path.infer_action()
         self.assertEqual(result, "DELETED")
 
     def test_action_moved_different_path(self):
@@ -775,7 +775,7 @@ class TestDocumentPathResolveAction(TestCase):
             is_deleted=False,
             creator=self.user,
         )
-        result = DocumentPathType.resolve_action(moved_path, info=None)
+        result = moved_path.infer_action()
         self.assertEqual(result, "MOVED")
 
     def test_action_updated_different_version(self):
@@ -800,7 +800,7 @@ class TestDocumentPathResolveAction(TestCase):
             is_deleted=False,
             creator=self.user,
         )
-        result = DocumentPathType.resolve_action(updated_path, info=None)
+        result = updated_path.infer_action()
         self.assertEqual(result, "UPDATED")
 
     def test_action_updated_same_version_same_path(self):
@@ -825,7 +825,7 @@ class TestDocumentPathResolveAction(TestCase):
             is_deleted=False,
             creator=self.user,
         )
-        result = DocumentPathType.resolve_action(child, info=None)
+        result = child.infer_action()
         self.assertEqual(result, "UPDATED")
 
 
