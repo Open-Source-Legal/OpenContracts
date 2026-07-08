@@ -30,7 +30,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
-from typing import Annotated, Optional
+from typing import Annotated
 
 import strawberry
 from celery import chain, chord, group

@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import datetime
 import logging
-from typing import Annotated, Optional
+from typing import Annotated
 
 import strawberry
 from graphql import GraphQLError

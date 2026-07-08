@@ -30,7 +30,7 @@ from __future__ import annotations
 import datetime
 import logging
 from datetime import timedelta
-from typing import Annotated, Optional
+from typing import Annotated
 
 import strawberry
 from django.db.models import Count, Prefetch, Q

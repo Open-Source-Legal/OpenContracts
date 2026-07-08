@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import datetime
 import logging
-from typing import Annotated, Any, Optional
+from typing import Annotated, Any
 
 import strawberry
 from graphql_relay import to_global_id
@@ -1926,7 +1926,28 @@ class MessageType(Node):
         return _resolve_MessageType_user_vote(self, info, **kwargs)
 
 
-register_type("MessageType", MessageType, model=ChatMessage)
+def _get_node_MessageType(info, pk):
+    """Permission-aware node resolution for the singular ``chatMessage(id:)``
+    field (IDOR guard). The graphene resolver was ``@login_required`` +
+    ``BaseService.get_or_none(ChatMessage, ...)``; ``get_or_none`` already
+    filters to caller-visible rows (anonymous/unauthorised callers get None →
+    standard not-found), so a forged ``base64("MessageType:<id>")`` can no
+    longer fetch arbitrary private conversation messages. Without this hook,
+    ``get_node_from_global_id`` falls back to an UNFILTERED ``.get(pk=pk)``.
+    """
+    if pk is None:
+        return None
+    return BaseService.get_or_none(
+        ChatMessage, pk, info.context.user, request=info.context
+    )
+
+
+register_type(
+    "MessageType",
+    MessageType,
+    model=ChatMessage,
+    get_node=_get_node_MessageType,
+)
 
 
 MessageTypeConnection = make_connection_types(

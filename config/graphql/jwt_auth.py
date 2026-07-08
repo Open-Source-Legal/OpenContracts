@@ -29,7 +29,7 @@ from __future__ import annotations
 
 from calendar import timegm
 from datetime import datetime
-from typing import Annotated, Optional
+from typing import Annotated
 
 import strawberry
 from django.middleware.csrf import rotate_token

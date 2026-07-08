@@ -28,7 +28,7 @@ carry the ported business logic. See config/graphql_new/manifest.json.
 from __future__ import annotations
 
 import datetime
-from typing import Annotated, Optional
+from typing import Annotated
 
 import strawberry
 
@@ -838,8 +838,27 @@ class AgentConfigurationType(Node):
         return _resolve_AgentConfigurationType_mention_format(self, info, **kwargs)
 
 
+def _get_node_AgentConfigurationType(info, pk):
+    """Permission-aware node resolution for the singular ``agent(id:)`` field
+    (IDOR guard). Mirrors the graphene resolver's
+    ``AgentConfigurationService.get_agent_by_id(user, pk, request=...)`` — which
+    returns None for both not-found and not-permitted callers — instead of the
+    UNFILTERED ``.get(pk=pk)`` fallback in ``get_node_from_global_id``.
+    """
+    if pk is None:
+        return None
+    from opencontractserver.agents.services import AgentConfigurationService
+
+    return AgentConfigurationService.get_agent_by_id(
+        info.context.user, int(pk), request=info.context
+    )
+
+
 register_type(
-    "AgentConfigurationType", AgentConfigurationType, model=AgentConfiguration
+    "AgentConfigurationType",
+    AgentConfigurationType,
+    model=AgentConfiguration,
+    get_node=_get_node_AgentConfigurationType,
 )
 
 

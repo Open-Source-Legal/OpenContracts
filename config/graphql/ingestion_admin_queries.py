@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import datetime
 import logging
-from typing import Annotated, Any, Optional, cast
+from typing import Annotated, Any, cast
 
 import strawberry
 from django.utils import timezone

@@ -28,7 +28,7 @@ carry the ported business logic. See config/graphql_new/manifest.json.
 from __future__ import annotations
 
 import logging
-from typing import Annotated, Any, Optional
+from typing import Annotated, Any
 
 import strawberry
 from django.db import transaction

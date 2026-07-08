@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import functools
 import logging
-from typing import Annotated, Any, Optional
+from typing import Annotated, Any
 
 import strawberry
 from django.contrib.postgres.search import SearchQuery

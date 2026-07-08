@@ -27,8 +27,6 @@ carry the ported business logic. See config/graphql_new/manifest.json.
 
 from __future__ import annotations
 
-from typing import Optional
-
 import strawberry
 
 from config.graphql.core.relay import (

@@ -28,7 +28,7 @@ carry the ported business logic. See config/graphql_new/manifest.json.
 from __future__ import annotations
 
 import datetime
-from typing import Annotated, Any, Optional
+from typing import Annotated, Any
 
 import strawberry
 from django.conf import settings  # noqa: E402
@@ -4669,7 +4669,38 @@ class AssignmentType(Node):
         return core_permissions.resolve_object_shared_with(self, info)
 
 
-register_type("AssignmentType", AssignmentType, model=Assignment)
+def _get_node_AssignmentType(info, pk):
+    """Permission-aware node resolution for the singular ``assignment(id:)``
+    field (IDOR guard). The Assignment feature is DEPRECATED and the model has
+    no ``visible_to_user`` manager, so this mirrors the graphene resolver's
+    explicit gate: superusers may fetch any assignment; other authenticated
+    users may fetch only assignments where they are the assignor or assignee;
+    everyone else gets None (same not-found error whether the row is absent or
+    forbidden). Without this hook, ``get_node_from_global_id`` falls back to an
+    UNFILTERED ``.get(pk=pk)``.
+    """
+    from django.db.models import Q
+
+    user = getattr(info.context, "user", None)
+    if user is None or not getattr(user, "is_authenticated", False):
+        return None
+    try:
+        pk_int = int(pk)
+    except (TypeError, ValueError):
+        return None
+    if user.is_superuser:
+        return Assignment.objects.filter(pk=pk_int).first()
+    return Assignment.objects.filter(
+        Q(pk=pk_int) & (Q(assignor=user) | Q(assignee=user))
+    ).first()
+
+
+register_type(
+    "AssignmentType",
+    AssignmentType,
+    model=Assignment,
+    get_node=_get_node_AssignmentType,
+)
 
 
 AssignmentTypeConnection = make_connection_types(
@@ -4828,7 +4859,25 @@ class UserExportType(Node):
         return core_permissions.resolve_object_shared_with(self, info)
 
 
-register_type("UserExportType", UserExportType, model=UserExport)
+def _get_node_UserExportType(info, pk):
+    """Permission-aware node resolution for the singular ``userexport(id:)``
+    field (IDOR guard). Mirrors the graphene ``BaseService.get_or_none(
+    UserExport, ...)`` resolver; without it ``get_node_from_global_id`` would
+    fall back to an UNFILTERED ``.get(pk=pk)``.
+    """
+    if pk is None:
+        return None
+    return BaseService.get_or_none(
+        UserExport, pk, info.context.user, request=info.context
+    )
+
+
+register_type(
+    "UserExportType",
+    UserExportType,
+    model=UserExport,
+    get_node=_get_node_UserExportType,
+)
 
 
 UserExportTypeConnection = make_connection_types(
@@ -4888,7 +4937,25 @@ class UserImportType(Node):
         return core_permissions.resolve_object_shared_with(self, info)
 
 
-register_type("UserImportType", UserImportType, model=UserImport)
+def _get_node_UserImportType(info, pk):
+    """Permission-aware node resolution for the singular ``userimport(id:)``
+    field (IDOR guard). Mirrors the graphene ``BaseService.get_or_none(
+    UserImport, ...)`` resolver; without it ``get_node_from_global_id`` would
+    fall back to an UNFILTERED ``.get(pk=pk)``.
+    """
+    if pk is None:
+        return None
+    return BaseService.get_or_none(
+        UserImport, pk, info.context.user, request=info.context
+    )
+
+
+register_type(
+    "UserImportType",
+    UserImportType,
+    model=UserImport,
+    get_node=_get_node_UserImportType,
+)
 
 
 UserImportTypeConnection = make_connection_types(

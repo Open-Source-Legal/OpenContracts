@@ -28,7 +28,7 @@ carry the ported business logic. See config/graphql_new/manifest.json.
 from __future__ import annotations
 
 import datetime
-from typing import Annotated, Any, Optional
+from typing import Annotated, Any
 
 import strawberry
 from django.db.models import Q, QuerySet
@@ -1442,7 +1442,25 @@ class AnnotationLabelType(Node):
         return core_permissions.resolve_object_shared_with(self, info)
 
 
-register_type("AnnotationLabelType", AnnotationLabelType, model=AnnotationLabel)
+def _get_node_AnnotationLabelType(info, pk):
+    """Permission-aware node resolution for the singular ``annotationLabel(id:)``
+    field (IDOR guard). Returns None when absent OR not visible, matching the
+    graphene ``filter_visible`` resolver; without it ``get_node_from_global_id``
+    would fall back to an UNFILTERED ``.get(pk=pk)``.
+    """
+    if pk is None:
+        return None
+    return BaseService.get_or_none(
+        AnnotationLabel, pk, info.context.user, request=info.context
+    )
+
+
+register_type(
+    "AnnotationLabelType",
+    AnnotationLabelType,
+    model=AnnotationLabel,
+    get_node=_get_node_AnnotationLabelType,
+)
 
 
 AnnotationLabelTypeConnection = make_connection_types(
@@ -1680,7 +1698,25 @@ class LabelSetType(Node):
         return _resolve_LabelSetType_all_annotation_labels(self, info, **kwargs)
 
 
-register_type("LabelSetType", LabelSetType, model=LabelSet)
+def _get_node_LabelSetType(info, pk):
+    """Permission-aware node resolution for the singular ``labelset(id:)``
+    field (IDOR guard). Returns None when absent OR not visible, matching the
+    graphene ``filter_visible`` resolver; without it ``get_node_from_global_id``
+    would fall back to an UNFILTERED ``.get(pk=pk)``.
+    """
+    if pk is None:
+        return None
+    return BaseService.get_or_none(
+        LabelSet, pk, info.context.user, request=info.context
+    )
+
+
+register_type(
+    "LabelSetType",
+    LabelSetType,
+    model=LabelSet,
+    get_node=_get_node_LabelSetType,
+)
 
 
 LabelSetTypeConnection = make_connection_types(
@@ -2011,7 +2047,28 @@ class RelationshipType(Node):
         return core_permissions.resolve_object_shared_with(self, info)
 
 
-register_type("RelationshipType", RelationshipType, model=Relationship)
+def _get_node_RelationshipType(info, pk):
+    """Permission-aware node resolution for the singular ``relationship(id:)``
+    field (IDOR guard). Mirrors the graphene resolver's
+    ``BaseService.filter_visible(Relationship, ...).get(id=pk)``: returns None
+    when the object is absent OR not visible to the caller, which surfaces as
+    the standard not-found error and never leaks existence across the
+    permission boundary. Without this hook, ``get_node_from_global_id`` falls
+    back to an UNFILTERED ``.get(pk=pk)``.
+    """
+    if pk is None:
+        return None
+    return BaseService.get_or_none(
+        Relationship, pk, info.context.user, request=info.context
+    )
+
+
+register_type(
+    "RelationshipType",
+    RelationshipType,
+    model=Relationship,
+    get_node=_get_node_RelationshipType,
+)
 
 
 RelationshipTypeConnection = make_connection_types(

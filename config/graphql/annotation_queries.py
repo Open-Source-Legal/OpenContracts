@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Annotated, Optional
+from typing import Annotated
 
 import strawberry
 from django.db.models import Q

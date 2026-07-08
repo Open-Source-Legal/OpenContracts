@@ -61,12 +61,21 @@ class GraphQLView(_StrawberryGraphQLView):
         try:
             return super().dispatch(request, *args, **kwargs)
         except Exception as exc:  # noqa: BLE001
-            # Token-level failures raised during get_context (expired /
-            # invalid JWT) surface as a GraphQL-style error payload, like
-            # the graphene middleware produced, instead of a 500.
+            # Auth-level failures raised during get_context surface as a
+            # GraphQL-style error payload, like the graphene middlewares
+            # produced, instead of a 500. Under graphene these were raised
+            # inside per-field resolution (``JSONWebTokenMiddleware`` /
+            # ``ApiKeyTokenMiddleware``), so graphql-core caught them and
+            # returned a normal ``{"errors": [...]}`` 200. Auth now runs in
+            # ``get_context`` — before execution begins — so we reproduce that
+            # contract here: expired/invalid JWT (``JSONWebTokenError``) and
+            # malformed/unknown/inactive API keys (DRF ``AuthenticationFailed``
+            # raised by ``ApiKeyBackend`` when ``USE_API_KEY_AUTH=True``) both
+            # become a 200 error payload rather than an unhandled 500.
             from graphql_jwt.exceptions import JSONWebTokenError
+            from rest_framework.exceptions import AuthenticationFailed
 
-            if isinstance(exc, JSONWebTokenError):
+            if isinstance(exc, (JSONWebTokenError, AuthenticationFailed)):
                 return JsonResponse(
                     {"errors": [{"message": str(exc)}], "data": None}, status=200
                 )

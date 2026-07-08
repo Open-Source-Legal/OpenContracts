@@ -30,7 +30,7 @@ from __future__ import annotations
 import datetime
 import inspect
 import logging
-from typing import Annotated, Optional
+from typing import Annotated
 
 import strawberry
 from graphql_relay import from_global_id

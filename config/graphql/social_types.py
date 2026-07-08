@@ -28,7 +28,7 @@ carry the ported business logic. See config/graphql_new/manifest.json.
 from __future__ import annotations
 
 import datetime
-from typing import Annotated, Optional
+from typing import Annotated
 
 import strawberry
 
@@ -295,7 +295,19 @@ class BadgeType(Node):
         return core_permissions.resolve_object_shared_with(self, info)
 
 
-register_type("BadgeType", BadgeType, model=Badge)
+def _get_node_BadgeType(info, pk):
+    """Permission-aware node resolution for the singular ``badge(id:)`` field
+    (IDOR guard). Mirrors the graphene ``BaseService.filter_visible(Badge,
+    ...).get(id=pk)`` resolver (``get_or_none`` = filter_visible + get-or-None);
+    without it ``get_node_from_global_id`` would fall back to an UNFILTERED
+    ``.get(pk=pk)``.
+    """
+    if pk is None:
+        return None
+    return BaseService.get_or_none(Badge, pk, info.context.user, request=info.context)
+
+
+register_type("BadgeType", BadgeType, model=Badge, get_node=_get_node_BadgeType)
 
 
 BadgeTypeConnection = make_connection_types(

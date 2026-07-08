@@ -30,7 +30,7 @@ from __future__ import annotations
 import datetime
 import logging
 import uuid
-from typing import Annotated, Any, Optional
+from typing import Annotated, Any
 
 import strawberry
 from django.contrib.auth import get_user_model

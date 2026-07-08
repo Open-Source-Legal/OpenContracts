@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping, Sequence
-from typing import Annotated, Optional
+from typing import Annotated
 
 import strawberry
 

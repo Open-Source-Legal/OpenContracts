@@ -28,7 +28,7 @@ carry the ported business logic. See config/graphql_new/manifest.json.
 from __future__ import annotations
 
 import datetime
-from typing import Annotated, Optional
+from typing import Annotated
 
 import strawberry
 

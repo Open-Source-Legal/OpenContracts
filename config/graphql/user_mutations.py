@@ -29,7 +29,7 @@ from __future__ import annotations
 
 from calendar import timegm as _timegm
 from datetime import datetime as _datetime
-from typing import Annotated, Optional
+from typing import Annotated
 
 import strawberry
 from django.contrib.auth import authenticate as _dj_authenticate

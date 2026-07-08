@@ -28,7 +28,7 @@ carry the ported business logic. See config/graphql_new/manifest.json.
 from __future__ import annotations
 
 import datetime
-from typing import Annotated, Any, Optional
+from typing import Annotated, Any
 
 import strawberry
 from graphql_relay import from_global_id
@@ -436,7 +436,22 @@ class AnalyzerType(Node):
         return _resolve_AnalyzerType_full_label_list(self, info, **kwargs)
 
 
-register_type("AnalyzerType", AnalyzerType, model=Analyzer)
+def _get_node_AnalyzerType(info, pk):
+    """Permission-aware node resolution for the singular ``analyzer(id:)`` field
+    (IDOR guard). Mirrors the graphene ``BaseService.get_or_none(Analyzer, ...)``
+    resolver; without it ``get_node_from_global_id`` would fall back to an
+    UNFILTERED ``.get(pk=pk)``.
+    """
+    if pk is None:
+        return None
+    return BaseService.get_or_none(
+        Analyzer, pk, info.context.user, request=info.context
+    )
+
+
+register_type(
+    "AnalyzerType", AnalyzerType, model=Analyzer, get_node=_get_node_AnalyzerType
+)
 
 
 AnalyzerTypeConnection = make_connection_types(
@@ -1492,7 +1507,22 @@ class FieldsetType(Node):
         return _resolve_FieldsetType_column_count(self, info, **kwargs)
 
 
-register_type("FieldsetType", FieldsetType, model=Fieldset)
+def _get_node_FieldsetType(info, pk):
+    """Permission-aware node resolution for the singular ``fieldset(id:)``
+    field (IDOR guard). Returns None when absent OR not visible, matching the
+    graphene ``BaseService.get_or_none`` resolver; without it
+    ``get_node_from_global_id`` would fall back to an UNFILTERED ``.get(pk=pk)``.
+    """
+    if pk is None:
+        return None
+    return BaseService.get_or_none(
+        Fieldset, pk, info.context.user, request=info.context
+    )
+
+
+register_type(
+    "FieldsetType", FieldsetType, model=Fieldset, get_node=_get_node_FieldsetType
+)
 
 
 FieldsetTypeConnection = make_connection_types(
@@ -1636,7 +1666,18 @@ class ColumnType(Node):
         return core_permissions.resolve_object_shared_with(self, info)
 
 
-register_type("ColumnType", ColumnType, model=Column)
+def _get_node_ColumnType(info, pk):
+    """Permission-aware node resolution for the singular ``column(id:)`` field
+    (IDOR guard). Returns None when absent OR not visible, matching the graphene
+    ``BaseService.get_or_none`` resolver; without it ``get_node_from_global_id``
+    would fall back to an UNFILTERED ``.get(pk=pk)``.
+    """
+    if pk is None:
+        return None
+    return BaseService.get_or_none(Column, pk, info.context.user, request=info.context)
+
+
+register_type("ColumnType", ColumnType, model=Column, get_node=_get_node_ColumnType)
 
 
 ColumnTypeConnection = make_connection_types(
@@ -1886,7 +1927,23 @@ class DatacellType(Node):
         return _resolve_DatacellType_full_source_list(self, info, **kwargs)
 
 
-register_type("DatacellType", DatacellType, model=Datacell)
+def _get_node_DatacellType(info, pk):
+    """Permission-aware node resolution for the singular ``datacell(id:)`` field
+    (IDOR guard). The graphene resolver used ``BaseService.get_or_none(Datacell,
+    ...)``; returns None when absent OR not visible so extraction results no
+    longer leak across corpora/documents the caller cannot access. Without this
+    hook, ``get_node_from_global_id`` falls back to an UNFILTERED ``.get(pk=pk)``.
+    """
+    if pk is None:
+        return None
+    return BaseService.get_or_none(
+        Datacell, pk, info.context.user, request=info.context
+    )
+
+
+register_type(
+    "DatacellType", DatacellType, model=Datacell, get_node=_get_node_DatacellType
+)
 
 
 DatacellTypeConnection = make_connection_types(
@@ -2713,7 +2770,25 @@ class GremlinEngineType_READ(Node):
         return core_permissions.resolve_object_shared_with(self, info)
 
 
-register_type("GremlinEngineType_READ", GremlinEngineType_READ, model=GremlinEngine)
+def _get_node_GremlinEngineType_READ(info, pk):
+    """Permission-aware node resolution for the singular ``gremlinEngine(id:)``
+    field (IDOR guard). Mirrors the graphene ``BaseService.get_or_none(
+    GremlinEngine, ...)`` resolver; without it ``get_node_from_global_id`` would
+    fall back to an UNFILTERED ``.get(pk=pk)``.
+    """
+    if pk is None:
+        return None
+    return BaseService.get_or_none(
+        GremlinEngine, pk, info.context.user, request=info.context
+    )
+
+
+register_type(
+    "GremlinEngineType_READ",
+    GremlinEngineType_READ,
+    model=GremlinEngine,
+    get_node=_get_node_GremlinEngineType_READ,
+)
 
 
 GremlinEngineType_READConnection = make_connection_types(
