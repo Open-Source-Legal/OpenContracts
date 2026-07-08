@@ -50,8 +50,12 @@ jobs:
       - name: Attach bundle to the release
         env:
           GH_TOKEN: ${{ github.token }}
+          # Thread the tag through env rather than interpolating the
+          # expression into the script (Actions script-injection pattern —
+          # low risk on a release-published trigger, but free to avoid).
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
-          gh release upload "${{ github.event.release.tag_name }}" \
+          gh release upload "$RELEASE_TAG" \
             opencontracts-frontend-dist.zip \
             opencontracts-frontend-dist.zip.sha256 --clobber
 
