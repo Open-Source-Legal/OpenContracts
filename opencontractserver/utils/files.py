@@ -85,6 +85,33 @@ def read_field_file_text(
     return content
 
 
+def read_document_plain_text(doc: typing.Any, *, errors: str = "replace") -> str:
+    """Return a document's plain text: the text extract, else the PDF token layer.
+
+    Centralises the "``txt_extract_file`` if present, otherwise rebuild the text
+    from the PAWLS token layer via ``build_translation_layer``" branch that is
+    otherwise copy-pasted across several tool/pipeline modules. Returns an empty
+    string when the document has neither layer. ``errors`` is forwarded to the
+    text-extract decode (``"replace"`` keeps agent-facing reads fault-tolerant).
+    """
+    if getattr(doc, "txt_extract_file", None):
+        return read_field_file_text(doc.txt_extract_file, errors=errors)
+    if getattr(doc, "pawls_parse_file", None):  # pragma: no cover - PDF token path
+        # PAWLS→text reconstruction is exercised via the PDF pipeline tests
+        # (search.py / document_indexing.py); building a PAWLS fixture here would
+        # be disproportionate. The txt_extract path above is the hot path.
+        import json
+
+        from plasmapdf.models.PdfDataLayer import build_translation_layer
+
+        from opencontractserver.utils.compact_pawls import expand_pawls_pages
+
+        with doc.pawls_parse_file.open("r") as f:
+            tokens = expand_pawls_pages(json.load(f))
+        return build_translation_layer(tokens).doc_text
+    return ""
+
+
 def convert_hex_to_rgb_tuple(color: str) -> tuple[int, ...]:
     color_tuple = tuple(int(color[i : i + 2], 16) for i in (0, 2, 4))
     return color_tuple

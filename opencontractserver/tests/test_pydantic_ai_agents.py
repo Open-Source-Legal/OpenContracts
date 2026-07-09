@@ -672,6 +672,101 @@ class TestPydanticAIAgents(TransactionTestCase):
         self.assertIsInstance(resp, UnifiedChatResponse)
         self.assertIn("PydanticAI Placeholder", resp.content)
 
+    async def test_chat_metadata_includes_tool_call_timeline(self) -> None:
+        """Non-streaming ``agent.chat()`` must populate ``metadata["timeline"]``.
+
+        Regression test: ``_chat_raw`` used to return
+        ``{"usage": ..., "framework": "pydantic_ai"}`` with no ``"timeline"``
+        key at all, even when the run actually invoked tools. Consumers that
+        only call ``agent.chat()`` (e.g.
+        ``opencontractserver.benchmarks.traversal_benchmark.run_one``, which
+        reads ``metadata.get("timeline")`` and filters for
+        ``type == "tool_call"``) silently saw zero tool calls. The streaming
+        path (``_stream_core`` / ``TimelineStreamMixin``) already got this
+        right; this test locks in the same behaviour for ``.chat()``.
+        """
+        config = AgentConfig(
+            user_id=self.user.id,
+            model_name="openai:gpt-4o-mini",
+            store_user_messages=False,
+            store_llm_messages=False,
+        )
+
+        # Build a REAL document agent (real tool registration) with a dummy
+        # API key so construction succeeds without a network call — the
+        # model is swapped for TestModel below before any request is made.
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "test-key-unused"}):
+            agent = await PydanticAIDocumentAgent.create(
+                document=self.doc1, corpus=self.corpus, config=config
+            )
+        agent.conversation_manager.get_conversation_messages = AsyncMock(
+            return_value=[]
+        )
+
+        # Force TestModel to call exactly one real registered tool
+        # (`get_document_summary`) so the timeline extraction has something
+        # deterministic to find.
+        test_model = TestModel(
+            call_tools=["get_document_summary"],
+            custom_output_text="Here is a summary of the document.",
+        )
+
+        with agent.pydantic_ai_agent.override(model=test_model):
+            resp = await agent.chat("Please summarize this document.")
+
+        self.assertIsInstance(resp, UnifiedChatResponse)
+        timeline = resp.metadata.get("timeline")
+        self.assertIsInstance(timeline, list)
+        self.assertGreater(
+            len(timeline), 0, "Expected a non-empty timeline from agent.chat()"
+        )
+
+        tool_call_entries = [
+            entry for entry in timeline if entry.get("type") == "tool_call"
+        ]
+        self.assertGreater(
+            len(tool_call_entries),
+            0,
+            "Expected at least one tool_call entry in the chat() timeline",
+        )
+        self.assertTrue(
+            any(
+                entry.get("tool") == "get_document_summary"
+                for entry in tool_call_entries
+            ),
+            f"Expected a tool_call entry naming get_document_summary; got: {tool_call_entries}",
+        )
+
+    def test_extract_tool_call_timeline_excludes_prior_turn_history(self) -> None:
+        """The timeline reflects only THIS run's tool calls, not prior turns.
+
+        Regression: ``_extract_tool_call_timeline`` read
+        ``run_result.all_messages()``, which includes the ``message_history``
+        ``_chat_raw`` forwards, so a multi-turn ``chat()`` re-counted every
+        earlier turn's ``ToolCallPart`` (turn N reporting turns 1..N). It now
+        reads ``new_messages()`` — only the current run's messages. With the
+        old code this timeline would be ``["old_tool", "new_tool"]``.
+        """
+        from pydantic_ai.messages import ToolCallPart
+
+        class _Msg:
+            def __init__(self, parts):
+                self.parts = parts
+
+        prior = _Msg([ToolCallPart(tool_name="old_tool", args={})])
+        current = _Msg([ToolCallPart(tool_name="new_tool", args={})])
+
+        class _Run:
+            def new_messages(self):
+                return [current]
+
+            def all_messages(self):
+                return [prior, current]
+
+        timeline = pa_mod._extract_tool_call_timeline(_Run())
+        tools = [e["tool"] for e in timeline if e.get("type") == "tool_call"]
+        self.assertEqual(tools, ["new_tool"])
+
     async def test_structured_response_usage_limit_logs_actual_limit(self) -> None:
         """Tripping the request budget logs the ACTUAL limit, not the default.
 

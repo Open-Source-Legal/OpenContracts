@@ -1,0 +1,37 @@
+# Traversal benchmark question set.
+#
+# Each item is a question over a corpus that SHOULD require following the
+# reference graph (a clause -> the statute it cites -> what that statute says),
+# so "RAG + traversal" has a chance to beat "heavy RAG" on grounding.
+#
+# Fill in real corpus_id values from your environment before running:
+#   docker compose -f local.yml run django python manage.py benchmark_traversal \
+#     --questions opencontractserver/benchmarks/fixtures/traversal_questions.yaml \
+#     --user admin --run-dir /tmp/traversal_run
+#
+# expected_keys are gold canonical keys (e.g. "dgcl:145") the answer should
+# ground in — optional; omit them and the item still reports tokens/tool-calls.
+questions:
+  - label: indemnification-relies-on-dgcl-145
+    corpus_id: 1
+    question: >-
+      What statutory authority does the indemnification clause rely on, and
+      what does that statute actually permit? Quote the governing section.
+    expected_keys:
+      - dgcl:145
+
+  - label: exculpation-102b7
+    corpus_id: 1
+    question: >-
+      Does the certificate limit director liability, and under which section of
+      the Delaware General Corporation Law is that limitation authorized?
+    expected_keys:
+      - dgcl:102
+
+  - label: cross-document-defined-term
+    corpus_id: 1
+    question: >-
+      Which other documents in this corpus rely on the same governing statute
+      as the indemnification provision? Name them and cite the shared authority.
+    expected_keys:
+      - dgcl:145
