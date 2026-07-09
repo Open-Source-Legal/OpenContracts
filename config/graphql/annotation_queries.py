@@ -73,7 +73,10 @@ from opencontractserver.annotations.models import (
     Note,
     Relationship,
 )
-from opencontractserver.constants.annotations import MANUAL_ANNOTATION_SENTINEL
+from opencontractserver.constants.annotations import (
+    DOCUMENT_ANNOTATION_INDEX_LIMIT,
+    MANUAL_ANNOTATION_SENTINEL,
+)
 from opencontractserver.constants.stats import GOVERNANCE_GRAPH_MAX_NODES
 from opencontractserver.documents.models import Document
 from opencontractserver.enrichment import constants as enrichment_constants
@@ -929,6 +932,9 @@ def q_annotations(
         args=kwargs,
         node_type_name="AnnotationType",
         default_manager=Annotation._default_manager,
+        # Higher limit for Document Annotation Index which needs full hierarchy
+        # (graphene original: DjangoConnectionField(..., max_limit=DOCUMENT_ANNOTATION_INDEX_LIMIT)).
+        max_limit=DOCUMENT_ANNOTATION_INDEX_LIMIT,
     )
 
 

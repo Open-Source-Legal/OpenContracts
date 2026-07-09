@@ -56,6 +56,7 @@ from config.graphql.filters import (
 )
 from config.graphql.ratelimits import get_user_tier_rate, graphql_ratelimit_dynamic
 from opencontractserver.analyzer.models import Analysis, Analyzer, GremlinEngine
+from opencontractserver.constants.extracts import EXTRACT_LIST_MAX_PAGE_SIZE
 from opencontractserver.extracts.models import Column, Datacell, Extract, Fieldset
 from opencontractserver.shared.services.base import BaseService
 
@@ -421,6 +422,10 @@ def q_extracts(
             "finished__gte": "finished__gte",
             "corpus": "corpus",
         },
+        # ``max_limit`` must match (or exceed) the frontend ``EXTRACT_PAGINATION``
+        # page size — Graphene silently clamps to this value and otherwise
+        # pages never advance past the cap (the bug fixed in PR #1602).
+        max_limit=EXTRACT_LIST_MAX_PAGE_SIZE,
     )
 
 

@@ -16,7 +16,7 @@ from django.test import SimpleTestCase, override_settings
 from graphql import OperationDefinitionNode, parse
 
 from config.graphql.file_url_prewarm import (
-    FileUrlPrewarmMiddleware,
+    FileUrlPrewarmExtension,
     _requested_document_file_fields,
 )
 from config.graphql.optimized_file_resolvers import _FILE_URL_CACHE_PREFIX
@@ -119,7 +119,7 @@ class PrewarmTests(SimpleTestCase):
         docs = self._docs()
         info = _info_for(_QUERY)
 
-        FileUrlPrewarmMiddleware._prewarm(_Connection(docs), info)
+        FileUrlPrewarmExtension._prewarm(_Connection(docs), info)
 
         memo: dict[str, Any] = getattr(info.context, "_file_url_cache")
         self.assertEqual(memo["1:pdf_file"], "https://s/1.pdf")
@@ -133,7 +133,7 @@ class PrewarmTests(SimpleTestCase):
 
     def test_prewarm_writes_through_to_shared_cache(self) -> None:
         docs = self._docs()
-        FileUrlPrewarmMiddleware._prewarm(_Connection(docs), _info_for(_QUERY))
+        FileUrlPrewarmExtension._prewarm(_Connection(docs), _info_for(_QUERY))
         self.assertEqual(
             cache.get(f"{_FILE_URL_CACHE_PREFIX}media/1.pdf"), "https://s/1.pdf"
         )
@@ -144,7 +144,7 @@ class PrewarmTests(SimpleTestCase):
         docs = self._docs()
         info = _info_for(_QUERY)
 
-        FileUrlPrewarmMiddleware._prewarm(_Connection(docs), info)
+        FileUrlPrewarmExtension._prewarm(_Connection(docs), info)
 
         # Served from the shared cache: not re-signed, but still memoized.
         self.assertEqual(docs[0].pdf_file.url_calls, 0)
@@ -157,7 +157,7 @@ class PrewarmTests(SimpleTestCase):
         docs = self._docs()
         info = _info_for(_QUERY)
         with override_settings(FILE_URL_SHARED_CACHE_TTL=0):
-            FileUrlPrewarmMiddleware._prewarm(_Connection(docs), info)
+            FileUrlPrewarmExtension._prewarm(_Connection(docs), info)
         self.assertFalse(hasattr(info.context, "_file_url_cache"))
         for doc in docs:
             self.assertEqual(doc.pdf_file.url_calls, 0)

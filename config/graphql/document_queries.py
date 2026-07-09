@@ -54,6 +54,9 @@ from config.graphql.document_types import (
 from config.graphql.filters import DocumentFilter, DocumentRelationshipFilter
 from config.graphql.ratelimits import get_user_tier_rate, graphql_ratelimit_dynamic
 from config.graphql.user_types import BulkDocumentUploadStatusType
+from opencontractserver.constants.annotations import (
+    DOCUMENT_RELATIONSHIP_QUERY_MAX_LIMIT,
+)
 from opencontractserver.constants.search import MAX_SELECT_ALL_DOCUMENT_IDS
 from opencontractserver.constants.zip_import import BULK_UPLOAD_OWNER_CACHE_PREFIX
 from opencontractserver.documents.models import (
@@ -534,6 +537,9 @@ def q_document_relationships(
             "is_public": "is_public",
             "annotation_label_text": "annotation_label_text",
         },
+        # Higher limit for Table of Contents which needs full hierarchy
+        # (graphene original: DjangoFilterConnectionField(..., max_limit=DOCUMENT_RELATIONSHIP_QUERY_MAX_LIMIT)).
+        max_limit=DOCUMENT_RELATIONSHIP_QUERY_MAX_LIMIT,
     )
 
 

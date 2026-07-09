@@ -1034,6 +1034,8 @@ class DocumentType(Node):
     created: datetime.datetime = strawberry.field(name="created", default=None)
     modified: datetime.datetime = strawberry.field(name="modified", default=None)
 
+    _assert_user_can_read = staticmethod(_assert_user_can_read)
+
     @strawberry.field(name="title")
     def title(self, info: strawberry.Info) -> str | None:
         return coerce_str(getattr(self, "title", None))

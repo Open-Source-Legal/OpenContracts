@@ -1121,7 +1121,6 @@ GRAPHQL_JWT = {
     "JWT_EXPIRATION_DELTA": timedelta(days=7),
     "JWT_REFRESH_EXPIRATION_DELTA": timedelta(days=14),
     "JWT_ALGORITHM": "HS256",
-    # "JWT_ALLOW_ANY_HANDLER": "config.graphql.jwt_overrides.allow_any",
 }
 
 # Reserved top-level user slugs (extendable)
