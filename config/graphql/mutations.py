@@ -196,6 +196,7 @@ from config.graphql.label_mutations import (
     UpdateLabelMutation,
     UpdateLabelset,
 )
+from config.graphql.legal_review_mutations import RunLegalReview
 
 # Import moderation mutations
 from config.graphql.moderation_mutations import (
@@ -436,6 +437,7 @@ class Mutation(graphene.ObjectType):
     update_note = UpdateNote.Field()
     delete_note = DeleteNote.Field()
     create_note = CreateNote.Field()
+    run_legal_review = RunLegalReview.Field()
 
     # NEW METADATA MUTATIONS (Column/Datacell based) ################################
     create_metadata_column = CreateMetadataColumn.Field()

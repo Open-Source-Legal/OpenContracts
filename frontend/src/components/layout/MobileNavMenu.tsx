@@ -71,9 +71,9 @@ const FOCUSABLE_SELECTOR =
 
 // Section labels in the sheet — pulled out so translations / theming
 // can swap them without hunting through JSX.
-const SECTION_LABEL_BROWSE = "Browse";
-const SECTION_LABEL_ACCOUNT = "Account";
-const SECTION_LABEL_MORE = "More";
+const SECTION_LABEL_BROWSE = "Navigation";
+const SECTION_LABEL_ACCOUNT = "Konto";
+const SECTION_LABEL_MORE = "Mehr";
 
 /* ------------------------------------------------------------------ */
 /*  Styled components — header                                         */
@@ -571,7 +571,7 @@ export const MobileNavMenu: FC<MobileNavMenuProps> = ({
             id="mobile-nav-sheet"
             role="dialog"
             aria-modal="true"
-            aria-label="Navigation menu"
+            aria-label="Navigationsmenü"
             // ``tabIndex={-1}`` lets the sheet itself receive
             // programmatic focus from the focus-management effect when
             // no nav item is tabbable yet (auth still loading, items
@@ -587,7 +587,7 @@ export const MobileNavMenu: FC<MobileNavMenuProps> = ({
               mass: 0.7,
             }}
           >
-            <SheetNav aria-label="Site navigation">
+            <SheetNav aria-label="Seitennavigation">
               <SectionLabel>{SECTION_LABEL_BROWSE}</SectionLabel>
               {items.map((item) => (
                 <NavItemButton
@@ -664,13 +664,13 @@ export const MobileNavMenu: FC<MobileNavMenuProps> = ({
                     <Avatar>{initialsFor(userName)}</Avatar>
                     <UserMeta>
                       <UserNameLabel>{userName}</UserNameLabel>
-                      <UserStatusLabel>Signed in</UserStatusLabel>
+                      <UserStatusLabel>Angemeldet</UserStatusLabel>
                     </UserMeta>
                   </UserChip>
                 ) : (
                   <SignInButton type="button" onClick={handleLogin}>
                     <LogIn size={16} aria-hidden="true" />
-                    Sign in
+                    Anmelden
                   </SignInButton>
                 )}
               </AuthFooter>
@@ -711,7 +711,7 @@ export const MobileNavMenu: FC<MobileNavMenuProps> = ({
           aria-haspopup="dialog"
           aria-expanded={open}
           aria-controls="mobile-nav-sheet"
-          aria-label={open ? "Close navigation" : "Open navigation"}
+          aria-label={open ? "Navigation schließen" : "Navigation öffnen"}
           onClick={() => setOpen((prev) => !prev)}
         >
           {open ? <X size={20} /> : <Menu size={20} />}

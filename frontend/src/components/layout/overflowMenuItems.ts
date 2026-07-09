@@ -31,17 +31,17 @@ export type OverflowMenuLink =
 export const OVERFLOW_MENU_LINKS: OverflowMenuLink[] = [
   {
     id: "overflow_about",
-    label: "About OpenContracts",
+    label: "Über Legal AI",
     to: "/about",
   },
   {
     id: "overflow_privacy",
-    label: "Privacy Policy",
+    label: "Datenschutz",
     to: "/privacy",
   },
   {
     id: "overflow_terms",
-    label: "Terms of Service",
+    label: "Nutzungsbedingungen",
     to: "/terms_of_service",
   },
   {

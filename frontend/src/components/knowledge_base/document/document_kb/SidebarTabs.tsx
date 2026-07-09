@@ -7,6 +7,7 @@ import {
   BarChart3,
   BookOpen,
   Link2,
+  ShieldCheck,
 } from "lucide-react";
 import { AnalysisType, ExtractType } from "../../../../types/graphql-api";
 import { ChatPanelWidthMode } from "../../../annotator/context/UISettingsAtom";
@@ -122,6 +123,19 @@ export const DesktopSidebarTabs: React.FC<DesktopSidebarTabsProps> = ({
       >
         <MessageSquare />
         <span className="tab-label">Chat</span>
+      </SidebarTab>
+      <SidebarTab
+        $isActive={sidebarViewMode === "legal_review"}
+        $panelOpen={panelOpen}
+        onClick={onTabClick("legal_review")}
+        whileHover={{ scale: 1.02 }}
+        whileTap={{ scale: 0.98 }}
+        data-testid="view-mode-legal-review"
+        data-tooltip="Vertragsprüfung"
+        aria-label="Vertragsprüfung"
+      >
+        <ShieldCheck />
+        <span className="tab-label">Vertragsprüfung</span>
       </SidebarTab>
       <SidebarTab
         $isActive={sidebarViewMode === "feed"}

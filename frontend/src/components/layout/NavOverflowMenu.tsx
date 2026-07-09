@@ -253,7 +253,7 @@ export const NavOverflowMenu: FC<NavOverflowMenuProps> = ({
         ref={triggerRef}
         type="button"
         $open={open}
-        aria-label="More links"
+        aria-label="Weitere Links"
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={menuId}
@@ -266,7 +266,7 @@ export const NavOverflowMenu: FC<NavOverflowMenuProps> = ({
           ref={menuRef}
           id={menuId}
           role="menu"
-          aria-label="More site links"
+          aria-label="Weitere Seitenlinks"
         >
           {links.map((link) => (
             <MenuItem key={link.id}>{renderLink(link, close)}</MenuItem>

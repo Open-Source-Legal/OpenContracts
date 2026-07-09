@@ -373,8 +373,16 @@ export const App = () => {
           />
 
           {/* List views */}
+          <Route path="/akten" element={<Corpuses />} />
+          <Route path="/matters" element={<Navigate to="/akten" replace />} />
           <Route path="/corpuses" element={<Corpuses />} />
           <Route path="/documents" element={<Documents />} />
+          <Route path="/playbooks" element={<Labelsets />} />
+          <Route path="/vertragspruefung" element={<Extracts />} />
+          <Route
+            path="/contract-review"
+            element={<Navigate to="/vertragspruefung" replace />}
+          />
 
           {/* Cross-content Discover search */}
           <Route path="/discover/search" element={<DiscoverSearchResults />} />

@@ -1,44 +1,43 @@
-export const header_menu_items = [
+export interface HeaderMenuItem {
+  title: string;
+  route: string;
+  protected: boolean;
+  id: string;
+  activeRoutes?: string[];
+}
+
+export const header_menu_items: HeaderMenuItem[] = [
   {
-    title: "Discover",
+    title: "Start",
     route: "/",
     protected: false,
     id: "discover_menu_button",
   },
   {
-    title: "Corpuses",
-    route: "/corpuses",
+    title: "Akten",
+    route: "/akten",
     protected: false,
     id: "corpus_menu_button",
+    activeRoutes: ["/corpuses"],
   },
   {
-    title: "Documents",
+    title: "Dokumente",
     route: "/documents",
     protected: false,
     id: "document_menu_button",
   },
   {
-    title: "Label Sets",
-    route: "/label_sets",
-    protected: false,
-    id: "label_set_menu_button",
-  },
-  {
-    title: "Annotations",
-    route: "/annotations",
-    protected: false,
-    id: "annotation_menu_button",
-  },
-  {
-    title: "Extracts",
-    route: "/extracts",
+    title: "Vertragsprüfung",
+    route: "/vertragspruefung",
     protected: false,
     id: "extract_menu_button",
+    activeRoutes: ["/extracts"],
   },
   {
-    title: "Leaderboard",
-    route: "/leaderboard",
+    title: "Playbooks",
+    route: "/playbooks",
     protected: false,
-    id: "leaderboard_menu_button",
+    id: "label_set_menu_button",
+    activeRoutes: ["/label_sets"],
   },
 ];

@@ -1384,6 +1384,41 @@ export const UPDATE_DOCUMENT = gql`
   }
 `;
 
+export interface LegalReviewFinding {
+  riskLevel: "low" | "medium" | "high" | "critical";
+  clauseType: string;
+  issue: string;
+  recommendation: string;
+  quote?: string | null;
+}
+
+export interface RunLegalReviewInputs {
+  documentId: string;
+  corpusId: string;
+}
+
+export interface RunLegalReviewOutputs {
+  runLegalReview: {
+    ok: boolean;
+    message: string;
+    summary?: string | null;
+    findings?: LegalReviewFinding[] | null;
+    sourceAnnotationIds?: number[] | null;
+  };
+}
+
+export const RUN_LEGAL_REVIEW = gql`
+  mutation RunLegalReview($documentId: ID!, $corpusId: ID!) {
+    runLegalReview(documentId: $documentId, corpusId: $corpusId) {
+      ok
+      message
+      summary
+      findings
+      sourceAnnotationIds
+    }
+  }
+`;
+
 // ---------------- User profile updates ----------------
 export interface UpdateMeInputs {
   name?: string;

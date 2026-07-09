@@ -46,6 +46,7 @@ import { SingleDocumentExtractResults } from "../../../annotator/sidebar/SingleD
 import { DocumentDiscussionsContent } from "../../../discussions/DocumentDiscussionsContent";
 import { DocumentAnnotationIndex } from "../../../corpuses/DocumentAnnotationIndex";
 import { DocumentReferencesPanel } from "../DocumentReferencesPanel";
+import { LegalReviewPanel } from "./LegalReviewPanel";
 
 export interface RightPanelContentProps {
   /** Whether the right panel is currently shown */
@@ -284,6 +285,17 @@ export const RightPanelContent: React.FC<RightPanelContentProps> = ({
           }}
         />
       </FlexColumnPanel>
+    );
+  }
+
+  // Handle legal review mode - MVP shell for contract review workflows.
+  if (sidebarViewMode === "legal_review") {
+    return (
+      <LegalReviewPanel
+        readOnly={readOnly}
+        documentId={documentId}
+        corpusId={corpusId}
+      />
     );
   }
 

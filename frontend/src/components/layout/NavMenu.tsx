@@ -21,6 +21,7 @@ import {
 } from "./MobileNavMenu";
 import { NavOverflowMenu } from "./NavOverflowMenu";
 import { OVERFLOW_MENU_LINKS } from "./overflowMenuItems";
+import type { HeaderMenuItem } from "../../assets/configurations/menus";
 
 /**
  * User display properties accessed by NavMenu.
@@ -68,16 +69,13 @@ const navbarCustomStyles = `
     background: rgba(255, 255, 255, 0.15) !important;
     color: rgba(255, 255, 255, 0.9) !important;
   }
-  /* [OpenContracts] wordmark — Source Serif 4 with the brackets preserved.
-     Overrides the @os-legal/ui default of 600-weight Inter so the
-     wordmark reads as a typographic mark, not a UI label. Sized a step
-     below the old [cite] mark so the longer name keeps the same visual
-     weight in the bar. */
+  /* Legal AI workspace wordmark. Overrides the @os-legal/ui default so
+     the brand reads as a focused work surface label. */
   .oc-navbar__brand-name {
-    font-family: ${OS_LEGAL_TYPOGRAPHY.fontFamilySerif} !important;
-    font-weight: 400 !important;
-    font-size: 19px !important;
-    letter-spacing: -0.4px !important;
+    font-family: ${OS_LEGAL_TYPOGRAPHY.fontFamilySans} !important;
+    font-weight: 650 !important;
+    font-size: 17px !important;
+    letter-spacing: 0 !important;
     white-space: nowrap !important;
   }
 `;
@@ -118,11 +116,11 @@ export const NavMenu = () => {
   ];
 
   // Add superuser-only Badge Management item
-  const allMenuItems = isSuperuser
+  const allMenuItems: HeaderMenuItem[] = isSuperuser
     ? [
         ...baseNavItems,
         {
-          title: "Badge Management",
+          title: "Badges",
           route: "/admin/badges",
           id: "admin_badges_menu_button",
           protected: true,
@@ -145,13 +143,13 @@ export const NavMenu = () => {
     ? [
         {
           id: "exports",
-          label: "Exports",
+          label: "Exporte",
           icon: <Download size={16} />,
           onClick: () => showExportModal(!show_export_modal),
         },
         {
           id: "profile",
-          label: "Profile",
+          label: "Profil",
           icon: <User size={16} />,
           onClick: () => showUserSettingsModal(true),
         },
@@ -159,13 +157,13 @@ export const NavMenu = () => {
           ? [
               {
                 id: "system-settings",
-                label: "System Settings",
+                label: "System",
                 icon: <Cog size={16} />,
                 onClick: () => navigate("/system_settings"),
               },
               {
                 id: "admin",
-                label: "Admin Settings",
+                label: "Administration",
                 icon: <Settings size={16} />,
                 onClick: () => navigate("/admin/settings"),
               },
@@ -174,7 +172,7 @@ export const NavMenu = () => {
         { id: "divider", label: "", divider: true },
         {
           id: "logout",
-          label: "Logout",
+          label: "Abmelden",
           icon: <LogOut size={16} />,
           danger: true,
           onClick: requestLogout,
@@ -185,7 +183,7 @@ export const NavMenu = () => {
   // Find active nav item by checking routes
   const findActiveId = (): string | undefined => {
     for (const item of allMenuItems) {
-      if (isActive(item.route)) {
+      if (isActive(item.route, item.activeRoutes)) {
         return item.id;
       }
     }
@@ -226,16 +224,14 @@ export const NavMenu = () => {
     [userMenuItems]
   );
 
-  // cite icon mark — the bracketed teal node. Rendered for both nav surfaces
-  // beside the wordmark; brackets are kept in the brand warm-paper colour
-  // so the mark sits cleanly on the navy chrome.
+  // Bracketed node mark rendered beside the workspace label.
   const logoNode = useMemo(
     () => (
       <CiteMark
         size={28}
         bracketColor={OS_LEGAL_COLORS.warmPaper}
         nodeColor={OS_LEGAL_COLORS.accent}
-        ariaLabel="OpenContracts"
+        ariaLabel="Legal AI Workspace"
       />
     ),
     []
@@ -247,7 +243,7 @@ export const NavMenu = () => {
         <UserSettingsModal />
         <MobileNavMenu
           logo={logoNode}
-          brandName="[OpenContracts]"
+          brandName="Legal AI Workspace"
           items={mobileNavItems}
           activeId={activeId}
           userName={displayName}
@@ -268,7 +264,7 @@ export const NavMenu = () => {
       <NavbarHeightSync />
       <NavBar
         logo={logoNode}
-        brandName="[OpenContracts]"
+        brandName="Legal AI Workspace"
         version={VERSION_TAG}
         items={navItems}
         activeId={activeId}
@@ -280,7 +276,7 @@ export const NavMenu = () => {
           <>
             <NavOverflowMenu />
             {!user && !isLoading && (
-              <LoginButton onClick={handleLogin}>Login</LoginButton>
+              <LoginButton onClick={handleLogin}>Anmelden</LoginButton>
             )}
           </>
         }

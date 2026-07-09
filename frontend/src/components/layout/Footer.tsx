@@ -130,10 +130,10 @@ export function Footer() {
         <Link to="/about">About</Link>
       </li>
       <li>
-        <Link to="/terms_of_service">Terms of Service</Link>
+        <Link to="/terms_of_service">Nutzungsbedingungen</Link>
       </li>
       <li>
-        <Link to="/privacy">Privacy Policy</Link>
+        <Link to="/privacy">Datenschutz</Link>
       </li>
     </InlineLinks>
   );
@@ -153,14 +153,14 @@ export function Footer() {
             </a>
           </li>
           <li>
-            <Link to="/about">About OpenContracts</Link>
+            <Link to="/about">Über Legal AI</Link>
           </li>
         </FooterLinkList>
       </div>
       <div>
         <FooterHeading>opensource.legal &copy; 2021–2026</FooterHeading>
         <p>
-          Open-source document intelligence you can build on. Built by{" "}
+          Open-source document intelligence for legal work. Built by{" "}
           <a href="https://github.com/JSv4">JSv4</a> and contributors. Use of
           this tool is governed by the terms of service.
         </p>

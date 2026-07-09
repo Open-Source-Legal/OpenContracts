@@ -1,0 +1,1 @@
+- **Added a Legal AI workspace MVP surface.** The frontend navigation now exposes German legal-workflow routes for Akten, Vertragspruefung, and Playbooks, while the document workspace adds a Vertragspruefung sidebar panel backed by the new `runLegalReview` GraphQL mutation.

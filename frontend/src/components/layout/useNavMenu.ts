@@ -47,13 +47,16 @@ export const useNavMenu = () => {
    * location pathname. We consider an item active when the pathname is exactly
    * the route OR it is a sub-route (i.e. pathname starts with `${route}/`).
    */
-  const isActive = (route: string) => {
+  const isRouteActive = (route: string) => {
     if (route === "/") {
-      // Discover/Home is only active on exact "/" path
+      // Home is only active on exact "/" path
       return pathname === "/";
     }
     return pathname === route || pathname.startsWith(`${route}/`);
   };
+
+  const isActive = (route: string, activeRoutes: string[] = []) =>
+    [route, ...activeRoutes].some(isRouteActive);
 
   /**
    * Logs out the user. Uses Auth0 logout if Auth0 is enabled, otherwise

@@ -77,6 +77,7 @@ export interface SidebarViewMode {
     | "feed"
     | "extract"
     | "analysis"
+    | "legal_review"
     | "discussions"
     | "references";
 }
