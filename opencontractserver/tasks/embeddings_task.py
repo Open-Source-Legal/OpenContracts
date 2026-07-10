@@ -458,14 +458,8 @@ def _batch_embed_text_annotations(
     Multimodal annotations should NOT be passed here — they require
     per-annotation handling via ``_create_embedding_for_annotation()``.
 
-    Exception handling:
-        - ``ValueError``: Re-raised immediately (programming/contract error).
-        - ``requests.exceptions.Timeout``, ``requests.exceptions.ConnectionError``,
-          ``EmbeddingServerError``: Re-raised so Celery task-level retry fires.
-        - ``EmbeddingClientError``: Recorded as a permanent per-annotation
-          failure for the chunk. Not re-raised so Celery retries are not burned
-          on invalid input.
-        - All other exceptions: Recorded as permanent per-annotation failures.
+    Thin wrapper around :func:`_batch_embed_items` — see there for the
+    exception-handling contract shared with :func:`_batch_embed_relationships`.
 
     Args:
         annotations: Ordered list of text-only Annotation objects.
@@ -475,7 +469,7 @@ def _batch_embed_text_annotations(
         result: Mutable summary dict (keys: succeeded, failed, skipped, errors).
     """
     # Build (annotation, text) tuples, filtering out empties
-    items: list[tuple[Annotation, str]] = []
+    items: list[tuple[Any, str]] = []
     for annot in annotations:
         text = annot.raw_text or ""
         if not text.strip():
@@ -484,11 +478,91 @@ def _batch_embed_text_annotations(
             continue
         items.append((annot, text))
 
+    _batch_embed_items(
+        items, embedder, embedder_path, api_batch_size, result, id_label="Annotation"
+    )
+
+
+def _batch_embed_relationships(
+    relationships: list[Relationship],
+    embedder: BaseEmbedder,
+    embedder_path: str,
+    api_batch_size: int,
+    result: dict,
+) -> None:
+    """Embed a list of relationships using batched API calls.
+
+    Mirrors :func:`_batch_embed_text_annotations` for
+    :class:`~opencontractserver.annotations.models.Relationship` rows (e.g.
+    Warp-Ingest's ``OC_SUBTREE_GROUP`` heading-hierarchy relationships), whose
+    text is synthesized via ``synthesize_relationship_block_text`` rather than
+    read from a ``raw_text`` field. A parser that emits many relationships per
+    document (one per non-leaf heading node) previously paid one HTTP
+    round-trip per relationship here; batching brings that down to one
+    round-trip per ``api_batch_size`` relationships, matching the annotation
+    path's throughput.
+
+    Args:
+        relationships: Ordered list of Relationship rows to embed.
+        embedder: The embedder instance (must support ``embed_texts_batch``).
+        embedder_path: Embedder path string stored alongside the vector.
+        api_batch_size: Max texts per ``embed_texts_batch`` call.
+        result: Mutable summary dict (keys: succeeded, failed, skipped, errors).
+    """
+    items: list[tuple[Any, str]] = []
+    for rel in relationships:
+        text = synthesize_relationship_block_text(rel)
+        if not text.strip():
+            logger.debug(f"Relationship {rel.id} has no text to embed, skipping.")
+            result["skipped"] += 1
+            continue
+        items.append((rel, text))
+
+    _batch_embed_items(
+        items, embedder, embedder_path, api_batch_size, result, id_label="Relationship"
+    )
+
+
+def _batch_embed_items(
+    items: list[tuple[Any, str]],
+    embedder: BaseEmbedder,
+    embedder_path: str,
+    api_batch_size: int,
+    result: dict,
+    *,
+    id_label: str,
+) -> None:
+    """Shared batched-embedding core for :func:`_batch_embed_text_annotations`
+    and :func:`_batch_embed_relationships`.
+
+    Groups ``items`` into sub-batches of ``api_batch_size``, calls
+    ``embedder.embed_texts_batch()`` for each sub-batch, and stores the
+    resulting vectors via ``add_embedding()``. Callers have already filtered
+    out empty-text items (and accounted for them as ``skipped``) — this
+    function assumes every item has non-empty text.
+
+    Exception handling:
+        - ``ValueError``: Re-raised immediately (programming/contract error).
+        - ``requests.exceptions.Timeout``, ``requests.exceptions.ConnectionError``,
+          ``EmbeddingServerError``: Re-raised so Celery task-level retry fires.
+        - ``EmbeddingClientError``: Recorded as a permanent per-item failure
+          for the chunk. Not re-raised so Celery retries are not burned on
+          invalid input.
+        - All other exceptions: Recorded as permanent per-item failures.
+
+    Args:
+        items: Ordered ``(obj, text)`` pairs, non-empty text.
+        embedder: The embedder instance (must support ``embed_texts_batch``).
+        embedder_path: Embedder path string stored alongside the vector.
+        api_batch_size: Max texts per ``embed_texts_batch`` call.
+        result: Mutable summary dict (keys: succeeded, failed, skipped, errors).
+        id_label: Noun used in per-item error messages (e.g. "Annotation").
+    """
     if not items:
         return
 
     # Carve into sub-batches up front so we can fan them out concurrently.
-    chunks: list[list[tuple[Annotation, str]]] = [
+    chunks: list[list[tuple[Any, str]]] = [
         items[i : i + api_batch_size] for i in range(0, len(items), api_batch_size)
     ]
 
@@ -570,25 +644,25 @@ def _batch_embed_text_annotations(
                 break
             except EmbeddingClientError as e:
                 # Client errors (4xx): non-retriable, record as permanent
-                # per-annotation failures. We explicitly swallow the exception
+                # per-item failures. We explicitly swallow the exception
                 # here (instead of letting it propagate) so the task's
                 # autoretry_for=(Exception,) decorator does NOT burn retries
                 # on invalid input that will never succeed.
                 logger.error(f"sub-batch {idx + 1} client error (4xx): {e}")
-                for annot, _ in chunks[idx]:
+                for obj, _ in chunks[idx]:
                     result["failed"] += 1
                     result["errors"].append(
-                        f"Annotation {annot.id}: client error (4xx): {e}"
+                        f"{id_label} {obj.id}: client error (4xx): {e}"
                     )
                 continue
             except Exception as e:
                 # Non-retriable errors (malformed response, unexpected data, etc.)
-                # are recorded as permanent per-annotation failures.
+                # are recorded as permanent per-item failures.
                 logger.error(f"sub-batch {idx + 1} failed: {e}")
-                for annot, _ in chunks[idx]:
+                for obj, _ in chunks[idx]:
                     result["failed"] += 1
                     result["errors"].append(
-                        f"Annotation {annot.id}: batch embed call failed: {e}"
+                        f"{id_label} {obj.id}: batch embed call failed: {e}"
                     )
                 continue
 
@@ -596,10 +670,10 @@ def _batch_embed_text_annotations(
                 logger.error(
                     f"sub-batch {idx + 1}: embed_texts_batch returned None for entire sub-batch"
                 )
-                for annot, _ in chunk:
+                for obj, _ in chunk:
                     result["failed"] += 1
                     result["errors"].append(
-                        f"Annotation {annot.id}: batch embed returned None"
+                        f"{id_label} {obj.id}: batch embed returned None"
                     )
                 continue
 
@@ -608,10 +682,10 @@ def _batch_embed_text_annotations(
                     f"sub-batch {idx + 1}: vector count mismatch — sent {len(chunk)} texts, "
                     f"received {len(vectors)} vectors. Failing entire chunk."
                 )
-                for annot, _ in chunk:
+                for obj, _ in chunk:
                     result["failed"] += 1
                     result["errors"].append(
-                        f"Annotation {annot.id}: vector count mismatch "
+                        f"{id_label} {obj.id}: vector count mismatch "
                         f"({len(vectors)} vectors for {len(chunk)} texts)"
                     )
                 continue
@@ -619,29 +693,29 @@ def _batch_embed_text_annotations(
             # Store each vector in the main thread.
             # add_embedding() is idempotent (upserts via store_embedding), so
             # Celery retries of the whole task won't create duplicate records for
-            # annotations that already succeeded in a previous attempt.
-            for (annot, _), vector in zip(chunk, vectors):
+            # items that already succeeded in a previous attempt.
+            for (obj, _), vector in zip(chunk, vectors):
                 if vector is None:
                     result["failed"] += 1
                     result["errors"].append(
-                        f"Annotation {annot.id}: individual vector was None in batch"
+                        f"{id_label} {obj.id}: individual vector was None in batch"
                     )
                     continue
                 try:
-                    embedding = annot.add_embedding(embedder_path, vector)
+                    embedding = obj.add_embedding(embedder_path, vector)
                     if embedding:
                         result["succeeded"] += 1
                     else:
                         result["failed"] += 1
                         result["errors"].append(
-                            f"Annotation {annot.id}: add_embedding returned None"
+                            f"{id_label} {obj.id}: add_embedding returned None"
                         )
                 except Exception as e:
                     logger.error(
-                        f"Failed to store embedding for annotation {annot.id}: {e}"
+                        f"Failed to store embedding for {id_label.lower()} {obj.id}: {e}"
                     )
                     result["failed"] += 1
-                    result["errors"].append(f"Annotation {annot.id}: store failed: {e}")
+                    result["errors"].append(f"{id_label} {obj.id}: store failed: {e}")
     finally:
         # On the transient-error fast path we want queued futures dropped
         # and the executor shut down without waiting on in-flight peers.
@@ -1030,13 +1104,15 @@ def calculate_embeddings_for_relationship_batch(
     with the default embedder AND (when distinct) the corpus's preferred
     embedder, so global-default search and corpus-scoped search both work.
 
-    Unlike the annotation task we do NOT batch the wire calls
-    via ``embed_texts_batch`` here — the volume of structural subtree
-    groups is small relative to annotations (one per non-leaf node), so
-    the simpler per-relationship dual-embedding loop is plenty. If subtree
-    cardinality ever justifies batching, mirror
-    ``_batch_embed_text_annotations`` and key on
-    ``synthesize_relationship_block_text``.
+    When an explicit ``embedder_path`` is supplied (the materialiser path,
+    per the Note below), relationships are batched through
+    ``_batch_embed_relationships`` / ``embed_texts_batch()`` exactly like
+    ``calculate_embeddings_for_annotation_batch`` does for text-only
+    annotations — some parsers (e.g. Warp-Ingest's heading-hierarchy
+    ``OC_SUBTREE_GROUP`` rows) emit one relationship per non-leaf node, which
+    is not always small relative to annotation volume, so the one-HTTP-call-
+    per-relationship loop this used to run here was a real per-document
+    bottleneck at scale.
 
     Args:
         self: Celery task instance (passed automatically when bind=True).
@@ -1100,23 +1176,33 @@ def calculate_embeddings_for_relationship_batch(
             result["failed"] = len(relationship_ids)
             return result
 
+        present_relationships = []
         for rid in relationship_ids:
             rel = rel_map.get(rid)
             if rel is None:
                 result["skipped"] += 1
                 continue
-            try:
-                if _embed_relationship(rel, explicit_embedder, embedder_path):
-                    result["succeeded"] += 1
-                else:
-                    result["failed"] += 1
-                    result["errors"].append(
-                        f"Relationship {rid}: embedding returned None or empty"
-                    )
-            except Exception as e:
-                logger.error(f"Failed to embed relationship {rid}: {e}")
-                result["failed"] += 1
-                result["errors"].append(f"Relationship {rid}: {e}")
+            present_relationships.append(rel)
+
+        api_batch_size = getattr(
+            explicit_embedder, "api_batch_size", EMBEDDING_API_BATCH_SIZE
+        )
+        try:
+            _batch_embed_relationships(
+                present_relationships,
+                explicit_embedder,
+                embedder_path,
+                api_batch_size,
+                result,
+            )
+        except ValueError as e:
+            # Programming error (e.g., batch size misconfiguration). Fail
+            # fast without burning Celery retries — mirrors the annotation
+            # task's handling of the same contract-violation class.
+            logger.error(f"Contract violation in batch embedding: {e}")
+            result["errors"].append(f"Contract violation: {e}")
+            accounted = result["skipped"] + result["failed"] + result["succeeded"]
+            result["failed"] += len(relationship_ids) - accounted
         return result
 
     # Dual-embedding strategy: default embedder is mandatory; the corpus's

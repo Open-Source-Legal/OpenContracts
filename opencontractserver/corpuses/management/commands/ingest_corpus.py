@@ -132,7 +132,17 @@ class Command(BaseCommand):
             raise CommandError(f"--path {root} is not a directory.")
         # The extension gate and the log line are derived from the same set, so
         # the reported filter can never drift from the one actually applied.
-        ext_ok = {".pdf", ".txt", ".docx", ".xlsx", ".pptx"}
+        # Natively-parsed formats are always accepted; anything else is only
+        # accepted when the configured file converter (e.g. Gotenberg) will
+        # convert it to PDF first — same eligibility check the upload REST path
+        # uses (``resolve_convertible_upload``), so this command actually
+        # ingests "any allowed file type" as the docstring above promises,
+        # rather than a fixed subset that silently drops e.g. legacy .doc.
+        from opencontractserver.pipeline.utils import get_convertible_extensions
+
+        ext_ok = {".pdf", ".txt", ".docx", ".xlsx", ".pptx"} | {
+            f".{ext}" for ext in get_convertible_extensions()
+        }
         files = sorted(
             p for p in root.rglob("*") if p.is_file() and p.suffix.lower() in ext_ok
         )

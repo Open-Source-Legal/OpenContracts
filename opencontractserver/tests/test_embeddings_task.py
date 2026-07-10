@@ -1599,34 +1599,42 @@ class TestCalculateEmbeddingsForRelationshipBatch(unittest.TestCase):
         self.assertEqual(result["failed"], 3)
         self.assertTrue(any("Failed to load embedder" in e for e in result["errors"]))
 
-    @patch("opencontractserver.tasks.embeddings_task._embed_relationship")
+    @patch(
+        "opencontractserver.tasks.embeddings_task.synthesize_relationship_block_text"
+    )
     @patch("opencontractserver.tasks.embeddings_task.get_component_by_name")
     @patch("opencontractserver.tasks.embeddings_task.Relationship")
     def test_explicit_embedder_counts_outcomes(
-        self, mock_rel_model, mock_get_component, mock_embed
+        self, mock_rel_model, mock_get_component, mock_synth
     ):
+        """The explicit-embedder-path batches relationships through
+        ``embed_texts_batch`` (issue: per-relationship HTTP calls were a
+        per-document bottleneck for parsers emitting many relationships,
+        e.g. Warp-Ingest's heading-hierarchy ``OC_SUBTREE_GROUP`` rows) —
+        this exercises the same three outcome kinds (succeed / vector-store
+        failure / None-vector-in-batch) the old per-relationship loop did."""
         from opencontractserver.tasks.embeddings_task import (
             calculate_embeddings_for_relationship_batch,
         )
 
-        rel1, rel2, rel3 = MagicMock(pk=1), MagicMock(pk=2), MagicMock(pk=3)
+        rel1 = MagicMock(pk=1, id=1)
+        rel2 = MagicMock(pk=2, id=2)
+        rel3 = MagicMock(pk=3, id=3)
         # rel4 is missing from the DB → counts as "skipped".
-        mock_rel_model.objects.filter.return_value = [
-            rel1,
-            rel2,
-            rel3,
-        ]
-        mock_get_component.return_value = MagicMock(return_value=MagicMock())
+        mock_rel_model.objects.filter.return_value = [rel1, rel2, rel3]
 
-        # rel1 succeeds, rel2 fails, rel3 raises.
-        def fake_embed(rel, embedder, embedder_path):
-            if rel is rel1:
-                return True
-            if rel is rel2:
-                return False
-            raise RuntimeError("boom")
+        texts_by_pk = {1: "text one", 2: "text two", 3: "text three"}
+        mock_synth.side_effect = lambda rel: texts_by_pk[rel.pk]
 
-        mock_embed.side_effect = fake_embed
+        mock_embedder = MagicMock()
+        mock_embedder.embed_max_concurrent_sub_batches = 1
+        mock_embedder.api_batch_size = 100
+        # rel1 -> valid vector (add_embedding succeeds); rel2 -> valid vector
+        # but storing it raises; rel3 -> None vector in the batch response.
+        mock_embedder.embed_texts_batch.return_value = [[0.1] * 384, [0.2] * 384, None]
+        mock_get_component.return_value = MagicMock(return_value=mock_embedder)
+
+        rel2.add_embedding.side_effect = RuntimeError("boom")
 
         result = calculate_embeddings_for_relationship_batch.apply(
             args=[[1, 2, 3, 4]],
@@ -1638,6 +1646,9 @@ class TestCalculateEmbeddingsForRelationshipBatch(unittest.TestCase):
         self.assertEqual(result["failed"], 2)
         self.assertEqual(result["skipped"], 1)
         self.assertEqual(len(result["errors"]), 2)
+        mock_embedder.embed_texts_batch.assert_called_once_with(
+            ["text one", "text two", "text three"]
+        )
 
     @patch("opencontractserver.tasks.embeddings_task._apply_dual_embedding_strategy")
     @patch(
