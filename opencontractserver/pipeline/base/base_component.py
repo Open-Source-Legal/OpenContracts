@@ -2,6 +2,7 @@ import dataclasses
 import logging
 from abc import ABC
 from collections.abc import Mapping
+from copy import deepcopy
 from typing import Any, ClassVar, Optional
 
 from django.conf import settings
@@ -50,7 +51,9 @@ class PipelineComponentBase(ABC):
     to refresh settings from the database if needed.
 
     For backwards compatibility, components without a Settings dataclass can
-    still use get_component_settings() to get a raw dictionary of settings.
+    still use get_component_settings() to get a cached dictionary of settings.
+    Each call returns a defensive copy; ``reload_settings()`` invalidates both
+    the raw dictionary and the validated dataclass instance.
     """
 
     # Subclasses should override this with their Settings dataclass
@@ -81,6 +84,10 @@ class PipelineComponentBase(ABC):
         super().__init__()  # Ensures MRO is handled correctly
         # Cache the class path for efficient lookups
         self._full_class_path = f"{self.__class__.__module__}.{self.__class__.__name__}"
+        # Full DB settings (including decrypted secrets) are loaded at most once
+        # per component instance. ``None`` distinguishes "not loaded" from a
+        # successfully loaded empty mapping.
+        self._component_settings_cache: Optional[dict[str, Any]] = None
         # Load settings (will be None if no Settings dataclass)
         self._settings: Optional[Any] = self._load_settings()
 
@@ -165,6 +172,7 @@ class PipelineComponentBase(ABC):
         Returns:
             The reloaded Settings dataclass instance.
         """
+        self._component_settings_cache = None
         self._settings = self._load_settings(strict=strict)
         return self._settings
 
@@ -200,39 +208,46 @@ class PipelineComponentBase(ABC):
 
     def get_component_settings(self) -> dict:
         """
-        Get settings for this component from PipelineSettings database.
+        Get the settings snapshot loaded for this component instance.
 
-        This method fetches settings fresh on each call to support runtime
-        configuration changes. Settings are retrieved from the PipelineSettings
-        database model which includes encrypted secrets.
+        The first call retrieves full settings from ``PipelineSettings`` and
+        caches a defensive copy, including decrypted secrets. Later calls avoid
+        repeated database/cache access and PBKDF2/Fernet work. Call
+        :meth:`reload_settings` to explicitly refresh the snapshot after a
+        runtime configuration change.
 
-        Note: For components with a Settings dataclass, prefer using the
-        `settings` property which returns a validated dataclass instance.
+        Every return value is a deep copy so a caller that mutates nested
+        dictionaries or lists cannot poison the instance cache.
 
         Returns:
             Dict of settings for this component, including decrypted secrets.
         """
+        if self._component_settings_cache is not None:
+            return deepcopy(self._component_settings_cache)
+
+        loaded: dict[str, Any] = {}
+
         # Ensure Django settings are configured
         if not settings.configured:
             logger.warning(
                 "Django settings not configured. Component settings unavailable."
             )
-            return {}
+        else:
+            # Get settings from PipelineSettings DB model (includes secrets)
+            try:
+                from opencontractserver.documents.models import PipelineSettings
 
-        # Get settings from PipelineSettings DB model (includes secrets)
-        try:
-            from opencontractserver.documents.models import PipelineSettings
+                pipeline_settings = PipelineSettings.get_instance()
+                loaded = pipeline_settings.get_full_component_settings(
+                    self._full_class_path
+                )
+                if loaded:
+                    logger.debug(
+                        f"Loaded settings from DB for '{self._full_class_path}'"
+                    )
+            except Exception as e:
+                # DB not available (e.g., during migrations or early startup)
+                logger.debug(f"Could not load settings from PipelineSettings DB: {e}.")
 
-            pipeline_settings = PipelineSettings.get_instance()
-            # get_full_component_settings merges component_settings with secrets
-            db_settings = pipeline_settings.get_full_component_settings(
-                self._full_class_path
-            )
-            if db_settings:
-                logger.debug(f"Loaded settings from DB for '{self._full_class_path}'")
-                return db_settings
-        except Exception as e:
-            # DB not available (e.g., during migrations or early startup)
-            logger.debug(f"Could not load settings from PipelineSettings DB: {e}.")
-
-        return {}
+        self._component_settings_cache = deepcopy(loaded)
+        return deepcopy(self._component_settings_cache)

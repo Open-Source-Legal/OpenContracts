@@ -39,6 +39,8 @@ from opencontractserver.llms.vector_stores.core_vector_stores import (
 )
 from opencontractserver.pipeline.utils import get_default_embedder_path
 from opencontractserver.utils.embeddings import (
+    RELATIONSHIP_SOURCE_TEXT_PREFETCH_ATTR,
+    RELATIONSHIP_TARGET_TEXT_PREFETCH_ATTR,
     synthesize_relationship_block_text,
 )
 from opencontractserver.utils.subtree_groups import (
@@ -486,6 +488,16 @@ class SynthesizeBlockTextTestCase(TestCase):
 
     def test_synthesize_joins_source_and_targets_in_id_order(self) -> None:
         text = synthesize_relationship_block_text(self.rel)
+        self.assertEqual(text, "HEAD\nT1\nT2")
+
+    def test_synthesize_uses_dedicated_prefetch_lists_without_queries(self) -> None:
+        rel = Relationship.objects.get(pk=self.rel.pk)
+        setattr(rel, RELATIONSHIP_SOURCE_TEXT_PREFETCH_ATTR, [self.src])
+        setattr(rel, RELATIONSHIP_TARGET_TEXT_PREFETCH_ATTR, [self.t1, self.t2])
+
+        with self.assertNumQueries(0):
+            text = synthesize_relationship_block_text(rel)
+
         self.assertEqual(text, "HEAD\nT1\nT2")
 
     def test_synthesize_truncates_at_cap(self) -> None:

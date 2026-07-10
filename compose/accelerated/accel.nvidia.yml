@@ -1,0 +1,32 @@
+# NVIDIA CUDA deployment. Merge after accel.override.yml. The host must have
+# the NVIDIA driver and NVIDIA Container Toolkit configured for Docker.
+
+services:
+  docling-parser:
+    image: oc-docling:cuda
+    build:
+      args:
+        ACCEL: cuda
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  vector-embedder:
+    image: oc-embedder:cuda
+    build:
+      args:
+        ACCEL: cuda
+    environment:
+      EMBED_ACCEL: ${EMBED_ACCEL:-cuda}
+      REQUIRE_ACCELERATOR: ${REQUIRE_ACCELERATOR:-true}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

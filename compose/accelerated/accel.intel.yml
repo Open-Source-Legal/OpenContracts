@@ -1,0 +1,32 @@
+# Intel GPU deployment (OpenVINO for the embedder, torch-XPU for Docling).
+# Merge after accel.override.yml and set RENDER_GID to the host render group:
+#
+#   export RENDER_GID=$(stat -c '%g' /dev/dri/renderD128)
+#
+# This overlay intentionally omits /dev/accel so it works on Intel GPU hosts
+# without an NPU. Add accel.intel-npu.yml when that device is present.
+
+services:
+  docling-parser:
+    image: oc-docling:xpu
+    build:
+      args:
+        ACCEL: xpu
+    devices:
+      - /dev/dri:/dev/dri
+    group_add:
+      - "${RENDER_GID:?set RENDER_GID to the host render group GID}"
+
+  vector-embedder:
+    image: oc-embedder:intel
+    build:
+      # OpenVINO supplies Intel GPU/NPU support; torch is the CPU fallback.
+      args:
+        ACCEL: auto
+    devices:
+      - /dev/dri:/dev/dri
+    group_add:
+      - "${RENDER_GID:?set RENDER_GID to the host render group GID}"
+    environment:
+      EMBED_ACCEL: ${EMBED_ACCEL:-openvino:GPU}
+      REQUIRE_ACCELERATOR: ${REQUIRE_ACCELERATOR:-true}
