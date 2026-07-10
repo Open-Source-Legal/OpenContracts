@@ -32,6 +32,7 @@ from opencontractserver.constants.notifications import (
     NOTIFICATION_BULK_CREATE_BATCH_SIZE,
 )
 from opencontractserver.corpuses.managers import CorpusActionExecutionManager
+from opencontractserver.shared.Managers import PermissionManager
 from opencontractserver.shared.Models import BaseOCModel
 from opencontractserver.shared.QuerySets import PermissionedTreeQuerySet
 from opencontractserver.shared.slug_utils import generate_unique_slug, sanitize_slug
@@ -2720,3 +2721,111 @@ class Artifact(BaseOCModel):
                 if not collided or attempt == ARTIFACT_SLUG_RETRY_ATTEMPTS - 1:
                     raise
                 self.slug = _roll_slug()
+
+
+# --------------------------------------------------------------------------- #
+# CorpusGroup - Named bundle of corpora for multi-corpus retrieval (#2056)
+# --------------------------------------------------------------------------- #
+
+
+class CorpusGroup(BaseOCModel):
+    """A curated, named bundle of corpora for multi-corpus retrieval.
+
+    ``CorpusGroup`` is the single source of truth for which corpora a
+    cross-corpus agent consults: the ``search_across_corpora`` agent tool
+    resolves the group's ``corpora`` M2M at *call time* (never a config-time
+    snapshot), filtered to the corpora the calling user can READ via
+    ``CorpusGroupService``. Group visibility itself is the standard
+    ``BaseOCModel`` surface (creator | is_public | guardian object
+    permissions); a half-visible group still works, just narrower.
+
+    Not to be confused with ``CorpusGroupObjectPermission`` above, which is
+    django-guardian's per-auth-``Group`` permission table for ``Corpus``.
+
+    Issue #2056 (= proposal 0002 Phase 4 / #1444 Phase B).
+    """
+
+    title = django.db.models.CharField(max_length=255)
+    slug = django.db.models.SlugField(
+        max_length=128,
+        unique=True,
+        # ``blank=True`` is intentional: callers may omit the slug and
+        # ``save()`` auto-generates a unique one before the row hits the DB
+        # (same pattern as ``AgentConfiguration.slug``).
+        blank=True,
+        help_text=(
+            "URL-friendly identifier agents use to reference this group "
+            "(e.g., 'bolivian-laws')"
+        ),
+    )
+    description = django.db.models.TextField(blank=True, default="")
+    corpora: django.db.models.ManyToManyField[Corpus, Any] = (
+        django.db.models.ManyToManyField(
+            Corpus,
+            related_name="corpus_groups",
+            blank=True,
+            help_text="The corpora this group bundles for cross-corpus retrieval",
+        )
+    )
+    default_agent = django.db.models.ForeignKey(
+        "agents.AgentConfiguration",
+        on_delete=django.db.models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="default_for_corpus_groups",
+        help_text=(
+            "Orchestrator agent bound to this group. Its system_instructions "
+            "hold the orchestrator persona and its available_tools should "
+            "include 'search_across_corpora'."
+        ),
+    )
+
+    # ``PermissionManager`` (not the ``BaseOCModel`` default) so the
+    # QUERYSET carries ``visible_to_user`` too — required by
+    # ``BaseService.filter_visible_qs`` in ``CorpusGroupType.get_queryset``,
+    # which fails closed on querysets without it. Same generic semantics
+    # (creator | is_public | guardian user+group READ).
+    objects = PermissionManager()  # type: ignore[misc]  # intentional manager override
+
+    class Meta:
+        ordering = ["title"]
+        permissions = (
+            ("permission_corpusgroup", "permission corpusgroup"),
+            ("publish_corpusgroup", "publish corpusgroup"),
+            ("create_corpusgroup", "create corpusgroup"),
+            ("read_corpusgroup", "read corpusgroup"),
+            ("update_corpusgroup", "update corpusgroup"),
+            ("remove_corpusgroup", "delete corpusgroup"),
+            ("comment_corpusgroup", "comment corpusgroup"),
+        )
+
+    def __str__(self) -> str:
+        return f"CorpusGroup({self.title})"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        """Auto-generate a unique slug from the title when omitted."""
+        if not self.slug:
+            self.slug = generate_unique_slug(
+                base_value=self.title,
+                scope_qs=CorpusGroup.objects.exclude(pk=self.pk),
+                slug_field="slug",
+                max_length=128,
+                fallback_prefix="corpus-group",
+            )
+        super().save(*args, **kwargs)
+
+
+class CorpusGroupUserObjectPermission(UserObjectPermissionBase):
+    """Guardian permission model for per-user CorpusGroup permissions."""
+
+    content_object = django.db.models.ForeignKey(
+        "CorpusGroup", on_delete=django.db.models.CASCADE
+    )
+
+
+class CorpusGroupGroupObjectPermission(GroupObjectPermissionBase):
+    """Guardian permission model for per-group CorpusGroup permissions."""
+
+    content_object = django.db.models.ForeignKey(
+        "CorpusGroup", on_delete=django.db.models.CASCADE
+    )

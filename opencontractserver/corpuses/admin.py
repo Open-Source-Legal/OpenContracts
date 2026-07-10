@@ -9,6 +9,7 @@ from opencontractserver.corpuses.models import (
     CorpusActionExecution,
     CorpusActionTemplate,
     CorpusCategory,
+    CorpusGroup,
 )
 from opencontractserver.tasks.permissioning_tasks import make_corpus_public_task
 
@@ -60,6 +61,18 @@ class CorpusCategoryAdmin(admin.ModelAdmin):
         (None, {"fields": ("name", "description")}),
         ("Appearance", {"fields": ("icon", "color", "sort_order")}),
     )
+
+
+@admin.register(CorpusGroup)
+class CorpusGroupAdmin(GuardedModelAdmin):
+    """Admin for corpus groups (multi-corpus retrieval bundles, issue #2056)."""
+
+    list_display = ["id", "title", "slug", "is_public", "default_agent", "created"]
+    list_display_links = ["id", "title"]
+    search_fields = ["title", "slug", "description"]
+    list_filter = ("is_public", "created")
+    raw_id_fields = ("creator", "default_agent")
+    filter_horizontal = ("corpora",)
 
 
 @admin.register(CorpusAction)

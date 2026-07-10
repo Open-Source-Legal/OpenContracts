@@ -75,6 +75,7 @@ from config.graphql.corpus_types import (  # noqa: F401
     CorpusEngagementMetricsType,
     CorpusFilterCountsType,
     CorpusFolderType,
+    CorpusGroupType,
     CorpusIntelligenceAggregatesType,
     CorpusStatsType,
     CorpusType,
