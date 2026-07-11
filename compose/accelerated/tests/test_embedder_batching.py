@@ -45,6 +45,51 @@ def test_coalesces_concurrent_requests_and_preserves_order() -> None:
     assert sorted(calls[0]) == [1, 2, 3, 4, 5, 6]
 
 
+def test_displaced_over_cap_request_keeps_fifo_order() -> None:
+    calls: list[list[int]] = []
+    first_batch_gate = threading.Event()
+
+    def process(items: list[int]) -> list[int]:
+        calls.append(items)
+        if len(calls) == 1:
+            assert first_batch_gate.wait(timeout=2)
+        return items
+
+    def wait_for(condition, timeout: float = 2.0) -> None:
+        deadline = time.perf_counter() + timeout
+        while not condition():
+            assert time.perf_counter() < deadline, "condition never became true"
+            time.sleep(0.001)
+
+    batcher = DynamicBatcher(process, max_items=2, wait_ms=500)
+    try:
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            # A fills max_items exactly, so the worker skips the collection
+            # window, enters process(), and parks on the gate. Everything
+            # submitted while it is parked lands in the queue in a known order.
+            blocker = executor.submit(batcher.submit, [0, 1])
+            wait_for(lambda: len(calls) == 1)
+            leading = executor.submit(batcher.submit, [2])
+            wait_for(lambda: batcher.queue_depth == 1)
+            # [3, 4] cannot join [2] under max_items=2, so the worker must
+            # displace it — and [5], submitted strictly later, must not
+            # overtake it.
+            displaced = executor.submit(batcher.submit, [3, 4])
+            wait_for(lambda: batcher.queue_depth == 2)
+            trailing = executor.submit(batcher.submit, [5])
+            wait_for(lambda: batcher.queue_depth == 3)
+            first_batch_gate.set()
+
+            assert blocker.result(timeout=2) == [0, 1]
+            assert leading.result(timeout=2) == [2]
+            assert displaced.result(timeout=2) == [3, 4]
+            assert trailing.result(timeout=2) == [5]
+    finally:
+        batcher.close()
+
+    assert calls == [[0, 1], [2], [3, 4], [5]]
+
+
 def test_does_not_delay_a_request_beyond_collection_window() -> None:
     batcher = DynamicBatcher(lambda items: items, max_items=10, wait_ms=10)
     started = time.perf_counter()

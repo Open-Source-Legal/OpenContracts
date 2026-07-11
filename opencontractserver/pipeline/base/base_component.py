@@ -257,5 +257,8 @@ class PipelineComponentBase(ABC):
             logger.debug(f"Could not load settings from PipelineSettings DB: {e}.")
             return {}
 
+        # Two copies, not one: ``loaded`` shallow-shares nested values with the
+        # process-cached PipelineSettings instance, so the cache needs its own
+        # copy, and the caller needs a copy isolated from the cache.
         self._component_settings_cache = deepcopy(loaded)
         return deepcopy(self._component_settings_cache)

@@ -89,11 +89,14 @@ except Exception as exc:  # hardware/driver dependent — never fail to start
     FALLBACK_REASON = str(exc)
 
 
-def _is_accelerated(backend: str, device: str) -> bool:
-    return not (device.upper() == "CPU" or device.lower() == "cpu")
+def _is_accelerated(device: str) -> bool:
+    # OpenVINO devices may carry an index suffix ("CPU.0") and torch devices a
+    # colon suffix ("cuda:1"); compare the base device family so an indexed CPU
+    # device never satisfies REQUIRE_ACCELERATOR.
+    return device.upper().split(".", 1)[0].split(":", 1)[0] != "CPU"
 
 
-ACCELERATED = _is_accelerated(ACTIVE_BACKEND, ACTIVE_DEVICE)
+ACCELERATED = _is_accelerated(ACTIVE_DEVICE)
 if REQUIRE_ACCELERATOR and not ACCELERATED:
     raise RuntimeError(
         f"REQUIRE_ACCELERATOR is set but selected {ACTIVE_BACKEND}/{ACTIVE_DEVICE}"

@@ -44,6 +44,10 @@ class DynamicBatcher(Generic[InputT, OutputT]):
         self._max_items = max_items
         self._wait_seconds = wait_ms / 1000
         self._queue: queue.Queue[_Request[InputT, OutputT] | None] = queue.Queue()
+        # Worker-thread-only slot for a request that arrived during collection
+        # but did not fit under ``max_items``. Holding it here (instead of
+        # re-queueing at the back) preserves FIFO order for the next batch.
+        self._pending: _Request[InputT, OutputT] | None = None
         self._closed = False
         self._close_lock = threading.Lock()
         self._thread = threading.Thread(
@@ -88,7 +92,11 @@ class DynamicBatcher(Generic[InputT, OutputT]):
         self._thread.join(timeout=5)
 
     def _collect(self) -> list[_Request[InputT, OutputT]] | None:
-        first = self._queue.get()
+        if self._pending is not None:
+            first: _Request[InputT, OutputT] | None = self._pending
+            self._pending = None
+        else:
+            first = self._queue.get()
         if first is None:
             return None
 
@@ -109,7 +117,7 @@ class DynamicBatcher(Generic[InputT, OutputT]):
                 self._queue.put(None)
                 break
             if item_count + len(candidate.items) > self._max_items:
-                self._queue.put(candidate)
+                self._pending = candidate
                 break
             requests.append(candidate)
             item_count += len(candidate.items)
