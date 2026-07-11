@@ -15,6 +15,9 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
+RELATIONSHIP_SOURCE_TEXT_PREFETCH_ATTR = "_embedding_source_annotations"
+RELATIONSHIP_TARGET_TEXT_PREFETCH_ATTR = "_embedding_target_annotations"
+
 
 def join_block_text_parts(
     chunks: list[str],
@@ -63,22 +66,36 @@ def synthesize_relationship_block_text(
     # semantically meaningful for the embedder but isn't available
     # cheaply today — IDs are dense and roughly insertion-ordered, so
     # the resulting text is usually close to document order anyway.
-    # values_list keeps the helper resilient to whether the caller
-    # prefetched these M2Ms — couples to a public API, not the private
-    # ``_prefetched_objects_cache`` whose shape has shifted across
-    # Django versions.
-    sources = [
-        (text or "")
-        for text in relationship.source_annotations.order_by("id").values_list(
-            "raw_text", flat=True
-        )
-    ]
-    targets = [
-        (text or "")
-        for text in relationship.target_annotations.order_by("id").values_list(
-            "raw_text", flat=True
-        )
-    ]
+    # Batch callers attach ordered, narrow Prefetch(..., to_attr=...) lists so
+    # synthesizing N relationships does not issue 2N M2M queries. Direct callers
+    # keep the existing manager-backed fallback. Dedicated attributes avoid
+    # coupling to Django's private ``_prefetched_objects_cache`` structure.
+    prefetched_sources = getattr(
+        relationship, RELATIONSHIP_SOURCE_TEXT_PREFETCH_ATTR, None
+    )
+    if prefetched_sources is None:
+        sources = [
+            (text or "")
+            for text in relationship.source_annotations.order_by("id").values_list(
+                "raw_text", flat=True
+            )
+        ]
+    else:
+        sources = [(annotation.raw_text or "") for annotation in prefetched_sources]
+
+    prefetched_targets = getattr(
+        relationship, RELATIONSHIP_TARGET_TEXT_PREFETCH_ATTR, None
+    )
+    if prefetched_targets is None:
+        targets = [
+            (text or "")
+            for text in relationship.target_annotations.order_by("id").values_list(
+                "raw_text", flat=True
+            )
+        ]
+    else:
+        targets = [(annotation.raw_text or "") for annotation in prefetched_targets]
+
     return join_block_text_parts([*sources, *targets], max_chars=max_chars)
 
 

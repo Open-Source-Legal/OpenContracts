@@ -1,85 +1,35 @@
-# ===========================================================================
-# GPU-acceleration override for the remote-ingest worker bundle.
-# ===========================================================================
-# Swaps the stock docling-parser + vector-embedder for the locally-built,
-# auto-detecting accelerated images (see compose/accelerated/) and passes the
-# GPU/NPU device nodes through. This is what makes the remote-ingest worker run
-# the parse + embed on the beefy workstation's GPU instead of its CPU.
+# Common, CPU-safe image override for the remote-ingest worker bundle.
 #
-# Merge it ON TOP of remote_worker.yml — it is OPT-IN because the device
-# passthrough requires the GPU to be present (a CPU-only host should NOT use it;
-# the stock bundle already runs on CPU):
+# Merge this after remote_worker.yml, then merge one vendor overlay from
+# compose/accelerated/ after it. For example, from scripts/remote_ingest:
 #
-#   export OC_TARGET_URL=...  OC_WORKER_TOKEN=...  OC_DATA_DIR=/data/pdfs
-#   export VECTOR_EMBEDDER_API_KEY=change-me
-#   export RENDER_GID=$(stat -c '%g' /dev/dri/renderD128)   # host-specific
+#   docker compose \
+#     -f remote_worker.yml \
+#     -f remote_worker.accel.yml \
+#     -f ../../compose/accelerated/accel.nvidia.yml up -d --build
 #
-#   cd scripts/remote_ingest
-#   docker compose -f remote_worker.yml -f remote_worker.accel.yml build \
-#       docling-parser vector-embedder
-#   docker compose -f remote_worker.yml -f remote_worker.accel.yml up -d \
-#       docling-parser vector-embedder
-#   docker compose -f remote_worker.yml -f remote_worker.accel.yml run --rm worker plan
-#   docker compose -f remote_worker.yml -f remote_worker.accel.yml run --rm worker run --max-workers 8
-#
-# Accelerator family (torch wheel) is chosen per-host via env. Defaults target
-# Intel (discrete Arc / Battlemage, e.g. Arc Pro B70 — the recommended target):
-#   OC_DOCLING_ACCEL : auto|cpu|xpu|cuda|rocm   (default: xpu)
-#   OC_EMBED_ACCEL   : auto|cpu|xpu|cuda|rocm   (default: auto; embedder also uses
-#                      OpenVINO so on Intel it routes NPU>GPU automatically)
-#
-# NVIDIA: set OC_DOCLING_ACCEL=cuda OC_EMBED_ACCEL=cuda and replace the `devices`
-#   blocks below with the nvidia runtime (`deploy.resources...devices` / `--gpus all`).
-# AMD ROCm: set ACCEL=rocm and pass `/dev/kfd` + `/dev/dri` + `--group-add video`.
-# ===========================================================================
+# The vendor overlays contain no build-context paths, so the same files are
+# reusable by the local stack and this remote bundle. This common file has no
+# device mounts and is therefore safe on a CPU-only host.
 
 services:
   docling-parser:
-    image: oc-docling:${OC_DOCLING_ACCEL:-xpu}
+    image: oc-docling:cpu
     build:
       context: ../../compose/accelerated
       dockerfile: docling/Dockerfile
       args:
-        ACCEL: ${OC_DOCLING_ACCEL:-xpu}
-    # --- Device passthrough: defaults to Intel/AMD via /dev/dri. -------------
-    # NVIDIA and AMD/ROCm hosts MUST swap this block (commented alternatives
-    # below) and set OC_DOCLING_ACCEL accordingly.
-    devices:
-      - /dev/dri:/dev/dri              # Intel (xpu) / AMD render node
-    group_add:
-      - "${RENDER_GID:-993}"   # = $(stat -c '%g' /dev/dri/renderD128); host-specific
-    # NVIDIA — set OC_DOCLING_ACCEL=cuda, drop the devices/group_add above, use:
-    #   deploy:
-    #     resources:
-    #       reservations:
-    #         devices:
-    #           - driver: nvidia
-    #             count: all
-    #             capabilities: [gpu]
-    # AMD ROCm — build with ACCEL=rocm and use BOTH device nodes + groups:
-    #   devices:
-    #     - /dev/kfd:/dev/kfd
-    #     - /dev/dri:/dev/dri
-    #   group_add:
-    #     - "video"
-    #     - "render"
+        ACCEL: cpu
     environment:
-      DOCLING_ACCEL: auto      # entrypoint auto-selects xpu/cuda/cpu at start
+      DOCLING_ACCEL: ${DOCLING_ACCEL:-auto}
 
   vector-embedder:
-    image: oc-embedder:${OC_EMBED_ACCEL:-auto}
+    image: oc-embedder:cpu
     build:
       context: ../../compose/accelerated
       dockerfile: embedder/Dockerfile
       args:
-        ACCEL: ${OC_EMBED_ACCEL:-auto}
-    devices:
-      - /dev/dri:/dev/dri
-      # NPU only exists on Intel SoCs (e.g. Lunar Lake), not on discrete Arc.
-      # Harmless to omit on a discrete-GPU box; uncomment if the host has an NPU:
-      # - /dev/accel/accel0:/dev/accel/accel0
-    group_add:
-      - "${RENDER_GID:-993}"
+        ACCEL: cpu
     environment:
-      EMBED_ACCEL: auto        # entrypoint auto-selects NPU>GPU>xpu>cpu at start
+      EMBED_ACCEL: ${EMBED_ACCEL:-auto}
       VECTOR_EMBEDDER_API_KEY: ${VECTOR_EMBEDDER_API_KEY:-abc123}

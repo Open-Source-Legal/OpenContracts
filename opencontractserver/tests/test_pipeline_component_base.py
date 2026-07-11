@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import TestCase
 
@@ -179,7 +179,7 @@ class TestPipelineComponentBaseSettings(TestCase):
         self.assertEqual(component.get_component_settings(), {})
 
     def test_full_class_path_used_for_lookup(self):
-        """Verifies the full Python path is used for DB lookup."""
+        """Full-path settings stay cached until an explicit reload."""
         full_path = self.get_dummy_component_full_path()
 
         # Only store settings under the full path
@@ -198,8 +198,50 @@ class TestPipelineComponentBaseSettings(TestCase):
         self.pipeline_settings.save()
         PipelineSettings.clear_cache()
 
+        # The instance retains its load-once snapshot until explicitly reloaded.
         result = component.get_component_settings()
-        self.assertEqual(result, {})
+        self.assertEqual(result, {"found": True})
+
+        component.reload_settings()
+        self.assertEqual(component.get_component_settings(), {})
+
+    @patch("opencontractserver.documents.models.PipelineSettings.get_instance")
+    def test_component_settings_fetched_once_per_instance(self, mock_get_instance):
+        """Repeated calls reuse one full-settings fetch."""
+        pipeline_settings = MagicMock()
+        pipeline_settings.get_full_component_settings.return_value = {
+            "timeout": 30,
+        }
+        mock_get_instance.return_value = pipeline_settings
+
+        component = DummyComponent()
+        self.assertEqual(component.get_component_settings(), {"timeout": 30})
+        self.assertEqual(component.get_component_settings(), {"timeout": 30})
+
+        mock_get_instance.assert_called_once_with()
+        pipeline_settings.get_full_component_settings.assert_called_once_with(
+            self.get_dummy_component_full_path()
+        )
+
+    @patch("opencontractserver.documents.models.PipelineSettings.get_instance")
+    def test_returned_settings_cannot_mutate_cached_snapshot(self, mock_get_instance):
+        """Top-level and nested caller mutations do not poison the cache."""
+        pipeline_settings = MagicMock()
+        pipeline_settings.get_full_component_settings.return_value = {
+            "timeout": 30,
+            "nested": {"values": [1, 2]},
+        }
+        mock_get_instance.return_value = pipeline_settings
+
+        component = DummyComponent()
+        first = component.get_component_settings()
+        first["timeout"] = 999
+        first["nested"]["values"].append(3)
+
+        self.assertEqual(
+            component.get_component_settings(),
+            {"timeout": 30, "nested": {"values": [1, 2]}},
+        )
 
 
 class TestPipelineComponentWithSettingsDataclass(TestCase):
@@ -373,3 +415,28 @@ class TestLoadSettingsErrorPaths(TestCase):
             ):
                 result = component.get_component_settings()
                 self.assertEqual(result, {})
+
+    def test_get_component_settings_db_exception_is_not_cached(self):
+        """A transient DB failure is retried on the next call, not pinned."""
+        full_path = f"{DummyComponent.__module__}.{DummyComponent.__name__}"
+        component = DummyComponent()
+
+        with patch(
+            "opencontractserver.pipeline.base.base_component.settings"
+        ) as mock_settings:
+            mock_settings.configured = True
+            with patch(
+                "opencontractserver.documents.models.PipelineSettings.get_instance",
+                side_effect=Exception("DB unavailable"),
+            ):
+                first = component.get_component_settings()
+                self.assertEqual(first, {})
+
+        # A subsequent call, once the DB is available again, must retry
+        # rather than reuse a cached empty snapshot from the failed attempt.
+        self.pipeline_settings.component_settings = {full_path: {"found": True}}
+        self.pipeline_settings.save()
+        PipelineSettings.clear_cache()
+
+        second = component.get_component_settings()
+        self.assertEqual(second, {"found": True})

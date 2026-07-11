@@ -239,7 +239,7 @@ docker compose -f local.yml --profile fullstack up
 
 Then open http://localhost:3000 and log in with `admin` / `Openc0ntracts_def@ult`.
 
-See the [full Quick Start guide](docs/quick_start.md) for details and troubleshooting.
+See the [full Quick Start guide](docs/quick_start.md) for details and troubleshooting. Have a GPU or NPU? See [Hardware-Accelerated Images](compose/accelerated/README.md) for auto-detecting parser/embedder images (the optimized Intel GPU image measured 49x the embedding throughput of the stock CPU image).
 
 ### Production
 

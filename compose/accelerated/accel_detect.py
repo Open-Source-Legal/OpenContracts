@@ -20,7 +20,8 @@ to CPU instead of crashing when the expected accelerator is absent.
 
 CLI:
     python accel_detect.py            # human-readable report
-    python accel_detect.py --export   # emit shell `export VAR=...` lines for an entrypoint
+    python accel_detect.py --export   # emit shell `export VAR=...` lines
+    python accel_detect.py --env      # emit allow-listed KEY=VALUE lines
     python accel_detect.py --json      # machine-readable
 """
 
@@ -28,6 +29,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import shlex
 import shutil
 import sys
 
@@ -99,28 +102,74 @@ def detect() -> dict:
     return info
 
 
+_TORCH_DEVICE_RE = re.compile(r"^(?:cpu|mps|(?:cuda|xpu)(?::\d+)?)$")
+_OPENVINO_DEVICE_RE = re.compile(r"^(?:CPU|GPU|NPU)(?:\.\d+)?$")
+
+
+def _normalize_embedder_preference(prefer: str | None) -> tuple[str, str] | None:
+    """Normalize EMBED_ACCEL to an explicit backend/device selection.
+
+    ``None`` means auto-detect. ROCm intentionally maps to torch's ``cuda``
+    device because that is the API exposed by ROCm builds of PyTorch.
+    """
+    value = (prefer or "auto").strip()
+    lowered = value.lower()
+    if not lowered or lowered == "auto":
+        return None
+
+    aliases = {
+        "cpu": ("torch", "cpu"),
+        "cuda": ("torch", "cuda"),
+        "rocm": ("torch", "cuda"),
+        "xpu": ("torch", "xpu"),
+        "mps": ("torch", "mps"),
+        "npu": ("openvino", "NPU"),
+    }
+    if lowered in aliases:
+        return aliases[lowered]
+
+    if ":" not in value:
+        raise ValueError(
+            "invalid EMBED_ACCEL value "
+            f"{value!r}; expected auto, cpu, cuda, rocm, xpu, mps, npu, "
+            "torch:<device>, or openvino:<device>"
+        )
+
+    backend, device = value.split(":", 1)
+    backend = backend.strip().lower()
+    device = device.strip()
+    if backend == "torch":
+        device = device.lower()
+        if device == "rocm":
+            device = "cuda"
+        if not _TORCH_DEVICE_RE.fullmatch(device):
+            raise ValueError(f"invalid torch device in EMBED_ACCEL: {device!r}")
+        return backend, device
+    if backend == "openvino":
+        device = device.upper()
+        if not _OPENVINO_DEVICE_RE.fullmatch(device):
+            raise ValueError(f"invalid OpenVINO device in EMBED_ACCEL: {device!r}")
+        return backend, device
+    raise ValueError(f"invalid backend in EMBED_ACCEL: {backend!r}")
+
+
 def choose_embedder(info: dict, prefer: str = "auto") -> tuple[str, str]:
     """Pick (backend, device) for the embedder.
 
     backend: "torch" or "openvino"; device: torch device or OV device name.
 
-    Policy (prefer="auto") — "embedder uses OpenVINO if available, else XPU":
+    Policy (prefer="auto") — prefer the highest-throughput compatible GPU:
       NVIDIA/AMD GPU via torch                                     (non-Intel hosts)
-      > Intel NPU via OpenVINO    (PREFERRED on Intel: a SEPARATE engine from the
-                                   iGPU, so the embedder never contends with the
-                                   Docling parser which runs on the iGPU/XPU)
-      > Intel GPU via OpenVINO    (if no NPU)
+      > Intel GPU via OpenVINO
+      > Intel NPU via OpenVINO    (when no GPU is visible)
       > Intel GPU via torch-XPU   (if OpenVINO somehow unavailable)
       > Apple MPS > CPU.
-    Override with EMBED_ACCEL, e.g. "openvino:GPU", "openvino:NPU", "torch:xpu",
-    "cpu".
+    Override with EMBED_ACCEL, e.g. ``cuda``, ``rocm``, ``xpu``,
+    ``openvino:GPU``, ``openvino:NPU``, ``torch:xpu``, or ``cpu``.
     """
-    if prefer and prefer != "auto":
-        if ":" in prefer:  # explicit "backend:device"
-            b, d = prefer.split(":", 1)
-            return b, d
-        if prefer == "cpu":
-            return "torch", "cpu"
+    forced = _normalize_embedder_preference(prefer)
+    if forced is not None:
+        return forced
 
     ov = info.get("ov_devices", [])
     has_npu = any(x == "NPU" or x.startswith("NPU.") for x in ov)
@@ -129,10 +178,10 @@ def choose_embedder(info: dict, prefer: str = "auto") -> tuple[str, str]:
 
     if tb in ("cuda", "rocm"):  # NVIDIA/AMD: torch is the only path
         return "torch", "cuda"
-    if has_npu:  # Intel: NPU first (separate from iGPU)
-        return "openvino", "NPU"
     if has_gpu:
         return "openvino", "GPU"
+    if has_npu:
+        return "openvino", "NPU"
     if tb == "xpu":  # OpenVINO absent but torch sees the iGPU
         return "torch", "xpu"
     if tb == "mps":
@@ -147,8 +196,16 @@ def choose_docling(info: dict, prefer: str = "auto") -> str:
 
     Returns one of: cuda | xpu | mps | cpu. (docling has no OpenVINO path.)
     """
-    if prefer and prefer != "auto":
-        return prefer
+    forced = (prefer or "auto").strip().lower()
+    if forced == "rocm":
+        forced = "cuda"
+    if forced not in {"auto", "cpu", "cuda", "xpu", "mps"}:
+        raise ValueError(
+            f"invalid DOCLING_ACCEL value {prefer!r}; expected auto, cpu, "
+            "cuda, rocm, xpu, or mps"
+        )
+    if forced != "auto":
+        return forced
     tb = info.get("torch_backend")
     if tb in ("cuda", "rocm"):
         return "cuda"
@@ -173,8 +230,12 @@ def main(argv: list[str]) -> int:
     prefer_emb = os.getenv("EMBED_ACCEL", "auto")
     prefer_doc = os.getenv("DOCLING_ACCEL", "auto")
     info = detect()
-    eb, ed = choose_embedder(info, prefer_emb)
-    dd = choose_docling(info, prefer_doc)
+    try:
+        eb, ed = choose_embedder(info, prefer_emb)
+        dd = choose_docling(info, prefer_doc)
+    except ValueError as exc:
+        print(f"accelerator configuration error: {exc}", file=sys.stderr)
+        return 2
     payload = {
         **info,
         "devices": _device_files(),
@@ -183,13 +244,27 @@ def main(argv: list[str]) -> int:
         "docling_device": dd,
     }
 
-    if "--json" in argv:
+    modes = [arg for arg in argv if arg in {"--json", "--export", "--env"}]
+    unknown = [arg for arg in argv if arg not in {"--json", "--export", "--env"}]
+    if unknown or len(modes) > 1:
+        print("usage: accel_detect.py [--json | --export | --env]", file=sys.stderr)
+        return 2
+
+    mode = modes[0] if modes else None
+    if mode == "--json":
         print(json.dumps(payload, indent=2))
-    elif "--export" in argv:
-        # Shell-sourceable: an entrypoint does `eval "$(accel_detect.py --export)"`
-        print(f"export EMBED_BACKEND={eb}")
-        print(f"export EMBED_DEVICE={ed}")
-        print(f"export DOCLING_ACCELERATOR_DEVICE={dd}")
+    elif mode == "--export":
+        # Retained for operators who source the output manually. The container
+        # entrypoint uses --env and never evaluates detector output as shell code.
+        print(f"export EMBED_BACKEND={shlex.quote(eb)}")
+        print(f"export EMBED_DEVICE={shlex.quote(ed)}")
+        print(f"export DOCLING_ACCELERATOR_DEVICE={shlex.quote(dd)}")
+    elif mode == "--env":
+        # Machine-readable handoff for entrypoint.sh. Values are validated above,
+        # and the entrypoint assigns only these three allow-listed keys.
+        print(f"EMBED_BACKEND={eb}")
+        print(f"EMBED_DEVICE={ed}")
+        print(f"DOCLING_ACCELERATOR_DEVICE={dd}")
     else:
         print("=== accelerator detection ===")
         print(f" gpu_vendor      : {info['gpu_vendor']}")

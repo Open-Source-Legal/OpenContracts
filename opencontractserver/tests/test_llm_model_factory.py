@@ -253,9 +253,10 @@ class TestCredentialCache(TestCase):
             first = build_agent_model("openai:gpt-4o")
             second = build_agent_model("openai:gpt-4o")
         # The first build decrypts once — get_full_component_settings reads the
-        # secret store twice (merged settings + secrets overlay) — and the
-        # second build is served from the memo without touching the store.
-        self.assertEqual(get_secrets_spy.call_count, 2)
+        # secret store exactly once per build (get_component_settings already
+        # merges plaintext settings with decrypted secrets in one pass) — and
+        # the second build is served from the memo without touching the store.
+        self.assertEqual(get_secrets_spy.call_count, 1)
         self.assertIsInstance(first, Model)
         self.assertIsInstance(second, Model)
 
@@ -288,7 +289,7 @@ class TestCredentialCache(TestCase):
             autospec=True,
             side_effect=PipelineSettings.get_secrets,
         ) as get_secrets_spy:
-            build_agent_model("openai:gpt-4o")  # 2 decrypt reads, then cached
+            build_agent_model("openai:gpt-4o")  # 1 decrypt read, then cached
             invalidate_credential_cache()
-            build_agent_model("openai:gpt-4o")  # memo purged → 2 more reads
-        self.assertEqual(get_secrets_spy.call_count, 4)
+            build_agent_model("openai:gpt-4o")  # memo purged → 1 more read
+        self.assertEqual(get_secrets_spy.call_count, 2)

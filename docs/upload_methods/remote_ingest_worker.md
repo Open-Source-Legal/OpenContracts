@@ -136,26 +136,30 @@ for the full flag reference (`--no-embeddings`, `--flat`, `--limit`,
 The slow step is the Docling parse. If the remote host has a GPU, merge the
 [accelerated images](https://github.com/Open-Source-Legal/OpenContracts/blob/main/compose/accelerated/README.md)
 override to run the parser + embedder on it (auto-detects CUDA / ROCm / Intel
-XPU·NPU, falls back to CPU).
+XPU·NPU). Vendor embedder overlays require the requested accelerator so a driver
+or device-passthrough error is visible instead of silently reverting to CPU.
 
-The override defaults target **Intel/AMD** (`/dev/dri` + render group). **NVIDIA
-and AMD/ROCm hosts must edit the device passthrough** in `remote_worker.accel.yml`
-before running the commands below (NVIDIA: the nvidia runtime / `--gpus`; ROCm:
-`/dev/kfd` + `--group-add video`) -- the file has commented stanzas for each.
-The Docling speedup is hardware-specific (a discrete GPU helps a lot; an
-integrated GPU is often a wash), so **benchmark your host** with
+`remote_worker.accel.yml` is CPU-safe and contains no device mounts. Merge the
+matching reusable vendor overlay after it: `accel.intel.yml`,
+`accel.nvidia.yml`, or `accel.amd.yml`. Intel NPU hosts can additionally merge
+`accel.intel-npu.yml`; CPU-only hosts can use `accel.cpu.yml`. The Docling
+speedup is hardware-specific, so **benchmark your host** with
 `compose/accelerated/bench_parse.py`. Full details:
 [`scripts/remote_ingest/README.md`](https://github.com/Open-Source-Legal/OpenContracts/blob/main/scripts/remote_ingest/README.md#gpu-acceleration-recommended-on-beefy-workstations)
 and the [accelerated images README](https://github.com/Open-Source-Legal/OpenContracts/blob/main/compose/accelerated/README.md).
 
 ```bash
 export RENDER_GID=$(stat -c '%g' /dev/dri/renderD128)   # Intel/AMD; not needed for NVIDIA
-docker compose -f remote_worker.yml -f remote_worker.accel.yml build \
-    docling-parser vector-embedder
-docker compose -f remote_worker.yml -f remote_worker.accel.yml up -d \
-    docling-parser vector-embedder
-docker compose -f remote_worker.yml -f remote_worker.accel.yml run --rm worker plan
-docker compose -f remote_worker.yml -f remote_worker.accel.yml run --rm worker run --max-workers 8
+docker compose \
+  -f remote_worker.yml \
+  -f remote_worker.accel.yml \
+  -f ../../compose/accelerated/accel.intel.yml \
+  up -d --build docling-parser vector-embedder
+docker compose \
+  -f remote_worker.yml \
+  -f remote_worker.accel.yml \
+  -f ../../compose/accelerated/accel.intel.yml \
+  run --rm worker run --max-workers 8
 ```
 
 On CPU, the stock `docling-parser` handles **one parse at a time** and each

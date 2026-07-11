@@ -2415,12 +2415,16 @@ class PipelineSettingsSecretsTestCase(TestCase):
         self.assertIn("component.path.Parser2", secrets)
 
     def test_get_full_component_settings_merges_secrets(self):
-        """Test that get_full_component_settings merges non-sensitive and secrets."""
+        """Full settings decrypt once and retain secret precedence."""
         instance = PipelineSettings.get_instance()
 
         # Set non-sensitive settings
         instance.component_settings = {
-            "component.path.TestParser": {"timeout": 60, "batch_size": 10}
+            "component.path.TestParser": {
+                "timeout": 60,
+                "batch_size": 10,
+                "api_key": "plaintext-placeholder",
+            }
         }
 
         # Set secrets
@@ -2429,13 +2433,17 @@ class PipelineSettingsSecretsTestCase(TestCase):
         )
         instance.save()
 
-        full_settings = instance.get_full_component_settings(
-            "component.path.TestParser"
-        )
+        with patch.object(
+            instance, "get_secrets", wraps=instance.get_secrets
+        ) as decrypt:
+            full_settings = instance.get_full_component_settings(
+                "component.path.TestParser"
+            )
 
         self.assertEqual(full_settings["timeout"], 60)
         self.assertEqual(full_settings["batch_size"], 10)
         self.assertEqual(full_settings["api_key"], "secret-key-123")
+        decrypt.assert_called_once_with()
 
     def test_encrypted_secrets_not_readable_as_plaintext(self):
         """Test that encrypted secrets are not stored as plaintext."""

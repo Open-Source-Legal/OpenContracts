@@ -1566,6 +1566,13 @@ class TestCalculateEmbeddingsForRelationshipBatch(unittest.TestCase):
     ``TestEmbedRelationship`` above.
     """
 
+    @staticmethod
+    def _set_relationship_query_result(mock_rel_model, relationships):
+        filtered = mock_rel_model.objects.filter.return_value
+        selected = filtered.select_related.return_value
+        selected.prefetch_related.return_value = relationships
+        return filtered, selected
+
     def test_empty_relationship_ids_returns_early(self):
         from opencontractserver.tasks.embeddings_task import (
             calculate_embeddings_for_relationship_batch,
@@ -1588,8 +1595,7 @@ class TestCalculateEmbeddingsForRelationshipBatch(unittest.TestCase):
         )
 
         mock_get_component.side_effect = ImportError("bad embedder")
-        # Relationship.objects.filter(...).prefetch_related(...) chain.
-        mock_rel_model.objects.filter.return_value = []
+        self._set_relationship_query_result(mock_rel_model, [])
 
         result = calculate_embeddings_for_relationship_batch.apply(
             args=[[1, 2, 3]],
@@ -1599,34 +1605,39 @@ class TestCalculateEmbeddingsForRelationshipBatch(unittest.TestCase):
         self.assertEqual(result["failed"], 3)
         self.assertTrue(any("Failed to load embedder" in e for e in result["errors"]))
 
-    @patch("opencontractserver.tasks.embeddings_task._embed_relationship")
+    @patch(
+        "opencontractserver.tasks.embeddings_task.synthesize_relationship_block_text"
+    )
     @patch("opencontractserver.tasks.embeddings_task.get_component_by_name")
     @patch("opencontractserver.tasks.embeddings_task.Relationship")
     def test_explicit_embedder_counts_outcomes(
-        self, mock_rel_model, mock_get_component, mock_embed
+        self, mock_rel_model, mock_get_component, mock_synth
     ):
+        """The materializer path batches model calls and persists each result."""
         from opencontractserver.tasks.embeddings_task import (
             calculate_embeddings_for_relationship_batch,
         )
 
-        rel1, rel2, rel3 = MagicMock(pk=1), MagicMock(pk=2), MagicMock(pk=3)
+        rel1 = MagicMock(pk=1, id=1)
+        rel2 = MagicMock(pk=2, id=2)
+        rel3 = MagicMock(pk=3, id=3)
         # rel4 is missing from the DB → counts as "skipped".
-        mock_rel_model.objects.filter.return_value = [
-            rel1,
-            rel2,
-            rel3,
+        filtered, _ = self._set_relationship_query_result(
+            mock_rel_model, [rel1, rel2, rel3]
+        )
+        mock_synth.side_effect = lambda rel: f"relationship text {rel.pk}"
+
+        mock_embedder = MagicMock()
+        mock_embedder.embed_max_concurrent_sub_batches = 1
+        mock_embedder.api_batch_size = 100
+        mock_embedder.embed_texts_batch.return_value = [
+            [0.1] * 384,
+            [0.2] * 384,
+            None,
         ]
-        mock_get_component.return_value = MagicMock(return_value=MagicMock())
-
-        # rel1 succeeds, rel2 fails, rel3 raises.
-        def fake_embed(rel, embedder, embedder_path):
-            if rel is rel1:
-                return True
-            if rel is rel2:
-                return False
-            raise RuntimeError("boom")
-
-        mock_embed.side_effect = fake_embed
+        mock_get_component.return_value = MagicMock(return_value=mock_embedder)
+        rel1.add_embedding.return_value = MagicMock(pk=101)
+        rel2.add_embedding.side_effect = RuntimeError("store failed")
 
         result = calculate_embeddings_for_relationship_batch.apply(
             args=[[1, 2, 3, 4]],
@@ -1638,6 +1649,54 @@ class TestCalculateEmbeddingsForRelationshipBatch(unittest.TestCase):
         self.assertEqual(result["failed"], 2)
         self.assertEqual(result["skipped"], 1)
         self.assertEqual(len(result["errors"]), 2)
+        mock_embedder.embed_texts_batch.assert_called_once_with(
+            ["relationship text 1", "relationship text 2", "relationship text 3"]
+        )
+        rel1.add_embedding.assert_called_once_with("explicit.path", [0.1] * 384)
+        rel2.add_embedding.assert_called_once_with("explicit.path", [0.2] * 384)
+        rel3.add_embedding.assert_not_called()
+        filtered.select_related.assert_called_once_with("creator")
+        filtered.select_related.return_value.prefetch_related.assert_called_once()
+
+    @patch(
+        "opencontractserver.tasks.embeddings_task.synthesize_relationship_block_text"
+    )
+    @patch("opencontractserver.tasks.embeddings_task.get_component_by_name")
+    @patch("opencontractserver.tasks.embeddings_task.Relationship")
+    def test_explicit_embedder_sub_batches_and_skips_empty_text(
+        self, mock_rel_model, mock_get_component, mock_synth
+    ):
+        from opencontractserver.tasks.embeddings_task import (
+            calculate_embeddings_for_relationship_batch,
+        )
+
+        relationships = [MagicMock(pk=i, id=i) for i in range(1, 5)]
+        self._set_relationship_query_result(mock_rel_model, relationships)
+        mock_synth.side_effect = ["one", "   ", "three", "four"]
+
+        mock_embedder = MagicMock()
+        mock_embedder.embed_max_concurrent_sub_batches = 1
+        mock_embedder.api_batch_size = 2
+        mock_embedder.embed_texts_batch.side_effect = [
+            [[0.1] * 384, [0.3] * 384],
+            [[0.4] * 384],
+        ]
+        mock_get_component.return_value = MagicMock(return_value=mock_embedder)
+        for relationship in relationships:
+            relationship.add_embedding.return_value = MagicMock(pk=relationship.pk)
+
+        result = calculate_embeddings_for_relationship_batch.apply(
+            args=[[1, 2, 3, 4]],
+            kwargs={"embedder_path": "explicit.path"},
+        ).get()
+
+        self.assertEqual(result["succeeded"], 3)
+        self.assertEqual(result["failed"], 0)
+        self.assertEqual(result["skipped"], 1)
+        self.assertEqual(
+            [call.args[0] for call in mock_embedder.embed_texts_batch.call_args_list],
+            [["one", "three"], ["four"]],
+        )
 
     @patch("opencontractserver.tasks.embeddings_task._apply_dual_embedding_strategy")
     @patch(
@@ -1652,10 +1711,7 @@ class TestCalculateEmbeddingsForRelationshipBatch(unittest.TestCase):
         )
 
         rel1, rel2 = MagicMock(pk=1, id=1), MagicMock(pk=2, id=2)
-        mock_rel_model.objects.filter.return_value = [
-            rel1,
-            rel2,
-        ]
+        self._set_relationship_query_result(mock_rel_model, [rel1, rel2])
         mock_synth.return_value = "synth"
 
         result = calculate_embeddings_for_relationship_batch.apply(
@@ -1683,10 +1739,7 @@ class TestCalculateEmbeddingsForRelationshipBatch(unittest.TestCase):
         )
 
         rel1, rel2 = MagicMock(pk=1, id=1), MagicMock(pk=2, id=2)
-        mock_rel_model.objects.filter.return_value = [
-            rel1,
-            rel2,
-        ]
+        self._set_relationship_query_result(mock_rel_model, [rel1, rel2])
         mock_synth.return_value = "synth"
 
         # rel1 succeeds, rel2's dual-embedding raises.

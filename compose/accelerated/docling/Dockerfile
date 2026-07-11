@@ -15,7 +15,7 @@
 # Build: docker build --build-arg ACCEL=xpu -t oc-docling:xpu .
 # Run  : docker run --device /dev/dri --group-add "$(stat -c '%g' /dev/dri/renderD128)" ...
 #        (--gpus all for CUDA; --device /dev/kfd --device /dev/dri for ROCm)
-FROM jscrudato/docsling-local
+FROM jscrudato/docsling-local@sha256:c35131594c257611131f9bcfd0af4b3adcf6064c96620ee67f42c3396acfd46b
 USER root
 
 ARG ACCEL=auto
@@ -40,9 +40,10 @@ RUN set -eux; \
 RUN set -eux; \
     case "${ACCEL}" in \
       cuda)  IDX="https://download.pytorch.org/whl/cu124" ;; \
-      rocm)  IDX="https://download.pytorch.org/whl/rocm6.2" ;; \
+      rocm)  IDX="https://download.pytorch.org/whl/rocm6.2.4" ;; \
       xpu)   IDX="https://download.pytorch.org/whl/xpu" ;; \
-      *)     IDX="https://download.pytorch.org/whl/cpu" ;; \
+      auto|cpu) IDX="https://download.pytorch.org/whl/cpu" ;; \
+      *) echo "Unsupported ACCEL=${ACCEL}; expected auto, cpu, xpu, cuda, or rocm" >&2; exit 2 ;; \
     esac; \
     echo "ACCEL=${ACCEL} -> torch index ${IDX}"; \
     pip install --no-cache-dir --force-reinstall \

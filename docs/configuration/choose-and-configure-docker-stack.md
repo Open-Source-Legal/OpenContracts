@@ -66,6 +66,39 @@ If you need to create additional superuser accounts, you can run:
 docker compose -f local.yml run django python manage.py createsuperuser
 ```
 
+#### Hardware-Accelerated Parsing & Embedding (Optional)
+
+The default `local.yml` stack runs the Docling parser and vector-embedder on CPU. If
+your machine has a GPU or NPU, `compose/accelerated/` ships auto-detecting images plus
+a vendor overlay you merge on top of `local.yml` — the vendor overlay picks the matching
+torch build and wires up the host's device passthrough; the image then auto-detects the
+best device at container startup.
+
+| Host | Required overlay | Host setup |
+|---|---|---|
+| CPU | `accel.cpu.yml` | none |
+| Intel GPU | `accel.intel.yml` | set `RENDER_GID`; expose `/dev/dri` |
+| Intel GPU + NPU | `accel.intel.yml` + `accel.intel-npu.yml` | same, plus `/dev/accel/accel0` |
+| NVIDIA | `accel.nvidia.yml` | install/configure NVIDIA Container Toolkit |
+| AMD ROCm | `accel.amd.yml` | set `VIDEO_GID` and `RENDER_GID`; expose `/dev/kfd` + `/dev/dri` |
+
+```bash
+export RENDER_GID=$(stat -c '%g' /dev/dri/renderD128)  # Intel example
+
+docker compose \
+  -f local.yml \
+  -f compose/accelerated/accel.override.yml \
+  -f compose/accelerated/accel.intel.yml \
+  up --build
+```
+
+On an Intel Lunar Lake reference host the accelerated embedder measured 49.13x the
+throughput of the production CPU image (minimum cosine similarity 0.9999989). Whether
+the GPU helps the *parser* depends heavily on your hardware — see the
+[accelerated images README](https://github.com/Open-Source-Legal/OpenContracts/blob/main/compose/accelerated/README.md)
+for the full per-vendor setup, the correctness-gated benchmark scripts, and measured
+results.
+
 ### Production Environment
 
 The production environment is designed to be public-facing and exposed to the Internet, so there are quite a number more configurations required than a local deployment, particularly if you use an AWS S3 storage backend or the Auth0 authentication system.
