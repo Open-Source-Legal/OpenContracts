@@ -111,6 +111,16 @@ services:
   docling-parser:
     image: jscrudato/docsling-local
     container_name: docling-parser
+    # Hard cap so a runaway parse (or unreleased memory across many requests)
+    # gets this ONE container OOM-killed by the kernel cgroup instead of
+    # exhausting host RAM/swap and taking down unrelated host processes
+    # (observed: a long bulk-ingest run drove host-wide OOM that killed
+    # user desktop apps before any per-container limit existed here).
+    mem_limit: 4g
+    # If sustained load ever legitimately pushes this past the cap, let the
+    # cgroup OOM-kill it and have compose bring it straight back up rather
+    # than leaving the pipeline silently stuck on a dead parser.
+    restart: unless-stopped
 
   docxodus-parser:
     # The frontend WASM (docxodus in package.json) and this microservice
@@ -137,6 +147,15 @@ services:
       - "5001:5001"
     environment:
       - WARP_API_KEY=${WARP_INGEST_API_KEY:-abc123}
+    # Hard cap — see docling-parser's mem_limit comment above. Warp-Ingest's
+    # own memory model (docs/pipelines/warp_ingest_parser.md) documents
+    # peak-per-request scaling with file size, but a long bulk run observed
+    # sustained growth to ~5.7GB that emptied out on restart (unreturned
+    # memory, not legitimate working set), so this cap is set above that
+    # observed peak — high enough to avoid recycling on normal operation,
+    # low enough to keep a runaway well short of exhausting host RAM/swap.
+    mem_limit: 6g
+    restart: unless-stopped
 
   # Powers the optional pre-parse file-to-PDF converter
   # (GotenbergFileConverter). Enable it by setting the converter in the admin
@@ -166,6 +185,9 @@ services:
       TRANSFORMERS_OFFLINE: 1
       HF_DATASETS_OFFLINE: 1
       VECTOR_EMBEDDER_API_KEY: ${VECTOR_EMBEDDER_API_KEY:-abc123}
+    # Hard cap — see docling-parser's mem_limit comment above.
+    mem_limit: 4g
+    restart: unless-stopped
 
   multimodal-embedder:
     image: ghcr.io/jsv4/vectorembeddermicroservice-multimodal:latest
@@ -207,6 +229,15 @@ services:
   celeryworker:
     image: opencontractserver_local_django
     container_name: celeryworker
+    # Hard cap — see docling-parser's mem_limit comment above. This service
+    # definition is also the base for ad-hoc bulk workers launched via
+    # ``docker compose run --name celeryworker_bulk -d celeryworker ...``
+    # (higher concurrency, long-running ingest batches), which inherits this
+    # limit the same way. Sized above the parser/embedder caps since this
+    # container buffers file bytes and ORM state across many concurrent
+    # tasks, not just one model's working set.
+    mem_limit: 6g
+    restart: unless-stopped
     depends_on:
       django:
         condition: service_healthy
