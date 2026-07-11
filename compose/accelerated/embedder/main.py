@@ -17,6 +17,7 @@ from flask import Flask, jsonify, request
 from service_runtime import (
     SerializedModelOwner,
     all_non_empty_strings,
+    api_key_is_valid,
     non_empty_string_field,
     public_fallback_reason,
 )
@@ -91,7 +92,7 @@ text_batcher = DynamicBatcher(
 @app.route("/embeddings", methods=["POST"])
 def generate_embeddings():
     api_key = request.headers.get("X-API-Key")
-    if api_key != API_KEY:
+    if not api_key_is_valid(api_key, API_KEY):
         return jsonify({"error": "Invalid API key"}), 401
 
     payload = request.get_json(silent=True)
@@ -119,7 +120,7 @@ def generate_embeddings_batch():
     }
     """
     api_key = request.headers.get("X-API-Key")
-    if api_key != API_KEY:
+    if not api_key_is_valid(api_key, API_KEY):
         return jsonify({"error": "Invalid API key"}), 401
 
     payload = request.get_json(silent=True)
@@ -164,7 +165,7 @@ def generate_image_embedding():
     }
     """
     api_key = request.headers.get("X-API-Key")
-    if api_key != API_KEY:
+    if not api_key_is_valid(api_key, API_KEY):
         return jsonify({"error": "Invalid API key"}), 401
 
     if not SUPPORTS_IMAGES:
@@ -203,7 +204,7 @@ def generate_image_embeddings_batch():
     }
     """
     api_key = request.headers.get("X-API-Key")
-    if api_key != API_KEY:
+    if not api_key_is_valid(api_key, API_KEY):
         return jsonify({"error": "Invalid API key"}), 401
 
     if not SUPPORTS_IMAGES:

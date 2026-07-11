@@ -60,6 +60,11 @@ RUN chmod +x /opt/accel/entrypoint.sh
 
 COPY embedder/batching.py embedder/embeddings.py embedder/main.py embedder/ov_npu.py embedder/service_runtime.py /app/
 
+# GUNICORN_WORKERS must stay 1: DynamicBatcher and SerializedModelOwner
+# (embedder/batching.py, embedder/service_runtime.py) are per-process
+# singletons. Raising worker count silently defeats request coalescing and
+# loads a duplicate copy of the model per worker (GPU OOM risk on
+# constrained VRAM). Scale GUNICORN_THREADS instead.
 ENV OV_MODEL_DIR=/models/ov-embedder \
     EMBED_ACCEL=auto \
     PORT=8000 \

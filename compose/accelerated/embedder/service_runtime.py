@@ -2,8 +2,21 @@
 
 from __future__ import annotations
 
+import hmac
 import threading
 from typing import Any, Callable
+
+
+def api_key_is_valid(api_key: str | None, expected: str) -> bool:
+    """Constant-time API key comparison to avoid timing side-channels.
+
+    Compares UTF-8 bytes rather than the raw ``str`` values:
+    ``hmac.compare_digest`` raises ``TypeError`` on non-ASCII ``str`` input,
+    which would otherwise turn a malformed header into a 500 instead of a 401.
+    """
+    if api_key is None:
+        return False
+    return hmac.compare_digest(api_key.encode("utf-8"), expected.encode("utf-8"))
 
 
 def non_empty_string_field(payload: object, field: str) -> str | None:
@@ -27,7 +40,13 @@ def public_fallback_reason(reason: str | None) -> str | None:
 
 
 class SerializedModelOwner:
-    """Serialize all modalities through one shared model instance."""
+    """Serialize all modalities through one shared model instance.
+
+    Only text requests are additionally coalesced by ``DynamicBatcher``
+    (see ``main.py``); image requests are serialized here but never batched
+    together. Images are rarer and heavier per-request, so the coalescing
+    win is smaller -- this is a deliberate asymmetry, not an oversight.
+    """
 
     def __init__(
         self,

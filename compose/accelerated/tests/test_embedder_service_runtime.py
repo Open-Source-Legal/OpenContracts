@@ -12,9 +12,24 @@ from batching import DynamicBatcher  # noqa: E402
 from service_runtime import (  # noqa: E402
     SerializedModelOwner,
     all_non_empty_strings,
+    api_key_is_valid,
     non_empty_string_field,
     public_fallback_reason,
 )
+
+
+def test_api_key_is_valid_matches_and_rejects() -> None:
+    assert api_key_is_valid("correct-key", "correct-key") is True
+    assert api_key_is_valid("wrong-key", "correct-key") is False
+    assert api_key_is_valid(None, "correct-key") is False
+    assert api_key_is_valid("", "correct-key") is False
+
+
+def test_api_key_is_valid_handles_non_ascii_without_raising() -> None:
+    # hmac.compare_digest raises TypeError on non-ASCII str input; a malformed
+    # header must be rejected (401), not crash the request (500).
+    assert api_key_is_valid("café-key", "correct-key") is False
+    assert api_key_is_valid("café-key", "café-key") is True
 
 
 def test_invalid_single_text_never_enters_shared_batch() -> None:

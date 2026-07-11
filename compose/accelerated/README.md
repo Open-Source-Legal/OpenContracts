@@ -182,6 +182,13 @@ The vendor file selects the matching torch wheel family at build time. Runtime
 auto-detection remains enabled. Set `EMBED_ACCEL` or `DOCLING_ACCEL` only when
 you need to pin a particular visible device.
 
+> **Security note (AMD ROCm only):** `accel.amd.yml` adds `cap_add: SYS_PTRACE`
+> and `security_opt: seccomp=unconfined` to both `docling-parser` and
+> `vector-embedder`. ROCm's profiling/debug tooling requires it; the
+> Intel/NVIDIA overlays need neither. This is a real relaxation of container
+> isolation relative to the other vendor overlays — weigh it accordingly if
+> auditing the compose files for a shared or multi-tenant host.
+
 ## Benchmarking your host
 
 Use the embedding benchmark for an alternating, paired baseline/candidate run.

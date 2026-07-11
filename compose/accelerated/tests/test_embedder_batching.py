@@ -80,6 +80,14 @@ def test_propagates_backend_failure_to_every_coalesced_request() -> None:
         batcher.close()
 
 
+def test_submit_after_close_raises_instead_of_hanging() -> None:
+    batcher = DynamicBatcher(lambda items: items, max_items=10, wait_ms=10)
+    batcher.close()
+
+    with pytest.raises(RuntimeError, match="submit\\(\\) called after close\\(\\)"):
+        batcher.submit([1])
+
+
 def test_validates_limits() -> None:
     with pytest.raises(ValueError, match="max_items"):
         DynamicBatcher(lambda items: items, max_items=0, wait_ms=1)

@@ -15,7 +15,7 @@
 # Build: docker build --build-arg ACCEL=xpu -t oc-docling:xpu .
 # Run  : docker run --device /dev/dri --group-add "$(stat -c '%g' /dev/dri/renderD128)" ...
 #        (--gpus all for CUDA; --device /dev/kfd --device /dev/dri for ROCm)
-FROM jscrudato/docsling-local
+FROM jscrudato/docsling-local@sha256:c35131594c257611131f9bcfd0af4b3adcf6064c96620ee67f42c3396acfd46b
 USER root
 
 ARG ACCEL=auto

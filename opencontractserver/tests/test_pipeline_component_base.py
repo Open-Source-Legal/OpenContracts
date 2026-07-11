@@ -415,3 +415,28 @@ class TestLoadSettingsErrorPaths(TestCase):
             ):
                 result = component.get_component_settings()
                 self.assertEqual(result, {})
+
+    def test_get_component_settings_db_exception_is_not_cached(self):
+        """A transient DB failure is retried on the next call, not pinned."""
+        full_path = f"{DummyComponent.__module__}.{DummyComponent.__name__}"
+        component = DummyComponent()
+
+        with patch(
+            "opencontractserver.pipeline.base.base_component.settings"
+        ) as mock_settings:
+            mock_settings.configured = True
+            with patch(
+                "opencontractserver.documents.models.PipelineSettings.get_instance",
+                side_effect=Exception("DB unavailable"),
+            ):
+                first = component.get_component_settings()
+                self.assertEqual(first, {})
+
+        # A subsequent call, once the DB is available again, must retry
+        # rather than reuse a cached empty snapshot from the failed attempt.
+        self.pipeline_settings.component_settings = {full_path: {"found": True}}
+        self.pipeline_settings.save()
+        PipelineSettings.clear_cache()
+
+        second = component.get_component_settings()
+        self.assertEqual(second, {"found": True})

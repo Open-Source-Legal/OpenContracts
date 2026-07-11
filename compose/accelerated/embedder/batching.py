@@ -44,6 +44,8 @@ class DynamicBatcher(Generic[InputT, OutputT]):
         self._max_items = max_items
         self._wait_seconds = wait_ms / 1000
         self._queue: queue.Queue[_Request[InputT, OutputT] | None] = queue.Queue()
+        self._closed = False
+        self._close_lock = threading.Lock()
         self._thread = threading.Thread(
             target=self._run,
             name="embedding-dynamic-batcher",
@@ -65,11 +67,24 @@ class DynamicBatcher(Generic[InputT, OutputT]):
             )
 
         future: Future[list[OutputT]] = Future()
-        self._queue.put(_Request(items=list(items), result=future))
+        # Guarded by ``_close_lock`` so a request can never be queued after
+        # ``close()`` has already put its sentinel -- without this a caller
+        # racing close() would block on ``future.result()`` forever, since
+        # nothing would ever service a request enqueued after the worker
+        # thread has exited.
+        with self._close_lock:
+            if self._closed:
+                raise RuntimeError(
+                    "submit() called after close(); DynamicBatcher no longer "
+                    "accepts requests"
+                )
+            self._queue.put(_Request(items=list(items), result=future))
         return future.result()
 
     def close(self) -> None:
-        self._queue.put(None)
+        with self._close_lock:
+            self._closed = True
+            self._queue.put(None)
         self._thread.join(timeout=5)
 
     def _collect(self) -> list[_Request[InputT, OutputT]] | None:
