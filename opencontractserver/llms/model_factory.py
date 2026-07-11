@@ -88,7 +88,8 @@ def _provider_class_path(provider_key: str) -> str | None:
 # Fernet store, and that decryption derives its key with a deliberately
 # expensive PBKDF2 KDF (hundreds of thousands of HMAC iterations — see
 # ``PipelineSettings._derive_key``). ``get_full_component_settings`` reads the
-# secret store twice (merged settings + secrets overlay), so two KDF passes ran
+# secret store once per build (``get_component_settings`` already merges
+# plaintext settings with decrypted secrets in one pass), so one KDF pass ran
 # on every build once any provider key was configured (issue #1921).
 #
 # Caching the *resolved* creds amortises that across calls. Live-rotation is
