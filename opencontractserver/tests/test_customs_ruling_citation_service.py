@@ -12,6 +12,7 @@ from opencontractserver.enrichment.services.customs_ruling_citation_service impo
     _HTS_TEXT_RE,
     _RULING_CITE_RE,
     _normalize_hts,
+    _ruling_number_from_title,
 )
 
 
@@ -72,3 +73,24 @@ class RulingCitationTests(SimpleTestCase):
         text = "Port Director, U.S. Customs, NY 10022."
         matches = [m.group(1) for m in _RULING_CITE_RE.finditer(text)]
         assert matches == []
+
+
+class RulingNumberFromTitleTests(SimpleTestCase):
+    """Regression coverage for the title/citation lookup-key mismatch: the
+    citation regex only ever extracts the bare ruling number (no file
+    extension in its character class), so a title index keyed on the raw
+    title silently fails to resolve any citation whenever titles carry a
+    file extension — which most of this corpus's real ingested titles do
+    (materialized filenames like 'A83482.doc', not the bare stem)."""
+
+    def test_strips_doc_extension(self):
+        assert _ruling_number_from_title("A83482.doc") == "A83482"
+
+    def test_strips_pdf_extension_case_insensitively(self):
+        assert _ruling_number_from_title("H022844.PDF") == "H022844"
+
+    def test_already_extension_free_is_unchanged(self):
+        assert _ruling_number_from_title("A83482") == "A83482"
+
+    def test_none_title_is_empty_string(self):
+        assert _ruling_number_from_title(None) == ""

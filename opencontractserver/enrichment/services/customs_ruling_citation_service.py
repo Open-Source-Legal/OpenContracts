@@ -35,6 +35,7 @@ import concurrent.futures
 import logging
 import re
 from dataclasses import dataclass
+from pathlib import Path
 
 from django.contrib.auth import get_user_model
 from django.db import transaction
@@ -113,6 +114,21 @@ def _normalize_hts(raw: str) -> str | None:
 _RULING_CITE_RE = re.compile(r"\b([A-Z]\d{5,6}|[A-Z]{2}\d{6})\b")
 
 
+def _ruling_number_from_title(title: str | None) -> str:
+    """Canonicalize a document title to the bare ruling number it names.
+
+    Titles are set at ingest time from the materialized filename — some
+    ingest paths use the bare stem (``A83482``), others keep the original
+    filename including its extension (``A83482.doc``). The citation regex
+    only ever extracts the bare form (it has no ``.doc``/``.pdf`` in its
+    character class), so a title carrying an extension would never match
+    ``title_index`` and every citation into that document would silently
+    read as unresolved. ``Path(...).stem`` strips at most one trailing
+    extension and is a no-op on titles that are already extension-free.
+    """
+    return Path((title or "").strip()).stem.upper()
+
+
 @dataclass
 class EnrichmentSummary:
     documents_scanned: int = 0
@@ -182,12 +198,12 @@ class CustomsRulingCitationService:
         )
 
         # Ruling number (as it appears in a sibling document's title, upper-
-        # cased) -> document. Titles are the ruling numbers verbatim (set at
-        # ingest time from the materialized filename stem). Built from the
-        # FULL document list regardless of `limit` so resolution isn't
-        # artificially degraded by which slice happened to get scanned.
+        # cased and extension-stripped — see _ruling_number_from_title) ->
+        # document. Built from the FULL document list regardless of `limit`
+        # so resolution isn't artificially degraded by which slice happened
+        # to get scanned.
         title_index = {
-            (doc.title or "").strip().upper(): doc for doc in documents if doc.title
+            _ruling_number_from_title(doc.title): doc for doc in documents if doc.title
         }
 
         scanned_documents = documents if limit is None else documents[:limit]
@@ -217,7 +233,7 @@ class CustomsRulingCitationService:
                         summary.documents_skipped_not_pdf += 1
                         continue
 
-                    own_number = (doc.title or "").strip().upper()
+                    own_number = _ruling_number_from_title(doc.title)
 
                     hts_created = cls._write_hts_annotations(
                         doc, layer, doc_text, corpus, creator_id
