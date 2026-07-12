@@ -2053,3 +2053,52 @@ class TestServedValidationRulesIncludeSpecRules(TestCase):
         document = parse(f"query {{ corpuses {{ edges {{ node {{ {inner} }} }} }} }}")
         errors = validate(schema.graphql_schema, document, validation_rules)
         self.assertTrue(any("depth" in str(e).lower() for e in errors))
+
+
+class TestServedSchemaExecutesValidationRules(TestCase):
+    """The security rules must be wired into the SERVED schema, not merely
+    present in the exported ``validation_rules`` list.
+
+    Strawberry enforces them via the ``AddValidationRules`` schema extension
+    (``config/graphql/schema.py``); ``validation_rules`` itself is exported only
+    for tooling/tests and is NOT what the endpoint consults. The tests above
+    call graphql-core's ``validate(..., validation_rules)`` directly, so they
+    would keep passing even if ``AddValidationRules`` were dropped from the
+    schema's ``extensions`` (depth-limiting / prod introspection-blocking
+    silently disabled on the live endpoint). These exercise the real path —
+    ``schema.execute_sync`` runs the extension stack — so removing the
+    extension makes them fail.
+    """
+
+    def test_deep_query_rejected_through_served_execution(self):
+        from config.graphql.schema import schema
+
+        # Corpus.parent recursion: spec-valid but deeper than the cap.
+        inner = "id"
+        for _ in range(30):
+            inner = f"parent {{ {inner} }}"
+        query = f"query {{ corpuses {{ edges {{ node {{ {inner} }} }} }} }}"
+        result = schema.execute_sync(query)
+        self.assertIsNotNone(
+            result.errors,
+            "depth-limit rule is not wired into the served schema (AddValidationRules)",
+        )
+        self.assertTrue(any("depth" in str(e).lower() for e in result.errors))
+
+    def test_introspection_blocked_through_served_execution(self):
+        from django.conf import settings
+
+        from config.graphql.schema import schema
+
+        if settings.DEBUG:
+            self.skipTest("introspection is intentionally allowed when DEBUG=True")
+
+        result = schema.execute_sync("{ __schema { types { name } } }")
+        self.assertIsNotNone(
+            result.errors,
+            "introspection is not blocked on the served schema outside DEBUG",
+        )
+        self.assertTrue(
+            any("introspection" in str(e).lower() for e in result.errors),
+            f"unexpected errors: {result.errors}",
+        )

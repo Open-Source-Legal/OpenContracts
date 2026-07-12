@@ -42,6 +42,7 @@ from config.graphql.core.relay import (
     make_connection_types,
     register_type,
     resolve_django_connection,
+    resolve_visible_fk,
 )
 from config.graphql.core.scalars import GenericScalar
 from config.graphql.filters import AnnotationFilter
@@ -674,9 +675,12 @@ class ExtractType(Node):
         strawberry.field(name="creator", default=None)
     )
     modified: datetime.datetime = strawberry.field(name="modified", default=None)
-    corpus: None | (
-        Annotated[CorpusType, strawberry.lazy("config.graphql.corpus_types")]
-    ) = strawberry.field(name="corpus", default=None)
+
+    @strawberry.field(name="corpus")
+    def corpus(
+        self, info: strawberry.Info
+    ) -> None | (Annotated[CorpusType, strawberry.lazy("config.graphql.corpus_types")]):
+        return resolve_visible_fk(self, info, "corpus_id", "CorpusType")
 
     @strawberry.field(name="documents")
     def documents(
@@ -1280,13 +1284,14 @@ class FieldsetType(Node):
     def description(self, info: strawberry.Info) -> str:
         return coerce_str(getattr(self, "description", None))
 
-    corpus: None | (
-        Annotated[CorpusType, strawberry.lazy("config.graphql.corpus_types")]
-    ) = strawberry.field(
+    @strawberry.field(
         name="corpus",
         description="If set, this fieldset defines the metadata schema for the corpus",
-        default=None,
     )
+    def corpus(
+        self, info: strawberry.Info
+    ) -> None | (Annotated[CorpusType, strawberry.lazy("config.graphql.corpus_types")]):
+        return resolve_visible_fk(self, info, "corpus_id", "CorpusType")
 
     @strawberry.field(name="corpusactionSet")
     def corpusaction_set(
@@ -1993,9 +1998,12 @@ class AnalysisType(Node):
     def received_callback_file(self, info: strawberry.Info) -> str | None:
         return coerce_str(getattr(self, "received_callback_file", None))
 
-    analyzed_corpus: None | (
-        Annotated[CorpusType, strawberry.lazy("config.graphql.corpus_types")]
-    ) = strawberry.field(name="analyzedCorpus", default=None)
+    @strawberry.field(name="analyzedCorpus")
+    def analyzed_corpus(
+        self, info: strawberry.Info
+    ) -> None | (Annotated[CorpusType, strawberry.lazy("config.graphql.corpus_types")]):
+        return resolve_visible_fk(self, info, "analyzed_corpus_id", "CorpusType")
+
     corpus_action: None | (
         Annotated[CorpusActionType, strawberry.lazy("config.graphql.agent_types")]
     ) = strawberry.field(name="corpusAction", default=None)

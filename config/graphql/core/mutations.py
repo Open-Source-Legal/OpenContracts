@@ -59,7 +59,13 @@ def drf_mutation(
 ) -> Any:
     """Port of ``DRFMutation.mutate`` (create/update via DRF serializer)."""
     _require_login(info)
-    _ratelimited = graphql_ratelimit(rate=RateLimits.WRITE_MEDIUM)(
+    # ``group="mutate"`` keeps DRF-routed mutations in the SAME fixed-window
+    # rate bucket as every hand-ported ``mutate`` resolver. Without it the
+    # decorator derives the group from ``func.__name__`` — here a ``lambda``,
+    # i.e. ``"<lambda>"`` — splitting these off into a separate counter and
+    # roughly doubling a user's combined write budget. Matches the graphene
+    # baseline, where all mutations shared the one ``"mutate"`` group.
+    _ratelimited = graphql_ratelimit(rate=RateLimits.WRITE_MEDIUM, group="mutate")(
         lambda _root, _info, **kw: _drf_mutation_body(
             payload_cls=payload_cls,
             model=model,
@@ -185,7 +191,9 @@ def drf_deletion(
 ) -> Any:
     """Port of ``DRFDeletion.mutate`` — errors intentionally propagate raw."""
     _require_login(info)
-    _ratelimited = graphql_ratelimit(rate=RateLimits.WRITE_LIGHT)(
+    # See ``drf_mutation``: pin the shared ``"mutate"`` rate bucket rather than
+    # inheriting the lambda's ``"<lambda>"`` group.
+    _ratelimited = graphql_ratelimit(rate=RateLimits.WRITE_LIGHT, group="mutate")(
         lambda _root, _info, **kw: _drf_deletion_body(
             payload_cls=payload_cls,
             model=model,

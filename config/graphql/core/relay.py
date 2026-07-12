@@ -218,12 +218,18 @@ def get_node_from_global_id(
       ``get_queryset`` (the permission filter for types that define one; the
       identity manager for types that don't) and fetches by pk — **exactly**
       graphene-django's ``cls.get_queryset(model._default_manager, info)
-      .get(pk=id)``. This is deliberately NOT ``BaseService.get_or_none``:
-      graphene left types without a ``get_queryset`` (e.g. ``MessageType``)
-      resolving unfiltered by pk, with per-field resolvers enforcing
-      visibility (e.g. ``mentionedResources``). Over-filtering here silently
+      .get(pk=id)``. This is deliberately NOT a blanket
+      ``BaseService.get_or_none``: graphene left types WITHOUT a
+      ``get_queryset`` resolving unfiltered by pk here, with per-field
+      resolvers enforcing visibility, and over-filtering this path silently
       changed that contract (issue surfaced by
-      ``test_mentions.test_permission_enforcement_corpus``).
+      ``test_mentions.test_permission_enforcement_corpus``). Types whose
+      *singular* ``xxx(id:)`` lookup must stay permission-scoped instead
+      register an explicit ``get_node`` hook (the first bullet) — e.g.
+      ``MessageType`` now routes ``chatMessage(id:)`` through
+      ``BaseService.get_or_none`` (``_get_node_MessageType``), closing a
+      pre-existing unfiltered-``.get(pk)`` IDOR; ``test_singular_node_idor``
+      asserts every model-backed singular target carries such a hook.
 
     Returns the instance, or raises the model's ``DoesNotExist`` with a
     unified (IDOR-safe) message. Malformed pks (a global id passed where a
@@ -251,7 +257,14 @@ def get_node_from_global_id(
     )
 
     if entry.get_node is not None:
-        node = entry.get_node(info, _pk)
+        try:
+            node = entry.get_node(info, _pk)
+        except (ValueError, TypeError, OverflowError):
+            # Malformed / out-of-range pk from untrusted input reaching a
+            # ``get_node`` hook that casts it (e.g. ``int(pk)``) — treat as
+            # not-found, the same IDOR-safe branch the default path takes
+            # below, rather than surfacing a raw ``ValueError``.
+            raise not_found
         if node is None:
             raise not_found
         return node
@@ -579,3 +592,54 @@ def resolve_django_list(root: Any, info: Any, value: Any, node_type_name: str) -
             apply_type_get_queryset(node_type_name, queryset, info)
         )
     return queryset
+
+
+def resolve_visible_fk(
+    root: Any, info: Any, fk_id_attr: str, node_type_name: str
+) -> Any:
+    """Resolve a to-one FK field through the target type's visibility hook.
+
+    Ports graphene-django's ``convert_field_to_djangomodel`` behaviour: an
+    auto-generated FK / 1:1 field whose target ``DjangoObjectType`` overrode
+    ``get_queryset`` was resolved via ``target.get_node(info, fk_pk)`` →
+    ``get_queryset(...).get(pk)``, i.e. **permission-filtered per row**,
+    resolving to ``None`` when the FK target was not visible to the caller.
+
+    Strawberry's stock getattr resolver skips that filter — the connection /
+    list / relay-node paths funnel through ``apply_type_get_queryset`` but a
+    plain ``foo: T = strawberry.field(...)`` singular FK field does not — so
+    such a field would leak the target row's fields across a permission
+    boundary (e.g. an ``AnnotationType.corpus`` pointing at a private corpus,
+    or a ``CorpusReferenceType.targetDocument`` in another corpus). This helper
+    reinstates the target type's visibility filter.
+
+    ``fk_id_attr`` is the raw id column (e.g. ``"corpus_id"``) so the pk is
+    read off the already-loaded row without a DB hit. Returns ``None`` for a
+    missing/invisible target — only valid on a **nullable** FK field — or a
+    malformed stored id.
+    """
+    fk_pk = getattr(root, fk_id_attr, None)
+    if fk_pk is None:
+        return None
+    entry = _TYPE_REGISTRY.get(node_type_name)
+    if entry is None or entry.model is None:
+        # Unregistered / non-model target — fall back to the plain attribute.
+        return getattr(
+            root, fk_id_attr[:-3] if fk_id_attr.endswith("_id") else fk_id_attr, None
+        )
+    try:
+        if entry.get_node is not None:
+            # Permission-aware hook (e.g. ``BaseService.get_or_none``), which
+            # engages the request-scoped permission cache when passed the
+            # request via ``info.context``.
+            return entry.get_node(info, fk_pk)
+        if entry.get_queryset is not None:
+            queryset = apply_type_get_queryset(
+                node_type_name, entry.model._default_manager.get_queryset(), info
+            )
+            return queryset.filter(pk=fk_pk).first()
+        # No visibility hook on the target — parity with graphene's unfiltered
+        # default resolver.
+        return entry.model._default_manager.filter(pk=fk_pk).first()
+    except (ValueError, TypeError, OverflowError):
+        return None

@@ -44,6 +44,7 @@ from config.graphql.core.relay import (
     make_connection_types,
     register_type,
     resolve_django_connection,
+    resolve_visible_fk,
 )
 from config.graphql.core.scalars import GenericScalar
 from config.graphql.filters import (
@@ -361,9 +362,16 @@ class AnnotationType(Node):
         kwargs = strip_unset({})
         return _resolve_AnnotationType_document(self, info, **kwargs)
 
-    corpus: None | (
-        Annotated[CorpusType, strawberry.lazy("config.graphql.corpus_types")]
-    ) = strawberry.field(name="corpus", default=None)
+    @strawberry.field(name="corpus")
+    def corpus(
+        self, info: strawberry.Info
+    ) -> None | (Annotated[CorpusType, strawberry.lazy("config.graphql.corpus_types")]):
+        # Permission-filtered FK traversal (graphene routed auto-converted FKs
+        # to CorpusType through CorpusType.get_queryset). A structural
+        # annotation reachable via one corpus must not leak a different,
+        # private corpus via its ``corpus_id``.
+        return resolve_visible_fk(self, info, "corpus_id", "CorpusType")
+
     analysis: None | (
         Annotated[AnalysisType, strawberry.lazy("config.graphql.extract_types")]
     ) = strawberry.field(name="analysis", default=None)
@@ -1736,12 +1744,20 @@ class RelationshipType(Node):
     relationship_label: AnnotationLabelType | None = strawberry.field(
         name="relationshipLabel", default=None
     )
-    corpus: None | (
-        Annotated[CorpusType, strawberry.lazy("config.graphql.corpus_types")]
-    ) = strawberry.field(name="corpus", default=None)
-    document: None | (
+
+    @strawberry.field(name="corpus")
+    def corpus(
+        self, info: strawberry.Info
+    ) -> None | (Annotated[CorpusType, strawberry.lazy("config.graphql.corpus_types")]):
+        return resolve_visible_fk(self, info, "corpus_id", "CorpusType")
+
+    @strawberry.field(name="document")
+    def document(
+        self, info: strawberry.Info
+    ) -> None | (
         Annotated[DocumentType, strawberry.lazy("config.graphql.document_types")]
-    ) = strawberry.field(name="document", default=None)
+    ):
+        return resolve_visible_fk(self, info, "document_id", "DocumentType")
 
     @strawberry.field(name="sourceAnnotations")
     def source_annotations(
@@ -2110,15 +2126,27 @@ class CorpusReferenceType(Node):
     source_annotation: AnnotationType = strawberry.field(
         name="sourceAnnotation", default=None
     )
-    target_annotation: AnnotationType | None = strawberry.field(
-        name="targetAnnotation", default=None
-    )
-    target_document: None | (
+
+    @strawberry.field(name="targetAnnotation")
+    def target_annotation(self, info: strawberry.Info) -> AnnotationType | None:
+        return resolve_visible_fk(self, info, "target_annotation_id", "AnnotationType")
+
+    @strawberry.field(name="targetDocument")
+    def target_document(
+        self, info: strawberry.Info
+    ) -> None | (
         Annotated[DocumentType, strawberry.lazy("config.graphql.document_types")]
-    ) = strawberry.field(name="targetDocument", default=None)
-    target_corpus: None | (
-        Annotated[CorpusType, strawberry.lazy("config.graphql.corpus_types")]
-    ) = strawberry.field(name="targetCorpus", default=None)
+    ):
+        # Cross-corpus enrichment references point at documents in corpora the
+        # caller may not see (the governance graph degrades these to "ghost"
+        # nodes). graphene returned null for an invisible target; preserve that.
+        return resolve_visible_fk(self, info, "target_document_id", "DocumentType")
+
+    @strawberry.field(name="targetCorpus")
+    def target_corpus(
+        self, info: strawberry.Info
+    ) -> None | (Annotated[CorpusType, strawberry.lazy("config.graphql.corpus_types")]):
+        return resolve_visible_fk(self, info, "target_corpus_id", "CorpusType")
 
     @strawberry.field(name="canonicalKey")
     def canonical_key(self, info: strawberry.Info) -> str | None:
@@ -2558,9 +2586,13 @@ class AuthorityNamespaceNode(Node):
         return coerce_str(getattr(self, "baseline_origin", None))
 
     is_global: bool = strawberry.field(name="isGlobal", default=None)
-    authority_corpus: None | (
-        Annotated[CorpusType, strawberry.lazy("config.graphql.corpus_types")]
-    ) = strawberry.field(name="authorityCorpus", default=None)
+
+    @strawberry.field(name="authorityCorpus")
+    def authority_corpus(
+        self, info: strawberry.Info
+    ) -> None | (Annotated[CorpusType, strawberry.lazy("config.graphql.corpus_types")]):
+        return resolve_visible_fk(self, info, "authority_corpus_id", "CorpusType")
+
     created: datetime.datetime = strawberry.field(name="created", default=None)
     modified: datetime.datetime = strawberry.field(name="modified", default=None)
 

@@ -44,6 +44,7 @@ from config.graphql.core.relay import (
     make_connection_types,
     register_type,
     resolve_django_connection,
+    resolve_visible_fk,
 )
 from config.graphql.core.scalars import BigInt, GenericScalar
 from config.graphql.filters import AnnotationFilter
@@ -494,20 +495,28 @@ class ConversationType(Node):
         description="Cached count of downvotes for this conversation/thread",
         default=None,
     )
-    chat_with_corpus: None | (
-        Annotated[CorpusType, strawberry.lazy("config.graphql.corpus_types")]
-    ) = strawberry.field(
+
+    @strawberry.field(
         name="chatWithCorpus",
         description="The corpus to which this conversation belongs",
-        default=None,
     )
-    chat_with_document: None | (
-        Annotated[DocumentType, strawberry.lazy("config.graphql.document_types")]
-    ) = strawberry.field(
+    def chat_with_corpus(
+        self, info: strawberry.Info
+    ) -> None | (Annotated[CorpusType, strawberry.lazy("config.graphql.corpus_types")]):
+        # A public/shared conversation must not leak the private corpus it is
+        # attached to (conversation visibility is not gated on corpus READ).
+        return resolve_visible_fk(self, info, "chat_with_corpus_id", "CorpusType")
+
+    @strawberry.field(
         name="chatWithDocument",
         description="The document to which this conversation belongs",
-        default=None,
     )
+    def chat_with_document(
+        self, info: strawberry.Info
+    ) -> None | (
+        Annotated[DocumentType, strawberry.lazy("config.graphql.document_types")]
+    ):
+        return resolve_visible_fk(self, info, "chat_with_document_id", "DocumentType")
 
     @strawberry.field(
         name="compactionSummary",
@@ -1194,13 +1203,17 @@ class MessageType(Node):
         description="Timestamp when the message was soft-deleted",
         default=None,
     )
-    source_document: None | (
-        Annotated[DocumentType, strawberry.lazy("config.graphql.document_types")]
-    ) = strawberry.field(
+
+    @strawberry.field(
         name="sourceDocument",
         description="A document that this chat message is based on",
-        default=None,
     )
+    def source_document(
+        self, info: strawberry.Info
+    ) -> None | (
+        Annotated[DocumentType, strawberry.lazy("config.graphql.document_types")]
+    ):
+        return resolve_visible_fk(self, info, "source_document_id", "DocumentType")
 
     @strawberry.field(
         name="sourceAnnotations",
@@ -1997,11 +2010,14 @@ def _resolve_ModerationActionType_can_rollback(root, info, **kwargs):
 class ModerationActionType(Node):
     created: datetime.datetime = strawberry.field(name="created", default=None)
     modified: datetime.datetime = strawberry.field(name="modified", default=None)
-    conversation: ConversationType | None = strawberry.field(
+
+    @strawberry.field(
         name="conversation",
         description="The conversation that was moderated",
-        default=None,
     )
+    def conversation(self, info: strawberry.Info) -> ConversationType | None:
+        return resolve_visible_fk(self, info, "conversation_id", "ConversationType")
+
     message: MessageType | None = strawberry.field(
         name="message", description="The message that was moderated", default=None
     )

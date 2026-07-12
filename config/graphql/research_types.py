@@ -40,6 +40,7 @@ from config.graphql.core.relay import (
     make_connection_types,
     register_type,
     resolve_django_connection,
+    resolve_visible_fk,
 )
 from config.graphql.core.scalars import GenericScalar, JSONString
 from config.graphql.filters import AnnotationFilter
@@ -337,15 +338,19 @@ class ResearchReportType(Node):
             node_type_name="DocumentType",
         )
 
-    conversation: None | (
+    @strawberry.field(
+        name="conversation",
+        description="Chat conversation that kicked this off, if any",
+    )
+    def conversation(
+        self, info: strawberry.Info
+    ) -> None | (
         Annotated[
             ConversationType, strawberry.lazy("config.graphql.conversation_types")
         ]
-    ) = strawberry.field(
-        name="conversation",
-        description="Chat conversation that kicked this off, if any",
-        default=None,
-    )
+    ):
+        return resolve_visible_fk(self, info, "conversation_id", "ConversationType")
+
     originating_message: None | (
         Annotated[MessageType, strawberry.lazy("config.graphql.conversation_types")]
     ) = strawberry.field(
