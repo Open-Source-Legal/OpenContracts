@@ -70,6 +70,17 @@ services:
       timeout: 5s
       retries: 12
       start_period: 60s
+    # Hard cap — see docling-parser's mem_limit comment. This
+    # container also hosts ad-hoc ``docker compose exec`` management
+    # commands (bulk enrichment/backfill scripts), which share its cgroup —
+    # sized to cover the ASGI server plus one such batch job comfortably.
+    # A host-wide OOM (not just a single-container one) forced a hard
+    # reboot when several uncapped services (this one included) grew
+    # unchecked at the same time as capped ones under concurrent load; this
+    # cap plus matching caps on postgres/redis/gotenberg/multimodal-embedder/
+    # docxodus-parser close that gap.
+    mem_limit: 8g
+    restart: unless-stopped
 
   postgres:
     build:
@@ -97,6 +108,11 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    # Hard cap — see docling-parser's mem_limit comment. Postgres
+    # crash-recovers cleanly via WAL replay on restart, so capping it is
+    # safe from a durability standpoint, not just a memory one.
+    mem_limit: 4g
+    restart: unless-stopped
 
   redis:
     image: redis:6
@@ -107,6 +123,9 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+    # Hard cap — see docling-parser's mem_limit comment.
+    mem_limit: 2g
+    restart: unless-stopped
 
   docling-parser:
     image: jscrudato/docsling-local
@@ -127,6 +146,9 @@ services:
     # must use the same Docxodus version for character offset alignment.
     image: ghcr.io/open-source-legal/docxodus-service:1.1.0-docxodus5.4.2
     container_name: docxodus-parser
+    # Hard cap — see docling-parser's mem_limit comment.
+    mem_limit: 1g
+    restart: unless-stopped
 
   # Optional alternative PDF parser (deterministic, rule-based; renders straight
   # to the OpenContracts format). Opt-in via the "warp-ingest" compose profile:
@@ -147,7 +169,7 @@ services:
       - "5001:5001"
     environment:
       - WARP_API_KEY=${WARP_INGEST_API_KEY:-abc123}
-    # Hard cap — see docling-parser's mem_limit comment above. Warp-Ingest's
+    # Hard cap — see docling-parser's mem_limit comment. Warp-Ingest's
     # own memory model (docs/pipelines/warp_ingest_parser.md) documents
     # peak-per-request scaling with file size, but a long bulk run observed
     # sustained growth to ~5.7GB that emptied out on restart (unreturned
@@ -168,6 +190,9 @@ services:
   gotenberg:
     image: gotenberg/gotenberg:8
     container_name: gotenberg
+    # Hard cap — see docling-parser's mem_limit comment.
+    mem_limit: 2g
+    restart: unless-stopped
 
   # The embedder images read VECTOR_EMBEDDER_API_KEY (compose/accelerated/
   # embedder/main.py), NOT API_KEY — the old ``API_KEY`` key was silently ignored
@@ -185,7 +210,7 @@ services:
       TRANSFORMERS_OFFLINE: 1
       HF_DATASETS_OFFLINE: 1
       VECTOR_EMBEDDER_API_KEY: ${VECTOR_EMBEDDER_API_KEY:-abc123}
-    # Hard cap — see docling-parser's mem_limit comment above.
+    # Hard cap — see docling-parser's mem_limit comment.
     mem_limit: 4g
     restart: unless-stopped
 
@@ -202,6 +227,9 @@ services:
       # VECTOR_EMBEDDER_API_KEY like vector-embedder above or multimodal auth
       # will silently desync from the Django side.
       VECTOR_EMBEDDER_API_KEY: ${MULTIMODAL_EMBEDDER_API_KEY:-abc123}
+    # Hard cap — see docling-parser's mem_limit comment.
+    mem_limit: 2g
+    restart: unless-stopped
 
   # API_KEYS value below is a LOCAL DEVELOPMENT ONLY placeholder; override via
   # environment / .env before exposing the service outside the local docker
@@ -229,7 +257,7 @@ services:
   celeryworker:
     image: opencontractserver_local_django
     container_name: celeryworker
-    # Hard cap — see docling-parser's mem_limit comment above. This service
+    # Hard cap — see docling-parser's mem_limit comment. This service
     # definition is also the base for ad-hoc bulk workers launched via
     # ``docker compose run --name celeryworker_bulk -d celeryworker ...``
     # (higher concurrency, long-running ingest batches), which inherits this
