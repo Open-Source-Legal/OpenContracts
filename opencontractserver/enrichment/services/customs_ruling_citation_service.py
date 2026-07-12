@@ -31,6 +31,7 @@ Two different shapes, two different persistence paths:
 
 from __future__ import annotations
 
+import concurrent.futures
 import logging
 import re
 from dataclasses import dataclass
@@ -71,6 +72,15 @@ ANALYZER_TASK_NAME = "opencontractserver.enrichment.customs_ruling_citations"
 ANALYZER_TITLE = "Customs Ruling Citation Enrichment"
 
 LABEL_HTS_CODE = "HTS_CODE"
+
+# Per-document cost is dominated by load_document_text_and_layer's S3 fetch +
+# PAWLS JSON parse (~230ms measured on a 220K-doc corpus), not by the regex
+# matching or DB writes that follow. That fetch touches no ORM state, so it
+# is safe to prefetch across threads (releases the GIL during socket I/O)
+# while the actual writes stay single-threaded on the caller. Sized well
+# above CPU count since this is I/O-bound, not compute-bound; not so high
+# that it floods the storage backend with concurrent connections.
+PREFETCH_WORKERS = 12
 
 # --- HTS tariff codes -------------------------------------------------------
 # Ported from crossfeed's crossfeed.parse.normalize (the CROSS-rulings
@@ -135,13 +145,24 @@ class CustomsRulingCitationService:
         return analyzer
 
     @classmethod
-    def enrich_corpus(cls, *, corpus_id: int, creator_id: int) -> dict:
+    def enrich_corpus(
+        cls, *, corpus_id: int, creator_id: int, limit: int | None = None
+    ) -> dict:
         """Detect + persist HTS codes and ruling citations for one corpus.
 
         Document loading uses the MIN(corpus, document) visibility variant
         (matching :mod:`enrichment_service`'s own Tier-0 discipline): a caller
         with corpus READ but not per-document READ never has a private
         document scanned or written to.
+
+        ``limit``, when set, restricts the documents actually *scanned* to a
+        deterministic (lowest-id-first) subset of size ``limit`` — for a
+        quick, fully-complete pass over a manageable slice (evaluating
+        output quality/UX on a corpus too large to enrich end-to-end in one
+        sitting) rather than a partial pass over the whole corpus. Citation
+        *resolution* still considers every document's title in the corpus,
+        not just the scanned subset, so a limited run can still resolve a
+        citation to a sibling ruling outside the scanned slice.
         """
         user = User.objects.get(pk=creator_id)
         corpus = Corpus.objects.visible_to_user(user).get(pk=corpus_id)
@@ -150,6 +171,7 @@ class CustomsRulingCitationService:
                 user, corpus, include_caml=False
             )
         )
+        documents.sort(key=lambda doc: doc.id)
 
         analyzer = cls.get_or_create_analyzer(creator_id)
         analysis = Analysis.objects.create(
@@ -159,60 +181,70 @@ class CustomsRulingCitationService:
             status=JobStatus.RUNNING.value,
         )
 
-        summary = EnrichmentSummary(documents_scanned=len(documents))
         # Ruling number (as it appears in a sibling document's title, upper-
         # cased) -> document. Titles are the ruling numbers verbatim (set at
-        # ingest time from the materialized filename stem).
+        # ingest time from the materialized filename stem). Built from the
+        # FULL document list regardless of `limit` so resolution isn't
+        # artificially degraded by which slice happened to get scanned.
         title_index = {
             (doc.title or "").strip().upper(): doc for doc in documents if doc.title
         }
 
+        scanned_documents = documents if limit is None else documents[:limit]
+        summary = EnrichmentSummary(documents_scanned=len(scanned_documents))
+
         writer = EnrichmentWriter(corpus, creator_id, analysis=analysis)
 
         try:
-            for doc in documents:
-                try:
-                    doc_text, layer, ann_type = load_document_text_and_layer(doc)
-                except Exception as exc:
-                    logger.warning(
-                        "CustomsRulingCitationService: could not load text for "
-                        "doc %s (%s); skipping.",
-                        doc.id,
-                        exc,
+            with concurrent.futures.ThreadPoolExecutor(
+                max_workers=PREFETCH_WORKERS
+            ) as pool:
+                loaded = pool.map(cls._safe_load_text_and_layer, scanned_documents)
+                for doc, doc_text, layer, ann_type, exc in loaded:
+                    if exc is not None:
+                        logger.warning(
+                            "CustomsRulingCitationService: could not load text "
+                            "for doc %s (%s); skipping.",
+                            doc.id,
+                            exc,
+                        )
+                        summary.documents_skipped_not_pdf += 1
+                        continue
+                    if ann_type != TOKEN_LABEL or layer is None:
+                        # Only PDF/PAWLs-token-anchored documents are
+                        # supported — HTS/ruling mentions need a page +
+                        # bounding box to be useful annotations.
+                        summary.documents_skipped_not_pdf += 1
+                        continue
+
+                    own_number = (doc.title or "").strip().upper()
+
+                    hts_created = cls._write_hts_annotations(
+                        doc, layer, doc_text, corpus, creator_id
                     )
-                    summary.documents_skipped_not_pdf += 1
-                    continue
-                if ann_type != TOKEN_LABEL or layer is None:
-                    # Only PDF/PAWLs-token-anchored documents are supported —
-                    # HTS/ruling mentions need a page + bounding box to be
-                    # useful annotations.
-                    summary.documents_skipped_not_pdf += 1
-                    continue
+                    summary.hts_codes_created += hts_created
+                    summary.annotations_created += hts_created
 
-                own_number = (doc.title or "").strip().upper()
-
-                hts_created = cls._write_hts_annotations(
-                    doc, layer, doc_text, corpus, creator_id
-                )
-                summary.hts_codes_created += hts_created
-                summary.annotations_created += hts_created
-
-                resolutions = cls._build_citation_resolutions(
-                    doc, layer, doc_text, own_number, title_index
-                )
-                summary.citation_candidates += len(resolutions)
-                summary.citations_resolved += sum(
-                    1 for r in resolutions if r.resolution_status == C.STATUS_RESOLVED
-                )
-                summary.citations_unresolved += sum(
-                    1 for r in resolutions if r.resolution_status == C.STATUS_UNRESOLVED
-                )
-                if resolutions:
-                    res = writer.write(
-                        resolutions, provisional=True, reconcile_graph=False
+                    resolutions = cls._build_citation_resolutions(
+                        doc, layer, doc_text, own_number, title_index
                     )
-                    summary.annotations_created += res.annotations_created
-                    summary.references_created += res.references_created
+                    summary.citation_candidates += len(resolutions)
+                    summary.citations_resolved += sum(
+                        1
+                        for r in resolutions
+                        if r.resolution_status == C.STATUS_RESOLVED
+                    )
+                    summary.citations_unresolved += sum(
+                        1
+                        for r in resolutions
+                        if r.resolution_status == C.STATUS_UNRESOLVED
+                    )
+                    if resolutions:
+                        res = writer.write(
+                            resolutions, provisional=True, reconcile_graph=False
+                        )
+                        summary.annotations_created += res.annotations_created
+                        summary.references_created += res.references_created
 
             graph_res = writer.reconcile_document_graph()
             summary.document_relationships_created = (
@@ -238,6 +270,21 @@ class CustomsRulingCitationService:
             "analysis_id": analysis.id,
             **summary.__dict__,
         }
+
+    @staticmethod
+    def _safe_load_text_and_layer(doc):
+        """Thread-pool-mapped wrapper around ``load_document_text_and_layer``.
+
+        Returns a fixed-shape tuple instead of raising so ``executor.map()``
+        never surfaces a per-document failure as an exception when iterating
+        results — the caller checks ``exc`` and logs/skips exactly as the
+        pre-parallelization code did with its inline try/except.
+        """
+        try:
+            doc_text, layer, ann_type = load_document_text_and_layer(doc)
+            return doc, doc_text, layer, ann_type, None
+        except Exception as exc:  # noqa: BLE001 - reported to caller, not swallowed
+            return doc, None, None, None, exc
 
     @staticmethod
     def _write_hts_annotations(

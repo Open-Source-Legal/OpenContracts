@@ -42,6 +42,16 @@ class Command(BaseCommand):
             help="Username to run as (provenance + visibility scope). "
             "Defaults to the first superuser.",
         )
+        parser.add_argument(
+            "--limit",
+            type=int,
+            default=None,
+            help="Only scan this many documents (lowest id first) instead of "
+            "the whole corpus — a quick, fully-complete pass over a "
+            "manageable slice for evaluating output quality/UX. Citation "
+            "resolution still considers every document's title in the "
+            "corpus, not just the scanned slice.",
+        )
 
     def handle(self, *args: Any, **options: Any) -> None:
         if options["owner"]:
@@ -54,6 +64,8 @@ class Command(BaseCommand):
                 raise CommandError("No superuser found; pass --owner explicitly.")
 
         result = CustomsRulingCitationService.enrich_corpus(
-            corpus_id=options["corpus_id"], creator_id=owner.pk
+            corpus_id=options["corpus_id"],
+            creator_id=owner.pk,
+            limit=options["limit"],
         )
         self.stdout.write(self.style.SUCCESS(json.dumps(result, indent=2)))
