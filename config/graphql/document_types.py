@@ -47,6 +47,7 @@ from config.graphql.core.relay import (
     make_connection_types,
     register_type,
     resolve_django_connection,
+    resolve_visible_fk,
 )
 from config.graphql.core.scalars import GenericScalar, JSONString
 from config.graphql.custom_resolvers import resolve_doc_annotations_optimized
@@ -1022,7 +1023,10 @@ def _resolve_DocumentType_folder_in_corpus(root, info, corpus_id):
 
 @strawberry.type(name="DocumentType")
 class DocumentType(Node):
-    parent: DocumentType | None = strawberry.field(name="parent", default=None)
+    @strawberry.field(name="parent")
+    def parent(self, info: strawberry.Info) -> DocumentType | None:
+        return resolve_visible_fk(self, info, "parent_id", "DocumentType")
+
     user_lock: None | (
         Annotated[UserType, strawberry.lazy("config.graphql.user_types")]
     ) = strawberry.field(name="userLock", default=None)
@@ -1108,11 +1112,16 @@ class DocumentType(Node):
         description="True for newest content in this version tree. Implements Rule C3.",
         default=None,
     )
-    source_document: DocumentType | None = strawberry.field(
+
+    @strawberry.field(
         name="sourceDocument",
         description="Original document this was copied from (cross-corpus provenance). Implements Rule I2.",
-        default=None,
     )
+    def source_document(self, info: strawberry.Info) -> DocumentType | None:
+        # Cross-corpus provenance: a copied document must not leak its private
+        # origin document to a caller who lacks READ on the source.
+        return resolve_visible_fk(self, info, "source_document_id", "DocumentType")
+
     processing_started: datetime.datetime | None = strawberry.field(
         name="processingStarted", default=None
     )
@@ -2917,7 +2926,10 @@ def _resolve_DocumentPathType_action(root, info):
     description="GraphQL type for DocumentPath model - represents filesystem lifecycle events.",
 )
 class DocumentPathType(Node):
-    parent: DocumentPathType | None = strawberry.field(name="parent", default=None)
+    @strawberry.field(name="parent")
+    def parent(self, info: strawberry.Info) -> DocumentPathType | None:
+        return resolve_visible_fk(self, info, "parent_id", "DocumentPathType")
+
     user_lock: None | (
         Annotated[UserType, strawberry.lazy("config.graphql.user_types")]
     ) = strawberry.field(name="userLock", default=None)
@@ -2938,13 +2950,17 @@ class DocumentPathType(Node):
             name="corpus", description="Corpus owning this path", default=None
         )
     )
-    folder: None | (
-        Annotated[CorpusFolderType, strawberry.lazy("config.graphql.corpus_types")]
-    ) = strawberry.field(
+
+    @strawberry.field(
         name="folder",
         description="Current folder (null if folder deleted or at root)",
-        default=None,
     )
+    def folder(
+        self, info: strawberry.Info
+    ) -> None | (
+        Annotated[CorpusFolderType, strawberry.lazy("config.graphql.corpus_types")]
+    ):
+        return resolve_visible_fk(self, info, "folder_id", "CorpusFolderType")
 
     @strawberry.field(name="path", description="Full path in corpus filesystem")
     def path(self, info: strawberry.Info) -> str:
@@ -2963,11 +2979,15 @@ class DocumentPathType(Node):
         description="True for current filesystem state (Rule P3)",
         default=None,
     )
-    ingestion_source: IngestionSourceType | None = strawberry.field(
+
+    @strawberry.field(
         name="ingestionSource",
         description="Source integration that produced this version (null = manual upload)",
-        default=None,
     )
+    def ingestion_source(self, info: strawberry.Info) -> IngestionSourceType | None:
+        return resolve_visible_fk(
+            self, info, "ingestion_source_id", "IngestionSourceType"
+        )
 
     @strawberry.field(
         name="externalId",
@@ -3038,18 +3058,37 @@ class DocumentPathType(Node):
 
 
 def _get_queryset_DocumentPathType(queryset, info):
-    """Filter paths to current, non-deleted paths in visible corpuses."""
+    """Filter paths to current, non-deleted paths in visible corpuses whose
+    target document is also visible to the user.
+
+    The ``document_id`` filter enforces MIN(document, corpus) and closes a
+    cross-document leak: DocumentPath membership is corpus-gated, so a public
+    (or merely shared) corpus lists paths for its *private* documents too.
+    graphene filtered the **non-null** ``document`` FK through
+    ``DocumentType.get_queryset`` per row (an invisible target surfaced as a
+    non-null-violation error, never real data); strawberry's plain field
+    cannot resolve non-null to null, so the exclusion moves up to the list
+    level — the same MIN semantic ``CorpusType.documents`` already uses
+    (issue #1682).
+    """
+    from opencontractserver.documents.models import Document
+
     visible_corpus_ids = _docpath_visible_corpus_ids(info)
+    visible_document_ids = BaseService.filter_visible(
+        Document, info.context.user, request=info.context
+    ).values("id")
 
     if issubclass(type(queryset), QuerySet):
         return queryset.filter(
             corpus_id__in=visible_corpus_ids,
+            document_id__in=visible_document_ids,
             is_current=True,
             is_deleted=False,
         )
     elif "RelatedManager" in str(type(queryset)):
         return queryset.all().filter(
             corpus_id__in=visible_corpus_ids,
+            document_id__in=visible_document_ids,
             is_current=True,
             is_deleted=False,
         )

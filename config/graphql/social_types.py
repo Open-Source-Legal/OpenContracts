@@ -39,6 +39,7 @@ from config.graphql.core.relay import (
     Node,
     make_connection_types,
     register_type,
+    resolve_visible_fk,
 )
 from config.graphql.core.scalars import GenericScalar, JSONString
 from opencontractserver.badges.models import Badge, UserBadge
@@ -264,13 +265,15 @@ class BadgeType(Node):
     def color(self, info: strawberry.Info) -> str:
         return coerce_str(getattr(self, "color", None))
 
-    corpus: None | (
-        Annotated[CorpusType, strawberry.lazy("config.graphql.corpus_types")]
-    ) = strawberry.field(
+    @strawberry.field(
         name="corpus",
         description="If badge_type is CORPUS, the corpus this badge belongs to",
-        default=None,
     )
+    def corpus(
+        self, info: strawberry.Info
+    ) -> None | (Annotated[CorpusType, strawberry.lazy("config.graphql.corpus_types")]):
+        return resolve_visible_fk(self, info, "corpus_id", "CorpusType")
+
     is_auto_awarded: bool = strawberry.field(
         name="isAutoAwarded",
         description="Whether this badge is automatically awarded based on criteria",
@@ -337,13 +340,15 @@ class UserBadgeType(Node):
         description="User who awarded the badge (null for auto-awards)",
         default=None,
     )
-    corpus: None | (
-        Annotated[CorpusType, strawberry.lazy("config.graphql.corpus_types")]
-    ) = strawberry.field(
+
+    @strawberry.field(
         name="corpus",
         description="For corpus-specific badges, the context in which it was awarded",
-        default=None,
     )
+    def corpus(
+        self, info: strawberry.Info
+    ) -> None | (Annotated[CorpusType, strawberry.lazy("config.graphql.corpus_types")]):
+        return resolve_visible_fk(self, info, "corpus_id", "CorpusType")
 
     @strawberry.field(name="myPermissions")
     def my_permissions(self, info: strawberry.Info) -> GenericScalar | None:

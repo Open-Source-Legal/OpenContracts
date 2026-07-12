@@ -42,6 +42,7 @@ from config.graphql.core.relay import (
     make_connection_types,
     register_type,
     resolve_django_connection,
+    resolve_visible_fk,
 )
 from config.graphql.core.scalars import GenericScalar, JSONString
 from config.graphql.filters import AnnotationFilter
@@ -4487,9 +4488,12 @@ class AssignmentType(Node):
     document: Annotated[
         DocumentType, strawberry.lazy("config.graphql.document_types")
     ] = strawberry.field(name="document", default=None)
-    corpus: None | (
-        Annotated[CorpusType, strawberry.lazy("config.graphql.corpus_types")]
-    ) = strawberry.field(name="corpus", default=None)
+
+    @strawberry.field(name="corpus")
+    def corpus(
+        self, info: strawberry.Info
+    ) -> None | (Annotated[CorpusType, strawberry.lazy("config.graphql.corpus_types")]):
+        return resolve_visible_fk(self, info, "corpus_id", "CorpusType")
 
     @strawberry.field(name="resultingAnnotations")
     def resulting_annotations(
@@ -4731,9 +4735,16 @@ class UserFeedbackType(Node):
         return coerce_str(getattr(self, "markdown", None))
 
     metadata: JSONString | None = strawberry.field(name="metadata", default=None)
-    commented_annotation: None | (
+
+    @strawberry.field(name="commentedAnnotation")
+    def commented_annotation(
+        self, info: strawberry.Info
+    ) -> None | (
         Annotated[AnnotationType, strawberry.lazy("config.graphql.annotation_types")]
-    ) = strawberry.field(name="commentedAnnotation", default=None)
+    ):
+        return resolve_visible_fk(
+            self, info, "commented_annotation_id", "AnnotationType"
+        )
 
     @strawberry.field(name="myPermissions")
     def my_permissions(self, info: strawberry.Info) -> GenericScalar | None:

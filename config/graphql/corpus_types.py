@@ -46,6 +46,7 @@ from config.graphql.core.relay import (
     make_connection_types,
     register_type,
     resolve_django_connection,
+    resolve_visible_fk,
 )
 from config.graphql.core.scalars import GenericScalar, JSONString
 from config.graphql.filters import AnnotationFilter
@@ -353,7 +354,9 @@ def _resolve_CorpusType_annotation_count(root, info):
 
 @strawberry.type(name="CorpusType")
 class CorpusType(Node):
-    parent: CorpusType | None = strawberry.field(name="parent", default=None)
+    @strawberry.field(name="parent")
+    def parent(self, info: strawberry.Info) -> CorpusType | None:
+        return resolve_visible_fk(self, info, "parent_id", "CorpusType")
 
     @strawberry.field(name="title")
     def title(self, info: strawberry.Info) -> str:
@@ -469,13 +472,17 @@ class CorpusType(Node):
         description="Enable agent memory system for this corpus. When enabled, agents accumulate reusable insights from conversations into a memory document.",
         default=None,
     )
-    memory_document: None | (
-        Annotated[DocumentType, strawberry.lazy("config.graphql.document_types")]
-    ) = strawberry.field(
+
+    @strawberry.field(
         name="memoryDocument",
         description="The Document storing accumulated agent memory for this corpus.",
-        default=None,
     )
+    def memory_document(
+        self, info: strawberry.Info
+    ) -> None | (
+        Annotated[DocumentType, strawberry.lazy("config.graphql.document_types")]
+    ):
+        return resolve_visible_fk(self, info, "memory_document_id", "DocumentType")
 
     @strawberry.field(
         name="license",

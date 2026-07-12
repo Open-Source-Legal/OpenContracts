@@ -41,6 +41,7 @@ from config.graphql.core.relay import (
     make_connection_types,
     register_type,
     resolve_django_connection,
+    resolve_visible_fk,
 )
 from config.graphql.core.scalars import GenericScalar, JSONString
 from config.graphql.filters import AnnotationFilter
@@ -550,22 +551,31 @@ class CorpusActionExecutionType(Node):
         description="The corpus action configuration that was executed",
         default=None,
     )
-    document: None | (
-        Annotated[DocumentType, strawberry.lazy("config.graphql.document_types")]
-    ) = strawberry.field(
+
+    @strawberry.field(
         name="document",
         description="The document this action was executed on (null for thread-based actions)",
-        default=None,
     )
-    conversation: None | (
+    def document(
+        self, info: strawberry.Info
+    ) -> None | (
+        Annotated[DocumentType, strawberry.lazy("config.graphql.document_types")]
+    ):
+        return resolve_visible_fk(self, info, "document_id", "DocumentType")
+
+    @strawberry.field(
+        name="conversation",
+        description="The thread that triggered this execution (for thread-based actions)",
+    )
+    def conversation(
+        self, info: strawberry.Info
+    ) -> None | (
         Annotated[
             ConversationType, strawberry.lazy("config.graphql.conversation_types")
         ]
-    ) = strawberry.field(
-        name="conversation",
-        description="The thread that triggered this execution (for thread-based actions)",
-        default=None,
-    )
+    ):
+        return resolve_visible_fk(self, info, "conversation_id", "ConversationType")
+
     message: None | (
         Annotated[MessageType, strawberry.lazy("config.graphql.conversation_types")]
     ) = strawberry.field(
@@ -804,13 +814,15 @@ class AgentConfigurationType(Node):
             enums.AgentsAgentConfigurationScopeChoices, getattr(self, "scope", None)
         )
 
-    corpus: None | (
-        Annotated[CorpusType, strawberry.lazy("config.graphql.corpus_types")]
-    ) = strawberry.field(
+    @strawberry.field(
         name="corpus",
         description="Corpus this agent belongs to (if scope=CORPUS)",
-        default=None,
     )
+    def corpus(
+        self, info: strawberry.Info
+    ) -> None | (Annotated[CorpusType, strawberry.lazy("config.graphql.corpus_types")]):
+        return resolve_visible_fk(self, info, "corpus_id", "CorpusType")
+
     is_active: bool = strawberry.field(
         name="isActive",
         description="Whether this agent is active and can be used",
@@ -905,31 +917,46 @@ class AgentActionResultType(Node):
         description="The corpus action that triggered this execution",
         default=None,
     )
-    document: None | (
-        Annotated[DocumentType, strawberry.lazy("config.graphql.document_types")]
-    ) = strawberry.field(
+
+    @strawberry.field(
         name="document",
         description="The document this action was run on (null for thread-based actions)",
-        default=None,
     )
-    conversation: None | (
-        Annotated[
-            ConversationType, strawberry.lazy("config.graphql.conversation_types")
-        ]
-    ) = strawberry.field(
+    def document(
+        self, info: strawberry.Info
+    ) -> None | (
+        Annotated[DocumentType, strawberry.lazy("config.graphql.document_types")]
+    ):
+        return resolve_visible_fk(self, info, "document_id", "DocumentType")
+
+    @strawberry.field(
         name="conversation",
         description="Conversation record containing the full agent interaction",
-        default=None,
     )
-    triggering_conversation: None | (
+    def conversation(
+        self, info: strawberry.Info
+    ) -> None | (
         Annotated[
             ConversationType, strawberry.lazy("config.graphql.conversation_types")
         ]
-    ) = strawberry.field(
+    ):
+        return resolve_visible_fk(self, info, "conversation_id", "ConversationType")
+
+    @strawberry.field(
         name="triggeringConversation",
         description="Thread that triggered this agent action (for thread-based triggers)",
-        default=None,
     )
+    def triggering_conversation(
+        self, info: strawberry.Info
+    ) -> None | (
+        Annotated[
+            ConversationType, strawberry.lazy("config.graphql.conversation_types")
+        ]
+    ):
+        return resolve_visible_fk(
+            self, info, "triggering_conversation_id", "ConversationType"
+        )
+
     triggering_message: None | (
         Annotated[MessageType, strawberry.lazy("config.graphql.conversation_types")]
     ) = strawberry.field(

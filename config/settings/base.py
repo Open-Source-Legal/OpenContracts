@@ -72,10 +72,6 @@ if env.bool("USE_AWS", default=None) is not None:
 USE_ANALYZER = env.bool("USE_ANALYZER", False)
 CALLBACK_ROOT_URL_FOR_ANALYZER = env.str("CALLBACK_ROOT_URL_FOR_ANALYZER", None)
 
-# Allow Graphene Django Debug Toolbar middleware
-# Default to False for performance - only enable when actually debugging
-ALLOW_GRAPHQL_DEBUG = env.bool("ALLOW_GRAPHQL_DEBUG", default=False)
-
 # Set max file upload size to 5 GB for large corpuses
 DATA_UPLOAD_MAX_MEMORY_SIZE = MAX_FILE_UPLOAD_SIZE_BYTES
 # Local time zone. Choices are

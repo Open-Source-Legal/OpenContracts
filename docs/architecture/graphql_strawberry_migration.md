@@ -30,11 +30,23 @@ Reproduces graphene / graphene-django behaviours on top of strawberry:
   `offset`→`after`, `RELAY_CONNECTION_MAX_LIMIT = 100`).
   - **Node resolution matches graphene-django's default `get_node`**
     (`type.get_queryset(model._default_manager, info).get(pk=id)`), NOT a
-    blanket permission filter: types without a `get_queryset` resolve
-    unfiltered by pk with per-field resolvers enforcing visibility
-    (e.g. `MessageType` / `chatMessage`); types with one filter. `CorpusType`
-    keeps a permission-aware custom `get_node` (the ported `OpenContractsNode`).
-    Pinned by `test_mentions.test_permission_enforcement_corpus`.
+    blanket permission filter: a type without a `get_queryset` resolves
+    unfiltered by pk on the DEFAULT path, with per-field resolvers enforcing
+    visibility; a type with one filters. Pinned by
+    `test_mentions.test_permission_enforcement_corpus`.
+  - A type whose singular `xxx(id:)` lookup must stay permission-scoped
+    registers an explicit `get_node` hook instead (`CorpusType` ported
+    `OpenContractsNode`; `MessageType`/`chatMessage`, `datacell`, `badge`,
+    `userexport`, … route through `BaseService.get_or_none` / a service). This
+    closed a class of pre-existing unfiltered-`.get(pk)` IDORs;
+    `test_singular_node_idor` asserts every model-backed singular target has a
+    hook so the fallback can never silently re-expose one.
+  - **Singular to-one FK object fields** (e.g. `AnnotationType.corpus`,
+    `CorpusReferenceType.targetDocument`) resolve through
+    `core/relay.py::resolve_visible_fk`, which applies the *target* type's
+    `get_node`/`get_queryset` visibility hook — reproducing graphene-django's
+    auto-converted-FK `CustomField`, so an invisible FK target resolves to
+    `null` rather than leaking its fields across a permission boundary.
   - `register_type` also installs graphene-compat `resolve_<field>`
     staticmethod aliases (delegating to the `_resolve_<Type>_<field>` module
     functions) so unit tests that call resolvers directly keep working. These
