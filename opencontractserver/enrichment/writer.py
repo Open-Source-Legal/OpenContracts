@@ -48,6 +48,10 @@ class WriteResult:
     annotations_upgraded: int = 0
     relationships_created: int = 0
     references_created: int = 0
+    # Existing UNRESOLVED rows upgraded to RESOLVED on re-apply (e.g. a
+    # sibling document ingested later, or a resolution-logic fix applied
+    # after the row was first written). See _ensure_corpus_reference.
+    references_resolved: int = 0
     document_relationships_created: int = 0
     document_relationships_pruned: int = 0
     annotation_ids: list[int] = field(default_factory=list)
@@ -544,6 +548,38 @@ class EnrichmentWriter:
             ref.jurisdiction = ref.jurisdiction or jurisdiction
             ref.authority_type = ref.authority_type or authority_type
             update_fields += ["jurisdiction", "authority_type"]
+
+        # Heal a row persisted as UNRESOLVED before its target could be found
+        # (a sibling document ingested later, or a resolution-logic bug fixed
+        # after the row was first written — e.g. issue where a title-index
+        # lookup key mismatch made every citation into some documents
+        # unresolvable). get_or_create's lookup key (source_annotation,
+        # reference_type, canonical_key) doesn't include the resolution
+        # target, so without this heal a re-apply that now finds the target
+        # silently re-fetches the stale UNRESOLVED row and never upgrades it
+        # — the run's in-memory resolved-count would over-report what
+        # actually persisted. Converge forward only: an already-RESOLVED row
+        # is never downgraded back to UNRESOLVED by a later run that fails to
+        # find the same target (mirrors the jurisdiction/authority_type
+        # heal-only-forward rule above).
+        if (
+            ref.resolution_status != C.STATUS_RESOLVED
+            and res.resolution_status == C.STATUS_RESOLVED
+        ):
+            ref.target_annotation_id = res.target_annotation_id
+            ref.target_document_id = res.target_document_id
+            ref.resolution_status = res.resolution_status
+            ref.confidence = res.confidence
+            if normalized:
+                ref.normalized_data = normalized
+            update_fields += [
+                "target_annotation_id",
+                "target_document_id",
+                "resolution_status",
+                "confidence",
+                "normalized_data",
+            ]
+            result.references_resolved += 1
 
         # Claim rule: a still-provisional row owned by a DIFFERENT analysis is
         # re-attributed to the current analysis so the completion flip — which

@@ -850,6 +850,7 @@ class EnrichmentService:
             "annotations_upgraded": agg.annotations_upgraded,
             "relationships_created": agg.relationships_created,
             "references_created": agg.references_created,
+            "references_resolved": agg.references_resolved,
             "document_relationships_created": agg.document_relationships_created,
             "document_relationships_pruned": agg.document_relationships_pruned,
             "law_references_linked": link["law_references_linked"],
@@ -869,6 +870,7 @@ class EnrichmentService:
         agg.annotations_upgraded += res.annotations_upgraded
         agg.relationships_created += res.relationships_created
         agg.references_created += res.references_created
+        agg.references_resolved += res.references_resolved
         agg.annotation_ids.extend(res.annotation_ids)
         agg.reference_ids.extend(res.reference_ids)
 

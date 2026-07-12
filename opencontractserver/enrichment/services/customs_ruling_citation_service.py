@@ -138,6 +138,7 @@ class EnrichmentSummary:
     citations_unresolved: int = 0
     annotations_created: int = 0
     references_created: int = 0
+    references_resolved: int = 0
     document_relationships_created: int = 0
     document_relationships_pruned: int = 0
     documents_skipped_not_pdf: int = 0
@@ -261,6 +262,7 @@ class CustomsRulingCitationService:
                         )
                         summary.annotations_created += res.annotations_created
                         summary.references_created += res.references_created
+                        summary.references_resolved += res.references_resolved
 
             graph_res = writer.reconcile_document_graph()
             summary.document_relationships_created = (
