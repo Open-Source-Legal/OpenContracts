@@ -847,6 +847,20 @@ CELERY_TASK_ROUTES = {
     # Worker upload processing runs on a dedicated queue so it never starves
     # regular user operations (parsing, embedding, export, etc.)
     "opencontractserver.worker_uploads.tasks.*": {"queue": "worker_uploads"},
+    # The per-document ingest chain is convert_document_to_pdf -> extract_thumbnail
+    # -> ingest_doc -> set_doc_lock_state (see doc_tasks.py and documents/signals.py).
+    # convert_document_to_pdf is cheap and, for a .doc-heavy corpus, vastly
+    # outnumbers the other three stages at any given moment (every document's
+    # conversion task is enqueued up front, while a document's later-stage
+    # tasks only appear once its own conversion finishes). Sharing one FIFO-ish
+    # queue lets the flood of conversion tasks statistically starve the actual
+    # value-producing steps -- observed on a 220K-document bulk ingest at a
+    # ~190:1 completion ratio (convert vs. ingest_doc) despite doubled worker
+    # concurrency. Routing the later three stages to their own queue gives
+    # them dedicated consumer capacity independent of the conversion backlog.
+    "opencontractserver.tasks.doc_tasks.extract_thumbnail": {"queue": "doc_parse"},
+    "opencontractserver.tasks.doc_tasks.ingest_doc": {"queue": "doc_parse"},
+    "opencontractserver.tasks.doc_tasks.set_doc_lock_state": {"queue": "doc_parse"},
 }
 
 # Celery Beat schedule (settings-based)
