@@ -6,6 +6,8 @@ fusions itself. It maps:
 
 * law citations            -> EXTERNAL (no internal target; canonical stub only)
 * document/exhibit refs    -> a target Document (by exhibit number in its title)
+* identifier citations     -> a target Document (by identifier-shaped title,
+                              e.g. CBP ruling numbers; extension-stripped)
 * internal section refs    -> an OC_SECTION annotation, or a heading-text offset
 """
 
@@ -55,9 +57,20 @@ class ReferenceResolver:
     def __init__(self, documents) -> None:
         # Build {exhibit_number -> document_id} from document titles.
         self._exhibit_index: dict[str, int] = {}
+        # {canonical identifier -> document_id} for identifier-shaped titles
+        # (CBP CROSS-style "title IS the ruling number" corpora). Titles are
+        # canonicalized via document_identifier_from_title — extension-stripped
+        # and uppercased — because the citation grammar only ever extracts the
+        # bare identifier while ingested titles often keep their materialized
+        # filename extension ("A83482.doc"); indexing the raw title would make
+        # every citation into such documents silently unresolvable.
+        self._identifier_index: dict[str, int] = {}
         for doc in documents:
             for m in _TITLE_EXHIBIT_RE.finditer(doc.title or ""):
                 self._exhibit_index.setdefault(m.group("num").lower(), doc.id)
+            ident = C.document_identifier_from_title(doc.title)
+            if C.DOC_IDENTIFIER_RE.fullmatch(ident):
+                self._identifier_index.setdefault(ident, doc.id)
 
     # -- per-type ---------------------------------------------------------- #
 
@@ -70,7 +83,12 @@ class ReferenceResolver:
             normalized_data=dict(cand.normalized_data),
         )
 
-    def resolve_document(self, cand: Candidate, source_doc_id: int) -> Resolution:
+    def resolve_document(
+        self, cand: Candidate, source_doc_id: int
+    ) -> Resolution | None:
+        ident = cand.normalized_data.get(C.KEY_DOCUMENT_IDENTIFIER)
+        if ident is not None:
+            return self._resolve_document_identifier(cand, source_doc_id, ident)
         num = (cand.normalized_data.get("exhibit_number") or "").lower()
         target = self._exhibit_index.get(num)
         if target is not None and target != source_doc_id:
@@ -82,6 +100,32 @@ class ReferenceResolver:
             candidate=cand,
             source_document_id=source_doc_id,
             resolution_status=status,
+            target_document_id=target,
+            canonical_key=cand.canonical_key,
+            normalized_data=dict(cand.normalized_data),
+        )
+
+    def _resolve_document_identifier(
+        self, cand: Candidate, source_doc_id: int, ident: str
+    ) -> Resolution | None:
+        """Title-identifier citation (e.g. a CBP ruling number) -> sibling doc.
+
+        Returns ``None`` for a SELF-mention — CROSS-style documents state
+        their own identifier in headers/footers, so persisting those spans
+        would put a systematic self-reference row on every document.
+        Citations to identifiers absent from the corpus persist UNRESOLVED
+        (the mention is real; the writer's forward-only heal upgrades the row
+        when the sibling is ingested later and enrichment re-applies).
+        """
+        target = self._identifier_index.get(ident)
+        if target == source_doc_id:
+            return None
+        return Resolution(
+            candidate=cand,
+            source_document_id=source_doc_id,
+            resolution_status=(
+                C.STATUS_RESOLVED if target is not None else C.STATUS_UNRESOLVED
+            ),
             target_document_id=target,
             canonical_key=cand.canonical_key,
             normalized_data=dict(cand.normalized_data),
@@ -130,7 +174,10 @@ class ReferenceResolver:
         source_doc_id: int,
         doc_text: str,
         sections: list[SectionAnno] | None = None,
-    ) -> Resolution:
+    ) -> Resolution | None:
+        """Resolve one candidate; ``None`` means "do not persist this span"
+        (today: a document's self-identifying header mention — see
+        :meth:`_resolve_document_identifier`)."""
         if cand.reference_type == C.REF_LAW:
             res = self.resolve_law(cand)
             res.source_document_id = source_doc_id

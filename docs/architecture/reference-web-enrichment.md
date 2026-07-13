@@ -50,6 +50,35 @@ span overlap**, and grammar/LLM candidates add only the non-overlapping tail. So
 citation the grammar already catches is never *also* stored as a (lower-trust) LLM
 row.
 
+### Customs / trade grammar family (CBP CROSS-style corpora)
+
+The grammar tier also ships two deterministic customs families
+(`opencontractserver/enrichment/grammars.py::_hts` /
+`::_document_identifier_citations`; shapes ported from crossfeed's
+golden-tested CROSS extractor). Because they are ordinary grammar-tier
+candidates, they run automatically wherever enrichment already runs — the
+analyzer task, the ADD_DOCUMENT corpus action installed by
+`setupCorpusIntelligence` / `ingest_corpus --enrich`, the
+`runCorpusEnrichment` mutation, and the agent tools. There is no separate
+service or management command.
+
+- **HTS tariff codes** → `REF_LAW` citations keyed `htsus:<code>`
+  (`constants.HTSUS_PREFIX`; prefix declared in `authority_mappings.yaml`).
+  Gated on a document-level HTSUS cue so dotted decimals in ordinary corpora
+  are never mined; per-mention confidence distinguishes tariff-cue-anchored
+  codes from bare contextual ones.
+- **Title-identifier document citations** (CBP ruling numbers) →
+  `REF_DOCUMENT` citations resolved by `ReferenceResolver` against sibling
+  document titles (canonicalized via
+  `constants.document_identifier_from_title` — extension-stripped, so
+  materialized-filename titles like `A83482.doc` still resolve). The grammar
+  only activates on corpora whose titles are predominantly identifier-shaped
+  (`constants.DOC_IDENTIFIER_TITLE_GATE_*`); self-mentions (a ruling's own
+  header) are dropped at resolution. Citations to rulings not yet in the
+  corpus persist `UNRESOLVED` and are healed to `RESOLVED` by the writer when
+  the sibling lands and enrichment re-applies — which the ADD_DOCUMENT corpus
+  action does automatically.
+
 ---
 
 ## The enrichment pipeline

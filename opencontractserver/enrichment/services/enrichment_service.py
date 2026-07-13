@@ -141,8 +141,12 @@ class EnrichmentService:
         active_tiers = set(extra_tiers or ())
         resolver = ReferenceResolver(documents)
         extractor = ReferenceExtractor(authority_aliases=authority_alias_registry(user))
+        # The grammar extractor receives the same permission-scoped document
+        # list as the resolver — consulted only for its titles, to decide
+        # whether the corpus speaks the title-identifier citation vocabulary
+        # (CBP CROSS-style corpora; see GenericCitationExtractor).
         generic = (
-            GenericCitationExtractor()
+            GenericCitationExtractor(documents=documents)
             if C.DETECTION_TIER_GRAMMAR in active_tiers
             else None
         )
@@ -216,11 +220,14 @@ class EnrichmentService:
         )
         if llm_cands:
             cands = reconcile(cands, llm_cands)
-        return [
+        resolved = (
             resolver.resolve(cand, doc.id, doc_text, sections)
             for cand in cands
             if cand.reference_type in wanted
-        ]
+        )
+        # resolve() returns None for spans that must not persist (a document's
+        # self-identifying header mention — see ReferenceResolver.resolve).
+        return [r for r in resolved if r is not None]
 
     def _iter_doc_resolutions(self, corpus, documents, types, user, extra_tiers=None):
         """Yield ``(document, [Resolution])`` one document at a time (sync).

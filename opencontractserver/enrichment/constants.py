@@ -4,6 +4,7 @@ No magic numbers / strings in the engine modules — they import from here.
 """
 
 import re as _re
+from pathlib import Path as _Path
 
 from opencontractserver.enrichment.data import mappings as _mappings
 
@@ -45,6 +46,58 @@ AUTHORITY_PREFIX = _mappings.authority_prefix_map()
 # Canonical-key prefix for bare SEC rule citations ("Rule 506(b)") — these are
 # 17 CFR rules cited without a named authority.
 SEC_RULE_PREFIX = "sec-rule"
+
+# Canonical-key prefix for HTS tariff-code citations ("subheading 3924.90.5650,
+# HTSUS") — references into the Harmonized Tariff Schedule of the United States.
+# Like SEC_RULE_PREFIX, the prefix is also declared in authority_mappings.yaml
+# (display name / classification / aliases) so it seeds AuthorityNamespace and
+# classifies via PREFIX_CLASSIFICATION.
+HTSUS_PREFIX = "htsus"
+
+# --- Title-identifier document citations (customs-ruling grammar) ---------- #
+# CBP CROSS-style corpora are "title-as-identifier" shaped: each document's
+# title IS an external identifier (a ruling number like ``H022844`` or
+# ``A83482``, possibly still carrying its materialized filename extension,
+# ``A83482.doc``), and documents cite each other by that identifier in their
+# own text. The grammar tier detects those citations (REF_DOCUMENT) and the
+# resolver links them to sibling documents by title.
+#
+# The identifier shape (shared by the citation grammar and the resolver's
+# title index): 1 letter + 5-6 digits (modern N######/H######; legacy A#####,
+# K#####, …) or 2 letters + 6 digits (two-letter legacy). Bare 6-digit legacy
+# ruling numbers are deliberately NOT matched — dollar amounts, statute
+# numbers, and "STATE + 5-digit ZIP" ("NY 10022") are common false positives
+# for that shape. Used with ``finditer`` over text and ``fullmatch`` over
+# canonicalized titles.
+DOC_IDENTIFIER_RE = _re.compile(r"\b([A-Z]\d{5,6}|[A-Z]{2}\d{6})\b")
+# The identifier grammar only activates on corpora that actually speak this
+# vocabulary: at least MIN_DOCS identifier-shaped titles AND at least FRACTION
+# of the corpus's non-empty titles identifier-shaped. An ordinary corpus (zero
+# or incidental identifier titles) never emits these candidates, so serial /
+# order / patent numbers in unrelated corpora are not mined as citations.
+DOC_IDENTIFIER_TITLE_GATE_MIN_DOCS = 2
+DOC_IDENTIFIER_TITLE_GATE_FRACTION = 0.5
+# ``Candidate.normalized_data`` / ``CorpusReference.normalized_data`` key
+# carrying the cited identifier — shared by the grammar (writer side) and the
+# resolver (lookup side) so the contract has a single edit point.
+KEY_DOCUMENT_IDENTIFIER = "document_identifier"
+
+
+def document_identifier_from_title(title: str | None) -> str:
+    """Canonicalize a document title to the identifier it names.
+
+    Titles are set at ingest time from the materialized filename — some ingest
+    paths use the bare stem (``A83482``), others keep the original filename
+    including its extension (``A83482.doc``). The citation grammar only ever
+    extracts the bare form (DOC_IDENTIFIER_RE has no ``.doc``/``.pdf`` in its
+    character class), so a title carrying an extension would never match the
+    resolver's title index and every citation into that document would
+    silently read as unresolved. ``Path(...).stem`` strips at most one
+    trailing extension and is a no-op on titles that are already
+    extension-free.
+    """
+    return _Path((title or "").strip()).stem.upper()
+
 
 # ``AuthorityNamespace.baseline_origin`` stamp for rows written from the shipped
 # core ``authority_mappings.yaml`` (loader default path + post_migrate seed).
