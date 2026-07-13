@@ -252,6 +252,10 @@ services:
       interval: 10s
       retries: 5
       start_period: 20s
+    # Hard cap — see docling-parser's mem_limit comment. CPU-only model
+    # inference with baked weights; bounded input (MAX_INPUT_CHARS) keeps
+    # per-request growth small, the cap contains any leak across requests.
+    mem_limit: 2g
     restart: unless-stopped
 
   celeryworker:
@@ -324,6 +328,10 @@ services:
       - ./.envs/.local/.django
       - ./.envs/.local/.postgres
     command: /start-celerybeat
+    # Hard cap — see docling-parser's mem_limit comment. The beat scheduler
+    # only enqueues tasks (no task bodies run here), so its footprint is small.
+    mem_limit: 1g
+    restart: unless-stopped
 
   flower:
     <<: *django
@@ -360,3 +368,7 @@ services:
         - "3000:3000"
       profiles:
         - "fullstack"
+      # Hard cap — see docling-parser's mem_limit comment. Profile-gated dev
+      # tooling, but a Vite dev server can still balloon under HMR churn.
+      mem_limit: 2g
+      restart: unless-stopped
