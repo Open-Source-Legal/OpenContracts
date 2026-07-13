@@ -214,6 +214,16 @@ class DocumentIdentifierTitleTests(SimpleTestCase):
     def test_none_title(self):
         assert C.document_identifier_from_title(None) == ""
 
+    def test_path_like_title_is_returned_whole(self):
+        # Titles are user-editable; a path-like title is not a materialized
+        # filename, so its leading segments must not be silently discarded
+        # (which would make it LOOK identifier-titled). The whole string
+        # fails the identifier fullmatch and stays out of the gate/index.
+        assert C.document_identifier_from_title("Reports/N301234") == "REPORTS/N301234"
+        assert not C.DOC_IDENTIFIER_RE.fullmatch(
+            C.document_identifier_from_title("Reports/N301234")
+        )
+
 
 class IdentifierResolverTests(TestCase):
     def setUp(self):

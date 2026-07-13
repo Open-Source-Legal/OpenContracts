@@ -103,8 +103,16 @@ def document_identifier_from_title(title: str | None) -> str:
     shape and simply stays out of the gate/index — CBP materialized
     filenames carry exactly one extension, and a non-matching title
     degrades to "not identifier-titled", never to a wrong link.
+
+    A title containing a path separator is NOT a bare materialized filename
+    (titles are user-editable), so it is returned whole rather than fed to
+    ``Path.stem`` — which would otherwise silently discard the leading
+    segments and make "Reports/N301234" LOOK identifier-titled.
     """
-    return _Path((title or "").strip()).stem.upper()
+    name = (title or "").strip()
+    if "/" in name:
+        return name.upper()
+    return _Path(name).stem.upper()
 
 
 # ``AuthorityNamespace.baseline_origin`` stamp for rows written from the shipped
