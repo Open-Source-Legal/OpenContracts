@@ -65,12 +65,20 @@ class ReferenceResolver:
         # filename extension ("A83482.doc"); indexing the raw title would make
         # every citation into such documents silently unresolvable.
         self._identifier_index: dict[str, int] = {}
+        # Reverse view — {document_id -> its own canonical identifier} — used
+        # by the self-mention drop. Kept separate from _identifier_index
+        # (which setdefaults first-writer-wins) so a corpus holding duplicate
+        # identifier titles (the same ruling re-ingested as .doc and .pdf)
+        # still drops EVERY duplicate's self-identifying header mention, not
+        # just the one that happened to claim the index slot.
+        self._doc_identifiers: dict[int, str] = {}
         for doc in documents:
             for m in _TITLE_EXHIBIT_RE.finditer(doc.title or ""):
                 self._exhibit_index.setdefault(m.group("num").lower(), doc.id)
             ident = C.document_identifier_from_title(doc.title)
             if C.DOC_IDENTIFIER_RE.fullmatch(ident):
                 self._identifier_index.setdefault(ident, doc.id)
+                self._doc_identifiers[doc.id] = ident
 
     # -- per-type ---------------------------------------------------------- #
 
@@ -112,14 +120,18 @@ class ReferenceResolver:
 
         Returns ``None`` for a SELF-mention — CROSS-style documents state
         their own identifier in headers/footers, so persisting those spans
-        would put a systematic self-reference row on every document.
+        would put a systematic self-reference row on every document. The
+        check is against the SOURCE document's own title identifier (not
+        "target == source"), so a duplicate-titled sibling (the same ruling
+        ingested twice) can never turn one copy's header into a resolved
+        citation pointing at the other copy.
         Citations to identifiers absent from the corpus persist UNRESOLVED
         (the mention is real; the writer's forward-only heal upgrades the row
         when the sibling is ingested later and enrichment re-applies).
         """
-        target = self._identifier_index.get(ident)
-        if target == source_doc_id:
+        if self._doc_identifiers.get(source_doc_id) == ident:
             return None
+        target = self._identifier_index.get(ident)
         return Resolution(
             candidate=cand,
             source_document_id=source_doc_id,

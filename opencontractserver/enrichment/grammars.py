@@ -425,6 +425,10 @@ class GenericCitationExtractor:
             if (doc.title or "").strip()
         ]
         matching = sum(1 for i in idents if C.DOC_IDENTIFIER_RE.fullmatch(i))
+        # Condition ORDER is load-bearing: the MIN_DOCS check short-circuits
+        # the fraction check, and ``matching >= MIN_DOCS`` (with MIN_DOCS > 0)
+        # guarantees ``idents`` is non-empty — reordering these would
+        # reintroduce a ZeroDivisionError on a titleless document set.
         self._doc_identifier_gate = (
             matching >= C.DOC_IDENTIFIER_TITLE_GATE_MIN_DOCS
             and matching / len(idents) >= C.DOC_IDENTIFIER_TITLE_GATE_FRACTION

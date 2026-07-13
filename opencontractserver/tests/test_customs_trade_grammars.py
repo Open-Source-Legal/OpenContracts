@@ -249,6 +249,25 @@ class IdentifierResolverTests(TestCase):
         )
         assert r is None
 
+    def test_duplicate_title_self_mentions_both_dropped(self):
+        # The same ruling ingested twice (e.g. as .doc and .pdf): BOTH copies'
+        # self-identifying header mentions must drop — the duplicate that lost
+        # the first-writer-wins index slot must not have its header resolved
+        # as a citation pointing at the other copy.
+        duplicate = Document.objects.create(title="A83482.pdf", creator=self.user)
+        resolver = ReferenceResolver([self.citing, self.target, duplicate])
+        for doc in (self.target, duplicate):
+            r = resolver.resolve_document(self._cand("A83482"), source_doc_id=doc.id)
+            assert r is None
+        # A third document citing the shared identifier still resolves (to the
+        # first-indexed copy).
+        r = resolver.resolve_document(
+            self._cand("A83482"), source_doc_id=self.citing.id
+        )
+        assert r is not None
+        assert r.resolution_status == C.STATUS_RESOLVED
+        assert r.target_document_id == self.target.id
+
     def test_exhibit_resolution_unaffected(self):
         exhibit = Document.objects.create(
             title="Acme S-1 (2024-09-30) - Exhibit 1.1: EX-1.1", creator=self.user
