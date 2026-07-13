@@ -111,6 +111,13 @@ class HtsGrammarTests(SimpleTestCase):
     def test_bare_year_never_matches(self):
         assert self._hts("In 2010, the HTSUS was amended.") == []
 
+    def test_odd_digit_grouping_rejected_by_normalization(self):
+        # The text shape's middle group allows 2-4 digits, so a 9-digit token
+        # like "1234.56.789" matches the regex but fails _normalize_hts's
+        # 4/6/8/10-digit rule — the candidate must be skipped, not emitted
+        # with a malformed key.
+        assert self._hts("Under the HTSUS, item 1234.56.789 was listed.") == []
+
     def test_type_filter_excludes_hts(self):
         text = "The applicable subheading will be 3924.90.5650, HTSUS."
         cands = self.ex.extract(text, reference_types={C.REF_DOCUMENT})
