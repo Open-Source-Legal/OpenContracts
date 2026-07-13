@@ -16,12 +16,13 @@ Celery workers + queues a target instance must run.
 
 Against the Redis broker, the target instance must run:
 
-1. **≥1 Celery worker** consuming **both** queues `celery,worker_uploads`
+1. **≥1 Celery worker** consuming **all three** queues
+   `celery,worker_uploads,doc_parse`
 2. **Exactly one Celery Beat** scheduler
 
 ```bash
 # worker — exactly what compose/production/django/celery/worker/start runs:
-celery -A config.celery_app worker -l INFO -Q celery,worker_uploads
+celery -A config.celery_app worker -l INFO -Q celery,worker_uploads,doc_parse
 
 # beat — run ONE instance only (see High Availability below):
 celery -A config.celery_app beat -l INFO
@@ -31,22 +32,27 @@ The stock `production.yml` / `local.yml` `celeryworker` + `celerybeat` services
 already do this. This page matters when you run a **custom or self-hosted**
 deployment, scale workers, or split queues.
 
-## The two queues (there are only two)
+## The three queues (there are only three)
 
-`CELERY_TASK_ROUTES` (in `config/settings/base.py`) routes only
-`worker_uploads.tasks.*` to a dedicated queue; everything else uses the default
+`CELERY_TASK_ROUTES` (in `config/settings/base.py`) routes
+`worker_uploads.tasks.*` to a dedicated queue and the later stages of the
+per-document ingest chain (`extract_thumbnail`, `ingest_doc`,
+`set_doc_lock_state`) to `doc_parse`; everything else uses the default
 `celery` queue.
 
 | Queue | Carries | Consumed by |
 |---|---|---|
 | `worker_uploads` | `process_pending_uploads` (creates the `Document`) + `recover_stalled_uploads` | the upload worker |
-| `celery` (default) | **everything else** — including **`extract_thumbnail`** (thumbnails for uploaded docs) and all maintenance tasks | the same or another worker |
+| `doc_parse` | the value-producing ingest-chain stages — **`extract_thumbnail`**, **`ingest_doc`** (parse), **`set_doc_lock_state`** (unlock + corpus actions) | the same or another worker |
+| `celery` (default) | **everything else** — `convert_document_to_pdf` (the chain's cheap first stage, kept on the default queue so a conversion flood can't starve parsing), maintenance tasks, embeddings, analyses | the same or another worker |
 
-!!! warning "Cover both queues"
-    A worker on `-Q worker_uploads` **alone** ingests documents but **never
-    generates thumbnails** (those route to `celery`). A default worker on `-Q
-    celery` **alone** never drains uploads. Use `-Q celery,worker_uploads`, or
-    run one worker per queue so both are always covered.
+!!! warning "Cover all three queues"
+    A worker on `-Q worker_uploads` **alone** stages documents but never
+    parses them. A worker missing `doc_parse` leaves every document stuck
+    mid-chain — converted but never thumbnailed/parsed/unlocked — **silently**
+    (the upload client already got its 202). Use
+    `-Q celery,worker_uploads,doc_parse`, or run one worker per queue so all
+    three are always covered.
 
 ## Beat schedule (mandatory)
 
@@ -68,12 +74,16 @@ recovery and the periodic safety-net drain stop** — uploads orphaned in
   drain `worker_uploads` concurrently with no double-processing.
 - **For bulk ingestion** (the remote-ingest-worker case), run a **dedicated**
   worker on `-Q worker_uploads` so an upload flood doesn't starve interactive
-  work on `celery`; keep your existing worker on `-Q celery` (or
-  `celery,worker_uploads`).
+  work on `celery`; keep your existing worker on `-Q celery,doc_parse` (or
+  all three). The `doc_parse` split exists for the same starvation reason at
+  the next stage: on a bulk ingest, every document's cheap
+  `convert_document_to_pdf` is enqueued up front on `celery`, and giving the
+  later parse/unlock stages their own consumer capacity keeps the conversion
+  backlog from starving them.
 - **The target's upload worker is light.** It imports pre-processed data and
   stores the embeddings the client shipped — it does **not** parse, OCR, or
-  re-embed (that ran on the remote worker). Thumbnail rendering on the `celery`
-  queue is the heavier part of the post-upload work.
+  re-embed (that ran on the remote worker). Thumbnail rendering on the
+  `doc_parse` queue is the heavier part of the post-upload work.
 - **Beat: exactly one instance.** Two Beats schedule every periodic task twice.
   In an HA setup pin Beat to a single replica (`replicas: 1` / a leader).
 
@@ -103,7 +113,8 @@ will re-deliver an in-flight task to a second worker.
 ## Verification (run after deploy)
 
 ```bash
-# 1) A worker is consuming BOTH queues (expect "celery" AND "worker_uploads"):
+# 1) A worker is consuming ALL THREE queues
+#    (expect "celery", "worker_uploads", AND "doc_parse"):
 celery -A config.celery_app inspect active_queues
 
 # 2) Beat is scheduling the drains (expect process_pending_uploads / recover_stalled_uploads),
@@ -120,6 +131,7 @@ python manage.py shell -c "from opencontractserver.worker_uploads.models import 
 | Symptom | Cause | Fix |
 |---|---|---|
 | `PENDING` climbs and never drains; no documents appear | No worker on the `worker_uploads` queue | Add `worker_uploads` to a worker's `-Q` |
-| Documents land but have **no thumbnails** | Worker missing the default `celery` queue | Add `celery` to the worker's `-Q` (or run a `celery` worker) |
+| Documents created but stuck locked/processing forever — **no thumbnails, no parsed text** | Worker missing the `doc_parse` queue (`extract_thumbnail`/`ingest_doc`/`set_doc_lock_state` route there) | Add `doc_parse` to the worker's `-Q` (or run a `doc_parse` worker) |
+| Non-PDF documents never even convert | Worker missing the default `celery` queue (`convert_document_to_pdf` routes there) | Add `celery` to the worker's `-Q` (or run a `celery` worker) |
 | Rows stuck in `PROCESSING` > 15 min | Beat is down (no `recover_stalled_uploads`) | Start exactly one Celery Beat |
 | Every periodic task runs twice | More than one Beat instance | Run a single Beat |

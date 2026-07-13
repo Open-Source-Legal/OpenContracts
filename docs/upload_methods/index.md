@@ -16,7 +16,7 @@ effects that certain annotation types trigger on import.
 | [Annotated Document Import](annotated_document_import.md) | Importing a single document with pre-built annotations into an existing corpus |
 | [Worker Uploads (REST API)](worker_uploads.md) | Token-scoped REST API for external pipelines to push pre-processed documents with annotations and embeddings |
 | [Remote Ingest Worker](remote_ingest_worker.md) | Run the full parse + embed pipeline on your own hardware and stream finished documents (with calculated metadata/annotations) to a target instance |
-| [Worker Celery Setup](worker_celery_setup.md) | Ops reference: the Celery workers + queues (`celery,worker_uploads`) and Beat a target must run so worker uploads become documents |
+| [Worker Celery Setup](worker_celery_setup.md) | Ops reference: the Celery workers + queues (`celery,worker_uploads,doc_parse`) and Beat a target must run so worker uploads become documents |
 | [Annotation Side Effects](annotation_side_effects.md) | Special annotation types that create document indexes, hierarchies, and structural data on import |
 
 ## Quick Reference: Which Method to Use

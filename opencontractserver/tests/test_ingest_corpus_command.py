@@ -38,6 +38,7 @@ _SETUP_TARGET = (
     "opencontractserver.corpuses.services.intelligence_setup."
     "CorpusIntelligenceSetupService.setup"
 )
+_CONVERTIBLE_TARGET = "opencontractserver.pipeline.utils.get_convertible_extensions"
 
 
 class IngestCorpusCommandTests(TestCase):
@@ -154,6 +155,45 @@ class IngestCorpusCommandTests(TestCase):
         self.assertIn("all documents processed", output)
         self.assertIn("setup started", output)
         self.assertIn("Marked corpus public", output)
+
+    def _ingest_and_collect_filenames(self, tmp: str, convertible: set) -> set:
+        """Run the command over ``tmp`` with a patched converter capability and
+        return the filenames actually handed to ``import_document_for_user``."""
+        doc = self._ready_document(self.owner)
+        with patch(_CONVERTIBLE_TARGET, return_value=convertible), patch(
+            _IMPORT_TARGET,
+            return_value=ImportResult(document=doc, error=None),
+        ) as mock_import:
+            call_command(
+                "ingest_corpus",
+                "--path",
+                tmp,
+                "--title",
+                f"Gate Corpus {len(convertible)}",
+                "--owner",
+                self.owner.username,
+                stdout=StringIO(),
+            )
+        return {c.kwargs["filename"] for c in mock_import.call_args_list}
+
+    def test_convertible_extensions_widen_the_ingest_gate(self):
+        """Regression (silently-dropped ``.doc``): a file outside the native
+        allowlist is ingested exactly when the configured file converter
+        reports its extension convertible — the same eligibility the REST
+        upload path applies via ``resolve_convertible_upload``."""
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "a.pdf").write_bytes(b"%PDF")
+            (Path(tmp) / "legacy.doc").write_bytes(b"old word file")
+            (Path(tmp) / "junk.xyz").write_bytes(b"never ingestible")
+            ingested = self._ingest_and_collect_filenames(tmp, convertible={"doc"})
+        self.assertEqual(ingested, {"a.pdf", "legacy.doc"})
+
+    def test_non_native_extension_dropped_without_converter(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "a.pdf").write_bytes(b"%PDF")
+            (Path(tmp) / "legacy.doc").write_bytes(b"old word file")
+            ingested = self._ingest_and_collect_filenames(tmp, convertible=set())
+        self.assertEqual(ingested, {"a.pdf"})
 
     def test_ingest_errors_when_no_ingestible_files(self):
         from django.core.management.base import CommandError

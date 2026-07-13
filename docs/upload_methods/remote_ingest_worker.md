@@ -80,8 +80,9 @@ upload (HTTP 202), and a Celery task (`process_pending_uploads`) turns it into a
 Document. So the target **must** be running:
 
 - a **Celery worker** that consumes the `worker_uploads` queue **and** the
-  default `celery` queue (the latter generates thumbnails). The stock compose
-  images already do this -- the worker starts with `-Q celery,worker_uploads`.
+  `celery` + `doc_parse` queues (which carry the post-upload ingest stages,
+  e.g. thumbnails on `doc_parse`). The stock compose images already do this --
+  the worker starts with `-Q celery,worker_uploads,doc_parse`.
 - **Celery Beat**, which schedules the periodic `process_pending_uploads` drain
   and `recover_stalled_uploads` (re-queues uploads stuck in `PROCESSING`).
 
@@ -252,7 +253,7 @@ rate limiting (the per-token limit is best-effort).
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `run` reports success (HTTP 202) but the ledger stays at `UPLOADED` (never `COMPLETED`), `verify` reports docs still-processing forever, **no documents appear**, and `worker status` shows the target backlog stuck | No Celery worker is consuming the `worker_uploads` queue on the **target** (uploads stage as `PENDING` forever). | Start the target's Celery worker (`-Q celery,worker_uploads`) and Beat -- see [Prerequisites](#prerequisites-on-the-target-instance). |
+| `run` reports success (HTTP 202) but the ledger stays at `UPLOADED` (never `COMPLETED`), `verify` reports docs still-processing forever, **no documents appear**, and `worker status` shows the target backlog stuck | No Celery worker is consuming the `worker_uploads` queue on the **target** (uploads stage as `PENDING` forever). | Start the target's Celery worker (`-Q celery,worker_uploads,doc_parse`) and Beat -- see [Prerequisites](#prerequisites-on-the-target-instance). |
 | Docs `FAILED` with `401 ... /embeddings` (or land with no embeddings) | `VECTOR_EMBEDDER_API_KEY` mismatch between the worker and the embedder service (the embedder checks `X-API-Key`, default `abc123`). | Export the **same** `VECTOR_EMBEDDER_API_KEY` before bringing up the bundle so it reaches both services; recreate the embedder if you change it. |
 | `run` gets an opaque **HTTP 400** from the target (empty body) and marks docs failed | `OC_TARGET_URL`'s host is not in the target's `DJANGO_ALLOWED_HOSTS` (Django rejects the `Host` header). | Add the host to the target's `DJANGO_ALLOWED_HOSTS`. (In production the real hostname is already listed; this bites local/testing targets.) |
 | Parsing is very slow / the host runs out of memory under load | On CPU, each Docling OCR parse is serial and uses 3-6 GB RAM. Too-high `--max-workers` (or too many parser replicas) exhausts RAM/swap. | Lower `--max-workers`, add parser replicas only up to available RAM, or use [GPU acceleration](#gpu-acceleration-optional). |
