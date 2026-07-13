@@ -67,7 +67,11 @@ HTSUS_PREFIX = "htsus"
 # K#####, …) or 2 letters + 6 digits (two-letter legacy). Bare 6-digit legacy
 # ruling numbers are deliberately NOT matched — dollar amounts, statute
 # numbers, and "STATE + 5-digit ZIP" ("NY 10022") are common false positives
-# for that shape. Used with ``finditer`` over text and ``fullmatch`` over
+# for that shape. UPPERCASE-only by design, for both sides: titles are
+# uppercased before the fullmatch (document_identifier_from_title), and for
+# text mining a lowercase/mixed-case token ("a83482") is far more likely
+# prose or a serial number than a ruling citation — CROSS text prints ruling
+# numbers uppercase. Used with ``finditer`` over text and ``fullmatch`` over
 # canonicalized titles.
 DOC_IDENTIFIER_RE = _re.compile(r"\b([A-Z]\d{5,6}|[A-Z]{2}\d{6})\b")
 # The identifier grammar only activates on corpora that actually speak this
@@ -94,7 +98,11 @@ def document_identifier_from_title(title: str | None) -> str:
     resolver's title index and every citation into that document would
     silently read as unresolved. ``Path(...).stem`` strips at most one
     trailing extension and is a no-op on titles that are already
-    extension-free.
+    extension-free. Single-strip is an accepted tradeoff: a multi-suffix
+    title ("A83482.v2.doc" -> "A83482.V2") won't fullmatch the identifier
+    shape and simply stays out of the gate/index — CBP materialized
+    filenames carry exactly one extension, and a non-matching title
+    degrades to "not identifier-titled", never to a wrong link.
     """
     return _Path((title or "").strip()).stem.upper()
 

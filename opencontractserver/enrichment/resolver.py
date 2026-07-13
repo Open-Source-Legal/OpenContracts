@@ -124,7 +124,12 @@ class ReferenceResolver:
         check is against the SOURCE document's own title identifier (not
         "target == source"), so a duplicate-titled sibling (the same ruling
         ingested twice) can never turn one copy's header into a resolved
-        citation pointing at the other copy.
+        citation pointing at the other copy. The drop is deliberately
+        DOCUMENT-WIDE, not header-scoped: there is no positional signal
+        separating a header restatement from a body self-cite, and a
+        self-citation resolves to a self-loop edge the reference graph has
+        no use for — dropping every own-identifier span trades that (rare,
+        informationless) edge for never persisting header/footer noise.
         Citations to identifiers absent from the corpus persist UNRESOLVED
         (the mention is real; the writer's forward-only heal upgrades the row
         when the sibling is ingested later and enrichment re-applies).
