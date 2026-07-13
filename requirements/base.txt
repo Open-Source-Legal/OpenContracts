@@ -18,7 +18,7 @@ brotli>=1.2.0  # decoder for httpx Content-Encoding: br responses (e.g. OpenAI A
 django==5.2.16  # https://www.djangoproject.com/
 django-environ==0.14.0  # https://github.com/joke2k/django-environ
 django-redis==7.0.0  # https://github.com/jazzband/django-redis
-django-filter==25.1  # https://github.com/carltongibson/django-filter
+django-filter==26.1  # https://github.com/carltongibson/django-filter
 django-storages[boto3,google]==1.14.6  # https://github.com/jschneier/django-storages
 whitenoise==6.12.0
 django-tree-queries[admin]==0.24.0  # https://pypi.org/project/django-tree-queries/0.21.0/
