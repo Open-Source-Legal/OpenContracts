@@ -23,8 +23,10 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 .tox/
+node_modules/
 .coverage
 .coverage.*
+coverage.xml
 htmlcov/
 
 # Frontend has its own image
@@ -55,6 +57,21 @@ staticfiles/
 static/
 site/
 .ipython/
+.pilot_data/
+.eval_extract/
+screenshots/
+auth-retest-*.png
+oc_ingest*.db
+oc_ingest*.db-shm
+oc_ingest*.db-wal
+
+# Local browser, agent, and worktree tooling
+.agents/
+.codex/
+.claire/
+.playwright-mcp/
+playwright-report*/
+test-results/
 
 # Top-level docs (CHANGELOG.md is intentionally retained)
 README.md
