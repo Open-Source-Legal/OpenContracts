@@ -206,9 +206,7 @@ def m_create_corpus_group(
             description="Orchestrator AgentConfiguration to bind to this group",
         ),
     ] = strawberry.UNSET,
-    is_public: Annotated[
-        bool | None, strawberry.argument(name="isPublic")
-    ] = False,
+    is_public: Annotated[bool | None, strawberry.argument(name="isPublic")] = False,
 ) -> CreateCorpusGroupMutation | None:
     kwargs = strip_unset(
         {

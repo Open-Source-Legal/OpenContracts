@@ -460,7 +460,9 @@ def q_corpus_group(
         strawberry.ID,
         strawberry.argument(name="id", description="The ID of the object"),
     ] = strawberry.UNSET,
-) -> None | (Annotated[CorpusGroupType, strawberry.lazy("config.graphql.corpus_types")]):
+) -> None | (
+    Annotated[CorpusGroupType, strawberry.lazy("config.graphql.corpus_types")]
+):
     return get_node_from_global_id(info, id, only_type_name="CorpusGroupType")
 
 

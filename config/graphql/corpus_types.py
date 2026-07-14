@@ -1804,10 +1804,8 @@ def _resolve_CorpusGroupType_corpora(root, info):
     from opencontractserver.corpuses.services import CorpusGroupService
 
     user = getattr(info.context, "user", None)
-    return list(
-        CorpusGroupService.get_group_corpora_visible_to_user(
-            user, root, request=info.context
-        )
+    return CorpusGroupService.get_group_corpora_visible_to_user(
+        user, root, request=info.context
     )
 
 
@@ -1838,8 +1836,32 @@ class CorpusGroupType(Node):
     @strawberry.field(
         name="corpora", description="Member corpora visible to the viewer"
     )
-    def corpora(self, info: strawberry.Info) -> list[CorpusType | None] | None:
-        return _resolve_CorpusGroupType_corpora(self, info)
+    def corpora(
+        self,
+        info: strawberry.Info,
+        before: Annotated[
+            str | None, strawberry.argument(name="before")
+        ] = strawberry.UNSET,
+        after: Annotated[
+            str | None, strawberry.argument(name="after")
+        ] = strawberry.UNSET,
+        first: Annotated[
+            int | None, strawberry.argument(name="first")
+        ] = strawberry.UNSET,
+        last: Annotated[
+            int | None, strawberry.argument(name="last")
+        ] = strawberry.UNSET,
+    ) -> CorpusTypeConnection:
+        kwargs = strip_unset(
+            {"before": before, "after": after, "first": first, "last": last}
+        )
+        resolved = _resolve_CorpusGroupType_corpora(self, info)
+        return resolve_django_connection(
+            resolved=resolved,
+            info=info,
+            args=kwargs,
+            node_type_name="CorpusType",
+        )
 
     @strawberry.field(
         name="defaultAgent",
