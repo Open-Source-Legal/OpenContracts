@@ -832,6 +832,76 @@ class UnifiedAgentConsumerAgentLlmTestCase(WebsocketFixtureBaseTestCase):
 
 @override_settings(USE_AUTH0=False)
 @pytest.mark.django_db(transaction=True)
+class UnifiedAgentConsumerAgentConfigThreadingTestCase(WebsocketFixtureBaseTestCase):
+    """``_initialize_agent`` must thread an explicitly-selected agent's
+    ``system_instructions`` and ``available_tools`` into the factory (issue
+    #2056 orchestrator wiring), while slug-resolved DEFAULT agents keep the
+    factory's context-derived prompt and tool set untouched.
+    """
+
+    def _make_corpus_consumer(self, *, explicit: bool) -> UnifiedAgentConsumer:
+        consumer = UnifiedAgentConsumer()
+        consumer.session_id = "test-session"
+        consumer.user_id = self.user.id
+        consumer.conversation_id = None
+        consumer.document = None
+        consumer.corpus = SimpleNamespace(preferred_embedder=None)
+        consumer.corpus_id = self.corpus.id
+        consumer.agent_config = SimpleNamespace(
+            preferred_llm="",
+            system_instructions="You are the cross-corpus orchestrator.",
+            available_tools=["search_across_corpora"],
+        )
+        # ``agent_config_id`` is only set when the client passed
+        # ``?agent_id=...`` — that is the explicit-selection marker.
+        consumer.agent_config_id = 12345 if explicit else None
+        return consumer
+
+    async def test_explicit_agent_threads_instructions_and_tools(self) -> None:
+        """An explicitly-selected agent's persona + tool list reach the factory."""
+        consumer = self._make_corpus_consumer(explicit=True)
+        with patch(
+            "config.websocket.consumers.unified_agent_conversation.agents.for_corpus"
+        ) as mock_for_corpus:
+            mock_for_corpus.return_value = _StubAgent(lambda: iter(()))
+            await consumer._initialize_agent()
+            kwargs = mock_for_corpus.call_args.kwargs
+            self.assertEqual(
+                kwargs.get("system_prompt"),
+                "You are the cross-corpus orchestrator.",
+            )
+            self.assertEqual(kwargs.get("tools"), ["search_across_corpora"])
+
+    async def test_default_agent_keeps_factory_prompt_and_tools(self) -> None:
+        """A slug-resolved default agent must NOT override the factory's
+        context-derived prompt (e.g. ``corpus_agent_instructions``) or tools."""
+        consumer = self._make_corpus_consumer(explicit=False)
+        with patch(
+            "config.websocket.consumers.unified_agent_conversation.agents.for_corpus"
+        ) as mock_for_corpus:
+            mock_for_corpus.return_value = _StubAgent(lambda: iter(()))
+            await consumer._initialize_agent()
+            kwargs = mock_for_corpus.call_args.kwargs
+            self.assertNotIn("system_prompt", kwargs)
+            self.assertNotIn("tools", kwargs)
+
+    async def test_explicit_agent_tools_merge_with_extra_tools(self) -> None:
+        """Config tools come first, per-turn delegation extra_tools append."""
+        consumer = self._make_corpus_consumer(explicit=True)
+        sentinel_tool = object()
+        with patch(
+            "config.websocket.consumers.unified_agent_conversation.agents.for_corpus"
+        ) as mock_for_corpus:
+            mock_for_corpus.return_value = _StubAgent(lambda: iter(()))
+            await consumer._initialize_agent(extra_tools=[sentinel_tool])
+            kwargs = mock_for_corpus.call_args.kwargs
+            self.assertEqual(
+                kwargs.get("tools"), ["search_across_corpora", sentinel_tool]
+            )
+
+
+@override_settings(USE_AUTH0=False)
+@pytest.mark.django_db(transaction=True)
 class UnifiedAgentConsumerDisconnectTestCase(WebsocketFixtureBaseTestCase):
     """Tests for graceful disconnect handling."""
 

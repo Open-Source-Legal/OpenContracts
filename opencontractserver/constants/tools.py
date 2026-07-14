@@ -40,6 +40,25 @@ CORPUS_FILE_SEARCH_MAX_LIMIT = 200
 
 
 # ---------------------------------------------------------------------------
+# Limits for the cross-corpus retrieval tool (``search_across_corpora``)
+# ---------------------------------------------------------------------------
+# Per-corpus hit count when the LLM omits ``k`` — small because results are
+# returned for EVERY visible corpus in the group.
+MULTI_CORPUS_SEARCH_DEFAULT_TOP_K = 5
+# Hard per-corpus cap regardless of requested ``k``.
+MULTI_CORPUS_SEARCH_MAX_TOP_K = 25
+# Max member corpora searched in one call. Corpora beyond this cap are
+# reported in the tool result (``corpora_truncated``) — never silently
+# dropped.
+MULTI_CORPUS_SEARCH_MAX_CORPORA = 20
+# Per-hit content snippet cap. Dict-shaped tool results bypass the string
+# truncation in ``PydanticAIToolWrapper``, so the tool bounds its own
+# payload: 20 corpora x 25 hits x unbounded annotation text would flood the
+# context window.
+MULTI_CORPUS_SEARCH_SNIPPET_MAX_CHARS = 1_000
+
+
+# ---------------------------------------------------------------------------
 # Extract status strings exposed to agents
 # ---------------------------------------------------------------------------
 # ``Extract`` has three timestamp fields (``started``, ``finished``,

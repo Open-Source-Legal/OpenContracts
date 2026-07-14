@@ -1909,11 +1909,12 @@ class PipelineSettings(django.db.models.Model):
 
     def get_full_component_settings(self, component_class_path: str) -> dict:
         """
-        Get full settings for a component, merging non-sensitive settings
-        with decrypted secrets.
+        Get full settings for a component, including decrypted secrets.
 
-        This is the method pipeline components should use to get their
-        complete configuration.
+        ``get_component_settings`` already returns a fresh dictionary with
+        encrypted secrets overlaid on plaintext settings. This compatibility
+        wrapper therefore only makes a defensive copy; merging secrets again
+        would repeat the expensive PBKDF2 key derivation and Fernet decrypt.
 
         Args:
             component_class_path: Full class path of the component
@@ -1921,14 +1922,7 @@ class PipelineSettings(django.db.models.Model):
         Returns:
             Dict of all settings (non-sensitive + secrets) for the component.
         """
-        # Get non-sensitive settings
-        settings = dict(self.get_component_settings(component_class_path))
-
-        # Merge with secrets (secrets take precedence)
-        secrets = self.get_component_secrets(component_class_path)
-        settings.update(secrets)
-
-        return settings
+        return dict(self.get_component_settings(component_class_path))
 
     # =====================================================================
     # Tool Settings & Secrets

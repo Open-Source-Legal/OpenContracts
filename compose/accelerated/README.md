@@ -1,16 +1,16 @@
 # Hardware-accelerated parser + embedder (Intel XPU/NPU · CUDA · ROCm)
 
 Locally-built, **auto-detecting** replacements for the `docling-parser` and
-`vector-embedder` microservices. Each image picks the best compute device
-available at startup and **falls back to CPU**, so the same image "just works"
-on whatever host it lands on.
+`vector-embedder` microservices. The common image can fall back to CPU; the
+vector-embedder vendor overlays require their selected accelerator so a broken
+GPU runtime fails readiness instead of silently losing performance.
 
 Measured on the Intel **Lunar Lake** reference host (Core Ultra 7 258V, Arc 140V
 iGPU + NPU):
 
 | Service | Best device | Measured | Verdict |
 |---|---|---|---|
-| `vector-embedder` | Intel **NPU** (OpenVINO) | **~11×** vs CPU (GPU variant **~15×**), output identical to reference | **Deploy it.** Embeddings run per-annotation (high volume) and are batched — the iGPU/NPU is a clean win. |
+| `vector-embedder` | Intel **GPU** (OpenVINO) | **49.13×** vs the production CPU image at batch 100 / concurrency 3; minimum cosine `0.9999989` | **Deploy it.** Accelerator-sized inference, cross-request coalescing, and batched relationship embeddings remove the measured ingest bottleneck. |
 | `docling-parser` | Intel iGPU (XPU) | **~1.05× (a wash)** + ~338 s kernel cold-start | **Keep on CPU here.** Docling is batch-1 CV inference; the *integrated* GPU's per-inference overhead cancels the compute gain. |
 
 > **The Docling "wash" is iGPU-specific, NOT a general result.** A small,
@@ -28,9 +28,8 @@ iGPU + NPU):
 > accelerator (`ACCEL=cuda`/`rocm`) and run the parse benchmark to get the real
 > number** (see "Benchmarking your host"). Don't extrapolate the iGPU result.
 
-The embedder prefers the NPU so that — on the rare host where Docling *does*
-benefit from the iGPU — the two services run on separate engines without
-contending.
+The embedder prefers the GPU for throughput. The NPU remains an explicit option
+when the GPU must be reserved for Docling or another workload.
 
 ## Why two images, not one
 
@@ -58,17 +57,19 @@ OpenVINO path), so its `ACCEL` directly selects the GPU it uses.
 
 | Host | Embedder | Docling |
 |---|---|---|
-| Intel (NPU+GPU) | `openvino:NPU` | `xpu` |
+| Intel (NPU+GPU) | `openvino:GPU` | `xpu` |
 | Intel (GPU only) | `openvino:GPU` | `xpu` |
 | NVIDIA | `torch:cuda` | `cuda` |
 | AMD (ROCm) | `torch:cuda` | `cuda` |
 | Apple | `torch:mps` | `mps` |
 | none | `openvino:CPU` / `torch:cpu` | `cpu` |
 
-The container `entrypoint.sh` runs the detector, exports the device env, then
-execs the service. Override with `EMBED_ACCEL` / `DOCLING_ACCEL`
-(`auto` | `cpu` | `xpu` | `cuda` | `rocm`, or for the embedder a fully-qualified
-`openvino:GPU` / `openvino:NPU` / `torch:xpu`).
+The container `entrypoint.sh` runs the detector once, assigns its allow-listed
+device variables without evaluating shell code, then execs the service. Override
+with `EMBED_ACCEL` / `DOCLING_ACCEL` (`auto` | `cpu` | `xpu` | `cuda` | `rocm`;
+the embedder also accepts `npu` and fully-qualified values such as
+`openvino:GPU`, `openvino:NPU`, `torch:cuda:1`, or `torch:xpu`). Invalid values
+fail startup instead of silently selecting another device.
 
 Inspect a host's routing without running a service:
 
@@ -89,9 +90,10 @@ The Intel NPU requires a **fully static** compute graph; sentence-transformers'
 dynamic `encode()` won't compile on it. `ov_npu.py` loads the pre-exported
 OpenVINO IR, reshapes it to a fixed `[batch, seq]`, compiles on the NPU, and
 reimplements encode (fixed-length tokenize → infer → mean-pool → L2-normalize).
-Output is **numerically identical** to the sentence-transformers reference
-(verified mean cosine = `1.00000`). Tunable via `NPU_BATCH` (default 32) /
-`NPU_SEQ_LEN` (default 128).
+Output is **numerically equivalent** to the sentence-transformers reference.
+Tunable via `NPU_BATCH` (default 32) / `NPU_SEQ_LEN` (default 512); keeping the
+full sequence length avoids the long-text truncation of the earlier 128-token
+prototype.
 
 ## Best target: a discrete Intel Arc (Battlemage) workstation GPU
 
@@ -100,17 +102,19 @@ The iGPU result above is the *floor*. A **discrete Intel Arc Pro B-series**
 @ 608 GB/s, 367 INT8 TOPS) is the same architecture this stack already targets,
 but with dedicated VRAM and ~10× the compute — exactly what flips Docling out of
 the iGPU "wash" into the discrete-GPU regime, and a great host for the
-[remote-ingest worker](../../scripts/remote_ingest/README.md). Both services use
-`ACCEL=xpu` here (discrete Arc has **no NPU**, so the embedder routes to
-`openvino:GPU` — the 32 GB VRAM easily hosts both services on one card; with
-several cards, dedicate or scale out). Then **benchmark it** — don't trust the
-iGPU numbers:
+[remote-ingest worker](../../scripts/remote_ingest/README.md). Docling uses the
+XPU torch build while the embedder uses OpenVINO (discrete Arc has **no NPU**, so
+the embedder routes to `openvino:GPU` — the 32 GB VRAM easily hosts both services
+on one card; with several cards, dedicate or scale out). Then **benchmark it** —
+don't trust the iGPU numbers:
 
 ```bash
 export RENDER_GID=$(stat -c '%g' /dev/dri/renderD128)
-OC_DOCLING_ACCEL=xpu OC_EMBED_ACCEL=auto \
-  docker compose -f local.yml -f compose/accelerated/accel.override.yml build \
-      docling-parser vector-embedder
+docker compose \
+  -f local.yml \
+  -f compose/accelerated/accel.override.yml \
+  -f compose/accelerated/accel.intel.yml \
+  build docling-parser vector-embedder
 # parser GPU-vs-CPU on the real hardware:
 docker build --build-arg ACCEL=xpu -f compose/accelerated/docling/Dockerfile -t oc-docling:xpu compose/accelerated
 docker run -d --name dl-gpu -p 8014:8000 --device /dev/dri --group-add "$RENDER_GID" oc-docling:xpu
@@ -124,23 +128,90 @@ to amortize per-page overhead across the big VRAM.
 
 ## Usage
 
+The common override is intentionally CPU-safe and contains no device mounts.
+Always merge the matching vendor overlay after it:
+
+| Host | Required overlay | Host setup |
+|---|---|---|
+| CPU | `accel.cpu.yml` | none |
+| Intel GPU | `accel.intel.yml` | set `RENDER_GID`; expose `/dev/dri` |
+| Intel GPU + NPU | `accel.intel.yml` + `accel.intel-npu.yml` | same, plus `/dev/accel/accel0` |
+| NVIDIA | `accel.nvidia.yml` | install/configure NVIDIA Container Toolkit |
+| AMD ROCm | `accel.amd.yml` | set `VIDEO_GID` and `RENDER_GID`; expose `/dev/kfd` + `/dev/dri` |
+
+Intel example:
+
 ```bash
-# Render-group GID is host-specific — set it once:
 export RENDER_GID=$(stat -c '%g' /dev/dri/renderD128)
 
-# Build the accelerated images (Intel default: docling=xpu, embedder=auto):
-docker compose -f local.yml -f compose/accelerated/accel.override.yml build \
-    docling-parser vector-embedder
-
-# Run the stack with the override merged on top:
-docker compose -f local.yml -f compose/accelerated/accel.override.yml up
+docker compose \
+  -f local.yml \
+  -f compose/accelerated/accel.override.yml \
+  -f compose/accelerated/accel.intel.yml \
+  up --build
 ```
 
-For NVIDIA build with `OC_DOCLING_ACCEL=cuda OC_EMBED_ACCEL=cuda` and pass GPUs
-via the nvidia runtime instead of `/dev/dri`; for AMD use `ACCEL=rocm` and pass
-`/dev/kfd` + `/dev/dri`.
+If that Intel host has an NPU, append
+`-f compose/accelerated/accel.intel-npu.yml` to expose it. The GPU remains the
+default; set `EMBED_ACCEL=npu` to reserve the GPU for another workload.
 
-## Benchmarking your host (don't extrapolate the iGPU numbers)
+NVIDIA example:
+
+```bash
+docker compose \
+  -f local.yml \
+  -f compose/accelerated/accel.override.yml \
+  -f compose/accelerated/accel.nvidia.yml \
+  up --build
+```
+
+AMD example:
+
+```bash
+export VIDEO_GID=$(stat -c '%g' /dev/kfd)
+export RENDER_GID=$(stat -c '%g' /dev/dri/renderD128)
+
+docker compose \
+  -f local.yml \
+  -f compose/accelerated/accel.override.yml \
+  -f compose/accelerated/accel.amd.yml \
+  up --build
+```
+
+The vendor file selects the matching torch wheel family at build time. Runtime
+auto-detection remains enabled. Set `EMBED_ACCEL` or `DOCLING_ACCEL` only when
+you need to pin a particular visible device.
+
+> **Security note (AMD ROCm only):** `accel.amd.yml` adds `cap_add: SYS_PTRACE`
+> and `security_opt: seccomp=unconfined` to both `docling-parser` and
+> `vector-embedder`. ROCm's profiling/debug tooling requires it; the
+> Intel/NVIDIA overlays need neither. This is a real relaxation of container
+> isolation relative to the other vendor overlays — weigh it accordingly if
+> auditing the compose files for a shared or multi-tenant host.
+
+## Benchmarking your host
+
+Use the embedding benchmark for an alternating, paired baseline/candidate run.
+It verifies backend metadata, fallback state, response shape, finite unit vectors,
+and CPU/GPU cosine similarity before timing, then emits raw trials and a 25x gate:
+
+```bash
+python compose/accelerated/bench_embed.py \
+  --baseline-url http://localhost:8015 \
+  --candidate-url http://localhost:8014 \
+  --candidate-expect-backend openvino \
+  --candidate-expect-device GPU \
+  --batch-sizes 100 --concurrencies 3 \
+  --target-speedup 25 --fail-below-target \
+  --json-out /tmp/embed-benchmark.json
+```
+
+The production CPU image has legacy readiness metadata, so add
+`--allow-missing-backend-metadata` only when it is the baseline. Never use that
+flag for the candidate: the benchmark must prove that the requested GPU served
+the run.
+
+### Parser benchmark
 
 Whether the GPU helps **Docling** depends entirely on the hardware — measure it.
 On a discrete AMD GPU (ROCm):
@@ -174,20 +245,30 @@ source — no per-image duplication.
 | File | Purpose |
 |---|---|
 | `accel_detect.py` | hardware probe + device routing (shared by both images) |
-| `entrypoint.sh` | runs the detector, exports device env, execs the service (shared) |
+| `entrypoint.sh` | applies allow-listed detector output and execs the service |
+| `bench_embed.py` | correctness-gated CPU/GPU embedding throughput benchmark |
 | `bench_parse.py` | benchmark a running docling-parser's `/parse/` on your hardware |
 | `embedder/Dockerfile` | OpenVINO base + sentence-transformers + torch (by `ACCEL`); pre-exports the OV IR |
 | `embedder/ov_npu.py` | static-shape NPU embedding engine (drop-in `.encode()`) |
 | `embedder/{embeddings,main}.py` | the embedder service (vendored, with the device-select load path) |
+| `embedder/batching.py` | coalesces concurrent HTTP requests into full accelerator batches |
 | `docling/Dockerfile` | docling image + Intel GPU runtime + torch wheel (by `ACCEL`) |
 | `docling/sitecustomize.py` | torch+XPU integrated-GPU `mem_get_info` shim (auto-imported) |
-| `accel.override.yml` | compose override that swaps both services into `local.yml` with device passthrough |
+| `accel.override.yml` | common CPU-safe service build; contains no host devices |
+| `accel.{cpu,intel,nvidia,amd}.yml` | vendor-specific image family and device passthrough |
+| `accel.intel-npu.yml` | optional Intel NPU device passthrough, layered after `accel.intel.yml` |
 
 ## Validated on the reference host
 
 * OpenVINO sees `['CPU','GPU','NPU']` in-container with `/dev/dri` + `/dev/accel`
   + render group (no privileged mode).
-* Embedder auto-detect → NPU: **127.6 texts/s** HTTP vs **11.5** on the
-  production CPU embedder (~11×); GPU variant **168 texts/s** (~15×).
+* The reproducible embedding gate (32/128-word deterministic legal text, batch
+  100, concurrency 3, one warmup + five alternating trials) measured **817.59
+  texts/s** on OpenVINO GPU versus **16.64 texts/s** on the production CPU
+  image: **49.13×**. The minimum CPU/GPU cosine was **0.9999989** and the
+  candidate reported `openvino/GPU` with no fallback.
+* The earlier static NPU prototype measured 127.6 short texts/s. NPU is now
+  opt-in and uses the full 512-token sequence length; benchmark it separately
+  before choosing it over the GPU.
 * `torch 2.6.0+xpu` in the docling image: `xpu available: True` (Intel Graphics);
   `decide_device(auto) -> xpu`.

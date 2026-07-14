@@ -12,7 +12,6 @@ EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "multi-qa-MiniLM-L6-cos-v1")
 TOKENIZER_MODEL = os.getenv(
     "TOKENIZER_MODEL", "sentence-transformers/multi-qa-MiniLM-L6-cos-v1"
 )
-MAX_BATCH_SIZE = int(os.getenv("MAX_BATCH_SIZE", "8"))  # Chunks per encode() call
 MAX_IMAGE_SIZE = int(os.getenv("MAX_IMAGE_SIZE", "10485760"))  # 10MB default
 
 print(f"Loading embedding model: {EMBEDDING_MODEL}")
@@ -29,10 +28,16 @@ print(f"Loading embedding model: {EMBEDDING_MODEL}")
 EMBED_BACKEND = os.getenv("EMBED_BACKEND", "torch").lower()
 EMBED_DEVICE = os.getenv("EMBED_DEVICE", "cpu")
 OV_MODEL_DIR = os.getenv("OV_MODEL_DIR", "").strip()
+REQUIRE_ACCELERATOR = os.getenv("REQUIRE_ACCELERATOR", "false").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 
 
 NPU_BATCH = int(os.getenv("NPU_BATCH", "32"))
-NPU_SEQ_LEN = int(os.getenv("NPU_SEQ_LEN", "128"))
+NPU_SEQ_LEN = int(os.getenv("NPU_SEQ_LEN", "512"))
 
 
 def _load_model():
@@ -51,7 +56,7 @@ def _load_model():
             print(
                 f"OpenVINO NPU engine ready ({EMBED_DEVICE}, batch={NPU_BATCH}, seq={NPU_SEQ_LEN})"
             )
-            return m
+            return m, "openvino", EMBED_DEVICE, None
         # GPU/CPU: ST's dynamic OpenVINO path (carries pooling + normalize). The
         # OV device goes in model_kwargs; the ST `device` is the torch device for
         # the cheap pooling modules (keep cpu — "GPU" is not a torch device).
@@ -62,19 +67,68 @@ def _load_model():
             model_kwargs={"device": EMBED_DEVICE},
         )
         print(f"OpenVINO backend ready on device={EMBED_DEVICE} (source={src})")
-        return m
+        return m, "openvino", EMBED_DEVICE, None
     m = SentenceTransformer(EMBEDDING_MODEL, device=EMBED_DEVICE)
     print(f"torch backend ready on device={EMBED_DEVICE}")
-    return m
+    return m, "torch", EMBED_DEVICE, None
 
 
 try:
-    model = _load_model()
+    model, ACTIVE_BACKEND, ACTIVE_DEVICE, FALLBACK_REASON = _load_model()
 except Exception as exc:  # hardware/driver dependent — never fail to start
+    if REQUIRE_ACCELERATOR:
+        raise RuntimeError(
+            f"Required accelerator {EMBED_BACKEND}/{EMBED_DEVICE} failed to load"
+        ) from exc
     print(
         f"{EMBED_BACKEND}/{EMBED_DEVICE} unavailable ({exc}); falling back to torch+cpu"
     )
     model = SentenceTransformer(EMBEDDING_MODEL, device="cpu")
+    ACTIVE_BACKEND = "torch"
+    ACTIVE_DEVICE = "cpu"
+    FALLBACK_REASON = str(exc)
+
+
+def _is_accelerated(device: str) -> bool:
+    # OpenVINO devices may carry an index suffix ("CPU.0") and torch devices a
+    # colon suffix ("cuda:1"); compare the base device family so an indexed CPU
+    # device never satisfies REQUIRE_ACCELERATOR.
+    return device.upper().split(".", 1)[0].split(":", 1)[0] != "CPU"
+
+
+ACCELERATED = _is_accelerated(ACTIVE_DEVICE)
+if REQUIRE_ACCELERATOR and not ACCELERATED:
+    raise RuntimeError(
+        f"REQUIRE_ACCELERATOR is set but selected {ACTIVE_BACKEND}/{ACTIVE_DEVICE}"
+    )
+
+# SentenceTransformer already performs its own device batches. The old service
+# split a 100-text HTTP request into separate eight-item encode() calls first,
+# which discarded most GPU throughput and made the fixed-batch NPU pad 24 of 32
+# rows on every call. Submit the complete flattened request once and let the
+# backend use an accelerator-sized inference batch.
+_configured_batch_size = os.getenv("INFERENCE_BATCH_SIZE") or os.getenv(
+    "MAX_BATCH_SIZE"
+)
+if _configured_batch_size:
+    INFERENCE_BATCH_SIZE = int(_configured_batch_size)
+elif ACTIVE_DEVICE.upper().startswith("NPU"):
+    INFERENCE_BATCH_SIZE = NPU_BATCH
+elif ACTIVE_BACKEND == "openvino" and ACTIVE_DEVICE.upper().startswith("GPU"):
+    # Measured best on the Intel Arc 140V reference host. Larger batches lose
+    # throughput on the shared-memory iGPU; discrete torch GPUs have enough
+    # bandwidth to use the 128-row default below.
+    INFERENCE_BATCH_SIZE = 64
+elif ACCELERATED:
+    INFERENCE_BATCH_SIZE = 128
+else:
+    INFERENCE_BATCH_SIZE = 32
+if INFERENCE_BATCH_SIZE < 1:
+    raise ValueError("INFERENCE_BATCH_SIZE must be at least 1")
+
+# Backwards-compatible module attribute for deployments that introspect it.
+MAX_BATCH_SIZE = INFERENCE_BATCH_SIZE
+backend = ACTIVE_BACKEND
 
 
 def _check_image_support():
@@ -202,7 +256,11 @@ def _embed_text_chunked(text: str) -> np.ndarray:
     chunks = chunks[:5]
     print(f"\tFinal chunk length following truncation: {len(chunks)}")
 
-    embeddings = model.encode(chunks)
+    embeddings = model.encode(
+        chunks,
+        batch_size=INFERENCE_BATCH_SIZE,
+        show_progress_bar=False,
+    )
     avg_embedding: np.ndarray = np.mean(embeddings, axis=0, keepdims=True)
     return avg_embedding
 
@@ -213,8 +271,9 @@ def embed_texts_batch(texts: list[str], max_batch_size: int = None) -> list[np.n
 
     Parameters:
     - texts: List of texts to embed
-    - max_batch_size: Maximum chunks to encode in single model.encode() call.
-                      Defaults to MAX_BATCH_SIZE env var (default 8).
+    - max_batch_size: Device inference batch size used by model.encode().
+                      Defaults to a backend-aware value (32 on CPU, 128 on GPU,
+                      or the NPU's compiled static batch size).
 
     Returns:
     - List of embedding arrays, one per input text
@@ -226,7 +285,9 @@ def embed_texts_batch(texts: list[str], max_batch_size: int = None) -> list[np.n
 
     # Text-only models: use chunking
     if max_batch_size is None:
-        max_batch_size = MAX_BATCH_SIZE
+        max_batch_size = INFERENCE_BATCH_SIZE
+    if max_batch_size < 1:
+        raise ValueError("max_batch_size must be at least 1")
     window = 512  # Use full model capacity
     all_chunks = []
     chunk_boundaries = []  # Track which chunks belong to which text
@@ -238,12 +299,14 @@ def embed_texts_batch(texts: list[str], max_batch_size: int = None) -> list[np.n
         chunk_boundaries.append((len(all_chunks), len(all_chunks) + len(chunks)))
         all_chunks.extend(chunks)
 
-    # Encode all chunks in batches
-    all_embeddings = []
-    for i in range(0, len(all_chunks), max_batch_size):
-        batch = all_chunks[i : i + max_batch_size]
-        batch_embeddings = model.encode(batch)
-        all_embeddings.extend(batch_embeddings)
+    # One encode() call lets SentenceTransformer/OpenVINO schedule full device
+    # batches and sort by sequence length. NpuEmbedder accepts the same argument
+    # and internally fills its compiled fixed-size batches without outer padding.
+    all_embeddings = model.encode(
+        all_chunks,
+        batch_size=max_batch_size,
+        show_progress_bar=False,
+    )
 
     # Average embeddings for each text
     results = []

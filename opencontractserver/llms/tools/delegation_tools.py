@@ -300,6 +300,15 @@ def build_delegation_tool(
         # production code, not just by unit tests.
         if agent.preferred_llm:
             common_kwargs["agent_preferred_llm"] = agent.preferred_llm
+        # Thread the agent's configured tool list so a sub-agent whose
+        # ``AgentConfiguration.available_tools`` names registry tools (e.g.
+        # ``search_across_corpora`` on a multi-corpus orchestrator) actually
+        # gets them. Names resolve via ``ToolFunctionRegistry`` inside
+        # ``api._resolve_tools`` and MERGE with the factory's default tool
+        # set — same additive semantics as the interactive-consumer and
+        # Celery corpus-action paths.
+        if agent.available_tools:
+            common_kwargs["tools"] = list(agent.available_tools)
 
         try:
             if document is not None:

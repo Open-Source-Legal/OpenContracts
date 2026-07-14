@@ -624,8 +624,10 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
             extra_tools: Per-turn tools to append to the conductor's tool
                 list (used for ``delegate_to_<slug>`` injection).  The base
                 agent factory still resolves its standard tool set; these are
-                appended on top.  Tools must be ``CoreTool`` instances or
-                callables — strings are not supported here.
+                appended on top — after any tool-identifier strings from an
+                explicitly-selected agent config's ``available_tools``
+                (``api._resolve_tools`` accepts ``CoreTool`` instances,
+                callables, and registry name strings alike).
 
         Note:
             ``PydanticAIDocumentAgent.create`` / ``PydanticAICorpusAgent.create``
@@ -647,11 +649,22 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
         if self.conversation_id:
             agent_kwargs["conversation_id"] = self.conversation_id
 
-        # Use system instructions from agent config if available
-        if self.agent_config and self.agent_config.system_instructions:
-            # Note: The agent factory methods don't currently accept custom instructions
-            # This will be a future enhancement. For now, the default instructions apply.
-            pass
+        # Explicitly-selected agents (``?agent_id=...``) get their configured
+        # persona and tool list threaded into the factory, matching the
+        # delegation sub-agent path (``build_delegation_tool``) and the
+        # Celery corpus-action path (``_resolve_action_tools``). The default
+        # agents (resolved by slug fallback when no ``agent_id`` is given)
+        # intentionally do NOT override the factory's context-derived prompt
+        # (e.g. ``corpus_agent_instructions``) — their generic
+        # ``system_instructions`` would clobber the richer per-corpus persona.
+        config_tools: list[Any] = []
+        if self.agent_config and self.agent_config_id:
+            if self.agent_config.system_instructions:
+                agent_kwargs["system_prompt"] = self.agent_config.system_instructions
+            # Tool identifier strings resolve via ``ToolFunctionRegistry`` in
+            # ``api._resolve_tools`` and MERGE with the factory's default
+            # tool set (see the Note in this method's docstring).
+            config_tools = list(self.agent_config.available_tools or [])
 
         # Thread the per-agent LLM override (``AgentConfiguration.preferred_llm``)
         # into the factory so interactive chat honors it. Without this the
@@ -664,8 +677,8 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
         if self.agent_config and self.agent_config.preferred_llm:
             agent_kwargs["agent_preferred_llm"] = self.agent_config.preferred_llm
 
-        if extra_tools:
-            agent_kwargs["tools"] = list(extra_tools)
+        if config_tools or extra_tools:
+            agent_kwargs["tools"] = [*config_tools, *(extra_tools or [])]
 
         # Choose factory method based on context
         framework = AgentFramework(settings.LLMS_DEFAULT_AGENT_FRAMEWORK)

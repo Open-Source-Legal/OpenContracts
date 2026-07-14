@@ -1,0 +1,9 @@
+# Optional Intel NPU passthrough. Merge after accel.intel.yml only when the
+# host exposes /dev/accel/accel0. The GPU remains the automatic throughput
+# choice; set EMBED_ACCEL=npu explicitly when the GPU must remain available to
+# another workload.
+
+services:
+  vector-embedder:
+    devices:
+      - /dev/accel:/dev/accel

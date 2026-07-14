@@ -175,6 +175,7 @@ agree by `opencontractserver/tests/permissioning/test_authorization_invariants.p
 |-----|----------------|-------------|
 | `corpuses` | `services/corpus_service.py` (`CorpusService`) | `delete_corpus`, `set_visibility`, `update_description`, `grant_creator_permissions` |
 | `corpuses` | `services/corpus_documents.py` (`CorpusDocumentService`) | `get_corpus_documents` (corpus-as-gate), `get_corpus_documents_visible_to_user` (MIN-perm), `get_corpus_document_by_id`/`by_slug`, `is_document_in_corpus`, doc add/remove |
+| `corpuses` | `services/corpus_groups.py` (`CorpusGroupService`) | `list_visible_groups`, `get_group_by_id`/`get_group_by_ref` (IDOR-safe, pk or slug), `get_group_corpora_visible_to_user` (call-time member-corpus gate for `search_across_corpora`), group CRUD |
 | `corpuses` | `services/folders.py` (`FolderCRUDService`) | `get_visible_folders`, `get_folder_by_id`, `get_folder_tree`, folder CRUD |
 | `corpuses` | `services/folder_documents.py` (`FolderDocumentService`) | `get_folder_documents`, `move_document_to_folder`, `get_document_folder` |
 | `corpuses` | `services/lifecycle.py` (`DocumentLifecycleService`) | `get_deleted_documents`, `soft_delete_document`, `restore_document`, `permanently_delete_document`, `empty_trash` |
@@ -205,6 +206,7 @@ agree by `opencontractserver/tests/permissioning/test_authorization_invariants.p
 | Object | Own Permissions | Inherited From | Pattern |
 |--------|----------------|----------------|---------|
 | Corpus | Guardian (direct) | — | `read_corpus` via `corpususerobjectpermission` |
+| CorpusGroup | Guardian (direct) | — | `read_corpusgroup` via `corpusgroupuserobjectpermission`; member corpora additionally gated per-user at read time (`CorpusGroupService.get_group_corpora_visible_to_user`) |
 | Document | Guardian (direct) | — | `read_document` via `documentuserobjectpermission` |
 | Annotation | None (inherited) | Document + Corpus | `MIN(document_permission, corpus_permission)` |
 | Relationship | None (inherited) | Document + Corpus | Same as Annotation |

@@ -39,6 +39,7 @@ from config.graphql import conversation_queries as _conversation_queries
 from config.graphql import conversation_types as _conversation_types
 from config.graphql import corpus_category_mutations as _corpus_category_mutations
 from config.graphql import corpus_folder_mutations as _corpus_folder_mutations
+from config.graphql import corpus_group_mutations as _corpus_group_mutations
 from config.graphql import corpus_mutations as _corpus_mutations
 from config.graphql import corpus_queries as _corpus_queries
 from config.graphql import corpus_types as _corpus_types
@@ -115,6 +116,7 @@ _mutation_ns.update(_badge_mutations.MUTATION_FIELDS)
 _mutation_ns.update(_conversation_mutations.MUTATION_FIELDS)
 _mutation_ns.update(_corpus_category_mutations.MUTATION_FIELDS)
 _mutation_ns.update(_corpus_folder_mutations.MUTATION_FIELDS)
+_mutation_ns.update(_corpus_group_mutations.MUTATION_FIELDS)
 _mutation_ns.update(_corpus_mutations.MUTATION_FIELDS)
 _mutation_ns.update(_document_mutations.MUTATION_FIELDS)
 _mutation_ns.update(_document_relationship_mutations.MUTATION_FIELDS)
@@ -203,6 +205,11 @@ _extra_types += [
 _extra_types += [
     v
     for v in vars(_corpus_folder_mutations).values()
+    if hasattr(v, "__strawberry_definition__")
+]
+_extra_types += [
+    v
+    for v in vars(_corpus_group_mutations).values()
     if hasattr(v, "__strawberry_definition__")
 ]
 _extra_types += [

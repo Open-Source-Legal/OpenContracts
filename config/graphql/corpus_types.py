@@ -59,6 +59,7 @@ from opencontractserver.corpuses.models import (
     CorpusCategory,
     CorpusEngagementMetrics,
     CorpusFolder,
+    CorpusGroup,
     CorpusVote,
 )
 from opencontractserver.shared.services.base import BaseService
@@ -1794,6 +1795,97 @@ register_type(
     CorpusType,
     model=Corpus,
     get_queryset=_get_queryset_CorpusType,
+)
+
+
+# ---------------- Corpus Group Types (issue #2056) ----------------
+def _resolve_CorpusGroupType_corpora(root, info):
+    """Return only the member corpora the viewer can READ."""
+    from opencontractserver.corpuses.services import CorpusGroupService
+
+    user = getattr(info.context, "user", None)
+    return list(
+        CorpusGroupService.get_group_corpora_visible_to_user(
+            user, root, request=info.context
+        )
+    )
+
+
+@strawberry.type(
+    name="CorpusGroupType",
+    description="GraphQL type for CorpusGroup — a bundle of corpora for multi-corpus retrieval.\n\n``corpora`` is resolved through CorpusGroupService so members the viewer cannot READ are never listed (MIN(corpus_permission, group_membership) — the same call-time semantics the search_across_corpora agent tool uses).",
+)
+class CorpusGroupType(Node):
+    @strawberry.field(name="title")
+    def title(self, info: strawberry.Info) -> str:
+        return coerce_str(getattr(self, "title", None))
+
+    @strawberry.field(name="slug")
+    def slug(self, info: strawberry.Info) -> str:
+        return coerce_str(getattr(self, "slug", None))
+
+    @strawberry.field(name="description")
+    def description(self, info: strawberry.Info) -> str:
+        return coerce_str(getattr(self, "description", None))
+
+    is_public: bool = strawberry.field(name="isPublic", default=None)
+    created: datetime.datetime = strawberry.field(name="created", default=None)
+    modified: datetime.datetime = strawberry.field(name="modified", default=None)
+    creator: Annotated[UserType, strawberry.lazy("config.graphql.user_types")] = (
+        strawberry.field(name="creator", default=None)
+    )
+
+    @strawberry.field(
+        name="corpora", description="Member corpora visible to the viewer"
+    )
+    def corpora(self, info: strawberry.Info) -> list[CorpusType | None] | None:
+        return _resolve_CorpusGroupType_corpora(self, info)
+
+    @strawberry.field(
+        name="defaultAgent",
+        description="Orchestrator agent bound to this group, visible only if the viewer can READ it.",
+    )
+    def default_agent(
+        self, info: strawberry.Info
+    ) -> None | (
+        Annotated[AgentConfigurationType, strawberry.lazy("config.graphql.agent_types")]
+    ):
+        return resolve_visible_fk(
+            self, info, "default_agent_id", "AgentConfigurationType"
+        )
+
+    @strawberry.field(name="myPermissions")
+    def my_permissions(self, info: strawberry.Info) -> GenericScalar | None:
+        return core_permissions.resolve_my_permissions(self, info)
+
+    @strawberry.field(name="isPublished")
+    def is_published(self, info: strawberry.Info) -> bool | None:
+        return core_permissions.resolve_is_published(self, info)
+
+    @strawberry.field(name="objectSharedWith")
+    def object_shared_with(self, info: strawberry.Info) -> GenericScalar | None:
+        return core_permissions.resolve_object_shared_with(self, info)
+
+
+def _get_queryset_CorpusGroupType(queryset, info):
+    return BaseService.filter_visible_qs(
+        queryset, info.context.user, request=info.context
+    )
+
+
+register_type(
+    "CorpusGroupType",
+    CorpusGroupType,
+    model=CorpusGroup,
+    get_queryset=_get_queryset_CorpusGroupType,
+)
+
+
+CorpusGroupTypeConnection = make_connection_types(
+    CorpusGroupType,
+    type_name="CorpusGroupTypeConnection",
+    countable=True,
+    pdf_page_aware=False,
 )
 
 

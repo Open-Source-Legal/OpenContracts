@@ -103,6 +103,36 @@ MAX_DEFINED_TERM_SCAN = DEFINED_TERM_SCAN_MULTIPLIER * MAX_DEFINED_TERMS
 # Per-authority cap on the keys surfaced by the wanted-authorities queue.
 WANTED_AUTHORITIES_TOP_KEYS = 10
 
+# --- Agentic graph-navigation tool bounds -------------------------------------
+# The read-only navigation tools (llms/tools/core_tools/graph_navigation.py) let
+# an agent *walk* the already-materialised reference graph one hop at a time.
+# These caps keep any single tool call's payload bounded — an LLM must not pull
+# an unbounded reference list or a whole statute corpus into one turn.
+NAV_DEFAULT_MAX_REFERENCES = 25  # references returned per direction by default
+NAV_MAX_REFERENCES = 100  # hard ceiling on references per direction
+NAV_DEFAULT_MAX_CITING = 25  # citing documents returned by default
+NAV_MAX_CITING = 100  # hard ceiling on citing documents
+NAV_MAX_SAMPLE_CITATIONS = 3  # sample citing clauses kept per citing document
+NAV_SNIPPET_MAX_CHARS = 300  # citing-clause snippet length
+NAV_TARGET_TEXT_MAX_CHARS = 8_000  # bounded authority/target text per read hop
+NAV_NEIGHBORHOOD_DEFAULT_NODE_CAP = 40  # governance-graph slice size default
+NAV_NEIGHBORHOOD_MAX_NODE_CAP = 150  # governance-graph slice hard ceiling
+NAV_NEIGHBORHOOD_MAX_DEPTH = 3  # max hops from a focus document
+# When a focus document is given, get_reference_neighborhood builds the FULL
+# corpus graph (GovernanceGraphService.build only *truncates its output* by
+# global degree — building the whole thing costs the same DB work — so a
+# low-degree focus is not dropped before the neighbourhood BFS runs). This
+# bounds that intermediate build; the returned neighbourhood is then capped to
+# the caller's node_cap. A corpus whose reference graph exceeds this is beyond
+# first-pass scope (the focus would only be lost if it were also below the
+# top-N by global degree).
+NAV_NEIGHBORHOOD_FULL_BUILD_CAP = 5_000
+# find_documents_citing computes ranking + mention counts in the DB (bounded to
+# `limit`); only the small citing-clause previews read individual rows. This
+# bounds that preview read so a widely-cited authority can't trigger a large
+# in-memory scan.
+NAV_CITING_SAMPLE_SCAN = 500
+
 # --- Phase 2 (issue #2054): listing-index discovery bounds ---------------------
 # Hard cap on candidates a single BaseAuthorityDiscoveryProvider.discover_candidates()
 # run may return/seed, mirroring the CRAWL_DEFAULT_*/CRAWL_MAX_* pair below: a

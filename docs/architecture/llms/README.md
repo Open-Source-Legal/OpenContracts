@@ -2763,6 +2763,10 @@ These tools are available on agents created via `agents.for_document()`:
 | `get_document_summary_versions` | Version history of document summary | No | **Yes** | Wraps `aget_document_summary_versions` |
 | `get_document_summary_diff` | Unified diff between two summary versions | No | **Yes** | Wraps `aget_document_summary_diff` |
 | `update_document_summary` | Create / update document summary | **Yes** | **Yes** | Wraps `aupdate_document_summary` |
+| `get_document_references` | What laws/contracts this document cites, and what cites it | No | **Yes** | Wraps `aget_document_references` |
+| `read_reference_target` | Open a cited statute/contract and read its text | No | **Yes** | Wraps `aread_reference_target` |
+| `find_documents_citing` | Which documents rely on an authority / document | No | **Yes** | Wraps `afind_documents_citing` |
+| `get_reference_neighborhood` | The local reference graph (orient before traversing) | No | **Yes** | Wraps `aget_reference_neighborhood` |
 
 > Tools marked **Requires Corpus** are only included when `corpus` is not `None`. They are automatically filtered out for standalone document agents.
 
@@ -2776,6 +2780,41 @@ Corpus agents (via `agents.for_corpus()`) get these **additional** tools on top 
 | `update_corpus_description` | Update corpus description | No | Wraps `aupdate_corpus_description` |
 | `list_documents` | List documents in the current corpus | No | Inline closure in `create()` |
 | `ask_document` | Ask a nested question to a per-document agent | No | Inline closure in `create()` |
+| `get_document_references` | What a document cites / what cites it (LLM names the doc) | No | Wraps `aget_document_references` |
+| `read_reference_target` | Open a cited statute/contract and read its text | No | Wraps `aread_reference_target` |
+| `find_documents_citing` | Which documents rely on an authority / document | No | Wraps `afind_documents_citing` |
+| `get_reference_neighborhood` | The corpus reference graph (orient before traversing) | No | Wraps `aget_reference_neighborhood` |
+
+#### Graph Traversal — treating contracts like a codebase
+
+Semantic retrieval (`similarity_search`) is the "grep" that finds the relevant
+clause; the **graph-navigation tools** are the "follow the imports" that let an
+agent walk the *already-materialised* reference graph one hop at a time. The
+graph is built by the enrichment engine
+([`opencontractserver/enrichment/`](../../../opencontractserver/enrichment/)):
+`CorpusReference` edges, authority corpuses (one `Document` per statute section
+keyed by `custom_meta.canonical_key`), `DocumentRelationship` rollups, and
+`GovernanceGraphService`. The tools
+([`core_tools/graph_navigation.py`](../../../opencontractserver/llms/tools/core_tools/graph_navigation.py))
+are read-only and route through the enrichment service layer
+(`CorpusReferenceService`, `GovernanceGraphService`,
+`enrichment.authorities.find_authority_target`), so they inherit
+`MIN(document, corpus)` visibility for free. The agent loop becomes:
+
+```
+similarity_search          → find the relevant clause
+get_document_references     → what laws/contracts does it cite? (the imports)
+read_reference_target       → open the cited statute/contract and read it
+find_documents_citing       → who else relies on this authority? (the callers)
+get_reference_neighborhood  → orient: the local governance map
+```
+
+In a **document** agent, `document_id` is injected — `get_document_references`
+is locked to the current document. In a **corpus** agent, the LLM names which
+document's references it wants; the service's `visible_to_user` filter is the
+IDOR guard. The A/B value of these tools over plain retrieval is measured by
+`manage.py benchmark_traversal`
+([harness](../../../opencontractserver/benchmarks/traversal_benchmark.py)).
 
 #### Image Tools (from `create_document_tools()`)
 

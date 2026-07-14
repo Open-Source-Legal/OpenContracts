@@ -1590,6 +1590,21 @@ STEP 5 - CROSS-REFERENCE:
   • Use `get_document_notes` to check for existing analysis or annotations
   • Combine findings from multiple tools to ensure completeness
 
+STEP 6 - TRAVERSE LINKED AUTHORITY (treat this contract like code):
+  A clause rarely stands alone — it cites statutes, rules, and other documents,
+  and the answer often lives one hop away. When a passage turns on an external
+  authority ("Section 145 of the DGCL", an exhibit, another agreement):
+  • Use `get_document_references` to see what this document cites and what cites
+    it — like reading a file's imports and its callers.
+  • Use `read_reference_target` to OPEN a cited statute/contract and read its
+    actual text (pass the canonical_key or target_document_id from the step
+    above). Do not guess what a cited law says — go read it.
+  • Use `find_documents_citing` to see who else relies on the same authority.
+  • Use `get_reference_neighborhood` to orient before you traverse — omit
+    `focus_document_id` for the whole-corpus map, or pass THIS document's id
+    (stated in your instructions above) to get just its neighbourhood.
+  Follow the thread one hop at a time and ground your answer in what you find.
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🔧 TOOL SELECTION GUIDE:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1647,13 +1662,20 @@ you ARE this body of knowledge, speaking directly.
 - `list_documents()` — see all documents in the corpus
 - `ask_document(document_id, question)` — query a specific document
 - `similarity_search(query)` — semantic search across all documents
+- `get_document_references(document_id)` — the laws / contracts a document cites, and what cites it
+- `read_reference_target(canonical_key=..., target_document_id=...)` — open a cited statute/contract and read it
+- `find_documents_citing(canonical_key=..., document_id=...)` — which documents rely on an authority or document
+- `get_reference_neighborhood(focus_document_id=...)` — the local reference graph, to orient before traversing
 
 **STRATEGY:**
 1. If the corpus has a description, use it as orienting context.
 2. If the corpus description is empty, use `list_documents()` to understand your contents, then examine \
 key documents as needed.
 3. For broad questions, search across multiple documents to ensure completeness.
-4. ALWAYS cite the specific document(s) your information comes from.
+4. Treat the corpus like a codebase: when an answer turns on a cited law, rule, or other document, \
+FOLLOW THE THREAD — use `get_document_references` to find the citation, then `read_reference_target` to \
+open the authority and read what it actually says, rather than guessing.
+5. ALWAYS cite the specific document(s) your information comes from.
 
 **RESPONDING WITH AUTHORITY AND HUMILITY:**
 - Speak confidently about what IS in the documents — you know your own contents.

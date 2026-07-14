@@ -7,6 +7,7 @@ import requests
 from celery import shared_task
 from celery.utils.log import get_task_logger
 from django.contrib.auth import get_user_model
+from django.db.models import Prefetch
 
 from opencontractserver.annotations.models import Annotation, Note, Relationship
 from opencontractserver.constants.document_processing import EMBEDDING_API_BATCH_SIZE
@@ -25,6 +26,8 @@ from opencontractserver.pipeline.utils import (
 from opencontractserver.shared.mixins import HasEmbeddingMixin
 from opencontractserver.types.enums import ContentModality
 from opencontractserver.utils.embeddings import (
+    RELATIONSHIP_SOURCE_TEXT_PREFETCH_ATTR,
+    RELATIONSHIP_TARGET_TEXT_PREFETCH_ATTR,
     synthesize_relationship_block_text,
 )
 from opencontractserver.utils.files import read_field_file_text
@@ -458,8 +461,8 @@ def _batch_embed_text_annotations(
     Multimodal annotations should NOT be passed here — they require
     per-annotation handling via ``_create_embedding_for_annotation()``.
 
-    Thin wrapper around :func:`_batch_embed_items` — see there for the
-    exception-handling contract shared with :func:`_batch_embed_relationships`.
+    Thin wrapper around :func:`_batch_embed_items`; see that helper for the
+    exception-handling contract shared with relationship batches.
 
     Args:
         annotations: Ordered list of text-only Annotation objects.
@@ -479,7 +482,12 @@ def _batch_embed_text_annotations(
         items.append((annot, text))
 
     _batch_embed_items(
-        items, embedder, embedder_path, api_batch_size, result, id_label="Annotation"
+        items,
+        embedder,
+        embedder_path,
+        api_batch_size,
+        result,
+        item_label="Annotation",
     )
 
 
@@ -490,36 +498,31 @@ def _batch_embed_relationships(
     api_batch_size: int,
     result: dict,
 ) -> None:
-    """Embed a list of relationships using batched API calls.
+    """Synthesize and batch-embed relationship text.
 
-    Mirrors :func:`_batch_embed_text_annotations` for
-    :class:`~opencontractserver.annotations.models.Relationship` rows (e.g.
-    Warp-Ingest's ``OC_SUBTREE_GROUP`` heading-hierarchy relationships), whose
-    text is synthesized via ``synthesize_relationship_block_text`` rather than
-    read from a ``raw_text`` field. A parser that emits many relationships per
-    document (one per non-leaf heading node) previously paid one HTTP
-    round-trip per relationship here; batching brings that down to one
-    round-trip per ``api_batch_size`` relationships, matching the annotation
-    path's throughput.
-
-    Args:
-        relationships: Ordered list of Relationship rows to embed.
-        embedder: The embedder instance (must support ``embed_texts_batch``).
-        embedder_path: Embedder path string stored alongside the vector.
-        api_batch_size: Max texts per ``embed_texts_batch`` call.
-        result: Mutable summary dict (keys: succeeded, failed, skipped, errors).
+    The materializer supplies an explicit embedder path, so this helper turns
+    one model/HTTP call per relationship into one call per ``api_batch_size``
+    relationships while preserving the existing per-row persistence and result
+    accounting contracts.
     """
     items: list[tuple[Any, str]] = []
-    for rel in relationships:
-        text = synthesize_relationship_block_text(rel)
+    for relationship in relationships:
+        text = synthesize_relationship_block_text(relationship)
         if not text.strip():
-            logger.debug(f"Relationship {rel.id} has no text to embed, skipping.")
+            logger.debug(
+                "Relationship %s has no text to embed, skipping.", relationship.id
+            )
             result["skipped"] += 1
             continue
-        items.append((rel, text))
+        items.append((relationship, text))
 
     _batch_embed_items(
-        items, embedder, embedder_path, api_batch_size, result, id_label="Relationship"
+        items,
+        embedder,
+        embedder_path,
+        api_batch_size,
+        result,
+        item_label="Relationship",
     )
 
 
@@ -530,33 +533,19 @@ def _batch_embed_items(
     api_batch_size: int,
     result: dict,
     *,
-    id_label: str,
+    item_label: str,
 ) -> None:
-    """Shared batched-embedding core for :func:`_batch_embed_text_annotations`
-    and :func:`_batch_embed_relationships`.
+    """Batch inference and persist vectors for embeddable objects.
 
-    Groups ``items`` into sub-batches of ``api_batch_size``, calls
-    ``embedder.embed_texts_batch()`` for each sub-batch, and stores the
-    resulting vectors via ``add_embedding()``. Callers have already filtered
-    out empty-text items (and accounted for them as ``skipped``) — this
-    function assumes every item has non-empty text.
+    Callers supply non-empty ``(object, text)`` pairs and account for skipped
+    empty inputs before entering this helper.
 
     Exception handling:
-        - ``ValueError``: Re-raised immediately (programming/contract error).
-        - ``requests.exceptions.Timeout``, ``requests.exceptions.ConnectionError``,
-          ``EmbeddingServerError``: Re-raised so Celery task-level retry fires.
-        - ``EmbeddingClientError``: Recorded as a permanent per-item failure
-          for the chunk. Not re-raised so Celery retries are not burned on
-          invalid input.
-        - All other exceptions: Recorded as permanent per-item failures.
-
-    Args:
-        items: Ordered ``(obj, text)`` pairs, non-empty text.
-        embedder: The embedder instance (must support ``embed_texts_batch``).
-        embedder_path: Embedder path string stored alongside the vector.
-        api_batch_size: Max texts per ``embed_texts_batch`` call.
-        result: Mutable summary dict (keys: succeeded, failed, skipped, errors).
-        id_label: Noun used in per-item error messages (e.g. "Annotation").
+        - ``ValueError`` is re-raised as a programming/contract error.
+        - Timeouts, connection failures, and ``EmbeddingServerError`` are
+          re-raised so Celery retry can run.
+        - ``EmbeddingClientError`` and unexpected response/storage errors are
+          recorded as permanent per-item failures.
     """
     if not items:
         return
@@ -652,7 +641,7 @@ def _batch_embed_items(
                 for obj, _ in chunks[idx]:
                     result["failed"] += 1
                     result["errors"].append(
-                        f"{id_label} {obj.id}: client error (4xx): {e}"
+                        f"{item_label} {obj.id}: client error (4xx): {e}"
                     )
                 continue
             except Exception as e:
@@ -662,7 +651,7 @@ def _batch_embed_items(
                 for obj, _ in chunks[idx]:
                     result["failed"] += 1
                     result["errors"].append(
-                        f"{id_label} {obj.id}: batch embed call failed: {e}"
+                        f"{item_label} {obj.id}: batch embed call failed: {e}"
                     )
                 continue
 
@@ -673,7 +662,7 @@ def _batch_embed_items(
                 for obj, _ in chunk:
                     result["failed"] += 1
                     result["errors"].append(
-                        f"{id_label} {obj.id}: batch embed returned None"
+                        f"{item_label} {obj.id}: batch embed returned None"
                     )
                 continue
 
@@ -685,7 +674,7 @@ def _batch_embed_items(
                 for obj, _ in chunk:
                     result["failed"] += 1
                     result["errors"].append(
-                        f"{id_label} {obj.id}: vector count mismatch "
+                        f"{item_label} {obj.id}: vector count mismatch "
                         f"({len(vectors)} vectors for {len(chunk)} texts)"
                     )
                 continue
@@ -698,7 +687,7 @@ def _batch_embed_items(
                 if vector is None:
                     result["failed"] += 1
                     result["errors"].append(
-                        f"{id_label} {obj.id}: individual vector was None in batch"
+                        f"{item_label} {obj.id}: individual vector was None in batch"
                     )
                     continue
                 try:
@@ -708,14 +697,17 @@ def _batch_embed_items(
                     else:
                         result["failed"] += 1
                         result["errors"].append(
-                            f"{id_label} {obj.id}: add_embedding returned None"
+                            f"{item_label} {obj.id}: add_embedding returned None"
                         )
                 except Exception as e:
                     logger.error(
-                        f"Failed to store embedding for {id_label.lower()} {obj.id}: {e}"
+                        "Failed to store embedding for %s %s: %s",
+                        item_label.lower(),
+                        obj.id,
+                        e,
                     )
                     result["failed"] += 1
-                    result["errors"].append(f"{id_label} {obj.id}: store failed: {e}")
+                    result["errors"].append(f"{item_label} {obj.id}: store failed: {e}")
     finally:
         # On the transient-error fast path we want queued futures dropped
         # and the executor shut down without waiting on in-flight peers.
@@ -823,7 +815,7 @@ def calculate_embeddings_for_annotation_batch(
 
     # Fetch all annotations in batch to avoid N+1 queries
     annotations = Annotation.objects.select_related(
-        "document", "structural_set"
+        "creator", "document", "structural_set"
     ).filter(pk__in=annotation_ids)
 
     annotation_map = {a.pk: a for a in annotations}
@@ -1104,15 +1096,10 @@ def calculate_embeddings_for_relationship_batch(
     with the default embedder AND (when distinct) the corpus's preferred
     embedder, so global-default search and corpus-scoped search both work.
 
-    When an explicit ``embedder_path`` is supplied (the materialiser path,
-    per the Note below), relationships are batched through
-    ``_batch_embed_relationships`` / ``embed_texts_batch()`` exactly like
-    ``calculate_embeddings_for_annotation_batch`` does for text-only
-    annotations — some parsers (e.g. Warp-Ingest's heading-hierarchy
-    ``OC_SUBTREE_GROUP`` rows) emit one relationship per non-leaf node, which
-    is not always small relative to annotation volume, so the one-HTTP-call-
-    per-relationship loop this used to run here was a real per-document
-    bottleneck at scale.
+    When an explicit ``embedder_path`` is supplied (the materializer path),
+    relationship text is synthesized once and sent through
+    ``embed_texts_batch()``. This avoids one HTTP/model call per relationship
+    for parsers that emit many heading-hierarchy relationships.
 
     Args:
         self: Celery task instance (passed automatically when bind=True).
@@ -1152,16 +1139,28 @@ def calculate_embeddings_for_relationship_batch(
         embedder_path,
     )
 
-    # ``synthesize_relationship_block_text`` uses ``values_list()`` on the
-    # M2M managers, which bypasses Django's prefetch cache (it stores model
-    # instances, not raw column tuples). Prefetching here would be dead
-    # weight — issue 2N extra wire round-trips for nothing. We accept the
-    # 2-queries-per-relationship cost; subtree-group cardinality is small
-    # (one row per non-leaf node) so the extra round-trips per batch stay
-    # bounded. If batches ever grow large enough to matter, the cleaner
-    # fix is to teach the helper to accept a pre-fetched list of raw_text
-    # strings, not to add prefetches that do nothing.
-    relationships = list(Relationship.objects.filter(pk__in=relationship_ids))
+    # Synthesis needs only ordered annotation IDs and raw text. Dedicated
+    # ``to_attr`` caches let the helper consume these two fixed prefetch queries
+    # without touching Django's private prefetch cache or issuing 2N M2M reads.
+    relationship_text_annotations = Annotation.objects.only("id", "raw_text").order_by(
+        "id"
+    )
+    relationships = list(
+        Relationship.objects.filter(pk__in=relationship_ids)
+        .select_related("creator")
+        .prefetch_related(
+            Prefetch(
+                "source_annotations",
+                queryset=relationship_text_annotations,
+                to_attr=RELATIONSHIP_SOURCE_TEXT_PREFETCH_ATTR,
+            ),
+            Prefetch(
+                "target_annotations",
+                queryset=relationship_text_annotations.all(),
+                to_attr=RELATIONSHIP_TARGET_TEXT_PREFETCH_ATTR,
+            ),
+        )
+    )
     rel_map = {r.pk: r for r in relationships}
 
     if embedder_path:
@@ -1176,7 +1175,7 @@ def calculate_embeddings_for_relationship_batch(
             result["failed"] = len(relationship_ids)
             return result
 
-        present_relationships = []
+        present_relationships: list[Relationship] = []
         for rid in relationship_ids:
             rel = rel_map.get(rid)
             if rel is None:
@@ -1196,10 +1195,9 @@ def calculate_embeddings_for_relationship_batch(
                 result,
             )
         except ValueError as e:
-            # Programming error (e.g., batch size misconfiguration). Fail
-            # fast without burning Celery retries — mirrors the annotation
-            # task's handling of the same contract-violation class.
-            logger.error(f"Contract violation in batch embedding: {e}")
+            # Configuration/contract errors are permanent. Mirror annotation
+            # batch handling rather than burning Celery retries.
+            logger.error(f"Contract violation in relationship batch embedding: {e}")
             result["errors"].append(f"Contract violation: {e}")
             accounted = result["skipped"] + result["failed"] + result["succeeded"]
             result["failed"] += len(relationship_ids) - accounted

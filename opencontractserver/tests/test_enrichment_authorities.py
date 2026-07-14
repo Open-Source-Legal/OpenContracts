@@ -210,6 +210,14 @@ class FindAuthorityTargetTests(TestCase):
             "cfr-40:261.4",
         ]
 
+    def test_candidate_keys_normalizes_underscore_to_hyphen(self):
+        # Real canonical keys use hyphens exclusively in their namespace
+        # prefix ("exchange-act:16", never "exchange_act:16"), but an LLM
+        # occasionally emits the underscore-separated variant anyway
+        # (pattern-matching Python-identifier conventions). candidate_keys
+        # must try the normalized hyphenated form as a fallback.
+        assert "exchange-act:16" in candidate_keys("exchange_act:16")
+
     def test_exact_and_subsection_keys_resolve(self):
         exact = find_authority_target("dgcl:122", self.user)
         sub = find_authority_target("dgcl:122(17)", self.user)

@@ -1,0 +1,20 @@
+# Explicit CPU deployment. Merge after accel.override.yml.
+
+services:
+  docling-parser:
+    image: oc-docling:cpu
+    build:
+      args:
+        ACCEL: cpu
+    environment:
+      DOCLING_ACCEL: ${DOCLING_ACCEL:-auto}
+
+  vector-embedder:
+    image: oc-embedder:cpu
+    build:
+      args:
+        ACCEL: cpu
+    environment:
+      # Auto can still select OpenVINO CPU, which is often faster than torch CPU.
+      # With no host devices mounted it cannot select a GPU or NPU.
+      EMBED_ACCEL: ${EMBED_ACCEL:-auto}

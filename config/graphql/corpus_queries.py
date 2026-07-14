@@ -38,6 +38,7 @@ from graphql_relay import from_global_id, to_global_id
 from config.graphql._util import strip_unset
 from config.graphql.core.filtering import setup_filterset
 from config.graphql.core.relay import (
+    get_node_from_global_id,
     resolve_django_connection,
 )
 from config.graphql.corpus_types import (
@@ -403,6 +404,64 @@ def q_corpus_categories(
             "description__contains": "description__contains",
         },
     )
+
+
+# CORPUS GROUP RESOLVERS (issue #2056) ##################################
+@graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
+def _resolve_Query_corpus_groups(root, info):
+    """Port of CorpusQueryMixin.resolve_corpus_groups (issue #2056).
+
+    Corpus groups visible to the viewer (creator, public, or explicitly
+    shared). Member corpora are filtered per-viewer by
+    ``CorpusGroupType.corpora``.
+    """
+    from opencontractserver.corpuses.services import CorpusGroupService
+
+    return CorpusGroupService.list_visible_groups(
+        info.context.user, request=info.context
+    )
+
+
+def q_corpus_groups(
+    info: strawberry.Info,
+    offset: Annotated[
+        int | None, strawberry.argument(name="offset")
+    ] = strawberry.UNSET,
+    before: Annotated[
+        str | None, strawberry.argument(name="before")
+    ] = strawberry.UNSET,
+    after: Annotated[str | None, strawberry.argument(name="after")] = strawberry.UNSET,
+    first: Annotated[int | None, strawberry.argument(name="first")] = strawberry.UNSET,
+    last: Annotated[int | None, strawberry.argument(name="last")] = strawberry.UNSET,
+) -> None | (
+    Annotated[CorpusGroupTypeConnection, strawberry.lazy("config.graphql.corpus_types")]
+):
+    kwargs = strip_unset(
+        {
+            "offset": offset,
+            "before": before,
+            "after": after,
+            "first": first,
+            "last": last,
+        }
+    )
+    resolved = _resolve_Query_corpus_groups(None, info)
+    return resolve_django_connection(
+        resolved=resolved,
+        info=info,
+        args=kwargs,
+        node_type_name="CorpusGroupType",
+    )
+
+
+def q_corpus_group(
+    info: strawberry.Info,
+    id: Annotated[
+        strawberry.ID,
+        strawberry.argument(name="id", description="The ID of the object"),
+    ] = strawberry.UNSET,
+) -> None | (Annotated[CorpusGroupType, strawberry.lazy("config.graphql.corpus_types")]):
+    return get_node_from_global_id(info, id, only_type_name="CorpusGroupType")
 
 
 @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
@@ -1151,6 +1210,16 @@ QUERY_FIELDS = {
         resolver=q_corpus_folder,
         name="corpusFolder",
         description="Get a single folder by ID",
+    ),
+    "corpus_groups": strawberry.field(
+        resolver=q_corpus_groups,
+        name="corpusGroups",
+        description="Corpus groups visible to the viewer (creator, public, or explicitly shared). Member corpora are filtered per-viewer.",
+    ),
+    "corpus_group": strawberry.field(
+        resolver=q_corpus_group,
+        name="corpusGroup",
+        description="Get a single corpus group by ID",
     ),
     "deleted_documents_in_corpus": strawberry.field(
         resolver=q_deleted_documents_in_corpus,

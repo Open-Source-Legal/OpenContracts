@@ -1,0 +1,41 @@
+# AMD ROCm deployment. Merge after accel.override.yml. Set VIDEO_GID and
+# RENDER_GID from the host before rendering the Compose project:
+#
+#   export VIDEO_GID=$(stat -c '%g' /dev/kfd)
+#   export RENDER_GID=$(stat -c '%g' /dev/dri/renderD128)
+
+services:
+  docling-parser:
+    image: oc-docling:rocm
+    build:
+      args:
+        ACCEL: rocm
+    devices:
+      - /dev/kfd:/dev/kfd
+      - /dev/dri:/dev/dri
+    group_add:
+      - "${VIDEO_GID:?set VIDEO_GID to the host video group GID}"
+      - "${RENDER_GID:?set RENDER_GID to the host render group GID}"
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - seccomp=unconfined
+
+  vector-embedder:
+    image: oc-embedder:rocm
+    build:
+      args:
+        ACCEL: rocm
+    environment:
+      EMBED_ACCEL: ${EMBED_ACCEL:-rocm}
+      REQUIRE_ACCELERATOR: ${REQUIRE_ACCELERATOR:-true}
+    devices:
+      - /dev/kfd:/dev/kfd
+      - /dev/dri:/dev/dri
+    group_add:
+      - "${VIDEO_GID:?set VIDEO_GID to the host video group GID}"
+      - "${RENDER_GID:?set RENDER_GID to the host render group GID}"
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - seccomp=unconfined

@@ -102,6 +102,16 @@ from .extracts_and_analyzers import (  # noqa: F401
     start_analysis,
     start_extract,
 )
+from .graph_navigation import (  # noqa: F401
+    afind_documents_citing,
+    aget_document_references,
+    aget_reference_neighborhood,
+    aread_reference_target,
+    find_documents_citing,
+    get_document_references,
+    get_reference_neighborhood,
+    read_reference_target,
+)
 from .links import acreate_markdown_link, create_markdown_link  # noqa: F401
 from .md_summaries import (  # noqa: F401
     aget_md_summary_token_length,
@@ -110,6 +120,7 @@ from .md_summaries import (  # noqa: F401
     load_document_md_summary,
 )
 from .memory import aget_corpus_memory, asuggest_memory_update  # noqa: F401
+from .multi_corpus import asearch_across_corpora  # noqa: F401
 from .notes import (  # noqa: F401
     aadd_document_note,
     add_document_note,
@@ -231,8 +242,18 @@ __all__ = [
     "acreate_document_index",
     "create_document_index",
     # Search
+    "asearch_across_corpora",
     "asearch_exact_text_as_sources",
     "search_exact_text_as_sources",
+    # Graph traversal (walk the materialised reference graph)
+    "afind_documents_citing",
+    "aget_document_references",
+    "aget_reference_neighborhood",
+    "aread_reference_target",
+    "find_documents_citing",
+    "get_document_references",
+    "get_reference_neighborhood",
+    "read_reference_target",
     # Page images
     "aget_page_image",
     "get_page_image",

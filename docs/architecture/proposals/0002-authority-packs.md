@@ -99,6 +99,28 @@ rather than against a `scraping/` app that was never built.
 > `test_authority_mapping_loader.py::BaselineOriginGuardTests` /
 > `LoadInstalledTests`.
 
+> **Update — Phase 4 (multi-corpus orchestration, gap 4) shipped, issue #2056.**
+> `CorpusGroup` (`opencontractserver/corpuses/models.py`) bundles N corpora
+> (M2M + unique slug + optional `default_agent` FK binding an orchestrator
+> `AgentConfiguration`) with full guardian object permissions.
+> `CorpusGroupService`
+> (`opencontractserver/corpuses/services/corpus_groups.py`) resolves the
+> group's corpora at **call time**, filtered per-user — never a config-time
+> snapshot. The `search_across_corpora` agent tool
+> (`opencontractserver/llms/tools/core_tools/multi_corpus.py`) fans a query
+> out per visible member corpus (each searched with its own
+> `preferred_embedder`) and returns hits grouped per corpus for per-corpus
+> citations. The orchestrator runs over the existing `ws/agent-chat/`
+> transport: an explicitly-selected agent's `system_instructions` +
+> `available_tools` now thread through `UnifiedAgentConsumer` (and
+> `available_tools` through @mention delegation), so a GLOBAL
+> `AgentConfiguration` carrying the orchestrator persona +
+> `search_across_corpora` restores #1305's unified `askBolivianLaw`
+> experience as pure data. GraphQL: `corpusGroups` query +
+> create/update/delete mutations. Tests:
+> `opencontractserver/tests/test_corpus_groups.py`,
+> `CorpusGroupAuthorizationInvariantsTestCase`. *Closes gap 4.*
+
 ## 1. Context — three artifacts, one intent
 
 | Artifact | What it is | Status |
@@ -247,7 +269,7 @@ co-author.
 | 1 | Host allowlist is a hardcoded frozenset — a pack cannot open a new fetch host as data | **Blocker** (trivial fix) | Only with a live provider | **Shipped** — `pack.yaml` `source_hosts` (see update callout) |
 | 2 | No scheduled/recurring scraping (`CELERY_BEAT_SCHEDULE` has no crawl entries) | Major | If continuous ingestion is in scope | Phase 3 (= #1444 Phase A) |
 | 3 | Provider rail is citation-keyed; no listing-page bulk-discovery shape | Major | If publisher-crawl is in scope | **Phase 2 — shipped, issue #2054** |
-| 4 | No multi-corpus orchestration (`CorpusGroup` / cross-corpus retrieval) | Major | No (per-area corpora work independently) | Phase 4 (= #1444 Phase B) |
+| 4 | No multi-corpus orchestration (`CorpusGroup` / cross-corpus retrieval) | Major | No (per-area corpora work independently) | **Phase 4 — shipped, issue #2056** |
 | 5 | Spanish / sala-aware classification has no core primitive | Minor | Spanish: no (data); sala-aware: with provider | Phase 1 handles Spanish via aliases/persona; sala-aware → Phase 2 provider code |
 | 6 | Provider discovery scans one hardcoded package — no out-of-tree isolation | Minor | No | **Shipped** — in-pack providers + `AUTHORITY_PACK_PATHS` (see update callout) |
 | 7 | Loader reads one default path; no multi-YAML merge; two baseline writers can collide on a prefix | Minor | No | **Shipped** — issue #2057 (see update callout) |
@@ -272,9 +294,10 @@ two primitives #1444 already identified as genuinely missing.
 - **Phase 3 — scheduled scraping (= #1444 Phase A).** A declarative
   "crawl publisher X into corpus Y nightly" surface (`PeriodicTask` / Beat sync).
   A core feature, not pack data. *Closes gap 2.*
-- **Phase 4 — multi-corpus orchestration (= #1444 Phase B).** `CorpusGroup` +
-  `asearch_across_corpora`, restoring #1305's unified `askBolivianLaw` cross-area
-  experience. *Closes gap 4.*
+- **Phase 4 — multi-corpus orchestration (shipped, issue #2056; = #1444
+  Phase B).** `CorpusGroup` + `search_across_corpora`, restoring #1305's
+  unified `askBolivianLaw` cross-area experience. See the
+  implementation-status callout above for the full shape. *Closes gap 4.*
 
 Phases 2–4 are independent and individually optional; Phase 1 delivers a working,
 queryable Bolivia deployment on its own.

@@ -107,40 +107,41 @@ if it's interrupted, just run it again; finished documents are skipped.
 
 ### GPU acceleration (recommended on beefy workstations)
 
-The slow step is the Docling parse. If the host has a GPU, merge the
-`remote_worker.accel.yml` override to run the parser + embedder on it — this is
-the whole point of "beefy workstations sitting around". It swaps in the
-auto-detecting [accelerated images](../../compose/accelerated/README.md) and
-passes the GPU through (auto-selects the device, falls back to CPU):
+The slow step is the Docling parse. If the host has a GPU, merge
+`remote_worker.accel.yml` and the matching vendor overlay to run the parser +
+embedder on it. The common override supplies the locally built
+[accelerated images](../../compose/accelerated/README.md); the vendor overlay
+supplies only the correct device access and torch wheel family.
+
+Intel example:
 
 ```bash
-export RENDER_GID=$(stat -c '%g' /dev/dri/renderD128)   # Intel/AMD; host-specific
-docker compose -f remote_worker.yml -f remote_worker.accel.yml build \
-    docling-parser vector-embedder
-docker compose -f remote_worker.yml -f remote_worker.accel.yml up -d \
-    docling-parser vector-embedder
-docker compose -f remote_worker.yml -f remote_worker.accel.yml run --rm worker plan
-docker compose -f remote_worker.yml -f remote_worker.accel.yml run --rm worker run --max-workers 8
+export RENDER_GID=$(stat -c '%g' /dev/dri/renderD128)
+docker compose \
+  -f remote_worker.yml \
+  -f remote_worker.accel.yml \
+  -f ../../compose/accelerated/accel.intel.yml \
+  up -d --build docling-parser vector-embedder
 ```
 
-> Always pass **both** `-f` files to every subcommand once you've merged the
-> override (including `plan`, `verify`, `status`) so the worker keeps using the
-> accelerated backend.
+Use `accel.nvidia.yml` on NVIDIA. On AMD, set `VIDEO_GID` from `/dev/kfd` and
+`RENDER_GID` from `/dev/dri/renderD128`, then use `accel.amd.yml`. Intel hosts
+with `/dev/accel/accel0` can additionally merge `accel.intel-npu.yml`.
 
-The override defaults target **Intel** (`/dev/dri` + the render group). A
-**discrete Intel Arc Pro B-series** (Battlemage, e.g. Arc Pro B70 — 32 GB, 256
-XMX engines) is an ideal target: defaults (`OC_DOCLING_ACCEL=xpu`,
-`OC_EMBED_ACCEL=auto`) run Docling on the GPU and the embedder on OpenVINO.
+Pass the same complete `-f` list to `plan`, `run`, `verify`, and `status` so the
+worker keeps using the same backend. For example:
 
-**NVIDIA and AMD/ROCm hosts must edit the device passthrough** in
-`remote_worker.accel.yml` — its `docling-parser`/`vector-embedder` services pass
-`/dev/dri` by default, which is wrong for NVIDIA and incomplete for ROCm. The
-file ships commented stanzas: NVIDIA → set `OC_DOCLING_ACCEL=cuda
-OC_EMBED_ACCEL=cuda` and swap the `devices:` block for the nvidia runtime
-(`deploy.resources.reservations.devices` / `--gpus all`); AMD → set `ACCEL=rocm`
-and add `/dev/kfd` + `--group-add video`. **Benchmark Docling on YOUR GPU**
-(`compose/accelerated/bench_parse.py`) — the speedup is hardware-specific (a
-discrete GPU helps a lot; a weak integrated GPU may not).
+```bash
+docker compose \
+  -f remote_worker.yml \
+  -f remote_worker.accel.yml \
+  -f ../../compose/accelerated/accel.intel.yml \
+  run --rm worker run --max-workers 8
+```
+
+No vendor file requires hand-editing. The common override alone, or with
+`accel.cpu.yml`, is safe on a CPU-only host. **Benchmark Docling on your GPU**
+with `compose/accelerated/bench_parse.py`; its speedup is hardware-specific.
 
 ---
 
@@ -338,4 +339,4 @@ Only the symptom unique to this script driver is listed here:
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `nothing to do` on `run` after merging the accel override | You ran `plan` without both `-f` files, or never ran `plan`. | Run `plan` with the **same** `-f remote_worker.yml -f remote_worker.accel.yml` you use for `run`. |
+| `nothing to do` on `run` after merging the accel override | You ran `plan` with a different Compose file set, or never ran `plan`. | Run `plan` with the same base, common accelerator, and vendor `-f` files you use for `run`. |
