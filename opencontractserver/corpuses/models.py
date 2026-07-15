@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import TYPE_CHECKING, Any, Mapping
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any
 
 import django
 from django.contrib.auth import get_user_model
@@ -1409,7 +1410,7 @@ class Corpus(InstanceUserCanMixin, TreeNode):
             # so retain the oldest legacy duplicate deterministically while
             # routing all newly ingested parser annotations through it.
             existing_by_pair: dict[tuple[str, str], AnnotationLabel] = {}
-            for label in (
+            for existing in (
                 label_set.annotation_labels.filter(
                     text__in={text for text, _ in requested_pairs},
                     label_type__in={label_type for _, label_type in requested_pairs},
@@ -1417,7 +1418,9 @@ class Corpus(InstanceUserCanMixin, TreeNode):
                 .order_by("id")
                 .iterator()
             ):
-                existing_by_pair.setdefault((label.text, label.label_type), label)
+                existing_by_pair.setdefault(
+                    (existing.text, existing.label_type), existing
+                )
 
             labels_by_key: dict[str, AnnotationLabel] = {}
             for label_key, (label_text, label_type, data) in requested_by_key.items():

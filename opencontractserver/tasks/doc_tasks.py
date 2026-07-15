@@ -6,6 +6,7 @@ import logging
 import traceback
 import uuid
 from datetime import timedelta
+from functools import partial
 from typing import Any, cast
 
 from celery import chain, chord, current_app, group, shared_task
@@ -436,15 +437,12 @@ def set_doc_lock_state(*args, locked: bool, doc_id: int):
                 f"triggering actions for {len(corpus_data)} corpus(es)"
             )
 
-            corpus_ids = [data["corpus_id"] for data in corpus_data]
-            structural_set_id = document.structural_annotation_set_id
             transaction.on_commit(
-                lambda doc_id=doc_id, corpus_ids=corpus_ids, structural_set_id=structural_set_id: (
-                    _queue_embeddings_for_unlocked_document(
-                        doc_id=doc_id,
-                        corpus_ids=corpus_ids,
-                        structural_set_id=structural_set_id,
-                    )
+                partial(
+                    _queue_embeddings_for_unlocked_document,
+                    doc_id=doc_id,
+                    corpus_ids=[data["corpus_id"] for data in corpus_data],
+                    structural_set_id=document.structural_annotation_set_id,
                 )
             )
 

@@ -60,10 +60,9 @@ def source_mime_type_for_conversion(
     if stored_file_type != OCTET_STREAM_MIME_TYPE:
         return stored_file_type
 
-    if (
-        extension_for_filename(filename) in _MS_WORD_EXTENSIONS
-        and source_bytes.startswith(_OLE_COMPOUND_DOCUMENT_MAGIC)
-    ):
+    if extension_for_filename(
+        filename
+    ) in _MS_WORD_EXTENSIONS and source_bytes.startswith(_OLE_COMPOUND_DOCUMENT_MAGIC):
         return "application/msword"
 
     return stored_file_type

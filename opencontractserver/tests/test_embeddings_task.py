@@ -1,4 +1,5 @@
 import unittest
+from collections.abc import Callable
 from unittest.mock import MagicMock, patch
 
 from django.contrib.auth import get_user_model
@@ -287,7 +288,7 @@ class TestAnnotationSignals(unittest.TestCase):
             process_annot_on_create_atomic,
         )
 
-        callbacks = []
+        callbacks: list[Callable[[], object]] = []
         mock_on_commit.side_effect = callbacks.append
         mock_annotation = MagicMock(id=17, corpus_id=100, embedding=None)
 

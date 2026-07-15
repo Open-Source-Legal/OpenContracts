@@ -4,8 +4,8 @@ import io
 import logging
 from unittest.mock import MagicMock, call, patch
 
-from django.contrib.auth import get_user_model
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.db import transaction
 from django.test import SimpleTestCase, TestCase

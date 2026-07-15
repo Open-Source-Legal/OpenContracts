@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from functools import partial
 from typing import TYPE_CHECKING, Any
 
 from django.db import transaction
@@ -28,6 +29,25 @@ REL_CREATE_UPDATE_UID = "process_relationship_on_change_atomic_uid_v1"
 REL_DELETE_UID = "process_relationship_on_delete_atomic_uid_v1"
 REL_M2M_SOURCES_UID = "process_relationship_m2m_sources_changed_uid_v1"
 REL_M2M_TARGETS_UID = "process_relationship_m2m_targets_changed_uid_v1"
+
+
+def _dispatch_annotation_embedding(annotation_id: int, corpus_id: int | None) -> None:
+    """on_commit callback with args frozen at signal time (typed instead of a
+    default-arg lambda, which mypy cannot infer). The task_id deduplicates
+    simultaneous creations of the same annotation."""
+    calculate_embedding_for_annotation_text.si(
+        annotation_id=annotation_id,
+        corpus_id=corpus_id,
+    ).apply_async(task_id=f"embed-annot-{annotation_id}")
+
+
+def _dispatch_note_embedding(note_id: int, corpus_id: int | None) -> None:
+    """on_commit callback with args frozen at signal time — see
+    ``_dispatch_annotation_embedding``."""
+    calculate_embedding_for_note_text.si(
+        note_id=note_id,
+        corpus_id=corpus_id,
+    ).apply_async(task_id=f"embed-note-{note_id}")
 
 
 def process_annot_on_create_atomic(
@@ -62,16 +82,8 @@ def process_annot_on_create_atomic(
             f"Calculating embeddings for newly created annotation {instance.id} "
             f"(corpus_id={corpus_id})"
         )
-        # Use task_id for deduplication to prevent duplicate embedding tasks
-        # if two annotations are created simultaneously
-        annotation_id = instance.id
         transaction.on_commit(
-            lambda annotation_id=annotation_id, corpus_id=corpus_id: (
-                calculate_embedding_for_annotation_text.si(
-                    annotation_id=annotation_id,
-                    corpus_id=corpus_id,
-                ).apply_async(task_id=f"embed-annot-{annotation_id}")
-            )
+            partial(_dispatch_annotation_embedding, instance.id, corpus_id)
         )
 
     # No cache invalidation needed - using direct queries
@@ -104,16 +116,7 @@ def process_note_on_create_atomic(
             f"Calculating embeddings for newly created note {instance.id} "
             f"(corpus_id={corpus_id})"
         )
-        # Use task_id for deduplication to prevent duplicate embedding tasks
-        note_id = instance.id
-        transaction.on_commit(
-            lambda note_id=note_id, corpus_id=corpus_id: (
-                calculate_embedding_for_note_text.si(
-                    note_id=note_id,
-                    corpus_id=corpus_id,
-                ).apply_async(task_id=f"embed-note-{note_id}")
-            )
-        )
+        transaction.on_commit(partial(_dispatch_note_embedding, instance.id, corpus_id))
 
 
 # NOTE: process_structural_annotation_for_corpuses is no longer needed with the new

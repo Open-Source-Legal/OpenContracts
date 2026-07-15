@@ -7,15 +7,15 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 from django.test import SimpleTestCase
-
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 
 
 class RedisSettingsUrlTestCase(SimpleTestCase):
-    def load_local_settings(self, **overrides: str) -> dict[str, object]:
+    def load_local_settings(self, **overrides: str) -> dict[str, Any]:
         env = {
             **os.environ,
             "DJANGO_SETTINGS_MODULE": "config.settings.local",
