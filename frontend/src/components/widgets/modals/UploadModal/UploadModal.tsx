@@ -22,6 +22,7 @@ import {
   X,
   Check,
 } from "lucide-react";
+import { toast } from "react-toastify";
 import {
   StyledModalWrapper,
   HeaderIcon,
@@ -61,6 +62,11 @@ import {
   ConvertibleExtensionsQueryResult,
   SupportedMimeTypesQueryResult,
 } from "../../../admin/system_settings/graphql";
+import {
+  GET_BULK_DOCUMENT_UPLOAD_STATUS,
+  type BulkDocumentUploadStatusInput,
+  type BulkDocumentUploadStatusOutput,
+} from "../../../../graphql/queries";
 
 export interface UploadModalProps {
   open: boolean;
@@ -108,6 +114,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
   // For bulk mode - the selected ZIP file
   const [zipFile, setZipFile] = useState<File | null>(null);
   const [zipUploadProgress, setZipUploadProgress] = useState<number>(0);
+  const [zipJobId, setZipJobId] = useState<string | null>(null);
 
   // Selected corpus for upload (when not pre-provided)
   const [selectedCorpus, setSelectedCorpus] = useState<CorpusType | null>(null);
@@ -117,6 +124,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
 
   // Track if modal just opened to handle initialization
   const prevOpenRef = useRef(false);
+  const completedZipJobIdRef = useRef<string | null>(null);
 
   // File upload state for single mode
   // Destructure to avoid dependency array issues (uploadState object changes every render)
@@ -132,6 +140,45 @@ export const UploadModal: React.FC<UploadModalProps> = ({
     skip: !open || !!corpusId,
     requireUpdatePermission: true,
   });
+
+  const { data: zipStatusData, stopPolling: stopZipStatusPolling } = useQuery<
+    BulkDocumentUploadStatusOutput,
+    BulkDocumentUploadStatusInput
+  >(GET_BULK_DOCUMENT_UPLOAD_STATUS, {
+    variables: { jobId: zipJobId ?? "" },
+    skip: !zipJobId,
+    fetchPolicy: "network-only",
+    pollInterval: zipJobId ? 3000 : 0,
+  });
+  const zipJobStatus = zipStatusData?.bulkDocumentUploadStatus;
+
+  useEffect(() => {
+    if (zipJobStatus?.completed) stopZipStatusPolling();
+  }, [stopZipStatusPolling, zipJobStatus?.completed]);
+
+  useEffect(() => {
+    if (
+      !zipJobId ||
+      !zipJobStatus?.completed ||
+      completedZipJobIdRef.current === zipJobId
+    ) {
+      return;
+    }
+
+    completedZipJobIdRef.current = zipJobId;
+    if (zipJobStatus.success) {
+      refetch?.();
+      onUploadComplete?.();
+      toast.success(
+        `Import complete: ${zipJobStatus.processedFiles} of ${zipJobStatus.totalFiles} files processed.`
+      );
+    } else {
+      setError(
+        zipJobStatus.errors.join(" ") ||
+          "Import completed with errors. Please review the corpus."
+      );
+    }
+  }, [onUploadComplete, refetch, zipJobId, zipJobStatus]);
 
   // Query supported file types from backend pipeline registry
   const { data: mimeTypesData } = useQuery<SupportedMimeTypesQueryResult>(
@@ -213,6 +260,8 @@ export const UploadModal: React.FC<UploadModalProps> = ({
       setError(null);
       setZipFile(null);
       setZipUploadProgress(0);
+      setZipJobId(null);
+      completedZipJobIdRef.current = null;
       setSelectedCorpus(null);
       uploadStateReset();
 
@@ -226,6 +275,8 @@ export const UploadModal: React.FC<UploadModalProps> = ({
     if (!open) {
       // Clean up on close
       setError(null);
+      setZipJobId(null);
+      completedZipJobIdRef.current = null;
     }
   }, [open, forceMode]);
 
@@ -368,31 +419,28 @@ export const UploadModal: React.FC<UploadModalProps> = ({
     if (!zipFile) return;
 
     setError(null);
-    setZipUploadProgress(UPLOAD.BULK_PROGRESS_INITIAL);
+    setZipUploadProgress(0);
+    setZipJobId(null);
 
-    const success = await uploadMutations.uploadZipFile(
+    const result = await uploadMutations.uploadZipFile(
       zipFile,
-      selectedCorpus?.id
+      selectedCorpus?.id,
+      (fraction) => setZipUploadProgress(fraction * 100)
     );
 
-    if (success) {
+    if (result.ok) {
+      // A 202 confirms staging, not document processing. Poll the task before
+      // refreshing the corpus or telling the user the import is complete.
+      setZipJobId(result.job_id);
       setZipUploadProgress(100);
-      refetch?.();
-      onUploadComplete?.();
-      onClose();
     } else {
       setZipUploadProgress(0);
       // Show visible error in modal (toast is also shown in mutation hook)
-      setError("Upload failed. Please check the file and try again.");
+      setError(
+        result.error || "Upload failed. Please check the file and try again."
+      );
     }
-  }, [
-    zipFile,
-    selectedCorpus,
-    uploadMutations,
-    refetch,
-    onUploadComplete,
-    onClose,
-  ]);
+  }, [zipFile, selectedCorpus, uploadMutations]);
 
   // Handle skip corpus
   const handleSkipCorpus = useCallback(() => {
@@ -424,6 +472,11 @@ export const UploadModal: React.FC<UploadModalProps> = ({
 
   const getSubtitle = () => {
     if (mode === "bulk") {
+      if (zipJobId) {
+        return zipJobStatus?.completed
+          ? "Import status"
+          : "Import is running in the background";
+      }
       return "Upload multiple documents from a ZIP file";
     }
     switch (step) {
@@ -447,6 +500,8 @@ export const UploadModal: React.FC<UploadModalProps> = ({
       : null;
 
   const isUploading = step === "uploading" || uploadMutations.isUploading;
+  const isZipImportRunning = Boolean(zipJobId && !zipJobStatus?.completed);
+  const bulkControlsDisabled = isUploading || isZipImportRunning;
 
   return (
     <StyledModalWrapper>
@@ -481,7 +536,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
               <FileDropZone
                 mode="bulk"
                 selectedFile={zipFile}
-                disabled={isUploading}
+                disabled={bulkControlsDisabled}
                 acceptedFileTypes={acceptedFileTypes}
                 maxSizeBytes={UPLOAD.MAX_IMPORT_ZIP_BYTES}
                 maxSizeDisplay={UPLOAD.MAX_IMPORT_ZIP_DISPLAY}
@@ -497,7 +552,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                   placeholder="Search corpuses..."
                   value={corpusSearch.searchTerm}
                   onChange={(e) => corpusSearch.setSearchTerm(e.target.value)}
-                  disabled={isUploading}
+                  disabled={bulkControlsDisabled}
                   size="lg"
                   fullWidth
                 />
@@ -509,11 +564,12 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                         <InlineCorpusItem
                           key={corpus.id}
                           $selected={selectedCorpus?.id === corpus.id}
-                          onClick={() =>
+                          onClick={() => {
+                            if (bulkControlsDisabled) return;
                             setSelectedCorpus(
                               selectedCorpus?.id === corpus.id ? null : corpus
-                            )
-                          }
+                            );
+                          }}
                           role="button"
                           tabIndex={0}
                         >
@@ -524,18 +580,40 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                 )}
               </div>
 
-              {/* Progress for bulk mode */}
-              {zipUploadProgress > 0 && (
+              {/* Archive transfer and asynchronous processing are distinct.
+                  Reaching 100% means the archive was staged, not imported. */}
+              {uploadMutations.isUploading && !zipJobId && (
                 <UploadProgress
                   files={[
                     {
                       file: zipFile!,
                       formData: { title: "", slug: "", description: "" },
-                      status:
-                        zipUploadProgress === 100 ? "success" : "uploading",
+                      status: "uploading",
                     },
                   ]}
+                  progressPercent={zipUploadProgress}
+                  statusText="Uploading archive..."
                 />
+              )}
+              {zipJobId && (
+                <div
+                  role="status"
+                  style={{ marginTop: "var(--oc-spacing-md)" }}
+                >
+                  {zipJobStatus?.completed ? (
+                    <p>
+                      {zipJobStatus.success
+                        ? `Import complete: ${zipJobStatus.processedFiles} of ${zipJobStatus.totalFiles} files processed.`
+                        : "Import completed with errors. Review the details above."}
+                    </p>
+                  ) : (
+                    <p>
+                      Archive uploaded. Documents are being imported in the
+                      background; you can close this dialog safely.
+                    </p>
+                  )}
+                  <p>Job ID: {zipJobId}</p>
+                </div>
               )}
             </>
           )}
@@ -634,7 +712,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
               <Button
                 variant="primary"
                 onClick={handleBulkUpload}
-                disabled={!zipFile || isUploading}
+                disabled={!zipFile || bulkControlsDisabled}
                 loading={isUploading}
               >
                 {isUploading ? (

@@ -13,6 +13,7 @@ import { test, expect } from "./utils/coverage";
 import { BulkImportModal } from "../src/components/widgets/modals/BulkImportModal";
 import { BulkImportTestWrapper } from "./wrappers/BulkImportTestWrapper";
 import { docScreenshot } from "./utils/docScreenshot";
+import { GET_BULK_DOCUMENT_UPLOAD_STATUS } from "../src/graphql/queries";
 
 test.describe("BulkImportModal", () => {
   test("should render confirm step with warning and info alerts", async ({
@@ -251,6 +252,70 @@ test.describe("BulkImportModal", () => {
 
     // Release the parked request so unmount doesn't deadlock cleanup.
     resolveRoute?.();
+    await component.unmount();
+  });
+
+  test("keeps the modal open while the accepted import job is running", async ({
+    mount,
+    page,
+  }) => {
+    await page.route("**/api/imports/zip-to-corpus/", async (route) => {
+      await route.fulfill({
+        status: 202,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ok: true,
+          job_id: "test-job-queued",
+          message: "Import started",
+        }),
+      });
+    });
+
+    const component = await mount(
+      <BulkImportTestWrapper
+        mocks={[
+          {
+            request: {
+              query: GET_BULK_DOCUMENT_UPLOAD_STATUS,
+              variables: { jobId: "test-job-queued" },
+            },
+            result: {
+              data: {
+                bulkDocumentUploadStatus: {
+                  jobId: "test-job-queued",
+                  success: false,
+                  completed: false,
+                  totalFiles: 0,
+                  processedFiles: 0,
+                  skippedFiles: 0,
+                  errorFiles: 0,
+                  errors: ["Task is still running"],
+                },
+              },
+            },
+          },
+        ]}
+      >
+        <BulkImportModal />
+      </BulkImportTestWrapper>
+    );
+
+    await page.locator('button:has-text("Continue")').click();
+    const fileInput = page.locator('input[type="file"][accept=".zip"]');
+    await fileInput.setInputFiles({
+      name: "queued.zip",
+      mimeType: "application/zip",
+      buffer: Buffer.from("PK\x03\x04dummy-zip-content"),
+    });
+    await page.locator('button:has-text("Start Import")').click();
+
+    await expect(
+      page.locator("text=Archive uploaded. Documents are being processed")
+    ).toBeVisible();
+    await expect(page.locator("text=Job ID: test-job-queued")).toBeVisible();
+    await expect(page.locator('button:has-text("Close")')).toBeVisible();
+    await expect(page.locator("text=Bulk Import Documents")).toBeVisible();
+
     await component.unmount();
   });
 });

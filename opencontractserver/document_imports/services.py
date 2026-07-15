@@ -595,7 +595,7 @@ def import_documents_zip_for_user(
         custom_meta,
         make_public,
         corpus_id,
-    )
+    ).set(task_id=job_id)
     if getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False):
         chain(task_signature).apply_async()
     else:
@@ -722,7 +722,7 @@ def import_zip_to_corpus_for_user(
         description,
         custom_meta,
         make_public,
-    )
+    ).set(task_id=job_id)
     if getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False):
         chain(task_signature).apply_async()
     else:

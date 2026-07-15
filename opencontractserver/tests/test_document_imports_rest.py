@@ -595,6 +595,55 @@ class ImportServicesTests(TestCase):
         self.assertIsNone(result.error)
         self.assertTrue(result.job_id)
 
+    @override_settings(CELERY_TASK_ALWAYS_EAGER=True)
+    def test_documents_zip_uses_returned_job_id_as_celery_task_id(self):
+        """The status-polling job id must be the Celery task id as well."""
+        from unittest.mock import patch
+
+        from opencontractserver.document_imports.services import (
+            import_documents_zip_for_user,
+        )
+
+        with patch("opencontractserver.document_imports.services.chain") as mock_chain:
+            result = import_documents_zip_for_user(
+                user=self.user,
+                zip_source=_make_zip({"a.pdf": PDF_BYTES}),
+                make_public=False,
+            )
+
+        self.assertIsNone(result.error)
+        self.assertIsNotNone(result.job_id)
+        dispatched_task = mock_chain.call_args.args[0]
+        self.assertEqual(dispatched_task.options["task_id"], result.job_id)
+        mock_chain.return_value.apply_async.assert_called_once()
+
+    @override_settings(CELERY_TASK_ALWAYS_EAGER=True)
+    def test_zip_to_corpus_uses_returned_job_id_as_celery_task_id(self):
+        """The folder-preserving import uses the same polling identity."""
+        from unittest.mock import patch
+
+        from opencontractserver.document_imports.services import (
+            import_zip_to_corpus_for_user,
+        )
+
+        corpus = Corpus.objects.create(
+            title="Task ID corpus", creator=self.user, backend_lock=False
+        )
+        set_permissions_for_obj_to_user(self.user, corpus, [PermissionTypes.CRUD])
+        with patch("opencontractserver.document_imports.services.chain") as mock_chain:
+            result = import_zip_to_corpus_for_user(
+                user=self.user,
+                zip_source=_make_zip({"a.pdf": PDF_BYTES}),
+                corpus_id=corpus.id,
+                make_public=False,
+            )
+
+        self.assertIsNone(result.error)
+        self.assertIsNotNone(result.job_id)
+        dispatched_task = mock_chain.call_args.args[0]
+        self.assertEqual(dispatched_task.options["task_id"], result.job_id)
+        mock_chain.return_value.apply_async.assert_called_once()
+
 
 class ServiceHelperUnitTests(TestCase):
     """Unit-level coverage of the small pure helpers in services.py."""

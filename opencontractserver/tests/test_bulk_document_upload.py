@@ -262,6 +262,45 @@ class BulkDocumentUploadTests(TestCase):
     @override_settings(
         CELERY_TASK_ALWAYS_EAGER=True, CELERY_TASK_STORE_EAGER_RESULT=True
     )
+    def test_status_query_normalizes_folder_import_result_keys(self):
+        """Folder-preserving imports expose the same status counters as ZIP uploads."""
+        job_id = f"folder-task-{uuid.uuid4()}"
+        AsyncResult(job_id).backend.store_result(
+            job_id,
+            {
+                "success": True,
+                "completed": True,
+                "total_files_in_zip": 12,
+                "files_processed": 7,
+                "files_skipped_type": 2,
+                "files_skipped_size": 1,
+                "files_skipped_hidden": 1,
+                "files_skipped_path": 0,
+                "files_errored": 1,
+                "document_ids": ["1", "2", "3", "4", "5", "6", "7"],
+                "errors": ["One file failed"],
+            },
+            "SUCCESS",
+        )
+        cache.set(
+            f"{BULK_UPLOAD_OWNER_CACHE_PREFIX}{job_id}",
+            self.user.id,
+            get_bulk_upload_owner_cache_ttl_seconds(),
+        )
+
+        response = self.execute_status_query(job_id)
+
+        self.assertIsNotNone(response)
+        self.assertTrue(response["success"])
+        self.assertTrue(response["completed"])
+        self.assertEqual(response["totalFiles"], 12)
+        self.assertEqual(response["processedFiles"], 7)
+        self.assertEqual(response["skippedFiles"], 4)
+        self.assertEqual(response["errorFiles"], 1)
+
+    @override_settings(
+        CELERY_TASK_ALWAYS_EAGER=True, CELERY_TASK_STORE_EAGER_RESULT=True
+    )
     def test_end_to_end_document_upload(self):
         """Test the full document upload process end-to-end with real task execution."""
         # We'll use CELERY_TASK_ALWAYS_EAGER to run tasks synchronously

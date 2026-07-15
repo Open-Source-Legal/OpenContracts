@@ -50,6 +50,40 @@ export interface RequestDocumentsOutputs {
   };
 }
 
+export interface BulkDocumentUploadStatus {
+  jobId: string;
+  success: boolean;
+  completed: boolean;
+  totalFiles: number;
+  processedFiles: number;
+  skippedFiles: number;
+  errorFiles: number;
+  errors: string[];
+}
+
+export interface BulkDocumentUploadStatusOutput {
+  bulkDocumentUploadStatus: BulkDocumentUploadStatus | null;
+}
+
+export interface BulkDocumentUploadStatusInput {
+  jobId: string;
+}
+
+export const GET_BULK_DOCUMENT_UPLOAD_STATUS = gql`
+  query BulkDocumentUploadStatus($jobId: String!) {
+    bulkDocumentUploadStatus(jobId: $jobId) {
+      jobId
+      success
+      completed
+      totalFiles
+      processedFiles
+      skippedFiles
+      errorFiles
+      errors
+    }
+  }
+`;
+
 // NOTE: The corpus document-card view requests ``docTypeLabels`` — a flat
 // list field on DocumentType that returns the badge labels directly without
 // the Relay connection / filterset wrapping the legacy ``docAnnotations``

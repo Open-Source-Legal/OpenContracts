@@ -26,40 +26,62 @@ const ProgressContainer = styled.div`
 
 interface UploadProgressProps {
   files: FileUploadPackage[];
+  /** Actual byte-transfer progress for a single streamed archive. */
+  progressPercent?: number;
+  /** Overrides the file-count status text when reporting archive transfer. */
+  statusText?: string;
 }
 
 /**
  * Upload progress bar showing overall progress across all files.
  * Displays number of completed files and percentage.
  */
-export const UploadProgress: React.FC<UploadProgressProps> = ({ files }) => {
+export const UploadProgress: React.FC<UploadProgressProps> = ({
+  files,
+  progressPercent,
+  statusText,
+}) => {
   const completedCount = files.filter(
     (f) => f.status === "success" || f.status === "failed"
   ).length;
   const successCount = files.filter((f) => f.status === "success").length;
   const totalCount = files.length;
-  const percentage = totalCount > 0 ? (completedCount / totalCount) * 100 : 0;
+  const filePercentage =
+    totalCount > 0 ? (completedCount / totalCount) * 100 : 0;
+  const percentage = progressPercent ?? filePercentage;
 
-  const allComplete = completedCount === totalCount;
+  const allComplete =
+    progressPercent === undefined
+      ? completedCount === totalCount
+      : progressPercent >= 100;
   const hasFailures = files.some((f) => f.status === "failed");
 
   return (
     <ProgressContainer>
       <div className="progress-label">
         <span className="progress-text">
-          {allComplete
-            ? hasFailures
-              ? "Upload completed with errors"
-              : "All files uploaded successfully"
-            : "Uploading files..."}
+          {statusText ||
+            (allComplete
+              ? hasFailures
+                ? "Upload completed with errors"
+                : "All files uploaded successfully"
+              : "Uploading files...")}
         </span>
         <span className="progress-count">
-          {successCount} / {totalCount} completed ({Math.round(percentage)}%)
+          {progressPercent === undefined
+            ? `${successCount} / ${totalCount} completed (${Math.round(
+                percentage
+              )}%)`
+            : `${Math.round(percentage)}% uploaded`}
         </span>
       </div>
       <Progress
         value={percentage}
-        variant={allComplete ? "determinate" : "indeterminate"}
+        variant={
+          allComplete || progressPercent !== undefined
+            ? "determinate"
+            : "indeterminate"
+        }
         size="md"
       />
     </ProgressContainer>

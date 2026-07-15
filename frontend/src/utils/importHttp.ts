@@ -567,7 +567,9 @@ export async function importDocumentsZipMultipart(
     };
   }
 
-  return toZipResult(await response.json(), response.status);
+  const result = toZipResult(await response.json(), response.status);
+  if (result.ok) input.onProgress?.(1);
+  return result;
 }
 
 /**
@@ -621,7 +623,9 @@ export async function importZipToCorpusMultipart(
     };
   }
 
-  return toZipResult(await response.json(), response.status);
+  const result = toZipResult(await response.json(), response.status);
+  if (result.ok) input.onProgress?.(1);
+  return result;
 }
 
 /**
