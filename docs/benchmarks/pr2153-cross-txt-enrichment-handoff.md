@@ -30,6 +30,15 @@ Sidecar policy adopted: legacy producer rows are retained as source evidence
 and deduped against by label text across both representations; the label-type
 migration for existing rows remains deliberate future work.
 
+Full 10K rerun over the same corpus (PK 96) after the fix: 10,000 scanned /
+0 skipped, 37,172 HTS span annotations, 300 citation mentions → 299
+references (all unresolved, as this report predicted — none of the slice's
+citation targets are in the slice), 0 identity collisions, and 0 connection-
+pool warnings with the bounded prefetch. Wall time 206 minutes — persistence
+dominates (the original zero-output pass, which only loaded text, took 5
+minutes), which is exactly what the shipped per-phase timing now measures on
+future runs.
+
 ## Scope and conclusion
 
 This report covers the PR 2153 customs-ruling enrichment path when fed the
