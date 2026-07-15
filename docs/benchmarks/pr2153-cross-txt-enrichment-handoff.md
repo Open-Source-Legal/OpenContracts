@@ -12,15 +12,23 @@ anchored `text`, and ruling identity is path/external_id-derived with
 collision reporting (`CustomsRulingCitationService._build_ruling_identity_index`).
 Item E: prefetch concurrency is now the bounded
 `CUSTOMS_ENRICHMENT_PREFETCH_WORKERS` setting (default: storage pool size
-minus one, leaving the caller thread its own connection slot); fine-grained
-load/match/write timing remains open as the P2 follow-up.
+minus one, leaving the caller thread its own connection slot), and the
+summary records load/match/write seconds plus a `load_failures` breakdown
+separately (`EnrichmentSummary` in
+`opencontractserver/enrichment/services/customs_ruling_citation_service.py`).
+The durable-identity import contract shipped too: meta.csv accepts an
+optional `external_id` column
+(`opencontractserver/utils/metadata_file_parser.py`) which the ZIP task
+stores on `DocumentPath.external_id`
+(`opencontractserver/tasks/import_tasks.py`), so a namespaced
+`cross:H022844` survives renames and outranks path/title in resolution.
 Required tests live in
 `opencontractserver/tests/test_customs_ruling_enrichment.py`, including the
-official-export-shaped ZIP → `zip-to-corpus` → enrichment contract test.
+official-export-shaped ZIP → `zip-to-corpus` → enrichment contract test and
+an opaque-filename `external_id` resolution test.
 Sidecar policy adopted: legacy producer rows are retained as source evidence
 and deduped against by label text across both representations; the label-type
-migration for existing rows remains deliberate future work, as does the
-import-contract change to populate `DocumentPath.external_id`.
+migration for existing rows remains deliberate future work.
 
 ## Scope and conclusion
 

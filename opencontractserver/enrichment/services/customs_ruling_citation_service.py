@@ -46,6 +46,7 @@ from __future__ import annotations
 import concurrent.futures
 import logging
 import re
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -91,8 +92,9 @@ ANALYZER_TITLE = "Customs Ruling Citation Enrichment"
 LABEL_HTS_CODE = "HTS_CODE"
 
 # Namespace for a durable ruling identity carried on
-# ``DocumentPath.external_id`` (e.g. ``cross:H022844``). The import contract
-# does not populate it yet — when it does, it outranks path/title derivation.
+# ``DocumentPath.external_id`` (e.g. ``cross:H022844``), populated by the ZIP
+# import's optional ``external_id`` meta.csv column. Outranks path/title
+# derivation because it survives document renames.
 EXTERNAL_ID_NAMESPACE = "cross:"
 
 # --- HTS tariff codes -------------------------------------------------------
@@ -169,6 +171,17 @@ class EnrichmentSummary:
     # Distinct canonical ruling numbers claimed by more than one document.
     # Reported (and left unresolved) rather than resolved arbitrarily.
     canonical_id_collisions: int = 0
+    # --- per-phase cost (handoff §E instrumentation) ---------------------
+    # Recorded separately so a slow run can be attributed to storage, regex,
+    # or DB. load_seconds sums per-document fetch durations across the
+    # prefetch pool (thread time, so it can exceed wall clock); match/write
+    # are caller-thread time. load_failures is the loader-exception count —
+    # the breakdown of documents_skipped_unanchorable that is genuinely
+    # "could not load" (missing file, storage error, unsupported type).
+    load_failures: int = 0
+    load_seconds: float = 0.0
+    match_seconds: float = 0.0
+    write_seconds: float = 0.0
 
 
 class CustomsRulingCitationService:
@@ -246,7 +259,8 @@ class CustomsRulingCitationService:
                 max_workers=cls._prefetch_workers()
             ) as pool:
                 loaded = pool.map(cls._safe_load_text_and_layer, scanned_documents)
-                for doc, doc_text, layer, ann_type, exc in loaded:
+                for doc, doc_text, layer, ann_type, exc, load_seconds in loaded:
+                    summary.load_seconds += load_seconds
                     if exc is not None:
                         logger.warning(
                             "CustomsRulingCitationService: could not load text "
@@ -254,6 +268,7 @@ class CustomsRulingCitationService:
                             doc.id,
                             exc,
                         )
+                        summary.load_failures += 1
                         summary.documents_skipped_unanchorable += 1
                         continue
                     if ann_type not in (TOKEN_LABEL, SPAN_LABEL) or (
@@ -266,24 +281,15 @@ class CustomsRulingCitationService:
                         summary.documents_skipped_unanchorable += 1
                         continue
 
-                    hts_created = cls._write_hts_annotations(
-                        doc,
-                        layer,
-                        doc_text,
-                        corpus,
-                        creator_id,
-                        ann_type=ann_type,
-                        analysis=analysis,
-                    )
-                    summary.hts_codes_created += hts_created
-                    summary.annotations_created += hts_created
-
+                    match_started = time.monotonic()
+                    hts_matches = cls._find_hts_matches(doc_text)
                     resolutions = cls._build_citation_resolutions(
                         doc,
                         doc_text,
                         own_numbers_by_doc_id.get(doc.id, set()),
                         doc_by_number,
                     )
+                    summary.match_seconds += time.monotonic() - match_started
                     summary.citation_candidates += len(resolutions)
                     summary.citations_resolved += sum(
                         1
@@ -295,6 +301,19 @@ class CustomsRulingCitationService:
                         for r in resolutions
                         if r.resolution_status == C.STATUS_UNRESOLVED
                     )
+
+                    write_started = time.monotonic()
+                    hts_created = cls._write_hts_annotations(
+                        doc,
+                        layer,
+                        hts_matches,
+                        corpus,
+                        creator_id,
+                        ann_type=ann_type,
+                        analysis=analysis,
+                    )
+                    summary.hts_codes_created += hts_created
+                    summary.annotations_created += hts_created
                     if resolutions:
                         res = writer.write(
                             resolutions, provisional=True, reconcile_graph=False
@@ -302,8 +321,11 @@ class CustomsRulingCitationService:
                         summary.annotations_created += res.annotations_created
                         summary.references_created += res.references_created
                         summary.references_resolved += res.references_resolved
+                    summary.write_seconds += time.monotonic() - write_started
 
+            graph_started = time.monotonic()
             graph_res = writer.reconcile_document_graph()
+            summary.write_seconds += time.monotonic() - graph_started
             summary.document_relationships_created = (
                 graph_res.document_relationships_created
             )
@@ -322,6 +344,11 @@ class CustomsRulingCitationService:
         analysis.status = JobStatus.COMPLETED.value
         analysis.save(update_fields=["status"])
 
+        # Microsecond precision: coarser rounding can collapse a fast local-
+        # storage run's real-but-tiny load time to a misleading 0.0.
+        summary.load_seconds = round(summary.load_seconds, 6)
+        summary.match_seconds = round(summary.match_seconds, 6)
+        summary.write_seconds = round(summary.write_seconds, 6)
         return {
             "corpus_id": corpus_id,
             "analysis_id": analysis.id,
@@ -350,7 +377,8 @@ class CustomsRulingCitationService:
         ``docs/benchmarks/pr2153-cross-txt-enrichment-handoff.md``):
 
         1. an active ``DocumentPath.external_id`` in the ``cross:`` namespace
-           (the durable contract, once the import path populates it);
+           (the durable contract — populated from meta.csv's ``external_id``
+           column by the ZIP import, it survives renames);
         2. the active corpus path's basename stem — the official CROSS bulk
            exporter writes ``{COLLECTION}/{ruling_number}.txt``;
         3. the display title's stem (legacy ingests titled documents with the
@@ -426,10 +454,13 @@ class CustomsRulingCitationService:
         ``paths`` are the document's active ``(path, external_id)`` pairs —
         see ``_build_ruling_identity_index`` for the priority rationale.
         """
+        # Namespace match is case-insensitive: producers vary the prefix case
+        # (CROSS's own house style is uppercase) and a silently-ignored
+        # identity would defeat the whole durable-id contract.
         candidates = [
             external_id[len(EXTERNAL_ID_NAMESPACE) :].strip().upper()
             for _path, external_id in paths
-            if external_id.startswith(EXTERNAL_ID_NAMESPACE)
+            if external_id.lower().startswith(EXTERNAL_ID_NAMESPACE)
         ]
         candidates += [_ruling_number_from_path(path) for path, _ in paths if path]
         candidates.append(_ruling_number_from_title(doc.title))
@@ -439,29 +470,53 @@ class CustomsRulingCitationService:
     def _safe_load_text_and_layer(doc):
         """Thread-pool-mapped wrapper around ``load_document_text_and_layer``.
 
-        Returns a fixed-shape tuple instead of raising so ``executor.map()``
-        never surfaces a per-document failure as an exception when iterating
-        results — the caller checks ``exc`` and logs/skips exactly as the
+        Returns a fixed-shape tuple (ending with the fetch duration in
+        seconds) instead of raising so ``executor.map()`` never surfaces a
+        per-document failure as an exception when iterating results — the
+        caller checks ``exc`` and logs/skips exactly as the
         pre-parallelization code did with its inline try/except.
         """
+        started = time.monotonic()
         try:
             doc_text, layer, ann_type = load_document_text_and_layer(doc)
-            return doc, doc_text, layer, ann_type, None
+            return doc, doc_text, layer, ann_type, None, time.monotonic() - started
         except Exception as exc:  # noqa: BLE001 - reported to caller, not swallowed
-            return doc, None, None, None, exc
+            return doc, None, None, None, exc, time.monotonic() - started
+
+    @staticmethod
+    def _find_hts_matches(doc_text: str) -> list[tuple[int, int, str, str]]:
+        """``(start, end, raw_text, normalized_code)`` per HTS mention.
+
+        Pure detection — split from ``_write_hts_annotations`` so the
+        summary's match/write timings measure regex and persistence
+        separately.
+        """
+        matches = []
+        for m in _HTS_TEXT_RE.finditer(doc_text):
+            code = _normalize_hts(m.group())
+            if code is None:
+                continue
+            matches.append((m.start(), m.end(), m.group(), code))
+        return matches
 
     @staticmethod
     def _write_hts_annotations(
-        doc, layer, doc_text: str, corpus, creator_id: int, *, ann_type, analysis
+        doc,
+        layer,
+        matches: list[tuple[int, int, str, str]],
+        corpus,
+        creator_id: int,
+        *,
+        ann_type,
+        analysis,
     ) -> int:
         """Create bare (non-reference) HTS_CODE annotations for one document.
 
-        ``ann_type`` selects the persistence shape: ``TOKEN_LABEL`` projects
-        each char span onto PAWLs bounding boxes (``layer`` required);
-        ``SPAN_LABEL`` stores the canonical text-span shape
-        (``annotation_anchoring._anchor_text``) — ``page=0`` is the no-page
-        sentinel the frontend suppresses, and a text annotation never
-        advertises fake PDF geometry.
+        ``matches`` comes from ``_find_hts_matches``. ``ann_type`` selects
+        the persistence shape: ``TOKEN_LABEL`` projects each char span onto
+        PAWLs bounding boxes (``layer`` required); ``SPAN_LABEL`` stores the
+        canonical text-span shape (``span_annotation_payload``) — a text
+        annotation never advertises fake PDF geometry.
 
         Dedupe is by (document, char start) against ALL pre-existing
         ``HTS_CODE``-labelled annotations, across both representations:
@@ -472,12 +527,6 @@ class CustomsRulingCitationService:
         as source evidence and never duplicated or relabelled here;
         correcting their label type is a deliberate future migration.
         """
-        matches = []
-        for m in _HTS_TEXT_RE.finditer(doc_text):
-            code = _normalize_hts(m.group())
-            if code is None:
-                continue
-            matches.append((m.start(), m.end(), m.group(), code))
         if not matches:
             return 0
 

@@ -154,6 +154,12 @@ class TxtSpanEnrichmentTests(_CustomsEnrichmentTestBase):
         assert res["citations_resolved"] == 1
         assert res["references_created"] == 1
         assert res["document_relationships_created"] == 1
+        # Per-phase instrumentation (handoff §E): storage, regex, and DB cost
+        # are recorded separately; a real run spends measurable time in each.
+        assert res["load_failures"] == 0
+        assert res["load_seconds"] > 0
+        assert res["match_seconds"] >= 0
+        assert res["write_seconds"] > 0
 
     def test_hts_span_annotation_shape_and_provenance(self):
         res = self._run()
@@ -333,6 +339,31 @@ class PathIdentityTests(_CustomsEnrichmentTestBase):
         assert ref.target_document_id == doc2.id
         assert self._edges().get().source_document_id == doc1.id
 
+    def test_external_id_namespace_match_is_case_insensitive(self):
+        """Producers vary the namespace case (CROSS's house style is
+        uppercase); a case-variant prefix must not be silently ignored."""
+        _make_txt_doc(
+            self.user,
+            self.corpus,
+            title="Source ruling",
+            path="/HQ/H760001.txt",
+            body="HQ H760001\n\nConsistent with HQ H760002.",
+        )
+        renamed = _make_txt_doc(
+            self.user,
+            self.corpus,
+            title="Renamed after import",
+            path="/HQ/opaque-name.txt",
+            body="HQ H760002\n\nDecision text.",
+            external_id="CROSS:H760002",
+        )
+
+        self._run()
+
+        ref = self._references().get()
+        assert ref.resolution_status == C.STATUS_RESOLVED
+        assert ref.target_document_id == renamed.id
+
     def test_external_id_takes_priority_over_path_basename(self):
         _make_txt_doc(
             self.user,
@@ -453,6 +484,7 @@ class SkipMetricTests(_CustomsEnrichmentTestBase):
 
         assert res["documents_scanned"] == 3
         assert res["documents_skipped_unanchorable"] == 2
+        assert res["load_failures"] == 2  # both skips were loader failures
         assert res["hts_codes_created"] == 1  # the healthy document still ran
 
 
@@ -643,6 +675,42 @@ class SidecarReconciliationTests(_CustomsEnrichmentTestBase):
         assert second["hts_codes_created"] == 0
         assert second["references_created"] == 0
         assert Annotation.objects.filter(corpus=self.corpus).count() == before
+
+
+class ExternalIdLifecycleTests(_CustomsEnrichmentTestBase):
+    """A stamped ``DocumentPath.external_id`` must survive the versioning
+    lifecycle: move/delete/restore always copied it, and the update
+    (re-import at the same path) branch now inherits it too unless the
+    caller supplies a fresh value."""
+
+    def _import(self, body: bytes, **doc_kwargs):
+        _doc, _status, path_row = self.corpus.import_content(
+            content=body,
+            path="/HQ/opaque-name.txt",
+            user=self.user,
+            filename="opaque-name.txt",
+            file_type="text/plain",
+            title="Some subject",
+            **doc_kwargs,
+        )
+        return path_row
+
+    def test_upversion_inherits_external_id(self):
+        first = self._import(b"v1 body", external_id="cross:H850001")
+        assert first.external_id == "cross:H850001"
+
+        second = self._import(b"v2 body")  # same path, no external_id
+
+        assert second.id != first.id
+        assert second.is_current
+        assert second.external_id == "cross:H850001"
+
+    def test_upversion_caller_override_wins(self):
+        self._import(b"v1 body", external_id="cross:H850001")
+
+        second = self._import(b"v2 body", external_id="cross:H850099")
+
+        assert second.external_id == "cross:H850099"
 
 
 # --- Official bulk-export contract test -------------------------------------
@@ -912,3 +980,72 @@ class CrossOfficialExportIntegrationTests(TransactionTestCase):
         assert refs.count() == 2
         assert edges.count() == 1
         assert mentions.count() == 2
+
+    def test_external_id_column_carries_identity_through_import(self):
+        """The durable-identity contract end to end: a document whose
+        filename is NOT its ruling number resolves via the meta.csv
+        ``external_id`` column (stored on ``DocumentPath.external_id``)."""
+        from opencontractserver.tasks.import_tasks import (
+            import_zip_with_folder_structure,
+        )
+
+        source_body = "HQ H840001\n\nWe follow NY H840002 here."
+        target_body = "NY H840002\n\nOriginal decision text."
+
+        meta = io.StringIO()
+        writer = csv.writer(meta)
+        writer.writerow(["source_path", "title", "description", "external_id"])
+        writer.writerow(["HQ/H840001.txt", "Source ruling", "desc", "cross:H840001"])
+        writer.writerow(
+            # Opaque filename — only external_id carries the identity.
+            ["HQ/textile-bags-ruling.txt", "Textile bags", "desc", "cross:H840002"]
+        )
+        files = {
+            "meta.csv": meta.getvalue().encode("utf-8"),
+            "HQ/H840001.txt": source_body.encode("utf-8"),
+            "HQ/textile-bags-ruling.txt": target_body.encode("utf-8"),
+        }
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+            for name, content in files.items():
+                zf.writestr(name, content)
+        buffer.seek(0)
+
+        from opencontractserver.corpuses.models import TemporaryFileHandle
+
+        self._set_text_parser()
+        handle = TemporaryFileHandle.objects.create(
+            file=ContentFile(buffer.read(), name="cross-extid.zip")
+        )
+        result = import_zip_with_folder_structure.apply(
+            kwargs={
+                "temporary_file_handle_id": handle.id,
+                "user_id": self.user.id,
+                "job_id": "cross-external-id",
+                "corpus_id": self.corpus.id,
+            }
+        ).get()
+        assert result["success"], result
+        assert result["external_ids_applied"] == 2
+
+        target_path = DocumentPath.objects.get(
+            corpus=self.corpus,
+            path__endswith="textile-bags-ruling.txt",
+            is_current=True,
+            is_deleted=False,
+        )
+        assert target_path.external_id == "cross:H840002"
+        target_doc = Document.objects.get(pk=target_path.document_id)
+        assert not target_doc.backend_lock
+        assert target_doc.txt_extract_file
+
+        res = CustomsRulingCitationService.enrich_corpus(
+            corpus_id=self.corpus.id, creator_id=self.user.id
+        )
+
+        assert res["citations_resolved"] == 1
+        ref = CorpusReference.objects.get(
+            corpus=self.corpus, reference_type=C.REF_DOCUMENT
+        )
+        assert ref.resolution_status == C.STATUS_RESOLVED
+        assert ref.target_document_id == target_doc.id
