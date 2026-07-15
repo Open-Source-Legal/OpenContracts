@@ -233,16 +233,24 @@ test.describe("BulkImportModal", () => {
     // Click Start Import to trigger the progress step
     await page.locator('button:has-text("Start Import")').click();
 
-    // Progress step should show spinner, heading, and progress bar
-    await expect(page.locator("text=Importing Documents...")).toBeVisible({
+    // While the HTTP request is pending, the archive has not yet been accepted
+    // and the modal should clearly distinguish upload from background import.
+    await expect(
+      page.getByRole("heading", { name: "Uploading Archive..." })
+    ).toBeVisible({
       timeout: 10000,
     });
     await expect(
-      page.locator("text=This may take a few moments")
+      page.getByText(
+        "The archive is being transferred and staged for import.",
+        {
+          exact: true,
+        }
+      )
     ).toBeVisible();
 
     // Progress percentage should be visible
-    await expect(page.locator("text=%")).toBeVisible();
+    await expect(page.getByText(/% uploaded$/)).toBeVisible();
 
     // Close button should be hidden during progress
     await expect(page.locator('button:has-text("Cancel")')).not.toBeVisible();
@@ -275,6 +283,9 @@ test.describe("BulkImportModal", () => {
       <BulkImportTestWrapper
         mocks={[
           {
+            // The modal polls this query until it is unmounted, so keep the
+            // queued response available for every polling request.
+            maxUsageCount: Number.POSITIVE_INFINITY,
             request: {
               query: GET_BULK_DOCUMENT_UPLOAD_STATUS,
               variables: { jobId: "test-job-queued" },
@@ -300,22 +311,30 @@ test.describe("BulkImportModal", () => {
       </BulkImportTestWrapper>
     );
 
-    await page.locator('button:has-text("Continue")').click();
-    const fileInput = page.locator('input[type="file"][accept=".zip"]');
-    await fileInput.setInputFiles({
-      name: "queued.zip",
-      mimeType: "application/zip",
-      buffer: Buffer.from("PK\x03\x04dummy-zip-content"),
-    });
-    await page.locator('button:has-text("Start Import")').click();
+    try {
+      await page.locator('button:has-text("Continue")').click();
+      const fileInput = page.locator('input[type="file"][accept=".zip"]');
+      await fileInput.setInputFiles({
+        name: "queued.zip",
+        mimeType: "application/zip",
+        buffer: Buffer.from("PK\x03\x04dummy-zip-content"),
+      });
+      await page.locator('button:has-text("Start Import")').click();
 
-    await expect(
-      page.locator("text=Archive uploaded. Documents are being processed")
-    ).toBeVisible();
-    await expect(page.locator("text=Job ID: test-job-queued")).toBeVisible();
-    await expect(page.locator('button:has-text("Close")')).toBeVisible();
-    await expect(page.locator("text=Bulk Import Documents")).toBeVisible();
-
-    await component.unmount();
+      await expect(
+        page.getByText(
+          /The archive was uploaded\. Documents are being processed/i
+        )
+      ).toBeVisible();
+      await expect(
+        page.getByText("Job ID: test-job-queued", { exact: true })
+      ).toBeVisible();
+      await expect(page.locator('button:has-text("Close")')).toBeVisible();
+      await expect(page.locator("text=Bulk Import Documents")).toBeVisible();
+    } finally {
+      // Stop polling even when an assertion fails, so the mock is not reused
+      // by a still-mounted component during test cleanup or retries.
+      await component.unmount();
+    }
   });
 });
