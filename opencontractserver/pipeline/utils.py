@@ -210,8 +210,6 @@ def get_components_by_mimetype(
     # Get compatible post-processors
     for post_processor_class in get_all_post_processors():
         if file_type in post_processor_class.supported_file_types:
-            logger.info(post_processor_class)
-            logger.info(dir(post_processor_class))
             module_name = post_processor_class.__module__.split(".")[-1]
             post_processors.append(
                 {

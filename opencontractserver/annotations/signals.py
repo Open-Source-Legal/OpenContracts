@@ -3,6 +3,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from django.db import transaction
+
 from opencontractserver.tasks.embeddings_task import (
     calculate_embedding_for_annotation_text,
     calculate_embedding_for_note_text,
@@ -62,10 +64,15 @@ def process_annot_on_create_atomic(
         )
         # Use task_id for deduplication to prevent duplicate embedding tasks
         # if two annotations are created simultaneously
-        calculate_embedding_for_annotation_text.si(
-            annotation_id=instance.id,
-            corpus_id=corpus_id,
-        ).apply_async(task_id=f"embed-annot-{instance.id}")
+        annotation_id = instance.id
+        transaction.on_commit(
+            lambda annotation_id=annotation_id, corpus_id=corpus_id: (
+                calculate_embedding_for_annotation_text.si(
+                    annotation_id=annotation_id,
+                    corpus_id=corpus_id,
+                ).apply_async(task_id=f"embed-annot-{annotation_id}")
+            )
+        )
 
     # No cache invalidation needed - using direct queries
 
@@ -98,10 +105,15 @@ def process_note_on_create_atomic(
             f"(corpus_id={corpus_id})"
         )
         # Use task_id for deduplication to prevent duplicate embedding tasks
-        calculate_embedding_for_note_text.si(
-            note_id=instance.id,
-            corpus_id=corpus_id,
-        ).apply_async(task_id=f"embed-note-{instance.id}")
+        note_id = instance.id
+        transaction.on_commit(
+            lambda note_id=note_id, corpus_id=corpus_id: (
+                calculate_embedding_for_note_text.si(
+                    note_id=note_id,
+                    corpus_id=corpus_id,
+                ).apply_async(task_id=f"embed-note-{note_id}")
+            )
+        )
 
 
 # NOTE: process_structural_annotation_for_corpuses is no longer needed with the new

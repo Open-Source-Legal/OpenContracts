@@ -604,6 +604,25 @@ class PdfTokenMentionTests(TestCase):
         EnrichmentService().apply(corpus_id=self.corpus.id, creator_id=self.user.id)
         assert self._law_mentions().count() == before
 
+    def test_reapply_skips_projection_for_existing_token_mentions(self):
+        """A converged PDF mention must not be rebuilt on every rerun."""
+        from unittest.mock import patch
+
+        from opencontractserver.enrichment.writer import EnrichmentWriter
+
+        EnrichmentService().apply(corpus_id=self.corpus.id, creator_id=self.user.id)
+
+        with patch.object(
+            EnrichmentWriter,
+            "_project_mention",
+            side_effect=AssertionError("existing token mentions must not reproject"),
+        ):
+            out = EnrichmentService().apply(
+                corpus_id=self.corpus.id, creator_id=self.user.id
+            )
+
+        assert out["annotations_created"] == 0
+
     def test_legacy_span_mention_is_upgraded_in_place(self):
         """Re-running enrichment converges pre-fix span mentions to token
         mentions without duplicating them or breaking CorpusReference FKs."""

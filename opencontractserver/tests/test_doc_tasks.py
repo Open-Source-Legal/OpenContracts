@@ -2,17 +2,26 @@
 import base64
 import io
 import logging
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from django.contrib.auth import get_user_model
+from django.conf import settings
 from django.core.files.base import ContentFile
 from django.db import transaction
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 from pypdf import PdfReader
 
-from opencontractserver.annotations.models import Annotation, AnnotationLabel
+from opencontractserver.annotations.models import (
+    Annotation,
+    AnnotationLabel,
+    StructuralAnnotationSet,
+)
 from opencontractserver.corpuses.models import Corpus
-from opencontractserver.documents.models import Document, DocumentProcessingStatus
+from opencontractserver.documents.models import (
+    Document,
+    DocumentPath,
+    DocumentProcessingStatus,
+)
 from opencontractserver.tasks.doc_tasks import (
     _create_document_processed_notifications,
     _create_document_processing_failed_notification,
@@ -33,6 +42,16 @@ from opencontractserver.utils.permissioning import set_permissions_for_obj_to_us
 User = get_user_model()
 
 logger = logging.getLogger(__name__)
+
+
+class DocumentPipelineRoutingTestCase(SimpleTestCase):
+    def test_remap_runs_with_parse_stages(self):
+        self.assertEqual(
+            settings.CELERY_TASK_ROUTES[
+                "opencontractserver.tasks.doc_tasks.remap_pending_annotations"
+            ]["queue"],
+            "doc_parse",
+        )
 
 
 class DocParserTestCase(TestCase):
@@ -560,6 +579,70 @@ class SetDocLockStateTestCase(TestCase):
         self.assertEqual(self.doc.processing_status, DocumentProcessingStatus.COMPLETED)
         self.assertFalse(self.doc.backend_lock)
 
+    @patch("opencontractserver.tasks.corpus_tasks.ensure_embeddings_for_corpus.delay")
+    @patch(
+        "opencontractserver.tasks.embeddings_task.calculate_embedding_for_doc_text.delay"
+    )
+    @patch("opencontractserver.tasks.corpus_tasks.process_corpus_action.delay")
+    @patch(
+        "opencontractserver.tasks.doc_tasks._create_document_processed_notifications"
+    )
+    @patch("opencontractserver.tasks.doc_tasks.transaction.on_commit")
+    def test_unlock_queues_embeddings_for_every_current_corpus(
+        self,
+        mock_on_commit,
+        _mock_notifications,
+        _mock_process_action,
+        mock_doc_embedding,
+        mock_structural_embeddings,
+    ):
+        """A path created while locked is embedded once parsing has completed."""
+        structural_set = StructuralAnnotationSet.objects.create(
+            content_hash="lock-state-structural-set",
+            creator=self.user,
+        )
+        self.doc.structural_annotation_set = structural_set
+        self.doc.save(update_fields=["structural_annotation_set"])
+
+        first_corpus = Corpus.objects.create(
+            title="First corpus",
+            creator=self.user,
+        )
+        second_corpus = Corpus.objects.create(
+            title="Second corpus",
+            creator=self.user,
+        )
+        for corpus, path in (
+            (first_corpus, "/documents/first"),
+            (second_corpus, "/documents/second"),
+        ):
+            DocumentPath.objects.create(
+                document=self.doc,
+                corpus=corpus,
+                path=path,
+                version_number=1,
+                creator=self.user,
+            )
+
+        # A TestCase wraps each test in a transaction, so execute the callbacks
+        # here rather than waiting for the outer test transaction to commit.
+        mock_on_commit.side_effect = lambda callback: callback()
+
+        set_doc_lock_state.apply(kwargs={"locked": False, "doc_id": self.doc.id}).get()
+
+        expected_doc_calls = [
+            call(doc_id=self.doc.id, corpus_id=first_corpus.id),
+            call(doc_id=self.doc.id, corpus_id=second_corpus.id),
+        ]
+        self.assertCountEqual(mock_doc_embedding.call_args_list, expected_doc_calls)
+        self.assertCountEqual(
+            mock_structural_embeddings.call_args_list,
+            [
+                call(structural_set.id, first_corpus.id),
+                call(structural_set.id, second_corpus.id),
+            ],
+        )
+
 
 class ExtractThumbnailTestCase(TestCase):
     """Tests for extract_thumbnail task edge cases."""
@@ -647,3 +730,14 @@ class RetryDocumentProcessingTestCase(TestCase):
         self.assertEqual(self.doc.processing_status, DocumentProcessingStatus.PENDING)
         self.assertEqual(self.doc.processing_error, "")
         mock_chain.assert_called_once()
+        task_names = [signature["task"] for signature in mock_chain.call_args.args]
+        self.assertEqual(
+            task_names,
+            [
+                "opencontractserver.tasks.doc_tasks.convert_document_to_pdf",
+                "opencontractserver.tasks.doc_tasks.extract_thumbnail",
+                "opencontractserver.tasks.doc_tasks.ingest_doc",
+                "opencontractserver.tasks.doc_tasks.remap_pending_annotations",
+                "opencontractserver.tasks.doc_tasks.set_doc_lock_state",
+            ],
+        )

@@ -224,9 +224,6 @@ class EnrichmentWriter:
     ) -> tuple[Annotation, bool]:
         cand = res.candidate
         label_text = C.LABEL_FOR_TYPE[res.reference_type]
-        # PDF documents get token mentions (PAWLs bounding boxes — the PDF
-        # viewer can only paint those); everything else keeps char spans.
-        projected = self._project_mention(res)
 
         # Dedup by (document, label text, span START): the span END can
         # legitimately move when the alias registry grows (a longer authority
@@ -246,8 +243,17 @@ class EnrichmentWriter:
             .select_related("annotation_label")
             .first()
         )
+        # A current token mention already has PAWLS bounds, so projecting it
+        # again is pure cost. Keep projection for legacy span rows: rerunning
+        # enrichment is intentionally their token-annotation backfill.
+        if existing is not None and existing.annotation_type != SPAN_LABEL:
+            return existing, False
+
+        # PDF documents get token mentions (PAWLs bounding boxes — the PDF
+        # viewer can only paint those); everything else keeps char spans.
+        projected = self._project_mention(res)
         if existing is not None:
-            if projected is not None and existing.annotation_type == SPAN_LABEL:
+            if projected is not None:
                 # Converge: upgrade a legacy span mention in place (same row,
                 # so CorpusReference/Relationship FKs survive). Re-running
                 # enrichment is thereby also the backfill for pre-fix corpora.

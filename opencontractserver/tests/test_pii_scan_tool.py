@@ -543,24 +543,13 @@ class ScanAndAnnotateRegistryTests(TestCase):
     PRIVACY_FILTER_API_KEY="dev-only-not-secret",
 )
 class PersistAnnotationsLabelRaceTests(_PiiPersistEmbeddingNoopMixin, TestCase):
-    """Regression guard for the accepted-duplicate behavior of
-    ``Corpus.ensure_label_and_labelset`` under PostgreSQL READ COMMITTED.
+    """Keep annotation persistence resilient to pre-existing duplicate labels.
 
-    The lookup at ``corpuses/models.py``'s ``ensure_label_and_labelset`` is a
-    check-then-create wrapped in ``transaction.atomic()``, but with no
-    DB-level uniqueness on ``AnnotationLabel(text, label_type)`` two
-    concurrent transactions can both pass ``filter().first()`` before either
-    commits its ``create()``, so each one inserts a fresh label. The PII
-    scan tool accepts that rare duplicate — the inner atomic block in
-    ``_persist_annotations_sync`` only inserts ``Annotation`` rows (no
-    cross-row uniqueness), so the much larger annotation batch never rolls
-    back due to a peer scan racing on the label table.
-
-    This test documents that contract. If somebody later adds a
-    ``UniqueConstraint(fields=["text", "label_type"], ...)`` on
-    ``AnnotationLabel``, this test fails and they are forced to revisit the
-    trade-off described in ``pii.py``'s ``_persist_annotations_sync``
-    block comment.
+    ``Corpus.ensure_label_and_labelset`` now serialises normal label creation,
+    but old parser rows and direct writers can still leave duplicate
+    ``AnnotationLabel`` records behind because the NULL-analyzer uniqueness
+    constraint cannot prevent them. The PII batch must still persist its
+    annotations if it encounters that legacy state.
     """
 
     def setUp(self) -> None:
@@ -612,9 +601,8 @@ class PersistAnnotationsLabelRaceTests(_PiiPersistEmbeddingNoopMixin, TestCase):
         # Reload corpus state so the patched method sees a non-None label_set.
         self.corpus.refresh_from_db()
 
-        # Simulate the post-race outcome: ensure_label_and_labelset's
-        # filter(...).first() returned None even though a label already
-        # exists, so a fresh AnnotationLabel is inserted.
+        # Simulate a legacy/direct writer that bypasses the corpus helper and
+        # inserts a second label despite an existing matching row.
         #
         # NOTE: this mock's keyword arguments must stay in sync with
         # ``Corpus.ensure_label_and_labelset``'s real signature
@@ -673,8 +661,8 @@ class PersistAnnotationsLabelRaceTests(_PiiPersistEmbeddingNoopMixin, TestCase):
             2,
         )
 
-        # The two annotations point at different label rows (each scan
-        # carries its own race-created label forward onto its annotation).
+        # The two annotations point at different label rows, proving a legacy
+        # duplicate remains non-fatal to the PII persistence batch.
         ann_1_id = persisted_1[0][0]
         ann_2_id = persisted_2[0][0]
         ann_1 = Annotation.objects.get(pk=ann_1_id)

@@ -179,12 +179,17 @@ class BaseFileConverterTestCase(TestCase):
         converter.convert_to_pdf(b"bytes", "a.doc", foo="direct")
         self.assertEqual(converter.received_kwargs, {"foo": "direct", "baz": "db_only"})
 
-    def _make_document(self, filename="contract.doc", file_type="application/msword"):
+    def _make_document(
+        self,
+        filename="contract.doc",
+        file_type="application/msword",
+        content=b"fake legacy doc bytes",
+    ):
         return Document.objects.create(
             creator=self.user,
             title="Test Doc",
             file_type=file_type,
-            pdf_file=ContentFile(b"fake legacy doc bytes", name=filename),
+            pdf_file=ContentFile(content, name=filename),
             backend_lock=True,
             processing_started="2024-01-01T00:00:00Z",  # suppress ingest chain
         )
@@ -230,6 +235,29 @@ class BaseFileConverterTestCase(TestCase):
         # Original bytes still readable through the preserved reference
         with doc.original_file.open("rb") as fh:
             self.assertEqual(fh.read(), b"fake legacy doc bytes")
+
+    def test_convert_document_recovers_ole_doc_provenance_from_octet_stream(self):
+        doc = self._make_document(
+            file_type=OCTET_STREAM_MIME_TYPE,
+            content=b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1legacy doc bytes",
+        )
+
+        self.assertTrue(_StubConverter().convert_document(self.user.id, doc.id))
+
+        doc.refresh_from_db()
+        self.assertEqual(doc.file_type, PDF_MIME_TYPE)
+        self.assertEqual(doc.original_file_type, "application/msword")
+
+    def test_convert_document_keeps_ambiguous_doc_content_inert(self):
+        doc = self._make_document(
+            file_type=OCTET_STREAM_MIME_TYPE,
+            content=b"<html><body>not a Word document</body></html>",
+        )
+
+        self.assertTrue(_StubConverter().convert_document(self.user.id, doc.id))
+
+        doc.refresh_from_db()
+        self.assertEqual(doc.original_file_type, OCTET_STREAM_MIME_TYPE)
 
     def test_convert_document_raises_when_impl_returns_none(self):
         doc = self._make_document(filename="contract.doc")

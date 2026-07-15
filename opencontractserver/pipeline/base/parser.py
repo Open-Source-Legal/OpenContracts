@@ -250,12 +250,23 @@ class BaseParser(PipelineComponentBase, ABC):
         logger.info(f"Text label data dict: {text_labels_data_dict}")
 
         # 2) Create or load text labels
-        existing_text_labels = load_or_create_labels(
-            user_id=user_id,
-            labelset_obj=None,  # No labelset in this context
-            label_data_dict=text_labels_data_dict,
-            existing_labels={},
-        )
+        if corpus_obj is not None:
+            # Parser output is structural but still needs stable labels for
+            # corpus-level filtering and display. Reuse the corpus label set;
+            # its helper locks concurrent parser workers before creating a
+            # missing (text, label_type) pair.
+            existing_text_labels = corpus_obj.ensure_labels_and_labelset(
+                label_data=text_labels_data_dict,
+                creator_id=user_id,
+            )
+        else:
+            # Standalone parsing has no corpus label set to scope labels to.
+            existing_text_labels = load_or_create_labels(
+                user_id=user_id,
+                labelset_obj=None,
+                label_data_dict=text_labels_data_dict,
+                existing_labels={},
+            )
 
         logger.info(f"Existing text label lookup: {existing_text_labels}")
 
@@ -293,12 +304,18 @@ class BaseParser(PipelineComponentBase, ABC):
                 for label_text in relationship_label_texts
             }
 
-            existing_relationship_labels = load_or_create_labels(
-                user_id=user_id,
-                labelset_obj=None,  # No labelset in this context
-                label_data_dict=relationship_label_data_dict,
-                existing_labels={},
-            )
+            if corpus_obj is not None:
+                existing_relationship_labels = corpus_obj.ensure_labels_and_labelset(
+                    label_data=relationship_label_data_dict,
+                    creator_id=user_id,
+                )
+            else:
+                existing_relationship_labels = load_or_create_labels(
+                    user_id=user_id,
+                    labelset_obj=None,
+                    label_data_dict=relationship_label_data_dict,
+                    existing_labels={},
+                )
 
             # Now import relationships
             import_relationships(

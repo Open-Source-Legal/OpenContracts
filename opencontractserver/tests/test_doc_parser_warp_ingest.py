@@ -8,16 +8,25 @@ the real ``ghcr.io/open-source-legal/warp-ingest`` container lives in
 """
 
 import json
+import threading
 from typing import cast
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
-from django.db import transaction
-from django.test import TestCase
+from django.db import close_old_connections, transaction
+from django.test import TestCase, TransactionTestCase
 from requests.exceptions import ConnectionError, RequestException, Timeout
 
-from opencontractserver.annotations.models import Annotation, Relationship
+from opencontractserver.annotations.models import (
+    RELATIONSHIP_LABEL,
+    TOKEN_LABEL,
+    Annotation,
+    AnnotationLabel,
+    Relationship,
+)
+from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
 from opencontractserver.pipeline.base.exceptions import DocumentParsingError
 from opencontractserver.pipeline.parsers.warp_ingest_parser import (
@@ -25,6 +34,7 @@ from opencontractserver.pipeline.parsers.warp_ingest_parser import (
     WarpIngestParser,
 )
 from opencontractserver.types.dicts import OpenContractDocExport
+from opencontractserver.types.enums import LabelType
 
 User = get_user_model()
 
@@ -605,3 +615,115 @@ class TestWarpIngestSaveParsedDataIntegration(TestCase):
                 relationship_label__text="warpRefersTo"
             ).exists()
         )
+
+    def test_warp_export_reuses_labels_in_target_corpus(self):
+        """Corpus ingestion must not create one structural label per document."""
+        corpus = Corpus.objects.create(title="Warp Corpus", creator=self.user)
+        second_doc = Document.objects.create(
+            title="Second Warp Save Doc", file_type="pdf", creator=self.user
+        )
+        second_doc.pdf_file.save("second.pdf", ContentFile(b"%PDF-1.7\n%%EOF\n"))
+
+        parser = WarpIngestParser()
+        export = cast(OpenContractDocExport, _sample_export_with_relationships())
+        for document in (self.doc, second_doc):
+            parser.save_parsed_data(
+                user_id=self.user.id,
+                doc_id=document.id,
+                open_contracts_data=export,
+                corpus_id=corpus.id,
+            )
+
+        corpus.refresh_from_db()
+        assert corpus.label_set is not None
+        labels = corpus.label_set.annotation_labels.filter(
+            text__in=["Section Header", "Paragraph", "warpRefersTo"]
+        )
+        text_label_type = settings.ANNOTATION_LABELS.get(
+            self.doc.file_type, "SPAN_LABEL"
+        )
+        self.assertEqual(labels.count(), 3)
+        self.assertEqual(
+            labels.filter(text="Section Header", label_type=text_label_type).count(), 1
+        )
+        self.assertEqual(
+            labels.filter(text="Paragraph", label_type=text_label_type).count(), 1
+        )
+        self.assertEqual(
+            labels.filter(text="warpRefersTo", label_type=RELATIONSHIP_LABEL).count(),
+            1,
+        )
+
+
+class CorpusParserLabelConcurrencyTests(TransactionTestCase):
+    """The corpus/label-set locks must converge concurrent parser workers."""
+
+    def setUp(self) -> None:
+        self.user = User.objects.create_user(
+            username="parser_label_race", password="pw"
+        )
+        self.corpus = Corpus.objects.create(
+            title="Parser Label Race Corpus", creator=self.user
+        )
+
+    def test_concurrent_creation_reuses_one_label_and_label_set(self) -> None:
+        barrier = threading.Barrier(2)
+        errors: list[Exception] = []
+        label_ids: list[int] = []
+
+        def create_label() -> None:
+            close_old_connections()
+            try:
+                corpus = Corpus.objects.get(pk=self.corpus.pk)
+                barrier.wait(timeout=10)
+                label = corpus.ensure_labels_and_labelset(
+                    label_data={
+                        "Parser Race Label": {
+                            "label_type": TOKEN_LABEL,
+                            "color": "grey",
+                            "description": "Parser Structural Label",
+                            "icon": "expand",
+                            "read_only": True,
+                        }
+                    },
+                    creator_id=self.user.id,
+                )["Parser Race Label"]
+                label_ids.append(label.id)
+            except Exception as exc:  # pragma: no cover - asserted below
+                errors.append(exc)
+            finally:
+                close_old_connections()
+
+        workers = [threading.Thread(target=create_label) for _ in range(2)]
+        for worker in workers:
+            worker.start()
+        for worker in workers:
+            worker.join(timeout=20)
+
+        self.assertFalse(any(worker.is_alive() for worker in workers))
+        self.assertFalse(errors, errors)
+        self.assertEqual(len(label_ids), 2)
+        self.assertEqual(len(set(label_ids)), 1)
+        self.assertEqual(
+            AnnotationLabel.objects.filter(
+                text="Parser Race Label", label_type=TOKEN_LABEL
+            ).count(),
+            1,
+        )
+        self.corpus.refresh_from_db()
+        assert self.corpus.label_set is not None
+        self.assertEqual(
+            self.corpus.label_set.annotation_labels.filter(
+                text="Parser Race Label", label_type=TOKEN_LABEL
+            ).count(),
+            1,
+        )
+
+    def test_single_label_helper_accepts_label_type_enum(self) -> None:
+        label = self.corpus.ensure_label_and_labelset(
+            label_text="Parser Relationship",
+            creator_id=self.user.id,
+            label_type=LabelType.RELATIONSHIP_LABEL,
+        )
+
+        self.assertEqual(label.label_type, RELATIONSHIP_LABEL)
