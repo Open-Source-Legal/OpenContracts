@@ -2,6 +2,26 @@
 
 Date: 2026-07-15
 
+## Resolution (2026-07-15)
+
+Implemented on `feature/customs-ruling-corpus-enrichment`. Recommended items
+A–D shipped: the format gate is removed (anchoring type is a persistence
+input), TXT HTS results persist as canonical `page=0` spans, citations reuse
+`EnrichmentWriter` with its span-fallback sentinel fixed to `page=0` +
+anchored `text`, and ruling identity is path/external_id-derived with
+collision reporting (`CustomsRulingCitationService._build_ruling_identity_index`).
+Item E: prefetch concurrency is now the bounded
+`CUSTOMS_ENRICHMENT_PREFETCH_WORKERS` setting (default: storage pool size
+minus one, leaving the caller thread its own connection slot); fine-grained
+load/match/write timing remains open as the P2 follow-up.
+Required tests live in
+`opencontractserver/tests/test_customs_ruling_enrichment.py`, including the
+official-export-shaped ZIP → `zip-to-corpus` → enrichment contract test.
+Sidecar policy adopted: legacy producer rows are retained as source evidence
+and deduped against by label text across both representations; the label-type
+migration for existing rows remains deliberate future work, as does the
+import-contract change to populate `DocumentPath.external_id`.
+
 ## Scope and conclusion
 
 This report covers the PR 2153 customs-ruling enrichment path when fed the

@@ -19,6 +19,7 @@ from opencontractserver.constants.annotations import (
     ANNOTATION_ANCHOR_TEXT_FUZZY_THRESHOLD,
     ANNOTATION_REPORT_RAWTEXT_HEAD,
     ANNOTATION_REPORT_RAWTEXT_TAIL,
+    SPAN_NO_PAGE,
 )
 from opencontractserver.types.dicts import (
     BoundingBoxPythonType,
@@ -177,10 +178,9 @@ def _anchor_text(ann: dict, content: str) -> dict | None:
         "parent_id": ann.get("parent_id"),
         "rawText": raw,
         "long_description": ann.get("long_description"),
-        # PAWLs pages are 0-indexed. A text/SPAN annotation has no meaningful
-        # page (its locator is the char span below), so anchor it to page 0
-        # rather than the misleading 1.
-        "page": 0,
+        # A text/SPAN annotation has no meaningful page — its locator is the
+        # char span below. See the sentinel's definition for the contract.
+        "page": SPAN_NO_PAGE,
         "annotation_json": {"start": chosen, "end": end, "text": content[chosen:end]},
         **_passthrough_annotation_metadata(ann),
     }

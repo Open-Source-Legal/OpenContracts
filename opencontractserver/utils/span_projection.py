@@ -69,6 +69,19 @@ def load_document_text_and_layer(document: Any) -> tuple[str, Any, str]:
         )
 
 
+def span_annotation_payload(start: int, end: int, text: str) -> tuple[dict, int]:
+    """Canonical ``(annotation_json, page)`` for a ``SPAN_LABEL`` annotation.
+
+    The json shape (``{start, end, text}``) and the no-page sentinel are the
+    contract the TXT renderer and the import anchorer
+    (``annotation_anchoring._anchor_text``) share — build span payloads here
+    so the shape cannot drift between producers.
+    """
+    from opencontractserver.constants.annotations import SPAN_NO_PAGE
+
+    return {"start": start, "end": end, "text": text}, SPAN_NO_PAGE
+
+
 def project_span_to_token_annotation(
     pdf_layer: Any,
     *,

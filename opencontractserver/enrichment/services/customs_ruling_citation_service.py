@@ -1,19 +1,30 @@
 """Deterministic HTS-code and CBP-ruling-citation enrichment.
 
 **Not a general OpenContracts feature.** This is purpose-built for corpora of
-CBP CROSS customs rulings (or any similarly-shaped corpus: each document's
-title IS an external identifier — a ruling number — and documents cite each
-other by that identifier in their own text). It has no place in the general
+CBP CROSS customs rulings (or any similarly-shaped corpus: each document HAS
+an external identifier — a ruling number — and documents cite each other by
+that identifier in their own text). It has no place in the general
 open-vocabulary authority-discovery system (:mod:`opencontractserver.enrichment.services.enrichment_service`),
 which is scoped to statutory/regulatory (``REF_LAW``) citations across any
 legal corpus — HTS tariff codes and CBP ruling numbers are neither.
 
 Detection runs against each document's OWN parsed text (via
-``load_document_text_and_layer`` — the same PAWLs-token-anchored text the
-parser saved), never against text from before PDF conversion: a ``.doc``
-source is converted to PDF and re-parsed by Warp-Ingest before this service
-ever sees it, so offsets are always computed against the text OpenContracts
-actually stored, not the original document.
+``load_document_text_and_layer`` — the same text the parser saved), never
+against text from before format conversion, so offsets are always computed
+against the text OpenContracts actually stored, not the original document.
+
+Anchoring type is an INPUT to persistence, not an eligibility gate: PDF
+documents get ``TOKEN_LABEL`` annotations projected onto PAWLs bounding
+boxes; ``text/plain`` documents (the official CROSS bulk exporter's output —
+see ``docs/benchmarks/pr2153-cross-txt-enrichment-handoff.md``) get
+``SPAN_LABEL`` annotations in the canonical text-span shape the TXT renderer
+consumes. Requiring a PDF here is exactly the format gate that made a
+10,000-document official-export run produce zero output.
+
+Canonical ruling identity is derived from the document's active corpus path /
+``DocumentPath.external_id`` — never from the display title alone (the
+official exporter's titles are human-readable SUBJECTS: non-unique and free
+to carry control characters). See :meth:`CustomsRulingCitationService._build_ruling_identity_index`.
 
 Two different shapes, two different persistence paths:
 
@@ -25,8 +36,9 @@ Two different shapes, two different persistence paths:
   (``reference_type=REF_DOCUMENT``) and persisted via
   :class:`~opencontractserver.enrichment.writer.EnrichmentWriter` — the same
   hardened writer the authority-discovery system uses, so PDF token
-  projection, annotation dedup, ``CorpusReference`` creation, and the
-  ``DocumentRelationship`` graph rollup are reused rather than reimplemented.
+  projection, span fallback, annotation dedup, ``CorpusReference`` creation,
+  and the ``DocumentRelationship`` graph rollup are reused rather than
+  reimplemented.
 """
 
 from __future__ import annotations
@@ -36,13 +48,16 @@ import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.utils import timezone
 
 from opencontractserver.analyzer.models import Analysis, Analyzer
 from opencontractserver.annotations.models import (
+    SPAN_LABEL,
     TOKEN_LABEL,
     Annotation,
     CorpusReference,
@@ -59,6 +74,7 @@ from opencontractserver.types.enums import JobStatus
 from opencontractserver.utils.span_projection import (
     load_document_text_and_layer,
     project_span_to_token_annotation,
+    span_annotation_payload,
 )
 
 logger = logging.getLogger(__name__)
@@ -74,14 +90,10 @@ ANALYZER_TITLE = "Customs Ruling Citation Enrichment"
 
 LABEL_HTS_CODE = "HTS_CODE"
 
-# Per-document cost is dominated by load_document_text_and_layer's S3 fetch +
-# PAWLS JSON parse (~230ms measured on a 220K-doc corpus), not by the regex
-# matching or DB writes that follow. That fetch touches no ORM state, so it
-# is safe to prefetch across threads (releases the GIL during socket I/O)
-# while the actual writes stay single-threaded on the caller. Sized well
-# above CPU count since this is I/O-bound, not compute-bound; not so high
-# that it floods the storage backend with concurrent connections.
-PREFETCH_WORKERS = 12
+# Namespace for a durable ruling identity carried on
+# ``DocumentPath.external_id`` (e.g. ``cross:H022844``). The import contract
+# does not populate it yet — when it does, it outranks path/title derivation.
+EXTERNAL_ID_NAMESPACE = "cross:"
 
 # --- HTS tariff codes -------------------------------------------------------
 # Ported from crossfeed's crossfeed.parse.normalize (the CROSS-rulings
@@ -117,16 +129,25 @@ _RULING_CITE_RE = re.compile(r"\b([A-Z]\d{5,6}|[A-Z]{2}\d{6})\b")
 def _ruling_number_from_title(title: str | None) -> str:
     """Canonicalize a document title to the bare ruling number it names.
 
-    Titles are set at ingest time from the materialized filename — some
-    ingest paths use the bare stem (``A83482``), others keep the original
-    filename including its extension (``A83482.doc``). The citation regex
-    only ever extracts the bare form (it has no ``.doc``/``.pdf`` in its
-    character class), so a title carrying an extension would never match
-    ``title_index`` and every citation into that document would silently
-    read as unresolved. ``Path(...).stem`` strips at most one trailing
-    extension and is a no-op on titles that are already extension-free.
+    Legacy ingest paths titled documents with the materialized filename —
+    some use the bare stem (``A83482``), others keep the original filename
+    including its extension (``A83482.doc``). The citation regex only ever
+    extracts the bare form (it has no ``.doc``/``.pdf`` in its character
+    class), so ``Path(...).stem`` strips at most one trailing extension and
+    is a no-op on titles that are already extension-free. Titles are the
+    LAST-priority identity source — see ``_ruling_identity``.
     """
     return Path((title or "").strip()).stem.upper()
+
+
+def _ruling_number_from_path(path: str) -> str:
+    """Canonicalize a corpus path to the ruling number in its basename stem.
+
+    The official CROSS bulk exporter writes ``{COLLECTION}/{ruling_number}.txt``
+    (e.g. ``HQ/H022844.txt``), so the active ``DocumentPath`` basename is the
+    exporter's own canonical identity for the document.
+    """
+    return Path(path).stem.upper()
 
 
 @dataclass
@@ -141,7 +162,13 @@ class EnrichmentSummary:
     references_resolved: int = 0
     document_relationships_created: int = 0
     document_relationships_pruned: int = 0
-    documents_skipped_not_pdf: int = 0
+    # Documents whose text could not be loaded/anchored at all (loader error,
+    # missing extract, unsupported type). Supported non-PDF input is NOT a
+    # skip — TXT documents are processed as spans.
+    documents_skipped_unanchorable: int = 0
+    # Distinct canonical ruling numbers claimed by more than one document.
+    # Reported (and left unresolved) rather than resolved arbitrarily.
+    canonical_id_collisions: int = 0
 
 
 class CustomsRulingCitationService:
@@ -177,9 +204,9 @@ class CustomsRulingCitationService:
         quick, fully-complete pass over a manageable slice (evaluating
         output quality/UX on a corpus too large to enrich end-to-end in one
         sitting) rather than a partial pass over the whole corpus. Citation
-        *resolution* still considers every document's title in the corpus,
-        not just the scanned subset, so a limited run can still resolve a
-        citation to a sibling ruling outside the scanned slice.
+        *resolution* still considers every document's canonical identity in
+        the corpus, not just the scanned subset, so a limited run can still
+        resolve a citation to a sibling ruling outside the scanned slice.
         """
         user = User.objects.get(pk=creator_id)
         corpus = Corpus.objects.visible_to_user(user).get(pk=corpus_id)
@@ -198,23 +225,25 @@ class CustomsRulingCitationService:
             status=JobStatus.RUNNING.value,
         )
 
-        # Ruling number (as it appears in a sibling document's title, upper-
-        # cased and extension-stripped — see _ruling_number_from_title) ->
-        # document. Built from the FULL document list regardless of `limit`
-        # so resolution isn't artificially degraded by which slice happened
-        # to get scanned.
-        title_index = {
-            _ruling_number_from_title(doc.title): doc for doc in documents if doc.title
-        }
+        # Canonical ruling number -> document, derived from active corpus
+        # paths / external_id (title only as legacy fallback). Built from the
+        # FULL document list regardless of `limit` so resolution isn't
+        # artificially degraded by which slice happened to get scanned.
+        doc_by_number, own_numbers_by_doc_id, collision_count = (
+            cls._build_ruling_identity_index(corpus, documents)
+        )
 
         scanned_documents = documents if limit is None else documents[:limit]
-        summary = EnrichmentSummary(documents_scanned=len(scanned_documents))
+        summary = EnrichmentSummary(
+            documents_scanned=len(scanned_documents),
+            canonical_id_collisions=collision_count,
+        )
 
         writer = EnrichmentWriter(corpus, creator_id, analysis=analysis)
 
         try:
             with concurrent.futures.ThreadPoolExecutor(
-                max_workers=PREFETCH_WORKERS
+                max_workers=cls._prefetch_workers()
             ) as pool:
                 loaded = pool.map(cls._safe_load_text_and_layer, scanned_documents)
                 for doc, doc_text, layer, ann_type, exc in loaded:
@@ -225,25 +254,35 @@ class CustomsRulingCitationService:
                             doc.id,
                             exc,
                         )
-                        summary.documents_skipped_not_pdf += 1
+                        summary.documents_skipped_unanchorable += 1
                         continue
-                    if ann_type != TOKEN_LABEL or layer is None:
-                        # Only PDF/PAWLs-token-anchored documents are
-                        # supported — HTS/ruling mentions need a page +
-                        # bounding box to be useful annotations.
-                        summary.documents_skipped_not_pdf += 1
+                    if ann_type not in (TOKEN_LABEL, SPAN_LABEL) or (
+                        ann_type == TOKEN_LABEL and layer is None
+                    ):
+                        # Defensive only: the loader contract is TOKEN (with a
+                        # layer) or SPAN. Anchoring type is an input to
+                        # persistence below, never an eligibility gate — TXT
+                        # documents are fully supported as spans.
+                        summary.documents_skipped_unanchorable += 1
                         continue
-
-                    own_number = _ruling_number_from_title(doc.title)
 
                     hts_created = cls._write_hts_annotations(
-                        doc, layer, doc_text, corpus, creator_id
+                        doc,
+                        layer,
+                        doc_text,
+                        corpus,
+                        creator_id,
+                        ann_type=ann_type,
+                        analysis=analysis,
                     )
                     summary.hts_codes_created += hts_created
                     summary.annotations_created += hts_created
 
                     resolutions = cls._build_citation_resolutions(
-                        doc, layer, doc_text, own_number, title_index
+                        doc,
+                        doc_text,
+                        own_numbers_by_doc_id.get(doc.id, set()),
+                        doc_by_number,
                     )
                     summary.citation_candidates += len(resolutions)
                     summary.citations_resolved += sum(
@@ -290,6 +329,113 @@ class CustomsRulingCitationService:
         }
 
     @staticmethod
+    def _prefetch_workers() -> int:
+        """Bounded text-prefetch concurrency (see the setting's comment in
+        ``config/settings/base.py``): explicit setting wins; otherwise storage
+        pool size minus the caller thread's slot."""
+        configured = settings.CUSTOMS_ENRICHMENT_PREFETCH_WORKERS
+        if configured is not None:
+            return max(1, configured)
+        pool_size = getattr(settings, "AWS_S3_CONNECTION_POOL_SIZE", 10)
+        return max(1, pool_size - 1)
+
+    @classmethod
+    def _build_ruling_identity_index(
+        cls, corpus, documents
+    ) -> tuple[dict[str, Any], dict[int, set[str]], int]:
+        """Canonical ruling number -> document, plus per-document identities.
+
+        Identity is derived per document from the first shape-valid candidate
+        in priority order (handoff §D,
+        ``docs/benchmarks/pr2153-cross-txt-enrichment-handoff.md``):
+
+        1. an active ``DocumentPath.external_id`` in the ``cross:`` namespace
+           (the durable contract, once the import path populates it);
+        2. the active corpus path's basename stem — the official CROSS bulk
+           exporter writes ``{COLLECTION}/{ruling_number}.txt``;
+        3. the display title's stem (legacy ingests titled documents with the
+           materialized filename, e.g. ``A83482.doc``).
+
+        Official-export titles are human-readable SUBJECTS — non-unique,
+        control-character-laden display metadata — so a candidate only counts
+        when it matches the prefixed ruling-number shape the citation regex
+        can actually emit (``_RULING_CITE_RE``); anything else can never be
+        looked up and must not occupy an identity slot.
+
+        Two documents normalizing to the same identity is AMBIGUITY: the
+        number is reported (summary count + warning) and REMOVED from the
+        index — citations to it stay unresolved — rather than silently
+        resolved to whichever document iteration happened to visit last.
+
+        Returns ``(doc_by_number, own_numbers_by_doc_id, collision_count)``.
+        ``own_numbers_by_doc_id`` carries ALL of a document's shape-valid
+        identity candidates (not just the winning one) so citation detection
+        can suppress a document quoting its own number under any of its
+        identities.
+        """
+        from opencontractserver.documents.models import DocumentPath
+
+        paths_by_doc: dict[int, list[tuple[str, str]]] = {}
+        for doc_id, path, external_id in (
+            DocumentPath.objects.filter(
+                corpus=corpus,
+                document_id__in=[doc.id for doc in documents],
+                is_current=True,
+                is_deleted=False,
+            )
+            .order_by("document_id", "path")
+            .values_list("document_id", "path", "external_id")
+        ):
+            paths_by_doc.setdefault(doc_id, []).append((path or "", external_id or ""))
+
+        doc_by_number: dict[str, Any] = {}
+        own_numbers_by_doc_id: dict[int, set[str]] = {}
+        ambiguous: set[str] = set()
+        for doc in documents:  # sorted lowest-id-first upstream — deterministic
+            candidates = cls._ruling_identity_candidates(
+                doc, paths_by_doc.get(doc.id, [])
+            )
+            own_numbers_by_doc_id[doc.id] = set(candidates)
+            if not candidates:
+                continue
+            number = candidates[0]  # highest-priority shape-valid identity
+            if number in ambiguous:
+                continue
+            claimant = doc_by_number.get(number)
+            if claimant is not None and claimant.id != doc.id:
+                ambiguous.add(number)
+                continue
+            doc_by_number[number] = doc
+
+        for number in sorted(ambiguous):
+            # Unresolvable, not last-write-wins: drop the first claimant too.
+            doc_by_number.pop(number, None)
+            logger.warning(
+                "CustomsRulingCitationService: ruling number %s is claimed by "
+                "multiple documents in corpus %s — citations to it stay "
+                "unresolved until the duplicate identity is corrected.",
+                number,
+                corpus.id,
+            )
+        return doc_by_number, own_numbers_by_doc_id, len(ambiguous)
+
+    @staticmethod
+    def _ruling_identity_candidates(doc, paths: list[tuple[str, str]]) -> list[str]:
+        """A document's shape-valid ruling numbers, highest-priority first.
+
+        ``paths`` are the document's active ``(path, external_id)`` pairs —
+        see ``_build_ruling_identity_index`` for the priority rationale.
+        """
+        candidates = [
+            external_id[len(EXTERNAL_ID_NAMESPACE) :].strip().upper()
+            for _path, external_id in paths
+            if external_id.startswith(EXTERNAL_ID_NAMESPACE)
+        ]
+        candidates += [_ruling_number_from_path(path) for path, _ in paths if path]
+        candidates.append(_ruling_number_from_title(doc.title))
+        return [c for c in candidates if c and _RULING_CITE_RE.fullmatch(c)]
+
+    @staticmethod
     def _safe_load_text_and_layer(doc):
         """Thread-pool-mapped wrapper around ``load_document_text_and_layer``.
 
@@ -306,56 +452,79 @@ class CustomsRulingCitationService:
 
     @staticmethod
     def _write_hts_annotations(
-        doc, layer, doc_text: str, corpus, creator_id: int
+        doc, layer, doc_text: str, corpus, creator_id: int, *, ann_type, analysis
     ) -> int:
         """Create bare (non-reference) HTS_CODE annotations for one document.
 
-        Deduped by (document, start) against pre-existing HTS_CODE annotations
-        so re-running only adds newly-found codes.
+        ``ann_type`` selects the persistence shape: ``TOKEN_LABEL`` projects
+        each char span onto PAWLs bounding boxes (``layer`` required);
+        ``SPAN_LABEL`` stores the canonical text-span shape
+        (``annotation_anchoring._anchor_text``) — ``page=0`` is the no-page
+        sentinel the frontend suppresses, and a text annotation never
+        advertises fake PDF geometry.
+
+        Dedupe is by (document, char start) against ALL pre-existing
+        ``HTS_CODE``-labelled annotations, across both representations:
+        enrichment rows carry the span in ``data.char_span`` while
+        importer-style sidecar spans carry it in ``json`` (attached to a
+        TOKEN-typed label — the documented import-contract mismatch, see
+        ``test_zip_import_integration``). Legacy producer rows are retained
+        as source evidence and never duplicated or relabelled here;
+        correcting their label type is a deliberate future migration.
         """
         matches = []
-        seen_codes: set[str] = set()
         for m in _HTS_TEXT_RE.finditer(doc_text):
             code = _normalize_hts(m.group())
             if code is None:
                 continue
             matches.append((m.start(), m.end(), m.group(), code))
-            seen_codes.add(code)
         if not matches:
             return 0
 
         label = corpus.ensure_label_and_labelset(
-            label_text=LABEL_HTS_CODE, creator_id=creator_id, label_type=TOKEN_LABEL
+            label_text=LABEL_HTS_CODE, creator_id=creator_id, label_type=ann_type
         )
-        existing_starts = set(
-            Annotation.objects.filter(
-                document_id=doc.id, corpus=corpus, annotation_label=label
-            ).values_list("data__char_span__start", flat=True)
-        )
+        # Union of both stored span representations (see docstring).
+        existing_starts = {
+            value
+            for row in Annotation.objects.filter(
+                document_id=doc.id,
+                corpus=corpus,
+                annotation_label__text=LABEL_HTS_CODE,
+            ).values_list("json__start", "data__char_span__start")
+            for value in row
+            if value is not None
+        }
 
         created = 0
         with transaction.atomic():
             for start, end, raw_text, code in matches:
                 if start in existing_starts:
                     continue
-                try:
-                    annotation_json, page, projected_raw = (
-                        project_span_to_token_annotation(
-                            layer,
-                            start=start,
-                            end=end,
-                            text=raw_text,
-                            label_text=LABEL_HTS_CODE,
+                if ann_type == TOKEN_LABEL:
+                    try:
+                        annotation_json, page, projected_raw = (
+                            project_span_to_token_annotation(
+                                layer,
+                                start=start,
+                                end=end,
+                                text=raw_text,
+                                label_text=LABEL_HTS_CODE,
+                            )
                         )
+                    except ValueError as exc:
+                        logger.debug(
+                            "CustomsRulingCitationService: HTS span->token "
+                            "projection failed for doc %s: %s",
+                            doc.id,
+                            exc,
+                        )
+                        continue
+                else:
+                    annotation_json, page = span_annotation_payload(
+                        start, end, raw_text
                     )
-                except ValueError as exc:
-                    logger.debug(
-                        "CustomsRulingCitationService: HTS span->token "
-                        "projection failed for doc %s: %s",
-                        doc.id,
-                        exc,
-                    )
-                    continue
+                    projected_raw = raw_text
                 Annotation.objects.create(
                     raw_text=projected_raw,
                     page=page,
@@ -364,9 +533,10 @@ class CustomsRulingCitationService:
                     document_id=doc.id,
                     corpus=corpus,
                     creator_id=creator_id,
-                    annotation_type=TOKEN_LABEL,
+                    annotation_type=ann_type,
                     structural=False,
                     data={"code": code, "char_span": {"start": start, "end": end}},
+                    analysis=analysis,
                 )
                 existing_starts.add(start)
                 created += 1
@@ -374,16 +544,22 @@ class CustomsRulingCitationService:
 
     @staticmethod
     def _build_citation_resolutions(
-        doc, layer, doc_text: str, own_number: str, title_index: dict
+        doc,
+        doc_text: str,
+        own_numbers: set[str],
+        doc_by_number: dict,
     ) -> list[Resolution]:
         """Ruling-citation Candidates + Resolutions for one document.
 
-        Resolved against sibling document titles in the SAME corpus; a
-        citation to a ruling not present in this corpus is UNRESOLVED (still
-        recorded as a mention, no target).
+        Resolved against sibling documents' canonical identities in the SAME
+        corpus (see ``_build_ruling_identity_index``); a citation to a ruling
+        not present — or whose identity is claimed by multiple documents — is
+        UNRESOLVED (still recorded as a mention, no target). ``own_numbers``
+        (all of the document's own identities) suppresses the header line
+        where a ruling quotes its own number.
         """
         resolutions: list[Resolution] = []
-        seen: set[str] = {own_number}
+        seen: set[str] = set(own_numbers)
         for m in _RULING_CITE_RE.finditer(doc_text):
             number = m.group(1)
             if number in seen:
@@ -396,7 +572,7 @@ class CustomsRulingCitationService:
                 raw_text=m.group(0),
                 normalized_data={"ruling_number": number},
             )
-            target = title_index.get(number)
+            target = doc_by_number.get(number)
             if target is not None and target.id != doc.id:
                 resolutions.append(
                     Resolution(

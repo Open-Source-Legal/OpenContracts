@@ -764,9 +764,7 @@ if USE_TZ:
 # http://docs.celeryproject.org/en/latest/userguide/configuration.html#std:setting-broker_url
 CELERY_BROKER_URL = env("CELERY_BROKER_URL", default=REDIS_URL)
 # http://docs.celeryproject.org/en/latest/userguide/configuration.html#std:setting-result_backend
-CELERY_RESULT_BACKEND = env(
-    "CELERY_RESULT_BACKEND", default=CELERY_BROKER_URL
-)
+CELERY_RESULT_BACKEND = env("CELERY_RESULT_BACKEND", default=CELERY_BROKER_URL)
 # http://docs.celeryproject.org/en/latest/userguide/configuration.html#std:setting-accept_content
 CELERY_ACCEPT_CONTENT = ["json"]
 # http://docs.celeryproject.org/en/latest/userguide/configuration.html#std:setting-task_serializer
@@ -864,7 +862,9 @@ CELERY_TASK_ROUTES = {
     # them dedicated consumer capacity independent of the conversion backlog.
     "opencontractserver.tasks.doc_tasks.extract_thumbnail": {"queue": "doc_parse"},
     "opencontractserver.tasks.doc_tasks.ingest_doc": {"queue": "doc_parse"},
-    "opencontractserver.tasks.doc_tasks.remap_pending_annotations": {"queue": "doc_parse"},
+    "opencontractserver.tasks.doc_tasks.remap_pending_annotations": {
+        "queue": "doc_parse"
+    },
     "opencontractserver.tasks.doc_tasks.set_doc_lock_state": {"queue": "doc_parse"},
 }
 
@@ -1781,6 +1781,18 @@ ENRICHMENT_LLM_MAX_CONCURRENCY = env.int("ENRICHMENT_LLM_MAX_CONCURRENCY", defau
 # per-environment alongside ENRICHMENT_LLM_MAX_CONCURRENCY to balance run
 # latency against DB/connection pressure.
 ENRICHMENT_DOC_MAX_CONCURRENCY = env.int("ENRICHMENT_DOC_MAX_CONCURRENCY", default=None)
+
+# Thread-pool size for the customs-ruling enrichment service's document-text
+# prefetch (opencontractserver.enrichment.services.customs_ruling_citation_service).
+# Per-document cost is dominated by the storage fetch (I/O-bound, releases the
+# GIL), so this can exceed CPU count — but prefetch workers PLUS the caller
+# thread (which reads source text while writing span mentions) must not exceed
+# the storage backend's connection pool, or every fetch beyond it logs a
+# "connection pool is full" warning and serializes anyway. None (the default)
+# derives AWS_S3_CONNECTION_POOL_SIZE - 1, leaving the caller its slot.
+CUSTOMS_ENRICHMENT_PREFETCH_WORKERS = env.int(
+    "CUSTOMS_ENRICHMENT_PREFETCH_WORKERS", default=None
+)
 
 # Out-of-tree authority-pack directories. Each entry is a self-contained pack
 # directory (pack.yaml + optional providers/ + mappings/specs/personas). The
