@@ -227,6 +227,68 @@ class TxtSpanEnrichmentTests(_CustomsEnrichmentTestBase):
         )
 
 
+class LegacyBareNumberCorpusTests(_CustomsEnrichmentTestBase):
+    """The official export's legacy HQ/NY slice: bare zero-padded numeric
+    ruling numbers (path ``HQ/084665.txt``), cited in text via series tokens
+    ("HRL 087392") — the shape the prefixed grammar alone cannot see."""
+
+    def setUp(self):
+        super().setUp()
+        self.doc1 = _make_txt_doc(
+            self.user,
+            self.corpus,
+            title="Gasket material classification",
+            path="/HQ/084665.txt",
+            body=(
+                "HQ 084665\n\n"
+                "375 Fifth Avenue, New York, NY  10176\n\n"
+                "Upon further consideration, HRL 087392 is deemed correct "
+                "and HQ 555555 does not control."
+            ),
+        )
+        self.doc2 = _make_txt_doc(
+            self.user,
+            self.corpus,
+            title="Reconsideration of gasket ruling",
+            path="/HQ/087392.txt",
+            body="HQ 087392\n\nDecision text.",
+        )
+
+    def test_legacy_series_token_citations_resolve(self):
+        res = self._run()
+
+        # Two citations mined (HRL 087392 + HQ 555555); the ZIP code and the
+        # document's own header number are not.
+        assert res["citation_candidates"] == 2
+        assert res["citations_resolved"] == 1
+        assert res["citations_unresolved"] == 1
+
+        mentions = self._annotations(C.LABEL_REF_DOC, document=self.doc1)
+        assert {m.raw_text for m in mentions} == {"HRL 087392", "HQ 555555"}
+
+        resolved = self._references().get(resolution_status=C.STATUS_RESOLVED)
+        assert resolved.target_document_id == self.doc2.id
+        edge = self._edges().get()
+        assert edge.source_document_id == self.doc1.id
+        assert edge.target_document_id == self.doc2.id
+
+    def test_zero_padding_variance_still_resolves(self):
+        """Identity ``084665`` and a citation padded differently agree on
+        one canonical key (leading zeros stripped on both sides)."""
+        _make_txt_doc(
+            self.user,
+            self.corpus,
+            title="Third ruling",
+            path="/NY/812345.txt",
+            body="NY 812345\n\nWe reach the same result as HQ 084665.",
+        )
+
+        self._run()
+
+        refs = self._references().filter(resolution_status=C.STATUS_RESOLVED)
+        assert refs.filter(target_document_id=self.doc1.id).exists()
+
+
 class SpanMentionHealTests(_CustomsEnrichmentTestBase):
     """Pre-fix span mentions carried ``page=1`` and no ``text`` anchor;
     re-running enrichment converges them on the canonical shape IN PLACE

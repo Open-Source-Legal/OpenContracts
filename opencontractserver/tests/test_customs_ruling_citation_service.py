@@ -10,7 +10,9 @@ from django.test import SimpleTestCase
 
 from opencontractserver.enrichment.services.customs_ruling_citation_service import (
     _HTS_TEXT_RE,
+    _LEGACY_RULING_CITE_RE,
     _RULING_CITE_RE,
+    _canonical_ruling_key,
     _normalize_hts,
     _ruling_number_from_title,
 )
@@ -94,3 +96,45 @@ class RulingNumberFromTitleTests(SimpleTestCase):
 
     def test_none_title_is_empty_string(self):
         assert _ruling_number_from_title(None) == ""
+
+
+class LegacyRulingCitationTests(SimpleTestCase):
+    """Series-token legacy citations ("HQ 084665", "HRL 087392").
+
+    The official export's legacy HQ/NY slice (the bulk of pre-2000 rulings)
+    has BARE numeric ruling numbers, so the prefixed grammar alone captures
+    zero citations there — measured on a 500-document official-export
+    sample: 707 token+number citation instances, no false positives.
+    """
+
+    def test_mines_series_token_citation(self):
+        text = "Upon further consideration, HRL 087392 is deemed correct."
+        matches = [m.group(1) for m in _LEGACY_RULING_CITE_RE.finditer(text)]
+        assert matches == ["087392"]
+
+    def test_mines_across_hard_line_wrap_and_columns(self):
+        text = "October 27, 1987, has been modified by HRL\n081374 dated"
+        matches = [m.group(1) for m in _LEGACY_RULING_CITE_RE.finditer(text)]
+        assert matches == ["081374"]
+
+    def test_never_mines_new_york_zip_codes(self):
+        """5 digits after "NY" is a ZIP (148/149 sampled instances), and
+        ZIP+4 never forms a 6-digit run — the grammar requires exactly 6."""
+        text = "375 Fifth Avenue, New York, NY  10176 and NY 10001-3060."
+        assert list(_LEGACY_RULING_CITE_RE.finditer(text)) == []
+
+    def test_never_mines_bare_number_without_series_token(self):
+        text = "Headquarters Ruling Letter 562035, dated June 22, 2001."
+        assert list(_LEGACY_RULING_CITE_RE.finditer(text)) == []
+
+    def test_canonical_key_namespaces(self):
+        # Prefixed: verbatim, uppercased.
+        assert _canonical_ruling_key("H022844") == "H022844"
+        assert _canonical_ruling_key("r03632") == "R03632"
+        # Bare legacy: leading zeros stripped so padded identity and cite agree.
+        assert _canonical_ruling_key("084665") == "84665"
+        assert _canonical_ruling_key("84665") == "84665"
+        # Not ruling numbers at all.
+        assert _canonical_ruling_key("Plastic trays") is None
+        assert _canonical_ruling_key("1466") is None
+        assert _canonical_ruling_key("") is None

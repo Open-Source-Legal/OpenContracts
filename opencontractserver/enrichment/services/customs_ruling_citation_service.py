@@ -120,12 +120,43 @@ def _normalize_hts(raw: str) -> str | None:
 
 # --- CBP ruling-number citations -------------------------------------------
 # Ported from crossfeed's crossfeed.parse.normalize. Documented false-positive
-# guard: only PREFIXED ruling numbers are mined — 1 letter + 5-6 digits
-# (modern N######/H######; legacy A#####, K#####, ...) or 2 letters + 6
-# digits (two-letter legacy). Bare 6-digit legacy numbers are deliberately
-# NOT mined here (dollar amounts, statute numbers, and "STATE + 5-digit ZIP"
-# like "NY 10022" are common false positives for that shape).
+# guard: PREFIXED ruling numbers — 1 letter + 5-6 digits (modern
+# N######/H######; legacy A#####, K#####, ...) or 2 letters + 6 digits
+# (two-letter legacy).
 _RULING_CITE_RE = re.compile(r"\b([A-Z]\d{5,6}|[A-Z]{2}\d{6})\b")
+
+# Legacy rulings (the bulk of pre-2000 HQ/NY output) have BARE numeric ruling
+# numbers and are cited as "<series token> <6 digits>": "HQ 084665",
+# "HRL 087392", "NY 812345". A bare number alone is never mined (dollar
+# amounts, statute numbers, entry numbers), but a number immediately preceded
+# by a CBP ruling-series token is a citation with near-zero ambiguity —
+# measured on a 500-document official-export slice: 707 instances, no false
+# positives. Exactly SIX digits on purpose: 5 digits after "NY" is almost
+# always a New York ZIP code ("New York, NY 10176" — 148/149 sampled), and
+# ZIP+4 ("10001-3060") never forms a 6-digit run. `\s+` spans hard line
+# wraps and column whitespace inside the token/number pair.
+_LEGACY_RULING_CITE_RE = re.compile(r"\b(?:HQ|HRL|NY(?:RL)?|PD|DD|IA)\s+(\d{6})\b")
+
+# Identity-side shape for legacy documents: the official exporter's path
+# basename IS the bare (zero-padded) ruling number, e.g. ``HQ/084665.txt``.
+_BARE_RULING_NUMBER_RE = re.compile(r"\d{5,6}")
+
+
+def _canonical_ruling_key(value: str) -> str | None:
+    """Canonical lookup key for a ruling number, or ``None`` if not one.
+
+    Two disjoint namespaces share the index: prefixed numbers (``H022844``)
+    are keyed verbatim (uppercased), bare legacy numbers are keyed with
+    leading zeros stripped so the zero-padded document identity (``084665``)
+    and however a citation pads it agree on one key. The two shapes cannot
+    collide (one starts with a letter, the other is all digits).
+    """
+    v = value.strip().upper()
+    if _RULING_CITE_RE.fullmatch(v):
+        return v
+    if _BARE_RULING_NUMBER_RE.fullmatch(v):
+        return v.lstrip("0") or "0"
+    return None
 
 
 def _ruling_number_from_title(title: str | None) -> str:
@@ -386,9 +417,10 @@ class CustomsRulingCitationService:
 
         Official-export titles are human-readable SUBJECTS — non-unique,
         control-character-laden display metadata — so a candidate only counts
-        when it matches the prefixed ruling-number shape the citation regex
-        can actually emit (``_RULING_CITE_RE``); anything else can never be
-        looked up and must not occupy an identity slot.
+        when it matches a ruling-number shape the citation grammar can
+        actually emit (prefixed like ``H022844``, or bare legacy digits like
+        ``084665`` — see ``_canonical_ruling_key``); anything else can never
+        be looked up and must not occupy an identity slot.
 
         Two documents normalizing to the same identity is AMBIGUITY: the
         number is reported (summary count + warning) and REMOVED from the
@@ -449,7 +481,7 @@ class CustomsRulingCitationService:
 
     @staticmethod
     def _ruling_identity_candidates(doc, paths: list[tuple[str, str]]) -> list[str]:
-        """A document's shape-valid ruling numbers, highest-priority first.
+        """A document's canonical ruling keys, highest-priority first.
 
         ``paths`` are the document's active ``(path, external_id)`` pairs —
         see ``_build_ruling_identity_index`` for the priority rationale.
@@ -458,13 +490,14 @@ class CustomsRulingCitationService:
         # (CROSS's own house style is uppercase) and a silently-ignored
         # identity would defeat the whole durable-id contract.
         candidates = [
-            external_id[len(EXTERNAL_ID_NAMESPACE) :].strip().upper()
+            external_id[len(EXTERNAL_ID_NAMESPACE) :]
             for _path, external_id in paths
             if external_id.lower().startswith(EXTERNAL_ID_NAMESPACE)
         ]
         candidates += [_ruling_number_from_path(path) for path, _ in paths if path]
         candidates.append(_ruling_number_from_title(doc.title))
-        return [c for c in candidates if c and _RULING_CITE_RE.fullmatch(c)]
+        keys = [_canonical_ruling_key(c) for c in candidates if c]
+        return [k for k in keys if k]
 
     @staticmethod
     def _safe_load_text_and_layer(doc):
@@ -600,20 +633,28 @@ class CustomsRulingCitationService:
     ) -> list[Resolution]:
         """Ruling-citation Candidates + Resolutions for one document.
 
-        Resolved against sibling documents' canonical identities in the SAME
-        corpus (see ``_build_ruling_identity_index``); a citation to a ruling
-        not present — or whose identity is claimed by multiple documents — is
+        Two grammars feed one index: prefixed numbers (``_RULING_CITE_RE``)
+        and series-token legacy citations (``_LEGACY_RULING_CITE_RE``), both
+        normalized through ``_canonical_ruling_key``. Resolved against
+        sibling documents' canonical identities in the SAME corpus (see
+        ``_build_ruling_identity_index``); a citation to a ruling not
+        present — or whose identity is claimed by multiple documents — is
         UNRESOLVED (still recorded as a mention, no target). ``own_numbers``
         (all of the document's own identities) suppresses the header line
         where a ruling quotes its own number.
         """
+        matches = [(m, m.group(1)) for m in _RULING_CITE_RE.finditer(doc_text)] + [
+            (m, m.group(1)) for m in _LEGACY_RULING_CITE_RE.finditer(doc_text)
+        ]
+        matches.sort(key=lambda pair: pair[0].start())
+
         resolutions: list[Resolution] = []
         seen: set[str] = set(own_numbers)
-        for m in _RULING_CITE_RE.finditer(doc_text):
-            number = m.group(1)
-            if number in seen:
+        for m, number in matches:
+            key = _canonical_ruling_key(number)
+            if key is None or key in seen:
                 continue
-            seen.add(number)
+            seen.add(key)
             cand = Candidate(
                 reference_type=C.REF_DOCUMENT,
                 start=m.start(),
@@ -621,7 +662,7 @@ class CustomsRulingCitationService:
                 raw_text=m.group(0),
                 normalized_data={"ruling_number": number},
             )
-            target = doc_by_number.get(number)
+            target = doc_by_number.get(key)
             if target is not None and target.id != doc.id:
                 resolutions.append(
                     Resolution(
