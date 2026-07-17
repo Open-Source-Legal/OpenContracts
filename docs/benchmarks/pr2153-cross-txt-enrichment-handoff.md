@@ -39,6 +39,37 @@ dominates (the original zero-output pass, which only loaded text, took 5
 minutes), which is exactly what the shipped per-phase timing now measures on
 future runs.
 
+## Reference-web recovery (2026-07-16)
+
+A ground-truth comparison against the source database found 74% of the
+corpus's true document graph missing (6,623 in-corpus metadata edges vs
+1,727 captured). Two causes, both fixed:
+
+1. The official exporter dropped every cross-batch relationship edge
+   (4,896 of 6,623 at batch-size 400). Fixed in CROSS-Corpus
+   (`crossfeed/export/oc_bulk.py::export_bulk` now routes each edge into
+   the LATER endpoint's batch, which OpenContracts resolves against the
+   already-imported corpus). Corpus 96 was patched live with a
+   relationships-only ZIP; `relationships.csv` import is now idempotent
+   (`opencontractserver/tasks/import_tasks.py`, get_or_create on edge
+   identity).
+2. This legacy slice cites by series token + bare zero-padded number
+   ("HRL 087392") — invisible to the prefixed-only grammar (and to the
+   source parser's own). `_LEGACY_RULING_CITE_RE` +
+   `_canonical_ruling_key` (customs_ruling_citation_service.py) mine and
+   resolve that shape; six digits required because 5 digits after "NY"
+   is a ZIP code (148/149 sampled).
+
+Full rerun with the legacy grammar (analysis 311, 51m27s, write-dominated
+per the phase timings): 9,377 citation candidates, 5,007 resolved, 4,968
+new graph edges — most text-citation edges were NOT in the API metadata,
+so the union exceeds the source system's own graph. Corpus 96 final:
+**11,644 graph edges across 5,092 connected documents** (was 1,741/1,996
+before this work; the intentionally-excluded remainder are citations to
+rulings outside the slice). The "sparse-visuals" alternative was
+evaluated and rejected: the sparseness was missing data, not a
+visualization defect.
+
 ## Scope and conclusion
 
 This report covers the PR 2153 customs-ruling enrichment path when fed the
