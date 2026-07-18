@@ -17,8 +17,8 @@
  * with "Payload allocation size overflow" / "NetworkError when
  * attempting to fetch resource" for files past ~100 MB.
  */
-import React, { useState, useRef, useCallback } from "react";
-import { useApolloClient, useReactiveVar } from "@apollo/client";
+import React, { useState, useRef, useCallback, useEffect } from "react";
+import { useApolloClient, useQuery, useReactiveVar } from "@apollo/client";
 import {
   Modal,
   ModalHeader,
@@ -44,6 +44,11 @@ import {
   selectedFolderId as selectedFolderIdVar,
 } from "../../../graphql/cache";
 import { evictCorpusDocumentCaches } from "../../../graphql/cacheEvictions";
+import {
+  GET_BULK_DOCUMENT_UPLOAD_STATUS,
+  type BulkDocumentUploadStatusInput,
+  type BulkDocumentUploadStatusOutput,
+} from "../../../graphql/queries";
 import { folderCorpusIdAtom } from "../../../atoms/folderAtoms";
 import { useAtomValue } from "jotai";
 import { importZipToCorpusMultipart } from "../../../utils/importHttp";
@@ -79,11 +84,55 @@ export const BulkImportModal: React.FC = () => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [jobId, setJobId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isDragActive, setIsDragActive] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const completedJobIdRef = useRef<string | null>(null);
   const apolloClient = useApolloClient();
+  const {
+    data: statusData,
+    error: statusError,
+    stopPolling,
+  } = useQuery<BulkDocumentUploadStatusOutput, BulkDocumentUploadStatusInput>(
+    GET_BULK_DOCUMENT_UPLOAD_STATUS,
+    {
+      variables: { jobId: jobId ?? "" },
+      skip: !jobId,
+      fetchPolicy: "network-only",
+      pollInterval: jobId ? 3000 : 0,
+    }
+  );
+  const jobStatus = statusData?.bulkDocumentUploadStatus;
+
+  useEffect(() => {
+    if (jobStatus?.completed) stopPolling();
+  }, [jobStatus?.completed, stopPolling]);
+
+  useEffect(() => {
+    if (
+      !jobId ||
+      !jobStatus?.completed ||
+      completedJobIdRef.current === jobId
+    ) {
+      return;
+    }
+
+    completedJobIdRef.current = jobId;
+    if (jobStatus.success) {
+      // Refresh only after the worker has created the documents. Evicting at
+      // HTTP 202 previously caused an immediate refetch with no new rows.
+      evictCorpusDocumentCaches(apolloClient.cache);
+      toast.success(
+        `Import complete: ${jobStatus.processedFiles} of ${jobStatus.totalFiles} files processed.`
+      );
+    } else {
+      toast.error(
+        "Import completed with errors. Review the job details below."
+      );
+    }
+  }, [apolloClient.cache, jobId, jobStatus]);
 
   /**
    * Resets all modal state and closes the modal.
@@ -94,7 +143,9 @@ export const BulkImportModal: React.FC = () => {
     setLoading(false);
     setError(null);
     setUploadProgress(0);
+    setJobId(null);
     setIsDragActive(false);
+    completedJobIdRef.current = null;
     showBulkImportModal(false);
   }, []);
 
@@ -178,15 +229,8 @@ export const BulkImportModal: React.FC = () => {
 
     setLoading(true);
     setStep("progress");
-    setUploadProgress(10);
-
-    // Use a ref so the cleanup in ``finally`` always reaches the live
-    // interval handle even if a later refactor moves the awaited fetch
-    // around. ``clearInterval(undefined)`` is a no-op so the guard is
-    // implicit.
-    const progressInterval = setInterval(() => {
-      setUploadProgress((prev) => Math.min(prev + 10, 90));
-    }, 500);
+    setUploadProgress(0);
+    setJobId(null);
 
     try {
       const result = await importZipToCorpusMultipart({
@@ -194,18 +238,15 @@ export const BulkImportModal: React.FC = () => {
         corpusId,
         targetFolderId: targetFolderId || undefined,
         makePublic: false,
+        onProgress: (fraction) => setUploadProgress(fraction * 100),
       });
 
       if (result.ok) {
-        // Evict the document list, folder tree (sidebar doc counts), Select-All
-        // id list, and trash view so the next read refetches with the imports.
-        evictCorpusDocumentCaches(apolloClient.cache);
-
+        // A 202 only confirms the archive was staged. The status query drives
+        // completion and cache invalidation once the Celery task finishes.
+        setJobId(result.job_id);
         setUploadProgress(100);
-        toast.success(`Import started! Job ID: ${result.job_id}`);
-        setTimeout(() => {
-          handleClose();
-        }, 1500);
+        toast.info(`Archive uploaded. Import job started: ${result.job_id}`);
       } else {
         setError(result.error || "Import failed. Please try again.");
         setStep("upload");
@@ -218,10 +259,9 @@ export const BulkImportModal: React.FC = () => {
       setStep("upload");
       setUploadProgress(0);
     } finally {
-      clearInterval(progressInterval);
       setLoading(false);
     }
-  }, [selectedFile, corpusId, targetFolderId, apolloClient, handleClose]);
+  }, [selectedFile, corpusId, targetFolderId]);
 
   /**
    * Proceed to upload step after confirmation.
@@ -386,10 +426,54 @@ export const BulkImportModal: React.FC = () => {
       <SpinnerIcon>
         <Loader />
       </SpinnerIcon>
-      <h3>Importing Documents...</h3>
-      <p>This may take a few moments depending on the size of your ZIP file.</p>
-      <UploadProgress $percent={uploadProgress} />
-      <ProgressLabel>{Math.round(uploadProgress)}%</ProgressLabel>
+      {!jobId ? (
+        <>
+          <h3>Uploading Archive...</h3>
+          <p>The archive is being transferred and staged for import.</p>
+          <UploadProgress $percent={uploadProgress} />
+          <ProgressLabel>{Math.round(uploadProgress)}% uploaded</ProgressLabel>
+        </>
+      ) : jobStatus?.completed ? (
+        <>
+          <h3>
+            {jobStatus.success
+              ? "Import Complete"
+              : "Import Completed with Errors"}
+          </h3>
+          <p>
+            Processed {jobStatus.processedFiles} of {jobStatus.totalFiles} files
+            {jobStatus.skippedFiles > 0
+              ? `; skipped ${jobStatus.skippedFiles}`
+              : ""}
+            {jobStatus.errorFiles > 0 ? `; ${jobStatus.errorFiles} failed` : ""}
+            .
+          </p>
+        </>
+      ) : (
+        <>
+          <h3>Importing Documents...</h3>
+          <p>
+            The archive was uploaded. Documents are being processed in the
+            background; you can close this dialog safely.
+          </p>
+        </>
+      )}
+      {jobId && <ProgressLabel>Job ID: {jobId}</ProgressLabel>}
+      {jobStatus?.completed && jobStatus.errors.length > 0 && (
+        <ErrorMessage>
+          <AlertCircle />
+          <div className="content">
+            <div className="header">Import details</div>
+            <div className="message">{jobStatus.errors.join(" ")}</div>
+          </div>
+        </ErrorMessage>
+      )}
+      {statusError && !jobStatus?.completed && (
+        <p>
+          The archive was accepted, but its status could not be refreshed. You
+          can close this dialog safely and refresh the corpus later.
+        </p>
+      )}
     </ProgressContent>
   );
 
@@ -400,7 +484,11 @@ export const BulkImportModal: React.FC = () => {
       case "upload":
         return "Select a ZIP file to import";
       case "progress":
-        return "Processing your import...";
+        return jobId
+          ? jobStatus?.completed
+            ? "Import status"
+            : "Import is running in the background"
+          : "Uploading your archive...";
       default:
         return "";
     }
@@ -424,7 +512,7 @@ export const BulkImportModal: React.FC = () => {
           }
           subtitle={getSubtitle()}
           onClose={handleClose}
-          showCloseButton={step !== "progress"}
+          showCloseButton={step !== "progress" || !loading}
         />
 
         <ModalBody>
@@ -463,6 +551,13 @@ export const BulkImportModal: React.FC = () => {
                 </Button>
               </>
             )}
+          </ModalFooter>
+        )}
+        {step === "progress" && !loading && (
+          <ModalFooter>
+            <Button variant="secondary" onClick={handleClose}>
+              Close
+            </Button>
           </ModalFooter>
         )}
       </Modal>
