@@ -114,9 +114,7 @@ def _bulk_upload_status_from_task_result(
         job_id=job_id,
         success=result.get("success", False),
         total_files=result.get("total_files", result.get("total_files_in_zip", 0)),
-        processed_files=result.get(
-            "processed_files", result.get("files_processed", 0)
-        ),
+        processed_files=result.get("processed_files", result.get("files_processed", 0)),
         skipped_files=skipped_files,
         error_files=result.get("error_files", result.get("files_errored", 0)),
         document_ids=result.get("document_ids", []),
