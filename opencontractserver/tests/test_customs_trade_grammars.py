@@ -197,6 +197,47 @@ class RulingCitationGrammarTests(SimpleTestCase):
         )
         assert len(cands) == 1
 
+    def test_gate_open_at_exact_fraction_above_min_docs(self):
+        # Exactly 50% with more than MIN_DOCS matches (3 of 6) pins the
+        # fraction comparison as >= (inclusive) away from the min-docs edge.
+        cands = self._extract(
+            "See HQ H022844.",
+            (
+                "A83482.doc",
+                "H555555.doc",
+                "N301234.doc",
+                "Alpha Agreement",
+                "Beta Agreement",
+                "Gamma Lease",
+            ),
+        )
+        assert len(cands) == 1
+
+    def _extract_with_identities(self, text, docs, identity_candidates):
+        ex = GenericCitationExtractor(
+            documents=docs, identity_candidates=identity_candidates
+        )
+        return ex.extract(text, reference_types={C.REF_DOCUMENT})
+
+    def test_identity_candidates_gate_counts_all_documents(self):
+        # The PRODUCTION branch (EnrichmentService always passes
+        # identity_candidates) uses len(documents) as the denominator —
+        # identity-less documents count against the fraction even when
+        # untitled, unlike the title-only fallback (which only considers
+        # titled documents). 2 identity-bearing docs out of 5 -> 0.4 < 0.5:
+        # gate CLOSED, even though the titled subset alone would open it.
+        docs = _fake_docs("A83482.doc", "H555555.doc", None, None, None)
+        idents = {docs[0].id: ["A83482"], docs[1].id: ["H555555"]}
+        cands = self._extract_with_identities("See HQ H022844.", docs, idents)
+        assert cands == []
+
+    def test_identity_candidates_gate_open_at_exact_fraction(self):
+        # Same production branch, exact 50% (2 identity-bearing of 4): OPEN.
+        docs = _fake_docs("A83482.doc", "H555555.doc", None, None)
+        idents = {docs[0].id: ["A83482"], docs[1].id: ["H555555"]}
+        cands = self._extract_with_identities("See HQ H022844.", docs, idents)
+        assert len(cands) == 1
+
 
 class DocumentIdentifierTitleTests(SimpleTestCase):
     """Titles are materialized filenames on some ingest paths — the index key

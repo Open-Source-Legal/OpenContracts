@@ -102,10 +102,10 @@ rulings/H022844.txt,Plastic serving trays; classification,CROSS HQ ruling,cross:
   metadata title (e.g., "2024 - Master Services Agreement")
 - `external_id` values should be namespaced by the producer (e.g.
   `cross:H022844`); unlike the display title, they survive later renames.
-  Consumers resolve through the namespace — the customs-ruling enrichment
-  service treats a `cross:`-namespaced id as a document's canonical ruling
-  number, ahead of its path or title
-  (`opencontractserver/enrichment/services/customs_ruling_citation_service.py::_build_ruling_identity_index`).
+  Consumers resolve through the namespace — the enrichment engine treats a
+  `cross:`-namespaced id as a document's canonical ruling number, ahead of
+  its path or title
+  (`opencontractserver/enrichment/resolver.py::document_identity_candidates`).
   Overlong values are rejected per-row with an import warning, never
   truncated.
 

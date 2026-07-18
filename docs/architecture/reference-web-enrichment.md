@@ -67,17 +67,25 @@ service or management command.
   Gated on a document-level HTSUS cue so dotted decimals in ordinary corpora
   are never mined; per-mention confidence distinguishes tariff-cue-anchored
   codes from bare contextual ones.
-- **Title-identifier document citations** (CBP ruling numbers) →
+- **Identifier document citations** (CBP ruling numbers, both the prefixed
+  modern shape `H022844` and the legacy series-token form `HQ 084665` /
+  `HRL 087392` — `constants.LEGACY_DOC_IDENTIFIER_CITE_RE`) →
   `REF_DOCUMENT` citations resolved by `ReferenceResolver` against sibling
-  document titles (canonicalized via
-  `constants.document_identifier_from_title` — extension-stripped, so
-  materialized-filename titles like `A83482.doc` still resolve). The grammar
-  only activates on corpora whose titles are predominantly identifier-shaped
+  document *identities*. Identity derivation
+  (`opencontractserver/enrichment/resolver.py::document_identity_candidates`)
+  is layered, highest-priority first: a durable `DocumentPath.external_id`
+  in the `cross:` namespace (survives renames; populated by the ZIP import's
+  `meta.csv` `external_id` column), then the active corpus path's basename
+  stem, then the display title's stem (extension-stripped via
+  `constants.document_identifier_from_title`, so materialized-filename
+  titles like `A83482.doc` still resolve). The grammar only activates on
+  corpora whose document identities are predominantly identifier-shaped
   (`constants.DOC_IDENTIFIER_TITLE_GATE_*`); self-mentions (a ruling's own
-  header) are dropped at resolution. Citations to rulings not yet in the
-  corpus persist `UNRESOLVED` and are healed to `RESOLVED` by the writer when
-  the sibling lands and enrichment re-applies — which the ADD_DOCUMENT corpus
-  action does automatically.
+  header) are dropped at resolution, and duplicate document identities
+  resolve `UNRESOLVED` with a warning rather than guessing a target.
+  Citations to rulings not yet in the corpus persist `UNRESOLVED` and are
+  healed to `RESOLVED` by the writer when the sibling lands and enrichment
+  re-applies — which the ADD_DOCUMENT corpus action does automatically.
 
 ---
 

@@ -37,13 +37,13 @@ deployment, scale workers, or split queues.
 `CELERY_TASK_ROUTES` (in `config/settings/base.py`) routes
 `worker_uploads.tasks.*` to a dedicated queue and the later stages of the
 per-document ingest chain (`extract_thumbnail`, `ingest_doc`,
-`set_doc_lock_state`) to `doc_parse`; everything else uses the default
+`remap_pending_annotations`, `set_doc_lock_state`) to `doc_parse`; everything else uses the default
 `celery` queue.
 
 | Queue | Carries | Consumed by |
 |---|---|---|
 | `worker_uploads` | `process_pending_uploads` (creates the `Document`) + `recover_stalled_uploads` | the upload worker |
-| `doc_parse` | the value-producing ingest-chain stages — **`extract_thumbnail`**, **`ingest_doc`** (parse), **`set_doc_lock_state`** (unlock + corpus actions) | the same or another worker |
+| `doc_parse` | the value-producing ingest-chain stages — **`extract_thumbnail`**, **`ingest_doc`** (parse), **`remap_pending_annotations`**, **`set_doc_lock_state`** (unlock + corpus actions) | the same or another worker |
 | `celery` (default) | **everything else** — `convert_document_to_pdf` (the chain's cheap first stage, kept on the default queue so a conversion flood can't starve parsing), maintenance tasks, embeddings, analyses | the same or another worker |
 
 !!! warning "Cover all three queues"
@@ -131,7 +131,7 @@ python manage.py shell -c "from opencontractserver.worker_uploads.models import 
 | Symptom | Cause | Fix |
 |---|---|---|
 | `PENDING` climbs and never drains; no documents appear | No worker on the `worker_uploads` queue | Add `worker_uploads` to a worker's `-Q` |
-| Documents created but stuck locked/processing forever — **no thumbnails, no parsed text** | Worker missing the `doc_parse` queue (`extract_thumbnail`/`ingest_doc`/`set_doc_lock_state` route there) | Add `doc_parse` to the worker's `-Q` (or run a `doc_parse` worker) |
+| Documents created but stuck locked/processing forever — **no thumbnails, no parsed text** | Worker missing the `doc_parse` queue (`extract_thumbnail`/`ingest_doc`/`remap_pending_annotations`/`set_doc_lock_state` route there) | Add `doc_parse` to the worker's `-Q` (or run a `doc_parse` worker) |
 | Non-PDF documents never even convert | Worker missing the default `celery` queue (`convert_document_to_pdf` routes there) | Add `celery` to the worker's `-Q` (or run a `celery` worker) |
 | Rows stuck in `PROCESSING` > 15 min | Beat is down (no `recover_stalled_uploads`) | Start exactly one Celery Beat |
 | Every periodic task runs twice | More than one Beat instance | Run a single Beat |

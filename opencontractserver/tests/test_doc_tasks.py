@@ -45,12 +45,31 @@ logger = logging.getLogger(__name__)
 
 
 class DocumentPipelineRoutingTestCase(SimpleTestCase):
-    def test_remap_runs_with_parse_stages(self):
-        self.assertEqual(
-            settings.CELERY_TASK_ROUTES[
-                "opencontractserver.tasks.doc_tasks.remap_pending_annotations"
-            ]["queue"],
-            "doc_parse",
+    def test_post_conversion_chain_stages_route_to_doc_parse(self):
+        # Every value-producing stage after convert_document_to_pdf must ride
+        # the dedicated doc_parse queue — losing any one of these routes
+        # silently strands documents mid-chain on deployments whose workers
+        # subscribe per-queue (see docs/upload_methods/worker_celery_setup.md).
+        for task in (
+            "extract_thumbnail",
+            "ingest_doc",
+            "remap_pending_annotations",
+            "set_doc_lock_state",
+        ):
+            self.assertEqual(
+                settings.CELERY_TASK_ROUTES[
+                    f"opencontractserver.tasks.doc_tasks.{task}"
+                ]["queue"],
+                "doc_parse",
+                task,
+            )
+
+    def test_conversion_stays_on_default_queue(self):
+        # convert_document_to_pdf deliberately stays on the default queue so a
+        # bulk-ingest conversion flood cannot starve the doc_parse consumers.
+        self.assertNotIn(
+            "opencontractserver.tasks.doc_tasks.convert_document_to_pdf",
+            settings.CELERY_TASK_ROUTES,
         )
 
 
