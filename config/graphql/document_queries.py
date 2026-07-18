@@ -87,6 +87,44 @@ def _make_bulk_upload_status(**fields) -> BulkDocumentUploadStatusType:
     return obj
 
 
+def _bulk_upload_status_from_task_result(
+    job_id: str, result: dict[str, Any]
+) -> BulkDocumentUploadStatusType:
+    """Map both supported ZIP-task result schemas to the GraphQL contract.
+
+    ``process_documents_zip`` predates the folder-preserving importer and
+    reports ``total_files`` / ``processed_files`` / ``error_files``. The newer
+    ``import_zip_with_folder_structure`` task intentionally has more specific
+    keys. Keep that task's detailed result intact while presenting one stable
+    status shape to clients polling either import path.
+    """
+    skipped_files = result.get("skipped_files")
+    if skipped_files is None:
+        skipped_files = sum(
+            result.get(key, 0) or 0
+            for key in (
+                "files_skipped_type",
+                "files_skipped_size",
+                "files_skipped_hidden",
+                "files_skipped_path",
+            )
+        )
+
+    return _make_bulk_upload_status(
+        job_id=job_id,
+        success=result.get("success", False),
+        total_files=result.get("total_files", result.get("total_files_in_zip", 0)),
+        processed_files=result.get(
+            "processed_files", result.get("files_processed", 0)
+        ),
+        skipped_files=skipped_files,
+        error_files=result.get("error_files", result.get("files_errored", 0)),
+        document_ids=result.get("document_ids", []),
+        errors=result.get("errors", []),
+        completed=result.get("completed", True),
+    )
+
+
 @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("READ_LIGHT"))
 def _resolve_Query_documents(root, info, **kwargs):
     """PORT: /home/user/oc-graphene-ref/config/ratelimit/decorators.py:57
@@ -678,19 +716,7 @@ def _resolve_Query_bulk_document_upload_status(root, info, job_id):
                     # doesn't properly propagate to the backend. For tests, we'll assume completion.
                     result = async_result.get()
                     logger.info(f"Direct task result in eager mode: {result}")
-                    return _make_bulk_upload_status(
-                        job_id=job_id,
-                        success=result.get("success", True),
-                        total_files=result.get("total_files", 0),
-                        processed_files=result.get("processed_files", 0),
-                        skipped_files=result.get("skipped_files", 0),
-                        error_files=result.get("error_files", 0),
-                        document_ids=result.get("document_ids", []),
-                        errors=result.get("errors", []),
-                        completed=result.get(
-                            "completed", True
-                        ),  # Use the passed completed value if available
-                    )
+                    return _bulk_upload_status_from_task_result(job_id, result)
             except Exception as e:
                 logger.info(f"Exception getting eager task result: {e}")
                 # Continue with normal flow
@@ -700,19 +726,7 @@ def _resolve_Query_bulk_document_upload_status(root, info, job_id):
             if async_result.successful():
                 result = async_result.get()
                 # Ensure it has the right structure
-                return _make_bulk_upload_status(
-                    job_id=job_id,
-                    success=result.get("success", False),
-                    total_files=result.get("total_files", 0),
-                    processed_files=result.get("processed_files", 0),
-                    skipped_files=result.get("skipped_files", 0),
-                    error_files=result.get("error_files", 0),
-                    document_ids=result.get("document_ids", []),
-                    errors=result.get("errors", []),
-                    completed=result.get(
-                        "completed", True
-                    ),  # Use the completed field from result if available
-                )
+                return _bulk_upload_status_from_task_result(job_id, result)
             else:
                 # Task failed
                 return _make_bulk_upload_status(
