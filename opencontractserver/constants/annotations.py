@@ -6,6 +6,15 @@ Constants for annotation-related operations.
 # that were created manually (not by an analysis/analyzer)".
 MANUAL_ANNOTATION_SENTINEL = "~~MANUAL~~"
 
+# ``Annotation.page`` value for SPAN_LABEL (char-offset) annotations, whose
+# locator is the ``{start, end, text}`` json — not a PDF page. PAWLs pages are
+# 0-indexed, and the frontend suppresses page 0 for text documents, so this is
+# the canonical "no meaningful page" sentinel; a span annotation must never
+# advertise a (1-indexed-looking) fake PDF page. Producers:
+# ``opencontractserver/utils/span_projection.py::span_annotation_payload`` and
+# ``opencontractserver/utils/annotation_anchoring.py::_anchor_text``.
+SPAN_NO_PAGE = 0
+
 # --------------------------------------------------------------------------- #
 # Built-in annotation label names (OC_ namespace)                             #
 # --------------------------------------------------------------------------- #

@@ -31,6 +31,7 @@ from opencontractserver.enrichment.resolver import (
     ReferenceResolver,
     Resolution,
     SectionAnno,
+    document_identity_candidates,
 )
 from opencontractserver.enrichment.writer import EnrichmentWriter, WriteResult
 from opencontractserver.types.enums import JobStatus
@@ -122,7 +123,7 @@ class EnrichmentService:
             )
         return sections
 
-    def _build_detection(self, documents, types, user, extra_tiers):
+    def _build_detection(self, documents, types, user, extra_tiers, corpus=None):
         """Construct the extractor stack + section index shared by the sync
         (scan/discover, non-LLM apply) and concurrent (LLM apply) detection
         paths.
@@ -139,14 +140,18 @@ class EnrichmentService:
 
         wanted = set(types or C.DEFAULT_REFERENCE_TYPES)
         active_tiers = set(extra_tiers or ())
-        resolver = ReferenceResolver(documents)
+        # Canonical document identities (external_id / corpus path / title —
+        # see resolver.document_identity_candidates), computed ONCE and shared
+        # by the resolver's identifier index, its self-mention drop, and the
+        # grammar extractor's corpus-shape gate so the three can never
+        # disagree about what counts as an identifier-carrying document.
+        identity_candidates = document_identity_candidates(documents, corpus=corpus)
+        resolver = ReferenceResolver(documents, identity_candidates=identity_candidates)
         extractor = ReferenceExtractor(authority_aliases=authority_alias_registry(user))
-        # The grammar extractor receives the same permission-scoped document
-        # list as the resolver — consulted only for its titles, to decide
-        # whether the corpus speaks the title-identifier citation vocabulary
-        # (CBP CROSS-style corpora; see GenericCitationExtractor).
         generic = (
-            GenericCitationExtractor(documents=documents)
+            GenericCitationExtractor(
+                documents=documents, identity_candidates=identity_candidates
+            )
             if C.DETECTION_TIER_GRAMMAR in active_tiers
             else None
         )
@@ -240,7 +245,7 @@ class EnrichmentService:
         every document.
         """
         wanted, resolver, extractor, generic, llm_extractor, sections_by_doc = (
-            self._build_detection(documents, types, user, extra_tiers)
+            self._build_detection(documents, types, user, extra_tiers, corpus=corpus)
         )
         for doc in documents:
             doc_text = self._doc_text(doc)
@@ -294,7 +299,7 @@ class EnrichmentService:
             llm_extractor,
             sections_by_doc,
         ) = await sync_to_async(self._build_detection)(
-            documents, types, user, extra_tiers
+            documents, types, user, extra_tiers, corpus=corpus
         )
         doc_texts = await sync_to_async(self._read_doc_texts)(documents)
 

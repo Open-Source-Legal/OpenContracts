@@ -36,6 +36,7 @@ from opencontractserver.utils.frontend_paths import document_in_corpus_path
 from opencontractserver.utils.span_projection import (
     load_document_text_and_layer,
     project_span_to_token_annotation,
+    span_annotation_payload,
 )
 
 logger = logging.getLogger(__name__)
@@ -219,14 +220,28 @@ class EnrichmentWriter:
                 return m.start(), m.end()
         return None
 
+    def _span_text(self, cand, document_id: int) -> str:
+        """The document text at ``[cand.start:cand.end]`` for a span mention.
+
+        Every regex extractor's ``raw_text`` IS that slice (start/end came
+        from the same match), so when the lengths agree we reuse it and skip
+        a storage read entirely — the writer would otherwise re-fetch (and
+        cache for the whole run) each document's full extract just to slice
+        one mention. The rare extractor that anchors its span INSIDE a longer
+        raw text (see the containment note in ``_remap_span``) falls back to
+        the true source slice.
+        """
+        raw = cand.raw_text or ""
+        if len(raw) == cand.end - cand.start:
+            return raw
+        src = self._src_text_for(document_id)
+        return src[cand.start : cand.end] if src else raw
+
     def _get_or_create_mention(
         self, res: Resolution, result: WriteResult
     ) -> tuple[Annotation, bool]:
         cand = res.candidate
         label_text = C.LABEL_FOR_TYPE[res.reference_type]
-        # PDF documents get token mentions (PAWLs bounding boxes — the PDF
-        # viewer can only paint those); everything else keeps char spans.
-        projected = self._project_mention(res)
 
         # Dedup by (document, label text, span START): the span END can
         # legitimately move when the alias registry grows (a longer authority
@@ -246,8 +261,17 @@ class EnrichmentWriter:
             .select_related("annotation_label")
             .first()
         )
+        # A current token mention already has PAWLS bounds, so projecting it
+        # again is pure cost. Keep projection for legacy span rows: rerunning
+        # enrichment is intentionally their token-annotation backfill.
+        if existing is not None and existing.annotation_type != SPAN_LABEL:
+            return existing, False
+
+        # PDF documents get token mentions (PAWLs bounding boxes — the PDF
+        # viewer can only paint those); everything else keeps char spans.
+        projected = self._project_mention(res)
         if existing is not None:
-            if projected is not None and existing.annotation_type == SPAN_LABEL:
+            if projected is not None:
                 # Converge: upgrade a legacy span mention in place (same row,
                 # so CorpusReference/Relationship FKs survive). Re-running
                 # enrichment is thereby also the backfill for pre-fix corpora.
@@ -270,6 +294,20 @@ class EnrichmentWriter:
                     ]
                 )
                 result.annotations_upgraded += 1
+            else:
+                # A mention that must STAY a span (no projectable layer) still
+                # converges on the canonical span shape: pre-fix rows carry
+                # page=1 and no `text` anchor, so healing here makes a re-run
+                # their shape backfill too — mirroring the token upgrade above.
+                healed_json, healed_page = span_annotation_payload(
+                    cand.start,
+                    cand.end,
+                    self._span_text(cand, res.source_document_id),
+                )
+                if existing.page != healed_page or existing.json != healed_json:
+                    existing.json = healed_json
+                    existing.page = healed_page
+                    existing.save(update_fields=["json", "page", "modified"])
             return existing, False
 
         data = dict(cand.normalized_data)
@@ -293,9 +331,10 @@ class EnrichmentWriter:
             # the extractor's native coordinates.
             data["char_span"] = {"start": cand.start, "end": cand.end}
         else:
-            json_payload = {"start": cand.start, "end": cand.end}
+            json_payload, page = span_annotation_payload(
+                cand.start, cand.end, self._span_text(cand, res.source_document_id)
+            )
             ann_type = SPAN_LABEL
-            page = 1
 
         ann = Annotation(
             raw_text=cand.raw_text,

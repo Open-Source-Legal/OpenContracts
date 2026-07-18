@@ -83,14 +83,15 @@ descriptions. Accepted filenames (priority order): `meta.csv`, `META.csv`,
 | `source_path` | Yes | Relative path within the ZIP |
 | `title` | No | Custom document title |
 | `description` | No | Custom document description |
+| `external_id` | No | Durable identifier in the producing system, stored on the document's `DocumentPath.external_id` (max 512 chars) |
 
 ### Example
 
 ```csv
-source_path,title,description
-contracts/legal/agreement.pdf,Master Services Agreement,The main services contract
-contracts/financial/report.pdf,Q4 Financial Report,Quarterly financial summary
-docs/amendment.pdf,Amendment #1,First amendment to MSA
+source_path,title,description,external_id
+contracts/legal/agreement.pdf,Master Services Agreement,The main services contract,
+contracts/financial/report.pdf,Q4 Financial Report,Quarterly financial summary,
+rulings/H022844.txt,Plastic serving trays; classification,CROSS HQ ruling,cross:H022844
 ```
 
 ### Behavior
@@ -99,6 +100,14 @@ docs/amendment.pdf,Amendment #1,First amendment to MSA
 - Not all documents need metadata entries -- partial coverage is fine
 - If a `titlePrefix` is provided in the mutation, it is prepended to the
   metadata title (e.g., "2024 - Master Services Agreement")
+- `external_id` values should be namespaced by the producer (e.g.
+  `cross:H022844`); unlike the display title, they survive later renames.
+  Consumers resolve through the namespace — the customs-ruling enrichment
+  service treats a `cross:`-namespaced id as a document's canonical ruling
+  number, ahead of its path or title
+  (`opencontractserver/enrichment/services/customs_ruling_citation_service.py::_build_ruling_identity_index`).
+  Overlong values are rejected per-row with an import warning, never
+  truncated.
 
 ## Relationships File (`relationships.csv`)
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 import django
@@ -1338,6 +1339,116 @@ class Corpus(InstanceUserCanMixin, TreeNode):
     # Label helper                                                         #
     # --------------------------------------------------------------------- #
 
+    def ensure_labels_and_labelset(
+        self,
+        *,
+        label_data: Mapping[str, Mapping[str, Any]],
+        creator_id: int,
+    ) -> dict[str, AnnotationLabel]:
+        """Return corpus-label-set labels keyed by the supplied label keys.
+
+        Parser ingestion creates multiple documents concurrently.  A bare
+        ``AnnotationLabel`` has no useful uniqueness guarantee when
+        ``analyzer`` is NULL, so serialise creation through the corpus row and
+        its label-set row.  The label-set lock also covers the case where the
+        same set is intentionally shared by multiple corpora.
+
+        ``label_data`` mirrors the importer label payload: each key is the
+        caller's lookup key and the value can override ``text``,
+        ``label_type``, ``color``, ``description``, ``icon``, and
+        ``read_only``.
+        """
+        from opencontractserver.annotations.models import (
+            TOKEN_LABEL,
+            AnnotationLabel,
+            LabelSet,
+        )
+        from opencontractserver.types.enums import PermissionTypes
+        from opencontractserver.utils.permissioning import (
+            set_permissions_for_obj_to_user,
+        )
+
+        if not label_data:
+            return {}
+
+        with transaction.atomic():
+            # Lock the authoritative row rather than trusting this instance:
+            # separate parser workers hold independent, potentially stale
+            # Corpus objects while they ingest the same batch.
+            locked_corpus = Corpus.objects.select_for_update().get(pk=self.pk)
+
+            if locked_corpus.label_set_id is None:
+                label_set = LabelSet.objects.create(
+                    title=f"Corpus {locked_corpus.pk} Set",
+                    description="Auto-created label set",
+                    creator_id=creator_id,
+                )
+                locked_corpus.label_set = label_set
+                locked_corpus.save(update_fields=["label_set", "modified"])
+            else:
+                # A label set can be the install-wide default and therefore be
+                # shared across corpora. Lock it too so those callers converge
+                # on one label row for each (text, label_type) pair.
+                label_set = LabelSet.objects.select_for_update().get(
+                    pk=locked_corpus.label_set_id
+                )
+
+            requested_by_key: dict[str, tuple[str, str, Mapping[str, Any]]] = {}
+            requested_pairs: set[tuple[str, str]] = set()
+            for label_key, data in label_data.items():
+                label_text = str(data.get("text") or label_key)
+                raw_label_type = data.get("label_type") or TOKEN_LABEL
+                # ``LabelType`` is a str Enum, but ``str(LabelType.X)`` is
+                # ``"LabelType.X"`` rather than its database value.
+                label_type = getattr(raw_label_type, "value", raw_label_type)
+                if not isinstance(label_type, str):
+                    label_type = str(label_type)
+                requested_by_key[label_key] = (label_text, label_type, data)
+                requested_pairs.add((label_text, label_type))
+
+            # There is no composite database constraint for unanalysed labels,
+            # so retain the oldest legacy duplicate deterministically while
+            # routing all newly ingested parser annotations through it.
+            existing_by_pair: dict[tuple[str, str], AnnotationLabel] = {}
+            for existing in (
+                label_set.annotation_labels.filter(
+                    text__in={text for text, _ in requested_pairs},
+                    label_type__in={label_type for _, label_type in requested_pairs},
+                )
+                .order_by("id")
+                .iterator()
+            ):
+                existing_by_pair.setdefault(
+                    (existing.text, existing.label_type), existing
+                )
+
+            labels_by_key: dict[str, AnnotationLabel] = {}
+            for label_key, (label_text, label_type, data) in requested_by_key.items():
+                pair = (label_text, label_type)
+                label = existing_by_pair.get(pair)
+                if label is None:
+                    label = AnnotationLabel.objects.create(
+                        text=label_text,
+                        label_type=label_type,
+                        color=str(data.get("color") or "#05313d"),
+                        description=str(data.get("description") or ""),
+                        icon=str(data.get("icon") or "tags"),
+                        creator_id=creator_id,
+                        read_only=bool(data.get("read_only", False)),
+                    )
+                    label_set.annotation_labels.add(label)
+                    set_permissions_for_obj_to_user(
+                        creator_id, label, [PermissionTypes.ALL], is_new=True
+                    )
+                    existing_by_pair[pair] = label
+                labels_by_key[label_key] = label
+
+            # Keep the calling instance coherent for callers that use it again
+            # after this helper returns.
+            self.label_set = label_set
+
+        return labels_by_key
+
     def ensure_label_and_labelset(
         self,
         *,
@@ -1354,43 +1465,23 @@ class Corpus(InstanceUserCanMixin, TreeNode):
         & type exists within it. Returns that label instance.
         """
 
-        from django.db import transaction
-
-        from opencontractserver.annotations.models import (
-            TOKEN_LABEL,
-            AnnotationLabel,
-            LabelSet,
-        )
+        from opencontractserver.annotations.models import TOKEN_LABEL
 
         if label_type is None:
             label_type = TOKEN_LABEL
 
-        with transaction.atomic():
-            # Create label-set lazily.
-            if self.label_set is None:
-                self.label_set = LabelSet.objects.create(
-                    title=f"Corpus {self.pk} Set",
-                    description="Auto-created label set",
-                    creator_id=creator_id,
-                )
-                self.save(update_fields=["label_set", "modified"])
-
-            # Fetch/create label inside that set.
-            label = self.label_set.annotation_labels.filter(
-                text=label_text, label_type=label_type
-            ).first()
-            if label is None:
-                label = AnnotationLabel.objects.create(
-                    text=label_text,
-                    label_type=label_type,
-                    color=color,
-                    description=description,
-                    icon=icon,
-                    creator_id=creator_id,
-                )
-                self.label_set.annotation_labels.add(label)
-
-        return label
+        return self.ensure_labels_and_labelset(
+            label_data={
+                label_text: {
+                    "text": label_text,
+                    "label_type": label_type,
+                    "color": color,
+                    "description": description,
+                    "icon": icon,
+                }
+            },
+            creator_id=creator_id,
+        )[label_text]
 
 
 # Model for Django Guardian permissions... trying to improve performance...

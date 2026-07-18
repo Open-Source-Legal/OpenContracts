@@ -340,22 +340,37 @@ def _hts(text: str) -> Iterator[Candidate]:
 
 
 def _document_identifier_citations(text: str) -> Iterator[Candidate]:
-    """Title-identifier document citations (e.g. CBP ruling numbers).
+    """Identifier document citations (e.g. CBP ruling numbers).
 
-    Emits REF_DOCUMENT candidates for identifier-shaped tokens (see
-    ``constants.DOC_IDENTIFIER_RE``); the resolver links them to the sibling
-    document whose canonicalized title names the identifier. Callers must
-    apply the corpus-shape gate (``GenericCitationExtractor`` only invokes
-    this when the corpus's titles are predominantly identifier-shaped).
+    Two grammars feed one resolver index, both normalized through
+    ``constants.canonical_document_identifier``:
+
+    * prefixed identifiers (``constants.DOC_IDENTIFIER_RE``, "H022844");
+    * series-token legacy citations
+      (``constants.LEGACY_DOC_IDENTIFIER_CITE_RE``, "HRL 087392") — the
+      bulk of pre-2000 rulings have bare numeric identities the prefixed
+      shape cannot see (on the real 10K official-export benchmark this
+      grammar carries 9,377 of the corpus's 9,677 citation candidates).
+
+    Callers must apply the corpus-shape gate (``GenericCitationExtractor``
+    only invokes this when the corpus's document identities are
+    predominantly identifier-shaped).
     """
-    for m in C.DOC_IDENTIFIER_RE.finditer(text):
+    matched = [(m, m.group(1)) for m in C.DOC_IDENTIFIER_RE.finditer(text)] + [
+        (m, m.group(1)) for m in C.LEGACY_DOC_IDENTIFIER_CITE_RE.finditer(text)
+    ]
+    matched.sort(key=lambda pair: pair[0].start())
+    for m, raw_ident in matched:
+        key = C.canonical_document_identifier(raw_ident)
+        if key is None:
+            continue
         yield Candidate(
             reference_type=C.REF_DOCUMENT,
             start=m.start(),
             end=m.end(),
             raw_text=m.group(0),
             normalized_data={
-                C.KEY_DOCUMENT_IDENTIFIER: m.group(1),
+                C.KEY_DOCUMENT_IDENTIFIER: key,
                 "tier": C.DETECTION_TIER_GRAMMAR,
             },
             detection_tier=C.DETECTION_TIER_GRAMMAR,
@@ -410,28 +425,38 @@ class GenericCitationExtractor:
     """Run all Tier-2a shape grammars over text → list[Candidate].
 
     ``documents`` (optional) is the corpus's already-loaded document set — the
-    same permission-scoped list the caller hands the resolver. It is consulted
-    only for its titles (never the DB): a corpus whose titles are predominantly
-    identifier-shaped (CBP CROSS-style, title == ruling number) activates the
-    title-identifier document-citation grammar; every other corpus leaves it
-    inert, so serial/order/patent numbers in unrelated corpora are never mined
-    as document citations.
+    same permission-scoped list the caller hands the resolver. A corpus whose
+    document identities are predominantly identifier-shaped (CBP CROSS-style)
+    activates the identifier document-citation grammar; every other corpus
+    leaves it inert, so serial/order/patent numbers in unrelated corpora are
+    never mined as document citations. ``identity_candidates`` (the resolver's
+    ``document_identity_candidates`` output, keyed by document id) carries
+    path/external_id-derived identities; without it the gate falls back to
+    title-only derivation (never the DB).
     """
 
-    def __init__(self, documents=None) -> None:
-        idents = [
-            C.document_identifier_from_title(doc.title)
-            for doc in documents or []
-            if (doc.title or "").strip()
-        ]
-        matching = sum(1 for i in idents if C.DOC_IDENTIFIER_RE.fullmatch(i))
+    def __init__(self, documents=None, *, identity_candidates=None) -> None:
+        documents = list(documents or [])
+        if identity_candidates is not None:
+            considered = len(documents)
+            matching = sum(1 for doc in documents if identity_candidates.get(doc.id))
+        else:
+            idents = [
+                C.document_identifier_from_title(doc.title)
+                for doc in documents
+                if (doc.title or "").strip()
+            ]
+            considered = len(idents)
+            matching = sum(
+                1 for i in idents if C.canonical_document_identifier(i) is not None
+            )
         # Condition ORDER is load-bearing: the MIN_DOCS check short-circuits
         # the fraction check, and ``matching >= MIN_DOCS`` (with MIN_DOCS > 0)
-        # guarantees ``idents`` is non-empty — reordering these would
-        # reintroduce a ZeroDivisionError on a titleless document set.
+        # guarantees ``considered`` is non-zero — reordering these would
+        # reintroduce a ZeroDivisionError on an empty document set.
         self._doc_identifier_gate = (
             matching >= C.DOC_IDENTIFIER_TITLE_GATE_MIN_DOCS
-            and matching / len(idents) >= C.DOC_IDENTIFIER_TITLE_GATE_FRACTION
+            and matching / considered >= C.DOC_IDENTIFIER_TITLE_GATE_FRACTION
         )
         # Merge pack-declared abbreviations onto the Python baseline so a pack can
         # carry its jurisdiction's citation vocabulary in its own directory

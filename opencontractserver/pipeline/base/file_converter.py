@@ -21,13 +21,19 @@ from typing import ClassVar
 
 from django.core.files.base import ContentFile
 
-from opencontractserver.constants.document_processing import PDF_MIME_TYPE
+from opencontractserver.constants.document_processing import (
+    OCTET_STREAM_MIME_TYPE,
+    PDF_MIME_TYPE,
+)
 from opencontractserver.pipeline.base.exceptions import FileConversionError
 from opencontractserver.pipeline.base.file_types import NATIVE_PIPELINE_EXTENSIONS
 
 from .base_component import PipelineComponentBase
 
 logger = logging.getLogger(__name__)
+
+_OLE_COMPOUND_DOCUMENT_MAGIC = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+_MS_WORD_EXTENSIONS = frozenset({"doc", "dot"})
 
 
 def normalize_extension(value: str) -> str:
@@ -38,6 +44,28 @@ def normalize_extension(value: str) -> str:
 def extension_for_filename(filename: str) -> str:
     """Return the normalized extension of ``filename`` ('' when it has none)."""
     return normalize_extension(os.path.splitext(filename or "")[1])
+
+
+def source_mime_type_for_conversion(
+    filename: str, stored_file_type: str, source_bytes: bytes
+) -> str:
+    """Return safe provenance MIME for a successfully converted source file.
+
+    Convertible uploads are intentionally stored as ``application/octet-stream``
+    before conversion so browser-active source formats cannot be served with an
+    executable content type. Preserve that safety boundary for ambiguous input,
+    but recover the useful Word provenance for genuine OLE Compound Document
+    uploads.
+    """
+    if stored_file_type != OCTET_STREAM_MIME_TYPE:
+        return stored_file_type
+
+    if extension_for_filename(
+        filename
+    ) in _MS_WORD_EXTENSIONS and source_bytes.startswith(_OLE_COMPOUND_DOCUMENT_MAGIC):
+        return "application/msword"
+
+    return stored_file_type
 
 
 class BaseFileConverter(PipelineComponentBase, ABC):
@@ -202,7 +230,9 @@ class BaseFileConverter(PipelineComponentBase, ABC):
         # converted PDF as a NEW blob. The source blob stays referenced, so
         # delete-time blob GC (Document.blob_field_names) still covers it.
         document.original_file.name = document.pdf_file.name
-        document.original_file_type = document.file_type
+        document.original_file_type = source_mime_type_for_conversion(
+            original_name, document.file_type, file_bytes
+        )
 
         stem = os.path.splitext(original_name)[0] or f"doc_{doc_id}"
         document.pdf_file.save(f"{stem}.pdf", ContentFile(pdf_bytes), save=False)

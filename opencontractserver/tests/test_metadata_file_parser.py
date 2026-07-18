@@ -193,7 +193,11 @@ Title,Description
         self.assertIn("Missing required column: source_path", result.errors)
 
     def test_no_metadata_columns_warning(self):
-        """Warns if no title or description columns."""
+        """Warns if no metadata columns beyond source_path.
+
+        (Wording updated when the optional ``external_id`` column was added
+        to the contract — the warning now names all three optional columns.)
+        """
         content = """source_path
 file.pdf
 """
@@ -202,7 +206,10 @@ file.pdf
         self.assertTrue(result.is_valid)
         self.assertEqual(len(result.metadata), 0)
         self.assertTrue(
-            any("no title or description columns" in w for w in result.warnings)
+            any(
+                "no title, description, or external_id columns" in w
+                for w in result.warnings
+            )
         )
 
     def test_empty_file(self):
@@ -403,3 +410,63 @@ class TestMetadataFileNames(TestCase):
         meta_idx = METADATA_FILE_NAMES.index("meta.csv")
         metadata_idx = METADATA_FILE_NAMES.index("metadata.csv")
         self.assertLess(meta_idx, metadata_idx)
+
+
+class TestExternalIdColumn(TestCase):
+    """Tests for the optional external_id column (durable source identity,
+    stored on DocumentPath.external_id by the ZIP import task)."""
+
+    def test_parse_external_id(self):
+        content = """source_path,title,external_id
+HQ/H022844.txt,Plastic trays; classification,cross:H022844
+"""
+        result = parse_csv_metadata(content)
+
+        self.assertTrue(result.is_valid)
+        meta = result.metadata["/HQ/H022844.txt"]
+        self.assertEqual(meta.external_id, "cross:H022844")
+        self.assertEqual(meta.title, "Plastic trays; classification")
+
+    def test_external_id_only_row_is_kept(self):
+        """A row carrying ONLY an external_id is still metadata."""
+        content = """source_path,external_id
+doc.txt,cross:H000001
+"""
+        result = parse_csv_metadata(content)
+
+        self.assertTrue(result.is_valid)
+        meta = result.metadata["/doc.txt"]
+        self.assertEqual(meta.external_id, "cross:H000001")
+        self.assertIsNone(meta.title)
+        self.assertIsNone(meta.description)
+
+    def test_empty_external_id_is_none(self):
+        content = """source_path,title,external_id
+doc.txt,A title,
+"""
+        result = parse_csv_metadata(content)
+
+        self.assertIsNone(result.metadata["/doc.txt"].external_id)
+
+    def test_overlong_external_id_rejected_with_warning(self):
+        """Values beyond DocumentPath.external_id's max_length are ignored
+        per-row (never silently truncated)."""
+        overlong = "cross:" + "X" * 513
+        content = f"""source_path,title,external_id
+doc.txt,A title,{overlong}
+"""
+        result = parse_csv_metadata(content)
+
+        self.assertTrue(result.is_valid)
+        meta = result.metadata["/doc.txt"]  # title still applied
+        self.assertIsNone(meta.external_id)
+        self.assertTrue(any("external_id exceeds" in w for w in result.warnings))
+
+    def test_missing_column_backward_compatible(self):
+        content = """source_path,title
+doc.txt,A title
+"""
+        result = parse_csv_metadata(content)
+
+        self.assertTrue(result.is_valid)
+        self.assertIsNone(result.metadata["/doc.txt"].external_id)

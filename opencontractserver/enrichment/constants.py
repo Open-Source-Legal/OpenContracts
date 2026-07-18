@@ -115,6 +115,63 @@ def document_identifier_from_title(title: str | None) -> str:
     return _Path(name).stem.upper()
 
 
+# Series-token legacy document citations. Legacy CBP rulings (the bulk of
+# pre-2000 HQ/NY output) have BARE numeric ruling numbers and are cited as
+# "<series token> <6 digits>": "HQ 084665", "HRL 087392", "NY 812345". A bare
+# number alone is never mined (dollar amounts, statute numbers, entry
+# numbers), but a number immediately preceded by a CBP ruling-series token is
+# a citation with near-zero ambiguity — measured on a 500-document
+# official-export slice: 707 instances, no false positives. Exactly SIX
+# digits on purpose: 5 digits after "NY" is almost always a New York ZIP code
+# ("New York, NY 10176" — 148/149 sampled), and ZIP+4 ("10001-3060") never
+# forms a 6-digit run. ``\s+`` spans hard line wraps and column whitespace
+# inside the token/number pair.
+LEGACY_DOC_IDENTIFIER_CITE_RE = _re.compile(
+    r"\b(?:HQ|HRL|NY(?:RL)?|PD|DD|IA)\s+(\d{6})\b"
+)
+
+# Identity-side shape for legacy documents: the official CROSS bulk exporter's
+# path basename IS the bare (zero-padded) ruling number, e.g. ``HQ/084665.txt``.
+BARE_DOC_IDENTIFIER_RE = _re.compile(r"\d{5,6}")
+
+# Namespace for a durable document identity carried on
+# ``DocumentPath.external_id`` (e.g. ``cross:H022844``), populated by the ZIP
+# import's optional ``external_id`` meta.csv column. Outranks path/title
+# derivation because it survives document renames.
+DOC_IDENTIFIER_EXTERNAL_ID_NAMESPACE = "cross:"
+
+
+def canonical_document_identifier(value: str | None) -> str | None:
+    """Canonical lookup key for a document identifier, or ``None`` if not one.
+
+    Two disjoint namespaces share the resolver index: prefixed identifiers
+    (``H022844``) are keyed verbatim (uppercased), bare legacy numbers are
+    keyed with leading zeros stripped so the zero-padded document identity
+    (``084665``) and however a citation pads it agree on one key. The two
+    shapes cannot collide (one starts with a letter, the other is all
+    digits).
+    """
+    v = (value or "").strip().upper()
+    if DOC_IDENTIFIER_RE.fullmatch(v):
+        return v
+    if BARE_DOC_IDENTIFIER_RE.fullmatch(v):
+        return v.lstrip("0") or "0"
+    return None
+
+
+def document_identifier_from_path(path: str) -> str:
+    """Canonicalize a corpus path to the identifier in its basename stem.
+
+    The official CROSS bulk exporter writes ``{COLLECTION}/{number}.txt``
+    (e.g. ``HQ/084665.txt`` or ``HQ/H022844.txt``), so the active
+    ``DocumentPath`` basename is the exporter's own canonical identity for
+    the document — unlike the title, which the official export fills with
+    the human-readable SUBJECT (non-unique, control-character-laden display
+    metadata).
+    """
+    return _Path(path).stem.upper()
+
+
 # ``AuthorityNamespace.baseline_origin`` stamp for rows written from the shipped
 # core ``authority_mappings.yaml`` (loader default path + post_migrate seed).
 # Pack loads stamp the pack's manifest ``name`` instead, so two baseline writers

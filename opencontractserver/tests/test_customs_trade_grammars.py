@@ -31,6 +31,7 @@ from opencontractserver.enrichment.grammars import (
     _CONF_HTS_ANCHORED,
     _CONF_HTS_CONTEXTUAL,
     GenericCitationExtractor,
+    _document_identifier_citations,
     _normalize_hts,
 )
 from opencontractserver.enrichment.resolver import ReferenceResolver
@@ -268,22 +269,27 @@ class IdentifierResolverTests(TestCase):
 
     def test_duplicate_title_self_mentions_both_dropped(self):
         # The same ruling ingested twice (e.g. as .doc and .pdf): BOTH copies'
-        # self-identifying header mentions must drop — the duplicate that lost
-        # the first-writer-wins index slot must not have its header resolved
-        # as a citation pointing at the other copy.
+        # self-identifying header mentions must drop.
         duplicate = Document.objects.create(title="A83482.pdf", creator=self.user)
         resolver = ReferenceResolver([self.citing, self.target, duplicate])
         for doc in (self.target, duplicate):
             r = resolver.resolve_document(self._cand("A83482"), source_doc_id=doc.id)
             assert r is None
-        # A third document citing the shared identifier still resolves (to the
-        # first-indexed copy).
+        # A third document citing the shared identifier stays UNRESOLVED:
+        # two documents claiming one identity is AMBIGUITY, reported and left
+        # unresolved rather than resolved to whichever copy happened to claim
+        # the index slot first. (Expectation updated with the PR 2153 identity
+        # port — previously first-writer-wins; the resolver cannot know
+        # whether duplicates are the same content or two documents wrongly
+        # sharing an identity, and a wrong link is worse than no link. The
+        # writer's forward-only heal resolves the row once the duplicate is
+        # removed and enrichment re-applies.)
         r = resolver.resolve_document(
             self._cand("A83482"), source_doc_id=self.citing.id
         )
         assert r is not None
-        assert r.resolution_status == C.STATUS_RESOLVED
-        assert r.target_document_id == self.target.id
+        assert r.resolution_status == C.STATUS_UNRESOLVED
+        assert r.target_document_id is None
 
     def test_exhibit_resolution_unaffected(self):
         exhibit = Document.objects.create(
@@ -459,3 +465,230 @@ class NonRulingCorpusGateTests(TestCase):
             reference_type=C.REF_DOCUMENT,
             normalized_data__document_identifier__isnull=False,
         ).exists()
+
+
+# --------------------------------------------------------------------------- #
+# PR 2153 port: series-token legacy citations + path/external_id identity
+# --------------------------------------------------------------------------- #
+
+
+class LegacyCitationGrammarTests(SimpleTestCase):
+    """Series-token legacy citations ("HQ 084665", "HRL 087392") — the bulk
+    of pre-2000 rulings have BARE numeric identities the prefixed shape
+    cannot see (74% of the true reference graph on the real 10K
+    official-export benchmark)."""
+
+    def test_mines_series_token_citation(self):
+        text = "Upon further consideration, HRL 087392 is deemed correct."
+        matches = [m.group(1) for m in C.LEGACY_DOC_IDENTIFIER_CITE_RE.finditer(text)]
+        assert matches == ["087392"]
+
+    def test_mines_across_hard_line_wrap(self):
+        text = "October 27, 1987, has been modified by HRL\n081374 dated"
+        matches = [m.group(1) for m in C.LEGACY_DOC_IDENTIFIER_CITE_RE.finditer(text)]
+        assert matches == ["081374"]
+
+    def test_never_mines_new_york_zip_codes(self):
+        """5 digits after "NY" is a ZIP (148/149 sampled), and ZIP+4 never
+        forms a 6-digit run — the grammar requires exactly six digits."""
+        text = "375 Fifth Avenue, New York, NY  10176 and NY 10001-3060."
+        assert list(C.LEGACY_DOC_IDENTIFIER_CITE_RE.finditer(text)) == []
+
+    def test_never_mines_bare_number_without_series_token(self):
+        text = "Headquarters Ruling Letter 562035, dated June 22, 2001."
+        assert list(C.LEGACY_DOC_IDENTIFIER_CITE_RE.finditer(text)) == []
+
+    def test_grammar_emits_canonical_keys_for_both_shapes(self):
+        cands = list(
+            _document_identifier_citations(
+                "See H022844 and also HRL 087392 for the analysis."
+            )
+        )
+        keys = {c.normalized_data[C.KEY_DOCUMENT_IDENTIFIER] for c in cands}
+        assert keys == {"H022844", "87392"}
+        raws = {c.raw_text for c in cands}
+        assert "HRL 087392" in raws  # the series token is part of the mention
+
+    def test_canonical_document_identifier_namespaces(self):
+        assert C.canonical_document_identifier("H022844") == "H022844"
+        assert C.canonical_document_identifier("r03632") == "R03632"
+        assert C.canonical_document_identifier("084665") == "84665"
+        assert C.canonical_document_identifier("84665") == "84665"
+        assert C.canonical_document_identifier("Plastic trays") is None
+        assert C.canonical_document_identifier("1466") is None
+        assert C.canonical_document_identifier("") is None
+
+
+LEGACY_SRC_TEXT = (
+    "HQ 084665\n\n"
+    "375 Fifth Avenue, New York, NY  10176\n\n"
+    "Upon further consideration, HRL 087392 is deemed correct and "
+    "HQ 555555 does not control."
+)
+LEGACY_TGT_TEXT = "HQ 087392\n\nDecision text."
+
+
+def _make_corpus_txt_doc(user, corpus, *, title, path, body, external_id=""):
+    """A text/plain corpus member with an explicit DocumentPath — the official
+    export's shape: subject title, identifier-bearing path."""
+    from opencontractserver.documents.models import DocumentPath
+
+    doc = Document.objects.create(title=title, creator=user, file_type="text/plain")
+    doc.txt_extract_file.save("extract.txt", ContentFile(body.encode("utf-8")))
+    DocumentPath.objects.create(
+        document=doc,
+        corpus=corpus,
+        path=path,
+        version_number=1,
+        external_id=external_id,
+        creator=user,
+    )
+    return doc
+
+
+class LegacyIdentityIntegrationTests(TestCase):
+    """End-to-end on the official export's real shape: subject titles, bare
+    zero-padded numeric ruling numbers in paths, series-token citations."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="legacy-owner", password="p")
+        self.corpus = Corpus.objects.create(title="CROSS Legacy", creator=self.user)
+        self.src = _make_corpus_txt_doc(
+            self.user,
+            self.corpus,
+            title="Gasket material classification",  # subject, NOT the number
+            path="/HQ/084665.txt",
+            body=LEGACY_SRC_TEXT,
+        )
+        self.tgt = _make_corpus_txt_doc(
+            self.user,
+            self.corpus,
+            title="Reconsideration of gasket ruling",
+            path="/HQ/087392.txt",
+            body=LEGACY_TGT_TEXT,
+        )
+
+    def _apply(self):
+        return EnrichmentService().apply(
+            corpus_id=self.corpus.id, creator_id=self.user.id
+        )
+
+    def _doc_refs(self):
+        return CorpusReference.objects.filter(
+            corpus=self.corpus, reference_type=C.REF_DOCUMENT
+        )
+
+    def test_series_token_citation_resolves_via_path_identity(self):
+        self._apply()
+
+        resolved = self._doc_refs().get(resolution_status=C.STATUS_RESOLVED)
+        assert resolved.target_document_id == self.tgt.id
+        assert resolved.normalized_data[C.KEY_DOCUMENT_IDENTIFIER] == "87392"
+        mention = resolved.source_annotation
+        assert mention.raw_text == "HRL 087392"
+        # Canonical text-span shape: page 0 sentinel + anchored text.
+        assert mention.page == 0
+        assert mention.json["text"] == "HRL 087392"
+
+        unresolved = self._doc_refs().get(resolution_status=C.STATUS_UNRESOLVED)
+        assert unresolved.normalized_data[C.KEY_DOCUMENT_IDENTIFIER] == "555555"
+
+        # The ZIP code and the document's own header number are not mined /
+        # not persisted: exactly the two references above exist.
+        assert self._doc_refs().count() == 2
+
+        edge = DocumentRelationship.objects.get(
+            corpus=self.corpus, relationship_type=C.DOC_REL_RELATIONSHIP
+        )
+        assert edge.source_document_id == self.src.id
+        assert edge.target_document_id == self.tgt.id
+
+    def test_external_id_outranks_path_case_insensitively(self):
+        renamed = _make_corpus_txt_doc(
+            self.user,
+            self.corpus,
+            title="Renamed after import",
+            path="/HQ/opaque-name.txt",  # basename no longer the number
+            body="HQ 099001\n\nOriginal decision text.",
+            external_id="CROSS:099001",  # producer used uppercase namespace
+        )
+        _make_corpus_txt_doc(
+            self.user,
+            self.corpus,
+            title="Citing ruling",
+            path="/HQ/099002.txt",
+            body="HQ 099002\n\nWe follow HQ 099001 here.",
+        )
+
+        self._apply()
+
+        ref = self._doc_refs().get(normalized_data__document_identifier="99001")
+        assert ref.resolution_status == C.STATUS_RESOLVED
+        assert ref.target_document_id == renamed.id
+
+    def test_duplicate_path_identity_reported_not_silently_chosen(self):
+        _make_corpus_txt_doc(
+            self.user,
+            self.corpus,
+            title="First twin",
+            path="/HQ/H730002.txt",
+            body="First twin body.",
+        )
+        _make_corpus_txt_doc(
+            self.user,
+            self.corpus,
+            title="Second twin",
+            path="/NY/H730002.txt",
+            body="Second twin body.",
+        )
+        _make_corpus_txt_doc(
+            self.user,
+            self.corpus,
+            title="Citing ruling",
+            path="/HQ/099003.txt",
+            body="HQ 099003\n\nSee H730002.",
+        )
+
+        self._apply()
+
+        ref = self._doc_refs().get(normalized_data__document_identifier="H730002")
+        assert ref.resolution_status == C.STATUS_UNRESOLVED
+        assert ref.target_document_id is None
+
+    def test_reapply_heals_prefix_shaped_span_mention(self):
+        """Pre-fix span mentions carried page=1 and no ``text`` anchor;
+        re-applying enrichment converges them on the canonical shape IN
+        PLACE (same row — CorpusReference FKs survive)."""
+        self._apply()
+        mention = (
+            self._doc_refs().get(resolution_status=C.STATUS_RESOLVED).source_annotation
+        )
+        ref_id = self._doc_refs().get(resolution_status=C.STATUS_RESOLVED).id
+        Annotation.objects.filter(pk=mention.pk).update(
+            page=1,
+            json={"start": mention.json["start"], "end": mention.json["end"]},
+        )
+
+        self._apply()
+
+        mention.refresh_from_db()
+        assert mention.page == 0
+        assert mention.json["text"] == "HRL 087392"
+        assert self._doc_refs().get(resolution_status=C.STATUS_RESOLVED).id == ref_id
+
+    def test_reapply_is_idempotent(self):
+        self._apply()
+        before = (
+            self._doc_refs().count(),
+            Annotation.objects.filter(corpus=self.corpus).count(),
+            DocumentRelationship.objects.filter(corpus=self.corpus).count(),
+        )
+
+        self._apply()
+
+        after = (
+            self._doc_refs().count(),
+            Annotation.objects.filter(corpus=self.corpus).count(),
+            DocumentRelationship.objects.filter(corpus=self.corpus).count(),
+        )
+        assert before == after
