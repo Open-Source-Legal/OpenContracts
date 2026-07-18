@@ -6,6 +6,7 @@ import logging
 import traceback
 import uuid
 from datetime import timedelta
+from functools import partial
 from typing import Any, cast
 
 from celery import chain, chord, current_app, group, shared_task
@@ -435,6 +436,16 @@ def set_doc_lock_state(*args, locked: bool, doc_id: int):
                 f"[set_doc_lock_state] Document {doc_id} processing complete, "
                 f"triggering actions for {len(corpus_data)} corpus(es)"
             )
+
+            transaction.on_commit(
+                partial(
+                    _queue_embeddings_for_unlocked_document,
+                    doc_id=doc_id,
+                    corpus_ids=[data["corpus_id"] for data in corpus_data],
+                    structural_set_id=document.structural_annotation_set_id,
+                )
+            )
+
             for data in corpus_data:
                 process_corpus_action.delay(
                     corpus_id=data["corpus_id"],
@@ -442,6 +453,53 @@ def set_doc_lock_state(*args, locked: bool, doc_id: int):
                     user_id=data["corpus__creator_id"],
                     trigger=CorpusActionTrigger.ADD_DOCUMENT,
                 )
+
+
+def _queue_embeddings_for_unlocked_document(
+    *,
+    doc_id: int,
+    corpus_ids: list[int],
+    structural_set_id: int | None,
+) -> None:
+    """Best-effort embedding dispatch after a document has been unlocked.
+
+    A DocumentPath can be created before parsing finishes, when its document is
+    still locked. The path signal intentionally skips that case, so the final
+    unlock is the reliable point to enqueue embeddings for every active corpus.
+    Dispatch failures must not turn a completed document back into a failed
+    pipeline run.
+    """
+    from opencontractserver.tasks.corpus_tasks import ensure_embeddings_for_corpus
+    from opencontractserver.tasks.embeddings_task import (
+        calculate_embedding_for_doc_text,
+    )
+
+    for corpus_id in corpus_ids:
+        try:
+            calculate_embedding_for_doc_text.delay(
+                doc_id=doc_id,
+                corpus_id=corpus_id,
+            )
+        except Exception:
+            logger.exception(
+                "Unable to queue document text embedding for document %s in corpus %s",
+                doc_id,
+                corpus_id,
+            )
+
+        if structural_set_id is None:
+            continue
+
+        try:
+            ensure_embeddings_for_corpus.delay(structural_set_id, corpus_id)
+        except Exception:
+            logger.exception(
+                "Unable to queue structural embedding check for document %s, "
+                "structural set %s, corpus %s",
+                doc_id,
+                structural_set_id,
+                corpus_id,
+            )
 
 
 def _create_document_processed_notifications(
@@ -1351,6 +1409,7 @@ def retry_document_processing(user_id: int, doc_id: int) -> dict[str, Any]:
         convert_document_to_pdf.si(user_id=user_id, doc_id=doc_id),
         extract_thumbnail.si(doc_id=doc_id),
         ingest_doc.si(user_id=user_id, doc_id=doc_id),
+        remap_pending_annotations.si(doc_id=doc_id),
         set_doc_lock_state.si(locked=False, doc_id=doc_id),
     ).apply_async(link_error=mark_doc_failed_on_chain_error.s(doc_id=doc_id))
 

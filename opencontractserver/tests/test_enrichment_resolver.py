@@ -29,6 +29,7 @@ class ResolverTests(TestCase):
             normalized_data={"exhibit_number": "1.1"},
         )
         r = self.resolver.resolve_document(cand, source_doc_id=self.primary.id)
+        assert r is not None
         assert r.resolution_status == C.STATUS_RESOLVED
         assert r.target_document_id == self.exhibit.id
 
@@ -41,6 +42,7 @@ class ResolverTests(TestCase):
             normalized_data={"exhibit_number": "99.9"},
         )
         r = self.resolver.resolve_document(cand, source_doc_id=self.primary.id)
+        assert r is not None
         assert r.resolution_status == C.STATUS_UNRESOLVED
         assert r.target_document_id is None
 
@@ -54,6 +56,7 @@ class ResolverTests(TestCase):
             normalized_data={"authority": "dgcl", "section": "145"},
         )
         r = self.resolver.resolve(cand, source_doc_id=self.primary.id, doc_text="x")
+        assert r is not None
         assert r.resolution_status == C.STATUS_EXTERNAL
         assert r.canonical_key == "dgcl:145"
         assert r.source_document_id == self.primary.id

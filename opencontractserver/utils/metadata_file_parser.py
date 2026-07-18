@@ -6,14 +6,19 @@ in a ZIP archive. The metadata is applied during document import.
 
 CSV Format:
 -----------
-source_path,title,description
-/contracts/master.pdf,Master Agreement,The main services contract
-/contracts/amendment.pdf,Amendment #1,
+source_path,title,description,external_id
+/contracts/master.pdf,Master Agreement,The main services contract,
+/contracts/amendment.pdf,Amendment #1,,cross:H022844
 
 Columns:
 - source_path: Path to document (relative to zip root) - REQUIRED
 - title: Document title (optional, overrides filename-based title)
 - description: Document description (optional)
+- external_id: Durable identifier in the producing system (optional).
+  Stored verbatim on the document's ``DocumentPath.external_id``, so it
+  survives renames where the title/path do not. Producers should namespace
+  values (e.g. ``cross:H022844`` for CROSS ruling numbers — the customs
+  enrichment service resolves citations through that namespace first).
 
 Notes:
 - Paths use same normalization as relationships.csv
@@ -42,6 +47,11 @@ METADATA_FILE_NAMES = [
 ]
 
 
+# Matches DocumentPath.external_id (max_length=512); longer values are
+# rejected per-row with a warning rather than silently truncated.
+EXTERNAL_ID_MAX_LENGTH = 512
+
+
 @dataclass
 class DocumentMetadata:
     """Metadata for a single document."""
@@ -49,6 +59,7 @@ class DocumentMetadata:
     source_path: str  # Normalized path (with leading /)
     title: Optional[str] = None
     description: Optional[str] = None
+    external_id: Optional[str] = None
 
 
 @dataclass
@@ -194,10 +205,12 @@ def parse_csv_metadata(content: str) -> MetadataFileParseResult:
         # Check which optional columns are present
         has_title = "title" in fieldnames_lower
         has_description = "description" in fieldnames_lower
+        has_external_id = "external_id" in fieldnames_lower
 
-        if not has_title and not has_description:
+        if not has_title and not has_description and not has_external_id:
             result.warnings.append(
-                "Metadata file has no title or description columns - no metadata will be applied"
+                "Metadata file has no title, description, or external_id "
+                "columns - no metadata will be applied"
             )
 
         # Parse rows
@@ -223,6 +236,7 @@ def parse_csv_metadata(content: str) -> MetadataFileParseResult:
                 # Get optional fields (empty string = None)
                 title = None
                 description = None
+                external_id = None
 
                 if has_title:
                     title_val = row.get(col_map.get("title", ""), "").strip()
@@ -234,8 +248,22 @@ def parse_csv_metadata(content: str) -> MetadataFileParseResult:
                     if desc_val:
                         description = desc_val
 
+                if has_external_id:
+                    ext_val = row.get(col_map.get("external_id", ""), "").strip()
+                    if len(ext_val) > EXTERNAL_ID_MAX_LENGTH:
+                        result.warnings.append(
+                            f"Row {row_num}: external_id exceeds "
+                            f"{EXTERNAL_ID_MAX_LENGTH} characters - ignored"
+                        )
+                    elif ext_val:
+                        external_id = ext_val
+
                 # Only add if there's at least one metadata value
-                if title is not None or description is not None:
+                if (
+                    title is not None
+                    or description is not None
+                    or external_id is not None
+                ):
                     # Warn if duplicate path (later entries override)
                     if normalized_path in result.metadata:
                         result.warnings.append(
@@ -247,6 +275,7 @@ def parse_csv_metadata(content: str) -> MetadataFileParseResult:
                         source_path=normalized_path,
                         title=title,
                         description=description,
+                        external_id=external_id,
                     )
 
             except Exception as e:

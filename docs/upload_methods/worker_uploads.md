@@ -97,9 +97,11 @@ PENDING  -->  PROCESSING  -->  COMPLETED
 
 !!! warning "A Celery worker must drain the queue"
     The batch processor (`process_pending_uploads`) runs on the **`worker_uploads`
-    Celery queue**, and thumbnail generation runs on the default `celery` queue.
-    The target deployment **must** run a Celery worker consuming both
-    (the stock images start it with `-Q celery,worker_uploads`) plus Celery Beat.
+    Celery queue**, and the post-upload ingest stages (thumbnail, parse, unlock)
+    run on the `doc_parse` queue. The target deployment **must** run a Celery
+    worker consuming all three queues
+    (the stock images start it with `-Q celery,worker_uploads,doc_parse`) plus
+    Celery Beat.
     With no worker draining `worker_uploads`, uploads are accepted (HTTP 202) but
     stay `PENDING` indefinitely and **no documents are created** -- a silent
     failure for self-hosted/custom deployments. See

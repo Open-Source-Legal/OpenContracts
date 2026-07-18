@@ -19,6 +19,8 @@ import { MockedProvider } from "@apollo/client/testing";
 import { MemoryRouter } from "react-router-dom";
 import { IntelligencePanel } from "../src/components/corpuses/CorpusHome/intelligence/IntelligencePanel";
 import { docScreenshot } from "./utils/docScreenshot";
+import { CorpusType } from "../src/types/graphql-api";
+import { IntelligencePanelCorpusContextTestWrapper } from "./IntelligencePanelCorpusContextTestWrapper";
 // Import the real query documents the component runs, so the mocks below stay
 // in lock-step with any future field additions (no hand-copied gql to drift).
 import {
@@ -121,6 +123,12 @@ const PANEL = '[data-testid="corpus-intelligence-panel"]';
 const METRICS = '[data-testid="corpus-intelligence-panel-metrics"]';
 const INDEX = '[data-testid="corpus-intelligence-panel-index"]';
 const ENTRY = '[data-testid="corpus-intelligence-panel-entry"]';
+
+const corpusNavigationContext = {
+  id: CORPUS_ID,
+  slug: "cross-doc100",
+  creator: { id: "UserType:owner", slug: "corpus-owner" },
+} as unknown as CorpusType;
 
 test.describe("IntelligencePanel", () => {
   test("renders the metric band and the documents index", async ({
@@ -400,6 +408,30 @@ test.describe("IntelligencePanel", () => {
     await entry.focus();
     await entry.press("Enter");
     await expect(page.locator(PANEL)).toBeVisible();
+
+    await component.unmount();
+  });
+
+  test("keeps corpus context when opening a collection entry", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(
+      <IntelligencePanelCorpusContextTestWrapper
+        corpusId={CORPUS_ID}
+        corpus={corpusNavigationContext}
+        mocks={[
+          docsMock([{ id: "Doc1", title: "Classification ruling" }]),
+          governanceMock(0),
+          setupStatusSilentMock,
+        ]}
+      />
+    );
+
+    await page.locator(ENTRY).first().click();
+    await expect(page.getByTestId("router-location")).toHaveText(
+      "/d/corpus-owner/cross-doc100/doc1"
+    );
 
     await component.unmount();
   });

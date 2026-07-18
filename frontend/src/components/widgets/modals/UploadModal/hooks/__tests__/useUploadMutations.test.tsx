@@ -326,7 +326,7 @@ describe("useUploadMutations.uploadZipFile", () => {
   beforeEach(() => vi.clearAllMocks());
   afterEach(() => vi.restoreAllMocks());
 
-  it("calls the zip helper with the target corpus and returns true on success", async () => {
+  it("calls the zip helper with the target corpus and returns its job result", async () => {
     const client = makeClient();
     mockedUploadZip.mockResolvedValue({
       ok: true,
@@ -347,16 +347,24 @@ describe("useUploadMutations.uploadZipFile", () => {
     const file = new File([new Uint8Array([1])], "z.zip", {
       type: "application/zip",
     });
-    const ok = await result.current.uploadZipFile(file, "corpus-99");
-    expect(ok).toBe(true);
-    expect(mockedUploadZip).toHaveBeenCalledWith({
+    const onProgress = vi.fn();
+    const uploadResult = await result.current.uploadZipFile(
       file,
-      addToCorpusId: "corpus-99",
-      makePublic: false,
-    });
+      "corpus-99",
+      onProgress
+    );
+    expect(uploadResult).toEqual({ ok: true, job_id: "j-1", message: "ok" });
+    expect(mockedUploadZip).toHaveBeenCalledWith(
+      expect.objectContaining({
+        file,
+        addToCorpusId: "corpus-99",
+        makePublic: false,
+        onProgress,
+      })
+    );
   });
 
-  it("returns false when the helper returns ok:false", async () => {
+  it("returns the helper failure when the helper returns ok:false", async () => {
     const client = makeClient();
     mockedUploadZip.mockResolvedValue({
       ok: false,
@@ -377,11 +385,15 @@ describe("useUploadMutations.uploadZipFile", () => {
     const file = new File([new Uint8Array([1])], "z.zip", {
       type: "application/zip",
     });
-    const ok = await result.current.uploadZipFile(file);
-    expect(ok).toBe(false);
+    const uploadResult = await result.current.uploadZipFile(file);
+    expect(uploadResult).toEqual({
+      ok: false,
+      error: "no perms",
+      status_code: 400,
+    });
   });
 
-  it("returns false when the helper throws", async () => {
+  it("returns a structured failure when the helper throws", async () => {
     const client = makeClient();
     mockedUploadZip.mockRejectedValue(new Error("offline"));
 
@@ -398,7 +410,11 @@ describe("useUploadMutations.uploadZipFile", () => {
     const file = new File([new Uint8Array([1])], "z.zip", {
       type: "application/zip",
     });
-    const ok = await result.current.uploadZipFile(file);
-    expect(ok).toBe(false);
+    const uploadResult = await result.current.uploadZipFile(file);
+    expect(uploadResult).toEqual({
+      ok: false,
+      error: "offline",
+      status_code: 0,
+    });
   });
 });

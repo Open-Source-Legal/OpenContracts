@@ -31,6 +31,7 @@ from opencontractserver.enrichment.resolver import (
     ReferenceResolver,
     Resolution,
     SectionAnno,
+    document_identity_candidates,
 )
 from opencontractserver.enrichment.writer import EnrichmentWriter, WriteResult
 from opencontractserver.types.enums import JobStatus
@@ -122,7 +123,7 @@ class EnrichmentService:
             )
         return sections
 
-    def _build_detection(self, documents, types, user, extra_tiers):
+    def _build_detection(self, documents, types, user, extra_tiers, corpus=None):
         """Construct the extractor stack + section index shared by the sync
         (scan/discover, non-LLM apply) and concurrent (LLM apply) detection
         paths.
@@ -139,10 +140,18 @@ class EnrichmentService:
 
         wanted = set(types or C.DEFAULT_REFERENCE_TYPES)
         active_tiers = set(extra_tiers or ())
-        resolver = ReferenceResolver(documents)
+        # Canonical document identities (external_id / corpus path / title —
+        # see resolver.document_identity_candidates), computed ONCE and shared
+        # by the resolver's identifier index, its self-mention drop, and the
+        # grammar extractor's corpus-shape gate so the three can never
+        # disagree about what counts as an identifier-carrying document.
+        identity_candidates = document_identity_candidates(documents, corpus=corpus)
+        resolver = ReferenceResolver(documents, identity_candidates=identity_candidates)
         extractor = ReferenceExtractor(authority_aliases=authority_alias_registry(user))
         generic = (
-            GenericCitationExtractor()
+            GenericCitationExtractor(
+                documents=documents, identity_candidates=identity_candidates
+            )
             if C.DETECTION_TIER_GRAMMAR in active_tiers
             else None
         )
@@ -216,11 +225,14 @@ class EnrichmentService:
         )
         if llm_cands:
             cands = reconcile(cands, llm_cands)
-        return [
+        resolved = (
             resolver.resolve(cand, doc.id, doc_text, sections)
             for cand in cands
             if cand.reference_type in wanted
-        ]
+        )
+        # resolve() returns None for spans that must not persist (a document's
+        # self-identifying header mention — see ReferenceResolver.resolve).
+        return [r for r in resolved if r is not None]
 
     def _iter_doc_resolutions(self, corpus, documents, types, user, extra_tiers=None):
         """Yield ``(document, [Resolution])`` one document at a time (sync).
@@ -233,7 +245,7 @@ class EnrichmentService:
         every document.
         """
         wanted, resolver, extractor, generic, llm_extractor, sections_by_doc = (
-            self._build_detection(documents, types, user, extra_tiers)
+            self._build_detection(documents, types, user, extra_tiers, corpus=corpus)
         )
         for doc in documents:
             doc_text = self._doc_text(doc)
@@ -287,7 +299,7 @@ class EnrichmentService:
             llm_extractor,
             sections_by_doc,
         ) = await sync_to_async(self._build_detection)(
-            documents, types, user, extra_tiers
+            documents, types, user, extra_tiers, corpus=corpus
         )
         doc_texts = await sync_to_async(self._read_doc_texts)(documents)
 
@@ -850,6 +862,7 @@ class EnrichmentService:
             "annotations_upgraded": agg.annotations_upgraded,
             "relationships_created": agg.relationships_created,
             "references_created": agg.references_created,
+            "references_resolved": agg.references_resolved,
             "document_relationships_created": agg.document_relationships_created,
             "document_relationships_pruned": agg.document_relationships_pruned,
             "law_references_linked": link["law_references_linked"],
@@ -869,6 +882,7 @@ class EnrichmentService:
         agg.annotations_upgraded += res.annotations_upgraded
         agg.relationships_created += res.relationships_created
         agg.references_created += res.references_created
+        agg.references_resolved += res.references_resolved
         agg.annotation_ids.extend(res.annotation_ids)
         agg.reference_ids.extend(res.reference_ids)
 

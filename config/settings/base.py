@@ -111,7 +111,6 @@ ROOT_URLCONF = "config.urls"
 WSGI_APPLICATION = "config.wsgi.application"
 
 REDIS_URL = env("REDIS_URL", default="redis://127.0.0.1:6379/0")
-host, port = REDIS_URL[:-2].split("://")[1].split(":")
 ASGI_APPLICATION = "config.asgi.application"
 try:
     from channels_redis.core import RedisChannelLayer  # noqa
@@ -133,7 +132,9 @@ try:
                 # timeout must stay disabled (the historical channels-redis
                 # default that every redis-py < 8.0 provided). Do NOT pin redis
                 # back below 8.0 to "fix" this. See issue #1886.
-                "hosts": [{"host": host, "port": int(port), "socket_timeout": None}],
+                # Keep the full URL intact so channels-redis preserves its
+                # database, credentials, TLS mode, IPv6 host, and query options.
+                "hosts": [{"address": REDIS_URL, "socket_timeout": None}],
             },
         },
     }
@@ -761,9 +762,9 @@ if USE_TZ:
     # http://docs.celeryproject.org/en/latest/userguide/configuration.html#std:setting-timezone
     CELERY_TIMEZONE = TIME_ZONE
 # http://docs.celeryproject.org/en/latest/userguide/configuration.html#std:setting-broker_url
-CELERY_BROKER_URL = REDIS_URL
+CELERY_BROKER_URL = env("CELERY_BROKER_URL", default=REDIS_URL)
 # http://docs.celeryproject.org/en/latest/userguide/configuration.html#std:setting-result_backend
-CELERY_RESULT_BACKEND = CELERY_BROKER_URL
+CELERY_RESULT_BACKEND = env("CELERY_RESULT_BACKEND", default=CELERY_BROKER_URL)
 # http://docs.celeryproject.org/en/latest/userguide/configuration.html#std:setting-accept_content
 CELERY_ACCEPT_CONTENT = ["json"]
 # http://docs.celeryproject.org/en/latest/userguide/configuration.html#std:setting-task_serializer
@@ -847,6 +848,24 @@ CELERY_TASK_ROUTES = {
     # Worker upload processing runs on a dedicated queue so it never starves
     # regular user operations (parsing, embedding, export, etc.)
     "opencontractserver.worker_uploads.tasks.*": {"queue": "worker_uploads"},
+    # The per-document ingest chain is convert_document_to_pdf -> extract_thumbnail
+    # -> ingest_doc -> remap_pending_annotations -> set_doc_lock_state (see
+    # doc_tasks.py and documents/signals.py).
+    # convert_document_to_pdf is cheap and, for a .doc-heavy corpus, vastly
+    # outnumbers the other three stages at any given moment (every document's
+    # conversion task is enqueued up front, while a document's later-stage
+    # tasks only appear once its own conversion finishes). Sharing one FIFO-ish
+    # queue lets the flood of conversion tasks statistically starve the actual
+    # value-producing steps -- observed on a 220K-document bulk ingest at a
+    # ~190:1 completion ratio (convert vs. ingest_doc) despite doubled worker
+    # concurrency. Routing the later three stages to their own queue gives
+    # them dedicated consumer capacity independent of the conversion backlog.
+    "opencontractserver.tasks.doc_tasks.extract_thumbnail": {"queue": "doc_parse"},
+    "opencontractserver.tasks.doc_tasks.ingest_doc": {"queue": "doc_parse"},
+    "opencontractserver.tasks.doc_tasks.remap_pending_annotations": {
+        "queue": "doc_parse"
+    },
+    "opencontractserver.tasks.doc_tasks.set_doc_lock_state": {"queue": "doc_parse"},
 }
 
 # Celery Beat schedule (settings-based)

@@ -3,7 +3,18 @@
 These recognise citation *form* without knowing the body of law, so they catch
 authorities outside the registry (state codes, CFR titles, obscure agencies).
 Lower precedence than the Tier-1 registry extractor — see reconcile.py. No DB
-access; pure functions over text returning Candidate spans.
+access; pure functions over text returning Candidate spans (the extractor may
+be handed the caller's already-loaded document list, consulted only for its
+titles — see ``GenericCitationExtractor``).
+
+Two customs/trade families ship here alongside the statutory shapes:
+
+* HTS tariff codes ("subheading 3924.90.5650, HTSUS") — REF_LAW citations into
+  the Harmonized Tariff Schedule (``htsus:<code>``), gated on a document-level
+  HTSUS cue so ordinary corpora's dotted decimals are never mined.
+* Title-identifier document citations (CBP CROSS ruling numbers) —
+  REF_DOCUMENT citations resolved against sibling document titles, gated on
+  the corpus's titles actually being identifier-shaped.
 """
 
 from __future__ import annotations
@@ -28,6 +39,14 @@ _CONF_BARE_ACT = 0.55
 # uncertain), but neither outranks a numeric federal cite.
 _CONF_MUNICIPAL = 0.8
 _CONF_MUNICIPAL_GENERIC = 0.6
+# HTS tariff codes — an ANCHORED code (a tariff cue word adjacent to the
+# mention: "subheading 3924.90.5650, HTSUS") is as trusted as any structured
+# federal cite; a CONTEXTUAL code (dotted-code shape alone, in a document that
+# elsewhere names the HTSUS) is honest about the residual risk of matching an
+# unrelated dotted decimal and sits below the trusted tier, like the
+# open-vocab municipal shape.
+_CONF_HTS_ANCHORED = 0.9
+_CONF_HTS_CONTEXTUAL = 0.7
 
 # A section token: digits, optional trailing letter, optional (a)(2) subsections,
 # optional hyphenated rule tail (10b-5, 261.4).
@@ -95,6 +114,43 @@ _MUNI_ORDINANCE_RE = re.compile(
     r"(?P<city>(?:[A-Z][A-Za-z.'&-]*\s+){0,3})"
     r"(?:Ordinance|Ord\.)\s+No\.?\s*(?P<num>\d+(?:[.\-–]\d+)*)"
 )
+
+# --- Customs / trade grammars (CBP CROSS-style corpora) -------------------- #
+# HTS tariff-code shape, ported from crossfeed's crossfeed.parse.normalize (the
+# CROSS-rulings acquisition project's deterministic, golden-tested extractor).
+# Requires at least heading.subheading (XXXX.XX) so bare 4-digit numbers
+# (years, quantities) are never mined.
+_HTS_TEXT_RE = re.compile(r"\b\d{4}\.\d{2}(?:\.\d{2,4})?(?:\.\d{2})?\b")
+# Document-level gate: the dotted-code shape alone is far too generic to run on
+# every corpus ("1234.56" is also a dollar amount), so HTS candidates are only
+# emitted from documents that name the schedule. Deliberately EXCLUDES the bare
+# acronym "HTS" (which collides with e.g. "high-throughput screening") — real
+# customs documents that abbreviate to "HTS" spell out "Harmonized Tariff
+# Schedule" alongside it.
+_HTS_DOC_CUE_RE = re.compile(r"\bHTSUS\b|Harmonized\s+Tariff\s+Schedule")
+# Mention-level anchor: a tariff cue within _HTS_ANCHOR_WINDOW chars of the
+# code upgrades it to _CONF_HTS_ANCHORED. Bare "HTS"/"heading" are safe HERE
+# (the document already passed the strict cue gate above).
+_HTS_ANCHOR_RE = re.compile(
+    r"\bHTSUS?\b|Harmonized\s+Tariff\s+Schedule|[Ss]ub-?heading\b|[Hh]eading\b"
+)
+_HTS_ANCHOR_WINDOW = 48
+
+
+def _normalize_hts(raw: str) -> str | None:
+    """Canonicalize an HTS code to dotted ``XXXX.XX[.XX[.XX]]`` form, or None.
+
+    Strips all non-digits, regroups as 4 + 2-digit groups. Accepts 4/6/8/10
+    digit codes; anything else is rejected. (The text shape above never emits
+    fewer than 6 digits; the 4-digit acceptance serves callers normalizing
+    bare headings.)
+    """
+    digits = re.sub(r"\D", "", raw)
+    if len(digits) not in (4, 6, 8, 10):
+        return None
+    groups = [digits[:4], *[digits[i : i + 2] for i in range(4, len(digits), 2)]]
+    return ".".join(groups)
+
 
 # Leading qualifiers stripped from a captured municipal city before slugging, so
 # "the Seattle Municipal Code" keys under ``muni-seattle`` not ``muni-the-seattle``.
@@ -247,6 +303,81 @@ def _stat(text: str) -> Iterator[Candidate]:
         )
 
 
+def _hts(text: str) -> Iterator[Candidate]:
+    """HTS tariff-code citations -> ``htsus:<code>`` law candidates.
+
+    References into the Harmonized Tariff Schedule of the United States — a
+    REF_LAW citation like any other statute mention, so it inherits the whole
+    downstream (CorpusReference rows, discover() inventory, governance-graph
+    ghost nodes, and cross-corpus linking if an HTSUS authority corpus is ever
+    bootstrapped). Document-gated on _HTS_DOC_CUE_RE; per-mention confidence
+    reflects whether a tariff cue anchors the specific code.
+    """
+    if not _HTS_DOC_CUE_RE.search(text):
+        return
+    for m in _HTS_TEXT_RE.finditer(text):
+        code = _normalize_hts(m.group())
+        if code is None:
+            continue
+        window = text[
+            max(0, m.start() - _HTS_ANCHOR_WINDOW) : m.end() + _HTS_ANCHOR_WINDOW
+        ]
+        conf = (
+            _CONF_HTS_ANCHORED
+            if _HTS_ANCHOR_RE.search(window)
+            else _CONF_HTS_CONTEXTUAL
+        )
+        yield _cand(
+            m.start(),
+            m.end(),
+            m.group(0),
+            f"{C.HTSUS_PREFIX}:{code}",
+            C.JURISDICTION_US_FEDERAL,
+            C.AUTHORITY_TYPE_STATUTE,
+            conf=conf,
+            extra={"section": code},
+        )
+
+
+def _document_identifier_citations(text: str) -> Iterator[Candidate]:
+    """Identifier document citations (e.g. CBP ruling numbers).
+
+    Two grammars feed one resolver index, both normalized through
+    ``constants.canonical_document_identifier``:
+
+    * prefixed identifiers (``constants.DOC_IDENTIFIER_RE``, "H022844");
+    * series-token legacy citations
+      (``constants.LEGACY_DOC_IDENTIFIER_CITE_RE``, "HRL 087392") — the
+      bulk of pre-2000 rulings have bare numeric identities the prefixed
+      shape cannot see (on the real 10K official-export benchmark this
+      grammar carries 9,377 of the corpus's 9,677 citation candidates).
+
+    Callers must apply the corpus-shape gate (``GenericCitationExtractor``
+    only invokes this when the corpus's document identities are
+    predominantly identifier-shaped).
+    """
+    matched = [(m, m.group(1)) for m in C.DOC_IDENTIFIER_RE.finditer(text)] + [
+        (m, m.group(1)) for m in C.LEGACY_DOC_IDENTIFIER_CITE_RE.finditer(text)
+    ]
+    matched.sort(key=lambda pair: pair[0].start())
+    for m, raw_ident in matched:
+        key = C.canonical_document_identifier(raw_ident)
+        if key is None:
+            continue
+        yield Candidate(
+            reference_type=C.REF_DOCUMENT,
+            start=m.start(),
+            end=m.end(),
+            raw_text=m.group(0),
+            normalized_data={
+                C.KEY_DOCUMENT_IDENTIFIER: key,
+                "tier": C.DETECTION_TIER_GRAMMAR,
+            },
+            detection_tier=C.DETECTION_TIER_GRAMMAR,
+            detection_confidence=_CONF_STRUCTURED,
+        )
+
+
 def _bare_acts(text: str) -> Iterator[Candidate]:
     for m in _BARE_ACT_RE.finditer(text):
         # The regex guarantees >=1 capitalized word before "Act", so ``name``
@@ -291,9 +422,42 @@ def _bare_acts(text: str) -> Iterator[Candidate]:
 
 
 class GenericCitationExtractor:
-    """Run all Tier-2a shape grammars over text → list[Candidate]."""
+    """Run all Tier-2a shape grammars over text → list[Candidate].
 
-    def __init__(self) -> None:
+    ``documents`` (optional) is the corpus's already-loaded document set — the
+    same permission-scoped list the caller hands the resolver. A corpus whose
+    document identities are predominantly identifier-shaped (CBP CROSS-style)
+    activates the identifier document-citation grammar; every other corpus
+    leaves it inert, so serial/order/patent numbers in unrelated corpora are
+    never mined as document citations. ``identity_candidates`` (the resolver's
+    ``document_identity_candidates`` output, keyed by document id) carries
+    path/external_id-derived identities; without it the gate falls back to
+    title-only derivation (never the DB).
+    """
+
+    def __init__(self, documents=None, *, identity_candidates=None) -> None:
+        documents = list(documents or [])
+        if identity_candidates is not None:
+            considered = len(documents)
+            matching = sum(1 for doc in documents if identity_candidates.get(doc.id))
+        else:
+            idents = [
+                C.document_identifier_from_title(doc.title)
+                for doc in documents
+                if (doc.title or "").strip()
+            ]
+            considered = len(idents)
+            matching = sum(
+                1 for i in idents if C.canonical_document_identifier(i) is not None
+            )
+        # Condition ORDER is load-bearing: the MIN_DOCS check short-circuits
+        # the fraction check, and ``matching >= MIN_DOCS`` (with MIN_DOCS > 0)
+        # guarantees ``considered`` is non-zero — reordering these would
+        # reintroduce a ZeroDivisionError on an empty document set.
+        self._doc_identifier_gate = (
+            matching >= C.DOC_IDENTIFIER_TITLE_GATE_MIN_DOCS
+            and matching / considered >= C.DOC_IDENTIFIER_TITLE_GATE_FRACTION
+        )
         # Merge pack-declared abbreviations onto the Python baseline so a pack can
         # carry its jurisdiction's citation vocabulary in its own directory
         # (portable with the pack). The shipped baseline WINS a key collision — a
@@ -353,9 +517,9 @@ class GenericCitationExtractor:
         text: str,
         reference_types: set[str] | tuple[str, ...] | list[str] | None = None,
     ) -> list[Candidate]:
-        # Every grammar pass emits REF_LAW candidates, so when the caller does
-        # not want laws there is no point running any of them — the output would
-        # be filtered out downstream anyway.
+        # Each grammar pass emits a single reference_type, so passes whose type
+        # the caller does not want are skipped outright — the output would be
+        # filtered out downstream anyway.
         wanted = normalize_reference_types(reference_types)
         out: list[Candidate] = []
         if wanted is None or C.REF_LAW in wanted:
@@ -364,6 +528,7 @@ class GenericCitationExtractor:
             out.extend(_fedreg(text))
             out.extend(_publ(text))
             out.extend(_stat(text))
+            out.extend(_hts(text))
             out.extend(_bare_acts(text))
             out.extend(self._states(text))
             # Municipal: table pass first (high-precision, full jurisdiction),
@@ -372,6 +537,8 @@ class GenericCitationExtractor:
             muni = list(self._municipal(text))
             out.extend(muni)
             out.extend(self._municipal_generic(text, [(c.start, c.end) for c in muni]))
+        if (wanted is None or C.REF_DOCUMENT in wanted) and self._doc_identifier_gate:
+            out.extend(_document_identifier_citations(text))
         return out
 
     def _states(self, text: str) -> Iterator[Candidate]:

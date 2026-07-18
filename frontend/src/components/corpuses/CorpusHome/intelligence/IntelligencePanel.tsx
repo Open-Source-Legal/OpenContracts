@@ -1,5 +1,6 @@
-import React, { useMemo, useState } from "react";
-import { useQuery } from "@apollo/client";
+import React, { useCallback, useMemo, useState } from "react";
+import { useQuery, useReactiveVar } from "@apollo/client";
+import { useNavigate } from "react-router-dom";
 import styled, { keyframes } from "styled-components";
 import { ArrowUpRight, ChevronDown } from "lucide-react";
 
@@ -16,7 +17,9 @@ import {
   GetGovernanceGraphInputType,
   GetGovernanceGraphOutputType,
 } from "../../../../graphql/queries";
+import { openedCorpus } from "../../../../graphql/cache";
 import { useNavigateToDocumentById } from "../../../../hooks/useNavigateToDocumentById";
+import { navigateToRelationshipDocument } from "../../../../utils/navigationUtils";
 import { IntelligenceSetupBanner } from "./IntelligenceSetupBanner";
 
 /**
@@ -316,7 +319,9 @@ export const IntelligencePanel: React.FC<IntelligencePanelProps> = ({
   corpusId,
   testId = "corpus-intelligence-panel",
 }) => {
-  const navigateToDocument = useNavigateToDocumentById();
+  const navigateToDocumentById = useNavigateToDocumentById();
+  const navigate = useNavigate();
+  const activeCorpus = useReactiveVar(openedCorpus);
   const [showAll, setShowAll] = useState(false);
   const variables = useMemo(
     () => ({ corpusId, limit: CORPUS_DOCUMENTS_TOC_LIMIT }),
@@ -364,6 +369,26 @@ export const IntelligencePanel: React.FC<IntelligencePanelProps> = ({
     [docs]
   );
   const referenceCount = govData?.governanceGraph?.mentionCount ?? 0;
+
+  const handleDocumentOpen = useCallback(
+    (doc: { id: string; title: string; slug: string }) => {
+      // The index is corpus-scoped. Keep that context in the document URL so
+      // the viewer recognizes the document as already belonging to this corpus.
+      if (activeCorpus?.id === corpusId) {
+        navigateToRelationshipDocument(
+          doc,
+          activeCorpus,
+          navigate,
+          window.location.pathname
+        );
+        return;
+      }
+
+      // CAML embeds can also be rendered outside a loaded corpus route.
+      void navigateToDocumentById(doc.id);
+    },
+    [activeCorpus, corpusId, navigate, navigateToDocumentById]
+  );
 
   const shownDocs = showAll ? docs : docs.slice(0, INDEX_PREVIEW_CAP);
 
@@ -431,14 +456,14 @@ export const IntelligencePanel: React.FC<IntelligencePanelProps> = ({
                   <Entry
                     key={doc.id}
                     $i={i}
-                    onClick={() => void navigateToDocument(doc.id)}
+                    onClick={() => handleDocumentOpen(doc)}
                     data-testid={`${testId}-entry`}
                     role="link"
                     tabIndex={0}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" || e.key === " ") {
                         e.preventDefault();
-                        void navigateToDocument(doc.id);
+                        handleDocumentOpen(doc);
                       }
                     }}
                   >

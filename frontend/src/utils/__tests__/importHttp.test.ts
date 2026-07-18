@@ -265,10 +265,12 @@ describe("importHttp.importDocumentsZipMultipart", () => {
     const file = new File([new Uint8Array([1, 2, 3])], "bundle.zip", {
       type: "application/zip",
     });
+    const onProgress = vi.fn();
     const result = await importDocumentsZipMultipart({
       file,
       addToCorpusId: "9",
       makePublic: false,
+      onProgress,
     });
 
     expect(result).toEqual({
@@ -279,6 +281,7 @@ describe("importHttp.importDocumentsZipMultipart", () => {
     const [url, init] = fetchMock.mock.calls[0];
     expect(String(url)).toContain("/api/imports/documents-zip/");
     expect(init.body).toBeInstanceOf(FormData);
+    expect(onProgress).toHaveBeenCalledWith(1);
   });
 
   it("returns ok:false when the server reports a logical failure", async () => {
@@ -366,6 +369,7 @@ describe("importHttp.importZipToCorpusMultipart", () => {
     const file = new File([new Uint8Array([1, 2, 3])], "structured.zip", {
       type: "application/zip",
     });
+    const onProgress = vi.fn();
     const result = await importZipToCorpusMultipart({
       file,
       corpusId: "42",
@@ -373,6 +377,7 @@ describe("importHttp.importZipToCorpusMultipart", () => {
       titlePrefix: "Inv-",
       description: "Q4 invoices",
       makePublic: true,
+      onProgress,
     });
 
     expect(result).toEqual({
@@ -395,6 +400,7 @@ describe("importHttp.importZipToCorpusMultipart", () => {
     expect(fd.get("title_prefix")).toBe("Inv-");
     expect(fd.get("description")).toBe("Q4 invoices");
     expect(fd.get("make_public")).toBe("true");
+    expect(onProgress).toHaveBeenCalledWith(1);
   });
 
   it("omits blank-string optional fields", async () => {
