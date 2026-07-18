@@ -1778,23 +1778,35 @@ def _get_node_CorpusType(info, pk):
     return corpus
 
 
-# NOTE: ``get_node`` is intentionally NOT registered here. graphene served the
-# top-level ``corpus(id:)`` query via ``OpenContractsNode.Field`` — an
-# UNCACHED ``BaseService.get_or_none`` fetched fresh on every request — while
-# the cached ``CorpusType.get_node`` (``_get_node_CorpusType``) served
-# FK-via-Node access. Routing ``corpus(id:)`` through the cached hook leaked a
-# stale ``Corpus`` object across requests that reuse one context object (the
-# permissioning tests do exactly this, changing perms between executes), so
-# the top-level query uses the default node path (the visibility-filtered
-# ``get_queryset`` + ``.get(pk)`` — equivalent to graphene's uncached
-# ``get_or_none`` READ). ``_get_node_CorpusType`` is still installed on the
-# class as a graphene-compat ``get_node`` (for the request-cache unit test)
-# via ``_install_graphene_resolver_aliases``.
+# NOTE: ``get_node`` (the *singular* ``corpus(id:)`` / relay ``node(id:)``
+# hook) is intentionally NOT registered here. graphene served that query via
+# ``OpenContractsNode.Field`` — an UNCACHED ``BaseService.get_or_none``
+# fetched fresh on every request — while the cached ``CorpusType.get_node``
+# (``_get_node_CorpusType``) served FK-via-Node access. Routing
+# ``corpus(id:)`` through the cached hook leaked a stale ``Corpus`` object
+# across requests that reuse one context object (``test_permissioning.py``
+# does exactly this, changing perms between executes on one shared
+# ``graphene_client``), so the top-level query uses the default node path
+# (the visibility-filtered ``get_queryset`` + ``.get(pk)`` — equivalent to
+# graphene's uncached ``get_or_none`` READ).
+#
+# ``get_node_for_fk`` is a DIFFERENT hook, consulted only by
+# ``resolve_visible_fk`` (FK/relay-FK traversal, e.g. ``annotation.corpus``,
+# ``corpus.parent``) — never by ``get_node_from_global_id``. That call site
+# doesn't share the reused-context problem above, so it safely uses the
+# cached ``_get_node_CorpusType``, restoring the per-request
+# ``_corpus_node_cache`` that collapses the ``corpuses_corpus`` recursive CTE
+# storm on ``annotation.corpus`` FK access
+# (``test_corpus_tree_cte_does_not_scale_with_document_count``).
+# ``_get_node_CorpusType`` is also still installed on the class as a
+# graphene-compat ``get_node`` (for the request-cache unit test) via
+# ``_install_graphene_resolver_aliases``.
 register_type(
     "CorpusType",
     CorpusType,
     model=Corpus,
     get_queryset=_get_queryset_CorpusType,
+    get_node_for_fk=_get_node_CorpusType,
 )
 
 

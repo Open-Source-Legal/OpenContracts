@@ -47,7 +47,14 @@ RELAY_CONNECTION_MAX_LIMIT = 100
 
 
 class TypeRegistryEntry:
-    __slots__ = ("type_name", "strawberry_type", "model", "get_queryset", "get_node")
+    __slots__ = (
+        "type_name",
+        "strawberry_type",
+        "model",
+        "get_queryset",
+        "get_node",
+        "get_node_for_fk",
+    )
 
     def __init__(
         self,
@@ -56,12 +63,14 @@ class TypeRegistryEntry:
         model: type[django.db.models.Model] | None,
         get_queryset: Callable[[QuerySet, Any], QuerySet] | None = None,
         get_node: Callable[[Any, str], Any] | None = None,
+        get_node_for_fk: Callable[[Any, str], Any] | None = None,
     ) -> None:
         self.type_name = type_name
         self.strawberry_type = strawberry_type
         self.model = model
         self.get_queryset = get_queryset
         self.get_node = get_node
+        self.get_node_for_fk = get_node_for_fk
 
 
 _TYPE_REGISTRY: dict[str, TypeRegistryEntry] = {}
@@ -75,6 +84,7 @@ def register_type(
     *,
     get_queryset: Callable[[QuerySet, Any], QuerySet] | None = None,
     get_node: Callable[[Any, str], Any] | None = None,
+    get_node_for_fk: Callable[[Any, str], Any] | None = None,
     primary: bool = True,
 ) -> None:
     """Register a strawberry type so relay helpers can find its model/hooks.
@@ -82,9 +92,21 @@ def register_type(
     ``primary=False`` keeps a secondary type (e.g. a ``_WRITE`` variant of a
     model that already has a canonical read type) out of the model→type map
     used for interface type resolution.
+
+    ``get_node`` backs the *singular* ``xxx(id:)`` / relay ``node(id:)``
+    lookup (``get_node_from_global_id``) — it must stay request-fresh for
+    types whose permissions can change mid-request against a reused context
+    (see ``test_permissioning.py``, which drives several ``corpus(id:)``
+    calls through one shared context while provisioning/deprovisioning perms
+    between them). ``get_node_for_fk`` backs FK/relay-FK traversal
+    (``resolve_visible_fk``) instead — a distinct call site that is safe to
+    memoize per-request even when ``get_node`` isn't, because each FK access
+    reads a fixed, already-loaded parent row rather than replaying a query
+    whose permission state the test deliberately mutates. Falls back to
+    ``get_node`` when unset.
     """
     _TYPE_REGISTRY[type_name] = TypeRegistryEntry(
-        type_name, strawberry_type, model, get_queryset, get_node
+        type_name, strawberry_type, model, get_queryset, get_node, get_node_for_fk
     )
     if model is not None and primary and model not in _MODEL_PRIMARY_TYPE:
         _MODEL_PRIMARY_TYPE[model] = type_name
@@ -617,6 +639,13 @@ def resolve_visible_fk(
     read off the already-loaded row without a DB hit. Returns ``None`` for a
     missing/invisible target — only valid on a **nullable** FK field — or a
     malformed stored id.
+
+    Hook precedence: ``entry.get_node_for_fk`` (if registered) beats
+    ``entry.get_node`` beats ``entry.get_queryset``. The two ``get_node*``
+    hooks exist separately because the singular ``xxx(id:)`` / relay
+    ``node(id:)`` lookup (``get_node_from_global_id``, which only ever reads
+    ``get_node``) and FK traversal (here) can have different per-request
+    caching requirements for the same target type — see ``register_type``.
     """
     fk_pk = getattr(root, fk_id_attr, None)
     if fk_pk is None:
@@ -628,6 +657,11 @@ def resolve_visible_fk(
             root, fk_id_attr[:-3] if fk_id_attr.endswith("_id") else fk_id_attr, None
         )
     try:
+        if entry.get_node_for_fk is not None:
+            # FK-traversal-specific hook — safe to cache per-request even
+            # for types (like ``CorpusType``) whose singular ``get_node``
+            # must stay uncached. See ``register_type``'s docstring.
+            return entry.get_node_for_fk(info, fk_pk)
         if entry.get_node is not None:
             # Permission-aware hook (e.g. ``BaseService.get_or_none``), which
             # engages the request-scoped permission cache when passed the
