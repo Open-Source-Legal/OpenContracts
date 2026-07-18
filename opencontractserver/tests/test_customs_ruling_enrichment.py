@@ -1111,3 +1111,257 @@ class CrossOfficialExportIntegrationTests(TransactionTestCase):
         )
         assert ref.resolution_status == C.STATUS_RESOLVED
         assert ref.target_document_id == target_doc.id
+
+
+# --- Patch-coverage regression tests ----------------------------------------
+
+
+class EnrichCommandTests(_CustomsEnrichmentTestBase):
+    """The ``enrich_customs_rulings`` management-command entry point."""
+
+    def _call(self, *args):
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        out = StringIO()
+        call_command("enrich_customs_rulings", *args, stdout=out, no_color=True)
+        return json.loads(out.getvalue())
+
+    def test_runs_with_named_owner(self):
+        _make_txt_doc(
+            self.user,
+            self.corpus,
+            title="Ruling",
+            path="/HQ/H910001.txt",
+            body=DOC1_BODY,
+        )
+        payload = self._call(
+            "--corpus-id", str(self.corpus.id), "--owner", self.user.username
+        )
+        assert payload["corpus_id"] == self.corpus.id
+        assert payload["documents_scanned"] == 1
+
+    def test_defaults_to_first_superuser_and_accepts_limit(self):
+        User.objects.create_superuser(username="root", password="p")
+        _make_txt_doc(
+            self.user,
+            self.corpus,
+            title="Ruling",
+            path="/HQ/H910002.txt",
+            body=DOC2_BODY,
+        )
+        self.corpus.is_public = True
+        self.corpus.save(update_fields=["is_public"])
+
+        payload = self._call("--corpus-id", str(self.corpus.id), "--limit", "1")
+        assert payload["documents_scanned"] == 1
+
+    def test_unknown_owner_raises(self):
+        from django.core.management import CommandError
+
+        with pytest.raises(CommandError):
+            self._call("--corpus-id", str(self.corpus.id), "--owner", "nobody")
+
+    def test_no_superuser_raises(self):
+        from django.core.management import CommandError
+
+        User.objects.filter(is_superuser=True).delete()
+        with pytest.raises(CommandError):
+            self._call("--corpus-id", str(self.corpus.id))
+
+
+class ServiceEdgeBranchTests(_CustomsEnrichmentTestBase):
+    """Edge branches: defensive anchor gate, failure path, prefetch setting,
+    third-claimant ambiguity, HTS normalization rejects, projection failure."""
+
+    def test_unknown_anchor_type_counts_unanchorable_not_load_failure(self):
+        from unittest import mock
+
+        _make_txt_doc(
+            self.user,
+            self.corpus,
+            title="Ruling",
+            path="/HQ/H920001.txt",
+            body=DOC1_BODY,
+        )
+        with mock.patch(
+            "opencontractserver.enrichment.services."
+            "customs_ruling_citation_service.load_document_text_and_layer",
+            return_value=("text", None, "BOGUS_ANCHOR_TYPE"),
+        ):
+            res = self._run()
+
+        assert res["documents_skipped_unanchorable"] == 1
+        assert res["load_failures"] == 0
+        assert res["hts_codes_created"] == 0
+
+    def test_failure_marks_analysis_failed_and_reraises(self):
+        from unittest import mock
+
+        from opencontractserver.analyzer.models import Analysis
+        from opencontractserver.enrichment.writer import EnrichmentWriter
+        from opencontractserver.types.enums import JobStatus
+
+        _make_txt_doc(
+            self.user,
+            self.corpus,
+            title="Ruling",
+            path="/HQ/H920002.txt",
+            body=DOC2_BODY,
+        )
+        with mock.patch.object(
+            EnrichmentWriter,
+            "reconcile_document_graph",
+            side_effect=RuntimeError("boom"),
+        ):
+            with pytest.raises(RuntimeError):
+                self._run()
+
+        analysis = Analysis.objects.filter(
+            analyzer_id="customs-ruling-citation-enrichment"
+        ).latest("id")
+        assert analysis.status == JobStatus.FAILED.value
+
+    def test_prefetch_workers_explicit_setting_wins(self):
+        from django.test import override_settings
+
+        with override_settings(CUSTOMS_ENRICHMENT_PREFETCH_WORKERS=4):
+            assert CustomsRulingCitationService._prefetch_workers() == 4
+        with override_settings(CUSTOMS_ENRICHMENT_PREFETCH_WORKERS=0):
+            # Floor of 1: a zero-size pool would deadlock the executor.
+            assert CustomsRulingCitationService._prefetch_workers() == 1
+
+    def test_third_claimant_keeps_number_ambiguous(self):
+        for folder in ("HQ", "NY", "PD"):
+            _make_txt_doc(
+                self.user,
+                self.corpus,
+                title=f"{folder} twin",
+                path=f"/{folder}/H930002.txt",
+                body=f"{folder} twin body.",
+            )
+        _make_txt_doc(
+            self.user,
+            self.corpus,
+            title="Source",
+            path="/HQ/H930001.txt",
+            body="HQ H930001\n\nSee HQ H930002.",
+        )
+
+        res = self._run()
+
+        assert res["canonical_id_collisions"] == 1
+        ref = self._references().get()
+        assert ref.resolution_status == C.STATUS_UNRESOLVED
+
+    def test_hts_match_failing_normalization_is_skipped(self):
+        # 9 digits (1234.56.789) is not a valid 4/6/8/10-digit HTS shape.
+        matches = CustomsRulingCitationService._find_hts_matches(
+            "Classified under 1234.56.789 as discussed."
+        )
+        assert matches == []
+
+    def test_pdf_projection_failure_skips_hts_without_crashing(self):
+        import json as jsonlib
+        from unittest import mock
+
+        from plasmapdf.models.PdfDataLayer import build_translation_layer
+
+        from opencontractserver.tests.test_extraction_grounding import (
+            _build_pawls_for_text,
+        )
+
+        pawls_json = _build_pawls_for_text(
+            ["Classified under subheading 8703.23.01, HTSUS."]
+        )
+        layer = build_translation_layer(jsonlib.loads(pawls_json))
+        pdf_doc = Document.objects.create(
+            title="PDF ruling",
+            creator=self.user,
+            file_type="application/pdf",
+        )
+        pdf_doc.pawls_parse_file.save(
+            "doc.pawls", ContentFile(pawls_json.encode("utf-8"))
+        )
+        pdf_doc.txt_extract_file.save(
+            "doc.txt", ContentFile(layer.doc_text.encode("utf-8"))
+        )
+        DocumentPath.objects.create(
+            document=pdf_doc,
+            corpus=self.corpus,
+            path="/HQ/H940001.pdf",
+            version_number=1,
+            creator=self.user,
+        )
+
+        with mock.patch(
+            "opencontractserver.enrichment.services."
+            "customs_ruling_citation_service.project_span_to_token_annotation",
+            side_effect=ValueError("no page"),
+        ):
+            res = self._run()
+
+        assert res["hts_codes_created"] == 0
+        assert res["documents_skipped_unanchorable"] == 0
+
+
+class RelationshipImportDedupeTests(_CustomsEnrichmentTestBase):
+    """create_relationships_from_parsed is idempotent (get_or_create)."""
+
+    def test_reimport_skips_existing_edges(self):
+        import logging
+
+        from opencontractserver.tasks.import_tasks import (
+            create_relationships_from_parsed,
+        )
+        from opencontractserver.utils.relationship_file_parser import (
+            ParsedRelationship,
+        )
+
+        doc1 = _make_txt_doc(
+            self.user,
+            self.corpus,
+            title="A",
+            path="/HQ/H950001.txt",
+            body="body",
+        )
+        doc2 = _make_txt_doc(
+            self.user,
+            self.corpus,
+            title="B",
+            path="/HQ/H950002.txt",
+            body="body",
+        )
+        path_map = {"/HQ/H950001.txt": doc1, "/HQ/H950002.txt": doc2}
+        rels = [
+            ParsedRelationship(
+                source_path="/HQ/H950001.txt",
+                target_path="/HQ/H950002.txt",
+                label="CITES",
+            )
+        ]
+        logger = logging.getLogger(__name__)
+
+        first = create_relationships_from_parsed(
+            self.corpus, self.user, path_map, rels, logger
+        )
+        second = create_relationships_from_parsed(
+            self.corpus, self.user, path_map, rels, logger
+        )
+
+        assert first["relationships_created"] == 1
+        assert second["relationships_created"] == 0
+        assert second["relationships_skipped"] == 1
+        assert self._edges().count() == 1
+
+
+class LabelTypeCoercionTests(_CustomsEnrichmentTestBase):
+    """ensure_labels_and_labelset stringifies non-str, non-enum label types."""
+
+    def test_non_string_label_type_is_coerced(self):
+        label = self.corpus.ensure_labels_and_labelset(
+            label_data={"X": {"text": "X", "label_type": 123}},
+            creator_id=self.user.id,
+        )["X"]
+        assert label.label_type == "123"

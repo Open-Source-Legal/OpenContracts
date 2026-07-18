@@ -337,4 +337,159 @@ test.describe("BulkImportModal", () => {
       await component.unmount();
     }
   });
+
+  test("shows the completion summary once the import job succeeds and closes cleanly", async ({
+    mount,
+    page,
+  }) => {
+    await page.route("**/api/imports/zip-to-corpus/", async (route) => {
+      await route.fulfill({
+        status: 202,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ok: true,
+          job_id: "test-job-done",
+          message: "Import started",
+        }),
+      });
+    });
+
+    const component = await mount(
+      <BulkImportTestWrapper
+        mocks={[
+          {
+            maxUsageCount: Number.POSITIVE_INFINITY,
+            request: {
+              query: GET_BULK_DOCUMENT_UPLOAD_STATUS,
+              variables: { jobId: "test-job-done" },
+            },
+            result: {
+              data: {
+                bulkDocumentUploadStatus: {
+                  jobId: "test-job-done",
+                  success: true,
+                  completed: true,
+                  totalFiles: 5,
+                  processedFiles: 3,
+                  skippedFiles: 2,
+                  errorFiles: 0,
+                  errors: [],
+                },
+              },
+            },
+          },
+        ]}
+      >
+        <BulkImportModal />
+      </BulkImportTestWrapper>
+    );
+
+    try {
+      await page.locator('button:has-text("Continue")').click();
+      const fileInput = page.locator('input[type="file"][accept=".zip"]');
+      await fileInput.setInputFiles({
+        name: "done.zip",
+        mimeType: "application/zip",
+        buffer: Buffer.from("PK\x03\x04dummy-zip-content"),
+      });
+      await page.locator('button:has-text("Start Import")').click();
+
+      // Completion summary reflects the polled task result, including the
+      // skipped-file count.
+      await expect(
+        page.getByRole("heading", { name: "Import Complete" })
+      ).toBeVisible();
+      await expect(
+        page.getByText("Processed 3 of 5 files; skipped 2.")
+      ).toBeVisible();
+      await expect(
+        page.getByText("Job ID: test-job-done", { exact: true })
+      ).toBeVisible();
+      await expect(page.locator("text=Import status")).toBeVisible();
+
+      // Close resets all state (including the completed job id) and hides
+      // the modal.
+      await page.locator('button:has-text("Close")').click();
+      await expect(
+        page.locator("text=Bulk Import Documents")
+      ).not.toBeVisible();
+    } finally {
+      await component.unmount();
+    }
+  });
+
+  test("surfaces job errors when the import job completes with failures", async ({
+    mount,
+    page,
+  }) => {
+    await page.route("**/api/imports/zip-to-corpus/", async (route) => {
+      await route.fulfill({
+        status: 202,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ok: true,
+          job_id: "test-job-failed",
+          message: "Import started",
+        }),
+      });
+    });
+
+    const component = await mount(
+      <BulkImportTestWrapper
+        mocks={[
+          {
+            maxUsageCount: Number.POSITIVE_INFINITY,
+            request: {
+              query: GET_BULK_DOCUMENT_UPLOAD_STATUS,
+              variables: { jobId: "test-job-failed" },
+            },
+            result: {
+              data: {
+                bulkDocumentUploadStatus: {
+                  jobId: "test-job-failed",
+                  success: false,
+                  completed: true,
+                  totalFiles: 4,
+                  processedFiles: 1,
+                  skippedFiles: 0,
+                  errorFiles: 3,
+                  errors: ["Unsupported file type: notes.exe"],
+                },
+              },
+            },
+          },
+        ]}
+      >
+        <BulkImportModal />
+      </BulkImportTestWrapper>
+    );
+
+    try {
+      await page.locator('button:has-text("Continue")').click();
+      const fileInput = page.locator('input[type="file"][accept=".zip"]');
+      await fileInput.setInputFiles({
+        name: "failed.zip",
+        mimeType: "application/zip",
+        buffer: Buffer.from("PK\x03\x04dummy-zip-content"),
+      });
+      await page.locator('button:has-text("Start Import")').click();
+
+      await expect(
+        page.getByRole("heading", { name: "Import Completed with Errors" })
+      ).toBeVisible();
+      await expect(
+        page.getByText("Processed 1 of 4 files; 3 failed.")
+      ).toBeVisible();
+      // The per-file error detail from the job is surfaced in the modal.
+      await expect(page.locator("text=Import details")).toBeVisible();
+      await expect(
+        page.locator("text=Unsupported file type: notes.exe")
+      ).toBeVisible();
+      await expect(
+        page.getByText("Job ID: test-job-failed", { exact: true })
+      ).toBeVisible();
+    } finally {
+      await component.unmount();
+    }
+  });
 });

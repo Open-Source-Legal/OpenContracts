@@ -741,3 +741,50 @@ class RetryDocumentProcessingTestCase(TestCase):
                 "opencontractserver.tasks.doc_tasks.set_doc_lock_state",
             ],
         )
+
+
+class EmbeddingDispatchFailureTests(SimpleTestCase):
+    """_queue_embeddings_for_unlocked_document swallows dispatch failures.
+
+    A broker outage while enqueueing embeddings must never turn a completed
+    document back into a failed pipeline run — both per-corpus dispatch
+    exceptions are logged and suppressed.
+    """
+
+    def test_dispatch_failures_are_logged_not_raised(self):
+        from opencontractserver.tasks.doc_tasks import (
+            _queue_embeddings_for_unlocked_document,
+        )
+
+        with patch(
+            "opencontractserver.tasks.embeddings_task."
+            "calculate_embedding_for_doc_text.delay",
+            side_effect=RuntimeError("broker down"),
+        ), patch(
+            "opencontractserver.tasks.corpus_tasks."
+            "ensure_embeddings_for_corpus.delay",
+            side_effect=RuntimeError("broker down"),
+        ):
+            # Must not raise despite both dispatches failing.
+            _queue_embeddings_for_unlocked_document(
+                doc_id=1, corpus_ids=[2, 3], structural_set_id=4
+            )
+
+    def test_no_structural_set_skips_structural_dispatch(self):
+        from opencontractserver.tasks.doc_tasks import (
+            _queue_embeddings_for_unlocked_document,
+        )
+
+        with patch(
+            "opencontractserver.tasks.embeddings_task."
+            "calculate_embedding_for_doc_text.delay"
+        ) as doc_delay, patch(
+            "opencontractserver.tasks.corpus_tasks."
+            "ensure_embeddings_for_corpus.delay"
+        ) as structural_delay:
+            _queue_embeddings_for_unlocked_document(
+                doc_id=1, corpus_ids=[2], structural_set_id=None
+            )
+
+        assert doc_delay.call_count == 1
+        structural_delay.assert_not_called()

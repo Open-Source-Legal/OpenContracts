@@ -719,3 +719,61 @@ class BulkDocumentUploadStatusIDORTests(TestCase):
         self.assertFalse(payload["completed"])
         self.assertFalse(payload["success"])
         self.assertIn("not found", " ".join(payload["errors"]).lower())
+
+
+class BulkStatusNonEagerBranchTests(TestCase):
+    """The production (non-eager) resolver branch: a finished, successful
+    Celery result is normalized through _bulk_upload_status_from_task_result.
+    Test settings run Celery eagerly, so the eager fast-path shadows this
+    branch unless CELERY_TASK_ALWAYS_EAGER is switched off."""
+
+    def setUp(self):
+        self.user = User.objects.create_superuser(
+            username="noneager-user", password="testpass", is_usage_capped=False
+        )
+
+    @override_settings(CELERY_TASK_ALWAYS_EAGER=False)
+    def test_successful_result_resolves_via_non_eager_branch(self):
+        job_id = f"test-task-{uuid.uuid4()}"
+        AsyncResult(job_id).backend.store_result(
+            job_id,
+            {
+                "job_id": job_id,
+                "success": True,
+                "completed": True,
+                "total_files": 2,
+                "processed_files": 2,
+                "skipped_files": 0,
+                "error_files": 0,
+                "document_ids": ["9"],
+                "errors": [],
+            },
+            "SUCCESS",
+        )
+        cache.set(
+            f"{BULK_UPLOAD_OWNER_CACHE_PREFIX}{job_id}",
+            self.user.id,
+            get_bulk_upload_owner_cache_ttl_seconds(),
+        )
+
+        client = GrapheneClient(schema, context_value=TestContext(self.user))
+        response = client.execute(
+            """
+            query BulkDocumentUploadStatus($jobId: String!) {
+                bulkDocumentUploadStatus(jobId: $jobId) {
+                    completed
+                    success
+                    totalFiles
+                    processedFiles
+                    documentIds
+                }
+            }
+            """,
+            variable_values={"jobId": job_id},
+        )
+
+        status = response["data"]["bulkDocumentUploadStatus"]
+        assert status["completed"] is True
+        assert status["success"] is True
+        assert status["totalFiles"] == 2
+        assert status["documentIds"] == ["9"]
