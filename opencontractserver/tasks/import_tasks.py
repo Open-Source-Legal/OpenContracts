@@ -559,22 +559,30 @@ def create_relationships_from_parsed(
             if rel.notes:
                 relationship_data["note"] = rel.notes
 
-            # Create the relationship
-            DocumentRelationship.objects.create(
+            # get_or_create on the edge's natural identity so re-importing a
+            # relationships.csv (e.g. a relationships-only patch ZIP, or a
+            # re-run batch) never duplicates edges — mirroring the enrichment
+            # writer's graph-rollup semantics. data/creator are write-once.
+            _, created = DocumentRelationship.objects.get_or_create(
                 source_document=source_doc,
                 target_document=target_doc,
                 corpus=corpus,
                 annotation_label=annotation_label,
                 relationship_type=rel.relationship_type,
-                data=relationship_data if relationship_data else None,
-                creator=user,
+                defaults={
+                    "data": relationship_data if relationship_data else None,
+                    "creator": user,
+                },
             )
 
-            results["relationships_created"] += 1
-            logger.debug(
-                f"Created relationship: {rel.source_path} --[{rel.label}]--> "
-                f"{rel.target_path} (type: {rel.relationship_type})"
-            )
+            if created:
+                results["relationships_created"] += 1
+                logger.debug(
+                    f"Created relationship: {rel.source_path} --[{rel.label}]--> "
+                    f"{rel.target_path} (type: {rel.relationship_type})"
+                )
+            else:
+                results["relationships_skipped"] += 1
 
         except Exception as e:
             results["relationship_errors"].append(
@@ -758,6 +766,7 @@ def import_zip_with_folder_structure(
         # Metadata statistics
         "metadata_file_found": False,
         "metadata_applied": 0,
+        "external_ids_applied": 0,
         # Annotation sidecar statistics
         "labels_file_found": False,
         "labels_loaded": False,
@@ -1250,6 +1259,22 @@ def import_zip_with_folder_structure(
                                     user_obj, added_doc, [PermissionTypes.CRUD]
                                 )
 
+                                # Durable source identity from meta.csv: stored
+                                # on the path record (not the title), so it
+                                # survives renames. Namespaced by the producer
+                                # (e.g. ``cross:H022844``); consumed by e.g.
+                                # customs enrichment's identity resolution.
+                                if (
+                                    doc_metadata
+                                    and doc_metadata.external_id
+                                    and doc_path is not None
+                                ):
+                                    doc_path.external_id = doc_metadata.external_id
+                                    doc_path.save(
+                                        update_fields=["external_id", "modified"]
+                                    )
+                                    results["external_ids_applied"] += 1
+
                                 # Persist dumb-anchor annotations for the
                                 # standard ingest chain's remap step to consume.
                                 # Stamped with this import's run id so the set
@@ -1471,6 +1496,7 @@ def import_zip_with_folder_structure(
             f"upversioned: {results['files_upversioned']}, "
             f"folders created: {results['folders_created']}, "
             f"metadata applied: {results['metadata_applied']}, "
+            f"external ids applied: {results['external_ids_applied']}, "
             f"pending annotation docs: {results['pending_annotation_docs']}, "
             f"pipeline skipped: {results['pipeline_skipped']}, "
             f"annotations imported: {results['annotations_imported']}, "

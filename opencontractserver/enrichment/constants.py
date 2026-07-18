@@ -4,6 +4,7 @@ No magic numbers / strings in the engine modules — they import from here.
 """
 
 import re as _re
+from pathlib import Path as _Path
 
 from opencontractserver.enrichment.data import mappings as _mappings
 
@@ -45,6 +46,131 @@ AUTHORITY_PREFIX = _mappings.authority_prefix_map()
 # Canonical-key prefix for bare SEC rule citations ("Rule 506(b)") — these are
 # 17 CFR rules cited without a named authority.
 SEC_RULE_PREFIX = "sec-rule"
+
+# Canonical-key prefix for HTS tariff-code citations ("subheading 3924.90.5650,
+# HTSUS") — references into the Harmonized Tariff Schedule of the United States.
+# Like SEC_RULE_PREFIX, the prefix is also declared in authority_mappings.yaml
+# (display name / classification / aliases) so it seeds AuthorityNamespace and
+# classifies via PREFIX_CLASSIFICATION.
+HTSUS_PREFIX = "htsus"
+
+# --- Title-identifier document citations (customs-ruling grammar) ---------- #
+# CBP CROSS-style corpora are "title-as-identifier" shaped: each document's
+# title IS an external identifier (a ruling number like ``H022844`` or
+# ``A83482``, possibly still carrying its materialized filename extension,
+# ``A83482.doc``), and documents cite each other by that identifier in their
+# own text. The grammar tier detects those citations (REF_DOCUMENT) and the
+# resolver links them to sibling documents by title.
+#
+# The identifier shape (shared by the citation grammar and the resolver's
+# title index): 1 letter + 5-6 digits (modern N######/H######; legacy A#####,
+# K#####, …) or 2 letters + 6 digits (two-letter legacy). Bare 6-digit legacy
+# ruling numbers are deliberately NOT matched — dollar amounts, statute
+# numbers, and "STATE + 5-digit ZIP" ("NY 10022") are common false positives
+# for that shape. UPPERCASE-only by design, for both sides: titles are
+# uppercased before the fullmatch (document_identifier_from_title), and for
+# text mining a lowercase/mixed-case token ("a83482") is far more likely
+# prose or a serial number than a ruling citation — CROSS text prints ruling
+# numbers uppercase. Used with ``finditer`` over text and ``fullmatch`` over
+# canonicalized titles.
+DOC_IDENTIFIER_RE = _re.compile(r"\b([A-Z]\d{5,6}|[A-Z]{2}\d{6})\b")
+# The identifier grammar only activates on corpora that actually speak this
+# vocabulary: at least MIN_DOCS identifier-shaped titles AND at least FRACTION
+# of the corpus's non-empty titles identifier-shaped. An ordinary corpus (zero
+# or incidental identifier titles) never emits these candidates, so serial /
+# order / patent numbers in unrelated corpora are not mined as citations.
+DOC_IDENTIFIER_TITLE_GATE_MIN_DOCS = 2
+DOC_IDENTIFIER_TITLE_GATE_FRACTION = 0.5
+# ``Candidate.normalized_data`` / ``CorpusReference.normalized_data`` key
+# carrying the cited identifier — shared by the grammar (writer side) and the
+# resolver (lookup side) so the contract has a single edit point.
+KEY_DOCUMENT_IDENTIFIER = "document_identifier"
+
+
+def document_identifier_from_title(title: str | None) -> str:
+    """Canonicalize a document title to the identifier it names.
+
+    Titles are set at ingest time from the materialized filename — some ingest
+    paths use the bare stem (``A83482``), others keep the original filename
+    including its extension (``A83482.doc``). The citation grammar only ever
+    extracts the bare form (DOC_IDENTIFIER_RE has no ``.doc``/``.pdf`` in its
+    character class), so a title carrying an extension would never match the
+    resolver's title index and every citation into that document would
+    silently read as unresolved. ``Path(...).stem`` strips at most one
+    trailing extension and is a no-op on titles that are already
+    extension-free. Single-strip is an accepted tradeoff: a multi-suffix
+    title ("A83482.v2.doc" -> "A83482.V2") won't fullmatch the identifier
+    shape and simply stays out of the gate/index — CBP materialized
+    filenames carry exactly one extension, and a non-matching title
+    degrades to "not identifier-titled", never to a wrong link.
+
+    A title containing a path separator is NOT a bare materialized filename
+    (titles are user-editable), so it is returned whole rather than fed to
+    ``Path.stem`` — which would otherwise silently discard the leading
+    segments and make "Reports/N301234" LOOK identifier-titled.
+    """
+    name = (title or "").strip()
+    if "/" in name:
+        return name.upper()
+    return _Path(name).stem.upper()
+
+
+# Series-token legacy document citations. Legacy CBP rulings (the bulk of
+# pre-2000 HQ/NY output) have BARE numeric ruling numbers and are cited as
+# "<series token> <6 digits>": "HQ 084665", "HRL 087392", "NY 812345". A bare
+# number alone is never mined (dollar amounts, statute numbers, entry
+# numbers), but a number immediately preceded by a CBP ruling-series token is
+# a citation with near-zero ambiguity — measured on a 500-document
+# official-export slice: 707 instances, no false positives. Exactly SIX
+# digits on purpose: 5 digits after "NY" is almost always a New York ZIP code
+# ("New York, NY 10176" — 148/149 sampled), and ZIP+4 ("10001-3060") never
+# forms a 6-digit run. ``\s+`` spans hard line wraps and column whitespace
+# inside the token/number pair.
+LEGACY_DOC_IDENTIFIER_CITE_RE = _re.compile(
+    r"\b(?:HQ|HRL|NY(?:RL)?|PD|DD|IA)\s+(\d{6})\b"
+)
+
+# Identity-side shape for legacy documents: the official CROSS bulk exporter's
+# path basename IS the bare (zero-padded) ruling number, e.g. ``HQ/084665.txt``.
+BARE_DOC_IDENTIFIER_RE = _re.compile(r"\d{5,6}")
+
+# Namespace for a durable document identity carried on
+# ``DocumentPath.external_id`` (e.g. ``cross:H022844``), populated by the ZIP
+# import's optional ``external_id`` meta.csv column. Outranks path/title
+# derivation because it survives document renames.
+DOC_IDENTIFIER_EXTERNAL_ID_NAMESPACE = "cross:"
+
+
+def canonical_document_identifier(value: str | None) -> str | None:
+    """Canonical lookup key for a document identifier, or ``None`` if not one.
+
+    Two disjoint namespaces share the resolver index: prefixed identifiers
+    (``H022844``) are keyed verbatim (uppercased), bare legacy numbers are
+    keyed with leading zeros stripped so the zero-padded document identity
+    (``084665``) and however a citation pads it agree on one key. The two
+    shapes cannot collide (one starts with a letter, the other is all
+    digits).
+    """
+    v = (value or "").strip().upper()
+    if DOC_IDENTIFIER_RE.fullmatch(v):
+        return v
+    if BARE_DOC_IDENTIFIER_RE.fullmatch(v):
+        return v.lstrip("0") or "0"
+    return None
+
+
+def document_identifier_from_path(path: str) -> str:
+    """Canonicalize a corpus path to the identifier in its basename stem.
+
+    The official CROSS bulk exporter writes ``{COLLECTION}/{number}.txt``
+    (e.g. ``HQ/084665.txt`` or ``HQ/H022844.txt``), so the active
+    ``DocumentPath`` basename is the exporter's own canonical identity for
+    the document — unlike the title, which the official export fills with
+    the human-readable SUBJECT (non-unique, control-character-laden display
+    metadata).
+    """
+    return _Path(path).stem.upper()
+
 
 # ``AuthorityNamespace.baseline_origin`` stamp for rows written from the shipped
 # core ``authority_mappings.yaml`` (loader default path + post_migrate seed).

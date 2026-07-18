@@ -10,6 +10,10 @@ import {
   importDocumentMultipart,
   importDocumentsZipMultipart,
 } from "../../../../../utils/importHttp";
+import type {
+  ImportZipRestResult,
+  UploadProgressCallback,
+} from "../../../../../utils/importHttp";
 import { FileUploadPackage, UploadStatus } from "./useUploadState";
 
 interface UseUploadMutationsProps {
@@ -33,8 +37,9 @@ interface UseUploadMutationsReturn {
   ) => Promise<void>;
   uploadZipFile: (
     zipFile: File,
-    targetCorpusId?: string | null
-  ) => Promise<boolean>;
+    targetCorpusId?: string | null,
+    onProgress?: UploadProgressCallback
+  ) => Promise<ImportZipRestResult>;
   isUploading: boolean;
 }
 
@@ -171,22 +176,27 @@ export function useUploadMutations({
    * Returns true on success, false on failure.
    */
   const uploadZipFile = useCallback(
-    async (zipFile: File, targetCorpusId?: string | null): Promise<boolean> => {
+    async (
+      zipFile: File,
+      targetCorpusId?: string | null,
+      onProgress?: UploadProgressCallback
+    ): Promise<ImportZipRestResult> => {
       setZipInFlight(true);
       try {
         const result = await importDocumentsZipMultipart({
           file: zipFile,
           addToCorpusId: targetCorpusId ?? null,
           makePublic,
+          onProgress,
         });
 
         if (result.ok) {
-          toast.success(`Upload job started! Job ID: ${result.job_id}`);
-          return true;
+          toast.info(`Archive uploaded. Import job started: ${result.job_id}`);
+          return result;
         }
         const errorMessage = result.error || "Upload failed";
         toast.error(`Upload failed: ${errorMessage}`);
-        return false;
+        return result;
       } catch (error: unknown) {
         console.error("[UPLOAD] ZIP upload error:", error);
         const errorMessage =
@@ -194,7 +204,7 @@ export function useUploadMutations({
             ? error.message
             : "An unexpected error occurred";
         toast.error(`Upload failed: ${errorMessage}`);
-        return false;
+        return { ok: false, error: errorMessage, status_code: 0 };
       } finally {
         setZipInFlight(false);
       }

@@ -51,6 +51,20 @@ prefixes:
     jurisdiction: "us-federal"
     authority_type: "regulation"
     aliases: []
+  # HTS tariff-code citations ("subheading 3924.90.5650, HTSUS") are emitted by
+  # the Tier-2a customs grammar (enrichment/grammars.py) rather than by these
+  # Tier-1 aliases; the entry classifies/names the prefix and seeds its
+  # AuthorityNamespace row. Enacted as statute (19 U.S.C. § 1202 note).
+  htsus:
+    display_name: "Harmonized Tariff Schedule of the United States"
+    jurisdiction: "us-federal"
+    authority_type: "statute"
+    aliases:
+      [
+        "harmonized tariff schedule of the united states",
+        "harmonized tariff schedule",
+        "htsus",
+      ]
 
 # --- Key equivalences (act-section <-> USC/CFR codification) ------------------
 # from_key = popular-name act citation filings use; to_key = USC/CFR codification

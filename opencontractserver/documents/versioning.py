@@ -378,6 +378,11 @@ def import_document(
             current_path.is_current = False
             current_path.save(update_fields=["is_current"])
 
+            # Ingestion lineage carries forward to the new version unless the
+            # caller supplies fresh values — mirroring move/delete/restore,
+            # which all copy these three fields. Without this, a content
+            # re-import at the same path silently dropped the durable
+            # external_id stamped by an earlier import.
             new_path = DocumentPath.objects.create(
                 document=new_doc,
                 corpus=corpus,
@@ -388,7 +393,12 @@ def import_document(
                 is_current=True,  # Rule P3
                 is_deleted=False,
                 creator=user,
-                **path_kwargs,
+                **{
+                    "ingestion_source": current_path.ingestion_source,
+                    "external_id": current_path.external_id,
+                    "ingestion_metadata": current_path.ingestion_metadata,
+                    **path_kwargs,
+                },
             )
 
             logger.info(

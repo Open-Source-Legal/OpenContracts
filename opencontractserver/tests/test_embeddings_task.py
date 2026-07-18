@@ -1,4 +1,5 @@
 import unittest
+from collections.abc import Callable
 from unittest.mock import MagicMock, patch
 
 from django.contrib.auth import get_user_model
@@ -235,6 +236,18 @@ class TestAnnotationSignals(unittest.TestCase):
     the dual embedding strategy in the task.
     """
 
+    def setUp(self):
+        # These are mock-only unit tests, so execute the deferred callback
+        # without opening a database connection.
+        self.on_commit_patcher = patch(
+            "opencontractserver.annotations.signals.transaction.on_commit",
+            side_effect=lambda callback: callback(),
+        )
+        self.on_commit_patcher.start()
+
+    def tearDown(self):
+        self.on_commit_patcher.stop()
+
     @patch(
         "opencontractserver.annotations.signals.calculate_embedding_for_annotation_text"
     )
@@ -262,6 +275,35 @@ class TestAnnotationSignals(unittest.TestCase):
         # Verify embedding calculation was scheduled with corpus_id=None
         mock_calc_embedding.si.assert_called_with(annotation_id=1, corpus_id=None)
         mock_calc_embedding.si.return_value.apply_async.assert_called_once()
+
+    @patch("opencontractserver.annotations.signals.transaction.on_commit")
+    @patch(
+        "opencontractserver.annotations.signals.calculate_embedding_for_annotation_text"
+    )
+    def test_process_annot_defers_embedding_until_commit(
+        self, mock_calc_embedding, mock_on_commit
+    ):
+        """Embedding dispatch must not race the transaction that creates its row."""
+        from opencontractserver.annotations.signals import (
+            process_annot_on_create_atomic,
+        )
+
+        callbacks: list[Callable[[], object]] = []
+        mock_on_commit.side_effect = callbacks.append
+        mock_annotation = MagicMock(id=17, corpus_id=100, embedding=None)
+
+        process_annot_on_create_atomic(
+            sender=Annotation, instance=mock_annotation, created=True
+        )
+
+        mock_calc_embedding.si.assert_not_called()
+        self.assertEqual(len(callbacks), 1)
+
+        callbacks[0]()
+        mock_calc_embedding.si.assert_called_once_with(annotation_id=17, corpus_id=100)
+        mock_calc_embedding.si.return_value.apply_async.assert_called_once_with(
+            task_id="embed-annot-17"
+        )
 
     @patch(
         "opencontractserver.annotations.signals.calculate_embedding_for_annotation_text"

@@ -6,7 +6,7 @@ watchfiles==1.2.0  # https://github.com/samuelcolvin/watchfiles
 # Testing
 # ------------------------------------------------------------------------------
 
-mypy==2.2.0  # https://github.com/python/mypy
+mypy==2.3.0  # https://github.com/python/mypy
 django-stubs==6.0.6  # https://github.com/typeddjango/django-stubs
 pytest==9.1.1  # https://github.com/pytest-dev/pytest
 pytest-cov==7.1.0  # https://github.com/pytest-dev/pytest-cov
@@ -33,7 +33,7 @@ django-silk==5.5.0
 # ------------------------------------------------------------------------------
 flake8==7.3.0 # https://github.com/PyCQA/flake8
 flake8-isort==7.0.0  # https://github.com/gforcada/flake8-isort
-coverage==7.15.0  # https://github.com/nedbat/coveragepy
+coverage==7.15.1  # https://github.com/nedbat/coveragepy
 black==26.5.1  # https://github.com/psf/black
 pre-commit==4.6.0  # https://github.com/pre-commit/pre-commit
 

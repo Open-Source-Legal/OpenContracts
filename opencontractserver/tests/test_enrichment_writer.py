@@ -112,6 +112,40 @@ class EnrichmentWriterTests(TestCase):
         assert ref.jurisdiction == "us-de"
         assert ref.authority_type == C.AUTHORITY_TYPE_STATUTE
 
+    def test_apply_heals_unresolved_document_reference_on_rerun(self):
+        # get_or_create's lookup key (source_annotation, reference_type,
+        # canonical_key) doesn't include the resolution outcome, so a row
+        # persisted as UNRESOLVED before its target could be found (a sibling
+        # document ingested later, or a resolution-logic bug fixed after the
+        # fact) would otherwise never be touched by a later run that DOES
+        # find the target — the run's in-memory resolved-count would
+        # over-report what actually persisted. Converges on re-apply, like
+        # the jurisdiction/authority_type heal above.
+        EnrichmentService().apply(corpus_id=self.corpus.id, creator_id=self.user.id)
+        ref = CorpusReference.objects.get(
+            corpus=self.corpus, reference_type=C.REF_DOCUMENT
+        )
+        CorpusReference.objects.filter(pk=ref.pk).update(
+            resolution_status=C.STATUS_UNRESOLVED,
+            target_document_id=None,
+            target_annotation_id=None,
+        )
+
+        out = EnrichmentService().apply(
+            corpus_id=self.corpus.id, creator_id=self.user.id
+        )
+
+        ref.refresh_from_db()
+        assert ref.resolution_status == C.STATUS_RESOLVED
+        assert ref.target_document_id == self.exhibit_in_corpus.id
+        assert out["references_resolved"] == 1
+        # An already-RESOLVED row must never be counted again on a run that
+        # finds nothing new to heal.
+        out2 = EnrichmentService().apply(
+            corpus_id=self.corpus.id, creator_id=self.user.id
+        )
+        assert out2["references_resolved"] == 0
+
     def test_apply_links_exhibit_reference_to_target_document(self):
         EnrichmentService().apply(corpus_id=self.corpus.id, creator_id=self.user.id)
         doc_ref = CorpusReference.objects.filter(
