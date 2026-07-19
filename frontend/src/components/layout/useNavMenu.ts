@@ -23,7 +23,7 @@ export const useNavMenu = () => {
     loginWithPopup,
     logout,
     user: auth0_user,
-    isLoading,
+    isLoading: auth0Loading,
   } = useAuth0();
   const cache_user = useReactiveVar(userObj);
   const backendUser = useReactiveVar(backendUserObj);
@@ -32,6 +32,14 @@ export const useNavMenu = () => {
   const { resetOnAuthChange } = useCacheManager();
 
   const user = REACT_APP_USE_AUTH0 ? auth0_user : cache_user;
+  // ``useAuth0()`` must be called unconditionally (hooks rules), but without a
+  // mounted Auth0Provider it returns the default context whose ``isLoading`` is
+  // permanently true. Consumers gate the whole auth surface on this flag
+  // (``hideAuth``, ``hideUserMenu``, and the anonymous login button), so
+  // passing it through unguarded hid the entire user menu AND the login button
+  // in every ``REACT_APP_USE_AUTH0=false`` deployment. Same guard App.tsx
+  // applies for the same reason.
+  const isLoading = REACT_APP_USE_AUTH0 ? auth0Loading : false;
   const show_export_modal = useReactiveVar(showExportModal);
 
   // Filter menu items based on authentication
