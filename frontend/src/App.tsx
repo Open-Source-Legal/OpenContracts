@@ -86,6 +86,7 @@ import { CorpusLandingRoute } from "./components/routes/CorpusLandingRoute";
 import { CorpusThreadRoute } from "./components/routes/CorpusThreadRoute";
 import { UserProfileRoute } from "./components/routes/UserProfileRoute";
 import { ProfileRedirect } from "./components/routes/ProfileRedirect";
+import { CorpusGroupManagement } from "./components/corpus_groups";
 import { LeaderboardRoute } from "./components/routes/LeaderboardRoute";
 import { GlobalDiscussionsRoute } from "./components/routes/GlobalDiscussionsRoute";
 import { ThreadSearchRoute } from "./views/ThreadSearchRoute";
@@ -389,6 +390,8 @@ export const App = () => {
           {/* User Profile Routes (Issue #611) */}
           <Route path="/profile" element={<ProfileRedirect />} />
           <Route path="/users/:slug" element={<UserProfileRoute />} />
+          {/* Per-user Corpus Group management (Issue #2141) */}
+          <Route path="/corpus-groups" element={<CorpusGroupManagement />} />
           {/* Convenience redirect for badge notifications (Issue #637) */}
           <Route path="/badges" element={<Navigate to="/profile" replace />} />
 

@@ -54,7 +54,11 @@ from config.graphql.corpus_types import (
     CorpusStatsType,
     LabelDistributionEntryType,
 )
-from config.graphql.filters import CorpusCategoryFilter, CorpusFilter
+from config.graphql.filters import (
+    CorpusCategoryFilter,
+    CorpusFilter,
+    CorpusGroupFilter,
+)
 from config.graphql.ratelimits import get_user_tier_rate, graphql_ratelimit_dynamic
 from opencontractserver.constants.annotations import OC_RESERVED_LABEL_PREFIX
 from opencontractserver.constants.document_processing import MARKDOWN_MIME_TYPE
@@ -62,7 +66,7 @@ from opencontractserver.constants.stats import (
     CORPUS_DOCUMENT_GRAPH_MAX_NODES,
     CORPUS_INTELLIGENCE_LABEL_DISTRIBUTION_TOP_N,
 )
-from opencontractserver.corpuses.models import Corpus, CorpusCategory
+from opencontractserver.corpuses.models import Corpus, CorpusCategory, CorpusGroup
 from opencontractserver.corpuses.services.corpus_documents import (
     CorpusDocumentService,
 )
@@ -433,6 +437,7 @@ def q_corpus_groups(
     after: Annotated[str | None, strawberry.argument(name="after")] = strawberry.UNSET,
     first: Annotated[int | None, strawberry.argument(name="first")] = strawberry.UNSET,
     last: Annotated[int | None, strawberry.argument(name="last")] = strawberry.UNSET,
+    mine: Annotated[bool | None, strawberry.argument(name="mine")] = strawberry.UNSET,
 ) -> None | (
     Annotated[CorpusGroupTypeConnection, strawberry.lazy("config.graphql.corpus_types")]
 ):
@@ -443,14 +448,25 @@ def q_corpus_groups(
             "after": after,
             "first": first,
             "last": last,
+            "mine": mine,
         }
     )
     resolved = _resolve_Query_corpus_groups(None, info)
+    # ``_resolve_Query_corpus_groups`` (CorpusGroupService.list_visible_groups)
+    # and the node type's ``get_queryset`` both run BEFORE the filterset, so
+    # ``mine`` only ever narrows an already visibility-scoped queryset.
+    # ``CorpusGroupFilter`` also inherits ``is_public`` / ``shared_with_me``
+    # from ``OwnershipScopeFilterMixin``; they are intentionally absent from
+    # ``filter_args`` (and from the argument list above) so they do not reach
+    # the schema until something consumes them.
     return resolve_django_connection(
         resolved=resolved,
         info=info,
         args=kwargs,
         node_type_name="CorpusGroupType",
+        default_manager=CorpusGroup._default_manager,
+        filterset_class=setup_filterset(CorpusGroupFilter),
+        filter_args={"mine": "mine"},
     )
 
 

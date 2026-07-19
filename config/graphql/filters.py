@@ -30,7 +30,7 @@ from opencontractserver.conversations.models import (
     Conversation,
     ModerationAction,
 )
-from opencontractserver.corpuses.models import Corpus, CorpusCategory
+from opencontractserver.corpuses.models import Corpus, CorpusCategory, CorpusGroup
 from opencontractserver.documents.models import Document, DocumentRelationship
 from opencontractserver.enrichment.services.authority_namespace_service import (
     authority_namespace_search_q,
@@ -248,7 +248,59 @@ class AuthorityNamespaceFilter(django_filters.FilterSet):
         fields: dict = {}
 
 
-class CorpusFilter(django_filters.FilterSet):
+class OwnershipScopeFilterMixin(django_filters.FilterSet):
+    """Reusable ``mine`` / ``is_public`` / ``shared_with_me`` scope filters.
+
+    Applies to any ``BaseOCModel``-derived model carrying ``creator`` and
+    ``is_public``. The base queryset is expected to be already restricted to
+    the objects visible to the requesting user (via the owning resolver's
+    service / manager call), so these flags only need to narrow that
+    already-visible set — they never widen it.
+
+    Contract: each flag is treated as opt-in only. Passing ``False`` is a
+    no-op (returns the unfiltered queryset) — these methods do NOT invert
+    the filter. Callers send at most one flag per request; combining flags is
+    undefined and intentionally not supported. Treating ``False`` as a no-op
+    (rather than raising) keeps the GraphQL surface forgiving for older
+    clients that may serialize defaults explicitly.
+
+    NOTE: this mixin must itself subclass ``FilterSet``. django-filter's
+    metaclass collects inherited filters only from bases that already carry a
+    ``declared_filters`` mapping, and that attribute is set *by* the
+    metaclass — a plain (non-``FilterSet``) mixin would contribute zero
+    filters, silently turning every flag below into a no-op.
+    """
+
+    mine = filters.BooleanFilter(method="mine_method")
+    is_public = filters.BooleanFilter(method="is_public_method")
+    shared_with_me = filters.BooleanFilter(method="shared_with_me_method")
+
+    def mine_method(self, queryset: QuerySet, name: str, value: Any) -> QuerySet:
+        if not value:
+            return queryset
+        user = getattr(self.request, "user", None)
+        if user is None or not user.is_authenticated:
+            return queryset.none()
+        return queryset.filter(creator=user)
+
+    def is_public_method(self, queryset: QuerySet, name: str, value: Any) -> QuerySet:
+        if not value:
+            return queryset
+        return queryset.filter(is_public=True)
+
+    def shared_with_me_method(
+        self, queryset: QuerySet, name: str, value: Any
+    ) -> QuerySet:
+        if not value:
+            return queryset
+        user = getattr(self.request, "user", None)
+        if user is None or not user.is_authenticated:
+            return queryset.none()
+        # "Shared" = visible to me, but neither created by me nor public.
+        return queryset.exclude(creator=user).exclude(is_public=True)
+
+
+class CorpusFilter(OwnershipScopeFilterMixin, django_filters.FilterSet):
     text_search = filters.CharFilter(method="text_search_method")
 
     def text_search_method(self, queryset: QuerySet, name: str, value: Any) -> QuerySet:
@@ -279,44 +331,11 @@ class CorpusFilter(django_filters.FilterSet):
         field_name="categories",
     )
 
-    # Tab filters used by the Corpuses view. The base queryset is already
-    # restricted to corpuses visible to the requesting user (via
-    # Corpus.objects.visible_to_user(user) in the resolver), so these flags
-    # only need to narrow that visible set.
-    #
-    # Contract: each flag is treated as opt-in only. Passing `False` is a
-    # no-op (returns the unfiltered queryset) — these methods do NOT invert
-    # the filter. The Corpuses tab UI sends exactly one flag per request, so
-    # combining flags is undefined and intentionally not supported. Treating
-    # `False` as a no-op (rather than raising) keeps the GraphQL surface
-    # forgiving for older clients that may serialize defaults explicitly.
-    mine = filters.BooleanFilter(method="mine_method")
-    is_public = filters.BooleanFilter(method="is_public_method")
-    shared_with_me = filters.BooleanFilter(method="shared_with_me_method")
-
-    def mine_method(self, queryset: QuerySet, name: str, value: Any) -> QuerySet:
-        if not value:
-            return queryset
-        user = getattr(self.request, "user", None)
-        if user is None or not user.is_authenticated:
-            return queryset.none()
-        return queryset.filter(creator=user)
-
-    def is_public_method(self, queryset: QuerySet, name: str, value: Any) -> QuerySet:
-        if not value:
-            return queryset
-        return queryset.filter(is_public=True)
-
-    def shared_with_me_method(
-        self, queryset: QuerySet, name: str, value: Any
-    ) -> QuerySet:
-        if not value:
-            return queryset
-        user = getattr(self.request, "user", None)
-        if user is None or not user.is_authenticated:
-            return queryset.none()
-        # "Shared" = visible to me, but neither created by me nor public.
-        return queryset.exclude(creator=user).exclude(is_public=True)
+    # The Corpuses view's tab filters (``mine`` / ``isPublic`` /
+    # ``sharedWithMe``) come from ``OwnershipScopeFilterMixin`` above — the
+    # base queryset is already restricted to the corpuses visible to the
+    # requesting user (via Corpus.objects.visible_to_user(user) in the
+    # resolver), so those flags only narrow that visible set.
 
     # Ordering surface for the Corpuses list view.  ``order_by`` (GraphQL
     # arg ``orderBy``) is the canonical user-facing knob — tuple-mapped to
@@ -383,6 +402,24 @@ class CorpusCategoryFilter(django_filters.FilterSet):
             "name": ["exact", "contains"],
             "description": ["contains"],
         }
+
+
+class CorpusGroupFilter(OwnershipScopeFilterMixin, django_filters.FilterSet):
+    """Filter for CorpusGroup (issue #2141).
+
+    Inherits the full ownership-scope trio from the mixin, but only ``mine``
+    is wired into ``q_corpus_groups``' ``filter_args``
+    (``config/graphql/corpus_queries.py``), so only ``mine`` reaches the
+    GraphQL schema. The Corpus Groups management view scopes to the groups a
+    user owns; ``is_public`` / ``shared_with_me`` have no consumer yet and are
+    deliberately not shipped as unused arguments. Wiring either one later is a
+    one-line ``filter_args`` addition plus a strawberry argument — no change
+    here.
+    """
+
+    class Meta:
+        model = CorpusGroup
+        fields: list[str] = []
 
 
 class AnnotationFilter(django_filters.FilterSet):
