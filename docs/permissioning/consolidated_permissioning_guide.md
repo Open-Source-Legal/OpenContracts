@@ -415,6 +415,7 @@ The two are pinned to agree for READ by the invariant suite (`test_authorization
 | **UserFeedback** | Inherited (Annotation) for READ | Commented annotation visibility | Creator / `is_public` / guardian on the row | READ inherits from the annotation; writes are creator/explicit-grant only (`UserFeedbackManager`) |
 | **Embedding** | Inherited (parent object) | Parent document/annotation/note visibility | — | `EmbeddingManager` (`opencontractserver/shared/Managers.py`) |
 | **CorpusAction** | Direct (generic) | Creator / `is_public` / guardian | — | Generic `visible_to_user`; listed per-corpus by `DocumentActionsService` |
+| **CorpusGroup** | Direct (`BaseOCModel`) | Creator / `is_public` / guardian | Member corpora + bound agent re-gated per viewer | Membership resolved at **call time**, never snapshotted; `Effective member set = MIN(group READ, corpus READ)` |
 | **Notification** | Recipient-only | `recipient == user` | — | Simple ownership — no guardian tables, does NOT use `AnnotatePermissionsForReadMixin` |
 
 ### Detailed Permission Formulas
@@ -647,6 +648,70 @@ assert chat_msg in visible_to_alice  # Moderator access
 assert thread_msg in visible_to_alice  # Moderator access
 ```
 
+#### CorpusGroup (multi-corpus retrieval bundles)
+
+A `CorpusGroup` bundles several corpora so an agent can retrieve across all of
+them at once (`search_across_corpora`, issue #2056). The group is an ordinary
+`BaseOCModel` — creator / `is_public` / guardian — but its **membership is not a
+permission grant**:
+
+```
+Can see group      = is_creator OR has_object_permission OR (is_public AND READ)
+Can edit group     = user_can(user, group, CRUD)          # creator or explicit grant
+Member corpora     = Corpus.objects.visible_to_user(user).filter(corpus_groups=group)
+                     # i.e. MIN(group READ, corpus READ), recomputed on EVERY call
+```
+
+**The load-bearing rule**: membership is resolved at call time and intersected
+with per-user corpus visibility by
+`opencontractserver/corpuses/services/corpus_groups.py::CorpusGroupService.get_group_corpora_visible_to_user`.
+A private corpus inside a shared or public group is therefore **never** searched
+for, or disclosed to, a user who lacks corpus-level READ — and a membership
+change takes effect on the very next query rather than at some config snapshot.
+Adding a corpus to a group can never widen access to it.
+
+The bound `default_agent` is gated the same way (`resolve_visible_fk` on
+`CorpusGroupType`), so a private agent's `system_instructions` cannot leak
+through a public group.
+
+Writes go through `CorpusGroupService.create_group` / `update_group` /
+`delete_group`, which verify `PermissionTypes.CRUD` and return the uniform
+`GROUP_NOT_FOUND_MESSAGE` for both "does not exist" and "exists but forbidden"
+(IDOR-uniform). `create_group` / `update_group` additionally require every
+submitted member corpus to be READ-visible to the caller, so a user cannot
+smuggle an unreadable corpus into a group they own.
+
+**Membership edits are asymmetric — visibility filtering never deletes.**
+`update_group`'s `corpus_pks` replaces only the *caller-visible* slice of the
+membership:
+
+```
+New membership = (members the caller CANNOT read)  ∪  (submitted, caller-readable set)
+```
+
+The two halves are disjoint by construction, so the net rule is **you may add
+or remove only what you can see**. This is required because the edit form is
+seeded from the per-viewer-filtered `CorpusGroupType.corpora` — if a member
+became invisible to the editor after being added (its owner flipped it
+private), a wholesale replace would silently destroy that membership on an
+unrelated save, with no field exposing the true membership count to detect it.
+Adding is still gated by `_resolve_member_corpora`, so the fix cannot be used
+to smuggle an unreadable corpus in; removing a visible member works normally.
+See `CorpusGroupService.update_group` and the regression tests
+`opencontractserver/tests/test_corpus_groups.py::CorpusGroupServiceTests::test_update_group_preserves_invisible_member_on_unrelated_edit`
+/ `::test_update_group_can_still_remove_a_visible_member`.
+
+**User-facing surface**: the per-user management GUI at `/corpus-groups`
+(`frontend/src/components/corpus_groups/CorpusGroupManagement.tsx`) lists only
+groups the viewer created, via the `mine: true` filter on the `corpusGroups`
+connection (`config/graphql/filters.py::CorpusGroupFilter`, built on the shared
+`OwnershipScopeFilterMixin`). That filter only ever **narrows** the
+already-visibility-scoped queryset returned by
+`CorpusGroupService.list_visible_groups` — the node type's `get_queryset` and the
+service both run before the filterset in
+`config/graphql/core/relay.py::resolve_django_connection`. There is no superuser
+gate and no instance-wide listing, consistent with the Admin Access Model banner.
+
 ### Anonymous User Access Summary
 
 | Object Type | Can Read? | Conditions |
@@ -659,6 +724,7 @@ assert thread_msg in visible_to_alice  # Moderator access
 | Analysis | ✅ | Analysis public AND Corpus public |
 | Extract | ❌ | Never — enforced at the manager (`ExtractManager` denies anonymous on both `visible_to_user` and `user_can`) AND service (`ExtractService`) layers (2026-06 audit) |
 | Conversation | ✅ | `is_public=True`; **THREADs additionally** via context inheritance when the attached corpus/document is public (CHATs never) |
+| CorpusGroup | ✅ | `is_public=True` — but member corpora are still filtered to public ones, so an anonymous viewer sees the group with only its public members |
 | User Profile | ✅ | `is_profile_public=True` |
 
 ### Structural Item Protection Summary
