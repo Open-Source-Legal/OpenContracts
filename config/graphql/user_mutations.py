@@ -50,6 +50,12 @@ from config.graphql.core.relay import (
     register_type,
 )
 from config.graphql.core.scalars import GenericScalar
+from config.graphql.ratelimits import (
+    RateLimits,
+    get_user_tier_rate,
+    graphql_ratelimit,
+    graphql_ratelimit_dynamic,
+)
 
 
 @strawberry.type(name="ObtainJSONWebTokenWithUser")
@@ -101,6 +107,33 @@ class DismissGettingStarted:
 register_type("DismissGettingStarted", DismissGettingStarted, model=None)
 
 
+@graphql_ratelimit(rate=RateLimits.AUTH_LOGIN, key="ip", group="mutate")
+def _auth_login_rate_gate(root, info, **kwargs):
+    """Rate-limit gate with the ``(root, info)`` shape core decorators expect.
+
+    IP-keyed rather than user-tier-based: ``tokenAuth`` is called by an
+    unauthenticated client, so there is no user to key on until *after* this
+    succeeds. Shares ``RateLimits.AUTH_LOGIN`` with the Django-admin login
+    view (``config/admin_auth/views.py``) — GraphQL login is just as much a
+    credential-stuffing target as the admin one. See ``_write_light_rate_gate``
+    in ``annotation_mutations.py`` for why this is a standalone gate function
+    invoked from within the mutate body rather than a decorator on the
+    strawberry resolver itself (whose first positional argument is
+    ``payload_cls``, not ``root``).
+    """
+    return None
+
+
+@graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("WRITE_LIGHT"), group="mutate")
+def _write_light_rate_gate(root, info, **kwargs):
+    """Rate-limit gate with the ``(root, info)`` shape core decorators expect.
+
+    See ``_write_light_rate_gate`` in ``annotation_mutations.py`` for the full
+    rationale.
+    """
+    return None
+
+
 def _mutate_ObtainJSONWebTokenWithUser(
     payload_cls, root, info, username=None, password=None
 ):
@@ -114,7 +147,16 @@ def _mutate_ObtainJSONWebTokenWithUser(
     ``on_token_auth_resolve``) plus the project's
     ``ObtainJSONWebTokenWithUser.resolve`` override, which attaches the
     authenticated user to the payload.
+
+    Rate-limited (``RateLimits.AUTH_LOGIN``, IP-keyed) — closes a gap where
+    GraphQL login had no throttling despite the identical Django-admin login
+    view being protected by the same category (issue surfaced by PR #2139
+    review).
     """
+    # Rate limit BEFORE attempting authentication — this must throttle
+    # credential-stuffing attempts regardless of whether they succeed.
+    _auth_login_rate_gate(root, info)
+
     context = info.context
     context._jwt_token_auth = True
 
@@ -176,12 +218,19 @@ def _mutate_UpdateMe(payload_cls, root, info, **kwargs):
     """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:59
 
     Port of UpdateMe.mutate
+
+    Rate-limited (``WRITE_LIGHT``, user-tier) — closes a gap flagged in PR
+    #2139 review where this mutation had no throttling despite every other
+    ported mutation module decorating its writes.
     """
     # @login_required (graphql_jwt) — inlined because mutate stubs take
     # ``payload_cls`` as their first positional argument, which does not
     # match core.auth's ``(root, info, ...)`` calling convention.
     if not info.context.user.is_authenticated:
         raise PermissionDenied()
+    # @graphql_ratelimit_dynamic(get_rate=get_user_tier_rate("WRITE_LIGHT")) —
+    # inlined for the same reason; raises RateLimitExceeded when over.
+    _write_light_rate_gate(root, info)
 
     from config.graphql.serializers import UserUpdateSerializer
 
