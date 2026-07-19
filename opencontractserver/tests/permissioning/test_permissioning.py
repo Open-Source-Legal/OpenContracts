@@ -7,10 +7,10 @@ from django.db import transaction
 from django.db.models.signals import post_save
 from django.dispatch import Signal
 from django.test import TestCase
-from graphene.test import Client
 from graphql_relay import to_global_id
 
 from config.graphql.schema import schema
+from config.graphql.testing import Client
 from opencontractserver.analyzer.models import Analysis, Analyzer, GremlinEngine
 from opencontractserver.analyzer.signals import install_gremlin_on_creation
 from opencontractserver.annotations.models import (

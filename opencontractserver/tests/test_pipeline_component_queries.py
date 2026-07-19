@@ -4,9 +4,9 @@ import os
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
 from django.test import TestCase
-from graphene.test import Client
 
 from config.graphql.schema import schema
+from config.graphql.testing import Client
 from opencontractserver.documents.models import PipelineSettings
 from opencontractserver.pipeline.registry import reset_registry
 
@@ -28,6 +28,7 @@ class PipelineComponentQueriesTestCase(TestCase):
     embedder_path: str
     thumbnailer_path: str
     post_processor_path: str
+    _embedder_path_original_content: str | None
 
     @classmethod
     def setUpClass(cls):
@@ -202,10 +203,23 @@ class TestPostProcessor(BasePostProcessor):
             f.write(cls.parser_code)
         cls.test_files.append(cls.parser_path)
 
+        # ``test_embedder.py`` is NOT a scratch file like the other three —
+        # ``config/settings/test.py`` names ``TestEmbedder`` at this exact
+        # path as ``DEFAULT_EMBEDDER`` for the whole test settings module, so
+        # every other test in the suite (in this worker and any other, since
+        # xdist workers share one checkout) depends on it existing after this
+        # class tears down. Back up its real content and restore it in
+        # ``remove_test_components`` instead of deleting it outright (the
+        # naive delete previously left it permanently missing for the rest
+        # of the run whenever this test class executed).
         os.makedirs(os.path.dirname(cls.embedder_path), exist_ok=True)
+        if os.path.exists(cls.embedder_path):
+            with open(cls.embedder_path) as f:
+                cls._embedder_path_original_content = f.read()
+        else:
+            cls._embedder_path_original_content = None
         with open(cls.embedder_path, "w") as f:
             f.write(cls.embedder_code)
-        cls.test_files.append(cls.embedder_path)
 
         os.makedirs(os.path.dirname(cls.thumbnailer_path), exist_ok=True)
         with open(cls.thumbnailer_path, "w") as f:
@@ -225,6 +239,16 @@ class TestPostProcessor(BasePostProcessor):
             if os.path.exists(file_path):
                 os.remove(file_path)
         cls.test_files = []
+
+        # Restore (or remove, if it didn't previously exist) the real
+        # ``test_embedder.py`` rather than deleting it — see the comment in
+        # ``create_test_components``.
+        original_content = getattr(cls, "_embedder_path_original_content", None)
+        if original_content is not None:
+            with open(cls.embedder_path, "w") as f:
+                f.write(original_content)
+        elif os.path.exists(cls.embedder_path):
+            os.remove(cls.embedder_path)
 
     # Class-level constants for test component paths.  Every test that
     # relies on a specific component being configured should reference

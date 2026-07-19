@@ -535,7 +535,9 @@ class IntelligenceSetupGraphQLTestCase(TestCase):
 
         request = RequestFactory().post("/graphql/")
         request.user = user
-        result = schema.execute(query, variable_values=variables, context_value=request)
+        result = schema.execute_sync(
+            query, variable_values=variables, context_value=request
+        )
         self.assertIsNone(result.errors, result.errors)
         return result.data
 

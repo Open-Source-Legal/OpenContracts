@@ -1,298 +1,380 @@
-"""GraphQL type definitions for pipeline-related types."""
+"""Generated strawberry GraphQL module (graphene migration).
 
-import graphene
-from graphene.types.generic import GenericScalar
+Shape-generated from the graphene schema; stub functions marked PORT(...)
+carry the ported business logic. See config/graphql_new/manifest.json.
+"""
 
-from config.graphql.user_types import UserType
-from opencontractserver.pipeline.base.file_types import (
-    FileTypeEnum as BackendFileTypeEnum,
+# mypy: disable-error-code="name-defined, valid-type, arg-type"
+#   Code-generation artifacts of the strawberry schema bindings that
+#   mypy's static pass cannot resolve, NOT real typing defects:
+#     name-defined / valid-type — ``Annotated["XType", strawberry.lazy(...)]``
+#       forward-reference strings + the runtime-generated ``*Connection``
+#       types (``make_connection_types``).
+#     arg-type — resolvers construct result types with ``to_global_id()``
+#       (``str``) for ``strawberry.ID`` fields and return Django MODEL
+#       instances where the field annotation names the strawberry type
+#       (the graphene-django resolver contract). Both are correct at
+#       runtime. Hand-written config/graphql/core/* stays fully checked.
+# flake8: noqa: E501, F821 — generated strawberry schema module.
+# E501: long GraphQL field/argument ``description=`` strings and the
+# single-line generated resolver signatures (black cannot split string
+# literals). F821: ``Annotated["XType", strawberry.lazy(...)]`` /
+# ``cast("QuerySet", ...)`` forward-reference STRINGS that pyflakes
+# resolves as names — the whole point of strawberry.lazy is to avoid the
+# import (which would then be F401). Both are code-generation artifacts,
+# not defects; hand-written modules (config/graphql/core/*, security.py,
+# testing.py, filters.py, …) stay fully linted.
+
+from __future__ import annotations
+
+import datetime
+from typing import Annotated
+
+import strawberry
+
+from config.graphql import enums
+from config.graphql.core.relay import (
+    register_type,
 )
-
-# Derived from BackendFileTypeEnum to prevent schema drift.
-FileTypeEnum = graphene.Enum.from_enum(BackendFileTypeEnum)
+from config.graphql.core.scalars import GenericScalar
 
 
-class ComponentSettingSchemaType(graphene.ObjectType):
-    """
-    Schema for a single pipeline component setting.
-
-    Describes a configuration option that can be set in PipelineSettings
-    for a specific component.
-    """
-
-    name = graphene.String(
-        required=True,
-        description="Setting name (used as key in component_settings dict).",
+@strawberry.type(
+    name="PipelineComponentsType",
+    description="Graphene type for grouping pipeline components.",
+)
+class PipelineComponentsType:
+    parsers: list[PipelineComponentType | None] | None = strawberry.field(
+        name="parsers", description="List of available parsers.", default=None
     )
-    setting_type = graphene.String(
-        required=True, description="Type: 'required', 'optional', or 'secret'."
+    embedders: list[PipelineComponentType | None] | None = strawberry.field(
+        name="embedders", description="List of available embedders.", default=None
     )
-    python_type = graphene.String(
-        description="Python type hint (e.g., 'str', 'int', 'bool')."
+    thumbnailers: list[PipelineComponentType | None] | None = strawberry.field(
+        name="thumbnailers",
+        description="List of available thumbnail generators.",
+        default=None,
     )
-    required = graphene.Boolean(
-        required=True,
-        description="Whether this setting must have a value for the component to work.",
+    post_processors: list[PipelineComponentType | None] | None = strawberry.field(
+        name="postProcessors",
+        description="List of available post-processors.",
+        default=None,
     )
-    description = graphene.String(
-        description="Human-readable description of the setting."
-    )
-    default = GenericScalar(description="Default value if not configured.")
-    env_var = graphene.String(
-        description="Environment variable name used during migration seeding."
-    )
-    has_value = graphene.Boolean(
-        description="Whether this setting currently has a value configured."
-    )
-    current_value = GenericScalar(
-        description="Current value (always null for secrets to avoid exposure)."
-    )
-
-
-class PipelineComponentType(graphene.ObjectType):
-    """Graphene type for pipeline components."""
-
-    name = graphene.String(description="Name of the component class.")
-    class_name = graphene.String(description="Full Python path to the component class.")
-    module_name = graphene.String(description="Name of the module the component is in.")
-    title = graphene.String(description="Title of the component.")
-    description = graphene.String(description="Description of the component.")
-    author = graphene.String(description="Author of the component.")
-    dependencies = graphene.List(
-        graphene.String, description="List of dependencies required by the component."
-    )
-    vector_size = graphene.Int(description="Vector size for embedders.", required=False)
-    supported_file_types = graphene.List(
-        FileTypeEnum, description="List of supported file types."
-    )
-    supported_extensions = graphene.List(
-        graphene.String,
-        description="File converters: source-file extensions the converter "
-        "can turn into PDF (plain strings, since converters target formats "
-        "with no FileTypeEnum member). Empty for other component types.",
-        required=False,
-    )
-    component_type = graphene.String(
-        description="Type of the component (parser, embedder, or thumbnailer)."
-    )
-    input_schema = GenericScalar(
-        description="JSONSchema schema for inputs supported from user (experimental - not fully implemented)."
-    )
-    settings_schema = graphene.List(
-        ComponentSettingSchemaType,
-        description="Schema for component configuration settings stored in PipelineSettings.",
-    )
-    # Multimodal support flags (for embedders)
-    is_multimodal = graphene.Boolean(
-        description="Whether this embedder supports multiple modalities (text + images).",
-        required=False,
-    )
-    supports_text = graphene.Boolean(
-        description="Whether this embedder supports text input.", required=False
-    )
-    supports_images = graphene.Boolean(
-        description="Whether this embedder supports image input.", required=False
-    )
-    # LLM-provider routing metadata (set only for ComponentType.LLM_PROVIDER)
-    provider_key = graphene.String(
-        description="LLM providers: pydantic-ai prefix (e.g. 'anthropic'). Null for other component types.",
-        required=False,
-    )
-    supported_models = graphene.List(
-        graphene.String,
-        description="LLM providers: suggested bare model names exposed to the UI. Empty for other component types.",
-        required=False,
-    )
-    requires_api_key = graphene.Boolean(
-        description="LLM providers: whether the provider needs an API credential.",
-        required=False,
-    )
-    enabled = graphene.Boolean(
-        description="Whether this component is enabled for use in pipeline configuration.",
-        required=True,
-    )
-
-
-class PipelineComponentsType(graphene.ObjectType):
-    """Graphene type for grouping pipeline components."""
-
-    parsers = graphene.List(
-        PipelineComponentType, description="List of available parsers."
-    )
-    embedders = graphene.List(
-        PipelineComponentType, description="List of available embedders."
-    )
-    thumbnailers = graphene.List(
-        PipelineComponentType, description="List of available thumbnail generators."
-    )
-    post_processors = graphene.List(
-        PipelineComponentType, description="List of available post-processors."
-    )
-    rerankers = graphene.List(
-        PipelineComponentType,
+    rerankers: list[PipelineComponentType | None] | None = strawberry.field(
+        name="rerankers",
         description="List of available post-retrieval rerankers.",
+        default=None,
     )
-    enrichers = graphene.List(
-        PipelineComponentType,
+    enrichers: list[PipelineComponentType | None] | None = strawberry.field(
+        name="enrichers",
         description="List of available document enrichers (run between parsing and persistence).",
+        default=None,
     )
-    llm_providers = graphene.List(
-        PipelineComponentType,
-        description="List of available LLM providers (pydantic-ai model "
-        "families) that can be set as Corpus.preferred_llm or "
-        "AgentConfiguration.preferred_llm.",
+    llm_providers: list[PipelineComponentType | None] | None = strawberry.field(
+        name="llmProviders",
+        description="List of available LLM providers (pydantic-ai model families) that can be set as Corpus.preferred_llm or AgentConfiguration.preferred_llm.",
+        default=None,
     )
-    file_converters = graphene.List(
-        PipelineComponentType,
-        description="List of available pre-parse file converters (convert "
-        "non-native upload formats to PDF before parsing).",
-    )
-
-
-# ==============================================================================
-# PIPELINE SETTINGS TYPES (Runtime-configurable document processing settings)
-# ==============================================================================
-
-
-class StageCoverageType(graphene.ObjectType):
-    """Coverage of pipeline stages for a given file type."""
-
-    parser = graphene.Boolean(
-        required=True,
-        description="Whether at least one parser supports this file type.",
-    )
-    embedder = graphene.Boolean(
-        required=True,
-        description="GLOBAL flag: True when at least one text embedder is registered "
-        "anywhere in the pipeline — does NOT indicate per-file-type coverage. "
-        "All current embedders operate on extracted text regardless of source "
-        "format, so this value is identical across all file types. Do not use "
-        "this field to determine whether a specific MIME type can be embedded.",
-    )
-    thumbnailer = graphene.Boolean(
-        required=True,
-        description="Whether at least one thumbnailer supports this file type.",
+    file_converters: list[PipelineComponentType | None] | None = strawberry.field(
+        name="fileConverters",
+        description="List of available pre-parse file converters (convert non-native upload formats to PDF before parsing).",
+        default=None,
     )
 
 
-class SupportedMimeTypeType(graphene.ObjectType):
-    """
-    Information about a MIME type's support level in the pipeline.
+register_type("PipelineComponentsType", PipelineComponentsType, model=None)
 
-    Derived dynamically from registered pipeline components.
-    """
 
-    mimetype = graphene.String(
-        required=True,
+@strawberry.type(
+    name="PipelineComponentType", description="Graphene type for pipeline components."
+)
+class PipelineComponentType:
+    name: str | None = strawberry.field(
+        name="name", description="Name of the component class.", default=None
+    )
+    class_name: str | None = strawberry.field(
+        name="className",
+        description="Full Python path to the component class.",
+        default=None,
+    )
+    module_name: str | None = strawberry.field(
+        name="moduleName",
+        description="Name of the module the component is in.",
+        default=None,
+    )
+    title: str | None = strawberry.field(
+        name="title", description="Title of the component.", default=None
+    )
+    description: str | None = strawberry.field(
+        name="description", description="Description of the component.", default=None
+    )
+    author: str | None = strawberry.field(
+        name="author", description="Author of the component.", default=None
+    )
+    dependencies: list[str | None] | None = strawberry.field(
+        name="dependencies",
+        description="List of dependencies required by the component.",
+        default=None,
+    )
+    vector_size: int | None = strawberry.field(
+        name="vectorSize", description="Vector size for embedders.", default=None
+    )
+    supported_file_types: list[enums.FileTypeEnum | None] | None = strawberry.field(
+        name="supportedFileTypes",
+        description="List of supported file types.",
+        default=None,
+    )
+    supported_extensions: list[str | None] | None = strawberry.field(
+        name="supportedExtensions",
+        description="File converters: source-file extensions the converter can turn into PDF (plain strings, since converters target formats with no FileTypeEnum member). Empty for other component types.",
+        default=None,
+    )
+    component_type: str | None = strawberry.field(
+        name="componentType",
+        description="Type of the component (parser, embedder, or thumbnailer).",
+        default=None,
+    )
+    input_schema: GenericScalar | None = strawberry.field(
+        name="inputSchema",
+        description="JSONSchema schema for inputs supported from user (experimental - not fully implemented).",
+        default=None,
+    )
+    settings_schema: list[ComponentSettingSchemaType | None] | None = strawberry.field(
+        name="settingsSchema",
+        description="Schema for component configuration settings stored in PipelineSettings.",
+        default=None,
+    )
+    is_multimodal: bool | None = strawberry.field(
+        name="isMultimodal",
+        description="Whether this embedder supports multiple modalities (text + images).",
+        default=None,
+    )
+    supports_text: bool | None = strawberry.field(
+        name="supportsText",
+        description="Whether this embedder supports text input.",
+        default=None,
+    )
+    supports_images: bool | None = strawberry.field(
+        name="supportsImages",
+        description="Whether this embedder supports image input.",
+        default=None,
+    )
+    provider_key: str | None = strawberry.field(
+        name="providerKey",
+        description="LLM providers: pydantic-ai prefix (e.g. 'anthropic'). Null for other component types.",
+        default=None,
+    )
+    supported_models: list[str | None] | None = strawberry.field(
+        name="supportedModels",
+        description="LLM providers: suggested bare model names exposed to the UI. Empty for other component types.",
+        default=None,
+    )
+    requires_api_key: bool | None = strawberry.field(
+        name="requiresApiKey",
+        description="LLM providers: whether the provider needs an API credential.",
+        default=None,
+    )
+    enabled: bool = strawberry.field(
+        name="enabled",
+        description="Whether this component is enabled for use in pipeline configuration.",
+        default=None,
+    )
+
+
+register_type("PipelineComponentType", PipelineComponentType, model=None)
+
+
+@strawberry.type(
+    name="ComponentSettingSchemaType",
+    description="Schema for a single pipeline component setting.\n\nDescribes a configuration option that can be set in PipelineSettings\nfor a specific component.",
+)
+class ComponentSettingSchemaType:
+    name: str = strawberry.field(
+        name="name",
+        description="Setting name (used as key in component_settings dict).",
+        default=None,
+    )
+    setting_type: str = strawberry.field(
+        name="settingType",
+        description="Type: 'required', 'optional', or 'secret'.",
+        default=None,
+    )
+    python_type: str | None = strawberry.field(
+        name="pythonType",
+        description="Python type hint (e.g., 'str', 'int', 'bool').",
+        default=None,
+    )
+    required: bool = strawberry.field(
+        name="required",
+        description="Whether this setting must have a value for the component to work.",
+        default=None,
+    )
+    description: str | None = strawberry.field(
+        name="description",
+        description="Human-readable description of the setting.",
+        default=None,
+    )
+    default: GenericScalar | None = strawberry.field(
+        name="default", description="Default value if not configured.", default=None
+    )
+    env_var: str | None = strawberry.field(
+        name="envVar",
+        description="Environment variable name used during migration seeding.",
+        default=None,
+    )
+    has_value: bool | None = strawberry.field(
+        name="hasValue",
+        description="Whether this setting currently has a value configured.",
+        default=None,
+    )
+    current_value: GenericScalar | None = strawberry.field(
+        name="currentValue",
+        description="Current value (always null for secrets to avoid exposure).",
+        default=None,
+    )
+
+
+register_type("ComponentSettingSchemaType", ComponentSettingSchemaType, model=None)
+
+
+@strawberry.type(
+    name="SupportedMimeTypeType",
+    description="Information about a MIME type's support level in the pipeline.\n\nDerived dynamically from registered pipeline components.",
+)
+class SupportedMimeTypeType:
+    mimetype: str = strawberry.field(
+        name="mimetype",
         description="Canonical MIME type string (e.g. 'application/pdf').",
+        default=None,
     )
-    file_type = graphene.String(
-        required=True, description="Short file type label (e.g. 'pdf')."
+    file_type: str = strawberry.field(
+        name="fileType", description="Short file type label (e.g. 'pdf').", default=None
     )
-    label = graphene.String(
-        required=True, description="Human-readable label (e.g. 'PDF')."
+    label: str = strawberry.field(
+        name="label", description="Human-readable label (e.g. 'PDF').", default=None
     )
-    fully_supported = graphene.Boolean(
-        required=True,
-        description="Whether the required pipeline stages (parser and embedder) "
-        "have at least one component for this file type. "
-        "Thumbnailer is optional — file types without one are still uploadable.",
+    fully_supported: bool = strawberry.field(
+        name="fullySupported",
+        description="Whether the required pipeline stages (parser and embedder) have at least one component for this file type. Thumbnailer is optional — file types without one are still uploadable.",
+        default=None,
     )
-    stage_coverage = graphene.Field(
-        StageCoverageType,
-        required=True,
+    stage_coverage: StageCoverageType = strawberry.field(
+        name="stageCoverage",
         description="Per-stage availability for this file type.",
+        default=None,
     )
 
 
-class PipelineSettingsType(graphene.ObjectType):
-    """
-    GraphQL type for PipelineSettings singleton.
+register_type("SupportedMimeTypeType", SupportedMimeTypeType, model=None)
 
-    Exposes the runtime-configurable document processing pipeline settings.
-    Only superusers can modify these settings via mutation.
-    """
 
-    # Preferred components per MIME type
-    preferred_parsers = GenericScalar(
-        description="Mapping of MIME types to preferred parser class paths"
+@strawberry.type(
+    name="StageCoverageType",
+    description="Coverage of pipeline stages for a given file type.",
+)
+class StageCoverageType:
+    parser: bool = strawberry.field(
+        name="parser",
+        description="Whether at least one parser supports this file type.",
+        default=None,
     )
-    preferred_embedders = GenericScalar(
-        description="Mapping of MIME types to preferred embedder class paths. "
-        "API-only (issue #2114): has no effect at ingest, which always "
-        "resolves the single global default_embedder to keep the "
-        "cross-corpus vector index on one embedding space."
+    embedder: bool = strawberry.field(
+        name="embedder",
+        description="GLOBAL flag: True when at least one text embedder is registered anywhere in the pipeline — does NOT indicate per-file-type coverage. All current embedders operate on extracted text regardless of source format, so this value is identical across all file types. Do not use this field to determine whether a specific MIME type can be embedded.",
+        default=None,
     )
-    preferred_thumbnailers = GenericScalar(
-        description="Mapping of MIME types to preferred thumbnailer class paths"
-    )
-    preferred_enrichers = GenericScalar(
-        description="Mapping of MIME types to ORDERED LISTS of preferred enricher "
-        "class paths (the enrichment chain run between parsing and persistence)."
+    thumbnailer: bool = strawberry.field(
+        name="thumbnailer",
+        description="Whether at least one thumbnailer supports this file type.",
+        default=None,
     )
 
-    # Component configuration
-    parser_kwargs = GenericScalar(
-        description="Mapping of parser class paths to their configuration kwargs"
-    )
-    component_settings = GenericScalar(
-        description="Mapping of component class paths to settings overrides"
-    )
 
-    # Default embedder
-    default_embedder = graphene.String(
-        description="Default embedder class path used for all ingest embedding. "
-        "There is no MIME-specific override; see preferred_embedders."
-    )
+register_type("StageCoverageType", StageCoverageType, model=None)
 
-    # Default reranker (post-retrieval). Empty string means reranking disabled.
-    default_reranker = graphene.String(
-        description="Default post-retrieval reranker class path. Empty string "
-        "means reranking is disabled and first-stage retrieval "
-        "results are returned as-is.",
-        required=False,
-    )
 
-    # Pre-parse file converter. Empty string means conversion disabled.
-    default_file_converter = graphene.String(
-        description="File converter class path used to convert non-native "
-        "upload formats to PDF before parsing. Empty string "
-        "disables the conversion step.",
-        required=False,
+@strawberry.type(
+    name="PipelineSettingsType",
+    description="GraphQL type for PipelineSettings singleton.\n\nExposes the runtime-configurable document processing pipeline settings.\nOnly superusers can modify these settings via mutation.",
+)
+class PipelineSettingsType:
+    preferred_parsers: GenericScalar | None = strawberry.field(
+        name="preferredParsers",
+        description="Mapping of MIME types to preferred parser class paths",
+        default=None,
     )
-
-    # Default LLM model spec for agents. Empty string falls back to the
-    # Django settings default (DEFAULT_LLM / OPENAI_MODEL).
-    default_llm = graphene.String(
-        description="Install-wide default LLM model spec (pydantic-ai "
-        "'{provider}:{model}' form, e.g. 'anthropic:claude-opus-4-6') used by "
-        "agents when no per-corpus or per-agent override is set. Empty string "
-        "means the Django settings default is used.",
-        required=False,
+    preferred_embedders: GenericScalar | None = strawberry.field(
+        name="preferredEmbedders",
+        description="Mapping of MIME types to preferred embedder class paths. API-only (issue #2114): has no effect at ingest, which always resolves the single global default_embedder to keep the cross-corpus vector index on one embedding space.",
+        default=None,
     )
-
-    # Secrets indicator (actual secrets are never exposed via GraphQL)
-    components_with_secrets = graphene.List(
-        graphene.String,
-        description="List of component paths that have encrypted secrets configured. "
-        "Actual secret values are never exposed via GraphQL.",
+    preferred_thumbnailers: GenericScalar | None = strawberry.field(
+        name="preferredThumbnailers",
+        description="Mapping of MIME types to preferred thumbnailer class paths",
+        default=None,
     )
-
-    # Tool secrets indicator
-    tools_with_secrets = graphene.List(
-        graphene.String,
-        description="List of tool keys (e.g. 'tool:web_search') that have encrypted "
-        "secrets configured. Actual secret values are never exposed.",
+    preferred_enrichers: GenericScalar | None = strawberry.field(
+        name="preferredEnrichers",
+        description="Mapping of MIME types to ORDERED LISTS of preferred enricher class paths (the enrichment chain run between parsing and persistence).",
+        default=None,
     )
-
-    # Enabled components filter
-    enabled_components = graphene.List(
-        graphene.String,
+    parser_kwargs: GenericScalar | None = strawberry.field(
+        name="parserKwargs",
+        description="Mapping of parser class paths to their configuration kwargs",
+        default=None,
+    )
+    component_settings: GenericScalar | None = strawberry.field(
+        name="componentSettings",
+        description="Mapping of component class paths to settings overrides",
+        default=None,
+    )
+    default_embedder: str | None = strawberry.field(
+        name="defaultEmbedder",
+        description="Default embedder class path used for all ingest embedding. There is no MIME-specific override; see preferred_embedders.",
+        default=None,
+    )
+    default_reranker: str | None = strawberry.field(
+        name="defaultReranker",
+        description="Default post-retrieval reranker class path. Empty string means reranking is disabled and first-stage retrieval results are returned as-is.",
+        default=None,
+    )
+    default_file_converter: str | None = strawberry.field(
+        name="defaultFileConverter",
+        description="File converter class path used to convert non-native upload formats to PDF before parsing. Empty string disables the conversion step.",
+        default=None,
+    )
+    default_llm: str | None = strawberry.field(
+        name="defaultLlm",
+        description="Install-wide default LLM model spec (pydantic-ai '{provider}:{model}' form, e.g. 'anthropic:claude-opus-4-6') used by agents when no per-corpus or per-agent override is set. Empty string means the Django settings default is used.",
+        default=None,
+    )
+    components_with_secrets: list[str | None] | None = strawberry.field(
+        name="componentsWithSecrets",
+        description="List of component paths that have encrypted secrets configured. Actual secret values are never exposed via GraphQL.",
+        default=None,
+    )
+    tools_with_secrets: list[str | None] | None = strawberry.field(
+        name="toolsWithSecrets",
+        description="List of tool keys (e.g. 'tool:web_search') that have encrypted secrets configured. Actual secret values are never exposed.",
+        default=None,
+    )
+    enabled_components: list[str | None] | None = strawberry.field(
+        name="enabledComponents",
         description="List of enabled component class paths. Empty means all enabled.",
+        default=None,
+    )
+    modified: datetime.datetime | None = strawberry.field(
+        name="modified",
+        description="When these settings were last modified",
+        default=None,
+    )
+    modified_by: None | (
+        Annotated[UserType, strawberry.lazy("config.graphql.user_types")]
+    ) = strawberry.field(
+        name="modifiedBy",
+        description="User who last modified these settings",
+        default=None,
     )
 
-    # Audit fields
-    modified = graphene.DateTime(description="When these settings were last modified")
-    modified_by = graphene.Field(
-        UserType, description="User who last modified these settings"
-    )
+
+register_type("PipelineSettingsType", PipelineSettingsType, model=None)

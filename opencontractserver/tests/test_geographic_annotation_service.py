@@ -459,10 +459,10 @@ class GeographicQueryResolverErrorTests(TestCase):
     """
 
     def test_corpus_resolver_returns_graphql_error_on_bad_label_type(self):
-        from graphene.test import Client
         from graphql_relay import to_global_id
 
         from config.graphql.schema import schema
+        from config.graphql.testing import Client
 
         owner = User.objects.create_user(username="resolver-owner", password="x")
         corpus = Corpus.objects.create(title="resolver-c", creator=owner)
@@ -495,9 +495,8 @@ class GeographicQueryResolverErrorTests(TestCase):
         self.assertTrue(any("municipality" in str(e) for e in result["errors"]))
 
     def test_global_resolver_returns_graphql_error_on_bad_label_type(self):
-        from graphene.test import Client
-
         from config.graphql.schema import schema
+        from config.graphql.testing import Client
 
         owner = User.objects.create_user(username="resolver-owner-g", password="x")
 

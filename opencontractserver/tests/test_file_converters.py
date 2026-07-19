@@ -19,10 +19,10 @@ from unittest.mock import MagicMock, patch
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.test import TestCase
-from graphene.test import Client
 from requests.exceptions import ConnectionError, HTTPError, Timeout
 
 from config.graphql.schema import schema
+from config.graphql.testing import Client
 from opencontractserver.constants.document_processing import (
     OCTET_STREAM_MIME_TYPE,
     PDF_MIME_TYPE,

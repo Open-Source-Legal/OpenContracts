@@ -6,11 +6,11 @@ from django.contrib import admin
 from django.http import HttpResponseRedirect, JsonResponse
 from django.urls import include, path
 from django.views import defaults as default_views
-from graphene_django.views import GraphQLView
 
 from config.admin_auth.views import Auth0AdminLoginView, Auth0AdminLogoutView
-from config.graphql.schema import validation_rules
+from config.graphql.schema import schema
 from config.graphql.security import conditional_csrf_exempt
+from config.graphql.views import GraphQLView
 from opencontractserver.analyzer.views import AnalysisCallbackView
 from opencontractserver.annotations.views import AnnotationImagesView
 
@@ -58,8 +58,8 @@ urlpatterns = [
         "graphql/",
         conditional_csrf_exempt(
             GraphQLView.as_view(
-                graphiql=settings.DEBUG,
-                validation_rules=validation_rules,
+                schema=schema,
+                graphql_ide="graphiql" if settings.DEBUG else None,
             )
         ),
     ),

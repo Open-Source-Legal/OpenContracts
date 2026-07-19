@@ -39,9 +39,8 @@ class _Ctx:
 
 
 def _run(query, user, **variables):
-    from graphene.test import Client
-
     from config.graphql.schema import schema
+    from config.graphql.testing import Client
 
     return Client(schema, context_value=_Ctx(user)).execute(query, variables=variables)
 

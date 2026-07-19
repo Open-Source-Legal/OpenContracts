@@ -14,10 +14,10 @@ Tests cover:
 import pytest
 from django.contrib.auth.models import AnonymousUser
 from django.test import RequestFactory, TestCase
-from graphene.test import Client
 from graphql_relay import to_global_id
 
 from config.graphql.schema import schema
+from config.graphql.testing import Client
 from opencontractserver.constants.corpus_categories import (
     DEFAULT_CATEGORY_COLOR,
     DEFAULT_CATEGORY_ICON,

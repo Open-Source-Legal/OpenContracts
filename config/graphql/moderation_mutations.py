@@ -1,28 +1,43 @@
-"""
-GraphQL mutations for moderation actions.
+"""Generated strawberry GraphQL module (graphene migration).
 
-This module provides mutations for moderating threads and messages:
-- LockThreadMutation: Lock conversation to prevent new messages
-- UnlockThreadMutation: Unlock conversation
-- PinThreadMutation: Pin conversation to top
-- UnpinThreadMutation: Unpin conversation
-- DeleteThreadMutation: Soft delete conversation/thread
-- RestoreThreadMutation: Restore soft-deleted conversation/thread
-- AddModeratorMutation: Add moderator to corpus
-- RemoveModeratorMutation: Remove moderator from corpus
-- UpdateModeratorPermissionsMutation: Update moderator permissions
-- RollbackModerationActionMutation: Rollback a moderation action
+Shape-generated from the graphene schema; stub functions marked PORT(...)
+carry the ported business logic. See config/graphql_new/manifest.json.
 """
+
+# mypy: disable-error-code="name-defined, valid-type, arg-type"
+#   Code-generation artifacts of the strawberry schema bindings that
+#   mypy's static pass cannot resolve, NOT real typing defects:
+#     name-defined / valid-type — ``Annotated["XType", strawberry.lazy(...)]``
+#       forward-reference strings + the runtime-generated ``*Connection``
+#       types (``make_connection_types``).
+#     arg-type — resolvers construct result types with ``to_global_id()``
+#       (``str``) for ``strawberry.ID`` fields and return Django MODEL
+#       instances where the field annotation names the strawberry type
+#       (the graphene-django resolver contract). Both are correct at
+#       runtime. Hand-written config/graphql/core/* stays fully checked.
+# flake8: noqa: E501, F821 — generated strawberry schema module.
+# E501: long GraphQL field/argument ``description=`` strings and the
+# single-line generated resolver signatures (black cannot split string
+# literals). F821: ``Annotated["XType", strawberry.lazy(...)]`` /
+# ``cast("QuerySet", ...)`` forward-reference STRINGS that pyflakes
+# resolves as names — the whole point of strawberry.lazy is to avoid the
+# import (which would then be F401). Both are code-generation artifacts,
+# not defects; hand-written modules (config/graphql/core/*, security.py,
+# testing.py, filters.py, …) stay fully linted.
 
 from __future__ import annotations
 
 import logging
+from typing import Annotated
 
-import graphene
-from graphql_jwt.decorators import login_required
+import strawberry
 from graphql_relay import from_global_id
 
-from config.graphql.graphene_types import ConversationType
+from config.graphql._util import strip_unset
+from config.graphql.core.auth import PermissionDenied
+from config.graphql.core.relay import (
+    register_type,
+)
 from config.graphql.ratelimits import graphql_ratelimit
 from opencontractserver.conversations.models import (
     ChatMessage,
@@ -32,6 +47,15 @@ from opencontractserver.conversations.models import (
 from opencontractserver.corpuses.models import Corpus
 
 logger = logging.getLogger(__name__)
+
+# NOTE on decorators: the graphene mutations were decorated with
+# ``@login_required`` + ``@graphql_ratelimit(...)`` on ``mutate(root, info, …)``.
+# Mutate stubs here take ``payload_cls`` as their first positional argument,
+# which does not match those decorators' ``(root, info, ...)`` calling
+# convention — so ``login_required`` is inlined (see user_mutations.py) and
+# ``graphql_ratelimit`` is applied to an inner function named ``mutate`` so
+# the rate-limit cache group (defaults to the decorated function's
+# ``__name__``) stays "mutate", exactly as in the graphene layer.
 
 
 def get_conversation_with_moderation_check(conversation_id, user):
@@ -62,27 +86,176 @@ def get_conversation_with_moderation_check(conversation_id, user):
         return None, "Conversation not found"
 
 
-class LockThreadMutation(graphene.Mutation):
+@strawberry.type(
+    name="LockThreadMutation",
+    description="Lock a conversation/thread to prevent new messages.\nOnly corpus owners or moderators with lock_threads permission can lock threads.",
+)
+class LockThreadMutation:
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
+        Annotated[
+            ConversationType, strawberry.lazy("config.graphql.conversation_types")
+        ]
+    ) = strawberry.field(name="obj", default=None)
+
+
+register_type("LockThreadMutation", LockThreadMutation, model=None)
+
+
+@strawberry.type(
+    name="UnlockThreadMutation",
+    description="Unlock a conversation/thread to allow new messages.\nOnly corpus owners or moderators with lock_threads permission can unlock threads.",
+)
+class UnlockThreadMutation:
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
+        Annotated[
+            ConversationType, strawberry.lazy("config.graphql.conversation_types")
+        ]
+    ) = strawberry.field(name="obj", default=None)
+
+
+register_type("UnlockThreadMutation", UnlockThreadMutation, model=None)
+
+
+@strawberry.type(
+    name="PinThreadMutation",
+    description="Pin a conversation/thread to the top of the list.\nOnly corpus owners or moderators with pin_threads permission can pin threads.",
+)
+class PinThreadMutation:
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
+        Annotated[
+            ConversationType, strawberry.lazy("config.graphql.conversation_types")
+        ]
+    ) = strawberry.field(name="obj", default=None)
+
+
+register_type("PinThreadMutation", PinThreadMutation, model=None)
+
+
+@strawberry.type(
+    name="UnpinThreadMutation",
+    description="Unpin a conversation/thread from the top of the list.\nOnly corpus owners or moderators with pin_threads permission can unpin threads.",
+)
+class UnpinThreadMutation:
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
+        Annotated[
+            ConversationType, strawberry.lazy("config.graphql.conversation_types")
+        ]
+    ) = strawberry.field(name="obj", default=None)
+
+
+register_type("UnpinThreadMutation", UnpinThreadMutation, model=None)
+
+
+@strawberry.type(
+    name="DeleteThreadMutation",
+    description="Soft delete a thread (conversation).\nOnly moderators or thread creators can delete threads.",
+)
+class DeleteThreadMutation:
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    conversation: None | (
+        Annotated[
+            ConversationType, strawberry.lazy("config.graphql.conversation_types")
+        ]
+    ) = strawberry.field(name="conversation", default=None)
+
+
+register_type("DeleteThreadMutation", DeleteThreadMutation, model=None)
+
+
+@strawberry.type(
+    name="RestoreThreadMutation",
+    description="Restore a soft-deleted thread.\nOnly moderators or thread creators can restore threads.",
+)
+class RestoreThreadMutation:
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    conversation: None | (
+        Annotated[
+            ConversationType, strawberry.lazy("config.graphql.conversation_types")
+        ]
+    ) = strawberry.field(name="conversation", default=None)
+
+
+register_type("RestoreThreadMutation", RestoreThreadMutation, model=None)
+
+
+@strawberry.type(
+    name="AddModeratorMutation",
+    description="Add a moderator to a corpus with specific permissions.\nOnly corpus owners can add moderators.",
+)
+class AddModeratorMutation:
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+
+
+register_type("AddModeratorMutation", AddModeratorMutation, model=None)
+
+
+@strawberry.type(
+    name="RemoveModeratorMutation",
+    description="Remove a moderator from a corpus.\nOnly corpus owners can remove moderators.",
+)
+class RemoveModeratorMutation:
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+
+
+register_type("RemoveModeratorMutation", RemoveModeratorMutation, model=None)
+
+
+@strawberry.type(
+    name="UpdateModeratorPermissionsMutation",
+    description="Update a moderator's permissions for a corpus.\nOnly corpus owners can update moderator permissions.",
+)
+class UpdateModeratorPermissionsMutation:
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+
+
+register_type(
+    "UpdateModeratorPermissionsMutation", UpdateModeratorPermissionsMutation, model=None
+)
+
+
+@strawberry.type(
+    name="RollbackModerationActionMutation",
+    description="Rollback a moderation action by executing its inverse.\n- delete_message -> restore_message\n- delete_thread -> restore_thread\n- lock_thread -> unlock_thread\n- pin_thread -> unpin_thread\n\nOnly moderators with appropriate permissions can rollback.\nCreates a new ModerationAction record for the rollback.",
+)
+class RollbackModerationActionMutation:
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    rollback_action: None | (
+        Annotated[
+            ModerationActionType, strawberry.lazy("config.graphql.conversation_types")
+        ]
+    ) = strawberry.field(name="rollbackAction", default=None)
+
+
+register_type(
+    "RollbackModerationActionMutation", RollbackModerationActionMutation, model=None
+)
+
+
+def _mutate_LockThreadMutation(payload_cls, root, info, conversation_id, reason=""):
+    """PORT: /home/user/oc-graphene-ref/config/graphql/moderation_mutations.py:83
+
+    Port of LockThreadMutation.mutate
     """
-    Lock a conversation/thread to prevent new messages.
-    Only corpus owners or moderators with lock_threads permission can lock threads.
-    """
+    # @login_required — inlined (see module NOTE above).
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
 
-    class Arguments:
-        conversation_id = graphene.String(
-            required=True, description="ID of the conversation to lock"
-        )
-        reason = graphene.String(
-            required=False, description="Optional reason for locking"
-        )
-
-    ok = graphene.Boolean()
-    message = graphene.String()
-    obj = graphene.Field(ConversationType)
-
-    @login_required
     @graphql_ratelimit(rate="20/m")
-    def mutate(root, info, conversation_id, reason="") -> LockThreadMutation:
+    def mutate(root, info, conversation_id, reason=""):
         ok = False
         obj = None
         message_text = ""
@@ -113,28 +286,37 @@ class LockThreadMutation(graphene.Mutation):
 
         return LockThreadMutation(ok=ok, message=message_text, obj=obj)
 
+    return mutate(root, info, conversation_id, reason=reason)
 
-class UnlockThreadMutation(graphene.Mutation):
+
+def m_lock_thread(
+    info: strawberry.Info,
+    conversation_id: Annotated[
+        str,
+        strawberry.argument(
+            name="conversationId", description="ID of the conversation to lock"
+        ),
+    ] = strawberry.UNSET,
+    reason: Annotated[
+        str | None,
+        strawberry.argument(name="reason", description="Optional reason for locking"),
+    ] = strawberry.UNSET,
+) -> LockThreadMutation | None:
+    kwargs = strip_unset({"conversation_id": conversation_id, "reason": reason})
+    return _mutate_LockThreadMutation(LockThreadMutation, None, info, **kwargs)
+
+
+def _mutate_UnlockThreadMutation(payload_cls, root, info, conversation_id, reason=""):
+    """PORT: /home/user/oc-graphene-ref/config/graphql/moderation_mutations.py:135
+
+    Port of UnlockThreadMutation.mutate
     """
-    Unlock a conversation/thread to allow new messages.
-    Only corpus owners or moderators with lock_threads permission can unlock threads.
-    """
+    # @login_required — inlined (see module NOTE above).
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
 
-    class Arguments:
-        conversation_id = graphene.String(
-            required=True, description="ID of the conversation to unlock"
-        )
-        reason = graphene.String(
-            required=False, description="Optional reason for unlocking"
-        )
-
-    ok = graphene.Boolean()
-    message = graphene.String()
-    obj = graphene.Field(ConversationType)
-
-    @login_required
     @graphql_ratelimit(rate="20/m")
-    def mutate(root, info, conversation_id, reason="") -> UnlockThreadMutation:
+    def mutate(root, info, conversation_id, reason=""):
         ok = False
         obj = None
         message_text = ""
@@ -165,28 +347,37 @@ class UnlockThreadMutation(graphene.Mutation):
 
         return UnlockThreadMutation(ok=ok, message=message_text, obj=obj)
 
+    return mutate(root, info, conversation_id, reason=reason)
 
-class PinThreadMutation(graphene.Mutation):
+
+def m_unlock_thread(
+    info: strawberry.Info,
+    conversation_id: Annotated[
+        str,
+        strawberry.argument(
+            name="conversationId", description="ID of the conversation to unlock"
+        ),
+    ] = strawberry.UNSET,
+    reason: Annotated[
+        str | None,
+        strawberry.argument(name="reason", description="Optional reason for unlocking"),
+    ] = strawberry.UNSET,
+) -> UnlockThreadMutation | None:
+    kwargs = strip_unset({"conversation_id": conversation_id, "reason": reason})
+    return _mutate_UnlockThreadMutation(UnlockThreadMutation, None, info, **kwargs)
+
+
+def _mutate_PinThreadMutation(payload_cls, root, info, conversation_id, reason=""):
+    """PORT: /home/user/oc-graphene-ref/config/graphql/moderation_mutations.py:187
+
+    Port of PinThreadMutation.mutate
     """
-    Pin a conversation/thread to the top of the list.
-    Only corpus owners or moderators with pin_threads permission can pin threads.
-    """
+    # @login_required — inlined (see module NOTE above).
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
 
-    class Arguments:
-        conversation_id = graphene.String(
-            required=True, description="ID of the conversation to pin"
-        )
-        reason = graphene.String(
-            required=False, description="Optional reason for pinning"
-        )
-
-    ok = graphene.Boolean()
-    message = graphene.String()
-    obj = graphene.Field(ConversationType)
-
-    @login_required
     @graphql_ratelimit(rate="20/m")
-    def mutate(root, info, conversation_id, reason="") -> PinThreadMutation:
+    def mutate(root, info, conversation_id, reason=""):
         ok = False
         obj = None
         message_text = ""
@@ -217,28 +408,37 @@ class PinThreadMutation(graphene.Mutation):
 
         return PinThreadMutation(ok=ok, message=message_text, obj=obj)
 
+    return mutate(root, info, conversation_id, reason=reason)
 
-class UnpinThreadMutation(graphene.Mutation):
+
+def m_pin_thread(
+    info: strawberry.Info,
+    conversation_id: Annotated[
+        str,
+        strawberry.argument(
+            name="conversationId", description="ID of the conversation to pin"
+        ),
+    ] = strawberry.UNSET,
+    reason: Annotated[
+        str | None,
+        strawberry.argument(name="reason", description="Optional reason for pinning"),
+    ] = strawberry.UNSET,
+) -> PinThreadMutation | None:
+    kwargs = strip_unset({"conversation_id": conversation_id, "reason": reason})
+    return _mutate_PinThreadMutation(PinThreadMutation, None, info, **kwargs)
+
+
+def _mutate_UnpinThreadMutation(payload_cls, root, info, conversation_id, reason=""):
+    """PORT: /home/user/oc-graphene-ref/config/graphql/moderation_mutations.py:239
+
+    Port of UnpinThreadMutation.mutate
     """
-    Unpin a conversation/thread from the top of the list.
-    Only corpus owners or moderators with pin_threads permission can unpin threads.
-    """
+    # @login_required — inlined (see module NOTE above).
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
 
-    class Arguments:
-        conversation_id = graphene.String(
-            required=True, description="ID of the conversation to unpin"
-        )
-        reason = graphene.String(
-            required=False, description="Optional reason for unpinning"
-        )
-
-    ok = graphene.Boolean()
-    message = graphene.String()
-    obj = graphene.Field(ConversationType)
-
-    @login_required
     @graphql_ratelimit(rate="20/m")
-    def mutate(root, info, conversation_id, reason="") -> UnpinThreadMutation:
+    def mutate(root, info, conversation_id, reason=""):
         ok = False
         obj = None
         message_text = ""
@@ -269,26 +469,37 @@ class UnpinThreadMutation(graphene.Mutation):
 
         return UnpinThreadMutation(ok=ok, message=message_text, obj=obj)
 
+    return mutate(root, info, conversation_id, reason=reason)
 
-class DeleteThreadMutation(graphene.Mutation):
+
+def m_unpin_thread(
+    info: strawberry.Info,
+    conversation_id: Annotated[
+        str,
+        strawberry.argument(
+            name="conversationId", description="ID of the conversation to unpin"
+        ),
+    ] = strawberry.UNSET,
+    reason: Annotated[
+        str | None,
+        strawberry.argument(name="reason", description="Optional reason for unpinning"),
+    ] = strawberry.UNSET,
+) -> UnpinThreadMutation | None:
+    kwargs = strip_unset({"conversation_id": conversation_id, "reason": reason})
+    return _mutate_UnpinThreadMutation(UnpinThreadMutation, None, info, **kwargs)
+
+
+def _mutate_DeleteThreadMutation(payload_cls, root, info, conversation_id, reason=None):
+    """PORT: /home/user/oc-graphene-ref/config/graphql/moderation_mutations.py:289
+
+    Port of DeleteThreadMutation.mutate
     """
-    Soft delete a thread (conversation).
-    Only moderators or thread creators can delete threads.
-    """
+    # @login_required — inlined (see module NOTE above).
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
 
-    class Arguments:
-        conversation_id = graphene.ID(
-            required=True, description="ID of thread to delete"
-        )
-        reason = graphene.String(description="Reason for deletion")
-
-    ok = graphene.Boolean()
-    message = graphene.String()
-    conversation = graphene.Field(ConversationType)
-
-    @login_required
     @graphql_ratelimit(rate="10/m")
-    def mutate(root, info, conversation_id, reason=None) -> DeleteThreadMutation:
+    def mutate(root, info, conversation_id, reason=None):
         user = info.context.user
         ok = False
         message_text = ""
@@ -322,26 +533,39 @@ class DeleteThreadMutation(graphene.Mutation):
             ok=ok, message=message_text, conversation=conversation_obj
         )
 
+    return mutate(root, info, conversation_id, reason=reason)
 
-class RestoreThreadMutation(graphene.Mutation):
+
+def m_delete_thread(
+    info: strawberry.Info,
+    conversation_id: Annotated[
+        strawberry.ID,
+        strawberry.argument(
+            name="conversationId", description="ID of thread to delete"
+        ),
+    ] = strawberry.UNSET,
+    reason: Annotated[
+        str | None,
+        strawberry.argument(name="reason", description="Reason for deletion"),
+    ] = strawberry.UNSET,
+) -> DeleteThreadMutation | None:
+    kwargs = strip_unset({"conversation_id": conversation_id, "reason": reason})
+    return _mutate_DeleteThreadMutation(DeleteThreadMutation, None, info, **kwargs)
+
+
+def _mutate_RestoreThreadMutation(
+    payload_cls, root, info, conversation_id, reason=None
+):
+    """PORT: /home/user/oc-graphene-ref/config/graphql/moderation_mutations.py:342
+
+    Port of RestoreThreadMutation.mutate
     """
-    Restore a soft-deleted thread.
-    Only moderators or thread creators can restore threads.
-    """
+    # @login_required — inlined (see module NOTE above).
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
 
-    class Arguments:
-        conversation_id = graphene.ID(
-            required=True, description="ID of thread to restore"
-        )
-        reason = graphene.String(description="Reason for restoration")
-
-    ok = graphene.Boolean()
-    message = graphene.String()
-    conversation = graphene.Field(ConversationType)
-
-    @login_required
     @graphql_ratelimit(rate="10/m")
-    def mutate(root, info, conversation_id, reason=None) -> RestoreThreadMutation:
+    def mutate(root, info, conversation_id, reason=None):
         user = info.context.user
         ok = False
         message_text = ""
@@ -376,30 +600,39 @@ class RestoreThreadMutation(graphene.Mutation):
             ok=ok, message=message_text, conversation=conversation_obj
         )
 
+    return mutate(root, info, conversation_id, reason=reason)
 
-class AddModeratorMutation(graphene.Mutation):
+
+def m_restore_thread(
+    info: strawberry.Info,
+    conversation_id: Annotated[
+        strawberry.ID,
+        strawberry.argument(
+            name="conversationId", description="ID of thread to restore"
+        ),
+    ] = strawberry.UNSET,
+    reason: Annotated[
+        str | None,
+        strawberry.argument(name="reason", description="Reason for restoration"),
+    ] = strawberry.UNSET,
+) -> RestoreThreadMutation | None:
+    kwargs = strip_unset({"conversation_id": conversation_id, "reason": reason})
+    return _mutate_RestoreThreadMutation(RestoreThreadMutation, None, info, **kwargs)
+
+
+def _mutate_AddModeratorMutation(
+    payload_cls, root, info, corpus_id, user_id, permissions
+):
+    """PORT: /home/user/oc-graphene-ref/config/graphql/moderation_mutations.py:400
+
+    Port of AddModeratorMutation.mutate
     """
-    Add a moderator to a corpus with specific permissions.
-    Only corpus owners can add moderators.
-    """
+    # @login_required — inlined (see module NOTE above).
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
 
-    class Arguments:
-        corpus_id = graphene.String(required=True, description="ID of the corpus")
-        user_id = graphene.String(
-            required=True, description="ID of the user to add as moderator"
-        )
-        permissions = graphene.List(
-            graphene.String,
-            required=True,
-            description="List of permissions: lock_threads, pin_threads, delete_messages, delete_threads",
-        )
-
-    ok = graphene.Boolean()
-    message = graphene.String()
-
-    @login_required
     @graphql_ratelimit(rate="20/m")
-    def mutate(root, info, corpus_id, user_id, permissions) -> AddModeratorMutation:
+    def mutate(root, info, corpus_id, user_id, permissions):
         ok = False
         message_text = ""
 
@@ -460,25 +693,45 @@ class AddModeratorMutation(graphene.Mutation):
 
         return AddModeratorMutation(ok=ok, message=message_text)
 
+    return mutate(root, info, corpus_id, user_id, permissions)
 
-class RemoveModeratorMutation(graphene.Mutation):
+
+def m_add_moderator(
+    info: strawberry.Info,
+    corpus_id: Annotated[
+        str, strawberry.argument(name="corpusId", description="ID of the corpus")
+    ] = strawberry.UNSET,
+    permissions: Annotated[
+        list[str | None],
+        strawberry.argument(
+            name="permissions",
+            description="List of permissions: lock_threads, pin_threads, delete_messages, delete_threads",
+        ),
+    ] = strawberry.UNSET,
+    user_id: Annotated[
+        str,
+        strawberry.argument(
+            name="userId", description="ID of the user to add as moderator"
+        ),
+    ] = strawberry.UNSET,
+) -> AddModeratorMutation | None:
+    kwargs = strip_unset(
+        {"corpus_id": corpus_id, "permissions": permissions, "user_id": user_id}
+    )
+    return _mutate_AddModeratorMutation(AddModeratorMutation, None, info, **kwargs)
+
+
+def _mutate_RemoveModeratorMutation(payload_cls, root, info, corpus_id, user_id):
+    """PORT: /home/user/oc-graphene-ref/config/graphql/moderation_mutations.py:479
+
+    Port of RemoveModeratorMutation.mutate
     """
-    Remove a moderator from a corpus.
-    Only corpus owners can remove moderators.
-    """
+    # @login_required — inlined (see module NOTE above).
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
 
-    class Arguments:
-        corpus_id = graphene.String(required=True, description="ID of the corpus")
-        user_id = graphene.String(
-            required=True, description="ID of the user to remove as moderator"
-        )
-
-    ok = graphene.Boolean()
-    message = graphene.String()
-
-    @login_required
     @graphql_ratelimit(rate="20/m")
-    def mutate(root, info, corpus_id, user_id) -> RemoveModeratorMutation:
+    def mutate(root, info, corpus_id, user_id):
         ok = False
         message_text = ""
 
@@ -519,30 +772,40 @@ class RemoveModeratorMutation(graphene.Mutation):
 
         return RemoveModeratorMutation(ok=ok, message=message_text)
 
+    return mutate(root, info, corpus_id, user_id)
 
-class UpdateModeratorPermissionsMutation(graphene.Mutation):
+
+def m_remove_moderator(
+    info: strawberry.Info,
+    corpus_id: Annotated[
+        str, strawberry.argument(name="corpusId", description="ID of the corpus")
+    ] = strawberry.UNSET,
+    user_id: Annotated[
+        str,
+        strawberry.argument(
+            name="userId", description="ID of the user to remove as moderator"
+        ),
+    ] = strawberry.UNSET,
+) -> RemoveModeratorMutation | None:
+    kwargs = strip_unset({"corpus_id": corpus_id, "user_id": user_id})
+    return _mutate_RemoveModeratorMutation(
+        RemoveModeratorMutation, None, info, **kwargs
+    )
+
+
+def _mutate_UpdateModeratorPermissionsMutation(
+    payload_cls, root, info, corpus_id, user_id, permissions
+):
+    """PORT: /home/user/oc-graphene-ref/config/graphql/moderation_mutations.py:541
+
+    Port of UpdateModeratorPermissionsMutation.mutate
     """
-    Update a moderator's permissions for a corpus.
-    Only corpus owners can update moderator permissions.
-    """
+    # @login_required — inlined (see module NOTE above).
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
 
-    class Arguments:
-        corpus_id = graphene.String(required=True, description="ID of the corpus")
-        user_id = graphene.String(required=True, description="ID of the moderator user")
-        permissions = graphene.List(
-            graphene.String,
-            required=True,
-            description="List of permissions: lock_threads, pin_threads, delete_messages, delete_threads",
-        )
-
-    ok = graphene.Boolean()
-    message = graphene.String()
-
-    @login_required
     @graphql_ratelimit(rate="20/m")
-    def mutate(
-        root, info, corpus_id, user_id, permissions
-    ) -> UpdateModeratorPermissionsMutation:
+    def mutate(root, info, corpus_id, user_id, permissions):
         ok = False
         message_text = ""
 
@@ -606,32 +869,46 @@ class UpdateModeratorPermissionsMutation(graphene.Mutation):
 
         return UpdateModeratorPermissionsMutation(ok=ok, message=message_text)
 
+    return mutate(root, info, corpus_id, user_id, permissions)
 
-class RollbackModerationActionMutation(graphene.Mutation):
-    """
-    Rollback a moderation action by executing its inverse.
-    - delete_message -> restore_message
-    - delete_thread -> restore_thread
-    - lock_thread -> unlock_thread
-    - pin_thread -> unpin_thread
 
-    Only moderators with appropriate permissions can rollback.
-    Creates a new ModerationAction record for the rollback.
-    """
-
-    class Arguments:
-        action_id = graphene.ID(required=True, description="ID of action to rollback")
-        reason = graphene.String(description="Reason for rollback")
-
-    ok = graphene.Boolean()
-    message = graphene.String()
-    rollback_action = graphene.Field(
-        "config.graphql.graphene_types.ModerationActionType"
+def m_update_moderator_permissions(
+    info: strawberry.Info,
+    corpus_id: Annotated[
+        str, strawberry.argument(name="corpusId", description="ID of the corpus")
+    ] = strawberry.UNSET,
+    permissions: Annotated[
+        list[str | None],
+        strawberry.argument(
+            name="permissions",
+            description="List of permissions: lock_threads, pin_threads, delete_messages, delete_threads",
+        ),
+    ] = strawberry.UNSET,
+    user_id: Annotated[
+        str, strawberry.argument(name="userId", description="ID of the moderator user")
+    ] = strawberry.UNSET,
+) -> UpdateModeratorPermissionsMutation | None:
+    kwargs = strip_unset(
+        {"corpus_id": corpus_id, "permissions": permissions, "user_id": user_id}
+    )
+    return _mutate_UpdateModeratorPermissionsMutation(
+        UpdateModeratorPermissionsMutation, None, info, **kwargs
     )
 
-    @login_required
+
+def _mutate_RollbackModerationActionMutation(
+    payload_cls, root, info, action_id, reason=None
+):
+    """PORT: /home/user/oc-graphene-ref/config/graphql/moderation_mutations.py:632
+
+    Port of RollbackModerationActionMutation.mutate
+    """
+    # @login_required — inlined (see module NOTE above).
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+
     @graphql_ratelimit(rate="10/m")
-    def mutate(root, info, action_id, reason=None) -> RollbackModerationActionMutation:
+    def mutate(root, info, action_id, reason=None):
         from opencontractserver.conversations.models import (
             ModerationAction,
         )
@@ -746,3 +1023,76 @@ class RollbackModerationActionMutation(graphene.Mutation):
                 message=f"Failed to rollback: {str(e)}",
                 rollback_action=None,
             )
+
+    return mutate(root, info, action_id, reason=reason)
+
+
+def m_rollback_moderation_action(
+    info: strawberry.Info,
+    action_id: Annotated[
+        strawberry.ID,
+        strawberry.argument(name="actionId", description="ID of action to rollback"),
+    ] = strawberry.UNSET,
+    reason: Annotated[
+        str | None,
+        strawberry.argument(name="reason", description="Reason for rollback"),
+    ] = strawberry.UNSET,
+) -> RollbackModerationActionMutation | None:
+    kwargs = strip_unset({"action_id": action_id, "reason": reason})
+    return _mutate_RollbackModerationActionMutation(
+        RollbackModerationActionMutation, None, info, **kwargs
+    )
+
+
+MUTATION_FIELDS = {
+    "lock_thread": strawberry.field(
+        resolver=m_lock_thread,
+        name="lockThread",
+        description="Lock a conversation/thread to prevent new messages.\nOnly corpus owners or moderators with lock_threads permission can lock threads.",
+    ),
+    "unlock_thread": strawberry.field(
+        resolver=m_unlock_thread,
+        name="unlockThread",
+        description="Unlock a conversation/thread to allow new messages.\nOnly corpus owners or moderators with lock_threads permission can unlock threads.",
+    ),
+    "pin_thread": strawberry.field(
+        resolver=m_pin_thread,
+        name="pinThread",
+        description="Pin a conversation/thread to the top of the list.\nOnly corpus owners or moderators with pin_threads permission can pin threads.",
+    ),
+    "unpin_thread": strawberry.field(
+        resolver=m_unpin_thread,
+        name="unpinThread",
+        description="Unpin a conversation/thread from the top of the list.\nOnly corpus owners or moderators with pin_threads permission can unpin threads.",
+    ),
+    "delete_thread": strawberry.field(
+        resolver=m_delete_thread,
+        name="deleteThread",
+        description="Soft delete a thread (conversation).\nOnly moderators or thread creators can delete threads.",
+    ),
+    "restore_thread": strawberry.field(
+        resolver=m_restore_thread,
+        name="restoreThread",
+        description="Restore a soft-deleted thread.\nOnly moderators or thread creators can restore threads.",
+    ),
+    "add_moderator": strawberry.field(
+        resolver=m_add_moderator,
+        name="addModerator",
+        description="Add a moderator to a corpus with specific permissions.\nOnly corpus owners can add moderators.",
+    ),
+    "remove_moderator": strawberry.field(
+        resolver=m_remove_moderator,
+        name="removeModerator",
+        description="Remove a moderator from a corpus.\nOnly corpus owners can remove moderators.",
+    ),
+    "update_moderator_permissions": strawberry.field(
+        resolver=m_update_moderator_permissions,
+        name="updateModeratorPermissions",
+        description="Update a moderator's permissions for a corpus.\nOnly corpus owners can update moderator permissions.",
+    ),
+    "rollback_moderation_action": strawberry.field(
+        resolver=m_rollback_moderation_action,
+        name="rollbackModerationAction",
+        description="Rollback a moderation action by executing its inverse.\n- delete_message -> restore_message\n- delete_thread -> restore_thread\n- lock_thread -> unlock_thread\n- pin_thread -> unpin_thread\n\nOnly moderators with appropriate permissions can rollback.\nCreates a new ModerationAction record for the rollback.",
+    ),
+}

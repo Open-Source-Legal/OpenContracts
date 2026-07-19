@@ -1,28 +1,43 @@
-"""
-GraphQL mutations for managing :class:`CorpusCategory` records.
+"""Generated strawberry GraphQL module (graphene migration).
 
-Corpus categories (e.g. "Case Law", "Contracts", "Legislation") are the
-runtime-configurable tag set used to organise corpuses on the Discover page
-and in corpus settings. They are global, admin-provisioned data with no
-per-object guardian permissions, so every mutation here is gated to
-superusers only — mirroring the pipeline-settings mutations.
-
-These mutations are thin GraphQL wrappers: the superuser gate and Relay
-global-id parsing stay here (GraphQL-boundary concerns), while validation,
-unique-name enforcement, and all ORM access live in
-:class:`~opencontractserver.corpuses.services.CorpusCategoryService` (per
-CLAUDE.md rule 7). A superuser can create / update / delete categories at
-runtime (via the in-app admin UI or GraphiQL) instead of editing a seed
-migration or the Django admin.
+Shape-generated from the graphene schema; stub functions marked PORT(...)
+carry the ported business logic. See config/graphql_new/manifest.json.
 """
+
+# mypy: disable-error-code="name-defined, valid-type, arg-type"
+#   Code-generation artifacts of the strawberry schema bindings that
+#   mypy's static pass cannot resolve, NOT real typing defects:
+#     name-defined / valid-type — ``Annotated["XType", strawberry.lazy(...)]``
+#       forward-reference strings + the runtime-generated ``*Connection``
+#       types (``make_connection_types``).
+#     arg-type — resolvers construct result types with ``to_global_id()``
+#       (``str``) for ``strawberry.ID`` fields and return Django MODEL
+#       instances where the field annotation names the strawberry type
+#       (the graphene-django resolver contract). Both are correct at
+#       runtime. Hand-written config/graphql/core/* stays fully checked.
+# flake8: noqa: E501, F821 — generated strawberry schema module.
+# E501: long GraphQL field/argument ``description=`` strings and the
+# single-line generated resolver signatures (black cannot split string
+# literals). F821: ``Annotated["XType", strawberry.lazy(...)]`` /
+# ``cast("QuerySet", ...)`` forward-reference STRINGS that pyflakes
+# resolves as names — the whole point of strawberry.lazy is to avoid the
+# import (which would then be F401). Both are code-generation artifacts,
+# not defects; hand-written modules (config/graphql/core/*, security.py,
+# testing.py, filters.py, …) stay fully linted.
+
+from __future__ import annotations
 
 import logging
+from typing import Annotated
 
-import graphene
-from graphql_jwt.decorators import login_required
+import strawberry
 from graphql_relay import from_global_id
 
-from config.graphql.corpus_types import CorpusCategoryType
+from config.graphql._util import strip_unset
+from config.graphql.core.auth import PermissionDenied
+from config.graphql.core.relay import (
+    register_type,
+)
 from config.graphql.ratelimits import RateLimits, graphql_ratelimit
 from opencontractserver.corpuses.services import CorpusCategoryService
 
@@ -53,47 +68,79 @@ def _resolve_category_pk(global_id: str):
     return category_pk
 
 
-class CreateCorpusCategory(graphene.Mutation):
-    """Create a new corpus category. Superuser-only."""
+@strawberry.type(
+    name="CreateCorpusCategory",
+    description="Create a new corpus category. Superuser-only.",
+)
+class CreateCorpusCategory:
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
+        Annotated[CorpusCategoryType, strawberry.lazy("config.graphql.corpus_types")]
+    ) = strawberry.field(name="obj", default=None)
 
-    class Arguments:
-        name = graphene.String(required=True, description="Unique category name")
-        description = graphene.String(
-            required=False, description="Optional human-readable description"
-        )
-        icon = graphene.String(
-            required=False,
-            description="Lucide icon name (e.g. 'scroll', 'gavel'). Defaults to 'folder'.",
-        )
-        color = graphene.String(
-            required=False,
-            description="Hex color for the badge (e.g. '#3B82F6'). Defaults to blue.",
-        )
-        sort_order = graphene.Int(
-            required=False, description="Display order; lower sorts first"
-        )
 
-    ok = graphene.Boolean()
-    message = graphene.String()
-    obj = graphene.Field(CorpusCategoryType)
+register_type("CreateCorpusCategory", CreateCorpusCategory, model=None)
 
-    @login_required
+
+@strawberry.type(
+    name="UpdateCorpusCategory",
+    description="Update an existing corpus category. Superuser-only.",
+)
+class UpdateCorpusCategory:
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
+        Annotated[CorpusCategoryType, strawberry.lazy("config.graphql.corpus_types")]
+    ) = strawberry.field(name="obj", default=None)
+
+
+register_type("UpdateCorpusCategory", UpdateCorpusCategory, model=None)
+
+
+@strawberry.type(
+    name="DeleteCorpusCategory",
+    description="Delete a corpus category. Superuser-only.\n\nDeleting a category removes it from every corpus that referenced it (the\n``Corpus.categories`` M2M through-rows are cleaned up automatically) but\ndoes not affect the corpuses themselves.",
+)
+class DeleteCorpusCategory:
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+
+
+register_type("DeleteCorpusCategory", DeleteCorpusCategory, model=None)
+
+
+def _mutate_CreateCorpusCategory(
+    payload_cls,
+    root,
+    info,
+    name,
+    description=None,
+    icon=None,
+    color=None,
+    sort_order=None,
+):
+    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_category_mutations.py:82
+
+    Port of CreateCorpusCategory.mutate
+    """
+    # @login_required (graphql_jwt) — inlined because mutate stubs take
+    # ``payload_cls`` as their first positional argument, which does not
+    # match core.auth's ``(root, info, ...)`` calling convention.
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+
+    # @graphql_ratelimit is applied to an inner ``mutate`` so the calling
+    # convention (root, info, ...) and the rate-limit cache group ("mutate")
+    # match the graphene original.
     @graphql_ratelimit(rate=RateLimits.WRITE_LIGHT)
     def mutate(
-        root,
-        info,
-        name,
-        description=None,
-        icon=None,
-        color=None,
-        sort_order=None,
-    ) -> "CreateCorpusCategory":
+        root, info, name, description=None, icon=None, color=None, sort_order=None
+    ):
         user = info.context.user
 
         if not user.is_superuser:
-            return CreateCorpusCategory(
-                ok=False, message=NOT_SUPERUSER_MESSAGE, obj=None
-            )
+            return payload_cls(ok=False, message=NOT_SUPERUSER_MESSAGE, obj=None)
 
         result = CorpusCategoryService.create_category(
             user,
@@ -104,26 +151,84 @@ class CreateCorpusCategory(graphene.Mutation):
             sort_order=sort_order,
         )
         if not result.ok:
-            return CreateCorpusCategory(ok=False, message=result.error, obj=None)
-        return CreateCorpusCategory(ok=True, message="Success", obj=result.value)
+            return payload_cls(ok=False, message=result.error, obj=None)
+        return payload_cls(ok=True, message="Success", obj=result.value)
+
+    return mutate(
+        root,
+        info,
+        name=name,
+        description=description,
+        icon=icon,
+        color=color,
+        sort_order=sort_order,
+    )
 
 
-class UpdateCorpusCategory(graphene.Mutation):
-    """Update an existing corpus category. Superuser-only."""
+def m_create_corpus_category(
+    info: strawberry.Info,
+    color: Annotated[
+        str | None,
+        strawberry.argument(
+            name="color",
+            description="Hex color for the badge (e.g. '#3B82F6'). Defaults to blue.",
+        ),
+    ] = strawberry.UNSET,
+    description: Annotated[
+        str | None,
+        strawberry.argument(
+            name="description", description="Optional human-readable description"
+        ),
+    ] = strawberry.UNSET,
+    icon: Annotated[
+        str | None,
+        strawberry.argument(
+            name="icon",
+            description="Lucide icon name (e.g. 'scroll', 'gavel'). Defaults to 'folder'.",
+        ),
+    ] = strawberry.UNSET,
+    name: Annotated[
+        str, strawberry.argument(name="name", description="Unique category name")
+    ] = strawberry.UNSET,
+    sort_order: Annotated[
+        int | None,
+        strawberry.argument(
+            name="sortOrder", description="Display order; lower sorts first"
+        ),
+    ] = strawberry.UNSET,
+) -> CreateCorpusCategory | None:
+    kwargs = strip_unset(
+        {
+            "color": color,
+            "description": description,
+            "icon": icon,
+            "name": name,
+            "sort_order": sort_order,
+        }
+    )
+    return _mutate_CreateCorpusCategory(CreateCorpusCategory, None, info, **kwargs)
 
-    class Arguments:
-        id = graphene.ID(required=True, description="Global ID of the category")
-        name = graphene.String(required=False)
-        description = graphene.String(required=False)
-        icon = graphene.String(required=False)
-        color = graphene.String(required=False)
-        sort_order = graphene.Int(required=False)
 
-    ok = graphene.Boolean()
-    message = graphene.String()
-    obj = graphene.Field(CorpusCategoryType)
+def _mutate_UpdateCorpusCategory(
+    payload_cls,
+    root,
+    info,
+    id,
+    name=None,
+    description=None,
+    icon=None,
+    color=None,
+    sort_order=None,
+):
+    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_category_mutations.py:128
 
-    @login_required
+    Port of UpdateCorpusCategory.mutate
+    """
+    # @login_required (graphql_jwt) — inlined; see _mutate_CreateCorpusCategory.
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+
+    # @graphql_ratelimit on an inner ``mutate`` — see _mutate_CreateCorpusCategory.
     @graphql_ratelimit(rate=RateLimits.WRITE_LIGHT)
     def mutate(
         root,
@@ -134,21 +239,19 @@ class UpdateCorpusCategory(graphene.Mutation):
         icon=None,
         color=None,
         sort_order=None,
-    ) -> "UpdateCorpusCategory":
+    ):
         user = info.context.user
 
         if not user.is_superuser:
-            return UpdateCorpusCategory(
-                ok=False, message=NOT_SUPERUSER_MESSAGE, obj=None
-            )
+            return payload_cls(ok=False, message=NOT_SUPERUSER_MESSAGE, obj=None)
 
         category_pk = _resolve_category_pk(id)
         if category_pk is None:
-            return UpdateCorpusCategory(ok=False, message=NOT_FOUND_MESSAGE, obj=None)
+            return payload_cls(ok=False, message=NOT_FOUND_MESSAGE, obj=None)
 
         category = CorpusCategoryService.get_category_or_none(category_pk)
         if category is None:
-            return UpdateCorpusCategory(ok=False, message=NOT_FOUND_MESSAGE, obj=None)
+            return payload_cls(ok=False, message=NOT_FOUND_MESSAGE, obj=None)
 
         result = CorpusCategoryService.update_category(
             user,
@@ -160,41 +263,108 @@ class UpdateCorpusCategory(graphene.Mutation):
             sort_order=sort_order,
         )
         if not result.ok:
-            return UpdateCorpusCategory(ok=False, message=result.error, obj=None)
-        return UpdateCorpusCategory(ok=True, message="Success", obj=result.value)
+            return payload_cls(ok=False, message=result.error, obj=None)
+        return payload_cls(ok=True, message="Success", obj=result.value)
+
+    return mutate(
+        root,
+        info,
+        id=id,
+        name=name,
+        description=description,
+        icon=icon,
+        color=color,
+        sort_order=sort_order,
+    )
 
 
-class DeleteCorpusCategory(graphene.Mutation):
-    """Delete a corpus category. Superuser-only.
+def m_update_corpus_category(
+    info: strawberry.Info,
+    color: Annotated[str | None, strawberry.argument(name="color")] = strawberry.UNSET,
+    description: Annotated[
+        str | None, strawberry.argument(name="description")
+    ] = strawberry.UNSET,
+    icon: Annotated[str | None, strawberry.argument(name="icon")] = strawberry.UNSET,
+    id: Annotated[
+        strawberry.ID,
+        strawberry.argument(name="id", description="Global ID of the category"),
+    ] = strawberry.UNSET,
+    name: Annotated[str | None, strawberry.argument(name="name")] = strawberry.UNSET,
+    sort_order: Annotated[
+        int | None, strawberry.argument(name="sortOrder")
+    ] = strawberry.UNSET,
+) -> UpdateCorpusCategory | None:
+    kwargs = strip_unset(
+        {
+            "color": color,
+            "description": description,
+            "icon": icon,
+            "id": id,
+            "name": name,
+            "sort_order": sort_order,
+        }
+    )
+    return _mutate_UpdateCorpusCategory(UpdateCorpusCategory, None, info, **kwargs)
 
-    Deleting a category removes it from every corpus that referenced it (the
-    ``Corpus.categories`` M2M through-rows are cleaned up automatically) but
-    does not affect the corpuses themselves.
+
+def _mutate_DeleteCorpusCategory(payload_cls, root, info, id):
+    """PORT: /home/user/oc-graphene-ref/config/graphql/corpus_category_mutations.py:183
+
+    Port of DeleteCorpusCategory.mutate
     """
+    # @login_required (graphql_jwt) — inlined; see _mutate_CreateCorpusCategory.
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
 
-    class Arguments:
-        id = graphene.ID(required=True, description="Global ID of the category")
-
-    ok = graphene.Boolean()
-    message = graphene.String()
-
-    @login_required
+    # @graphql_ratelimit on an inner ``mutate`` — see _mutate_CreateCorpusCategory.
     @graphql_ratelimit(rate=RateLimits.WRITE_LIGHT)
-    def mutate(root, info, id) -> "DeleteCorpusCategory":
+    def mutate(root, info, id):
         user = info.context.user
 
         if not user.is_superuser:
-            return DeleteCorpusCategory(ok=False, message=NOT_SUPERUSER_MESSAGE)
+            return payload_cls(ok=False, message=NOT_SUPERUSER_MESSAGE)
 
         category_pk = _resolve_category_pk(id)
         if category_pk is None:
-            return DeleteCorpusCategory(ok=False, message=NOT_FOUND_MESSAGE)
+            return payload_cls(ok=False, message=NOT_FOUND_MESSAGE)
 
         category = CorpusCategoryService.get_category_or_none(category_pk)
         if category is None:
-            return DeleteCorpusCategory(ok=False, message=NOT_FOUND_MESSAGE)
+            return payload_cls(ok=False, message=NOT_FOUND_MESSAGE)
 
         result = CorpusCategoryService.delete_category(user, category)
         if not result.ok:
-            return DeleteCorpusCategory(ok=False, message=result.error)
-        return DeleteCorpusCategory(ok=True, message="Success")
+            return payload_cls(ok=False, message=result.error)
+        return payload_cls(ok=True, message="Success")
+
+    return mutate(root, info, id=id)
+
+
+def m_delete_corpus_category(
+    info: strawberry.Info,
+    id: Annotated[
+        strawberry.ID,
+        strawberry.argument(name="id", description="Global ID of the category"),
+    ] = strawberry.UNSET,
+) -> DeleteCorpusCategory | None:
+    kwargs = strip_unset({"id": id})
+    return _mutate_DeleteCorpusCategory(DeleteCorpusCategory, None, info, **kwargs)
+
+
+MUTATION_FIELDS = {
+    "create_corpus_category": strawberry.field(
+        resolver=m_create_corpus_category,
+        name="createCorpusCategory",
+        description="Create a new corpus category. Superuser-only.",
+    ),
+    "update_corpus_category": strawberry.field(
+        resolver=m_update_corpus_category,
+        name="updateCorpusCategory",
+        description="Update an existing corpus category. Superuser-only.",
+    ),
+    "delete_corpus_category": strawberry.field(
+        resolver=m_delete_corpus_category,
+        name="deleteCorpusCategory",
+        description="Delete a corpus category. Superuser-only.\n\nDeleting a category removes it from every corpus that referenced it (the\n``Corpus.categories`` M2M through-rows are cleaned up automatically) but\ndoes not affect the corpuses themselves.",
+    ),
+}

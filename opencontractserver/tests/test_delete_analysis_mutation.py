@@ -74,7 +74,7 @@ class DeleteAnalysisMutationReturnValueTestCase(TestCase):
         )
 
     def test_mutation_returns_ok_and_success_message(self) -> None:
-        from graphene.test import Client
+        from config.graphql.testing import Client
 
         client = Client(schema, context_value=_Context(self.user))
 

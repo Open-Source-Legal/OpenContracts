@@ -59,9 +59,9 @@ class CorpusMentionPermissionTestCase(TestCase):
 
     def test_owner_can_mention_own_corpus(self):
         """Owner can mention their own private corpus."""
-        from config.graphql.queries import Query
+        from config.graphql import search_queries as _mention_search
 
-        query = Query()
+        query = _mention_search
 
         class MockInfo:
             class MockContext:
@@ -69,8 +69,8 @@ class CorpusMentionPermissionTestCase(TestCase):
 
             context = MockContext()
 
-        results = query.resolve_search_corpuses_for_mention(
-            MockInfo(), text_search="Legal"
+        results = query._resolve_Query_search_corpuses_for_mention(
+            None, MockInfo(), text_search="Legal"
         )
 
         corpus_ids = [c.id for c in results]
@@ -87,9 +87,9 @@ class CorpusMentionPermissionTestCase(TestCase):
 
     def test_contributor_with_write_permission_can_mention(self):
         """User with write permission can mention private corpus."""
-        from config.graphql.queries import Query
+        from config.graphql import search_queries as _mention_search
 
-        query = Query()
+        query = _mention_search
 
         class MockInfo:
             class MockContext:
@@ -97,8 +97,8 @@ class CorpusMentionPermissionTestCase(TestCase):
 
             context = MockContext()
 
-        results = query.resolve_search_corpuses_for_mention(
-            MockInfo(), text_search="Legal"
+        results = query._resolve_Query_search_corpuses_for_mention(
+            None, MockInfo(), text_search="Legal"
         )
 
         corpus_ids = [c.id for c in results]
@@ -115,9 +115,9 @@ class CorpusMentionPermissionTestCase(TestCase):
 
     def test_viewer_with_read_only_cannot_mention_private(self):
         """User with only read permission CANNOT mention private corpus."""
-        from config.graphql.queries import Query
+        from config.graphql import search_queries as _mention_search
 
-        query = Query()
+        query = _mention_search
 
         class MockInfo:
             class MockContext:
@@ -125,8 +125,8 @@ class CorpusMentionPermissionTestCase(TestCase):
 
             context = MockContext()
 
-        results = query.resolve_search_corpuses_for_mention(
-            MockInfo(), text_search="Legal"
+        results = query._resolve_Query_search_corpuses_for_mention(
+            None, MockInfo(), text_search="Legal"
         )
 
         corpus_ids = [c.id for c in results]
@@ -143,9 +143,9 @@ class CorpusMentionPermissionTestCase(TestCase):
 
     def test_outsider_cannot_mention_private_corpus(self):
         """User with no permission cannot mention private corpus."""
-        from config.graphql.queries import Query
+        from config.graphql import search_queries as _mention_search
 
-        query = Query()
+        query = _mention_search
 
         class MockInfo:
             class MockContext:
@@ -153,8 +153,8 @@ class CorpusMentionPermissionTestCase(TestCase):
 
             context = MockContext()
 
-        results = query.resolve_search_corpuses_for_mention(
-            MockInfo(), text_search="Legal"
+        results = query._resolve_Query_search_corpuses_for_mention(
+            None, MockInfo(), text_search="Legal"
         )
 
         corpus_ids = [c.id for c in results]
@@ -173,9 +173,9 @@ class CorpusMentionPermissionTestCase(TestCase):
         """Anonymous users cannot mention any corpus."""
         from django.contrib.auth.models import AnonymousUser
 
-        from config.graphql.queries import Query
+        from config.graphql import search_queries as _mention_search
 
-        query = Query()
+        query = _mention_search
 
         class MockInfo:
             class MockContext:
@@ -183,8 +183,8 @@ class CorpusMentionPermissionTestCase(TestCase):
 
             context = MockContext()
 
-        results = query.resolve_search_corpuses_for_mention(
-            MockInfo(), text_search="Legal"
+        results = query._resolve_Query_search_corpuses_for_mention(
+            None, MockInfo(), text_search="Legal"
         )
 
         self.assertEqual(
@@ -199,9 +199,9 @@ class CorpusMentionPermissionTestCase(TestCase):
             username="super", password="test", email="super@test.com"
         )
 
-        from config.graphql.queries import Query
+        from config.graphql import search_queries as _mention_search
 
-        query = Query()
+        query = _mention_search
 
         class MockInfo:
             class MockContext:
@@ -209,8 +209,8 @@ class CorpusMentionPermissionTestCase(TestCase):
 
             context = MockContext()
 
-        results = query.resolve_search_corpuses_for_mention(
-            MockInfo(), text_search="Legal"
+        results = query._resolve_Query_search_corpuses_for_mention(
+            None, MockInfo(), text_search="Legal"
         )
 
         corpus_ids = [c.id for c in results]
@@ -230,9 +230,9 @@ class CorpusMentionPermissionTestCase(TestCase):
             creator_user, self.private_corpus, [PermissionTypes.CREATE]
         )
 
-        from config.graphql.queries import Query
+        from config.graphql import search_queries as _mention_search
 
-        query = Query()
+        query = _mention_search
 
         class MockInfo:
             class MockContext:
@@ -240,8 +240,8 @@ class CorpusMentionPermissionTestCase(TestCase):
 
             context = MockContext()
 
-        results = query.resolve_search_corpuses_for_mention(
-            MockInfo(), text_search="Legal"
+        results = query._resolve_Query_search_corpuses_for_mention(
+            None, MockInfo(), text_search="Legal"
         )
 
         corpus_ids = [c.id for c in results]
@@ -260,9 +260,9 @@ class CorpusMentionPermissionTestCase(TestCase):
             deleter_user, self.private_corpus, [PermissionTypes.DELETE]
         )
 
-        from config.graphql.queries import Query
+        from config.graphql import search_queries as _mention_search
 
-        query = Query()
+        query = _mention_search
 
         class MockInfo:
             class MockContext:
@@ -270,8 +270,8 @@ class CorpusMentionPermissionTestCase(TestCase):
 
             context = MockContext()
 
-        results = query.resolve_search_corpuses_for_mention(
-            MockInfo(), text_search="Legal"
+        results = query._resolve_Query_search_corpuses_for_mention(
+            None, MockInfo(), text_search="Legal"
         )
 
         corpus_titles = [c.title for c in results]
@@ -378,9 +378,9 @@ class DocumentMentionPermissionTestCase(TestCase):
 
     def test_owner_can_mention_own_documents(self):
         """Owner can mention all their own documents."""
-        from config.graphql.queries import Query
+        from config.graphql import search_queries as _mention_search
 
-        query = Query()
+        query = _mention_search
 
         class MockInfo:
             class MockContext:
@@ -388,7 +388,9 @@ class DocumentMentionPermissionTestCase(TestCase):
 
             context = MockContext()
 
-        results = query.resolve_search_documents_for_mention(MockInfo(), text_search="")
+        results = query._resolve_Query_search_documents_for_mention(
+            None, MockInfo(), text_search=""
+        )
 
         doc_ids = [d.id for d in results]
         self.assertIn(
@@ -419,9 +421,9 @@ class DocumentMentionPermissionTestCase(TestCase):
 
     def test_corpus_write_permission_grants_document_mention(self):
         """Write permission on corpus grants mention access to documents in that corpus."""
-        from config.graphql.queries import Query
+        from config.graphql import search_queries as _mention_search
 
-        query = Query()
+        query = _mention_search
 
         class MockInfo:
             class MockContext:
@@ -429,7 +431,9 @@ class DocumentMentionPermissionTestCase(TestCase):
 
             context = MockContext()
 
-        results = query.resolve_search_documents_for_mention(MockInfo(), text_search="")
+        results = query._resolve_Query_search_documents_for_mention(
+            None, MockInfo(), text_search=""
+        )
 
         doc_titles = [d.title for d in results]
 
@@ -446,9 +450,9 @@ class DocumentMentionPermissionTestCase(TestCase):
 
     def test_document_write_permission_allows_mention(self):
         """Direct write permission on document allows mention."""
-        from config.graphql.queries import Query
+        from config.graphql import search_queries as _mention_search
 
-        query = Query()
+        query = _mention_search
 
         class MockInfo:
             class MockContext:
@@ -456,7 +460,9 @@ class DocumentMentionPermissionTestCase(TestCase):
 
             context = MockContext()
 
-        results = query.resolve_search_documents_for_mention(MockInfo(), text_search="")
+        results = query._resolve_Query_search_documents_for_mention(
+            None, MockInfo(), text_search=""
+        )
 
         doc_ids = [d.id for d in results]
         self.assertIn(
@@ -469,9 +475,9 @@ class DocumentMentionPermissionTestCase(TestCase):
         """User with only read permission CANNOT mention private documents
         in private corpuses, but CAN mention docs in public corpuses since
         those inherit is_public=True."""
-        from config.graphql.queries import Query
+        from config.graphql import search_queries as _mention_search
 
-        query = Query()
+        query = _mention_search
 
         class MockInfo:
             class MockContext:
@@ -479,7 +485,9 @@ class DocumentMentionPermissionTestCase(TestCase):
 
             context = MockContext()
 
-        results = query.resolve_search_documents_for_mention(MockInfo(), text_search="")
+        results = query._resolve_Query_search_documents_for_mention(
+            None, MockInfo(), text_search=""
+        )
 
         doc_ids = [d.id for d in results]
         self.assertNotIn(
@@ -497,9 +505,9 @@ class DocumentMentionPermissionTestCase(TestCase):
 
     def test_public_documents_mentionable_by_all(self):
         """Public documents can be mentioned by any authenticated user."""
-        from config.graphql.queries import Query
+        from config.graphql import search_queries as _mention_search
 
-        query = Query()
+        query = _mention_search
 
         class MockInfo:
             class MockContext:
@@ -507,7 +515,9 @@ class DocumentMentionPermissionTestCase(TestCase):
 
             context = MockContext()
 
-        results = query.resolve_search_documents_for_mention(MockInfo(), text_search="")
+        results = query._resolve_Query_search_documents_for_mention(
+            None, MockInfo(), text_search=""
+        )
 
         doc_ids = [d.id for d in results]
         self.assertIn(
@@ -530,9 +540,9 @@ class DocumentMentionPermissionTestCase(TestCase):
         """Anonymous users cannot mention any document."""
         from django.contrib.auth.models import AnonymousUser
 
-        from config.graphql.queries import Query
+        from config.graphql import search_queries as _mention_search
 
-        query = Query()
+        query = _mention_search
 
         class MockInfo:
             class MockContext:
@@ -540,7 +550,9 @@ class DocumentMentionPermissionTestCase(TestCase):
 
             context = MockContext()
 
-        results = query.resolve_search_documents_for_mention(MockInfo(), text_search="")
+        results = query._resolve_Query_search_documents_for_mention(
+            None, MockInfo(), text_search=""
+        )
 
         self.assertEqual(
             len(list(results)),
@@ -554,9 +566,9 @@ class DocumentMentionPermissionTestCase(TestCase):
             username="super", password="test", email="super@test.com"
         )
 
-        from config.graphql.queries import Query
+        from config.graphql import search_queries as _mention_search
 
-        query = Query()
+        query = _mention_search
 
         class MockInfo:
             class MockContext:
@@ -564,7 +576,9 @@ class DocumentMentionPermissionTestCase(TestCase):
 
             context = MockContext()
 
-        results = query.resolve_search_documents_for_mention(MockInfo(), text_search="")
+        results = query._resolve_Query_search_documents_for_mention(
+            None, MockInfo(), text_search=""
+        )
 
         doc_ids = [d.id for d in results]
         self.assertIn(
@@ -597,9 +611,9 @@ class MentionIDORProtectionTestCase(TestCase):
 
     def test_inaccessible_corpus_not_in_autocomplete(self):
         """Attacker cannot discover private corpus through autocomplete."""
-        from config.graphql.queries import Query
+        from config.graphql import search_queries as _mention_search
 
-        query = Query()
+        query = _mention_search
 
         class MockInfo:
             class MockContext:
@@ -608,8 +622,8 @@ class MentionIDORProtectionTestCase(TestCase):
             context = MockContext()
 
         # Try to search for the private corpus
-        results = query.resolve_search_corpuses_for_mention(
-            MockInfo(), text_search="Secret"
+        results = query._resolve_Query_search_corpuses_for_mention(
+            None, MockInfo(), text_search="Secret"
         )
 
         corpus_ids = [c.id for c in results]
@@ -620,8 +634,8 @@ class MentionIDORProtectionTestCase(TestCase):
         )
 
         # Verify it's completely hidden (not even with exact title match)
-        results_exact = query.resolve_search_corpuses_for_mention(
-            MockInfo(), text_search="Secret Project"
+        results_exact = query._resolve_Query_search_corpuses_for_mention(
+            None, MockInfo(), text_search="Secret Project"
         )
         corpus_ids_exact = [c.id for c in results_exact]
         self.assertNotIn(
@@ -632,9 +646,9 @@ class MentionIDORProtectionTestCase(TestCase):
 
     def test_inaccessible_document_not_in_autocomplete(self):
         """Attacker cannot discover private document through autocomplete."""
-        from config.graphql.queries import Query
+        from config.graphql import search_queries as _mention_search
 
-        query = Query()
+        query = _mention_search
 
         class MockInfo:
             class MockContext:
@@ -643,8 +657,8 @@ class MentionIDORProtectionTestCase(TestCase):
             context = MockContext()
 
         # Try to search for the private document
-        results = query.resolve_search_documents_for_mention(
-            MockInfo(), text_search="Confidential"
+        results = query._resolve_Query_search_documents_for_mention(
+            None, MockInfo(), text_search="Confidential"
         )
 
         doc_ids = [d.id for d in results]
@@ -655,8 +669,8 @@ class MentionIDORProtectionTestCase(TestCase):
         )
 
         # Verify it's completely hidden (not even with exact title match)
-        results_exact = query.resolve_search_documents_for_mention(
-            MockInfo(), text_search="Confidential Plan"
+        results_exact = query._resolve_Query_search_documents_for_mention(
+            None, MockInfo(), text_search="Confidential Plan"
         )
         doc_ids_exact = [d.id for d in results_exact]
         self.assertNotIn(
@@ -667,9 +681,9 @@ class MentionIDORProtectionTestCase(TestCase):
 
     def test_empty_autocomplete_reveals_no_information(self):
         """Empty autocomplete results don't reveal whether resources exist."""
-        from config.graphql.queries import Query
+        from config.graphql import search_queries as _mention_search
 
-        query = Query()
+        query = _mention_search
 
         class MockInfo:
             class MockContext:
@@ -678,13 +692,13 @@ class MentionIDORProtectionTestCase(TestCase):
             context = MockContext()
 
         # Search for non-existent corpus
-        results_nonexistent = query.resolve_search_corpuses_for_mention(
-            MockInfo(), text_search="NonExistentCorpus12345"
+        results_nonexistent = query._resolve_Query_search_corpuses_for_mention(
+            None, MockInfo(), text_search="NonExistentCorpus12345"
         )
 
         # Search for private corpus (exists but inaccessible)
-        results_inaccessible = query.resolve_search_corpuses_for_mention(
-            MockInfo(), text_search="Secret Project"
+        results_inaccessible = query._resolve_Query_search_corpuses_for_mention(
+            None, MockInfo(), text_search="Secret Project"
         )
 
         # Both should return empty results - no way to distinguish
@@ -786,9 +800,9 @@ class CorpusScopedMentionSearchTestCase(TestCase):
 
     def test_document_search_scoped_to_corpus_a(self):
         """Document search with corpus_id only returns docs in that corpus."""
-        from config.graphql.queries import Query
+        from config.graphql import search_queries as _mention_search
 
-        query = Query()
+        query = _mention_search
 
         class MockInfo:
             class MockContext:
@@ -797,8 +811,8 @@ class CorpusScopedMentionSearchTestCase(TestCase):
             context = MockContext()
 
         # Search documents scoped to corpus A
-        results = query.resolve_search_documents_for_mention(
-            MockInfo(), text_search="Document", corpus_id=self.corpus_a_global_id
+        results = query._resolve_Query_search_documents_for_mention(
+            None, MockInfo(), text_search="Document", corpus_id=self.corpus_a_global_id
         )
 
         doc_ids = [d.id for d in results]
@@ -816,9 +830,9 @@ class CorpusScopedMentionSearchTestCase(TestCase):
 
     def test_document_search_scoped_to_corpus_b(self):
         """Document search with corpus_id filters correctly to corpus B."""
-        from config.graphql.queries import Query
+        from config.graphql import search_queries as _mention_search
 
-        query = Query()
+        query = _mention_search
 
         class MockInfo:
             class MockContext:
@@ -827,8 +841,8 @@ class CorpusScopedMentionSearchTestCase(TestCase):
             context = MockContext()
 
         # Search documents scoped to corpus B
-        results = query.resolve_search_documents_for_mention(
-            MockInfo(), text_search="Document", corpus_id=self.corpus_b_global_id
+        results = query._resolve_Query_search_documents_for_mention(
+            None, MockInfo(), text_search="Document", corpus_id=self.corpus_b_global_id
         )
 
         doc_ids = [d.id for d in results]
@@ -846,9 +860,9 @@ class CorpusScopedMentionSearchTestCase(TestCase):
 
     def test_document_search_without_corpus_returns_all(self):
         """Document search without corpus_id returns documents from all corpuses."""
-        from config.graphql.queries import Query
+        from config.graphql import search_queries as _mention_search
 
-        query = Query()
+        query = _mention_search
 
         class MockInfo:
             class MockContext:
@@ -857,8 +871,8 @@ class CorpusScopedMentionSearchTestCase(TestCase):
             context = MockContext()
 
         # Search documents without corpus filtering
-        results = query.resolve_search_documents_for_mention(
-            MockInfo(), text_search="Document"
+        results = query._resolve_Query_search_documents_for_mention(
+            None, MockInfo(), text_search="Document"
         )
 
         doc_ids = [d.id for d in results]
@@ -876,9 +890,9 @@ class CorpusScopedMentionSearchTestCase(TestCase):
 
     def test_annotation_search_scoped_to_corpus_a(self):
         """Annotation search with corpus_id only returns annotations in that corpus."""
-        from config.graphql.queries import Query
+        from config.graphql import search_queries as _mention_search
 
-        query = Query()
+        query = _mention_search
 
         class MockInfo:
             class MockContext:
@@ -887,8 +901,11 @@ class CorpusScopedMentionSearchTestCase(TestCase):
             context = MockContext()
 
         # Search annotations scoped to corpus A
-        results = query.resolve_search_annotations_for_mention(
-            MockInfo(), text_search="Annotation", corpus_id=self.corpus_a_global_id
+        results = query._resolve_Query_search_annotations_for_mention(
+            None,
+            MockInfo(),
+            text_search="Annotation",
+            corpus_id=self.corpus_a_global_id,
         )
 
         annotation_ids = [a.id for a in results]
@@ -906,9 +923,9 @@ class CorpusScopedMentionSearchTestCase(TestCase):
 
     def test_annotation_search_scoped_to_corpus_b(self):
         """Annotation search with corpus_id filters correctly to corpus B."""
-        from config.graphql.queries import Query
+        from config.graphql import search_queries as _mention_search
 
-        query = Query()
+        query = _mention_search
 
         class MockInfo:
             class MockContext:
@@ -917,8 +934,11 @@ class CorpusScopedMentionSearchTestCase(TestCase):
             context = MockContext()
 
         # Search annotations scoped to corpus B
-        results = query.resolve_search_annotations_for_mention(
-            MockInfo(), text_search="Annotation", corpus_id=self.corpus_b_global_id
+        results = query._resolve_Query_search_annotations_for_mention(
+            None,
+            MockInfo(),
+            text_search="Annotation",
+            corpus_id=self.corpus_b_global_id,
         )
 
         annotation_ids = [a.id for a in results]
@@ -936,9 +956,9 @@ class CorpusScopedMentionSearchTestCase(TestCase):
 
     def test_annotation_search_without_corpus_returns_all(self):
         """Annotation search without corpus_id returns annotations from all corpuses."""
-        from config.graphql.queries import Query
+        from config.graphql import search_queries as _mention_search
 
-        query = Query()
+        query = _mention_search
 
         class MockInfo:
             class MockContext:
@@ -947,8 +967,8 @@ class CorpusScopedMentionSearchTestCase(TestCase):
             context = MockContext()
 
         # Search annotations without corpus filtering
-        results = query.resolve_search_annotations_for_mention(
-            MockInfo(), text_search="Annotation"
+        results = query._resolve_Query_search_annotations_for_mention(
+            None, MockInfo(), text_search="Annotation"
         )
 
         annotation_ids = [a.id for a in results]
@@ -968,9 +988,9 @@ class CorpusScopedMentionSearchTestCase(TestCase):
         """Document search with invalid corpus_id returns empty results safely."""
         from graphql_relay import to_global_id
 
-        from config.graphql.queries import Query
+        from config.graphql import search_queries as _mention_search
 
-        query = Query()
+        query = _mention_search
 
         class MockInfo:
             class MockContext:
@@ -980,8 +1000,8 @@ class CorpusScopedMentionSearchTestCase(TestCase):
 
         # Search with a non-existent corpus ID
         fake_corpus_id = to_global_id("CorpusType", 99999)
-        results = query.resolve_search_documents_for_mention(
-            MockInfo(), text_search="Document", corpus_id=fake_corpus_id
+        results = query._resolve_Query_search_documents_for_mention(
+            None, MockInfo(), text_search="Document", corpus_id=fake_corpus_id
         )
 
         doc_ids = list(results)
@@ -995,9 +1015,9 @@ class CorpusScopedMentionSearchTestCase(TestCase):
         """Annotation search with invalid corpus_id returns empty results safely."""
         from graphql_relay import to_global_id
 
-        from config.graphql.queries import Query
+        from config.graphql import search_queries as _mention_search
 
-        query = Query()
+        query = _mention_search
 
         class MockInfo:
             class MockContext:
@@ -1007,8 +1027,8 @@ class CorpusScopedMentionSearchTestCase(TestCase):
 
         # Search with a non-existent corpus ID
         fake_corpus_id = to_global_id("CorpusType", 99999)
-        results = query.resolve_search_annotations_for_mention(
-            MockInfo(), text_search="Annotation", corpus_id=fake_corpus_id
+        results = query._resolve_Query_search_annotations_for_mention(
+            None, MockInfo(), text_search="Annotation", corpus_id=fake_corpus_id
         )
 
         annotation_ids = list(results)
@@ -1088,9 +1108,9 @@ class AgentMentionCorpusScopingTestCase(TestCase):
 
     def test_agent_search_scoped_to_corpus_a_returns_global_and_corpus_a(self):
         """Agent search with corpus_id returns global + that corpus's agents."""
-        from config.graphql.queries import Query
+        from config.graphql import search_queries as _mention_search
 
-        query = Query()
+        query = _mention_search
 
         class MockInfo:
             class MockContext:
@@ -1098,8 +1118,8 @@ class AgentMentionCorpusScopingTestCase(TestCase):
 
             context = MockContext()
 
-        results = query.resolve_search_agents_for_mention(
-            MockInfo(), text_search="Agent", corpus_id=self.corpus_a_global_id
+        results = query._resolve_Query_search_agents_for_mention(
+            None, MockInfo(), text_search="Agent", corpus_id=self.corpus_a_global_id
         )
 
         agent_names = [a.name for a in results]
@@ -1122,9 +1142,9 @@ class AgentMentionCorpusScopingTestCase(TestCase):
 
     def test_agent_search_scoped_to_corpus_b_returns_global_and_corpus_b(self):
         """Agent search with corpus_id filters correctly to corpus B."""
-        from config.graphql.queries import Query
+        from config.graphql import search_queries as _mention_search
 
-        query = Query()
+        query = _mention_search
 
         class MockInfo:
             class MockContext:
@@ -1132,8 +1152,8 @@ class AgentMentionCorpusScopingTestCase(TestCase):
 
             context = MockContext()
 
-        results = query.resolve_search_agents_for_mention(
-            MockInfo(), text_search="Agent", corpus_id=self.corpus_b_global_id
+        results = query._resolve_Query_search_agents_for_mention(
+            None, MockInfo(), text_search="Agent", corpus_id=self.corpus_b_global_id
         )
 
         agent_names = [a.name for a in results]
@@ -1156,9 +1176,9 @@ class AgentMentionCorpusScopingTestCase(TestCase):
 
     def test_agent_search_without_corpus_returns_all_visible(self):
         """Agent search without corpus_id returns all visible agents."""
-        from config.graphql.queries import Query
+        from config.graphql import search_queries as _mention_search
 
-        query = Query()
+        query = _mention_search
 
         class MockInfo:
             class MockContext:
@@ -1166,8 +1186,8 @@ class AgentMentionCorpusScopingTestCase(TestCase):
 
             context = MockContext()
 
-        results = query.resolve_search_agents_for_mention(
-            MockInfo(), text_search="Agent"
+        results = query._resolve_Query_search_agents_for_mention(
+            None, MockInfo(), text_search="Agent"
         )
 
         agent_names = [a.name for a in results]
@@ -1184,9 +1204,9 @@ class AgentMentionCorpusScopingTestCase(TestCase):
         """Anonymous users cannot search for agents."""
         from django.contrib.auth.models import AnonymousUser
 
-        from config.graphql.queries import Query
+        from config.graphql import search_queries as _mention_search
 
-        query = Query()
+        query = _mention_search
 
         class MockInfo:
             class MockContext:
@@ -1194,8 +1214,8 @@ class AgentMentionCorpusScopingTestCase(TestCase):
 
             context = MockContext()
 
-        results = query.resolve_search_agents_for_mention(
-            MockInfo(), text_search="Agent"
+        results = query._resolve_Query_search_agents_for_mention(
+            None, MockInfo(), text_search="Agent"
         )
 
         agent_ids = list(results)
@@ -1213,9 +1233,9 @@ class AgentMentionCorpusScopingTestCase(TestCase):
         as a 500. It now falls back to "no corpus scope" so the resolver
         returns the unscoped-search result instead.
         """
-        from config.graphql.queries import Query
+        from config.graphql import search_queries as _mention_search
 
-        query = Query()
+        query = _mention_search
 
         class MockInfo:
             class MockContext:
@@ -1230,7 +1250,8 @@ class AgentMentionCorpusScopingTestCase(TestCase):
         ):
             with self.subTest(corpus_id=bad_corpus_id):
                 # Must not raise — degrades to a global / unscoped search.
-                results = query.resolve_search_agents_for_mention(
+                results = query._resolve_Query_search_agents_for_mention(
+                    None,
                     MockInfo(),
                     text_search="Agent",
                     corpus_id=bad_corpus_id,

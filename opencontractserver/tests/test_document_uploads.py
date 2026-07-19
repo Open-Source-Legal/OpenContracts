@@ -3,12 +3,12 @@ import io
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from docx import Document as DocxDocument
-from graphene.test import Client
 from graphql_relay import from_global_id, to_global_id
 from openpyxl import Workbook
 from pptx import Presentation
 
 from config.graphql.schema import schema
+from config.graphql.testing import Client
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document as DocumentModel
 from opencontractserver.pipeline.registry import get_allowed_mime_types

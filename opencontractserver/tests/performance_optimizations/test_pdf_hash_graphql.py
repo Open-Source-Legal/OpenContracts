@@ -7,8 +7,8 @@ import json
 
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
-from graphene_django.utils.testing import GraphQLTestCase
 
+from config.graphql.testing import GraphQLTestCase
 from opencontractserver.documents.models import Document
 
 User = get_user_model()

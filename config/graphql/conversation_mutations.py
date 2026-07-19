@@ -1,23 +1,45 @@
-"""
-GraphQL mutations for thread support in conversations.
+"""Generated strawberry GraphQL module (graphene migration).
 
-This module provides mutations for creating and managing discussion threads:
-- CreateThreadMutation: Create new thread conversation
-- CreateThreadMessageMutation: Post message to thread
-- ReplyToMessageMutation: Create nested reply
-- DeleteConversationMutation: Soft delete thread
-- DeleteMessageMutation: Soft delete message
+Shape-generated from the graphene schema; stub functions marked PORT(...)
+carry the ported business logic. See config/graphql_new/manifest.json.
 """
+
+# mypy: disable-error-code="name-defined, valid-type, arg-type"
+#   Code-generation artifacts of the strawberry schema bindings that
+#   mypy's static pass cannot resolve, NOT real typing defects:
+#     name-defined / valid-type — ``Annotated["XType", strawberry.lazy(...)]``
+#       forward-reference strings + the runtime-generated ``*Connection``
+#       types (``make_connection_types``).
+#     arg-type — resolvers construct result types with ``to_global_id()``
+#       (``str``) for ``strawberry.ID`` fields and return Django MODEL
+#       instances where the field annotation names the strawberry type
+#       (the graphene-django resolver contract). Both are correct at
+#       runtime. Hand-written config/graphql/core/* stays fully checked.
+# flake8: noqa: E501, F821 — generated strawberry schema module.
+# E501: long GraphQL field/argument ``description=`` strings and the
+# single-line generated resolver signatures (black cannot split string
+# literals). F821: ``Annotated["XType", strawberry.lazy(...)]`` /
+# ``cast("QuerySet", ...)`` forward-reference STRINGS that pyflakes
+# resolves as names — the whole point of strawberry.lazy is to avoid the
+# import (which would then be F401). Both are code-generation artifacts,
+# not defects; hand-written modules (config/graphql/core/*, security.py,
+# testing.py, filters.py, …) stay fully linted.
+
+from __future__ import annotations
 
 import logging
+from typing import Annotated
 
-import graphene
+import strawberry
 from django.db import transaction
 from django.utils import timezone
-from graphql_jwt.decorators import login_required
 from graphql_relay import from_global_id
 
-from config.graphql.graphene_types import ConversationType, MessageType
+from config.graphql._util import strip_unset
+from config.graphql.core.auth import PermissionDenied
+from config.graphql.core.relay import (
+    register_type,
+)
 from config.graphql.ratelimits import RateLimits, graphql_ratelimit
 from opencontractserver.conversations.models import (
     ChatMessage,
@@ -41,44 +63,108 @@ from opencontractserver.utils.permissioning import (
 logger = logging.getLogger(__name__)
 
 
-class CreateThreadMutation(graphene.Mutation):
+@strawberry.type(
+    name="CreateThreadMutation",
+    description="Create a new discussion thread linked to a corpus and/or document.\n\nSupports three modes:\n- corpus_id only: Thread is linked to corpus (corpus-level discussion)\n- document_id only: Thread is linked to document (standalone document discussion)\n- both corpus_id AND document_id: Thread is linked to both (doc-in-corpus discussion)\n\nSecurity Note: Message content is stored as Markdown from TipTap editor.\nMarkdown is safer than HTML (no script injection), and mention links use\nstandard Markdown syntax [text](url) which is parsed to create database relationships.\nPart of Issue #623 - @ Mentions Feature (Extended)\nPart of Issue #677 - Document Discussions UI Enhancement",
+)
+class CreateThreadMutation:
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
+        Annotated[
+            ConversationType, strawberry.lazy("config.graphql.conversation_types")
+        ]
+    ) = strawberry.field(name="obj", default=None)
+
+
+register_type("CreateThreadMutation", CreateThreadMutation, model=None)
+
+
+@strawberry.type(
+    name="CreateThreadMessageMutation",
+    description="Post a new message to an existing thread.",
+)
+class CreateThreadMessageMutation:
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
+        Annotated[MessageType, strawberry.lazy("config.graphql.conversation_types")]
+    ) = strawberry.field(name="obj", default=None)
+
+
+register_type("CreateThreadMessageMutation", CreateThreadMessageMutation, model=None)
+
+
+@strawberry.type(
+    name="ReplyToMessageMutation",
+    description="Create a nested reply to an existing message.",
+)
+class ReplyToMessageMutation:
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
+        Annotated[MessageType, strawberry.lazy("config.graphql.conversation_types")]
+    ) = strawberry.field(name="obj", default=None)
+
+
+register_type("ReplyToMessageMutation", ReplyToMessageMutation, model=None)
+
+
+@strawberry.type(
+    name="UpdateMessageMutation",
+    description="Update the content of an existing message.\n\nSecurity Note: Only the message creator or a moderator can edit messages.\nMention links are re-parsed when content is updated.\n\nXSS Prevention Note: The content field contains user-generated markdown text\nthat must be properly escaped when rendered in the frontend to prevent XSS\nattacks. GraphQL's GenericScalar handles JSON serialization safely, but the\nfrontend must use a markdown renderer that sanitizes HTML output.\n\nPart of Issue #686 - Mobile UI for Edit Message Modal",
+)
+class UpdateMessageMutation:
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
+        Annotated[MessageType, strawberry.lazy("config.graphql.conversation_types")]
+    ) = strawberry.field(name="obj", default=None)
+
+
+register_type("UpdateMessageMutation", UpdateMessageMutation, model=None)
+
+
+@strawberry.type(
+    name="DeleteConversationMutation", description="Soft delete a conversation/thread."
+)
+class DeleteConversationMutation:
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+
+
+register_type("DeleteConversationMutation", DeleteConversationMutation, model=None)
+
+
+@strawberry.type(name="DeleteMessageMutation", description="Soft delete a message.")
+class DeleteMessageMutation:
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+
+
+register_type("DeleteMessageMutation", DeleteMessageMutation, model=None)
+
+
+def _mutate_CreateThreadMutation(
+    payload_cls,
+    root,
+    info,
+    title,
+    initial_message,
+    corpus_id=None,
+    document_id=None,
+    description=None,
+):
+    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:81
+
+    Port of CreateThreadMutation.mutate
     """
-    Create a new discussion thread linked to a corpus and/or document.
+    # @login_required (graphql_jwt) — inlined because mutate stubs take
+    # ``payload_cls`` as their first positional argument, which does not
+    # match core.auth's ``(root, info, ...)`` calling convention.
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
 
-    Supports three modes:
-    - corpus_id only: Thread is linked to corpus (corpus-level discussion)
-    - document_id only: Thread is linked to document (standalone document discussion)
-    - both corpus_id AND document_id: Thread is linked to both (doc-in-corpus discussion)
-
-    Security Note: Message content is stored as Markdown from TipTap editor.
-    Markdown is safer than HTML (no script injection), and mention links use
-    standard Markdown syntax [text](url) which is parsed to create database relationships.
-    Part of Issue #623 - @ Mentions Feature (Extended)
-    Part of Issue #677 - Document Discussions UI Enhancement
-    """
-
-    class Arguments:
-        corpus_id = graphene.String(
-            required=False,
-            description="ID of the corpus for this thread (optional if document_id provided)",
-        )
-        document_id = graphene.String(
-            required=False,
-            description="ID of the document for this thread (for doc-specific discussions)",
-        )
-        title = graphene.String(required=True, description="Title of the thread")
-        description = graphene.String(
-            required=False, description="Optional description"
-        )
-        initial_message = graphene.String(
-            required=True, description="Initial message content"
-        )
-
-    ok = graphene.Boolean()
-    message = graphene.String()
-    obj = graphene.Field(ConversationType)
-
-    @login_required
     @graphql_ratelimit(rate="10/h")
     @transaction.atomic
     def mutate(
@@ -89,7 +175,7 @@ class CreateThreadMutation(graphene.Mutation):
         corpus_id=None,
         document_id=None,
         description=None,
-    ) -> "CreateThreadMutation":
+    ):
         ok = False
         obj = None
         message = ""
@@ -101,7 +187,7 @@ class CreateThreadMutation(graphene.Mutation):
 
             # At least one of corpus_id or document_id must be provided
             if not corpus_id and not document_id:
-                return CreateThreadMutation(
+                return payload_cls(
                     ok=False,
                     message="Either corpus_id or document_id (or both) must be provided",
                     obj=None,
@@ -118,14 +204,14 @@ class CreateThreadMutation(graphene.Mutation):
                 try:
                     corpus_pk = from_global_id(corpus_id)[1]
                 except Exception:
-                    return CreateThreadMutation(
+                    return payload_cls(
                         ok=False,
                         message="You do not have permission to create threads in this corpus",
                         obj=None,
                     )
                 corpus = get_for_user_or_none(Corpus, corpus_pk, user)
                 if corpus is None:
-                    return CreateThreadMutation(
+                    return payload_cls(
                         ok=False,
                         message="You do not have permission to create threads in this corpus",
                         obj=None,
@@ -135,14 +221,14 @@ class CreateThreadMutation(graphene.Mutation):
                 try:
                     document_pk = from_global_id(document_id)[1]
                 except Exception:
-                    return CreateThreadMutation(
+                    return payload_cls(
                         ok=False,
                         message="You do not have permission to create threads for this document",
                         obj=None,
                     )
                 document = get_for_user_or_none(Document, document_pk, user)
                 if document is None:
-                    return CreateThreadMutation(
+                    return payload_cls(
                         ok=False,
                         message="You do not have permission to create threads for this document",
                         obj=None,
@@ -204,25 +290,74 @@ class CreateThreadMutation(graphene.Mutation):
             logger.error(f"Error creating thread: {e}")
             message = "Failed to create thread"
 
-        return CreateThreadMutation(ok=ok, message=message, obj=obj)
+        return payload_cls(ok=ok, message=message, obj=obj)
+
+    return mutate(
+        root,
+        info,
+        title=title,
+        initial_message=initial_message,
+        corpus_id=corpus_id,
+        document_id=document_id,
+        description=description,
+    )
 
 
-class CreateThreadMessageMutation(graphene.Mutation):
-    """Post a new message to an existing thread."""
+def m_create_thread(
+    info: strawberry.Info,
+    corpus_id: Annotated[
+        str | None,
+        strawberry.argument(
+            name="corpusId",
+            description="ID of the corpus for this thread (optional if document_id provided)",
+        ),
+    ] = strawberry.UNSET,
+    description: Annotated[
+        str | None,
+        strawberry.argument(name="description", description="Optional description"),
+    ] = strawberry.UNSET,
+    document_id: Annotated[
+        str | None,
+        strawberry.argument(
+            name="documentId",
+            description="ID of the document for this thread (for doc-specific discussions)",
+        ),
+    ] = strawberry.UNSET,
+    initial_message: Annotated[
+        str,
+        strawberry.argument(
+            name="initialMessage", description="Initial message content"
+        ),
+    ] = strawberry.UNSET,
+    title: Annotated[
+        str, strawberry.argument(name="title", description="Title of the thread")
+    ] = strawberry.UNSET,
+) -> CreateThreadMutation | None:
+    kwargs = strip_unset(
+        {
+            "corpus_id": corpus_id,
+            "description": description,
+            "document_id": document_id,
+            "initial_message": initial_message,
+            "title": title,
+        }
+    )
+    return _mutate_CreateThreadMutation(CreateThreadMutation, None, info, **kwargs)
 
-    class Arguments:
-        conversation_id = graphene.String(
-            required=True, description="ID of the conversation/thread"
-        )
-        content = graphene.String(required=True, description="Message content")
 
-    ok = graphene.Boolean()
-    message = graphene.String()
-    obj = graphene.Field(MessageType)
+def _mutate_CreateThreadMessageMutation(
+    payload_cls, root, info, content, conversation_id
+):
+    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:223
 
-    @login_required
+    Port of CreateThreadMessageMutation.mutate
+    """
+    # @login_required (graphql_jwt) — inlined; see _mutate_CreateThreadMutation.
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+
     @graphql_ratelimit(rate="30/m")
-    def mutate(root, info, conversation_id, content) -> "CreateThreadMessageMutation":
+    def mutate(root, info, conversation_id, content):
         ok = False
         obj = None
         message = ""
@@ -235,14 +370,14 @@ class CreateThreadMessageMutation(graphene.Mutation):
             try:
                 conversation_pk = from_global_id(conversation_id)[1]
             except Exception:
-                return CreateThreadMessageMutation(
+                return payload_cls(
                     ok=False,
                     message="Cannot post in this thread",
                     obj=None,
                 )
             conversation = get_for_user_or_none(Conversation, conversation_pk, user)
             if conversation is None:
-                return CreateThreadMessageMutation(
+                return payload_cls(
                     ok=False,
                     message="Cannot post in this thread",
                     obj=None,
@@ -250,7 +385,7 @@ class CreateThreadMessageMutation(graphene.Mutation):
 
             # Check if conversation is locked (only after verifying user has access)
             if conversation.is_locked:
-                return CreateThreadMessageMutation(
+                return payload_cls(
                     ok=False,
                     message="This thread is locked",
                     obj=None,
@@ -302,25 +437,40 @@ class CreateThreadMessageMutation(graphene.Mutation):
             logger.error(f"Error creating message: {e}")
             message = "Failed to create message"
 
-        return CreateThreadMessageMutation(ok=ok, message=message, obj=obj)
+        return payload_cls(ok=ok, message=message, obj=obj)
+
+    return mutate(root, info, conversation_id=conversation_id, content=content)
 
 
-class ReplyToMessageMutation(graphene.Mutation):
-    """Create a nested reply to an existing message."""
+def m_create_thread_message(
+    info: strawberry.Info,
+    content: Annotated[
+        str, strawberry.argument(name="content", description="Message content")
+    ] = strawberry.UNSET,
+    conversation_id: Annotated[
+        str,
+        strawberry.argument(
+            name="conversationId", description="ID of the conversation/thread"
+        ),
+    ] = strawberry.UNSET,
+) -> CreateThreadMessageMutation | None:
+    kwargs = strip_unset({"content": content, "conversation_id": conversation_id})
+    return _mutate_CreateThreadMessageMutation(
+        CreateThreadMessageMutation, None, info, **kwargs
+    )
 
-    class Arguments:
-        parent_message_id = graphene.String(
-            required=True, description="ID of the parent message"
-        )
-        content = graphene.String(required=True, description="Reply content")
 
-    ok = graphene.Boolean()
-    message = graphene.String()
-    obj = graphene.Field(MessageType)
+def _mutate_ReplyToMessageMutation(payload_cls, root, info, content, parent_message_id):
+    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:321
 
-    @login_required
+    Port of ReplyToMessageMutation.mutate
+    """
+    # @login_required (graphql_jwt) — inlined; see _mutate_CreateThreadMutation.
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+
     @graphql_ratelimit(rate="30/m")
-    def mutate(root, info, parent_message_id, content) -> "ReplyToMessageMutation":
+    def mutate(root, info, parent_message_id, content):
         ok = False
         obj = None
         message = ""
@@ -333,7 +483,7 @@ class ReplyToMessageMutation(graphene.Mutation):
             try:
                 parent_pk = from_global_id(parent_message_id)[1]
             except Exception:
-                return ReplyToMessageMutation(
+                return payload_cls(
                     ok=False,
                     message="You do not have permission to reply to this message",
                     obj=None,
@@ -341,7 +491,7 @@ class ReplyToMessageMutation(graphene.Mutation):
 
             parent_message = get_for_user_or_none(ChatMessage, parent_pk, user)
             if parent_message is None:
-                return ReplyToMessageMutation(
+                return payload_cls(
                     ok=False,
                     message="You do not have permission to reply to this message",
                     obj=None,
@@ -355,7 +505,7 @@ class ReplyToMessageMutation(graphene.Mutation):
             if BaseService.require_permission(
                 conversation, user, PermissionTypes.READ, request=info.context
             ):
-                return ReplyToMessageMutation(
+                return payload_cls(
                     ok=False,
                     message="Cannot reply in this thread",
                     obj=None,
@@ -363,7 +513,7 @@ class ReplyToMessageMutation(graphene.Mutation):
 
             # Check if conversation is locked (only after verifying user has access)
             if conversation.is_locked:
-                return ReplyToMessageMutation(
+                return payload_cls(
                     ok=False,
                     message="This thread is locked",
                     obj=None,
@@ -416,105 +566,39 @@ class ReplyToMessageMutation(graphene.Mutation):
             logger.error(f"Error creating reply: {e}")
             message = "Failed to create reply"
 
-        return ReplyToMessageMutation(ok=ok, message=message, obj=obj)
+        return payload_cls(ok=ok, message=message, obj=obj)
+
+    return mutate(root, info, parent_message_id=parent_message_id, content=content)
 
 
-class DeleteConversationMutation(graphene.Mutation):
-    """Soft delete a conversation/thread."""
-
-    class Arguments:
-        conversation_id = graphene.String(
-            required=True, description="ID of the conversation to delete"
-        )
-
-    ok = graphene.Boolean()
-    message = graphene.String()
-
-    @login_required
-    @graphql_ratelimit(rate=RateLimits.WRITE_LIGHT)
-    def mutate(root, info, conversation_id) -> "DeleteConversationMutation":
-        ok = False
-        message = ""
-
-        try:
-            user = info.context.user
-            # ``from_global_id`` can raise a bare ``Exception`` (via
-            # ``binascii.Error``) on malformed base64 — catch it so a bad
-            # id surfaces through the unified IDOR-safe envelope.
-            try:
-                conversation_pk = from_global_id(conversation_id)[1]
-            except Exception:
-                return DeleteConversationMutation(
-                    ok=False,
-                    message="You do not have permission to delete this conversation",
-                )
-
-            conversation = get_for_user_or_none(Conversation, conversation_pk, user)
-            if conversation is None:
-                return DeleteConversationMutation(
-                    ok=False,
-                    message="You do not have permission to delete this conversation",
-                )
-
-            # Check if user has permission to delete via the service layer.
-            has_delete_permission = BaseService.user_has(
-                conversation, user, PermissionTypes.DELETE, request=info.context
-            )
-            is_moderator = conversation.can_moderate(user)
-
-            if not has_delete_permission and not is_moderator:
-                return DeleteConversationMutation(
-                    ok=False,
-                    message="You do not have permission to delete this conversation",
-                )
-
-            # Soft delete the conversation
-            conversation.deleted_at = timezone.now()
-            conversation.save(update_fields=["deleted_at"])
-
-            ok = True
-            message = "Conversation deleted successfully"
-
-        except Conversation.DoesNotExist:
-            message = "You do not have permission to delete this conversation"
-        except Exception as e:
-            logger.error(f"Error deleting conversation: {e}")
-            message = "Failed to delete conversation"
-
-        return DeleteConversationMutation(ok=ok, message=message)
+def m_reply_to_message(
+    info: strawberry.Info,
+    content: Annotated[
+        str, strawberry.argument(name="content", description="Reply content")
+    ] = strawberry.UNSET,
+    parent_message_id: Annotated[
+        str,
+        strawberry.argument(
+            name="parentMessageId", description="ID of the parent message"
+        ),
+    ] = strawberry.UNSET,
+) -> ReplyToMessageMutation | None:
+    kwargs = strip_unset({"content": content, "parent_message_id": parent_message_id})
+    return _mutate_ReplyToMessageMutation(ReplyToMessageMutation, None, info, **kwargs)
 
 
-class UpdateMessageMutation(graphene.Mutation):
+def _mutate_UpdateMessageMutation(payload_cls, root, info, content, message_id):
+    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:514
+
+    Port of UpdateMessageMutation.mutate
     """
-    Update the content of an existing message.
+    # @login_required (graphql_jwt) — inlined; see _mutate_CreateThreadMutation.
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
 
-    Security Note: Only the message creator or a moderator can edit messages.
-    Mention links are re-parsed when content is updated.
-
-    XSS Prevention Note: The content field contains user-generated markdown text
-    that must be properly escaped when rendered in the frontend to prevent XSS
-    attacks. GraphQL's GenericScalar handles JSON serialization safely, but the
-    frontend must use a markdown renderer that sanitizes HTML output.
-
-    Part of Issue #686 - Mobile UI for Edit Message Modal
-    """
-
-    class Arguments:
-        message_id = graphene.ID(
-            required=True, description="ID of the message to update"
-        )
-        content = graphene.String(
-            required=True, description="New content for the message"
-        )
-
-    ok = graphene.Boolean()
-    message = graphene.String()
-    obj = graphene.Field(MessageType)
-
-    @login_required
     @graphql_ratelimit(rate="30/m")
     @transaction.atomic
-    def mutate(root, info, message_id, content) -> "UpdateMessageMutation":
+    def mutate(root, info, message_id, content):
         ok = False
         obj = None
         message = ""
@@ -525,7 +609,7 @@ class UpdateMessageMutation(graphene.Mutation):
 
             # Validate content is not empty (matches frontend validation)
             if not content or not content.strip():
-                return UpdateMessageMutation(
+                return payload_cls(
                     ok=False,
                     message="Message content cannot be empty",
                     obj=None,
@@ -567,7 +651,7 @@ class UpdateMessageMutation(graphene.Mutation):
                 ):
                     chat_message = candidate
                 else:
-                    return UpdateMessageMutation(
+                    return payload_cls(
                         ok=False,
                         message="You do not have permission to edit this message",
                         obj=None,
@@ -581,7 +665,7 @@ class UpdateMessageMutation(graphene.Mutation):
             is_moderator = chat_message.conversation.can_moderate(user)
 
             if not has_update_permission and not is_moderator:
-                return UpdateMessageMutation(
+                return payload_cls(
                     ok=False,
                     message="You do not have permission to edit this message",
                     obj=None,
@@ -589,7 +673,7 @@ class UpdateMessageMutation(graphene.Mutation):
 
             # Check if conversation is locked
             if chat_message.conversation.is_locked:
-                return UpdateMessageMutation(
+                return payload_cls(
                     ok=False,
                     message="This thread is locked",
                     obj=None,
@@ -597,7 +681,7 @@ class UpdateMessageMutation(graphene.Mutation):
 
             # Check if message is deleted
             if chat_message.deleted_at:
-                return UpdateMessageMutation(
+                return payload_cls(
                     ok=False,
                     message="Cannot edit a deleted message",
                     obj=None,
@@ -672,23 +756,118 @@ class UpdateMessageMutation(graphene.Mutation):
             logger.error(f"Error updating message: {type(e).__name__}: {e}")
             message = "Failed to update message"
 
-        return UpdateMessageMutation(ok=ok, message=message, obj=obj)
+        return payload_cls(ok=ok, message=message, obj=obj)
+
+    return mutate(root, info, message_id=message_id, content=content)
 
 
-class DeleteMessageMutation(graphene.Mutation):
-    """Soft delete a message."""
+def m_update_message(
+    info: strawberry.Info,
+    content: Annotated[
+        str,
+        strawberry.argument(name="content", description="New content for the message"),
+    ] = strawberry.UNSET,
+    message_id: Annotated[
+        strawberry.ID,
+        strawberry.argument(
+            name="messageId", description="ID of the message to update"
+        ),
+    ] = strawberry.UNSET,
+) -> UpdateMessageMutation | None:
+    kwargs = strip_unset({"content": content, "message_id": message_id})
+    return _mutate_UpdateMessageMutation(UpdateMessageMutation, None, info, **kwargs)
 
-    class Arguments:
-        message_id = graphene.ID(
-            required=True, description="ID of the message to delete"
-        )
 
-    ok = graphene.Boolean()
-    message = graphene.String()
+def _mutate_DeleteConversationMutation(payload_cls, root, info, conversation_id):
+    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:433
 
-    @login_required
+    Port of DeleteConversationMutation.mutate
+    """
+    # @login_required (graphql_jwt) — inlined; see _mutate_CreateThreadMutation.
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+
     @graphql_ratelimit(rate=RateLimits.WRITE_LIGHT)
-    def mutate(root, info, message_id) -> "DeleteMessageMutation":
+    def mutate(root, info, conversation_id):
+        ok = False
+        message = ""
+
+        try:
+            user = info.context.user
+            # ``from_global_id`` can raise a bare ``Exception`` (via
+            # ``binascii.Error``) on malformed base64 — catch it so a bad
+            # id surfaces through the unified IDOR-safe envelope.
+            try:
+                conversation_pk = from_global_id(conversation_id)[1]
+            except Exception:
+                return payload_cls(
+                    ok=False,
+                    message="You do not have permission to delete this conversation",
+                )
+
+            conversation = get_for_user_or_none(Conversation, conversation_pk, user)
+            if conversation is None:
+                return payload_cls(
+                    ok=False,
+                    message="You do not have permission to delete this conversation",
+                )
+
+            # Check if user has permission to delete via the service layer.
+            has_delete_permission = BaseService.user_has(
+                conversation, user, PermissionTypes.DELETE, request=info.context
+            )
+            is_moderator = conversation.can_moderate(user)
+
+            if not has_delete_permission and not is_moderator:
+                return payload_cls(
+                    ok=False,
+                    message="You do not have permission to delete this conversation",
+                )
+
+            # Soft delete the conversation
+            conversation.deleted_at = timezone.now()
+            conversation.save(update_fields=["deleted_at"])
+
+            ok = True
+            message = "Conversation deleted successfully"
+
+        except Conversation.DoesNotExist:
+            message = "You do not have permission to delete this conversation"
+        except Exception as e:
+            logger.error(f"Error deleting conversation: {e}")
+            message = "Failed to delete conversation"
+
+        return payload_cls(ok=ok, message=message)
+
+    return mutate(root, info, conversation_id=conversation_id)
+
+
+def m_delete_conversation(
+    info: strawberry.Info,
+    conversation_id: Annotated[
+        str,
+        strawberry.argument(
+            name="conversationId", description="ID of the conversation to delete"
+        ),
+    ] = strawberry.UNSET,
+) -> DeleteConversationMutation | None:
+    kwargs = strip_unset({"conversation_id": conversation_id})
+    return _mutate_DeleteConversationMutation(
+        DeleteConversationMutation, None, info, **kwargs
+    )
+
+
+def _mutate_DeleteMessageMutation(payload_cls, root, info, message_id):
+    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:689
+
+    Port of DeleteMessageMutation.mutate
+    """
+    # @login_required (graphql_jwt) — inlined; see _mutate_CreateThreadMutation.
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+
+    @graphql_ratelimit(rate=RateLimits.WRITE_LIGHT)
+    def mutate(root, info, message_id):
         ok = False
         message = ""
 
@@ -700,14 +879,14 @@ class DeleteMessageMutation(graphene.Mutation):
             try:
                 message_pk = from_global_id(message_id)[1]
             except Exception:
-                return DeleteMessageMutation(
+                return payload_cls(
                     ok=False,
                     message="You do not have permission to delete this message",
                 )
 
             chat_message = get_for_user_or_none(ChatMessage, message_pk, user)
             if chat_message is None:
-                return DeleteMessageMutation(
+                return payload_cls(
                     ok=False,
                     message="You do not have permission to delete this message",
                 )
@@ -719,7 +898,7 @@ class DeleteMessageMutation(graphene.Mutation):
             is_moderator = chat_message.conversation.can_moderate(user)
 
             if not has_delete_permission and not is_moderator:
-                return DeleteMessageMutation(
+                return payload_cls(
                     ok=False,
                     message="You do not have permission to delete this message",
                 )
@@ -737,4 +916,53 @@ class DeleteMessageMutation(graphene.Mutation):
             logger.error(f"Error deleting message: {e}")
             message = "Failed to delete message"
 
-        return DeleteMessageMutation(ok=ok, message=message)
+        return payload_cls(ok=ok, message=message)
+
+    return mutate(root, info, message_id=message_id)
+
+
+def m_delete_message(
+    info: strawberry.Info,
+    message_id: Annotated[
+        strawberry.ID,
+        strawberry.argument(
+            name="messageId", description="ID of the message to delete"
+        ),
+    ] = strawberry.UNSET,
+) -> DeleteMessageMutation | None:
+    kwargs = strip_unset({"message_id": message_id})
+    return _mutate_DeleteMessageMutation(DeleteMessageMutation, None, info, **kwargs)
+
+
+MUTATION_FIELDS = {
+    "create_thread": strawberry.field(
+        resolver=m_create_thread,
+        name="createThread",
+        description="Create a new discussion thread linked to a corpus and/or document.\n\nSupports three modes:\n- corpus_id only: Thread is linked to corpus (corpus-level discussion)\n- document_id only: Thread is linked to document (standalone document discussion)\n- both corpus_id AND document_id: Thread is linked to both (doc-in-corpus discussion)\n\nSecurity Note: Message content is stored as Markdown from TipTap editor.\nMarkdown is safer than HTML (no script injection), and mention links use\nstandard Markdown syntax [text](url) which is parsed to create database relationships.\nPart of Issue #623 - @ Mentions Feature (Extended)\nPart of Issue #677 - Document Discussions UI Enhancement",
+    ),
+    "create_thread_message": strawberry.field(
+        resolver=m_create_thread_message,
+        name="createThreadMessage",
+        description="Post a new message to an existing thread.",
+    ),
+    "reply_to_message": strawberry.field(
+        resolver=m_reply_to_message,
+        name="replyToMessage",
+        description="Create a nested reply to an existing message.",
+    ),
+    "update_message": strawberry.field(
+        resolver=m_update_message,
+        name="updateMessage",
+        description="Update the content of an existing message.\n\nSecurity Note: Only the message creator or a moderator can edit messages.\nMention links are re-parsed when content is updated.\n\nXSS Prevention Note: The content field contains user-generated markdown text\nthat must be properly escaped when rendered in the frontend to prevent XSS\nattacks. GraphQL's GenericScalar handles JSON serialization safely, but the\nfrontend must use a markdown renderer that sanitizes HTML output.\n\nPart of Issue #686 - Mobile UI for Edit Message Modal",
+    ),
+    "delete_conversation": strawberry.field(
+        resolver=m_delete_conversation,
+        name="deleteConversation",
+        description="Soft delete a conversation/thread.",
+    ),
+    "delete_message": strawberry.field(
+        resolver=m_delete_message,
+        name="deleteMessage",
+        description="Soft delete a message.",
+    ),
+}

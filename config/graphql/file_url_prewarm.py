@@ -1,11 +1,11 @@
 """Concurrent pre-warming of document file URLs.
 
 On GCS with IAM signBlob (Workload Identity, no local signing key) every
-``FieldFile.url`` is a network round trip. graphene resolves a connection's
+``FieldFile.url`` is a network round trip. GraphQL resolves a connection's
 nodes — and each node's ``pdfFile``/``icon`` — sequentially, so a page of N
 documents signs its file URLs one-at-a-time (N×~150ms ⇒ multi-second paint).
 
-This middleware intercepts the *resolved* ``documents`` connection, signs the
+This extension intercepts the *resolved* ``documents`` connection, signs the
 whole page's requested file URLs in a thread pool, and warms
 ``info.context._file_url_cache`` so the per-node resolvers in
 ``optimized_file_resolvers`` return from cache instead of signing serially.
@@ -26,6 +26,7 @@ from typing import Any
 
 from django.conf import settings
 from django.core.cache import cache
+from strawberry.extensions import SchemaExtension
 
 from config.graphql.custom_resolvers import _selection_set_iter
 from config.graphql.optimized_file_resolvers import _FILE_URL_CACHE_PREFIX
@@ -68,22 +69,24 @@ def _requested_document_file_fields(info: Any) -> set[str]:
 def _is_document_connection(info: Any) -> bool:
     """True only for a connection field whose node model is ``Document``.
 
-    Mirrors ``PermissionAnnotatingMiddleware``'s return-type introspection:
-    connection types expose ``_meta.node``; a bare node type does not — so this
-    fires once on the connection field, not per edge/node.
+    Fires once on the connection field, not per edge/node: connection types
+    are named ``<NodeType>Connection`` and the node type's model is looked up
+    in the strawberry type registry.
     """
+    from config.graphql.core.relay import get_registry_entry
+
     return_type = getattr(info, "return_type", None)
-    graphene_type = getattr(return_type, "graphene_type", None)
-    meta = getattr(graphene_type, "_meta", None)
-    node = getattr(meta, "node", None)
-    if node is None:
+    while getattr(return_type, "of_type", None) is not None:  # unwrap NonNull
+        return_type = return_type.of_type  # type: ignore[union-attr]
+    name = getattr(return_type, "name", None)
+    if not name or not name.endswith("Connection"):
         return False
-    model = getattr(getattr(node, "_meta", None), "model", None)
-    if model is None:
+    entry = get_registry_entry(name[: -len("Connection")])
+    if entry is None or entry.model is None:
         return False
     from opencontractserver.documents.models import Document
 
-    return model is Document
+    return entry.model is Document
 
 
 def _extract_document_nodes(result: Any) -> list[Any]:
@@ -103,11 +106,16 @@ def _extract_document_nodes(result: Any) -> list[Any]:
     return nodes
 
 
-class FileUrlPrewarmMiddleware:
-    """Pre-sign a Document connection page's file URLs concurrently."""
+class FileUrlPrewarmExtension(SchemaExtension):
+    """Pre-sign a Document connection page's file URLs concurrently.
 
-    def resolve(self, next, root, info, **kwargs):  # noqa: A002 (graphene API)
-        result = next(root, info, **kwargs)
+    Strawberry ``SchemaExtension`` replacement for the graphene-era
+    ``FileUrlPrewarmMiddleware``. Installed by ``config.graphql.schema`` only
+    when ``FILE_URL_SHARED_CACHE_TTL > 0`` (LOCAL storage / tests skip it).
+    """
+
+    def resolve(self, _next, root, info, *args, **kwargs):
+        result = _next(root, info, *args, **kwargs)
         try:
             if _is_document_connection(info):
                 self._prewarm(result, info)

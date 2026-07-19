@@ -14,11 +14,15 @@ from unittest import mock
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.utils import timezone
-from graphene.test import Client as GrapheneClient
 from graphql_relay import to_global_id
 
 from config.graphql.schema import schema
-from opencontractserver.conversations.models import ChatMessage, Conversation
+from config.graphql.testing import Client as GrapheneClient
+from opencontractserver.conversations.models import (
+    ChatMessage,
+    Conversation,
+    ConversationTypeChoices,
+)
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
 from opencontractserver.types.enums import PermissionTypes
@@ -84,9 +88,27 @@ class MentionParsingTestCase(TestCase):
         self.doc2.slug = "private-doc"
         self.doc2.save(update_fields=["slug"])
 
-        # Create conversation and message
+        # Create conversation and message. Public: these tests exercise
+        # mentionedResources' per-viewer corpus/document filtering (the
+        # thing under test), which requires both user1 and user2 to be
+        # able to fetch the same message. ChatMessage.objects.visible_to_user
+        # (opencontractserver/conversations/models.py) denies non-participant,
+        # non-public THREAD messages to strangers by design — this is
+        # unrelated to mention-permission filtering, so make the thread
+        # public rather than relying on message-level access for user2.
+        #
+        # ``conversation_type`` must be the ``ConversationTypeChoices`` enum
+        # (value ``"thread"``, lowercase) — the literal string ``"THREAD"``
+        # silently persists (Django doesn't validate choices on save) but
+        # matches neither the CHAT nor THREAD branch of
+        # ``ConversationQuerySet.visible_to_user``'s ``conversation_type=``
+        # filter, so a non-creator/non-explicitly-granted viewer never sees
+        # the conversation regardless of ``is_public``.
         self.conversation = Conversation.objects.create(
-            title="Test Thread", creator=self.user1, conversation_type="THREAD"
+            title="Test Thread",
+            creator=self.user1,
+            conversation_type=ConversationTypeChoices.THREAD,
+            is_public=True,
         )
 
         # Set permissions on corpus and corpus copies (not originals)

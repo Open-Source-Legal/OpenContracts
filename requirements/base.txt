@@ -72,8 +72,9 @@ django-guardian
 
 # GraphQL
 # ------------------------------------------------------------------------------
-graphene-django==3.2.3  # TODO - evaluate migration path; Django 5.2 not officially supported, slow maintenance pace
-django-graphql-jwt==0.4.0
+strawberry-graphql==0.320.3  # code-first GraphQL; replaced graphene-django (schema parity pinned by config/graphql/schema.graphql)
+graphql-relay==3.2.0  # relay global-id / connection helpers imported directly by config/graphql/* (to_global_id, from_global_id, connection_from_array_slice); pinned explicitly rather than relying on the transitive pull via django-graphql-jwt
+django-graphql-jwt==0.4.0  # JWT signing/backends + refresh-token utilities only — its graphene middleware/mutations are replaced by strawberry ports (config/graphql/views.py, jwt_auth.py, user_mutations.py)
 
 # Telemetry
 # ------------------------------------------------------------------------------

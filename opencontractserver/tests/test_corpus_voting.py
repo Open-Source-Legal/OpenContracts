@@ -25,9 +25,9 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
 from django.db import IntegrityError, transaction
 from django.test import RequestFactory, TestCase, TransactionTestCase
-from graphene.test import Client
 
 from config.graphql.schema import schema
+from config.graphql.testing import Client
 from opencontractserver.corpuses.models import (
     Corpus,
     CorpusVote,

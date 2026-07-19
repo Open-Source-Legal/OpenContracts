@@ -1,16 +1,45 @@
+"""Generated strawberry GraphQL module (graphene migration).
+
+Shape-generated from the graphene schema; stub functions marked PORT(...)
+carry the ported business logic. See config/graphql_new/manifest.json.
 """
-GraphQL mutations for the badge system.
-"""
+
+# mypy: disable-error-code="name-defined, valid-type, arg-type"
+#   Code-generation artifacts of the strawberry schema bindings that
+#   mypy's static pass cannot resolve, NOT real typing defects:
+#     name-defined / valid-type — ``Annotated["XType", strawberry.lazy(...)]``
+#       forward-reference strings + the runtime-generated ``*Connection``
+#       types (``make_connection_types``).
+#     arg-type — resolvers construct result types with ``to_global_id()``
+#       (``str``) for ``strawberry.ID`` fields and return Django MODEL
+#       instances where the field annotation names the strawberry type
+#       (the graphene-django resolver contract). Both are correct at
+#       runtime. Hand-written config/graphql/core/* stays fully checked.
+# flake8: noqa: E501, F821 — generated strawberry schema module.
+# E501: long GraphQL field/argument ``description=`` strings and the
+# single-line generated resolver signatures (black cannot split string
+# literals). F821: ``Annotated["XType", strawberry.lazy(...)]`` /
+# ``cast("QuerySet", ...)`` forward-reference STRINGS that pyflakes
+# resolves as names — the whole point of strawberry.lazy is to avoid the
+# import (which would then be F401). Both are code-generation artifacts,
+# not defects; hand-written modules (config/graphql/core/*, security.py,
+# testing.py, filters.py, …) stay fully linted.
+
+from __future__ import annotations
 
 import logging
+from typing import Annotated
 
-import graphene
-from django.contrib.auth import get_user_model
+import strawberry
 from graphql import GraphQLError
-from graphql_jwt.decorators import login_required
 from graphql_relay import from_global_id
 
-from config.graphql.graphene_types import BadgeType, UserBadgeType
+from config.graphql._util import strip_unset
+from config.graphql.core.auth import PermissionDenied
+from config.graphql.core.relay import (
+    register_type,
+)
+from config.graphql.core.scalars import JSONString
 from config.graphql.ratelimits import RateLimits, graphql_ratelimit
 from opencontractserver.badges.models import Badge, UserBadge
 from opencontractserver.corpuses.models import Corpus
@@ -21,42 +50,98 @@ from opencontractserver.utils.permissioning import (
     set_permissions_for_obj_to_user,
 )
 
-User = get_user_model()
 logger = logging.getLogger(__name__)
 
+# NOTE on decorators: the graphene mutations were decorated with
+# ``@login_required`` + ``@graphql_ratelimit(...)`` on ``mutate(root, info, …)``.
+# Mutate stubs here take ``payload_cls`` as their first positional argument,
+# which does not match those decorators' ``(root, info, ...)`` calling
+# convention — so ``login_required`` is inlined (see user_mutations.py) and
+# ``graphql_ratelimit`` is applied to an inner function named ``mutate`` so
+# the rate-limit cache group (defaults to the decorated function's
+# ``__name__``) stays "mutate", exactly as in the graphene layer.
 
-class CreateBadgeMutation(graphene.Mutation):
-    """Create a new badge (admin/corpus owner only)."""
 
-    class Arguments:
-        name = graphene.String(required=True, description="Unique badge name")
-        description = graphene.String(required=True, description="Badge description")
-        icon = graphene.String(
-            required=True,
-            description="Icon identifier from lucide-react (e.g., 'Trophy')",
-        )
-        badge_type = graphene.String(
-            required=True, description="Badge type: GLOBAL or CORPUS"
-        )
-        color = graphene.String(required=False, description="Hex color code")
-        corpus_id = graphene.ID(
-            required=False, description="Corpus ID for corpus-specific badges"
-        )
-        is_auto_awarded = graphene.Boolean(
-            required=False,
-            description="Whether badge is automatically awarded",
-            default_value=False,
-        )
-        criteria_config = graphene.JSONString(
-            required=False,
-            description="JSON configuration for auto-award criteria",
-        )
+@strawberry.type(
+    name="CreateBadgeMutation",
+    description="Create a new badge (admin/corpus owner only).",
+)
+class CreateBadgeMutation:
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    badge: None | (
+        Annotated[BadgeType, strawberry.lazy("config.graphql.social_types")]
+    ) = strawberry.field(name="badge", default=None)
 
-    ok = graphene.Boolean()
-    message = graphene.String()
-    badge = graphene.Field(BadgeType)
 
-    @login_required
+register_type("CreateBadgeMutation", CreateBadgeMutation, model=None)
+
+
+@strawberry.type(name="UpdateBadgeMutation", description="Update an existing badge.")
+class UpdateBadgeMutation:
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    badge: None | (
+        Annotated[BadgeType, strawberry.lazy("config.graphql.social_types")]
+    ) = strawberry.field(name="badge", default=None)
+
+
+register_type("UpdateBadgeMutation", UpdateBadgeMutation, model=None)
+
+
+@strawberry.type(name="DeleteBadgeMutation", description="Delete a badge.")
+class DeleteBadgeMutation:
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+
+
+register_type("DeleteBadgeMutation", DeleteBadgeMutation, model=None)
+
+
+@strawberry.type(
+    name="AwardBadgeMutation", description="Manually award a badge to a user."
+)
+class AwardBadgeMutation:
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    user_badge: None | (
+        Annotated[UserBadgeType, strawberry.lazy("config.graphql.social_types")]
+    ) = strawberry.field(name="userBadge", default=None)
+
+
+register_type("AwardBadgeMutation", AwardBadgeMutation, model=None)
+
+
+@strawberry.type(name="RevokeBadgeMutation", description="Revoke a badge from a user.")
+class RevokeBadgeMutation:
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+
+
+register_type("RevokeBadgeMutation", RevokeBadgeMutation, model=None)
+
+
+def _mutate_CreateBadgeMutation(
+    payload_cls,
+    root,
+    info,
+    name,
+    description,
+    icon,
+    badge_type,
+    color=None,
+    corpus_id=None,
+    is_auto_awarded=False,
+    criteria_config=None,
+):
+    """PORT: /home/user/oc-graphene-ref/config/graphql/badge_mutations.py:59
+
+    Port of CreateBadgeMutation.mutate
+    """
+    # @login_required — inlined (see module NOTE above).
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+
     @graphql_ratelimit(rate=RateLimits.WRITE_MEDIUM)
     def mutate(
         root,
@@ -69,7 +154,7 @@ class CreateBadgeMutation(graphene.Mutation):
         corpus_id=None,
         is_auto_awarded=False,
         criteria_config=None,
-    ) -> "CreateBadgeMutation":
+    ):
         user = info.context.user
 
         try:
@@ -157,24 +242,99 @@ class CreateBadgeMutation(graphene.Mutation):
                 badge=None,
             )
 
+    return mutate(
+        root,
+        info,
+        name,
+        description,
+        icon,
+        badge_type,
+        color=color,
+        corpus_id=corpus_id,
+        is_auto_awarded=is_auto_awarded,
+        criteria_config=criteria_config,
+    )
 
-class UpdateBadgeMutation(graphene.Mutation):
-    """Update an existing badge."""
 
-    class Arguments:
-        badge_id = graphene.ID(required=True, description="Badge ID to update")
-        name = graphene.String(required=False)
-        description = graphene.String(required=False)
-        icon = graphene.String(required=False)
-        color = graphene.String(required=False)
-        is_auto_awarded = graphene.Boolean(required=False)
-        criteria_config = graphene.JSONString(required=False)
+def m_create_badge(
+    info: strawberry.Info,
+    badge_type: Annotated[
+        str,
+        strawberry.argument(
+            name="badgeType", description="Badge type: GLOBAL or CORPUS"
+        ),
+    ] = strawberry.UNSET,
+    color: Annotated[
+        str | None, strawberry.argument(name="color", description="Hex color code")
+    ] = strawberry.UNSET,
+    corpus_id: Annotated[
+        strawberry.ID | None,
+        strawberry.argument(
+            name="corpusId", description="Corpus ID for corpus-specific badges"
+        ),
+    ] = strawberry.UNSET,
+    criteria_config: Annotated[
+        JSONString | None,
+        strawberry.argument(
+            name="criteriaConfig",
+            description="JSON configuration for auto-award criteria",
+        ),
+    ] = strawberry.UNSET,
+    description: Annotated[
+        str, strawberry.argument(name="description", description="Badge description")
+    ] = strawberry.UNSET,
+    icon: Annotated[
+        str,
+        strawberry.argument(
+            name="icon",
+            description="Icon identifier from lucide-react (e.g., 'Trophy')",
+        ),
+    ] = strawberry.UNSET,
+    is_auto_awarded: Annotated[
+        bool | None,
+        strawberry.argument(
+            name="isAutoAwarded", description="Whether badge is automatically awarded"
+        ),
+    ] = False,
+    name: Annotated[
+        str, strawberry.argument(name="name", description="Unique badge name")
+    ] = strawberry.UNSET,
+) -> CreateBadgeMutation | None:
+    kwargs = strip_unset(
+        {
+            "badge_type": badge_type,
+            "color": color,
+            "corpus_id": corpus_id,
+            "criteria_config": criteria_config,
+            "description": description,
+            "icon": icon,
+            "is_auto_awarded": is_auto_awarded,
+            "name": name,
+        }
+    )
+    return _mutate_CreateBadgeMutation(CreateBadgeMutation, None, info, **kwargs)
 
-    ok = graphene.Boolean()
-    message = graphene.String()
-    badge = graphene.Field(BadgeType)
 
-    @login_required
+def _mutate_UpdateBadgeMutation(
+    payload_cls,
+    root,
+    info,
+    badge_id,
+    name=None,
+    description=None,
+    icon=None,
+    color=None,
+    is_auto_awarded=None,
+    criteria_config=None,
+):
+    """PORT: /home/user/oc-graphene-ref/config/graphql/badge_mutations.py:177
+
+    Port of UpdateBadgeMutation.mutate
+    """
+    # @login_required — inlined (see module NOTE above).
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+
     @graphql_ratelimit(rate=RateLimits.WRITE_LIGHT)
     def mutate(
         root,
@@ -186,7 +346,7 @@ class UpdateBadgeMutation(graphene.Mutation):
         color=None,
         is_auto_awarded=None,
         criteria_config=None,
-    ) -> "UpdateBadgeMutation":
+    ):
         user = info.context.user
 
         try:
@@ -293,19 +453,63 @@ class UpdateBadgeMutation(graphene.Mutation):
                 badge=None,
             )
 
+    return mutate(
+        root,
+        info,
+        badge_id,
+        name=name,
+        description=description,
+        icon=icon,
+        color=color,
+        is_auto_awarded=is_auto_awarded,
+        criteria_config=criteria_config,
+    )
 
-class DeleteBadgeMutation(graphene.Mutation):
-    """Delete a badge."""
 
-    class Arguments:
-        badge_id = graphene.ID(required=True, description="Badge ID to delete")
+def m_update_badge(
+    info: strawberry.Info,
+    badge_id: Annotated[
+        strawberry.ID,
+        strawberry.argument(name="badgeId", description="Badge ID to update"),
+    ] = strawberry.UNSET,
+    color: Annotated[str | None, strawberry.argument(name="color")] = strawberry.UNSET,
+    criteria_config: Annotated[
+        JSONString | None, strawberry.argument(name="criteriaConfig")
+    ] = strawberry.UNSET,
+    description: Annotated[
+        str | None, strawberry.argument(name="description")
+    ] = strawberry.UNSET,
+    icon: Annotated[str | None, strawberry.argument(name="icon")] = strawberry.UNSET,
+    is_auto_awarded: Annotated[
+        bool | None, strawberry.argument(name="isAutoAwarded")
+    ] = strawberry.UNSET,
+    name: Annotated[str | None, strawberry.argument(name="name")] = strawberry.UNSET,
+) -> UpdateBadgeMutation | None:
+    kwargs = strip_unset(
+        {
+            "badge_id": badge_id,
+            "color": color,
+            "criteria_config": criteria_config,
+            "description": description,
+            "icon": icon,
+            "is_auto_awarded": is_auto_awarded,
+            "name": name,
+        }
+    )
+    return _mutate_UpdateBadgeMutation(UpdateBadgeMutation, None, info, **kwargs)
 
-    ok = graphene.Boolean()
-    message = graphene.String()
 
-    @login_required
+def _mutate_DeleteBadgeMutation(payload_cls, root, info, badge_id):
+    """PORT: /home/user/oc-graphene-ref/config/graphql/badge_mutations.py:306
+
+    Port of DeleteBadgeMutation.mutate
+    """
+    # @login_required — inlined (see module NOTE above).
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+
     @graphql_ratelimit(rate=RateLimits.WRITE_LIGHT)
-    def mutate(root, info, badge_id) -> "DeleteBadgeMutation":
+    def mutate(root, info, badge_id):
         user = info.context.user
 
         try:
@@ -350,24 +554,36 @@ class DeleteBadgeMutation(graphene.Mutation):
                 message=f"Failed to delete badge: {str(e)}",
             )
 
+    return mutate(root, info, badge_id)
 
-class AwardBadgeMutation(graphene.Mutation):
-    """Manually award a badge to a user."""
 
-    class Arguments:
-        badge_id = graphene.ID(required=True, description="Badge ID to award")
-        user_id = graphene.ID(required=True, description="User ID to award badge to")
-        corpus_id = graphene.ID(
-            required=False, description="Corpus context for corpus-specific badges"
-        )
+def m_delete_badge(
+    info: strawberry.Info,
+    badge_id: Annotated[
+        strawberry.ID,
+        strawberry.argument(name="badgeId", description="Badge ID to delete"),
+    ] = strawberry.UNSET,
+) -> DeleteBadgeMutation | None:
+    kwargs = strip_unset({"badge_id": badge_id})
+    return _mutate_DeleteBadgeMutation(DeleteBadgeMutation, None, info, **kwargs)
 
-    ok = graphene.Boolean()
-    message = graphene.String()
-    user_badge = graphene.Field(UserBadgeType)
 
-    @login_required
+def _mutate_AwardBadgeMutation(
+    payload_cls, root, info, badge_id, user_id, corpus_id=None
+):
+    """PORT: /home/user/oc-graphene-ref/config/graphql/badge_mutations.py:368
+
+    Port of AwardBadgeMutation.mutate
+    """
+    # @login_required — inlined (see module NOTE above).
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+
     @graphql_ratelimit(rate="5/m")  # More restrictive rate limit for awarding
-    def mutate(root, info, badge_id, user_id, corpus_id=None) -> "AwardBadgeMutation":
+    def mutate(root, info, badge_id, user_id, corpus_id=None):
+        from django.contrib.auth import get_user_model
+
+        User = get_user_model()
         awarder = info.context.user
 
         try:
@@ -475,19 +691,43 @@ class AwardBadgeMutation(graphene.Mutation):
                 user_badge=None,
             )
 
+    return mutate(root, info, badge_id, user_id, corpus_id=corpus_id)
 
-class RevokeBadgeMutation(graphene.Mutation):
-    """Revoke a badge from a user."""
 
-    class Arguments:
-        user_badge_id = graphene.ID(required=True, description="UserBadge ID to revoke")
+def m_award_badge(
+    info: strawberry.Info,
+    badge_id: Annotated[
+        strawberry.ID,
+        strawberry.argument(name="badgeId", description="Badge ID to award"),
+    ] = strawberry.UNSET,
+    corpus_id: Annotated[
+        strawberry.ID | None,
+        strawberry.argument(
+            name="corpusId", description="Corpus context for corpus-specific badges"
+        ),
+    ] = strawberry.UNSET,
+    user_id: Annotated[
+        strawberry.ID,
+        strawberry.argument(name="userId", description="User ID to award badge to"),
+    ] = strawberry.UNSET,
+) -> AwardBadgeMutation | None:
+    kwargs = strip_unset(
+        {"badge_id": badge_id, "corpus_id": corpus_id, "user_id": user_id}
+    )
+    return _mutate_AwardBadgeMutation(AwardBadgeMutation, None, info, **kwargs)
 
-    ok = graphene.Boolean()
-    message = graphene.String()
 
-    @login_required
+def _mutate_RevokeBadgeMutation(payload_cls, root, info, user_badge_id):
+    """PORT: /home/user/oc-graphene-ref/config/graphql/badge_mutations.py:488
+
+    Port of RevokeBadgeMutation.mutate
+    """
+    # @login_required — inlined (see module NOTE above).
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+
     @graphql_ratelimit(rate=RateLimits.WRITE_LIGHT)
-    def mutate(root, info, user_badge_id) -> "RevokeBadgeMutation":
+    def mutate(root, info, user_badge_id):
         user = info.context.user
 
         try:
@@ -533,3 +773,43 @@ class RevokeBadgeMutation(graphene.Mutation):
                 ok=False,
                 message=f"Failed to revoke badge: {str(e)}",
             )
+
+    return mutate(root, info, user_badge_id)
+
+
+def m_revoke_badge(
+    info: strawberry.Info,
+    user_badge_id: Annotated[
+        strawberry.ID,
+        strawberry.argument(name="userBadgeId", description="UserBadge ID to revoke"),
+    ] = strawberry.UNSET,
+) -> RevokeBadgeMutation | None:
+    kwargs = strip_unset({"user_badge_id": user_badge_id})
+    return _mutate_RevokeBadgeMutation(RevokeBadgeMutation, None, info, **kwargs)
+
+
+MUTATION_FIELDS = {
+    "create_badge": strawberry.field(
+        resolver=m_create_badge,
+        name="createBadge",
+        description="Create a new badge (admin/corpus owner only).",
+    ),
+    "update_badge": strawberry.field(
+        resolver=m_update_badge,
+        name="updateBadge",
+        description="Update an existing badge.",
+    ),
+    "delete_badge": strawberry.field(
+        resolver=m_delete_badge, name="deleteBadge", description="Delete a badge."
+    ),
+    "award_badge": strawberry.field(
+        resolver=m_award_badge,
+        name="awardBadge",
+        description="Manually award a badge to a user.",
+    ),
+    "revoke_badge": strawberry.field(
+        resolver=m_revoke_badge,
+        name="revokeBadge",
+        description="Revoke a badge from a user.",
+    ),
+}

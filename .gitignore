@@ -218,5 +218,7 @@ demo/import_zips/
 # Local-only governance-graph demo (kept on disk, excluded from PRs)
 /demo/
 
-# Scratch data for ad-hoc local pilots/extractions (not part of any PR)
+# Scratch data for ad-hoc local pilots/extractions (not part of any PR),
+# incl. the CROSS-rulings bulk ingest pilot (large binaries materialized
+# from an external corpus, never meant to be committed)
 .pilot_data/

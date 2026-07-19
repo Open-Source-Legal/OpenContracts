@@ -13,11 +13,11 @@ Covers:
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
-from graphene.test import Client
 from graphql_relay import to_global_id
 from rest_framework.test import APIClient
 
 from config.graphql.schema import schema
+from config.graphql.testing import Client
 from opencontractserver.analyzer.models import Analysis, Analyzer, GremlinEngine
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
@@ -1899,12 +1899,12 @@ class TestDRFMutationValidationError(TestCase):
         """Dict-form ValidationError should be formatted with field names."""
         from rest_framework import serializers
 
-        from config.graphql.base import DRFMutation
+        from config.graphql.core.mutations import format_validation_error
 
         detail = {"name": ["This field is required."], "email": ["Invalid format."]}
         exc = serializers.ValidationError(detail)
 
-        message = DRFMutation.format_validation_error(exc)
+        message = format_validation_error(exc)
         self.assertIn("name:", message)
         self.assertIn("email:", message)
         self.assertIn("This field is required.", message)
@@ -1913,12 +1913,12 @@ class TestDRFMutationValidationError(TestCase):
         """List-form ValidationError should be joined with semicolons."""
         from rest_framework import serializers
 
-        from config.graphql.base import DRFMutation
+        from config.graphql.core.mutations import format_validation_error
 
         detail = ["Error one.", "Error two."]
         exc = serializers.ValidationError(detail)
 
-        message = DRFMutation.format_validation_error(exc)
+        message = format_validation_error(exc)
         self.assertIn("Error one.", message)
         self.assertIn("Error two.", message)
 
@@ -1929,78 +1929,43 @@ class TestDRFMutationValidationError(TestCase):
 
 
 class TestIOSettingsRequiredFieldsGuard(TestCase):
-    """Misconfigured IOSettings must raise ``NotImplementedError`` at mutation time."""
+    """DRF-serializer mutation base guards (strawberry ``core.mutations``).
 
-    def test_require_io_setting_raises_when_io_settings_missing(self):
-        from config.graphql.base import _require_io_setting
+    The graphene-era ``DRFMutation``/``DRFDeletion`` classes declared their
+    model/serializer/lookup via an inner ``IOSettings`` class validated at
+    mutate-time by ``_require_io_setting``. The strawberry port
+    (``config.graphql.core.mutations``) replaces that machinery with explicit
+    keyword arguments to ``drf_mutation()`` / ``drf_deletion()`` — a missing
+    ``model=`` is now a wire-up-time ``TypeError``, not a runtime guard — so
+    the ``_require_io_setting`` / ``IOSettings``-defaults tests no longer have
+    a target. The behavioral guarantee still worth pinning is the
+    lookup-value check below (kept), plus the objId type-name regression
+    (next class).
+    """
 
-        class MisconfiguredMutation:
-            pass
-
-        with self.assertRaises(NotImplementedError) as ctx:
-            _require_io_setting(MisconfiguredMutation, "model")
-        self.assertIn("MisconfiguredMutation", str(ctx.exception))
-        # Distinct message for the missing-class case (vs. missing-field).
-        self.assertIn("IOSettings", str(ctx.exception))
-
-    def test_require_io_setting_raises_when_attribute_none(self):
-        """Each of model/serializer/graphene_model must independently fail when ``None``."""
-        from config.graphql.base import _require_io_setting
-
-        class MisconfiguredMutation:
-            class IOSettings:
-                model = None
-                serializer = None
-                graphene_model = None
-
-        for field in ("model", "serializer", "graphene_model"):
-            with self.assertRaises(NotImplementedError) as ctx:
-                _require_io_setting(MisconfiguredMutation, field)
-            self.assertIn("MisconfiguredMutation", str(ctx.exception))
-            self.assertIn(field, str(ctx.exception))
-
-    def test_require_io_setting_returns_configured_value(self):
-        from config.graphql.base import _require_io_setting
-
-        class ConfiguredMutation:
-            class IOSettings:
-                model = Corpus
-
-        self.assertIs(_require_io_setting(ConfiguredMutation, "model"), Corpus)
-
-    def test_base_iosettings_defaults_are_none_on_mutation(self):
-        """Base ``IOSettings`` must default to ``None`` so the runtime guard can fire."""
-        from config.graphql.base import DRFDeletion, DRFMutation
-
-        self.assertIsNone(DRFMutation.IOSettings.model)
-        self.assertIsNone(DRFMutation.IOSettings.serializer)
-        self.assertIsNone(DRFMutation.IOSettings.graphene_model)
-        self.assertIsNone(DRFDeletion.IOSettings.model)
-
-    def test_drf_deletion_mutate_raises_when_lookup_value_missing(self):
-        """``DRFDeletion.mutate`` must raise ``ValueError`` when the lookup arg is omitted."""
+    def test_drf_deletion_raises_when_lookup_value_missing(self):
+        """``drf_deletion`` must raise ``ValueError`` when the lookup arg is omitted."""
         from unittest.mock import MagicMock
 
-        from graphene import ResolveInfo
+        from config.graphql.core.mutations import drf_deletion
 
-        from config.graphql.base import DRFDeletion
+        class _Payload:
+            def __init__(self, **kwargs):
+                self.__dict__.update(kwargs)
 
-        class _DeleteCorpus(DRFDeletion):
-            class IOSettings(DRFDeletion.IOSettings):
-                model = Corpus
-                lookup_field = "id"
-
-        # ``@login_required`` from graphql_jwt looks for a ``ResolveInfo`` arg
-        # via ``isinstance``; spec the mock so the decorator passes through
-        # to the wrapped function where the real lookup-value check fires.
-        # This relies on ``@graphql_ratelimit`` being a no-op under test
-        # conditions (no real cache backend is consulted before the body).
-        info = MagicMock(spec=ResolveInfo)
+        info = MagicMock()
         info.context = MagicMock()
         info.context.user = MagicMock(is_authenticated=True)
 
         with self.assertRaises(ValueError) as ctx:
-            _DeleteCorpus.mutate(None, info)
+            drf_deletion(
+                payload_cls=_Payload,
+                model=Corpus,
+                lookup_field="id",
+                root=None,
+                info=info,
+                kwargs={},
+            )
         self.assertIn("id", str(ctx.exception))
 
     def test_drf_mutation_obj_id_uses_graphene_type_name_not_metaclass(self):
@@ -2009,10 +1974,10 @@ class TestIOSettingsRequiredFieldsGuard(TestCase):
         ``graphene_model.__class__.__name__`` (the metaclass name like
         ``"SubclassWithMeta_Meta"``).
         """
-        from graphene.test import Client
         from graphql_relay import from_global_id
 
         from config.graphql.schema import schema
+        from config.graphql.testing import Client
         from opencontractserver.corpuses.models import Corpus
 
         user = User.objects.create_user(username="objIdRegressionUser", password="x")
@@ -2088,3 +2053,52 @@ class TestServedValidationRulesIncludeSpecRules(TestCase):
         document = parse(f"query {{ corpuses {{ edges {{ node {{ {inner} }} }} }} }}")
         errors = validate(schema.graphql_schema, document, validation_rules)
         self.assertTrue(any("depth" in str(e).lower() for e in errors))
+
+
+class TestServedSchemaExecutesValidationRules(TestCase):
+    """The security rules must be wired into the SERVED schema, not merely
+    present in the exported ``validation_rules`` list.
+
+    Strawberry enforces them via the ``AddValidationRules`` schema extension
+    (``config/graphql/schema.py``); ``validation_rules`` itself is exported only
+    for tooling/tests and is NOT what the endpoint consults. The tests above
+    call graphql-core's ``validate(..., validation_rules)`` directly, so they
+    would keep passing even if ``AddValidationRules`` were dropped from the
+    schema's ``extensions`` (depth-limiting / prod introspection-blocking
+    silently disabled on the live endpoint). These exercise the real path —
+    ``schema.execute_sync`` runs the extension stack — so removing the
+    extension makes them fail.
+    """
+
+    def test_deep_query_rejected_through_served_execution(self):
+        from config.graphql.schema import schema
+
+        # Corpus.parent recursion: spec-valid but deeper than the cap.
+        inner = "id"
+        for _ in range(30):
+            inner = f"parent {{ {inner} }}"
+        query = f"query {{ corpuses {{ edges {{ node {{ {inner} }} }} }} }}"
+        result = schema.execute_sync(query)
+        self.assertIsNotNone(
+            result.errors,
+            "depth-limit rule is not wired into the served schema (AddValidationRules)",
+        )
+        self.assertTrue(any("depth" in str(e).lower() for e in result.errors))
+
+    def test_introspection_blocked_through_served_execution(self):
+        from django.conf import settings
+
+        from config.graphql.schema import schema
+
+        if settings.DEBUG:
+            self.skipTest("introspection is intentionally allowed when DEBUG=True")
+
+        result = schema.execute_sync("{ __schema { types { name } } }")
+        self.assertIsNotNone(
+            result.errors,
+            "introspection is not blocked on the served schema outside DEBUG",
+        )
+        self.assertTrue(
+            any("introspection" in str(e).lower() for e in result.errors),
+            f"unexpected errors: {result.errors}",
+        )

@@ -13,9 +13,9 @@ from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
-from graphene.test import Client
 
 from config.graphql.schema import schema
+from config.graphql.testing import Client
 from opencontractserver.annotations.models import Annotation, Note
 from opencontractserver.conversations.models import (
     ChatMessage,

@@ -1,32 +1,42 @@
-"""
-GraphQL mutations for voting system.
+"""Generated strawberry GraphQL module (graphene migration).
 
-This module provides mutations for upvoting/downvoting messages, conversations,
-and corpuses:
-- VoteMessageMutation: Create or update vote on a message
-- RemoveVoteMutation: Remove user's vote from a message
-- VoteConversationMutation: Create or update vote on a conversation/thread
-- RemoveConversationVoteMutation: Remove user's vote from a conversation/thread
-- VoteCorpusMutation: Create or update vote on a corpus (anonymous-friendly)
-- RemoveCorpusVoteMutation: Remove caller's vote from a corpus
-
-Permission model:
-- Message / Conversation votes: visibility-based, login required.
-- Corpus votes: visibility-based for both authenticated and anonymous
-  viewers — anonymous voters can only see (and therefore only vote on)
-  public corpuses, with one vote per Django session per corpus.
+Shape-generated from the graphene schema; stub functions marked PORT(...)
+carry the ported business logic. See config/graphql_new/manifest.json.
 """
+
+# mypy: disable-error-code="name-defined, valid-type, arg-type"
+#   Code-generation artifacts of the strawberry schema bindings that
+#   mypy's static pass cannot resolve, NOT real typing defects:
+#     name-defined / valid-type — ``Annotated["XType", strawberry.lazy(...)]``
+#       forward-reference strings + the runtime-generated ``*Connection``
+#       types (``make_connection_types``).
+#     arg-type — resolvers construct result types with ``to_global_id()``
+#       (``str``) for ``strawberry.ID`` fields and return Django MODEL
+#       instances where the field annotation names the strawberry type
+#       (the graphene-django resolver contract). Both are correct at
+#       runtime. Hand-written config/graphql/core/* stays fully checked.
+# flake8: noqa: E501, F821 — generated strawberry schema module.
+# E501: long GraphQL field/argument ``description=`` strings and the
+# single-line generated resolver signatures (black cannot split string
+# literals). F821: ``Annotated["XType", strawberry.lazy(...)]`` /
+# ``cast("QuerySet", ...)`` forward-reference STRINGS that pyflakes
+# resolves as names — the whole point of strawberry.lazy is to avoid the
+# import (which would then be F401). Both are code-generation artifacts,
+# not defects; hand-written modules (config/graphql/core/*, security.py,
+# testing.py, filters.py, …) stay fully linted.
+
+from __future__ import annotations
 
 import logging
+from typing import Annotated
 
-import graphene
-from graphql_jwt.decorators import login_required
+import strawberry
 from graphql_relay import from_global_id
 
-from config.graphql.graphene_types import (
-    ConversationType,
-    CorpusType,
-    MessageType,
+from config.graphql._util import strip_unset
+from config.graphql.core.auth import PermissionDenied
+from config.graphql.core.relay import (
+    register_type,
 )
 from config.graphql.ratelimits import graphql_ratelimit
 from opencontractserver.conversations.models import (
@@ -45,6 +55,16 @@ from opencontractserver.utils.permissioning import (
 )
 
 logger = logging.getLogger(__name__)
+
+# NOTE on decorators: the graphene mutations were decorated with
+# ``@login_required`` and/or ``@graphql_ratelimit(...)`` on
+# ``mutate(root, info, …)``. Mutate stubs here take ``payload_cls`` as their
+# first positional argument, which does not match those decorators'
+# ``(root, info, ...)`` calling convention — so ``login_required`` is inlined
+# (see user_mutations.py) and ``graphql_ratelimit`` is applied to an inner
+# function named ``mutate`` so the rate-limit cache group (defaults to the
+# decorated function's ``__name__``) stays "mutate", exactly as in the
+# graphene layer.
 
 
 def _client_ip(info) -> str | None:
@@ -109,28 +129,112 @@ def _ensure_session_key(info) -> str | None:
     return session.session_key
 
 
-class VoteMessageMutation(graphene.Mutation):
+@strawberry.type(
+    name="VoteMessageMutation",
+    description="Create or update a vote on a message.\nUsers can upvote or downvote messages. Changing vote type updates the existing vote.\nUsers cannot vote on their own messages.",
+)
+class VoteMessageMutation:
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
+        Annotated[MessageType, strawberry.lazy("config.graphql.conversation_types")]
+    ) = strawberry.field(name="obj", default=None)
+
+
+register_type("VoteMessageMutation", VoteMessageMutation, model=None)
+
+
+@strawberry.type(
+    name="RemoveVoteMutation", description="Remove user's vote from a message."
+)
+class RemoveVoteMutation:
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
+        Annotated[MessageType, strawberry.lazy("config.graphql.conversation_types")]
+    ) = strawberry.field(name="obj", default=None)
+
+
+register_type("RemoveVoteMutation", RemoveVoteMutation, model=None)
+
+
+@strawberry.type(
+    name="VoteConversationMutation",
+    description="Create or update a vote on a conversation/thread.\nUsers can upvote or downvote threads. Changing vote type updates the existing vote.\nUsers cannot vote on their own threads.\n\nPermission: Users can vote on any conversation/thread they can see (visibility-based).",
+)
+class VoteConversationMutation:
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
+        Annotated[
+            ConversationType, strawberry.lazy("config.graphql.conversation_types")
+        ]
+    ) = strawberry.field(name="obj", default=None)
+
+
+register_type("VoteConversationMutation", VoteConversationMutation, model=None)
+
+
+@strawberry.type(
+    name="RemoveConversationVoteMutation",
+    description="Remove user's vote from a conversation/thread.\n\nPermission: Users can remove their vote from any conversation they can see.",
+)
+class RemoveConversationVoteMutation:
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
+        Annotated[
+            ConversationType, strawberry.lazy("config.graphql.conversation_types")
+        ]
+    ) = strawberry.field(name="obj", default=None)
+
+
+register_type(
+    "RemoveConversationVoteMutation", RemoveConversationVoteMutation, model=None
+)
+
+
+@strawberry.type(
+    name="VoteCorpusMutation",
+    description='Create or update a vote on a corpus.\n\nAuthenticated users vote with their account; the service blocks self-vote\n(creators cannot upvote their own corpuses, matching the Message /\nConversation contract). Anonymous viewers vote via their Django session\nkey — one vote per session per corpus. Anonymous voting on a non-public\ncorpus is rejected by the same IDOR-safe "not found or no permission"\nresponse as a malformed corpus id.',
+)
+class VoteCorpusMutation:
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
+        Annotated[CorpusType, strawberry.lazy("config.graphql.corpus_types")]
+    ) = strawberry.field(name="obj", default=None)
+
+
+register_type("VoteCorpusMutation", VoteCorpusMutation, model=None)
+
+
+@strawberry.type(
+    name="RemoveCorpusVoteMutation",
+    description="Remove the caller's vote on a corpus.\n\nSymmetric with :class:`VoteCorpusMutation` — works for both\nauthenticated users (creator-keyed) and anonymous viewers\n(session-keyed). Idempotent: removing a non-existent vote is a\nsuccessful no-op rather than an error.",
+)
+class RemoveCorpusVoteMutation:
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
+        Annotated[CorpusType, strawberry.lazy("config.graphql.corpus_types")]
+    ) = strawberry.field(name="obj", default=None)
+
+
+register_type("RemoveCorpusVoteMutation", RemoveCorpusVoteMutation, model=None)
+
+
+def _mutate_VoteMessageMutation(payload_cls, root, info, message_id, vote_type):
+    """PORT: /home/user/oc-graphene-ref/config/graphql/voting_mutations.py:131
+
+    Port of VoteMessageMutation.mutate
     """
-    Create or update a vote on a message.
-    Users can upvote or downvote messages. Changing vote type updates the existing vote.
-    Users cannot vote on their own messages.
-    """
+    # @login_required — inlined (see module NOTE above).
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
 
-    class Arguments:
-        message_id = graphene.String(
-            required=True, description="ID of the message to vote on"
-        )
-        vote_type = graphene.String(
-            required=True, description="Vote type: 'upvote' or 'downvote'"
-        )
-
-    ok = graphene.Boolean()
-    message = graphene.String()
-    obj = graphene.Field(MessageType)
-
-    @login_required
     @graphql_ratelimit(rate="60/m")
-    def mutate(root, info, message_id, vote_type) -> "VoteMessageMutation":
+    def mutate(root, info, message_id, vote_type):
         ok = False
         obj = None
         message_text = ""
@@ -200,24 +304,39 @@ class VoteMessageMutation(graphene.Mutation):
 
         return VoteMessageMutation(ok=ok, message=message_text, obj=obj)
 
+    return mutate(root, info, message_id, vote_type)
 
-class RemoveVoteMutation(graphene.Mutation):
+
+def m_vote_message(
+    info: strawberry.Info,
+    message_id: Annotated[
+        str,
+        strawberry.argument(
+            name="messageId", description="ID of the message to vote on"
+        ),
+    ] = strawberry.UNSET,
+    vote_type: Annotated[
+        str,
+        strawberry.argument(
+            name="voteType", description="Vote type: 'upvote' or 'downvote'"
+        ),
+    ] = strawberry.UNSET,
+) -> VoteMessageMutation | None:
+    kwargs = strip_unset({"message_id": message_id, "vote_type": vote_type})
+    return _mutate_VoteMessageMutation(VoteMessageMutation, None, info, **kwargs)
+
+
+def _mutate_RemoveVoteMutation(payload_cls, root, info, message_id):
+    """PORT: /home/user/oc-graphene-ref/config/graphql/voting_mutations.py:218
+
+    Port of RemoveVoteMutation.mutate
     """
-    Remove user's vote from a message.
-    """
+    # @login_required — inlined (see module NOTE above).
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
 
-    class Arguments:
-        message_id = graphene.String(
-            required=True, description="ID of the message to remove vote from"
-        )
-
-    ok = graphene.Boolean()
-    message = graphene.String()
-    obj = graphene.Field(MessageType)
-
-    @login_required
     @graphql_ratelimit(rate="60/m")
-    def mutate(root, info, message_id) -> "RemoveVoteMutation":
+    def mutate(root, info, message_id):
         ok = False
         obj = None
         message_text = ""
@@ -255,31 +374,35 @@ class RemoveVoteMutation(graphene.Mutation):
 
         return RemoveVoteMutation(ok=ok, message=message_text, obj=obj)
 
+    return mutate(root, info, message_id)
 
-class VoteConversationMutation(graphene.Mutation):
+
+def m_remove_vote(
+    info: strawberry.Info,
+    message_id: Annotated[
+        str,
+        strawberry.argument(
+            name="messageId", description="ID of the message to remove vote from"
+        ),
+    ] = strawberry.UNSET,
+) -> RemoveVoteMutation | None:
+    kwargs = strip_unset({"message_id": message_id})
+    return _mutate_RemoveVoteMutation(RemoveVoteMutation, None, info, **kwargs)
+
+
+def _mutate_VoteConversationMutation(
+    payload_cls, root, info, conversation_id, vote_type
+):
+    """PORT: /home/user/oc-graphene-ref/config/graphql/voting_mutations.py:280
+
+    Port of VoteConversationMutation.mutate
     """
-    Create or update a vote on a conversation/thread.
-    Users can upvote or downvote threads. Changing vote type updates the existing vote.
-    Users cannot vote on their own threads.
+    # @login_required — inlined (see module NOTE above).
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
 
-    Permission: Users can vote on any conversation/thread they can see (visibility-based).
-    """
-
-    class Arguments:
-        conversation_id = graphene.String(
-            required=True, description="ID of the conversation/thread to vote on"
-        )
-        vote_type = graphene.String(
-            required=True, description="Vote type: 'upvote' or 'downvote'"
-        )
-
-    ok = graphene.Boolean()
-    message = graphene.String()
-    obj = graphene.Field(ConversationType)
-
-    @login_required
     @graphql_ratelimit(rate="60/m")
-    def mutate(root, info, conversation_id, vote_type) -> "VoteConversationMutation":
+    def mutate(root, info, conversation_id, vote_type):
         ok = False
         obj = None
         message_text = ""
@@ -353,27 +476,42 @@ class VoteConversationMutation(graphene.Mutation):
 
         return VoteConversationMutation(ok=ok, message=message_text, obj=obj)
 
+    return mutate(root, info, conversation_id, vote_type)
 
-class RemoveConversationVoteMutation(graphene.Mutation):
+
+def m_vote_conversation(
+    info: strawberry.Info,
+    conversation_id: Annotated[
+        str,
+        strawberry.argument(
+            name="conversationId",
+            description="ID of the conversation/thread to vote on",
+        ),
+    ] = strawberry.UNSET,
+    vote_type: Annotated[
+        str,
+        strawberry.argument(
+            name="voteType", description="Vote type: 'upvote' or 'downvote'"
+        ),
+    ] = strawberry.UNSET,
+) -> VoteConversationMutation | None:
+    kwargs = strip_unset({"conversation_id": conversation_id, "vote_type": vote_type})
+    return _mutate_VoteConversationMutation(
+        VoteConversationMutation, None, info, **kwargs
+    )
+
+
+def _mutate_RemoveConversationVoteMutation(payload_cls, root, info, conversation_id):
+    """PORT: /home/user/oc-graphene-ref/config/graphql/voting_mutations.py:374
+
+    Port of RemoveConversationVoteMutation.mutate
     """
-    Remove user's vote from a conversation/thread.
+    # @login_required — inlined (see module NOTE above).
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
 
-    Permission: Users can remove their vote from any conversation they can see.
-    """
-
-    class Arguments:
-        conversation_id = graphene.String(
-            required=True,
-            description="ID of the conversation/thread to remove vote from",
-        )
-
-    ok = graphene.Boolean()
-    message = graphene.String()
-    obj = graphene.Field(ConversationType)
-
-    @login_required
     @graphql_ratelimit(rate="60/m")
-    def mutate(root, info, conversation_id) -> "RemoveConversationVoteMutation":
+    def mutate(root, info, conversation_id):
         ok = False
         obj = None
         message_text = ""
@@ -413,47 +551,36 @@ class RemoveConversationVoteMutation(graphene.Mutation):
 
         return RemoveConversationVoteMutation(ok=ok, message=message_text, obj=obj)
 
-
-# --------------------------------------------------------------------------- #
-# Corpus voting — anonymous-friendly                                          #
-# --------------------------------------------------------------------------- #
-#
-# Unlike the message/conversation mutations these are deliberately NOT
-# decorated with ``@login_required``: anonymous browsers should be able to
-# upvote/downvote public corpuses on the public discovery surface.  The
-# service layer (``CorpusVoteService``) handles the auth/anon branch logic
-# and the READ-permission check; this layer only translates GraphQL
-# arguments and renders the response.
+    return mutate(root, info, conversation_id)
 
 
-class VoteCorpusMutation(graphene.Mutation):
-    """Create or update a vote on a corpus.
+def m_remove_conversation_vote(
+    info: strawberry.Info,
+    conversation_id: Annotated[
+        str,
+        strawberry.argument(
+            name="conversationId",
+            description="ID of the conversation/thread to remove vote from",
+        ),
+    ] = strawberry.UNSET,
+) -> RemoveConversationVoteMutation | None:
+    kwargs = strip_unset({"conversation_id": conversation_id})
+    return _mutate_RemoveConversationVoteMutation(
+        RemoveConversationVoteMutation, None, info, **kwargs
+    )
 
-    Authenticated users vote with their account; the service blocks self-vote
-    (creators cannot upvote their own corpuses, matching the Message /
-    Conversation contract). Anonymous viewers vote via their Django session
-    key — one vote per session per corpus. Anonymous voting on a non-public
-    corpus is rejected by the same IDOR-safe "not found or no permission"
-    response as a malformed corpus id.
+
+def _mutate_VoteCorpusMutation(payload_cls, root, info, corpus_id, vote_type):
+    """PORT: /home/user/oc-graphene-ref/config/graphql/voting_mutations.py:455
+
+    Port of VoteCorpusMutation.mutate
     """
-
-    class Arguments:
-        corpus_id = graphene.String(
-            required=True, description="Relay global ID of the corpus to vote on"
-        )
-        vote_type = graphene.String(
-            required=True, description="Vote type: 'upvote' or 'downvote'"
-        )
-
-    ok = graphene.Boolean()
-    message = graphene.String()
-    obj = graphene.Field(CorpusType)
 
     # Rate-limited but NOT @login_required: anonymous voting is the whole
     # point of this mutation. The ratelimit_dynamic key falls back to IP for
     # anonymous callers via the existing graphql_ratelimit middleware.
     @graphql_ratelimit(rate="60/m")
-    def mutate(root, info, corpus_id, vote_type) -> "VoteCorpusMutation":
+    def mutate(root, info, corpus_id, vote_type):
         try:
             user = info.context.user
         except AttributeError:
@@ -500,28 +627,38 @@ class VoteCorpusMutation(graphene.Mutation):
         )
         return VoteCorpusMutation(ok=True, message="Vote recorded", obj=corpus)
 
+    return mutate(root, info, corpus_id, vote_type)
 
-class RemoveCorpusVoteMutation(graphene.Mutation):
-    """Remove the caller's vote on a corpus.
 
-    Symmetric with :class:`VoteCorpusMutation` — works for both
-    authenticated users (creator-keyed) and anonymous viewers
-    (session-keyed). Idempotent: removing a non-existent vote is a
-    successful no-op rather than an error.
+def m_vote_corpus(
+    info: strawberry.Info,
+    corpus_id: Annotated[
+        str,
+        strawberry.argument(
+            name="corpusId", description="Relay global ID of the corpus to vote on"
+        ),
+    ] = strawberry.UNSET,
+    vote_type: Annotated[
+        str,
+        strawberry.argument(
+            name="voteType", description="Vote type: 'upvote' or 'downvote'"
+        ),
+    ] = strawberry.UNSET,
+) -> VoteCorpusMutation | None:
+    kwargs = strip_unset({"corpus_id": corpus_id, "vote_type": vote_type})
+    return _mutate_VoteCorpusMutation(VoteCorpusMutation, None, info, **kwargs)
+
+
+def _mutate_RemoveCorpusVoteMutation(payload_cls, root, info, corpus_id):
+    """PORT: /home/user/oc-graphene-ref/config/graphql/voting_mutations.py:523
+
+    Port of RemoveCorpusVoteMutation.mutate
     """
 
-    class Arguments:
-        corpus_id = graphene.String(
-            required=True,
-            description="Relay global ID of the corpus to remove the vote from",
-        )
-
-    ok = graphene.Boolean()
-    message = graphene.String()
-    obj = graphene.Field(CorpusType)
-
+    # NOT @login_required — symmetric with VoteCorpusMutation (anonymous
+    # session-keyed voters must be able to remove their vote).
     @graphql_ratelimit(rate="60/m")
-    def mutate(root, info, corpus_id) -> "RemoveCorpusVoteMutation":
+    def mutate(root, info, corpus_id):
         try:
             user = info.context.user
         except AttributeError:
@@ -561,3 +698,55 @@ class RemoveCorpusVoteMutation(graphene.Mutation):
         corpus = BaseService.get_or_none(Corpus, corpus_pk, user, request=info.context)
         message = "Vote removed" if result.value else "No vote to remove"
         return RemoveCorpusVoteMutation(ok=True, message=message, obj=corpus)
+
+    return mutate(root, info, corpus_id)
+
+
+def m_remove_corpus_vote(
+    info: strawberry.Info,
+    corpus_id: Annotated[
+        str,
+        strawberry.argument(
+            name="corpusId",
+            description="Relay global ID of the corpus to remove the vote from",
+        ),
+    ] = strawberry.UNSET,
+) -> RemoveCorpusVoteMutation | None:
+    kwargs = strip_unset({"corpus_id": corpus_id})
+    return _mutate_RemoveCorpusVoteMutation(
+        RemoveCorpusVoteMutation, None, info, **kwargs
+    )
+
+
+MUTATION_FIELDS = {
+    "vote_message": strawberry.field(
+        resolver=m_vote_message,
+        name="voteMessage",
+        description="Create or update a vote on a message.\nUsers can upvote or downvote messages. Changing vote type updates the existing vote.\nUsers cannot vote on their own messages.",
+    ),
+    "remove_vote": strawberry.field(
+        resolver=m_remove_vote,
+        name="removeVote",
+        description="Remove user's vote from a message.",
+    ),
+    "vote_conversation": strawberry.field(
+        resolver=m_vote_conversation,
+        name="voteConversation",
+        description="Create or update a vote on a conversation/thread.\nUsers can upvote or downvote threads. Changing vote type updates the existing vote.\nUsers cannot vote on their own threads.\n\nPermission: Users can vote on any conversation/thread they can see (visibility-based).",
+    ),
+    "remove_conversation_vote": strawberry.field(
+        resolver=m_remove_conversation_vote,
+        name="removeConversationVote",
+        description="Remove user's vote from a conversation/thread.\n\nPermission: Users can remove their vote from any conversation they can see.",
+    ),
+    "vote_corpus": strawberry.field(
+        resolver=m_vote_corpus,
+        name="voteCorpus",
+        description='Create or update a vote on a corpus.\n\nAuthenticated users vote with their account; the service blocks self-vote\n(creators cannot upvote their own corpuses, matching the Message /\nConversation contract). Anonymous viewers vote via their Django session\nkey — one vote per session per corpus. Anonymous voting on a non-public\ncorpus is rejected by the same IDOR-safe "not found or no permission"\nresponse as a malformed corpus id.',
+    ),
+    "remove_corpus_vote": strawberry.field(
+        resolver=m_remove_corpus_vote,
+        name="removeCorpusVote",
+        description="Remove the caller's vote on a corpus.\n\nSymmetric with :class:`VoteCorpusMutation` — works for both\nauthenticated users (creator-keyed) and anonymous viewers\n(session-keyed). Idempotent: removing a non-existent vote is a\nsuccessful no-op rather than an error.",
+    ),
+}

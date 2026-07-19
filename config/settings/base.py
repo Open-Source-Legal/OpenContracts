@@ -72,10 +72,6 @@ if env.bool("USE_AWS", default=None) is not None:
 USE_ANALYZER = env.bool("USE_ANALYZER", False)
 CALLBACK_ROOT_URL_FOR_ANALYZER = env.str("CALLBACK_ROOT_URL_FOR_ANALYZER", None)
 
-# Allow Graphene Django Debug Toolbar middleware
-# Default to False for performance - only enable when actually debugging
-ALLOW_GRAPHQL_DEBUG = env.bool("ALLOW_GRAPHQL_DEBUG", default=False)
-
 # Set max file upload size to 5 GB for large corpuses
 DATA_UPLOAD_MAX_MEMORY_SIZE = MAX_FILE_UPLOAD_SIZE_BYTES
 # Local time zone. Choices are
@@ -161,7 +157,6 @@ THIRD_PARTY_APPS = [
     "channels",
     "corsheaders",
     "django_filters",
-    "graphene_django",
     "guardian",
     "django_celery_beat",
     "rest_framework",
@@ -1124,39 +1119,15 @@ BASE_PATH = "./"
 DATA_PATH = Path(BASE_PATH, "data")
 MODEL_PATH = Path(BASE_PATH, "model")
 
-# Graphene
+# GraphQL (strawberry)
 # ------------------------------------------------------------------------------
-# Start with the base middleware that we always want
-GRAPHENE_MIDDLEWARE = [
-    # Concurrently pre-signs a Document connection page's file URLs (no-op
-    # unless FILE_URL_SHARED_CACHE_TTL > 0). Outermost so its ``next()`` returns
-    # the fully-resolved connection.
-    "config.graphql.file_url_prewarm.FileUrlPrewarmMiddleware",
-    "config.graphql.permissioning.permission_annotator.middleware.PermissionAnnotatingMiddleware",
-]
-
-# JWT middleware is always needed — both Auth0 and password login
-# return JWT tokens via the tokenAuth mutation, and subsequent
-# GraphQL requests use Authorization: Bearer <token>.
-GRAPHENE_MIDDLEWARE.append("graphql_jwt.middleware.JSONWebTokenMiddleware")
-
-# Add API Key middleware if enabled
-if USE_API_KEY_AUTH:
-    GRAPHENE_MIDDLEWARE.append(
-        "config.graphql_api_token_auth.middleware.ApiKeyTokenMiddleware"
-    )
-
-# Add Django Debug Middleware if enabled
-if ALLOW_GRAPHQL_DEBUG:
-    GRAPHENE_MIDDLEWARE.append("graphene_django.debug.DjangoDebugMiddleware")
-
-# Configure Graphene with the constructed middleware list
-GRAPHENE = {
-    "SCHEMA": "config.graphql.schema.schema",
-    "MIDDLEWARE": GRAPHENE_MIDDLEWARE,
-    # Increased from 10 for better performance with larger datasets
-    "RELAY_CONNECTION_MAX_LIMIT": 100,
-}
+# The schema is served by ``config.graphql.views.GraphQLView`` (see
+# config/urls.py). Request authentication (JWT / Auth0 / API key) happens
+# once per request in the view's ``get_context`` via the
+# ``AUTHENTICATION_BACKENDS`` chain — the graphene-era per-resolver
+# middlewares (JSONWebTokenMiddleware, ApiKeyTokenMiddleware,
+# PermissionAnnotatingMiddleware) are gone. Relay connection page size is
+# capped by ``config.graphql.core.relay.RELAY_CONNECTION_MAX_LIMIT``.
 
 GRAPHQL_JWT = {
     "JWT_AUTH_HEADER_PREFIX": "Bearer",
@@ -1165,7 +1136,6 @@ GRAPHQL_JWT = {
     "JWT_EXPIRATION_DELTA": timedelta(days=7),
     "JWT_REFRESH_EXPIRATION_DELTA": timedelta(days=14),
     "JWT_ALGORITHM": "HS256",
-    # "JWT_ALLOW_ANY_HANDLER": "config.graphql.jwt_overrides.allow_any",
 }
 
 # Reserved top-level user slugs (extendable)

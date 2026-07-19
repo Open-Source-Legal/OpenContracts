@@ -10,8 +10,8 @@ Tests the User.visible_to_user() manager method and profile privacy settings.
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
 from django.test import TestCase
-from graphene.test import Client
 
+from config.graphql.testing import Client
 from opencontractserver.conversations.models import ChatMessage, Conversation
 
 User = get_user_model()

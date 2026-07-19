@@ -70,9 +70,8 @@ class _Ctx:
 
 
 def _run_graph(user, corpus_pk):
-    from graphene.test import Client
-
     from config.graphql.schema import schema
+    from config.graphql.testing import Client
 
     return Client(schema, context_value=_Ctx(user)).execute(
         GRAPH_QUERY, variables={"cid": to_global_id("CorpusType", corpus_pk)}
@@ -89,9 +88,8 @@ REFS_QUERY = """
 
 
 def _run_refs(user, corpus_pk, document_gid):
-    from graphene.test import Client
-
     from config.graphql.schema import schema
+    from config.graphql.testing import Client
 
     return Client(schema, context_value=_Ctx(user)).execute(
         REFS_QUERY,
@@ -355,9 +353,8 @@ class GovernanceGraphRegimeFieldTests(TestCase):
         )
 
     def _graph_with_regime(self):
-        from graphene.test import Client
-
         from config.graphql.schema import schema
+        from config.graphql.testing import Client
 
         result = Client(schema, context_value=_Ctx(self.user)).execute(
             GRAPH_QUERY_WITH_REGIME,

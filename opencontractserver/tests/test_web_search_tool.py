@@ -691,9 +691,8 @@ class TestToolSecretsMutations(TestCase):
         PIPELINE_SETTINGS_CACHE_TTL_SECONDS=0,
     )
     def test_update_tool_secrets_superuser(self):
-        from graphene.test import Client
-
         from config.graphql.schema import schema
+        from config.graphql.testing import Client
 
         client = Client(schema)
         context = MagicMock()
@@ -724,9 +723,8 @@ class TestToolSecretsMutations(TestCase):
         PIPELINE_SETTINGS_CACHE_TTL_SECONDS=0,
     )
     def test_update_tool_secrets_regular_user_rejected(self):
-        from graphene.test import Client
-
         from config.graphql.schema import schema
+        from config.graphql.testing import Client
 
         client = Client(schema)
         context = MagicMock()
@@ -755,9 +753,8 @@ class TestToolSecretsMutations(TestCase):
         PIPELINE_SETTINGS_CACHE_TTL_SECONDS=0,
     )
     def test_unsupported_provider_rejected(self):
-        from graphene.test import Client
-
         from config.graphql.schema import schema
+        from config.graphql.testing import Client
 
         client = Client(schema)
         context = MagicMock()
@@ -787,9 +784,8 @@ class TestToolSecretsMutations(TestCase):
         PIPELINE_SETTINGS_CACHE_TTL_SECONDS=0,
     )
     def test_invalid_tool_key_rejected(self):
-        from graphene.test import Client
-
         from config.graphql.schema import schema
+        from config.graphql.testing import Client
 
         client = Client(schema)
         context = MagicMock()
@@ -829,9 +825,8 @@ class TestToolSecretsMutations(TestCase):
         )
         ps.save()
 
-        from graphene.test import Client
-
         from config.graphql.schema import schema
+        from config.graphql.testing import Client
 
         client = Client(schema)
         context = MagicMock()

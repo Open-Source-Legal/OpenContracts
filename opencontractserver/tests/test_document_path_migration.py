@@ -476,36 +476,42 @@ class TestDocumentPathTypeCaching(TestCase):
 
     def test_cache_returns_same_result_on_repeated_calls(self):
         """Verify that repeated calls return cached result without re-querying."""
-        from config.graphql.graphene_types import DocumentPathType
+        from config.graphql.document_types import (
+            _docpath_visible_corpus_ids as _get_visible_corpus_ids,
+        )
 
         info = self._make_info(self.user)
 
-        result1 = DocumentPathType._get_visible_corpus_ids(info)
-        result2 = DocumentPathType._get_visible_corpus_ids(info)
+        result1 = _get_visible_corpus_ids(info)
+        result2 = _get_visible_corpus_ids(info)
 
         self.assertEqual(result1, result2)
         self.assertIs(result1, result2)  # Same object reference = cache hit
 
     def test_cache_executes_query_only_once(self):
         """Verify the visibility query is only executed once per request context."""
-        from config.graphql.graphene_types import DocumentPathType
+        from config.graphql.document_types import (
+            _docpath_visible_corpus_ids as _get_visible_corpus_ids,
+        )
 
         info = self._make_info(self.user)
 
         # First call should execute at least one query
         with CaptureQueriesContext(connection) as first_call:
-            DocumentPathType._get_visible_corpus_ids(info)
+            _get_visible_corpus_ids(info)
         self.assertGreater(len(first_call), 0)
 
         # Subsequent calls should execute zero queries (cached)
         with CaptureQueriesContext(connection) as cached_calls:
-            DocumentPathType._get_visible_corpus_ids(info)
-            DocumentPathType._get_visible_corpus_ids(info)
+            _get_visible_corpus_ids(info)
+            _get_visible_corpus_ids(info)
         self.assertEqual(len(cached_calls), 0)
 
     def test_cache_scoped_per_user(self):
         """Verify different users get separate cache entries."""
-        from config.graphql.graphene_types import DocumentPathType
+        from config.graphql.document_types import (
+            _docpath_visible_corpus_ids as _get_visible_corpus_ids,
+        )
 
         user2 = User.objects.create_user(
             username="otheruser", email="other@example.com", password="testpass123"
@@ -513,20 +519,22 @@ class TestDocumentPathTypeCaching(TestCase):
 
         # Shared context simulates two users in same request (e.g., impersonation)
         info = self._make_info(self.user)
-        result1 = DocumentPathType._get_visible_corpus_ids(info)
+        result1 = _get_visible_corpus_ids(info)
 
         info2 = self._make_info(user2)
-        result2 = DocumentPathType._get_visible_corpus_ids(info2)
+        result2 = _get_visible_corpus_ids(info2)
 
         # Different contexts, different cache entries
         self.assertIsNot(result1, result2)
 
     def test_cache_handles_anonymous_user(self):
         """Verify anonymous users don't cause cache key collisions."""
-        from config.graphql.graphene_types import DocumentPathType
+        from config.graphql.document_types import (
+            _docpath_visible_corpus_ids as _get_visible_corpus_ids,
+        )
 
         anon = AnonymousUser()
         info = self._make_info(anon)
 
-        result = DocumentPathType._get_visible_corpus_ids(info)
+        result = _get_visible_corpus_ids(info)
         self.assertIsInstance(result, set)

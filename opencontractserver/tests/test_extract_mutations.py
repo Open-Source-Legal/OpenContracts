@@ -2,10 +2,10 @@ from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
-from graphene.test import Client
 from graphql_relay import to_global_id
 
 from config.graphql.schema import schema
+from config.graphql.testing import Client
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
 from opencontractserver.extracts.models import Column, Datacell, Extract, Fieldset
@@ -377,7 +377,7 @@ class UpdateFieldsetMutationTestCase(TestCase):
 
         request = RequestFactory().post("/graphql/")
         request.user = user
-        return schema.execute(
+        return schema.execute_sync(
             self.MUTATION, variable_values=variables, context_value=request
         )
 

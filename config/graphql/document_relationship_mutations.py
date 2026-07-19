@@ -1,15 +1,44 @@
+"""Generated strawberry GraphQL module (graphene migration).
+
+Shape-generated from the graphene schema; stub functions marked PORT(...)
+carry the ported business logic. See config/graphql_new/manifest.json.
 """
-GraphQL mutations for document relationship operations.
-"""
+
+# mypy: disable-error-code="name-defined, valid-type, arg-type"
+#   Code-generation artifacts of the strawberry schema bindings that
+#   mypy's static pass cannot resolve, NOT real typing defects:
+#     name-defined / valid-type — ``Annotated["XType", strawberry.lazy(...)]``
+#       forward-reference strings + the runtime-generated ``*Connection``
+#       types (``make_connection_types``).
+#     arg-type — resolvers construct result types with ``to_global_id()``
+#       (``str``) for ``strawberry.ID`` fields and return Django MODEL
+#       instances where the field annotation names the strawberry type
+#       (the graphene-django resolver contract). Both are correct at
+#       runtime. Hand-written config/graphql/core/* stays fully checked.
+# flake8: noqa: E501, F821 — generated strawberry schema module.
+# E501: long GraphQL field/argument ``description=`` strings and the
+# single-line generated resolver signatures (black cannot split string
+# literals). F821: ``Annotated["XType", strawberry.lazy(...)]`` /
+# ``cast("QuerySet", ...)`` forward-reference STRINGS that pyflakes
+# resolves as names — the whole point of strawberry.lazy is to avoid the
+# import (which would then be F401). Both are code-generation artifacts,
+# not defects; hand-written modules (config/graphql/core/*, security.py,
+# testing.py, filters.py, …) stay fully linted.
+
+from __future__ import annotations
 
 import logging
+from typing import Annotated
 
-import graphene
-from graphene.types.generic import GenericScalar
-from graphql_jwt.decorators import login_required
+import strawberry
 from graphql_relay import from_global_id
 
-from config.graphql.graphene_types import DocumentRelationshipType
+from config.graphql._util import strip_unset
+from config.graphql.core.auth import login_required
+from config.graphql.core.relay import (
+    register_type,
+)
+from config.graphql.core.scalars import GenericScalar
 from opencontractserver.annotations.models import AnnotationLabel
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.corpuses.services import CorpusDocumentService
@@ -22,47 +51,74 @@ from opencontractserver.utils.permissioning import get_for_user_or_none
 logger = logging.getLogger(__name__)
 
 
-class CreateDocumentRelationship(graphene.Mutation):
+@strawberry.type(
+    name="CreateDocumentRelationship",
+    description="Create a new relationship between two documents in the same corpus.\n\nPermission requirements:\n- User must have CREATE permission on BOTH source and target documents\n- User must have CREATE permission on the corpus\n\nValidation:\n- Both documents must be in the specified corpus\n- For RELATIONSHIP type: annotation_label_id is required\n- For NOTES type: annotation_label_id is optional",
+)
+class CreateDocumentRelationship:
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    document_relationship: None | (
+        Annotated[
+            DocumentRelationshipType, strawberry.lazy("config.graphql.document_types")
+        ]
+    ) = strawberry.field(name="documentRelationship", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+
+
+register_type("CreateDocumentRelationship", CreateDocumentRelationship, model=None)
+
+
+@strawberry.type(
+    name="UpdateDocumentRelationship",
+    description="Update an existing document relationship.\n\nPermission requirements:\n- User must have UPDATE permission on the document relationship\n- OR UPDATE permission on BOTH source and target documents\n\nUpdatable fields:\n- relationship_type (with validation for annotation_label requirement)\n- annotation_label_id\n- data (JSON payload)\n- corpus_id",
+)
+class UpdateDocumentRelationship:
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    document_relationship: None | (
+        Annotated[
+            DocumentRelationshipType, strawberry.lazy("config.graphql.document_types")
+        ]
+    ) = strawberry.field(name="documentRelationship", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+
+
+register_type("UpdateDocumentRelationship", UpdateDocumentRelationship, model=None)
+
+
+@strawberry.type(
+    name="DeleteDocumentRelationship",
+    description="Delete a document relationship.\n\nPermission requirements:\n- User must have DELETE permission on the document relationship\n- OR DELETE permission on BOTH source and target documents",
+)
+class DeleteDocumentRelationship:
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+
+
+register_type("DeleteDocumentRelationship", DeleteDocumentRelationship, model=None)
+
+
+@strawberry.type(
+    name="DeleteDocumentRelationships",
+    description="Delete multiple document relationships at once.\n\nPermission requirements:\n- User must have DELETE permission on each document relationship",
+)
+class DeleteDocumentRelationships:
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    deleted_count: int | None = strawberry.field(name="deletedCount", default=None)
+
+
+register_type("DeleteDocumentRelationships", DeleteDocumentRelationships, model=None)
+
+
+def _mutate_CreateDocumentRelationship(payload_cls, root, info, **kwargs):
+    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:66
+
+    Port of CreateDocumentRelationship.mutate
     """
-    Create a new relationship between two documents in the same corpus.
 
-    Permission requirements:
-    - User must have CREATE permission on BOTH source and target documents
-    - User must have CREATE permission on the corpus
-
-    Validation:
-    - Both documents must be in the specified corpus
-    - For RELATIONSHIP type: annotation_label_id is required
-    - For NOTES type: annotation_label_id is optional
-    """
-
-    class Arguments:
-        source_document_id = graphene.String(
-            required=True, description="ID of the source document"
-        )
-        target_document_id = graphene.String(
-            required=True, description="ID of the target document"
-        )
-        relationship_type = graphene.String(
-            required=True,
-            description="Type of relationship: 'RELATIONSHIP' or 'NOTES'",
-        )
-        annotation_label_id = graphene.String(
-            required=False,
-            description="ID of the annotation label (required for RELATIONSHIP type)",
-        )
-        corpus_id = graphene.String(
-            required=True,
-            description="ID of the corpus (both documents must be in this corpus)",
-        )
-        data = GenericScalar(
-            required=False, description="JSON data payload (e.g., for notes content)"
-        )
-
-    ok = graphene.Boolean()
-    document_relationship = graphene.Field(DocumentRelationshipType)
-    message = graphene.String()
-
+    # Decorator applied to an inner function because mutate stubs take
+    # ``payload_cls`` as their first positional argument, which does not match
+    # the ``(root, info, ...)`` calling convention the decorators expect.
     @login_required
     def mutate(
         root,
@@ -73,7 +129,7 @@ class CreateDocumentRelationship(graphene.Mutation):
         corpus_id,
         annotation_label_id=None,
         data=None,
-    ) -> "CreateDocumentRelationship":
+    ) -> CreateDocumentRelationship:
         try:
             # Decode global IDs
             source_doc_pk = from_global_id(source_document_id)[1]
@@ -212,40 +268,73 @@ class CreateDocumentRelationship(graphene.Mutation):
                 message=f"Error creating document relationship: {str(e)}",
             )
 
+    return mutate(root, info, **kwargs)
 
-class UpdateDocumentRelationship(graphene.Mutation):
+
+def m_create_document_relationship(
+    info: strawberry.Info,
+    annotation_label_id: Annotated[
+        str | None,
+        strawberry.argument(
+            name="annotationLabelId",
+            description="ID of the annotation label (required for RELATIONSHIP type)",
+        ),
+    ] = strawberry.UNSET,
+    corpus_id: Annotated[
+        str,
+        strawberry.argument(
+            name="corpusId",
+            description="ID of the corpus (both documents must be in this corpus)",
+        ),
+    ] = strawberry.UNSET,
+    data: Annotated[
+        GenericScalar | None,
+        strawberry.argument(
+            name="data", description="JSON data payload (e.g., for notes content)"
+        ),
+    ] = strawberry.UNSET,
+    relationship_type: Annotated[
+        str,
+        strawberry.argument(
+            name="relationshipType",
+            description="Type of relationship: 'RELATIONSHIP' or 'NOTES'",
+        ),
+    ] = strawberry.UNSET,
+    source_document_id: Annotated[
+        str,
+        strawberry.argument(
+            name="sourceDocumentId", description="ID of the source document"
+        ),
+    ] = strawberry.UNSET,
+    target_document_id: Annotated[
+        str,
+        strawberry.argument(
+            name="targetDocumentId", description="ID of the target document"
+        ),
+    ] = strawberry.UNSET,
+) -> CreateDocumentRelationship | None:
+    kwargs = strip_unset(
+        {
+            "annotation_label_id": annotation_label_id,
+            "corpus_id": corpus_id,
+            "data": data,
+            "relationship_type": relationship_type,
+            "source_document_id": source_document_id,
+            "target_document_id": target_document_id,
+        }
+    )
+    return _mutate_CreateDocumentRelationship(
+        CreateDocumentRelationship, None, info, **kwargs
+    )
+
+
+def _mutate_UpdateDocumentRelationship(payload_cls, root, info, **kwargs):
+    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:249
+
+    Port of UpdateDocumentRelationship.mutate
     """
-    Update an existing document relationship.
 
-    Permission requirements:
-    - User must have UPDATE permission on the document relationship
-    - OR UPDATE permission on BOTH source and target documents
-
-    Updatable fields:
-    - relationship_type (with validation for annotation_label requirement)
-    - annotation_label_id
-    - data (JSON payload)
-    - corpus_id
-    """
-
-    class Arguments:
-        document_relationship_id = graphene.String(
-            required=True, description="ID of the document relationship to update"
-        )
-        relationship_type = graphene.String(
-            required=False,
-            description="New relationship type: 'RELATIONSHIP' or 'NOTES'",
-        )
-        annotation_label_id = graphene.String(
-            required=False, description="New annotation label ID"
-        )
-        corpus_id = graphene.String(required=False, description="New corpus ID")
-        data = GenericScalar(required=False, description="Updated JSON data payload")
-
-    ok = graphene.Boolean()
-    document_relationship = graphene.Field(DocumentRelationshipType)
-    message = graphene.String()
-
+    # Decorator applied to an inner function — see _mutate_CreateDocumentRelationship.
     @login_required
     def mutate(
         root,
@@ -255,7 +344,7 @@ class UpdateDocumentRelationship(graphene.Mutation):
         annotation_label_id=None,
         corpus_id=None,
         data=None,
-    ) -> "UpdateDocumentRelationship":
+    ) -> UpdateDocumentRelationship:
         try:
             # Decode global ID
             doc_rel_pk = from_global_id(document_relationship_id)[1]
@@ -402,26 +491,62 @@ class UpdateDocumentRelationship(graphene.Mutation):
                 message=f"Error updating document relationship: {str(e)}",
             )
 
+    return mutate(root, info, **kwargs)
 
-class DeleteDocumentRelationship(graphene.Mutation):
+
+def m_update_document_relationship(
+    info: strawberry.Info,
+    annotation_label_id: Annotated[
+        str | None,
+        strawberry.argument(
+            name="annotationLabelId", description="New annotation label ID"
+        ),
+    ] = strawberry.UNSET,
+    corpus_id: Annotated[
+        str | None, strawberry.argument(name="corpusId", description="New corpus ID")
+    ] = strawberry.UNSET,
+    data: Annotated[
+        GenericScalar | None,
+        strawberry.argument(name="data", description="Updated JSON data payload"),
+    ] = strawberry.UNSET,
+    document_relationship_id: Annotated[
+        str,
+        strawberry.argument(
+            name="documentRelationshipId",
+            description="ID of the document relationship to update",
+        ),
+    ] = strawberry.UNSET,
+    relationship_type: Annotated[
+        str | None,
+        strawberry.argument(
+            name="relationshipType",
+            description="New relationship type: 'RELATIONSHIP' or 'NOTES'",
+        ),
+    ] = strawberry.UNSET,
+) -> UpdateDocumentRelationship | None:
+    kwargs = strip_unset(
+        {
+            "annotation_label_id": annotation_label_id,
+            "corpus_id": corpus_id,
+            "data": data,
+            "document_relationship_id": document_relationship_id,
+            "relationship_type": relationship_type,
+        }
+    )
+    return _mutate_UpdateDocumentRelationship(
+        UpdateDocumentRelationship, None, info, **kwargs
+    )
+
+
+def _mutate_DeleteDocumentRelationship(payload_cls, root, info, **kwargs):
+    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:423
+
+    Port of DeleteDocumentRelationship.mutate
     """
-    Delete a document relationship.
 
-    Permission requirements:
-    - User must have DELETE permission on the document relationship
-    - OR DELETE permission on BOTH source and target documents
-    """
-
-    class Arguments:
-        document_relationship_id = graphene.String(
-            required=True, description="ID of the document relationship to delete"
-        )
-
-    ok = graphene.Boolean()
-    message = graphene.String()
-
+    # Decorator applied to an inner function — see _mutate_CreateDocumentRelationship.
     @login_required
-    def mutate(root, info, document_relationship_id) -> "DeleteDocumentRelationship":
+    def mutate(root, info, document_relationship_id) -> DeleteDocumentRelationship:
         try:
             # Decode global ID
             doc_rel_pk = from_global_id(document_relationship_id)[1]
@@ -463,28 +588,34 @@ class DeleteDocumentRelationship(graphene.Mutation):
                 ok=False, message=f"Error deleting document relationship: {str(e)}"
             )
 
+    return mutate(root, info, **kwargs)
 
-class DeleteDocumentRelationships(graphene.Mutation):
+
+def m_delete_document_relationship(
+    info: strawberry.Info,
+    document_relationship_id: Annotated[
+        str,
+        strawberry.argument(
+            name="documentRelationshipId",
+            description="ID of the document relationship to delete",
+        ),
+    ] = strawberry.UNSET,
+) -> DeleteDocumentRelationship | None:
+    kwargs = strip_unset({"document_relationship_id": document_relationship_id})
+    return _mutate_DeleteDocumentRelationship(
+        DeleteDocumentRelationship, None, info, **kwargs
+    )
+
+
+def _mutate_DeleteDocumentRelationships(payload_cls, root, info, **kwargs):
+    """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:486
+
+    Port of DeleteDocumentRelationships.mutate
     """
-    Delete multiple document relationships at once.
 
-    Permission requirements:
-    - User must have DELETE permission on each document relationship
-    """
-
-    class Arguments:
-        document_relationship_ids = graphene.List(
-            graphene.String,
-            required=True,
-            description="List of document relationship IDs to delete",
-        )
-
-    ok = graphene.Boolean()
-    message = graphene.String()
-    deleted_count = graphene.Int()
-
+    # Decorator applied to an inner function — see _mutate_CreateDocumentRelationship.
     @login_required
-    def mutate(root, info, document_relationship_ids) -> "DeleteDocumentRelationships":
+    def mutate(root, info, document_relationship_ids) -> DeleteDocumentRelationships:
         user = info.context.user
 
         try:
@@ -544,3 +675,45 @@ class DeleteDocumentRelationships(graphene.Mutation):
                 message=f"Error deleting document relationships: {str(e)}",
                 deleted_count=0,
             )
+
+    return mutate(root, info, **kwargs)
+
+
+def m_delete_document_relationships(
+    info: strawberry.Info,
+    document_relationship_ids: Annotated[
+        list[str | None],
+        strawberry.argument(
+            name="documentRelationshipIds",
+            description="List of document relationship IDs to delete",
+        ),
+    ] = strawberry.UNSET,
+) -> DeleteDocumentRelationships | None:
+    kwargs = strip_unset({"document_relationship_ids": document_relationship_ids})
+    return _mutate_DeleteDocumentRelationships(
+        DeleteDocumentRelationships, None, info, **kwargs
+    )
+
+
+MUTATION_FIELDS = {
+    "create_document_relationship": strawberry.field(
+        resolver=m_create_document_relationship,
+        name="createDocumentRelationship",
+        description="Create a new relationship between two documents in the same corpus.\n\nPermission requirements:\n- User must have CREATE permission on BOTH source and target documents\n- User must have CREATE permission on the corpus\n\nValidation:\n- Both documents must be in the specified corpus\n- For RELATIONSHIP type: annotation_label_id is required\n- For NOTES type: annotation_label_id is optional",
+    ),
+    "update_document_relationship": strawberry.field(
+        resolver=m_update_document_relationship,
+        name="updateDocumentRelationship",
+        description="Update an existing document relationship.\n\nPermission requirements:\n- User must have UPDATE permission on the document relationship\n- OR UPDATE permission on BOTH source and target documents\n\nUpdatable fields:\n- relationship_type (with validation for annotation_label requirement)\n- annotation_label_id\n- data (JSON payload)\n- corpus_id",
+    ),
+    "delete_document_relationship": strawberry.field(
+        resolver=m_delete_document_relationship,
+        name="deleteDocumentRelationship",
+        description="Delete a document relationship.\n\nPermission requirements:\n- User must have DELETE permission on the document relationship\n- OR DELETE permission on BOTH source and target documents",
+    ),
+    "delete_document_relationships": strawberry.field(
+        resolver=m_delete_document_relationships,
+        name="deleteDocumentRelationships",
+        description="Delete multiple document relationships at once.\n\nPermission requirements:\n- User must have DELETE permission on each document relationship",
+    ),
+}

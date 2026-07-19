@@ -596,9 +596,9 @@ class ModerationMutationIDORTest(TestCase):
     def setUp(self):
         """Set up test data."""
         from django.contrib.auth import get_user_model
-        from graphene.test import Client
 
         from config.graphql.schema import schema
+        from config.graphql.testing import Client
 
         User = get_user_model()
 
@@ -782,9 +782,8 @@ class DeleteRestoreThreadMutationTest(TestCase):
 
     def setUp(self):
         """Set up test data."""
-        from graphene.test import Client
-
         from config.graphql.schema import schema
+        from config.graphql.testing import Client
 
         self.owner = User.objects.create_user(
             username="thread_owner",
@@ -942,9 +941,8 @@ class RollbackModerationActionMutationTest(TestCase):
 
     def setUp(self):
         """Set up test data."""
-        from graphene.test import Client
-
         from config.graphql.schema import schema
+        from config.graphql.testing import Client
 
         self.owner = User.objects.create_user(
             username="rollback_owner",
@@ -1180,9 +1178,8 @@ class ModerationQueriesTest(TestCase):
 
     def setUp(self):
         """Set up test data."""
-        from graphene.test import Client
-
         from config.graphql.schema import schema
+        from config.graphql.testing import Client
 
         self.owner = User.objects.create_user(
             username="queries_owner",
@@ -1316,9 +1313,8 @@ class ResolveModerationActionAuthGateTest(TestCase):
     """
 
     def setUp(self):
-        from graphene.test import Client
-
         from config.graphql.schema import schema
+        from config.graphql.testing import Client
         from opencontractserver.documents.models import Document
 
         # Cast of users covering each branch of ``can_moderate``.

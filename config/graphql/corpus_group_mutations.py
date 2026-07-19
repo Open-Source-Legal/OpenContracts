@@ -8,13 +8,18 @@ the unified "Corpus group not found" message so callers cannot distinguish
 "does not exist" from "exists but forbidden".
 """
 
-import logging
+from __future__ import annotations
 
-import graphene
-from graphql_jwt.decorators import login_required
+import logging
+from typing import Annotated
+
+import strawberry
 from graphql_relay import from_global_id
 
-from config.graphql.graphene_types import CorpusGroupType
+from config.graphql._util import strip_unset
+from config.graphql.core.auth import PermissionDenied
+from config.graphql.core.relay import register_type
+from config.graphql.corpus_types import CorpusGroupType
 from config.graphql.ratelimits import RateLimits, graphql_ratelimit
 from opencontractserver.corpuses.services import CorpusGroupService
 from opencontractserver.corpuses.services.corpus_groups import GROUP_NOT_FOUND_MESSAGE
@@ -57,33 +62,63 @@ def _decode_pk(global_id: str) -> str:
     return _decode_pks([global_id])[0]  # type: ignore[index]  # non-None input
 
 
-class CreateCorpusGroupMutation(graphene.Mutation):
-    """Create a corpus group bundling N corpora for multi-corpus retrieval."""
+@strawberry.type(
+    name="CreateCorpusGroupMutation",
+    description="Create a corpus group bundling N corpora for multi-corpus retrieval.",
+)
+class CreateCorpusGroupMutation:
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    corpus_group: None | (
+        Annotated[CorpusGroupType, strawberry.lazy("config.graphql.corpus_types")]
+    ) = strawberry.field(name="corpusGroup", default=None)
 
-    class Arguments:
-        title = graphene.String(required=True, description="Group title")
-        slug = graphene.String(
-            required=False,
-            description="URL-friendly identifier (auto-generated from title "
-            "if not provided)",
-        )
-        description = graphene.String(required=False)
-        corpus_ids = graphene.List(
-            graphene.ID,
-            required=False,
-            description="Corpora to bundle (each must be readable by you)",
-        )
-        default_agent_id = graphene.ID(
-            required=False,
-            description="Orchestrator AgentConfiguration to bind to this group",
-        )
-        is_public = graphene.Boolean(required=False, default_value=False)
 
-    ok = graphene.Boolean()
-    message = graphene.String()
-    corpus_group = graphene.Field(CorpusGroupType)
+register_type("CreateCorpusGroupMutation", CreateCorpusGroupMutation, model=None)
 
-    @login_required
+
+@strawberry.type(
+    name="UpdateCorpusGroupMutation",
+    description="Update a corpus group (title, membership, default agent, visibility).",
+)
+class UpdateCorpusGroupMutation:
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    corpus_group: None | (
+        Annotated[CorpusGroupType, strawberry.lazy("config.graphql.corpus_types")]
+    ) = strawberry.field(name="corpusGroup", default=None)
+
+
+register_type("UpdateCorpusGroupMutation", UpdateCorpusGroupMutation, model=None)
+
+
+@strawberry.type(
+    name="DeleteCorpusGroupMutation",
+    description="Delete a corpus group (member corpora are untouched).",
+)
+class DeleteCorpusGroupMutation:
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+
+
+register_type("DeleteCorpusGroupMutation", DeleteCorpusGroupMutation, model=None)
+
+
+def _mutate_CreateCorpusGroupMutation(
+    payload_cls,
+    root,
+    info,
+    title,
+    slug=None,
+    description=None,
+    corpus_ids=None,
+    default_agent_id=None,
+    is_public=False,
+):
+    """Port of CreateCorpusGroupMutation.mutate (issue #2056)."""
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+
     @graphql_ratelimit(rate=RateLimits.WRITE_MEDIUM)
     def mutate(
         root,
@@ -94,14 +129,14 @@ class CreateCorpusGroupMutation(graphene.Mutation):
         corpus_ids=None,
         default_agent_id=None,
         is_public=False,
-    ) -> "CreateCorpusGroupMutation":
+    ):
         user = info.context.user
         try:
             try:
                 corpus_pks = _decode_pks(corpus_ids)
                 agent_pk = _decode_pk(default_agent_id) if default_agent_id else None
             except Exception:
-                return CreateCorpusGroupMutation(
+                return payload_cls(
                     ok=False, message="Malformed id argument", corpus_group=None
                 )
 
@@ -116,53 +151,95 @@ class CreateCorpusGroupMutation(graphene.Mutation):
                 request=info.context,
             )
             if not result.ok:
-                return CreateCorpusGroupMutation(
-                    ok=False, message=result.error, corpus_group=None
-                )
-            return CreateCorpusGroupMutation(
+                return payload_cls(ok=False, message=result.error, corpus_group=None)
+            return payload_cls(
                 ok=True,
                 message="Corpus group created successfully",
                 corpus_group=result.value,
             )
         except Exception as e:
             logger.exception("Error creating corpus group")
-            return CreateCorpusGroupMutation(
+            return payload_cls(
                 ok=False,
                 message=f"Failed to create corpus group: {str(e)}",
                 corpus_group=None,
             )
 
+    return mutate(
+        root,
+        info,
+        title=title,
+        slug=slug,
+        description=description,
+        corpus_ids=corpus_ids,
+        default_agent_id=default_agent_id,
+        is_public=is_public,
+    )
 
-class UpdateCorpusGroupMutation(graphene.Mutation):
-    """Update a corpus group (title, membership, default agent, visibility)."""
 
-    class Arguments:
-        corpus_group_id = graphene.ID(required=True)
-        title = graphene.String(required=False)
-        slug = graphene.String(required=False)
-        description = graphene.String(required=False)
-        corpus_ids = graphene.List(
-            graphene.ID,
-            required=False,
-            description="REPLACES the group's membership when provided",
-        )
-        default_agent_id = graphene.ID(
-            required=False,
-            description="Set/replace the bound orchestrator agent. Pass null "
-            "to leave unchanged; pass clearDefaultAgent=true to unbind.",
-        )
-        clear_default_agent = graphene.Boolean(
-            required=False,
-            default_value=False,
-            description="When true, unbinds the default agent.",
-        )
-        is_public = graphene.Boolean(required=False)
+def m_create_corpus_group(
+    info: strawberry.Info,
+    title: Annotated[
+        str, strawberry.argument(name="title", description="Group title")
+    ] = strawberry.UNSET,
+    slug: Annotated[
+        str | None,
+        strawberry.argument(
+            name="slug",
+            description="URL-friendly identifier (auto-generated from title if not provided)",
+        ),
+    ] = strawberry.UNSET,
+    description: Annotated[
+        str | None, strawberry.argument(name="description")
+    ] = strawberry.UNSET,
+    corpus_ids: Annotated[
+        list[strawberry.ID | None] | None,
+        strawberry.argument(
+            name="corpusIds",
+            description="Corpora to bundle (each must be readable by you)",
+        ),
+    ] = strawberry.UNSET,
+    default_agent_id: Annotated[
+        strawberry.ID | None,
+        strawberry.argument(
+            name="defaultAgentId",
+            description="Orchestrator AgentConfiguration to bind to this group",
+        ),
+    ] = strawberry.UNSET,
+    is_public: Annotated[bool | None, strawberry.argument(name="isPublic")] = False,
+) -> CreateCorpusGroupMutation | None:
+    kwargs = strip_unset(
+        {
+            "title": title,
+            "slug": slug,
+            "description": description,
+            "corpus_ids": corpus_ids,
+            "default_agent_id": default_agent_id,
+            "is_public": is_public,
+        }
+    )
+    return _mutate_CreateCorpusGroupMutation(
+        CreateCorpusGroupMutation, None, info, **kwargs
+    )
 
-    ok = graphene.Boolean()
-    message = graphene.String()
-    corpus_group = graphene.Field(CorpusGroupType)
 
-    @login_required
+def _mutate_UpdateCorpusGroupMutation(
+    payload_cls,
+    root,
+    info,
+    corpus_group_id,
+    title=None,
+    slug=None,
+    description=None,
+    corpus_ids=None,
+    default_agent_id=None,
+    clear_default_agent=False,
+    is_public=None,
+):
+    """Port of UpdateCorpusGroupMutation.mutate (issue #2056)."""
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+
     @graphql_ratelimit(rate=RateLimits.WRITE_LIGHT)
     def mutate(
         root,
@@ -175,7 +252,7 @@ class UpdateCorpusGroupMutation(graphene.Mutation):
         default_agent_id=None,
         clear_default_agent=False,
         is_public=None,
-    ) -> "UpdateCorpusGroupMutation":
+    ):
         user = info.context.user
         try:
             # A malformed TARGET id is indistinguishable from a missing
@@ -184,14 +261,14 @@ class UpdateCorpusGroupMutation(graphene.Mutation):
             try:
                 group_pk = from_global_id(corpus_group_id)[1]
             except Exception:
-                return UpdateCorpusGroupMutation(
+                return payload_cls(
                     ok=False, message=GROUP_NOT_FOUND_MESSAGE, corpus_group=None
                 )
             try:
                 corpus_pks = _decode_pks(corpus_ids)
                 agent_pk = _decode_pk(default_agent_id) if default_agent_id else None
             except Exception:
-                return UpdateCorpusGroupMutation(
+                return payload_cls(
                     ok=False, message="Malformed id argument", corpus_group=None
                 )
 
@@ -199,7 +276,7 @@ class UpdateCorpusGroupMutation(graphene.Mutation):
                 user, group_pk, request=info.context
             )
             if group is None:
-                return UpdateCorpusGroupMutation(
+                return payload_cls(
                     ok=False, message=GROUP_NOT_FOUND_MESSAGE, corpus_group=None
                 )
 
@@ -216,60 +293,146 @@ class UpdateCorpusGroupMutation(graphene.Mutation):
                 request=info.context,
             )
             if not result.ok:
-                return UpdateCorpusGroupMutation(
-                    ok=False, message=result.error, corpus_group=None
-                )
-            return UpdateCorpusGroupMutation(
+                return payload_cls(ok=False, message=result.error, corpus_group=None)
+            return payload_cls(
                 ok=True,
                 message="Corpus group updated successfully",
                 corpus_group=result.value,
             )
         except Exception as e:
             logger.exception("Error updating corpus group")
-            return UpdateCorpusGroupMutation(
+            return payload_cls(
                 ok=False,
                 message=f"Failed to update corpus group: {str(e)}",
                 corpus_group=None,
             )
 
+    return mutate(
+        root,
+        info,
+        corpus_group_id=corpus_group_id,
+        title=title,
+        slug=slug,
+        description=description,
+        corpus_ids=corpus_ids,
+        default_agent_id=default_agent_id,
+        clear_default_agent=clear_default_agent,
+        is_public=is_public,
+    )
 
-class DeleteCorpusGroupMutation(graphene.Mutation):
-    """Delete a corpus group (member corpora are untouched)."""
 
-    class Arguments:
-        corpus_group_id = graphene.ID(required=True)
+def m_update_corpus_group(
+    info: strawberry.Info,
+    corpus_group_id: Annotated[
+        strawberry.ID, strawberry.argument(name="corpusGroupId")
+    ] = strawberry.UNSET,
+    title: Annotated[str | None, strawberry.argument(name="title")] = strawberry.UNSET,
+    slug: Annotated[str | None, strawberry.argument(name="slug")] = strawberry.UNSET,
+    description: Annotated[
+        str | None, strawberry.argument(name="description")
+    ] = strawberry.UNSET,
+    corpus_ids: Annotated[
+        list[strawberry.ID | None] | None,
+        strawberry.argument(
+            name="corpusIds",
+            description="REPLACES the group's membership when provided",
+        ),
+    ] = strawberry.UNSET,
+    default_agent_id: Annotated[
+        strawberry.ID | None,
+        strawberry.argument(
+            name="defaultAgentId",
+            description="Set/replace the bound orchestrator agent. Pass null "
+            "to leave unchanged; pass clearDefaultAgent=true to unbind.",
+        ),
+    ] = strawberry.UNSET,
+    clear_default_agent: Annotated[
+        bool | None,
+        strawberry.argument(
+            name="clearDefaultAgent",
+            description="When true, unbinds the default agent.",
+        ),
+    ] = False,
+    is_public: Annotated[
+        bool | None, strawberry.argument(name="isPublic")
+    ] = strawberry.UNSET,
+) -> UpdateCorpusGroupMutation | None:
+    kwargs = strip_unset(
+        {
+            "corpus_group_id": corpus_group_id,
+            "title": title,
+            "slug": slug,
+            "description": description,
+            "corpus_ids": corpus_ids,
+            "default_agent_id": default_agent_id,
+            "clear_default_agent": clear_default_agent,
+            "is_public": is_public,
+        }
+    )
+    return _mutate_UpdateCorpusGroupMutation(
+        UpdateCorpusGroupMutation, None, info, **kwargs
+    )
 
-    ok = graphene.Boolean()
-    message = graphene.String()
 
-    @login_required
+def _mutate_DeleteCorpusGroupMutation(payload_cls, root, info, corpus_group_id):
+    """Port of DeleteCorpusGroupMutation.mutate (issue #2056)."""
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+
     @graphql_ratelimit(rate=RateLimits.WRITE_LIGHT)
-    def mutate(root, info, corpus_group_id) -> "DeleteCorpusGroupMutation":
+    def mutate(root, info, corpus_group_id):
         user = info.context.user
         try:
             try:
                 group_pk = from_global_id(corpus_group_id)[1]
             except Exception:
-                return DeleteCorpusGroupMutation(
-                    ok=False, message=GROUP_NOT_FOUND_MESSAGE
-                )
+                return payload_cls(ok=False, message=GROUP_NOT_FOUND_MESSAGE)
 
             group = CorpusGroupService.get_group_by_id(
                 user, group_pk, request=info.context
             )
             if group is None:
-                return DeleteCorpusGroupMutation(
-                    ok=False, message=GROUP_NOT_FOUND_MESSAGE
-                )
+                return payload_cls(ok=False, message=GROUP_NOT_FOUND_MESSAGE)
 
             result = CorpusGroupService.delete_group(user, group, request=info.context)
             if not result.ok:
-                return DeleteCorpusGroupMutation(ok=False, message=result.error)
-            return DeleteCorpusGroupMutation(
-                ok=True, message="Corpus group deleted successfully"
-            )
+                return payload_cls(ok=False, message=result.error)
+            return payload_cls(ok=True, message="Corpus group deleted successfully")
         except Exception as e:
             logger.exception("Error deleting corpus group")
-            return DeleteCorpusGroupMutation(
+            return payload_cls(
                 ok=False, message=f"Failed to delete corpus group: {str(e)}"
             )
+
+    return mutate(root, info, corpus_group_id=corpus_group_id)
+
+
+def m_delete_corpus_group(
+    info: strawberry.Info,
+    corpus_group_id: Annotated[
+        strawberry.ID, strawberry.argument(name="corpusGroupId")
+    ] = strawberry.UNSET,
+) -> DeleteCorpusGroupMutation | None:
+    kwargs = strip_unset({"corpus_group_id": corpus_group_id})
+    return _mutate_DeleteCorpusGroupMutation(
+        DeleteCorpusGroupMutation, None, info, **kwargs
+    )
+
+
+MUTATION_FIELDS = {
+    "create_corpus_group": strawberry.field(
+        resolver=m_create_corpus_group,
+        name="createCorpusGroup",
+        description="Create a corpus group bundling N corpora for multi-corpus retrieval.",
+    ),
+    "update_corpus_group": strawberry.field(
+        resolver=m_update_corpus_group,
+        name="updateCorpusGroup",
+        description="Update a corpus group (title, membership, default agent, visibility).",
+    ),
+    "delete_corpus_group": strawberry.field(
+        resolver=m_delete_corpus_group,
+        name="deleteCorpusGroup",
+        description="Delete a corpus group (member corpora are untouched).",
+    ),
+}

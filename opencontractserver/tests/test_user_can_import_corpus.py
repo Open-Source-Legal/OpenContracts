@@ -9,9 +9,9 @@ the corpus-export and zip-to-corpus REST import endpoints
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
 from django.test import TestCase, override_settings
-from graphene.test import Client
 
 from config.graphql.schema import schema
+from config.graphql.testing import Client
 
 User = get_user_model()
 

@@ -46,19 +46,17 @@ from typing import Any
 from django.db import connection
 from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
-from graphene.test import Client
 from graphql_relay import to_global_id
 
+from config.graphql.core.permissions import get_anonymous_user_id
 from config.graphql.corpus_types import CorpusType
 from config.graphql.custom_resolvers import (
     SUPPORTED_FILTER_KEYS,
     UNSUPPORTED_FILTER_KEYS,
 )
 from config.graphql.filters import AnnotationFilter
-from config.graphql.permissioning.permission_annotator.mixins import (
-    get_anonymous_user_id,
-)
 from config.graphql.schema import schema
+from config.graphql.testing import Client
 from opencontractserver.annotations.models import (
     DOC_TYPE_LABEL,
     Annotation,

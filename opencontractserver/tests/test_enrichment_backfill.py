@@ -16,8 +16,8 @@ from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.core.management import call_command
 from django.test import TestCase
-from graphene.test import Client
 
+from config.graphql.testing import Client
 from opencontractserver.annotations.models import CorpusReference
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document

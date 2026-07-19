@@ -16,9 +16,9 @@ cache. Counts must respect:
 from __future__ import annotations
 
 from django.contrib.auth import get_user_model
-from graphene_django.utils.testing import GraphQLTestCase
 from graphql_relay import to_global_id
 
+from config.graphql.testing import GraphQLTestCase
 from opencontractserver.annotations.models import Annotation, AnnotationLabel
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document, DocumentPath
