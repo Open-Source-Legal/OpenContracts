@@ -149,9 +149,16 @@ def resolve_my_permissions(instance: Any, info: Any) -> list[str]:
                 this_model_permission_id_map = model_permissions.get(
                     "this_model_permission_id_map", {}
                 )
-                can_publish_model_type = model_permissions.get(
-                    "can_publish_model_type", False
-                )
+                # ``get_permissions_for_user_on_model_in_app`` returns this
+                # flag under ``"can_publish"`` — the ``"can_publish_model_type"``
+                # key it was read under here never existed, permanently
+                # dead-ending the ``publish_{model_name}`` grant below.
+                # Pre-existing since the graphene era (see
+                # config.graphql.permissioning.permission_annotator.mixins,
+                # same typo), not a migration regression; fixed here since
+                # the migration is the first place with test coverage
+                # exercising this branch.
+                can_publish_model_type = model_permissions.get("can_publish", False)
 
                 # Prefer per-user prefetch (set by _apply_document_prefetches);
                 # ``.filter()`` on the related manager bypasses the cache.

@@ -25,13 +25,14 @@ top-level key the same way the graphene-era sibling test
 (``test_user_privacy.py::ObjectSharedWithPrivacyTestCase``) does, to unit-test
 the per-user merge logic in isolation from the quirk.
 
-A second, unrelated pre-existing key-name mismatch: ``resolve_my_permissions``
-reads ``model_permissions.get("can_publish_model_type", False)``, but
+A second, unrelated pre-existing key-name mismatch (predating the strawberry
+port — same lookup in the graphene mixin): ``resolve_my_permissions`` read
+``model_permissions.get("can_publish_model_type", False)``, but
 ``get_permissions_for_user_on_model_in_app`` (the helper that builds
-``model_permissions``) returns the flag under ``"can_publish"``. That mismatch
-also predates the strawberry port (same lookup in the graphene mixin), so the
-"can-publish" branch below is exercised via a mock of the helper rather than a
-real permission grant — the real helper can never trigger it in production.
+``model_permissions``) has only ever returned the flag under ``"can_publish"``,
+permanently dead-ending the ``publish_{model_name}`` grant. Fixed alongside
+this test module (see ``config/graphql/core/permissions.py``). The tests below
+cover both the mocked-helper unit path and a real end-to-end grant.
 """
 
 from __future__ import annotations
@@ -233,7 +234,7 @@ class ResolveMyPermissionsCoverageTestCase(TestCase):
                 # actually produces via ``_annotations_for_model``, forcing
                 # the per-permission KeyError this test pins.
                 "this_model_permission_id_map": {},
-                "can_publish_model_type": False,
+                "can_publish": False,
             },
         ):
             result = resolve_my_permissions(self.corpus, _Info(_Ctx(self.viewer)))
@@ -245,18 +246,35 @@ class ResolveMyPermissionsCoverageTestCase(TestCase):
         self.assertEqual(result, [])
 
     def test_can_publish_flag_from_annotator_sets_publish_permission(self):
-        # ``can_publish_model_type`` can never be True via the real helper
-        # (see module docstring) — mocked here to exercise the resolver's own
-        # branch in isolation from that pre-existing key-name mismatch.
+        # Mocked helper, isolating the resolver's own branch from
+        # ``get_permissions_for_user_on_model_in_app``'s actual DB lookups.
+        # See ``test_real_global_publish_permission_sets_publish_permission``
+        # below for the same branch driven by a genuine permission grant.
         with mock.patch(
             "config.graphql.core.permissions.get_permissions_for_user_on_model_in_app",
             return_value={
                 "this_user_group_ids": [],
                 "this_model_permission_id_map": {},
-                "can_publish_model_type": True,
+                "can_publish": True,
             },
         ):
             result = resolve_my_permissions(self.corpus, _Info(_Ctx(self.viewer)))
+        self.assertIn("publish_corpus", result)
+
+    def test_real_global_publish_permission_sets_publish_permission(self):
+        # ``get_permissions_for_user_on_model_in_app`` checks
+        # ``user.get_all_permissions()`` (GLOBAL permissions only, no object
+        # passed) for ``"corpuses.publish_corpus"` — a blanket Django
+        # permission grant, not a per-object guardian grant like the rest of
+        # this test module uses. Pins the real (unmocked) helper end-to-end,
+        # confirming the "can_publish"/"can_publish_model_type" key fix
+        # actually closes the gap rather than just satisfying the mock.
+        permission = Permission.objects.get(
+            codename="publish_corpus",
+            content_type=ContentType.objects.get_for_model(Corpus),
+        )
+        self.viewer.user_permissions.add(permission)
+        result = resolve_my_permissions(self.corpus, _Info(_Ctx(self.viewer)))
         self.assertIn("publish_corpus", result)
 
     def test_annotator_helper_failure_is_logged_and_swallowed(self):
