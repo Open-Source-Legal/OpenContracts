@@ -312,7 +312,9 @@ class ResolveObjectSharedWithCoverageTestCase(TestCase):
         self.assertEqual(result, [])
 
     def test_guardianless_model_returns_empty(self):
-        label = AnnotationLabel.objects.create(text="NoGuardianTables", creator=self.owner)
+        label = AnnotationLabel.objects.create(
+            text="NoGuardianTables", creator=self.owner
+        )
         result = resolve_object_shared_with(label, _Info(_Ctx(self.viewer)))
         self.assertEqual(result, [])
 
