@@ -14,15 +14,7 @@ pytest-xdist==3.8.0  # https://github.com/pytest-dev/pytest-xdist (parallel test
 pytest-timeout==2.4.0  # https://github.com/pytest-dev/pytest-timeout (per-test hang guard in CI)
 djangorestframework-stubs==3.17.0  # https://github.com/typeddjango/djangorestframework-stubs
 responses==0.26.2  # https://github.com/getsentry/responses
-# vcrpy 8.1.1 is the latest release and is NOT yet compatible with aiohttp
-# >=3.14: its aiohttp stub subclasses aiohttp.streams.AsyncStreamReaderMixin at
-# import time, a symbol aiohttp 3.14 removed (kevin1024/vcrpy#995; fix proposed
-# in the unreleased PR #996). aiohttp is an unpinned transitive dep, so a fresh
-# CI resolution picks up 3.14+. ensure_aiohttp_vcr_compat() in
-# opencontractserver/utils/vcr_replay.py restores that symbol so vcrpy works
-# under aiohttp >=3.14. Bump vcrpy here and delete the shim once a release ships
-# the vcrpy#996 fix. See issue #1920.
-vcrpy==8.3.0
+vcrpy==8.3.0  # https://github.com/kevin1024/vcrpy (8.2.0+ restored aiohttp 3.14 compat — see issue #2140)
 
 # Profiling
 # ------------------------------------------------------------------------------
