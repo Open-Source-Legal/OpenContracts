@@ -160,6 +160,29 @@ test.describe("NavMenu Component", () => {
       await component.unmount();
     });
 
+    test("should navigate to Corpus Groups from the user menu", async ({
+      mount,
+      page,
+    }) => {
+      const component = await mount(
+        <NavMenuTestWrapper mockUser={mockRegularUser} />
+      );
+
+      await page.locator("text=Test User").click();
+
+      // Corpus Groups sits outside the isSuperuser gate, so a regular user
+      // must see it — the entry point for the /corpus-groups panel.
+      const item = page.locator("text=Corpus Groups");
+      await expect(item).toBeVisible({ timeout: 2000 });
+
+      // Activating it runs the navigate("/corpus-groups") handler and closes
+      // the dropdown, same contract as the other internal-link items.
+      await item.click();
+      await expect(item).toBeHidden({ timeout: 2000 });
+
+      await component.unmount();
+    });
+
     test("should show Admin Settings for superuser", async ({
       mount,
       page,
