@@ -11,17 +11,6 @@ import os
 import pytest
 from django import db
 
-from opencontractserver.utils.vcr_replay import ensure_aiohttp_vcr_compat
-
-# Many integration tests record/replay VCR cassettes. vcrpy 8.1.1 imports its
-# aiohttp stub lazily when a cassette is entered, and that stub subclasses
-# ``aiohttp.streams.AsyncStreamReaderMixin`` — a symbol aiohttp 3.14 removed — at
-# module-evaluation time. A fresh CI resolution that picks up aiohttp >= 3.14
-# would therefore make every VCR-using test raise AttributeError. Apply the
-# compat shim here, at conftest import, so the symbol exists before any test
-# runs. See opencontractserver/utils/vcr_replay.py and issue #1920.
-ensure_aiohttp_vcr_compat()
-
 
 @pytest.fixture(scope="session", autouse=True)
 def make_create_permissions_xdist_safe():

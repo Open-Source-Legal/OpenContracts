@@ -42,52 +42,6 @@ from contextlib import contextmanager
 logger = logging.getLogger(__name__)
 
 
-def ensure_aiohttp_vcr_compat() -> None:
-    """Make vcrpy 8.1.1's aiohttp stub importable under aiohttp >= 3.14.
-
-    vcrpy 8.1.1 (the latest release) defines
-    ``class MockStream(asyncio.StreamReader, streams.AsyncStreamReaderMixin)``
-    in ``vcr/stubs/aiohttp_stubs.py``. aiohttp 3.14 removed
-    ``aiohttp.streams.AsyncStreamReaderMixin`` (its helpers were folded onto the
-    stream classes). vcrpy imports that stub lazily — when a cassette is entered
-    and ``vcr/patch.py`` builds its patchers — so under aiohttp >= 3.14 every VCR
-    cassette entry raises ``AttributeError`` (issue #1920; upstream
-    kevin1024/vcrpy#995, fix proposed in the unreleased PR #996).
-
-    This codebase only records/replays *httpx* (LLM provider) cassettes — the
-    aiohttp stub is pulled in incidentally because aiohttp is importable
-    (transitive via llama-index-core). ``MockStream`` is therefore never
-    instantiated here, so restoring the removed name as an empty mixin is enough
-    to let the stub's class body evaluate; none of the mixin's (now-removed)
-    helper methods are exercised.
-
-    Idempotent, and a no-op under aiohttp < 3.14 (where the real mixin is still
-    present — it is left untouched). Delete this shim, and bump ``vcrpy`` in
-    requirements/local.txt, once vcrpy ships a release that supports the aiohttp
-    3.14 stream API.
-    """
-    try:
-        from aiohttp import streams
-    except ModuleNotFoundError:
-        # aiohttp isn't installed → vcrpy won't load its aiohttp stub anyway.
-        return
-
-    if hasattr(streams, "AsyncStreamReaderMixin"):
-        return
-
-    class AsyncStreamReaderMixin:
-        """Empty stand-in for the base class aiohttp 3.14 removed.
-
-        Only needs to exist so vcrpy's ``MockStream`` class statement can
-        evaluate; its methods are never called (we never replay aiohttp
-        cassettes).
-        """
-
-    # setattr (string name) rather than attribute assignment so mypy does not
-    # flag a member aiohttp 3.14 removed from the ``streams`` module.
-    setattr(streams, "AsyncStreamReaderMixin", AsyncStreamReaderMixin)
-
-
 # These hostnames are the LLM provider endpoints VCR should intercept.
 # Other hosts (LlamaParse, embedder microservice, S3) bypass VCR.
 _LLM_HOSTS = {"api.openai.com", "api.anthropic.com"}
@@ -248,11 +202,6 @@ def maybe_vcr_cassette() -> Iterator[object | None]:
         yield None
         return
 
-    # vcrpy 8.1.1's aiohttp stub references a symbol aiohttp 3.14 removed;
-    # restore it before importing vcr so the live E2E record/replay harness
-    # (which runs outside pytest, where conftest isn't loaded) also works under
-    # aiohttp >= 3.14. See ensure_aiohttp_vcr_compat above and issue #1920.
-    ensure_aiohttp_vcr_compat()
     import vcr  # local import keeps prod paths free of vcr cost
 
     cassette_dir = os.path.dirname(os.path.abspath(cassette_path))
