@@ -42,7 +42,6 @@ export type ManagedCorpusGroup = Pick<
   | "creator"
   | "defaultAgent"
   | "corpora"
-  | "myPermissions"
 >;
 
 export interface MyCorpusGroupsResult {
@@ -138,7 +137,6 @@ export const GET_MY_CORPUS_GROUPS = gql`
           isPublic
           created
           modified
-          myPermissions
           creator {
             id
             displayName
@@ -190,7 +188,6 @@ export const CREATE_CORPUS_GROUP = gql`
         isPublic
         created
         modified
-        myPermissions
         creator {
           id
           displayName
@@ -245,7 +242,6 @@ export const UPDATE_CORPUS_GROUP = gql`
         isPublic
         created
         modified
-        myPermissions
         creator {
           id
           displayName

@@ -74,8 +74,9 @@ export const CorpusMultiSelect: React.FC<CorpusMultiSelectProps> = ({
   );
 
   /**
-   * Menu options: search results, minus anything already selected (react-select
-   * hides selected options anyway, but de-duping here keeps the list honest).
+   * Menu options: the search results verbatim. Already-selected corpuses are
+   * not filtered out here — react-select's ``hideSelectedOptions`` (on by
+   * default for ``isMulti``) does that by value-equality at render time.
    */
   const options: SelectOption[] = useMemo(() => {
     const edges = data?.corpuses?.edges ?? [];
