@@ -10,15 +10,16 @@ This module tests:
 
 from unittest.mock import patch
 
-from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.test import Client, TestCase, override_settings
 
-User = get_user_model()
+from opencontractserver.users.models import User
 
 
 class TestAdminClaimsSync(TestCase):
     """Tests for syncing admin claims from Auth0 tokens."""
+
+    user: User
 
     @classmethod
     def setUpTestData(cls):
@@ -338,6 +339,8 @@ class TestAdminClaimsSync(TestCase):
 class TestAuth0SuperuserAllowlist(TestCase):
     """Tests for the AUTH0_SUPERUSER_SUB_ALLOWLIST defense-in-depth check."""
 
+    user: User
+
     @classmethod
     def setUpTestData(cls):
         cls.user = User.objects.create_user(
@@ -574,6 +577,11 @@ class TestBooleanClaimParsing(TestCase):
 class TestAuth0AdminBackend(TestCase):
     """Tests for the Auth0 admin authentication backend."""
 
+    staff_user: User
+    non_staff_user: User
+    inactive_staff: User
+    superuser: User
+
     @classmethod
     def setUpTestData(cls):
         cls.staff_user = User.objects.create_user(
@@ -693,6 +701,9 @@ class TestAuth0AdminBackend(TestCase):
 class TestAdminLoginView(TestCase):
     """Tests for the custom admin login view."""
 
+    staff_user: User
+    regular_user: User
+
     @classmethod
     def setUpTestData(cls):
         cls.staff_user = User.objects.create_user(
@@ -767,7 +778,7 @@ class TestAdminLoginView(TestCase):
         response = self.client.get("/admin/login/")
 
         self.assertEqual(response.status_code, 302)
-        self.assertIn("admin", response.url)
+        self.assertIn("admin", response.url)  # type: ignore[attr-defined]
 
     @patch("config.jwt_utils.get_user_from_jwt_token")
     def test_token_login_success(self, mock_get_user):
@@ -833,7 +844,7 @@ class TestAdminLoginView(TestCase):
 
         # Login should fail when claim sync returns False
         self.assertEqual(response.status_code, 302)
-        self.assertIn("login", response.url)
+        self.assertIn("login", response.url)  # type: ignore[attr-defined]
         mock_get_user.assert_called_once_with("valid_test_token")
         mock_sync.assert_called_once()
 
@@ -865,7 +876,7 @@ class TestAdminLoginView(TestCase):
 
         # Should be denied (no longer staff)
         self.assertEqual(response.status_code, 302)
-        self.assertIn("login", response.url)
+        self.assertIn("login", response.url)  # type: ignore[attr-defined]
 
         # Verify is_staff was actually revoked
         self.staff_user.refresh_from_db()
@@ -936,8 +947,8 @@ class TestAdminLoginView(TestCase):
 
         self.assertEqual(response.status_code, 302)
         # Should redirect to admin, not evil.com
-        self.assertNotIn("evil.com", response.url)
-        self.assertIn("admin", response.url)
+        self.assertNotIn("evil.com", response.url)  # type: ignore[attr-defined]
+        self.assertIn("admin", response.url)  # type: ignore[attr-defined]
 
     def test_open_redirect_blocked_protocol_relative(self):
         """Protocol-relative URL in next parameter should be blocked."""
@@ -953,8 +964,8 @@ class TestAdminLoginView(TestCase):
 
         self.assertEqual(response.status_code, 302)
         # Should redirect to admin, not evil.com
-        self.assertNotIn("evil.com", response.url)
-        self.assertIn("admin", response.url)
+        self.assertNotIn("evil.com", response.url)  # type: ignore[attr-defined]
+        self.assertIn("admin", response.url)  # type: ignore[attr-defined]
 
     def test_open_redirect_blocked_backslash(self):
         """Backslash-prefixed URL in next parameter should be blocked.
@@ -974,8 +985,8 @@ class TestAdminLoginView(TestCase):
 
         self.assertEqual(response.status_code, 302)
         # Should redirect to admin, not evil.com
-        self.assertNotIn("evil.com", response.url)
-        self.assertIn("admin", response.url)
+        self.assertNotIn("evil.com", response.url)  # type: ignore[attr-defined]
+        self.assertIn("admin", response.url)  # type: ignore[attr-defined]
 
     def test_valid_internal_redirect_allowed(self):
         """Valid internal URL in next parameter should be allowed."""
@@ -990,7 +1001,7 @@ class TestAdminLoginView(TestCase):
         )
 
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.url, "/admin/users/")
+        self.assertEqual(response.url, "/admin/users/")  # type: ignore[attr-defined]
 
     def test_open_redirect_blocked_in_get_next_param(self):
         """External URL in GET next parameter should be sanitized in context."""
@@ -1003,6 +1014,8 @@ class TestAdminLoginView(TestCase):
 
 class TestAdminLogoutView(TestCase):
     """Tests for the custom admin logout view."""
+
+    staff_user: User
 
     @classmethod
     def setUpTestData(cls):
@@ -1038,7 +1051,7 @@ class TestAdminLogoutView(TestCase):
         response = self.client.get("/admin/logout/")
 
         self.assertEqual(response.status_code, 302)
-        self.assertIn("admin", response.url)
+        self.assertIn("admin", response.url)  # type: ignore[attr-defined]
 
     @override_settings(USE_AUTH0=False)
     def test_logout_redirects_to_admin_when_auth0_disabled(self):
@@ -1048,7 +1061,7 @@ class TestAdminLogoutView(TestCase):
         response = self.client.post("/admin/logout/")
 
         self.assertEqual(response.status_code, 302)
-        self.assertIn("admin", response.url)
+        self.assertIn("admin", response.url)  # type: ignore[attr-defined]
 
     @override_settings(
         USE_AUTH0=True,
@@ -1062,8 +1075,8 @@ class TestAdminLogoutView(TestCase):
         response = self.client.post("/admin/logout/")
 
         self.assertEqual(response.status_code, 302)
-        self.assertIn("test.auth0.com", response.url)
-        self.assertIn("logout", response.url)
+        self.assertIn("test.auth0.com", response.url)  # type: ignore[attr-defined]
+        self.assertIn("logout", response.url)  # type: ignore[attr-defined]
 
     @override_settings(
         USE_AUTH0=True,
@@ -1079,11 +1092,11 @@ class TestAdminLogoutView(TestCase):
 
         self.assertEqual(response.status_code, 302)
         # returnTo should be URL-encoded and use a safe host
-        self.assertIn("returnTo=", response.url)
+        self.assertIn("returnTo=", response.url)  # type: ignore[attr-defined]
         # Should prefer the request host when it is allowed
-        self.assertIn("testserver", response.url)
+        self.assertIn("testserver", response.url)  # type: ignore[attr-defined]
         # Should redirect to admin login page, not root
-        self.assertIn("admin%2Flogin", response.url)
+        self.assertIn("admin%2Flogin", response.url)  # type: ignore[attr-defined]
 
     @override_settings(ALLOWED_HOSTS=[])
     def test_get_safe_logout_return_url_raises_without_valid_hosts(self):
@@ -1108,6 +1121,8 @@ class TestAdminLogoutView(TestCase):
 
 class TestGetUserByPayloadWithClaimSync(TestCase):
     """Integration tests for get_user_by_payload with claim syncing."""
+
+    user: User
 
     @classmethod
     def setUpTestData(cls):
@@ -1220,6 +1235,8 @@ class TestGetUserByPayloadWithClaimSync(TestCase):
 )
 class TestAdminLoginRateLimit(TestCase):
     """Tests for rate limiting on the admin login endpoint."""
+
+    staff_user: User
 
     @classmethod
     def setUpTestData(cls):

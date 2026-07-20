@@ -1,27 +1,26 @@
 import logging
 from unittest.mock import Mock, patch
 
-from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
+from django.db.models import Model
 from django.test import Client, TestCase
 from django.urls import reverse
 
 from opencontractserver.corpuses.admin import CorpusAdmin
 from opencontractserver.corpuses.models import Corpus
-
-User = get_user_model()
+from opencontractserver.users.models import User
 
 logger = logging.getLogger(__name__)
 
 
-def get_admin_change_view_url(obj: object) -> str:
+def get_admin_change_view_url(obj: Model) -> str:
     return reverse(
         f"admin:{obj._meta.app_label}_{type(obj).__name__.lower()}_change",
         args=(obj.pk,),
     )
 
 
-def get_admin_changelist_view_url(obj: object) -> str:
+def get_admin_changelist_view_url(obj: Model) -> str:
     return reverse(
         "admin:{}_{}_changelist".format(
             obj._meta.app_label, type(obj).__name__.lower()
@@ -91,7 +90,7 @@ class TestAnalyzerAdmin(TestCase):
 
         self.admin_client = Client()
         self.admin_client.login(username="superuser", password="secret")
-        self.corpus_admin = CorpusAdmin(Corpus, None)
+        self.corpus_admin = CorpusAdmin(Corpus, None)  # type: ignore[arg-type]
 
     def test_gremlin_changelist(self):
         url = reverse("admin:analyzer_gremlinengine_changelist")
@@ -145,7 +144,7 @@ class TestAnalyzerAdmin(TestCase):
         corpus2.save()
 
         request = Mock()
-        self.corpus_admin.message_user = Mock()
+        self.corpus_admin.message_user = Mock()  # type: ignore[method-assign]
 
         # Only pass the corpuses we created in this test
         test_corpuses = Corpus.objects.filter(id__in=[corpus1.pk, corpus2.pk])
