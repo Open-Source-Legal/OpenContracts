@@ -189,6 +189,18 @@ export async function expectViewVisible(
 }
 
 /**
+ * The login form's submit button, scoped to the `<form>` in `Login.tsx`.
+ *
+ * The NavBar renders its own "Login" button for anonymous visitors, so a
+ * page-wide `getByRole("button", { name: /^login$/i })` resolves to two
+ * elements and fails Playwright's strict-mode check. Always go through this
+ * helper rather than querying the page directly.
+ */
+export function loginSubmitButton(page: Page) {
+  return page.locator("form").getByRole("button", { name: /^login$/i });
+}
+
+/**
  * Perform a UI-driven password login against the live frontend. The login
  * form lives at `src/views/Login.tsx`; on success it stores an in-memory
  * authToken and `navigate("/")`s the user away. We wait for that redirect
@@ -214,7 +226,12 @@ export async function loginViaUI(
   await usernameInput.fill(username);
   await passwordInput.fill(password);
 
-  await page.getByRole("button", { name: /^login$/i }).click();
+  // Scoped to the <form>: the NavBar also renders a "Login" button for
+  // anonymous visitors, so an unscoped role query matches two elements and
+  // trips Playwright's strict mode. (That header button was invisible until
+  // the Auth0 `isLoading` guard was fixed, which is why this only became
+  // ambiguous now.)
+  await loginSubmitButton(page).click();
 
   // After a successful login the SPA navigates back to "/". The login
   // mutation also fires a cache reset, so we wait both for the URL

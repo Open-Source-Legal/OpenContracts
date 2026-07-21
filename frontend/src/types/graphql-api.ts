@@ -289,6 +289,40 @@ export type CorpusCategoryTypeEdge = {
   cursor: Scalars["String"];
 };
 
+// Corpus Group Types
+export type CorpusGroupType = Node & {
+  __typename?: "CorpusGroupType";
+  id: Scalars["ID"];
+  title: Scalars["String"];
+  slug: Scalars["String"];
+  description: Scalars["String"];
+  isPublic: Scalars["Boolean"];
+  created: Scalars["DateTime"];
+  modified: Scalars["DateTime"];
+  /**
+   * Owner identity. ``displayName`` is the only cross-user-safe label the
+   * backend exposes — ``username``/``email``/``name`` are self-only and come
+   * back null for other viewers — so that is the field groups surface.
+   */
+  creator: Pick<UserType, "id"> & {
+    displayName?: Maybe<Scalars["String"]>;
+  };
+  /**
+   * Orchestrator agent bound to the group. Null when unbound, and also null
+   * when bound to an agent the viewer cannot READ.
+   */
+  defaultAgent?: Maybe<Pick<AgentConfigurationType, "id" | "name">>;
+  /**
+   * Member corpora, already narrowed to those the viewer can READ by
+   * ``CorpusGroupService``.
+   */
+  corpora: {
+    edges: Array<{ node: Pick<RawCorpusType, "id" | "title"> }>;
+    totalCount?: Maybe<Scalars["Int"]>;
+  };
+  myPermissions?: PermissionTypes[];
+};
+
 export type RawCorpusType = Node & {
   __typename?: "CorpusType";
   id: Scalars["ID"];

@@ -27,6 +27,7 @@ import {
   VIEWS,
   TEST_USER,
   loginViaUI,
+  loginSubmitButton,
   spaNavigate,
   expectViewVisible,
 } from "./helpers";
@@ -60,22 +61,20 @@ test.describe("Frontend integration", () => {
         timeout: 30_000,
       });
       await expect(page.getByPlaceholder("Password")).toBeVisible();
-      await expect(
-        page.getByRole("button", { name: /^login$/i })
-      ).toBeVisible();
+      await expect(loginSubmitButton(page)).toBeVisible();
     });
 
     test("rejects invalid credentials without crashing", async ({ page }) => {
       await page.goto("/login");
       await page.getByPlaceholder("Username").fill("not-a-real-user");
       await page.getByPlaceholder("Password").fill("not-a-real-password");
-      await page.getByRole("button", { name: /^login$/i }).click();
+      await loginSubmitButton(page).click();
 
       // The Login view shows a toast "ERROR! Could not log you in!" when
       // the GraphQL mutation returns an error. Wait for the form to be
       // re-enabled (submit button clickable) as the stable signal that
       // the failed mutation has completed, then verify we stayed on /login.
-      await expect(page.getByRole("button", { name: /^login$/i })).toBeEnabled({
+      await expect(loginSubmitButton(page)).toBeEnabled({
         timeout: 10_000,
       });
       await expect(page).toHaveURL(/\/login(\?.*)?$/);

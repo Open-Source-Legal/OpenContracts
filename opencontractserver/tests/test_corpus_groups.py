@@ -348,7 +348,7 @@ class CorpusGroupServiceTests(TestCase):
         self.assertFalse(result.ok)
         self.assertIn("Agent configuration not found", result.error)
 
-    def test_update_group_replaces_membership_and_clears_agent(self):
+    def test_update_group_replaces_visible_membership_and_clears_agent(self):
         agent = AgentConfiguration.objects.create(
             name="Orchestrator",
             scope="GLOBAL",
@@ -364,7 +364,13 @@ class CorpusGroupServiceTests(TestCase):
             default_agent_pk=agent.pk,
         )
         self.assertTrue(set_result.ok)
-        self.assertEqual(set(self.group.corpora.all()), {self.owner_corpus})
+        # ``public_corpus`` was a VISIBLE member and was correctly dropped —
+        # removal still works. ``foreign_corpus`` is invisible to ``owner``, so
+        # it is preserved rather than silently destroyed (see
+        # ``test_update_group_preserves_invisible_member_on_unrelated_edit``).
+        self.assertEqual(
+            set(self.group.corpora.all()), {self.owner_corpus, self.foreign_corpus}
+        )
         set_group = set_result.value
         assert set_group is not None  # narrow for mypy
         self.assertEqual(set_group.default_agent, agent)
@@ -376,6 +382,71 @@ class CorpusGroupServiceTests(TestCase):
         cleared_group = clear_result.value
         assert cleared_group is not None  # narrow for mypy
         self.assertIsNone(cleared_group.default_agent)
+
+    def test_update_group_preserves_invisible_member_on_unrelated_edit(self):
+        """A member the caller cannot READ survives a title-only edit.
+
+        Regression: the edit form is seeded from the per-viewer-filtered
+        ``CorpusGroupType.corpora``, so it can only ever resubmit the members
+        the caller can currently READ. A wholesale ``corpora.set(submitted)``
+        therefore silently destroyed any member that had since become
+        invisible to the caller — unrecoverable data loss the caller could
+        neither see nor detect. Membership replacement now replaces only the
+        caller-visible slice.
+        """
+        # ``foreign_corpus`` is a real member but invisible to ``owner``
+        # (created by ``other_owner``, private, no grant) — exactly the
+        # "was public when added, made private later" drift scenario.
+        self.assertNotIn(
+            self.foreign_corpus,
+            CorpusGroupService.get_group_corpora_visible_to_user(
+                self.owner, self.group
+            ),
+        )
+        self.assertIn(self.foreign_corpus, self.group.corpora.all())
+
+        # The owner edits ONLY the title. The form resubmits precisely what it
+        # could see — omitting ``corpus_pks`` would skip the M2M write entirely
+        # and would not exercise the bug at all.
+        result = CorpusGroupService.update_group(
+            self.owner,
+            self.group,
+            title="Renamed Only",
+            corpus_pks=[self.owner_corpus.pk, self.public_corpus.pk],
+        )
+        self.assertTrue(result.ok, result.error)
+
+        self.assertEqual(
+            set(self.group.corpora.all()),
+            {self.owner_corpus, self.public_corpus, self.foreign_corpus},
+            "invisible member was destroyed by an edit that never showed it",
+        )
+        self.group.refresh_from_db()
+        self.assertEqual(self.group.title, "Renamed Only")
+
+    def test_update_group_can_still_remove_a_visible_member(self):
+        """Preserving invisible members must not make membership append-only."""
+        self.assertIn(self.public_corpus, self.group.corpora.all())
+        self.assertIn(
+            self.public_corpus,
+            CorpusGroupService.get_group_corpora_visible_to_user(
+                self.owner, self.group
+            ),
+        )
+
+        # Drop the visible ``public_corpus`` by omitting it from the submission.
+        result = CorpusGroupService.update_group(
+            self.owner, self.group, corpus_pks=[self.owner_corpus.pk]
+        )
+        self.assertTrue(result.ok, result.error)
+        self.assertNotIn(self.public_corpus, self.group.corpora.all())
+        # ...while the invisible member is still preserved.
+        self.assertIn(self.foreign_corpus, self.group.corpora.all())
+
+        # Removing every visible member is likewise allowed.
+        cleared = CorpusGroupService.update_group(self.owner, self.group, corpus_pks=[])
+        self.assertTrue(cleared.ok, cleared.error)
+        self.assertEqual(set(self.group.corpora.all()), {self.foreign_corpus})
 
     def test_delete_group_denied_then_allowed(self):
         denied = CorpusGroupService.delete_group(self.stranger, self.group)
@@ -610,6 +681,87 @@ class SearchAcrossCorporaToolTests(TransactionTestCase):
         core_tool = ToolFunctionRegistry.get().to_core_tool("search_across_corpora")
         assert core_tool is not None  # narrow for mypy
         self.assertEqual(core_tool.name, "search_across_corpora")
+
+
+CORPUS_GROUPS_MINE_QUERY = """
+    query CorpusGroups($mine: Boolean) {
+        corpusGroups(mine: $mine) {
+            edges { node { id title } }
+        }
+    }
+"""
+
+
+class CorpusGroupMineFilterTests(GraphQLTestCase):
+    """The ``mine`` scope filter on the ``corpusGroups`` connection (#2141).
+
+    ``mine`` narrows an already visibility-scoped queryset
+    (``CorpusGroupService.list_visible_groups`` runs before the filterset), so
+    every assertion here pins *narrowing*, never widening. Per the
+    ``OwnershipScopeFilterMixin`` contract the flag is opt-in only: ``False``
+    and omission are both no-ops, never an inversion.
+    """
+
+    GRAPHQL_URL = "/graphql/"
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.me = User.objects.create_user(
+            username="cg_mine_me", password="testpass", email="cgmine@test.com"
+        )
+        cls.other = User.objects.create_user(
+            username="cg_mine_other", password="testpass", email="cgmineo@test.com"
+        )
+        cls.my_group = CorpusGroup.objects.create(
+            title="Mine Filter Own Group", creator=cls.me, is_public=False
+        )
+        # A group owned by somebody ELSE that ``me`` can nonetheless see.
+        cls.other_public_group = CorpusGroup.objects.create(
+            title="Mine Filter Foreign Public Group",
+            creator=cls.other,
+            is_public=True,
+        )
+
+    def _titles(self, variables: dict | None = None) -> set[str]:
+        response = self.query(CORPUS_GROUPS_MINE_QUERY, variables=variables)
+        self.assertResponseNoErrors(response)
+        return {
+            edge["node"]["title"]
+            for edge in response.json()["data"]["corpusGroups"]["edges"]
+        }
+
+    def test_mine_returns_only_own_groups(self):
+        self.client.login(username="cg_mine_me", password="testpass")
+        self.assertEqual(self._titles({"mine": True}), {self.my_group.title})
+
+    def test_foreign_public_group_visible_but_excluded_by_mine(self):
+        """The acceptance criterion: groups the caller does not own are not
+        listed under ``mine: true``.
+
+        Both halves are asserted — the foreign public group IS returned by the
+        unfiltered query and is NOT returned under ``mine: true`` — so the
+        test cannot pass by way of the group being invisible for some
+        unrelated reason. Only ``mine`` can explain the difference.
+        """
+        self.client.login(username="cg_mine_me", password="testpass")
+        self.assertIn(self.other_public_group.title, self._titles())
+        self.assertNotIn(self.other_public_group.title, self._titles({"mine": True}))
+
+    def test_mine_false_and_omitted_are_no_ops(self):
+        """``mine`` is opt-in: ``False`` behaves exactly like omitting it and
+        returns the full visible set (it does NOT invert to "not mine")."""
+        self.client.login(username="cg_mine_me", password="testpass")
+        expected = {self.my_group.title, self.other_public_group.title}
+        self.assertEqual(self._titles(), expected)
+        self.assertEqual(self._titles({"mine": False}), expected)
+
+    def test_anonymous_mine_returns_empty_connection_not_error(self):
+        """An anonymous caller has no owned groups — the connection is empty
+        rather than a GraphQL error (``assertResponseNoErrors`` in
+        ``_titles``). The unfiltered query still returns the public group, so
+        the empty result is attributable to ``mine``, not to anonymity."""
+        self.assertEqual(self._titles(), {self.other_public_group.title})
+        self.assertEqual(self._titles({"mine": True}), set())
 
 
 class CorpusGroupGraphQLTests(GraphQLTestCase):

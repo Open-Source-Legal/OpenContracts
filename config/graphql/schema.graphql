@@ -7678,7 +7678,7 @@ type Query {
   """
   Corpus groups visible to the viewer (creator, public, or explicitly shared). Member corpora are filtered per-viewer.
   """
-  corpusGroups(offset: Int, before: String, after: String, first: Int, last: Int): CorpusGroupTypeConnection
+  corpusGroups(offset: Int, before: String, after: String, first: Int, last: Int, mine: Boolean): CorpusGroupTypeConnection
 
   """Get a single corpus group by ID"""
   corpusGroup(

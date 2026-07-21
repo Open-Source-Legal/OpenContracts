@@ -172,6 +172,7 @@ nav:
   - Features:
       - Badge System: features/badge_system.md
       - Document Versioning: features/document_versioning.md
+      - Corpus Groups: features/corpus_groups.md
       - Corpus Folders: features/corpus_folders_implementation.md
       - Corpus Folders API: features/corpus_folders_api_reference.md
       - Agent Mentions (Plan): features/agent_mentions_implementation_plan.md

@@ -248,8 +248,11 @@ class CorpusGroupService(BaseService):
     ) -> ServiceResult[CorpusGroup]:
         """Update a corpus group after CRUD-permission verification.
 
-        ``corpus_pks`` (when given) REPLACES the membership with corpora the
-        caller can READ. ``default_agent_pk=None`` means "no change";
+        ``corpus_pks`` (when given) replaces the caller-*visible* slice of
+        the membership: every submitted corpus must be READ-visible to the
+        caller, and members the caller cannot READ are preserved untouched
+        (see the asymmetry comment at the ``corpora.set`` call below).
+        ``default_agent_pk=None`` means "no change";
         ``clear_default_agent=True`` explicitly unbinds the agent (mirrors
         the ``clear_preferred_llm`` convention in
         ``AgentConfigurationService.update_agent``).
@@ -304,7 +307,36 @@ class CorpusGroupService(BaseService):
                     "A corpus group with this slug already exists."
                 )
             if corpora_result is not None:
-                group.corpora.set(corpora_result.value or [])
+                # Membership replacement is deliberately ASYMMETRIC: it
+                # replaces only the slice of the membership the caller can
+                # READ, and preserves the rest.
+                #
+                # Why: ``CorpusGroupType.corpora`` is per-viewer filtered by
+                # ``get_group_corpora_visible_to_user`` (the MIN(group READ,
+                # corpus READ) gate), so an edit form can only ever seed the
+                # members the caller can currently READ. If a member later
+                # becomes invisible to them — e.g. its owner flips it private
+                # — a wholesale ``set(submitted)`` would silently destroy that
+                # membership on any unrelated edit (a title-only save). The
+                # caller cannot see the member, no field exposes the true
+                # membership count, and the M2M row is unrecoverable: silent,
+                # undetectable data loss caused purely by a visibility filter.
+                #
+                # The converse guarantee is untouched: ``_resolve_member_corpora``
+                # still requires every SUBMITTED corpus to be READ-visible, so a
+                # caller cannot smuggle an unreadable corpus IN. Net rule — you
+                # may add or remove only what you can see. Removing a visible
+                # member therefore still works normally.
+                visible_member_pks = list(
+                    cls.get_group_corpora_visible_to_user(
+                        user, group, request=request
+                    ).values_list("pk", flat=True)
+                )
+                # Exactly the members the caller cannot see, hence must not be
+                # able to destroy. Disjoint from the submitted set by
+                # construction (submitted is enforced-readable).
+                preserved = list(group.corpora.exclude(pk__in=visible_member_pks))
+                group.corpora.set(preserved + (corpora_result.value or []))
         cls.log_action("Updated", group, user)
         return ServiceResult.success(group)
 
