@@ -353,6 +353,38 @@ class ResearchReportServiceTestCase(TestCase):
         report.refresh_from_db()
         self.assertTrue(report.citations[0]["anchor_is_header"])
 
+    def test_finalize_plural_weak_citation_warning(self):
+        # Two header-anchored citations exercise the plural warning branch and
+        # its "N citations anchor section headers" grammar.
+        h1 = self._make_annotation(
+            label_text="OC_SECTION", raw_text="ITEM 1A. RISK FACTORS"
+        )
+        h2 = self._make_annotation(label_text="Section Header", raw_text="Market Risk")
+        report = self._make_report()
+        report.findings = [
+            {"section": "Risks", "claim": "c", "citations": [h1.pk, h2.pk]},
+        ]
+        report.save(update_fields=["findings"])
+        body = (
+            f'<cite ids="{h1.pk}">supply risk is disclosed</cite>. '
+            f'<cite ids="{h2.pk}">market risk is disclosed</cite>.'
+        )
+        ResearchReportService.finalize(
+            report,
+            executive_summary="",
+            markdown_body=body,
+            retrieved_annotation_ids=[h1.pk, h2.pk],
+        )
+        report.refresh_from_db()
+        self.assertTrue(all(c["anchor_is_header"] for c in report.citations))
+        self.assertTrue(
+            any(
+                "2 citations anchor section headers" in str(w)
+                for w in (report.warnings or [])
+            ),
+            report.warnings,
+        )
+
     def test_finalize_does_not_flag_structural_body_paragraph_citation(self):
         # Regression guard (review of #2180): the parsing pipeline marks EVERY
         # layout chunk structural=True — body paragraphs and sentence chunks
