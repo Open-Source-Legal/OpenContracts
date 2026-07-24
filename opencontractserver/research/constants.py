@@ -143,11 +143,11 @@ DEEP_RESEARCH_MEMORY_TOOL_NAMES: set[str] = {
 # headings, never a real supporting passage. Body labels (``text``,
 # ``Paragraph``, ``Sentence``, ``Text Block``) are, of course, absent.
 #
-# ``subtitle`` / ``heading`` are not emitted by Docling or LlamaParse today
-# (their taxonomies top out at ``title`` + ``section_header``); they are kept
-# as a forward-looking superset so a parser that later exposes a finer heading
-# hierarchy is covered without a code change. Extra keys are inert — they only
-# match if a parser actually produces them.
+# ``heading`` is a live LlamaParse label (its ELEMENT_TYPE_MAPPING maps
+# ``heading -> "Heading"``); ``subtitle`` is not produced by Docling or
+# LlamaParse today and is kept as a forward-looking entry so a parser that later
+# exposes a finer heading hierarchy is covered without a code change. Extra keys
+# are inert — they only match if a parser actually produces them.
 RESEARCH_HEADER_ANNOTATION_LABELS: frozenset[str] = frozenset(
     {
         "sectionheader",
