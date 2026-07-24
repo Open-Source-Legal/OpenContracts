@@ -25,7 +25,7 @@ django-tree-queries[admin]==0.24.0  # https://pypi.org/project/django-tree-queri
 django-cte==3.0.0  # https://github.com/dimagi/django-cte
 pgvector>=0.5.0  # Python binding for pgvector; PostgreSQL extension v0.8.2+ required for HNSW iterative scan (installed separately)
 channels==4.3.2  # https://github.com/django/channels
-daphne==4.2.2  # https://github.com/django/daphne
+daphne==4.2.3  # https://github.com/django/daphne
 channels-redis==4.3.0
 Twisted[tls,http2]>=26.4.0
 
