@@ -401,6 +401,19 @@ class DeepResearchSystemPromptTestCase(TestCase):
         self.assertIn("search_memory", prompt)
         self.assertIn("Managing your context window", prompt)
 
+    def test_prompt_documents_citation_discipline(self):
+        # Issue #2180: the prompt must steer the agent away from citing bare
+        # section headers and toward the operative passage.
+        prompt = build_deep_research_system_prompt(
+            task_description="Investigate X.",
+            corpus_title="Cases",
+            corpus_description=None,
+            max_steps=60,
+        )
+        self.assertIn("Citation discipline", prompt)
+        self.assertIn("section header", prompt)
+        self.assertIn("similarity_search", prompt)
+
     def test_prompt_injects_recovery_surface_and_resume_preamble(self):
         prompt = build_deep_research_system_prompt(
             task_description="Investigate X.",

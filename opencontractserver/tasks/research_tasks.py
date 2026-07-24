@@ -296,7 +296,10 @@ async def _run_deep_research_async(
 
         Every ``supporting_source_ids`` entry must be an annotation_id
         returned by a retrieval tool earlier in this run. Unknown IDs are
-        rejected with an error string so the model can re-search.
+        rejected with an error string so the model can re-search. Each id must
+        anchor the passage whose own words support the claim: a finding whose
+        every citation is a bare section header is rejected (cite the operative
+        paragraph, not the heading — see the Citation discipline instructions).
         """
         deps = deps_ref["deps"]
         retrieved: set[int] = (
@@ -308,6 +311,27 @@ async def _run_deep_research_async(
                 f"Error: source ids {bad} were not produced by any retrieval "
                 "tool in this run. Issue a search query first so the IDs are "
                 "captured, then re-call record_finding."
+            )
+
+        # Citation discipline (issue #2180): a citation must anchor the passage
+        # whose own words support the claim, not a bare section header. Reject a
+        # finding whose EVERY citation is a section-header annotation so the
+        # agent re-anchors while it still has budget/context; a finding that
+        # also cites a substantive passage is allowed through (the header is
+        # dropped later at finalize).
+        headers = await sync_to_async(ResearchReportService.header_like_citation_ids)(
+            supporting_source_ids
+        )
+        header_ids = {aid for aid, _ in headers}
+        if header_ids and all(sid in header_ids for sid in supporting_source_ids):
+            detail = "; ".join(f'{aid} ("{text}")' for aid, text in headers)
+            return (
+                "Error: every citation you provided anchors a section header / "
+                f"navigational label, not the passage that states this claim: "
+                f"{detail}. A section header is never a valid sole citation. "
+                "Search again with the claim's specific language "
+                "(similarity_search) and cite the annotation whose own words "
+                "support the sentence."
             )
 
         await sync_to_async(ResearchReportService.append_finding)(

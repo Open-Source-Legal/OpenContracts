@@ -7,6 +7,8 @@ runner) and the kickoff tool / tests.
 
 from __future__ import annotations
 
+import re
+
 from opencontractserver.utils.prompt_sanitization import (
     UNTRUSTED_CONTENT_NOTICE,
     fence_user_content,
@@ -120,6 +122,52 @@ DEEP_RESEARCH_MEMORY_TOOL_NAMES: set[str] = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Header-anchor detection (issue #2180)
+# ---------------------------------------------------------------------------
+# A deep-research citation must anchor the passage whose OWN words support the
+# sentence, never a bare section header. The parser's structural layer emits
+# BOTH short heading annotations ("ITEM 1A. RISK FACTORS") and the substantive
+# paragraph annotations beneath them, all with ``structural=True`` — so the
+# ``structural`` flag alone cannot tell them apart. The only field that encodes
+# the header-vs-body role is ``annotation_label.text``, which each parser copies
+# verbatim from its layout model's element type. The label vocabulary is NOT
+# normalized across parsers (Docling emits snake_case ``section_header``;
+# LlamaParse emits Title-Case ``Section Header``), so both the label set below
+# and any candidate label are run through :func:`normalize_annotation_label_text`
+# (lowercase + strip every non-alphanumeric) before comparison.
+#
+# Deliberately excludes ambiguous layout labels that frequently carry
+# substantive prose an agent might legitimately cite — ``list_item``,
+# ``caption``, ``footnote`` — so the guard only ever rejects true navigation
+# headings, never a real supporting passage. Body labels (``text``,
+# ``Paragraph``, ``Sentence``, ``Text Block``) are, of course, absent.
+RESEARCH_HEADER_ANNOTATION_LABELS: frozenset[str] = frozenset(
+    {
+        "sectionheader",
+        "title",
+        "subtitle",
+        "heading",
+        "pageheader",
+        "pagefooter",
+        "pagenumber",
+    }
+)
+
+
+def normalize_annotation_label_text(text: str | None) -> str:
+    """Fold a raw ``annotation_label.text`` to a parser-agnostic key.
+
+    Lowercases and strips every non-alphanumeric character so the Docling
+    snake_case (``"section_header"``) and LlamaParse Title-Case
+    (``"Section Header"``) vocabularies both collapse onto the same
+    ``"sectionheader"`` key used in :data:`RESEARCH_HEADER_ANNOTATION_LABELS`.
+    Returns ``""`` for ``None`` / empty input (annotations may have a null
+    label FK), which is never a member of the header set.
+    """
+    return re.sub(r"[^a-z0-9]+", "", (text or "").lower())
+
+
 def build_deep_research_system_prompt(
     *,
     task_description: str,
@@ -230,6 +278,23 @@ def build_deep_research_system_prompt(
             "- Do NOT mutate corpus state — you have no write tools, by design.",
             "- Do NOT speculate beyond what the corpus supports. If the corpus "
             + "does not contain the answer, say so explicitly in the report.",
+            "",
+            "## Citation discipline",
+            "A citation must anchor the passage whose OWN words support the "
+            + "sentence — the operative clause, figure, or finding. NEVER cite a "
+            + "bare section header or navigational label: an annotation whose text "
+            + 'is just a heading like "ITEM 1A. RISK FACTORS" marks WHERE a topic '
+            + "lives, not the evidence for a claim. A finding whose every citation "
+            + "is a section header is rejected — re-anchor before recording it.",
+            "- `similarity_search` is the ONLY tool whose results you can cite. "
+            + "When a topic-level query returns a section header near the top, run "
+            + "a MORE SPECIFIC search using the claim's own key terms (or a "
+            + "distinctive quoted phrase from the passage) so the operative "
+            + "paragraph surfaces, then cite that annotation.",
+            "- `search_exact_text_as_sources` and `load_document_text` help you "
+            + "LOCATE exact language, but their results are NOT citable. Once you "
+            + "know the phrasing you want, `similarity_search` that phrasing to "
+            + "obtain the citable annotation.",
             "",
             "## Budget",
             f"- You have approximately {max_steps} tool calls. Plan accordingly.",

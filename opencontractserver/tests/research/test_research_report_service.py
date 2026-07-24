@@ -229,6 +229,104 @@ class ResearchReportServiceTestCase(TestCase):
         kwargs.update(overrides)
         return Annotation.objects.create(**kwargs)
 
+    def _make_label(self, text: str) -> AnnotationLabel:
+        return AnnotationLabel.objects.create(
+            text=text, creator=self.user, label_type="TOKEN_LABEL"
+        )
+
+    # ------------------------------------------------------------------
+    # header_like_citation_ids() — section-header anchor detection (#2180)
+    # ------------------------------------------------------------------
+    def test_header_like_citation_ids_flags_structural_section_headers(self):
+        # Both the Docling snake_case and LlamaParse Title-Case header labels
+        # collapse onto the same normalized key and are flagged.
+        snake = self._make_annotation(
+            raw_text="ITEM 1A. RISK FACTORS",
+            structural=True,
+            annotation_label=self._make_label("section_header"),
+        )
+        title_case = self._make_annotation(
+            raw_text="ITEM 3. QUANTITATIVE AND QUALITATIVE DISCLOSURES ABOUT "
+            "MARKET RISK.",
+            structural=True,
+            annotation_label=self._make_label("Section Header"),
+        )
+        # A substantive body paragraph is ALSO structural but must NOT be
+        # flagged (its label is a body label).
+        body = self._make_annotation(
+            raw_text="Fixed-price contracts expose the company to cost overruns "
+            "when input prices rise faster than expected.",
+            structural=True,
+            annotation_label=self._make_label("text"),
+        )
+        # A non-structural (user-authored) annotation is never flagged, even
+        # with a header-shaped label.
+        user_ann = self._make_annotation(
+            raw_text="Risk Factors",
+            structural=False,
+            annotation_label=self._make_label("Section Header"),
+        )
+
+        flagged = ResearchReportService.header_like_citation_ids(
+            [snake.pk, title_case.pk, body.pk, user_ann.pk]
+        )
+        self.assertEqual({aid for aid, _ in flagged}, {snake.pk, title_case.pk})
+        # The preview carries the anchor's raw_text so a caller can name it.
+        previews = dict(flagged)
+        self.assertIn("ITEM 1A", previews[snake.pk])
+
+    def test_header_like_citation_ids_handles_null_label_and_unknowns(self):
+        null_label = self._make_annotation(
+            raw_text="ITEM 2. PROPERTIES", structural=True, annotation_label=None
+        )
+        # Null label -> normalizes to "" -> never a header. Empty input and
+        # non-existent ids yield nothing rather than raising.
+        self.assertEqual(
+            ResearchReportService.header_like_citation_ids([null_label.pk]), []
+        )
+        self.assertEqual(ResearchReportService.header_like_citation_ids([]), [])
+        self.assertEqual(ResearchReportService.header_like_citation_ids([987654]), [])
+
+    def test_finalize_strips_header_anchor_from_mixed_citation(self):
+        header = self._make_annotation(
+            raw_text="ITEM 1A. RISK FACTORS",
+            structural=True,
+            annotation_label=self._make_label("section_header"),
+        )
+        body = self._make_annotation(
+            raw_text="Fixed-price contracts expose the company to cost overruns.",
+            structural=True,
+            annotation_label=self._make_label("text"),
+        )
+        report = self._make_report()
+        report.findings = [
+            {
+                "section": "Risks",
+                "claim": "fixed-price cost-overrun risk",
+                "citations": [header.pk, body.pk],
+            }
+        ]
+        report.save(update_fields=["findings"])
+
+        body_md = (
+            f'<cite ids="{header.pk},{body.pk}">Fixed-price contracts carry '
+            f"cost-overrun risk.</cite>"
+        )
+        ResearchReportService.finalize(
+            report,
+            executive_summary="",
+            markdown_body=body_md,
+            retrieved_annotation_ids=[header.pk, body.pk],
+        )
+        report.refresh_from_db()
+        # Only the substantive body annotation becomes a footnote/source; the
+        # section header is dropped even though it was named in the cite tag.
+        self.assertEqual({c["annotation_id"] for c in report.citations}, {body.pk})
+        self.assertIn(body, report.source_annotations.all())
+        self.assertNotIn(header, report.source_annotations.all())
+        # The claim still renders with its (body) footnote.
+        self.assertIn("[^1]", report.content)
+
     def test_finalize_with_grounded_citations(self):
         ann1 = self._make_annotation(raw_text="force majeure clause")
         ann2 = self._make_annotation(raw_text="termination clause")

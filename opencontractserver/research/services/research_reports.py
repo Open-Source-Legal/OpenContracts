@@ -24,9 +24,11 @@ from opencontractserver.research.constants import (
     MAX_RESEARCH_MEMORY_VALUE_CHARS,
     MAX_RESEARCH_PLAN_CHARS,
     MAX_RESEARCH_STEPS_CEILING,
+    RESEARCH_HEADER_ANNOTATION_LABELS,
     RESEARCH_MEMORY_PREVIEW_CHARS,
     RESEARCH_MEMORY_SEARCH_MAX_HITS,
     RESEARCH_RECOVERY_FINDINGS_DIGEST,
+    normalize_annotation_label_text,
 )
 from opencontractserver.research.models import ResearchReport
 from opencontractserver.shared.services.base import BaseService
@@ -311,6 +313,49 @@ class ResearchReportService(BaseService):
                 "modified",
             ]
         )
+
+    @classmethod
+    def header_like_citation_ids(cls, ids: list[int]) -> list[tuple[int, str]]:
+        """Return the subset of annotation ``ids`` that anchor a section header.
+
+        A deep-research citation must point at the passage whose own words
+        support the claim, never a bare section header (issue #2180). An anchor
+        is "header-like" when it is a ``structural`` annotation whose
+        ``annotation_label.text`` normalizes into
+        :data:`RESEARCH_HEADER_ANNOTATION_LABELS` (the parser-agnostic label
+        set — see the constant for why label, not ``raw_text`` length, is the
+        signal). Non-structural (user-authored) annotations are never flagged.
+
+        Returns ``[(annotation_id, raw_text_preview), ...]`` so callers can name
+        the offending anchors in an actionable message. Used by the
+        ``record_finding`` guard (reject an all-header finding while the agent
+        still has budget to re-anchor) and by :meth:`finalize` (strip any header
+        anchor that slipped into a ``<cite>`` tag, defence-in-depth).
+        """
+        from opencontractserver.annotations.models import Annotation
+
+        wanted: set[int] = set()
+        for raw in ids or []:
+            try:
+                wanted.add(int(raw))
+            except (TypeError, ValueError):
+                continue
+        if not wanted:
+            return []
+
+        rows = Annotation.objects.filter(pk__in=wanted, structural=True).values_list(
+            "pk", "raw_text", "annotation_label__text"
+        )
+        out: list[tuple[int, str]] = []
+        for pk, raw_text, label_text in rows:
+            if normalize_annotation_label_text(label_text) in (
+                RESEARCH_HEADER_ANNOTATION_LABELS
+            ):
+                preview = " ".join((raw_text or "").split())[
+                    :RESEARCH_MEMORY_PREVIEW_CHARS
+                ]
+                out.append((pk, preview))
+        return out
 
     @classmethod
     def append_tool_call(cls, report: ResearchReport, entry: dict) -> None:
@@ -675,6 +720,18 @@ class ResearchReportService(BaseService):
         # rejects unknown ids, but we re-enforce here in case findings were
         # appended by some other path (tests, future bulk import, etc.).
         cited_ids &= set(retrieved_annotation_ids)
+
+        # Strip any section-header anchor that slipped into a ``<cite>`` tag
+        # (issue #2180). ``record_finding`` already rejects an all-header
+        # finding, but a mixed ``<cite ids="header,body">`` in the finalize
+        # markdown can still name a header id; drop it so no footnote ever
+        # points at a bare heading. A mixed tag falls back to its body
+        # footnote; a header-only tag renders as plain claim text. Silent,
+        # mirroring the retrieved-id intersection above.
+        if cited_ids:
+            cited_ids -= {
+                aid for aid, _ in cls.header_like_citation_ids(list(cited_ids))
+            }
 
         # Build the citation table, ordered by first appearance in the body.
         rendered_body, citations = _render_citations(markdown_body, cited_ids)
