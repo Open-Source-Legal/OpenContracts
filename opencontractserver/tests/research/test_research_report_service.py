@@ -275,6 +275,18 @@ class ResearchReportServiceTestCase(TestCase):
         previews = dict(flagged)
         self.assertIn("ITEM 1A", previews[snake.pk])
 
+    def test_header_like_citation_ids_skips_non_coercible_ids(self):
+        header = self._make_annotation(
+            raw_text="ITEM 1A. RISK FACTORS",
+            structural=True,
+            annotation_label=self._make_label("section_header"),
+        )
+        # Off-contract inputs are defensively coerced/skipped, not raised.
+        # Typed as a bare list so mypy accepts the intentionally non-int members.
+        bad_ids: list = ["not-a-number", None, header.pk]
+        flagged = ResearchReportService.header_like_citation_ids(bad_ids)
+        self.assertEqual({aid for aid, _ in flagged}, {header.pk})
+
     def test_header_like_citation_ids_handles_null_label_and_unknowns(self):
         null_label = self._make_annotation(
             raw_text="ITEM 2. PROPERTIES", structural=True, annotation_label=None

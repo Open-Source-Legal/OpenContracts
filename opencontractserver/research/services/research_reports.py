@@ -349,9 +349,8 @@ class ResearchReportService(BaseService):
         )
         out: list[tuple[int, str]] = []
         for pk, raw_text, label_text in rows:
-            if normalize_annotation_label_text(label_text) in (
-                RESEARCH_HEADER_ANNOTATION_LABELS
-            ):
+            normalized = normalize_annotation_label_text(label_text)
+            if normalized in RESEARCH_HEADER_ANNOTATION_LABELS:
                 preview = " ".join((raw_text or "").split())[
                     :RESEARCH_CITATION_PREVIEW_CHARS
                 ]
