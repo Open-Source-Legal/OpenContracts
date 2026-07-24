@@ -182,10 +182,12 @@ def generate_image_embedding():
     try:
         embeddings = model_owner.embed_image(image_base64)
         return jsonify({"embeddings": embeddings.tolist()}), 200
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 400
-    except Exception as e:
-        return jsonify({"error": f"Failed to process image: {str(e)}"}), 400
+    except ValueError:
+        app.logger.warning("Invalid image embedding request", exc_info=True)
+        return jsonify({"error": "Invalid image input"}), 400
+    except Exception:
+        app.logger.exception("Failed to process image embedding request")
+        return jsonify({"error": "Failed to process image"}), 400
 
 
 @app.route("/embeddings/image/batch", methods=["POST"])
@@ -238,10 +240,12 @@ def generate_image_embeddings_batch():
     try:
         embeddings_list = model_owner.embed_images(images)
         return jsonify({"embeddings": [emb.tolist() for emb in embeddings_list]}), 200
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 400
-    except Exception as e:
-        return jsonify({"error": f"Failed to process images: {str(e)}"}), 400
+    except ValueError:
+        app.logger.warning("Invalid image batch embedding request", exc_info=True)
+        return jsonify({"error": "Invalid image input"}), 400
+    except Exception:
+        app.logger.exception("Failed to process image batch embedding request")
+        return jsonify({"error": "Failed to process images"}), 400
 
 
 if __name__ == "__main__":
