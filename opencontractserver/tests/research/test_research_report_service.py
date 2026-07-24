@@ -22,6 +22,7 @@ from opencontractserver.research.services.research_reports import (
     _is_header_anchor,
     _render_citations,
     _strip_fabricated_links,
+    _verify_quoted_spans,
 )
 from opencontractserver.tasks.research_tasks import _compose_salvage_body
 from opencontractserver.types.enums import JobStatus
@@ -457,6 +458,142 @@ class ResearchReportServiceTestCase(TestCase):
         self.assertFalse(_is_header_anchor(label_text="Table"))
         self.assertFalse(_is_header_anchor(label_text=None))
         self.assertFalse(_is_header_anchor(label_text=""))
+
+    # ------------------------------------------------------------------
+    # finalize() — quotation verification  [issue #2189]
+    # ------------------------------------------------------------------
+    def test_finalize_strips_fabricated_quote_and_warns(self):
+        # The cited annotation's real language; the report's "quote" invents a
+        # tail ("including those due to increases in raw material costs") that
+        # appears nowhere in it — the #2189 failure mode.
+        ann = self._make_annotation(
+            raw_text=(
+                "when we enter into fixed-price contracts with some of our "
+                "customers, we take the risk of cost overruns"
+            )
+        )
+        report = self._make_report()
+        report.findings = [
+            {"section": "Risks", "claim": "c", "citations": [ann.pk]},
+        ]
+        report.save(update_fields=["findings"])
+        body = (
+            f'<cite ids="{ann.pk}">The filing warns: "On fixed-price contracts, '
+            "we take the risk of cost overruns, including those due to increases "
+            'in raw material costs"</cite>.'
+        )
+        ResearchReportService.finalize(
+            report,
+            executive_summary="",
+            markdown_body=body,
+            retrieved_annotation_ids=[ann.pk],
+        )
+        report.refresh_from_db()
+        # The fabricated verbatim quote loses its quotation marks...
+        self.assertNotIn('"On fixed-price contracts', report.content)
+        # ...but the prose (now honest paraphrase) and the footnote survive.
+        self.assertIn("cost overruns", report.content)
+        self.assertIn("[^1]", report.content)
+        self.assertTrue(
+            any("did not match" in str(w) for w in (report.warnings or [])),
+            report.warnings,
+        )
+
+    def test_finalize_preserves_grounded_quote(self):
+        # A quote that IS a substring of the cited annotation text (modulo
+        # whitespace/case) is kept verbatim, quotation marks intact.
+        ann = self._make_annotation(
+            raw_text=(
+                "Prices for these raw materials have historically been "
+                "volatile\nand we do not hedge our exposure."
+            )
+        )
+        report = self._make_report()
+        report.findings = [{"section": "S", "claim": "c", "citations": [ann.pk]}]
+        report.save(update_fields=["findings"])
+        body = (
+            f'<cite ids="{ann.pk}">The company notes prices "have historically '
+            'been volatile and we do not hedge our exposure"</cite>.'
+        )
+        ResearchReportService.finalize(
+            report,
+            executive_summary="",
+            markdown_body=body,
+            retrieved_annotation_ids=[ann.pk],
+        )
+        report.refresh_from_db()
+        self.assertIn(
+            '"have historically been volatile and we do not hedge our exposure"',
+            report.content,
+        )
+        self.assertFalse(
+            any("did not match" in str(w) for w in (report.warnings or [])),
+            report.warnings,
+        )
+
+    def test_verify_quoted_spans_skips_short_quotes(self):
+        # A short quoted term (< RESEARCH_QUOTE_MIN_WORDS words) is a defined
+        # term / scare-quote, not a passage claim — left alone even when it is
+        # nowhere in the cited annotation.
+        ann = self._make_annotation(raw_text="entirely unrelated language")
+        body = (
+            f'<cite ids="{ann.pk}">the agreement defines "Confidential '
+            'Information" broadly</cite>'
+        )
+        verified, downgraded = _verify_quoted_spans(body, {ann.pk})
+        self.assertEqual(downgraded, 0)
+        self.assertEqual(verified, body)
+
+    def test_verify_quoted_spans_leaves_uncited_quotes_untouched(self):
+        # A quote outside any <cite> span has no anchor to verify against.
+        body = 'Background: the task asked about "a five word or longer thing".'
+        verified, downgraded = _verify_quoted_spans(body, set())
+        self.assertEqual(downgraded, 0)
+        self.assertEqual(verified, body)
+
+    def test_verify_quoted_spans_matches_any_cited_annotation(self):
+        # A span may cite several annotations; the quote need only match ONE.
+        a1 = self._make_annotation(raw_text="the lessor may terminate on default")
+        a2 = self._make_annotation(
+            raw_text="tenant shall pay all real estate taxes and assessments"
+        )
+        body = (
+            f'<cite ids="{a1.pk},{a2.pk}">tenant is liable: "shall pay all real '
+            'estate taxes and assessments"</cite>'
+        )
+        verified, downgraded = _verify_quoted_spans(body, {a1.pk, a2.pk})
+        self.assertEqual(downgraded, 0)
+        self.assertEqual(verified, body)
+
+    def test_verify_quoted_spans_handles_curly_and_mismatched_quotes(self):
+        # Curly (“...”) and mismatched pairs (straight-open/curly-close) are
+        # matched and verified just like straight quotes.
+        ann = self._make_annotation(raw_text="the tenant shall not sublet the premises")
+        # Fabricated curly quote -> stripped.
+        curly = f'<cite ids="{ann.pk}">it says “the landlord may sublet at will freely”</cite>'
+        v, d = _verify_quoted_spans(curly, {ann.pk})
+        self.assertEqual(d, 1)
+        self.assertNotIn("“the landlord may sublet", v)
+        # Grounded but with a mismatched open/close pair -> preserved.
+        mismatched = f'<cite ids="{ann.pk}">note: "the tenant shall not sublet the premises”</cite>'
+        v2, d2 = _verify_quoted_spans(mismatched, {ann.pk})
+        self.assertEqual(d2, 0)
+        self.assertEqual(v2, mismatched)
+
+    def test_verify_quoted_spans_demotes_quote_when_anchor_has_no_text(self):
+        # A quote attributed to a real, cited anchor that has NO raw_text cannot
+        # be a verbatim citation of it — demote rather than silently pass it
+        # through (the "looks cited but isn't" hole this fix targets).
+        ann = self._make_annotation(raw_text="")
+        body = f'<cite ids="{ann.pk}">the report states "a fully invented five word passage"</cite>'
+        verified, downgraded = _verify_quoted_spans(body, {ann.pk})
+        self.assertEqual(downgraded, 1)
+        self.assertNotIn('"a fully invented', verified)
+        # Short quoted terms still skip even without any anchor text.
+        short = f'<cite ids="{ann.pk}">defines "Force Majeure" here</cite>'
+        v2, d2 = _verify_quoted_spans(short, {ann.pk})
+        self.assertEqual(d2, 0)
+        self.assertEqual(v2, short)
 
     # ------------------------------------------------------------------
     # Composer renders each finding once — NOT a doubler  [issue #2183]

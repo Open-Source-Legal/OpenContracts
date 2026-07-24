@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import re
 from datetime import timedelta
+from difflib import SequenceMatcher
 from typing import Any
 
 from django.conf import settings
@@ -27,6 +28,9 @@ from opencontractserver.research.constants import (
     RESEARCH_HEADER_ANCHOR_LABELS,
     RESEARCH_MEMORY_PREVIEW_CHARS,
     RESEARCH_MEMORY_SEARCH_MAX_HITS,
+    RESEARCH_QUOTE_MATCH_THRESHOLD,
+    RESEARCH_QUOTE_MAX_CHARS,
+    RESEARCH_QUOTE_MIN_WORDS,
     RESEARCH_RECOVERY_FINDINGS_DIGEST,
 )
 from opencontractserver.research.models import ResearchReport
@@ -657,6 +661,13 @@ class ResearchReportService(BaseService):
         footnote anchors a section-header label (see ``_is_header_anchor``,
         issue #2180); it is observational and never rewrites the prose.
 
+        Before rendering, every quoted passage inside a ``<cite>`` span is
+        verified against the ``raw_text`` of that span's cited annotation(s)
+        (see ``_verify_quoted_spans``, issue #2189): a quote that does not match
+        is demoted to plain paraphrase (its quotation marks are stripped) and a
+        warning is appended — so the agent cannot present a fabricated or
+        approximate quote as a verbatim citation.
+
         ``retrieved_annotation_ids`` is the union of annotation IDs the
         retrieval tools surfaced during this run (the
         :attr:`PydanticAIDependencies.retrieved_annotation_ids` accumulator).
@@ -679,6 +690,14 @@ class ResearchReportService(BaseService):
         # rejects unknown ids, but we re-enforce here in case findings were
         # appended by some other path (tests, future bulk import, etc.).
         cited_ids &= set(retrieved_annotation_ids)
+
+        # Verify quoted passages against the cited annotation text and demote
+        # any fabricated / approximate "quote" to plain paraphrase before the
+        # body is rendered (issue #2189). Runs on both the normal and salvage
+        # bodies (both flow through here).
+        markdown_body, downgraded_quotes = _verify_quoted_spans(
+            markdown_body, cited_ids
+        )
 
         # Build the citation table, ordered by first appearance in the body.
         rendered_body, citations = _render_citations(markdown_body, cited_ids)
@@ -739,6 +758,24 @@ class ResearchReportService(BaseService):
                     f"{len(header_footnotes)} citations anchor section headers "
                     f"rather than supporting passages ({markers}); verify they "
                     "point at the operative language."
+                )
+
+        # Surface a warning when a quoted passage did not match its cited source
+        # text and was demoted to paraphrase (issue #2189). Corrective (the quote
+        # marks are already stripped from the stored content) *and* observational.
+        if downgraded_quotes:
+            if downgraded_quotes == 1:
+                extra_warnings.append(
+                    "1 quoted passage did not match its cited source text and "
+                    "was converted to paraphrase (quotation marks removed); "
+                    "verify the wording against the source."
+                )
+            else:
+                extra_warnings.append(
+                    f"{downgraded_quotes} quoted passages did not match their "
+                    "cited source text and were converted to paraphrase "
+                    "(quotation marks removed); verify the wording against the "
+                    "source."
                 )
 
         if extra_warnings:
@@ -925,6 +962,161 @@ def _is_header_anchor(*, label_text: str | None) -> bool:
     return _normalize_label(label_text) in _NORMALIZED_HEADER_ANCHOR_LABELS
 
 
+# ---------------------------------------------------------------------------
+# Quotation verification (issue #2189)
+# ---------------------------------------------------------------------------
+# Double-quoted passages: straight ("...") or curly (“...”), including a
+# mismatched pair (straight-open/curly-close or vice versa — LLM output
+# sometimes smart-quotes only one side). The inner group excludes every
+# double-quote glyph and newlines, so adjacent quotes (``"a" and "b"``) match
+# separately and a quote never runs past its close; it is length-capped
+# (``RESEARCH_QUOTE_MAX_CHARS``) so a lone unbalanced quote can't scan the whole
+# body. Single quotes / apostrophes (including the curly ’ U+2019) are
+# deliberately NOT matched — they collide with contractions and possessives.
+_QUOTED_PASSAGE_RE = re.compile(rf'["“]([^"“”\n]{{1,{RESEARCH_QUOTE_MAX_CHARS}}})["”]')
+
+# Same cite placeholder the renderer consumes; matched here first so quotes are
+# verified against the annotations the span actually cites.
+_CITE_SPAN_RE = re.compile(
+    r'<cite\s+ids="([0-9,\s]+)">(.*?)</cite>',
+    flags=re.DOTALL | re.IGNORECASE,
+)
+
+
+def _normalize_for_quote_match(text: str) -> str:
+    """Casefold + collapse all whitespace runs to single spaces.
+
+    Mirrors ``opencontractserver.utils.annotation_anchoring._norm`` so quote
+    verification uses the same notion of "the same words" the anchor pipeline
+    does: newline / indentation differences between a PDF's ``raw_text`` and a
+    quoted passage don't count as a mismatch, and matching is case-insensitive
+    (the fabrication risk is invented WORDS, not case).
+    """
+    return " ".join((text or "").casefold().split())
+
+
+def _quote_is_grounded(quote: str, candidates_norm: list[str]) -> bool:
+    """True when ``quote`` is verbatim (modulo whitespace/case) in a candidate.
+
+    ``candidates_norm`` are the pre-normalized ``raw_text`` values of the
+    annotations a ``<cite>`` span cites. A quote shorter than
+    ``RESEARCH_QUOTE_MIN_WORDS`` words is treated as grounded (not a passage
+    claim — see the constant). Otherwise the quote must be a normalized
+    substring of some candidate, or share a single contiguous run covering
+    ``RESEARCH_QUOTE_MATCH_THRESHOLD`` of its length with one (fuzzy tolerance
+    for a trailing-punctuation / whitespace / single-character drift).
+    """
+    q = _normalize_for_quote_match(quote)
+    if len(q.split()) < RESEARCH_QUOTE_MIN_WORDS:
+        return True
+    for cand in candidates_norm:
+        if not cand:
+            continue
+        if q in cand:
+            return True
+        matcher = SequenceMatcher(None, q, cand, autojunk=False)
+        block = matcher.find_longest_match(0, len(q), 0, len(cand))
+        if block.size / len(q) >= RESEARCH_QUOTE_MATCH_THRESHOLD:
+            return True
+    return False
+
+
+def _strip_ungrounded_quotes(claim: str, candidates_norm: list[str]) -> tuple[str, int]:
+    """Drop quotation marks around passages in ``claim`` that no cited
+    annotation supports. Returns ``(cleaned_claim, downgraded_count)``.
+
+    Only the quotation marks are removed — the prose is preserved — so an
+    ungrounded "quote" degrades honestly to the agent's own paraphrase rather
+    than masquerading as a verbatim citation (issue #2189).
+    """
+    downgraded = 0
+
+    def _replace(match: re.Match[str]) -> str:
+        nonlocal downgraded
+        inner = match.group(1)
+        if _quote_is_grounded(inner, candidates_norm):
+            return match.group(0)
+        downgraded += 1
+        return inner
+
+    return _QUOTED_PASSAGE_RE.sub(_replace, claim), downgraded
+
+
+def _verify_quoted_spans(
+    markdown_body: str, allowed_annotation_ids: set[int]
+) -> tuple[str, int]:
+    """Verify every quoted passage inside a ``<cite>`` span against the text of
+    the annotation(s) that span cites; strip the quotation marks on any that
+    don't match. Returns ``(verified_body, downgraded_quote_count)`` (issue
+    #2189).
+
+    Scope is deliberately the cited ``<cite ids="...">claim</cite>`` spans: a
+    quote presented as evidence for a footnote must actually be in the footnoted
+    passage. Quotes outside any cite span have no anchor to verify against and
+    are left untouched (as are quotes shorter than ``RESEARCH_QUOTE_MIN_WORDS``
+    — see ``_quote_is_grounded``).
+
+    A quote whose cited annotation(s) yield NO usable ``raw_text`` (an anchor
+    with empty text, a since-deleted row, or an id that wasn't retrieved) is
+    treated as ungrounded and demoted too — a passage attributed to a textless
+    anchor cannot be a verbatim citation of it, so the "cited a real anchor but
+    invented the quote" hole this fix targets stays closed rather than opening
+    a silent pass-through.
+    """
+    if not markdown_body:
+        return markdown_body, 0
+    # Cheap bail-out: nothing to verify if the body has no double-quote glyph
+    # of any flavour (straight, curly-open, or curly-close).
+    if not any(ch in markdown_body for ch in ('"', "“", "”")):
+        return markdown_body, 0
+
+    spans = list(_CITE_SPAN_RE.finditer(markdown_body))
+    if not spans:
+        # Quotes exist but none inside a <cite> span -> no anchor to verify
+        # against (scope is cited passages only). Leave them.
+        return markdown_body, 0
+
+    # Gather every cited, allowed annotation id across all spans, then hydrate
+    # their raw_text in one query (no N+1). Normalize once, cache by id. Ids that
+    # weren't retrieved (not in ``allowed_annotation_ids``) are excluded here, so
+    # a span citing only such ids gets no candidates and its quotes are demoted.
+    all_ids: set[int] = {
+        ann_id
+        for match in spans
+        for ann_id in _parse_ids(match.group(1))
+        if ann_id in allowed_annotation_ids
+    }
+    norm_by_id: dict[int, str] = {}
+    if all_ids:
+        from opencontractserver.annotations.models import Annotation
+
+        norm_by_id = {
+            pk: _normalize_for_quote_match(raw or "")
+            for pk, raw in Annotation.objects.filter(pk__in=all_ids).values_list(
+                "pk", "raw_text"
+            )
+        }
+
+    total_downgraded = 0
+
+    def _verify_span(match: re.Match[str]) -> str:
+        nonlocal total_downgraded
+        ids_raw = match.group(1)
+        claim = match.group(2)
+        # Empty when every cited id was filtered (not retrieved, deleted, or
+        # empty raw_text) -> _strip_ungrounded_quotes then demotes every
+        # long quote in the claim (see the docstring).
+        candidates = [norm_by_id[i] for i in _parse_ids(ids_raw) if norm_by_id.get(i)]
+        cleaned, downgraded = _strip_ungrounded_quotes(claim, candidates)
+        if not downgraded:
+            return match.group(0)
+        total_downgraded += downgraded
+        return f'<cite ids="{ids_raw}">{cleaned}</cite>'
+
+    verified = _CITE_SPAN_RE.sub(_verify_span, markdown_body)
+    return verified, total_downgraded
+
+
 def _render_citations(
     markdown_body: str, allowed_annotation_ids: set[int]
 ) -> tuple[str, list[dict]]:
@@ -943,10 +1135,9 @@ def _render_citations(
     """
     from opencontractserver.annotations.models import Annotation
 
-    pattern = re.compile(
-        r"<cite\s+ids=\"([0-9,\s]+)\">(.*?)</cite>",
-        flags=re.DOTALL | re.IGNORECASE,
-    )
+    # Shared with the quote verifier (_verify_quoted_spans) so both parse the
+    # same cite placeholder shape.
+    pattern = _CITE_SPAN_RE
 
     # First pass: assign footnote numbers to unique (filtered) annotation ids
     # in order of appearance.
