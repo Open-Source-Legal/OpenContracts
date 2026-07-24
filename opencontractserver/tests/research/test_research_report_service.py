@@ -287,6 +287,44 @@ class ResearchReportServiceTestCase(TestCase):
         self.assertEqual(ResearchReportService.header_like_citation_ids([]), [])
         self.assertEqual(ResearchReportService.header_like_citation_ids([987654]), [])
 
+    def test_header_only_rejection_rejects_all_header_finding(self):
+        h1 = self._make_annotation(
+            raw_text="ITEM 1A. RISK FACTORS",
+            structural=True,
+            annotation_label=self._make_label("section_header"),
+        )
+        h2 = self._make_annotation(
+            raw_text="ITEM 3. MARKET RISK",
+            structural=True,
+            annotation_label=self._make_label("Section Header"),
+        )
+        msg = ResearchReportService.header_only_rejection([h1.pk, h2.pk])
+        self.assertIsNotNone(msg)
+        # The message names the offending anchors so the agent can re-anchor.
+        self.assertIn(str(h1.pk), msg)
+        self.assertIn("ITEM 1A", msg)
+        self.assertIn("similarity_search", msg)
+
+    def test_header_only_rejection_passes_mixed_and_headerless(self):
+        header = self._make_annotation(
+            raw_text="ITEM 1A. RISK FACTORS",
+            structural=True,
+            annotation_label=self._make_label("section_header"),
+        )
+        body = self._make_annotation(
+            raw_text="Fixed-price contracts expose the company to cost overruns.",
+            structural=True,
+            annotation_label=self._make_label("text"),
+        )
+        # A finding that also cites a substantive passage is allowed through.
+        self.assertIsNone(
+            ResearchReportService.header_only_rejection([header.pk, body.pk])
+        )
+        # A finding with no header at all is fine.
+        self.assertIsNone(ResearchReportService.header_only_rejection([body.pk]))
+        # No citations -> nothing to reject.
+        self.assertIsNone(ResearchReportService.header_only_rejection([]))
+
     def test_finalize_strips_header_anchor_from_mixed_citation(self):
         header = self._make_annotation(
             raw_text="ITEM 1A. RISK FACTORS",

@@ -24,6 +24,7 @@ from opencontractserver.research.constants import (
     MAX_RESEARCH_MEMORY_VALUE_CHARS,
     MAX_RESEARCH_PLAN_CHARS,
     MAX_RESEARCH_STEPS_CEILING,
+    RESEARCH_CITATION_PREVIEW_CHARS,
     RESEARCH_HEADER_ANNOTATION_LABELS,
     RESEARCH_MEMORY_PREVIEW_CHARS,
     RESEARCH_MEMORY_SEARCH_MAX_HITS,
@@ -352,10 +353,38 @@ class ResearchReportService(BaseService):
                 RESEARCH_HEADER_ANNOTATION_LABELS
             ):
                 preview = " ".join((raw_text or "").split())[
-                    :RESEARCH_MEMORY_PREVIEW_CHARS
+                    :RESEARCH_CITATION_PREVIEW_CHARS
                 ]
                 out.append((pk, preview))
         return out
+
+    @classmethod
+    def header_only_rejection(cls, ids: list[int]) -> str | None:
+        """Agent-facing rejection message when EVERY citation is a header.
+
+        A finding must cite the passage whose own words support the claim, not a
+        bare section header (issue #2180). Returns ``None`` when the finding has
+        at least one substantive (non-header) anchor — that anchor carries the
+        claim and any header is stripped later at :meth:`finalize` — so only the
+        all-header case (which would leave the claim with no real evidence) is
+        rejected. Mirrors the ``write_memory`` → :class:`ResearchMemoryError`
+        pattern: the agent-bound ``record_finding`` closure surfaces this string
+        to the model so it re-anchors while it still has budget/context.
+        """
+        headers = cls.header_like_citation_ids(ids)
+        header_ids = {aid for aid, _ in headers}
+        if not header_ids:
+            return None
+        if any(sid not in header_ids for sid in ids):
+            return None
+        detail = "; ".join(f'{aid} ("{text}")' for aid, text in headers)
+        return (
+            "Error: every citation you provided anchors a section header / "
+            "navigational label, not the passage that states this claim: "
+            f"{detail}. A section header is never a valid sole citation. "
+            "Search again with the claim's specific language (similarity_search) "
+            "and cite the annotation whose own words support the sentence."
+        )
 
     @classmethod
     def append_tool_call(cls, report: ResearchReport, entry: dict) -> None:

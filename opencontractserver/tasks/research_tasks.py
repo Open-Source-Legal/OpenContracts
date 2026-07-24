@@ -315,24 +315,16 @@ async def _run_deep_research_async(
 
         # Citation discipline (issue #2180): a citation must anchor the passage
         # whose own words support the claim, not a bare section header. Reject a
-        # finding whose EVERY citation is a section-header annotation so the
-        # agent re-anchors while it still has budget/context; a finding that
-        # also cites a substantive passage is allowed through (the header is
-        # dropped later at finalize).
-        headers = await sync_to_async(ResearchReportService.header_like_citation_ids)(
-            supporting_source_ids
-        )
-        header_ids = {aid for aid, _ in headers}
-        if header_ids and all(sid in header_ids for sid in supporting_source_ids):
-            detail = "; ".join(f'{aid} ("{text}")' for aid, text in headers)
-            return (
-                "Error: every citation you provided anchors a section header / "
-                f"navigational label, not the passage that states this claim: "
-                f"{detail}. A section header is never a valid sole citation. "
-                "Search again with the claim's specific language "
-                "(similarity_search) and cite the annotation whose own words "
-                "support the sentence."
-            )
+        # finding whose EVERY citation is a section header so the agent
+        # re-anchors while it still has budget/context; a finding that also
+        # cites a substantive passage passes (the header is dropped at
+        # finalize). The decision + message live in the service so they are
+        # unit-testable without building the agent.
+        header_rejection = await sync_to_async(
+            ResearchReportService.header_only_rejection
+        )(supporting_source_ids)
+        if header_rejection:
+            return header_rejection
 
         await sync_to_async(ResearchReportService.append_finding)(
             report,

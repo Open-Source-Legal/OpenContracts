@@ -142,6 +142,12 @@ DEEP_RESEARCH_MEMORY_TOOL_NAMES: set[str] = {
 # ``caption``, ``footnote`` — so the guard only ever rejects true navigation
 # headings, never a real supporting passage. Body labels (``text``,
 # ``Paragraph``, ``Sentence``, ``Text Block``) are, of course, absent.
+#
+# ``subtitle`` / ``heading`` are not emitted by Docling or LlamaParse today
+# (their taxonomies top out at ``title`` + ``section_header``); they are kept
+# as a forward-looking superset so a parser that later exposes a finer heading
+# hierarchy is covered without a code change. Extra keys are inert — they only
+# match if a parser actually produces them.
 RESEARCH_HEADER_ANNOTATION_LABELS: frozenset[str] = frozenset(
     {
         "sectionheader",
@@ -153,6 +159,11 @@ RESEARCH_HEADER_ANNOTATION_LABELS: frozenset[str] = frozenset(
         "pagenumber",
     }
 )
+
+# Chars of an anchor's ``raw_text`` kept in the citation-rejection message the
+# agent sees (issue #2180). Own constant rather than borrowing the memory-store
+# preview length — the two contexts are unrelated and free to diverge.
+RESEARCH_CITATION_PREVIEW_CHARS = 120
 
 
 def normalize_annotation_label_text(text: str | None) -> str:
