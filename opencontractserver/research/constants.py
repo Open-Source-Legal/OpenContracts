@@ -156,9 +156,20 @@ RESEARCH_QUOTE_MIN_WORDS = 5
 # verbatim in that text covers at least this fraction of the quote. The high bar
 # tolerates a trailing-punctuation / whitespace / single-character drift while
 # still stripping a quote whose wording diverges (an invented tail, a reworded
-# clause). ``difflib.SequenceMatcher``-based, mirroring the annotation-anchor
-# fuzzy match in ``opencontractserver/utils/annotation_anchoring.py``.
+# clause). Built on ``difflib.SequenceMatcher`` like the annotation-anchor fuzzy
+# match in ``opencontractserver/utils/annotation_anchoring.py`` — but that path
+# aggregates with ``.ratio()`` (overall similarity), whereas this uses
+# longest-contiguous-block coverage (``find_longest_match().size / len(quote)``),
+# a stricter test that a real run of the quote appears verbatim.
 RESEARCH_QUOTE_MATCH_THRESHOLD = 0.92
+
+# Upper bound on the length of a single quoted passage the verifier will inspect.
+# The extraction regex is linear (a negated character class, no backtracking), so
+# this is not a ReDoS guard — it bounds a pathological match when a lone opening
+# quote has no nearby close, and keeps the fuzzy comparison cheap. Set generously
+# so realistic block quotes are still verified; a quote longer than this is left
+# untouched (a >2000-char fabricated verbatim quote is implausible).
+RESEARCH_QUOTE_MAX_CHARS = 2000
 
 
 # Plan + memory tool names. Unioned into the deep-research agent's

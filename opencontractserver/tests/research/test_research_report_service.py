@@ -565,6 +565,36 @@ class ResearchReportServiceTestCase(TestCase):
         self.assertEqual(downgraded, 0)
         self.assertEqual(verified, body)
 
+    def test_verify_quoted_spans_handles_curly_and_mismatched_quotes(self):
+        # Curly (“...”) and mismatched pairs (straight-open/curly-close) are
+        # matched and verified just like straight quotes.
+        ann = self._make_annotation(raw_text="the tenant shall not sublet the premises")
+        # Fabricated curly quote -> stripped.
+        curly = f'<cite ids="{ann.pk}">it says “the landlord may sublet at will freely”</cite>'
+        v, d = _verify_quoted_spans(curly, {ann.pk})
+        self.assertEqual(d, 1)
+        self.assertNotIn("“the landlord may sublet", v)
+        # Grounded but with a mismatched open/close pair -> preserved.
+        mismatched = f'<cite ids="{ann.pk}">note: "the tenant shall not sublet the premises”</cite>'
+        v2, d2 = _verify_quoted_spans(mismatched, {ann.pk})
+        self.assertEqual(d2, 0)
+        self.assertEqual(v2, mismatched)
+
+    def test_verify_quoted_spans_demotes_quote_when_anchor_has_no_text(self):
+        # A quote attributed to a real, cited anchor that has NO raw_text cannot
+        # be a verbatim citation of it — demote rather than silently pass it
+        # through (the "looks cited but isn't" hole this fix targets).
+        ann = self._make_annotation(raw_text="")
+        body = f'<cite ids="{ann.pk}">the report states "a fully invented five word passage"</cite>'
+        verified, downgraded = _verify_quoted_spans(body, {ann.pk})
+        self.assertEqual(downgraded, 1)
+        self.assertNotIn('"a fully invented', verified)
+        # Short quoted terms still skip even without any anchor text.
+        short = f'<cite ids="{ann.pk}">defines "Force Majeure" here</cite>'
+        v2, d2 = _verify_quoted_spans(short, {ann.pk})
+        self.assertEqual(d2, 0)
+        self.assertEqual(v2, short)
+
     # ------------------------------------------------------------------
     # Composer renders each finding once — NOT a doubler  [issue #2183]
     # ------------------------------------------------------------------

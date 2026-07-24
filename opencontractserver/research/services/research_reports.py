@@ -29,6 +29,7 @@ from opencontractserver.research.constants import (
     RESEARCH_MEMORY_PREVIEW_CHARS,
     RESEARCH_MEMORY_SEARCH_MAX_HITS,
     RESEARCH_QUOTE_MATCH_THRESHOLD,
+    RESEARCH_QUOTE_MAX_CHARS,
     RESEARCH_QUOTE_MIN_WORDS,
     RESEARCH_RECOVERY_FINDINGS_DIGEST,
 )
@@ -964,13 +965,15 @@ def _is_header_anchor(*, label_text: str | None) -> bool:
 # ---------------------------------------------------------------------------
 # Quotation verification (issue #2189)
 # ---------------------------------------------------------------------------
-# Double-quoted passages: straight ("...") or curly (“...”). The inner group
-# stops at the matching close quote, never crosses a newline (a quote spanning
-# paragraphs is almost always a mis-balanced quotation mark, not a real
-# passage), and is length-capped so a runaway match can't scan the whole body.
-# Single quotes / apostrophes are deliberately NOT matched — they collide with
-# contractions and possessives.
-_QUOTED_PASSAGE_RE = re.compile(r'"([^"\n]{1,400})"|“([^”\n]{1,400})”')
+# Double-quoted passages: straight ("...") or curly (“...”), including a
+# mismatched pair (straight-open/curly-close or vice versa — LLM output
+# sometimes smart-quotes only one side). The inner group excludes every
+# double-quote glyph and newlines, so adjacent quotes (``"a" and "b"``) match
+# separately and a quote never runs past its close; it is length-capped
+# (``RESEARCH_QUOTE_MAX_CHARS``) so a lone unbalanced quote can't scan the whole
+# body. Single quotes / apostrophes (including the curly ’ U+2019) are
+# deliberately NOT matched — they collide with contractions and possessives.
+_QUOTED_PASSAGE_RE = re.compile(rf'["“]([^"“”\n]{{1,{RESEARCH_QUOTE_MAX_CHARS}}})["”]')
 
 # Same cite placeholder the renderer consumes; matched here first so quotes are
 # verified against the annotations the span actually cites.
@@ -1030,7 +1033,7 @@ def _strip_ungrounded_quotes(claim: str, candidates_norm: list[str]) -> tuple[st
 
     def _replace(match: re.Match[str]) -> str:
         nonlocal downgraded
-        inner = match.group(1) if match.group(1) is not None else match.group(2)
+        inner = match.group(1)
         if _quote_is_grounded(inner, candidates_norm):
             return match.group(0)
         downgraded += 1
@@ -1051,35 +1054,48 @@ def _verify_quoted_spans(
     quote presented as evidence for a footnote must actually be in the footnoted
     passage. Quotes outside any cite span have no anchor to verify against and
     are left untouched (as are quotes shorter than ``RESEARCH_QUOTE_MIN_WORDS``
-    — see ``_quote_is_grounded``). Every citeable id is a real Annotation PK
-    (retrieval only records positive ids; see ``PydanticAIDependencies``), so
-    ``raw_text`` is always available to check against.
+    — see ``_quote_is_grounded``).
+
+    A quote whose cited annotation(s) yield NO usable ``raw_text`` (an anchor
+    with empty text, a since-deleted row, or an id that wasn't retrieved) is
+    treated as ungrounded and demoted too — a passage attributed to a textless
+    anchor cannot be a verbatim citation of it, so the "cited a real anchor but
+    invented the quote" hole this fix targets stays closed rather than opening
+    a silent pass-through.
     """
     if not markdown_body:
         return markdown_body, 0
-    # Cheap bail-out: nothing to verify if the body has no double-quote of
-    # either flavour.
-    if '"' not in markdown_body and "“" not in markdown_body:
+    # Cheap bail-out: nothing to verify if the body has no double-quote glyph
+    # of any flavour (straight, curly-open, or curly-close).
+    if not any(ch in markdown_body for ch in ('"', "“", "”")):
+        return markdown_body, 0
+
+    spans = list(_CITE_SPAN_RE.finditer(markdown_body))
+    if not spans:
+        # Quotes exist but none inside a <cite> span -> no anchor to verify
+        # against (scope is cited passages only). Leave them.
         return markdown_body, 0
 
     # Gather every cited, allowed annotation id across all spans, then hydrate
-    # their raw_text in one query (no N+1). Normalize once, cache by id.
-    all_ids: set[int] = set()
-    for match in _CITE_SPAN_RE.finditer(markdown_body):
-        for ann_id in _parse_ids(match.group(1)):
-            if ann_id in allowed_annotation_ids:
-                all_ids.add(ann_id)
-    if not all_ids:
-        return markdown_body, 0
-
-    from opencontractserver.annotations.models import Annotation
-
-    norm_by_id: dict[int, str] = {
-        pk: _normalize_for_quote_match(raw or "")
-        for pk, raw in Annotation.objects.filter(pk__in=all_ids).values_list(
-            "pk", "raw_text"
-        )
+    # their raw_text in one query (no N+1). Normalize once, cache by id. Ids that
+    # weren't retrieved (not in ``allowed_annotation_ids``) are excluded here, so
+    # a span citing only such ids gets no candidates and its quotes are demoted.
+    all_ids: set[int] = {
+        ann_id
+        for match in spans
+        for ann_id in _parse_ids(match.group(1))
+        if ann_id in allowed_annotation_ids
     }
+    norm_by_id: dict[int, str] = {}
+    if all_ids:
+        from opencontractserver.annotations.models import Annotation
+
+        norm_by_id = {
+            pk: _normalize_for_quote_match(raw or "")
+            for pk, raw in Annotation.objects.filter(pk__in=all_ids).values_list(
+                "pk", "raw_text"
+            )
+        }
 
     total_downgraded = 0
 
@@ -1087,10 +1103,10 @@ def _verify_quoted_spans(
         nonlocal total_downgraded
         ids_raw = match.group(1)
         claim = match.group(2)
+        # Empty when every cited id was filtered (not retrieved, deleted, or
+        # empty raw_text) -> _strip_ungrounded_quotes then demotes every
+        # long quote in the claim (see the docstring).
         candidates = [norm_by_id[i] for i in _parse_ids(ids_raw) if norm_by_id.get(i)]
-        # No hydratable anchor text -> nothing to verify against; leave as-is.
-        if not candidates:
-            return match.group(0)
         cleaned, downgraded = _strip_ungrounded_quotes(claim, candidates)
         if not downgraded:
             return match.group(0)
