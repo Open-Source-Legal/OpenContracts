@@ -652,7 +652,10 @@ class ResearchReportService(BaseService):
         Composes ``executive_summary`` + ``markdown_body`` + a ``## Sources``
         footnote section. Citation post-processing converts placeholder
         ``<cite ids="1,2">claim</cite>`` spans into ``[^n]`` footnote
-        markers and builds the structured ``citations`` table.
+        markers and builds the structured ``citations`` table. A concise
+        weak-citation warning is appended to ``report.warnings`` when any
+        footnote anchors a section-header label (see ``_is_header_anchor``,
+        issue #2180); it is observational and never rewrites the prose.
 
         ``retrieved_annotation_ids`` is the union of annotation IDs the
         retrieval tools surfaced during this run (the
