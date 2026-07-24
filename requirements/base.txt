@@ -72,7 +72,7 @@ django-guardian
 
 # GraphQL
 # ------------------------------------------------------------------------------
-strawberry-graphql==0.320.3  # code-first GraphQL; replaced graphene-django (schema parity pinned by config/graphql/schema.graphql)
+strawberry-graphql==0.323.0  # code-first GraphQL; replaced graphene-django (schema parity pinned by config/graphql/schema.graphql)
 graphql-relay==3.2.0  # relay global-id / connection helpers imported directly by config/graphql/* (to_global_id, from_global_id, connection_from_array_slice); pinned explicitly rather than relying on the transitive pull via django-graphql-jwt
 django-graphql-jwt==0.4.0  # JWT signing/backends + refresh-token utilities only — its graphene middleware/mutations are replaced by strawberry ports (config/graphql/views.py, jwt_auth.py, user_mutations.py)
 
