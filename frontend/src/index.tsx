@@ -100,12 +100,7 @@ if (REACT_APP_USE_AUTH0) {
 
   root.render(
     <HelmetProvider>
-      <BrowserRouter
-        future={{
-          v7_startTransition: true,
-          v7_relativeSplatPath: true,
-        }}
-      >
+      <BrowserRouter>
         <Auth0ProviderWithHistory {...providerConfig}>
           <ApolloProvider client={client}>
             <NetworkStatusHandler />
@@ -122,12 +117,7 @@ if (REACT_APP_USE_AUTH0) {
     <HelmetProvider>
       <ApolloProvider client={client}>
         <NetworkStatusHandler />
-        <BrowserRouter
-          future={{
-            v7_startTransition: true,
-            v7_relativeSplatPath: true,
-          }}
-        >
+        <BrowserRouter>
           <App />
         </BrowserRouter>
       </ApolloProvider>
