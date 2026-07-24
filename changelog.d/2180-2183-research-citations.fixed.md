@@ -14,14 +14,15 @@
   (`opencontractserver/research/services/research_reports.py`) now tags each
   citation with `anchor_is_header`, and `ResearchReportService.finalize` records
   a concise warning (surfaced in the report's UI warning chips) when a footnote
-  resolves to a section header / structural anchor instead of a supporting
-  passage. Detection keys solely off `Annotation.structural` — the flag the
-  parsing pipeline sets on OC_SECTION layout annotations, which are exactly the
-  headers that mis-anchored in #2180. It deliberately does *not* also text-match
-  filing-style headings (`ITEM 1A`, `SECTION 8`, …), because legal prose commonly
-  opens an operative clause with its section number (“Section 8.1 requires …”),
-  which would false-positive on real citations in contract corpora. The lint is
-  observational — it never rewrites report prose.
+  resolves to a section header instead of a supporting passage. Detection keys on
+  the anchor's **annotation label** (`RESEARCH_HEADER_ANCHOR_LABELS`:
+  `OC_SECTION` + the LlamaParse heading labels `Title` / `Section Header` /
+  `Heading` / `Page Header`, matched case-/separator-insensitively) — *not* on
+  `Annotation.structural`, which the parsing pipeline sets on the entire layout
+  layer (body paragraphs, tables, sentence chunks) and which the bookmark-derived
+  OC_SECTION headers are `structural=False` for; keying on it would both flood
+  false positives and miss the real #2180 headers. The lint is observational — it
+  never rewrites report prose.
 - **Confirmed the report composer is not the source of the #2183 duplication.**
   The finalize path emits the agent's `markdown_body` verbatim (cite-rendered)
   and the salvage path renders each finding exactly once; the observed doubling

@@ -7,6 +7,7 @@ runner) and the kickoff tool / tests.
 
 from __future__ import annotations
 
+from opencontractserver.constants.annotations import OC_SECTION_LABEL
 from opencontractserver.utils.prompt_sanitization import (
     UNTRUSTED_CONTENT_NOTICE,
     fence_user_content,
@@ -103,6 +104,33 @@ RESEARCH_MEMORY_PREVIEW_CHARS = 160
 # via ``search_memory`` once mirrored), but only the tail is replayed inline
 # so the preamble itself stays small.
 RESEARCH_RECOVERY_FINDINGS_DIGEST = 20
+
+
+# Annotation labels that mark a section header / heading rather than an
+# operative passage. The deep-research citation lint (issue #2180) flags a
+# footnote whose anchor carries one of these labels, matched case- and
+# separator-insensitively against ``Annotation.annotation_label.text``.
+#
+# Keyed on the LABEL, never on ``Annotation.structural``: the parsing pipeline
+# sets ``structural=True`` on ALL of its layout output — body paragraphs,
+# tables, list items, sentence chunks, … (see ``oc_text_parser`` /
+# ``llamaparse_parser``), not just headers — while the bookmark-derived
+# OC_SECTION headers that repro'd #2180 are explicitly ``structural=False``
+# (``pdf_outline_enricher``). The structural flag would thus both flood false
+# positives (every body-paragraph citation) and miss the real headers. The
+# label is the precise signal. ``Title`` / ``Section Header`` / ``Heading`` /
+# ``Page Header`` are the LlamaParse layout heading labels
+# (``LlamaParseParser.ELEMENT_TYPE_MAPPING``); ``OC_SECTION`` is the canonical
+# cross-parser section label.
+RESEARCH_HEADER_ANCHOR_LABELS: frozenset[str] = frozenset(
+    {
+        OC_SECTION_LABEL,  # "OC_SECTION" — canonical section layer (issue #2180)
+        "Title",
+        "Section Header",
+        "Heading",
+        "Page Header",
+    }
+)
 
 
 # Plan + memory tool names. Unioned into the deep-research agent's

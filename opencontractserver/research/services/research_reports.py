@@ -24,6 +24,7 @@ from opencontractserver.research.constants import (
     MAX_RESEARCH_MEMORY_VALUE_CHARS,
     MAX_RESEARCH_PLAN_CHARS,
     MAX_RESEARCH_STEPS_CEILING,
+    RESEARCH_HEADER_ANCHOR_LABELS,
     RESEARCH_MEMORY_PREVIEW_CHARS,
     RESEARCH_MEMORY_SEARCH_MAX_HITS,
     RESEARCH_RECOVERY_FINDINGS_DIGEST,
@@ -724,12 +725,18 @@ class ResearchReportService(BaseService):
         ]
         if header_footnotes:
             markers = ", ".join(f"[^{n}]" for n in header_footnotes)
-            noun = "citation" if len(header_footnotes) == 1 else "citations"
-            extra_warnings.append(
-                f"{len(header_footnotes)} {noun} anchor a section header rather "
-                f"than a supporting passage ({markers}); verify they point at the "
-                "operative language."
-            )
+            if len(header_footnotes) == 1:
+                extra_warnings.append(
+                    "1 citation anchors a section header rather than a "
+                    f"supporting passage ({markers}); verify it points at the "
+                    "operative language."
+                )
+            else:
+                extra_warnings.append(
+                    f"{len(header_footnotes)} citations anchor section headers "
+                    f"rather than supporting passages ({markers}); verify they "
+                    "point at the operative language."
+                )
 
         if extra_warnings:
             # Append rather than replace so prior warnings from
@@ -888,25 +895,31 @@ def _strip_fabricated_links(markdown: str) -> str:
     return _MARKDOWN_LINK_RE.sub(_replace, markdown)
 
 
-def _is_header_anchor(*, structural: bool) -> bool:
-    """True when a citation anchor is a bare section header / structural
-    element rather than the passage whose words support a claim (issue #2180).
+def _normalize_label(text: str | None) -> str:
+    """Lowercase and collapse separator runs so ``"Section Header"``,
+    ``"section_header"`` and ``"section-header"`` all compare equal."""
+    return re.sub(r"[\s_\-]+", " ", (text or "").strip().lower())
 
-    Keyed solely on ``Annotation.structural`` — the flag the parsing pipeline
-    sets on OC_SECTION layout annotations (see ``llamaparse_parser`` /
-    ``oc_text_parser``). Those are exactly the section-header annotations that
-    rank well for section-topic queries and produced the mis-anchored citations
-    in #2180.
 
-    We deliberately do NOT also text-match filing-style headings (``ITEM 1A``,
-    ``SECTION 8`` …). Legal drafting very commonly opens an *operative* clause
-    with its section number ("Section 8.1 requires 30 days' written notice …"),
-    so a heading-token regex would false-positive on real, correct citations in
-    contract corpora — and OpenContracts runs over general contracts, not just
-    SEC filings. ``structural`` is the reliable signal; keep this predicate
-    keyed on it.
+# The header-label set, pre-normalised once so ``_is_header_anchor`` only has to
+# normalise its single input per call.
+_NORMALIZED_HEADER_ANCHOR_LABELS: frozenset[str] = frozenset(
+    _normalize_label(label) for label in RESEARCH_HEADER_ANCHOR_LABELS
+)
+
+
+def _is_header_anchor(*, label_text: str | None) -> bool:
+    """True when a citation anchor's annotation label denotes a section header
+    / heading rather than an operative passage (issue #2180).
+
+    Keyed on the annotation LABEL (``annotation_label.text``), matched case- and
+    separator-insensitively against ``RESEARCH_HEADER_ANCHOR_LABELS`` — NOT on
+    ``Annotation.structural``. ``structural`` marks the whole parser layout
+    layer (body paragraphs, tables, sentence chunks, …), so keying on it would
+    flag nearly every citation while missing the bookmark-derived OC_SECTION
+    headers that are ``structural=False``. See the constant's docstring.
     """
-    return bool(structural)
+    return _normalize_label(label_text) in _NORMALIZED_HEADER_ANCHOR_LABELS
 
 
 def _render_citations(
@@ -946,11 +959,13 @@ def _render_citations(
                 next_footnote += 1
 
     # Fetch annotation metadata in one query for the Sources block.
+    # ``annotation_label`` is pulled so the weak-citation lint (#2180) can read
+    # the anchor's label without an N+1.
     annotations_by_id = {
         ann.pk: ann
         for ann in Annotation.objects.filter(
             pk__in=footnote_for_id.keys()
-        ).select_related("document")
+        ).select_related("document", "annotation_label")
     }
 
     def _replace(match: re.Match[str]) -> str:
@@ -996,11 +1011,13 @@ def _render_citations(
                 "document_id": doc_id,
                 "page": page,
                 "raw_text": raw_text,
-                # Flag anchors that resolve to a bare section header / structural
-                # element so finalize can surface a weak-citation warning and any
-                # future automated citation-checking can key off it (issue #2180).
+                # Flag anchors whose annotation label is a section header /
+                # heading so finalize can surface a weak-citation warning and
+                # any future automated citation-checking can key off it (#2180).
                 "anchor_is_header": _is_header_anchor(
-                    structural=bool(getattr(ann, "structural", False)),
+                    label_text=getattr(
+                        getattr(ann, "annotation_label", None), "text", None
+                    ),
                 ),
                 "display": " ".join(display_parts),
             }
