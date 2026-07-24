@@ -113,15 +113,28 @@ export const Login = () => {
   const [tryLogin, { loading: login_loading, error: login_error }] =
     useMutation<LoginOutputs, LoginInputs>(LOGIN_MUTATION, {
       onCompleted: async (data) => {
-        // Set auth state FIRST - ensures any subsequent queries use the new
-        // auth context. This prevents race condition where cache clear might
-        // trigger queries with the old (anonymous) auth state.
+        // Clear the anonymous cache BEFORE flipping auth state. App.tsx's
+        // GET_ME query is only skipped while authToken() is falsy (in local/
+        // non-Auth0 deployments authInitCompleteVar is already true by the
+        // time this fires), so setting authToken() first lets GET_ME start
+        // fetching immediately and race with clearStore() below, which
+        // cancels any in-flight query with an Apollo "store reset while
+        // query was in flight" invariant violation (issue #2104). Awaiting
+        // the reset first, then setting auth state, mirrors the ordering
+        // AuthGate.tsx already uses to avoid the same race for Auth0 login.
+        try {
+          await resetOnAuthChange({
+            reason: "user_login",
+            refetchActive: false,
+          });
+        } catch (cacheError) {
+          console.warn("[Login] Cache reset failed on login:", cacheError);
+        }
+
         authToken(data.tokenAuth.token);
         userObj(data.tokenAuth.user);
         authStatusVar("AUTHENTICATED");
 
-        // Now clear cache - refetched queries will use new auth context
-        await resetOnAuthChange({ reason: "user_login", refetchActive: false });
         navigate("/");
       },
     });

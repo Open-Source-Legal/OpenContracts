@@ -88,6 +88,46 @@ describe("get_websockets — env var resolution + base URL normalisation", () =>
     );
   });
 
+  it("uses window._env_.REACT_APP_API_ROOT_URL (Docker/nginx runtime config) over the location fallback", async () => {
+    // Mirrors the production-style nginx image (frontend/conf/conf.d/default.conf
+    // has no /ws proxy) where env.sh injects window._env_ at container start —
+    // regression coverage for issue #2104's WebSocket-connection-failed symptom.
+    vi.stubGlobal("window", {
+      location: { protocol: "http:", host: "localhost:3000" },
+      _env_: { REACT_APP_API_ROOT_URL: "http://localhost:8000" },
+    });
+    vi.stubGlobal("import.meta", { env: {} });
+    const { getNotificationUpdatesWebSocket } = await RELOAD();
+    expect(getNotificationUpdatesWebSocket()).toBe(
+      "ws://localhost:8000/ws/notification-updates/"
+    );
+  });
+
+  it("prefers an explicit VITE_WS_URL over window._env_.REACT_APP_API_ROOT_URL", async () => {
+    vi.stubGlobal("window", {
+      location: { protocol: "http:", host: "localhost:3000" },
+      _env_: { REACT_APP_API_ROOT_URL: "http://localhost:8000" },
+    });
+    vi.stubGlobal("import.meta", { env: {} });
+    process.env.VITE_WS_URL = "wss://explicit-override.example";
+    const { getNotificationUpdatesWebSocket } = await RELOAD();
+    expect(getNotificationUpdatesWebSocket()).toBe(
+      "wss://explicit-override.example/ws/notification-updates/"
+    );
+  });
+
+  it("falls back to window.location when window._env_.REACT_APP_API_ROOT_URL is blank", async () => {
+    vi.stubGlobal("window", {
+      location: { protocol: "https:", host: "example.com" },
+      _env_: { REACT_APP_API_ROOT_URL: "" },
+    });
+    vi.stubGlobal("import.meta", { env: {} });
+    const { getNotificationUpdatesWebSocket } = await RELOAD();
+    expect(getNotificationUpdatesWebSocket()).toBe(
+      "wss://example.com/ws/notification-updates/"
+    );
+  });
+
   it("getUnifiedAgentWebSocket emits no query string when no context fields", async () => {
     vi.stubGlobal("window", {
       location: { protocol: "https:", host: "example.com" },
