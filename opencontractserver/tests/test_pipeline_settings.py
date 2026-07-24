@@ -2493,6 +2493,43 @@ class PipelineSettingsSecretsTestCase(TestCase):
             result["data"]["updateComponentSecrets"]["componentsWithSecrets"],
         )
 
+    def test_update_component_secrets_mutation_does_not_log_secret_key_names(self):
+        """Regression test for CodeQL alert #89 (clear-text logging of
+        sensitive information): a secret's *key* is an arbitrary
+        superuser-supplied string, so it must never be written to logs
+        verbatim -- only the count of updated keys.
+        """
+        mutation = """
+            mutation UpdateComponentSecrets(
+                $componentPath: String!,
+                $secrets: GenericScalar!
+            ) {
+                updateComponentSecrets(
+                    componentPath: $componentPath,
+                    secrets: $secrets
+                ) {
+                    ok
+                }
+            }
+        """
+
+        variables = {
+            "componentPath": "test.parser.TestParser",
+            "secrets": {"sk-should-not-be-logged-abc123": "value"},
+        }
+
+        with self.assertLogs(
+            "config.graphql.pipeline_settings_mutations", level="INFO"
+        ) as cm:
+            result = self.superuser_client.execute(mutation, variables=variables)
+
+        self.assertIsNone(result.get("errors"))
+        self.assertTrue(result["data"]["updateComponentSecrets"]["ok"])
+
+        log_output = "\n".join(cm.output)
+        self.assertNotIn("sk-should-not-be-logged-abc123", log_output)
+        self.assertIn("1 key", log_output)
+
     def test_update_component_secrets_mutation_as_regular_user_fails(self):
         """Test that regular users cannot update secrets."""
         mutation = """
