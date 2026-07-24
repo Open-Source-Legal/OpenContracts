@@ -299,7 +299,9 @@ class ResearchReportServiceTestCase(TestCase):
             annotation_label=self._make_label("Section Header"),
         )
         msg = ResearchReportService.header_only_rejection([h1.pk, h2.pk])
-        self.assertIsNotNone(msg)
+        # ``assert`` (not assertIsNotNone) so mypy narrows ``str | None`` -> ``str``
+        # for the assertIn checks below.
+        assert msg is not None
         # The message names the offending anchors so the agent can re-anchor.
         self.assertIn(str(h1.pk), msg)
         self.assertIn("ITEM 1A", msg)
