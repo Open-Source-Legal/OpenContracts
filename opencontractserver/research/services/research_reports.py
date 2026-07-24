@@ -24,6 +24,7 @@ from opencontractserver.research.constants import (
     MAX_RESEARCH_MEMORY_VALUE_CHARS,
     MAX_RESEARCH_PLAN_CHARS,
     MAX_RESEARCH_STEPS_CEILING,
+    RESEARCH_HEADER_ANCHOR_LABELS,
     RESEARCH_MEMORY_PREVIEW_CHARS,
     RESEARCH_MEMORY_SEARCH_MAX_HITS,
     RESEARCH_RECOVERY_FINDINGS_DIGEST,
@@ -651,7 +652,10 @@ class ResearchReportService(BaseService):
         Composes ``executive_summary`` + ``markdown_body`` + a ``## Sources``
         footnote section. Citation post-processing converts placeholder
         ``<cite ids="1,2">claim</cite>`` spans into ``[^n]`` footnote
-        markers and builds the structured ``citations`` table.
+        markers and builds the structured ``citations`` table. A concise
+        weak-citation warning is appended to ``report.warnings`` when any
+        footnote anchors a section-header label (see ``_is_header_anchor``,
+        issue #2180); it is observational and never rewrites the prose.
 
         ``retrieved_annotation_ids`` is the union of annotation IDs the
         retrieval tools surfaced during this run (the
@@ -713,10 +717,34 @@ class ResearchReportService(BaseService):
             "last_progress_at",
             "modified",
         ]
-        if warnings:
+        # Surface a weak-citation warning when any footnote resolves to a
+        # section header / structural anchor rather than a supporting passage
+        # (issue #2180). Observational only — it never rewrites the prose, it
+        # just flags footnotes a reviewer (or future automated checker) should
+        # double-check.
+        extra_warnings: list[str] = list(warnings or [])
+        header_footnotes = [
+            c["footnote"] for c in citations if c.get("anchor_is_header")
+        ]
+        if header_footnotes:
+            markers = ", ".join(f"[^{n}]" for n in header_footnotes)
+            if len(header_footnotes) == 1:
+                extra_warnings.append(
+                    "1 citation anchors a section header rather than a "
+                    f"supporting passage ({markers}); verify it points at the "
+                    "operative language."
+                )
+            else:
+                extra_warnings.append(
+                    f"{len(header_footnotes)} citations anchor section headers "
+                    f"rather than supporting passages ({markers}); verify they "
+                    "point at the operative language."
+                )
+
+        if extra_warnings:
             # Append rather than replace so prior warnings from
             # ``append_finding`` / ``append_tool_call`` survive.
-            report.warnings = list(report.warnings or []) + list(warnings)
+            report.warnings = list(report.warnings or []) + extra_warnings
             update_fields.append("warnings")
 
         # Single atomic block so the terminal content write and the M2M
@@ -870,6 +898,33 @@ def _strip_fabricated_links(markdown: str) -> str:
     return _MARKDOWN_LINK_RE.sub(_replace, markdown)
 
 
+def _normalize_label(text: str | None) -> str:
+    """Lowercase and collapse separator runs so ``"Section Header"``,
+    ``"section_header"`` and ``"section-header"`` all compare equal."""
+    return re.sub(r"[\s_\-]+", " ", (text or "").strip().lower())
+
+
+# The header-label set, pre-normalised once so ``_is_header_anchor`` only has to
+# normalise its single input per call.
+_NORMALIZED_HEADER_ANCHOR_LABELS: frozenset[str] = frozenset(
+    _normalize_label(label) for label in RESEARCH_HEADER_ANCHOR_LABELS
+)
+
+
+def _is_header_anchor(*, label_text: str | None) -> bool:
+    """True when a citation anchor's annotation label denotes a section header
+    / heading rather than an operative passage (issue #2180).
+
+    Keyed on the annotation LABEL (``annotation_label.text``), matched case- and
+    separator-insensitively against ``RESEARCH_HEADER_ANCHOR_LABELS`` — NOT on
+    ``Annotation.structural``. ``structural`` marks the whole parser layout
+    layer (body paragraphs, tables, sentence chunks, …), so keying on it would
+    flag nearly every citation while missing the bookmark-derived OC_SECTION
+    headers that are ``structural=False``. See the constant's docstring.
+    """
+    return _normalize_label(label_text) in _NORMALIZED_HEADER_ANCHOR_LABELS
+
+
 def _render_citations(
     markdown_body: str, allowed_annotation_ids: set[int]
 ) -> tuple[str, list[dict]]:
@@ -907,11 +962,13 @@ def _render_citations(
                 next_footnote += 1
 
     # Fetch annotation metadata in one query for the Sources block.
+    # ``annotation_label`` is pulled so the weak-citation lint (#2180) can read
+    # the anchor's label without an N+1.
     annotations_by_id = {
         ann.pk: ann
         for ann in Annotation.objects.filter(
             pk__in=footnote_for_id.keys()
-        ).select_related("document")
+        ).select_related("document", "annotation_label")
     }
 
     def _replace(match: re.Match[str]) -> str:
@@ -957,6 +1014,14 @@ def _render_citations(
                 "document_id": doc_id,
                 "page": page,
                 "raw_text": raw_text,
+                # Flag anchors whose annotation label is a section header /
+                # heading so finalize can surface a weak-citation warning and
+                # any future automated citation-checking can key off it (#2180).
+                "anchor_is_header": _is_header_anchor(
+                    label_text=getattr(
+                        getattr(ann, "annotation_label", None), "text", None
+                    ),
+                ),
                 "display": " ".join(display_parts),
             }
         )

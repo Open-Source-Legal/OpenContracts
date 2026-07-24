@@ -19,9 +19,11 @@ from opencontractserver.research.services.research_reports import (
     ResearchCancelled,
     ResearchReportService,
     _derive_title_from_prompt,
+    _is_header_anchor,
     _render_citations,
     _strip_fabricated_links,
 )
+from opencontractserver.tasks.research_tasks import _compose_salvage_body
 from opencontractserver.types.enums import JobStatus
 
 User = get_user_model()
@@ -209,7 +211,7 @@ class ResearchReportServiceTestCase(TestCase):
     # ------------------------------------------------------------------
     def _make_annotation(self, **overrides) -> Annotation:
         label, _ = AnnotationLabel.objects.get_or_create(
-            text="default",
+            text=overrides.pop("label_text", "default"),
             defaults={"creator": self.user, "label_type": "TOKEN_LABEL"},
         )
         doc = overrides.pop(
@@ -300,6 +302,197 @@ class ResearchReportServiceTestCase(TestCase):
         )
         report.refresh_from_db()
         self.assertEqual(report.citations, [])
+
+    # ------------------------------------------------------------------
+    # finalize() — weak-citation (section-header) lint  [issue #2180]
+    # ------------------------------------------------------------------
+    def test_finalize_flags_section_header_label_citation(self):
+        # A citation whose anchor carries a section-header label (OC_SECTION)
+        # anchors the top of a section, not the supporting passage — flag it.
+        header = self._make_annotation(
+            label_text="OC_SECTION", raw_text="ITEM 1A. RISK FACTORS"
+        )
+        report = self._make_report()
+        report.findings = [
+            {"section": "Risks", "claim": "c", "citations": [header.pk]},
+        ]
+        report.save(update_fields=["findings"])
+
+        body = f'<cite ids="{header.pk}">the filing discloses supply risk</cite>.'
+        ResearchReportService.finalize(
+            report,
+            executive_summary="",
+            markdown_body=body,
+            retrieved_annotation_ids=[header.pk],
+        )
+        report.refresh_from_db()
+        self.assertTrue(report.citations[0]["anchor_is_header"])
+        self.assertTrue(
+            any("section header" in str(w) for w in (report.warnings or [])),
+            report.warnings,
+        )
+
+    def test_finalize_flags_llamaparse_heading_label_citation(self):
+        # LlamaParse layout heading labels ("Section Header", …) are flagged
+        # too, matched case-/separator-insensitively.
+        header = self._make_annotation(
+            label_text="Section Header", raw_text="Risk Factors"
+        )
+        report = self._make_report()
+        report.findings = [
+            {"section": "Risks", "claim": "c", "citations": [header.pk]},
+        ]
+        report.save(update_fields=["findings"])
+        body = f'<cite ids="{header.pk}">the section covers supply risk</cite>.'
+        ResearchReportService.finalize(
+            report,
+            executive_summary="",
+            markdown_body=body,
+            retrieved_annotation_ids=[header.pk],
+        )
+        report.refresh_from_db()
+        self.assertTrue(report.citations[0]["anchor_is_header"])
+
+    def test_finalize_plural_weak_citation_warning(self):
+        # Two header-anchored citations exercise the plural warning branch and
+        # its "N citations anchor section headers" grammar.
+        h1 = self._make_annotation(
+            label_text="OC_SECTION", raw_text="ITEM 1A. RISK FACTORS"
+        )
+        h2 = self._make_annotation(label_text="Section Header", raw_text="Market Risk")
+        report = self._make_report()
+        report.findings = [
+            {"section": "Risks", "claim": "c", "citations": [h1.pk, h2.pk]},
+        ]
+        report.save(update_fields=["findings"])
+        body = (
+            f'<cite ids="{h1.pk}">supply risk is disclosed</cite>. '
+            f'<cite ids="{h2.pk}">market risk is disclosed</cite>.'
+        )
+        ResearchReportService.finalize(
+            report,
+            executive_summary="",
+            markdown_body=body,
+            retrieved_annotation_ids=[h1.pk, h2.pk],
+        )
+        report.refresh_from_db()
+        self.assertTrue(all(c["anchor_is_header"] for c in report.citations))
+        self.assertTrue(
+            any(
+                "2 citations anchor section headers" in str(w)
+                for w in (report.warnings or [])
+            ),
+            report.warnings,
+        )
+
+    def test_finalize_does_not_flag_structural_body_paragraph_citation(self):
+        # Regression guard (review of #2180): the parsing pipeline marks EVERY
+        # layout chunk structural=True — body paragraphs and sentence chunks
+        # included (oc_text_parser / llamaparse_parser) — so the lint must key
+        # on the annotation LABEL, not the structural flag. A structural body
+        # sentence (the normal similarity_search hit) is a real citation and
+        # must NOT be flagged.
+        body_chunk = self._make_annotation(
+            label_text="SENTENCE",
+            structural=True,
+            raw_text="The Company's primary raw materials include aluminum and copper.",
+        )
+        report = self._make_report()
+        report.findings = [
+            {"section": "Risks", "claim": "c", "citations": [body_chunk.pk]},
+        ]
+        report.save(update_fields=["findings"])
+        body = f'<cite ids="{body_chunk.pk}">raw materials include aluminum</cite>.'
+        ResearchReportService.finalize(
+            report,
+            executive_summary="",
+            markdown_body=body,
+            retrieved_annotation_ids=[body_chunk.pk],
+        )
+        report.refresh_from_db()
+        self.assertFalse(report.citations[0]["anchor_is_header"])
+        self.assertFalse(
+            any("section header" in str(w) for w in (report.warnings or [])),
+            report.warnings,
+        )
+
+    def test_finalize_does_not_flag_body_clause_opening_with_section_ref(self):
+        # A body-labelled clause that merely opens with a section reference
+        # ("Section 8.1 requires ...") is a correct citation to operative
+        # language — never flagged, since detection keys on the label, not text.
+        clause = self._make_annotation(
+            label_text="Paragraph",
+            raw_text="Section 8.1 requires 30 days' written notice prior to termination.",
+        )
+        report = self._make_report()
+        report.findings = [
+            {"section": "Termination", "claim": "c", "citations": [clause.pk]},
+        ]
+        report.save(update_fields=["findings"])
+        body = (
+            f'<cite ids="{clause.pk}">30 days notice is required to terminate</cite>.'
+        )
+        ResearchReportService.finalize(
+            report,
+            executive_summary="",
+            markdown_body=body,
+            retrieved_annotation_ids=[clause.pk],
+        )
+        report.refresh_from_db()
+        self.assertFalse(report.citations[0]["anchor_is_header"])
+        self.assertFalse(
+            any("section header" in str(w) for w in (report.warnings or [])),
+            report.warnings,
+        )
+
+    def test_is_header_anchor_keys_on_label(self):
+        # Header-like labels (case-/separator-insensitive) are flagged...
+        self.assertTrue(_is_header_anchor(label_text="OC_SECTION"))
+        self.assertTrue(_is_header_anchor(label_text="Section Header"))
+        self.assertTrue(_is_header_anchor(label_text="section_header"))
+        self.assertTrue(_is_header_anchor(label_text="Title"))
+        # ...body/content labels and a missing label are not.
+        self.assertFalse(_is_header_anchor(label_text="Paragraph"))
+        self.assertFalse(_is_header_anchor(label_text="SENTENCE"))
+        self.assertFalse(_is_header_anchor(label_text="Table"))
+        self.assertFalse(_is_header_anchor(label_text=None))
+        self.assertFalse(_is_header_anchor(label_text=""))
+
+    # ------------------------------------------------------------------
+    # Composer renders each finding once — NOT a doubler  [issue #2183]
+    # ------------------------------------------------------------------
+    def test_finalize_renders_each_claim_once(self):
+        # The finalize composer emits the agent's body verbatim (cite-rendered);
+        # it must never stitch a plain + cited variant of a sentence. Guards
+        # against a regression that would double each claim.
+        ann = self._make_annotation(raw_text="operative language here")
+        report = self._make_report()
+        sentence = "Aluminum and copper prices drive input-cost exposure"
+        report.findings = [
+            {"section": "Risks", "claim": sentence, "citations": [ann.pk]},
+        ]
+        report.save(update_fields=["findings"])
+        body = f'<cite ids="{ann.pk}">{sentence}</cite>.'
+        ResearchReportService.finalize(
+            report,
+            executive_summary="",
+            markdown_body=body,
+            retrieved_annotation_ids=[ann.pk],
+        )
+        report.refresh_from_db()
+        self.assertEqual(report.content.count(sentence), 1)
+        self.assertIn("[^1]", report.content)
+
+    def test_compose_salvage_body_renders_each_finding_once(self):
+        report = self._make_report()
+        report.findings = [
+            {"section": "Risks", "claim": "unique-claim-alpha", "citations": [1]},
+            {"section": "Risks", "claim": "unique-claim-beta", "citations": []},
+        ]
+        report.save(update_fields=["findings"])
+        body = _compose_salvage_body(report, response_text="")
+        self.assertEqual(body.count("unique-claim-alpha"), 1)
+        self.assertEqual(body.count("unique-claim-beta"), 1)
 
     # ------------------------------------------------------------------
     # Helpers

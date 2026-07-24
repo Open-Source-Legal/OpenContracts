@@ -7,6 +7,7 @@ runner) and the kickoff tool / tests.
 
 from __future__ import annotations
 
+from opencontractserver.constants.annotations import OC_SECTION_LABEL
 from opencontractserver.utils.prompt_sanitization import (
     UNTRUSTED_CONTENT_NOTICE,
     fence_user_content,
@@ -103,6 +104,33 @@ RESEARCH_MEMORY_PREVIEW_CHARS = 160
 # via ``search_memory`` once mirrored), but only the tail is replayed inline
 # so the preamble itself stays small.
 RESEARCH_RECOVERY_FINDINGS_DIGEST = 20
+
+
+# Annotation labels that mark a section header / heading rather than an
+# operative passage. The deep-research citation lint (issue #2180) flags a
+# footnote whose anchor carries one of these labels, matched case- and
+# separator-insensitively against ``Annotation.annotation_label.text``.
+#
+# Keyed on the LABEL, never on ``Annotation.structural``: the parsing pipeline
+# sets ``structural=True`` on ALL of its layout output — body paragraphs,
+# tables, list items, sentence chunks, … (see ``oc_text_parser`` /
+# ``llamaparse_parser``), not just headers — while the bookmark-derived
+# OC_SECTION headers that repro'd #2180 are explicitly ``structural=False``
+# (``pdf_outline_enricher``). The structural flag would thus both flood false
+# positives (every body-paragraph citation) and miss the real headers. The
+# label is the precise signal. ``Title`` / ``Section Header`` / ``Heading`` /
+# ``Page Header`` are the LlamaParse layout heading labels
+# (``LlamaParseParser.ELEMENT_TYPE_MAPPING``); ``OC_SECTION`` is the canonical
+# cross-parser section label.
+RESEARCH_HEADER_ANCHOR_LABELS: frozenset[str] = frozenset(
+    {
+        OC_SECTION_LABEL,  # "OC_SECTION" — canonical section layer (issue #2180)
+        "Title",
+        "Section Header",
+        "Heading",
+        "Page Header",
+    }
+)
 
 
 # Plan + memory tool names. Unioned into the deep-research agent's
@@ -230,6 +258,34 @@ def build_deep_research_system_prompt(
             "- Do NOT mutate corpus state — you have no write tools, by design.",
             "- Do NOT speculate beyond what the corpus supports. If the corpus "
             + "does not contain the answer, say so explicitly in the report.",
+            "",
+            "## Citation discipline",
+            "Citations are this product's core promise: a reader who clicks a "
+            + "footnote must land on the exact words that prove the sentence. "
+            + "Apply these rules to every `<cite>` tag and every `record_finding` "
+            + "call:",
+            "- Anchor the passage whose OWN words support the claim — never a "
+            + "bare section header. An annotation whose text is only a heading "
+            + "(e.g. `ITEM 1A. RISK FACTORS`) marks the top of a section, not the "
+            + "evidence. Once you know the language you want, call "
+            + "`search_exact_text_as_sources` to pull the pinpoint passage and "
+            + "cite THAT annotation.",
+            "- Cite the document that actually CONTAINS the language. If you "
+            + "reached a passage through a cross-reference or an "
+            + "incorporated-by-reference pointer (common in SEC filings — a 10-Q "
+            + "Item 1A that only says 'see Item 1A of our Form 10-K'), follow the "
+            + "reference to the source document and anchor the operative text "
+            + "there, not the referring cross-reference.",
+            "- Cite only claims grounded in retrieved passages. A sentence that "
+            + "merely restates the task, the prompt, or the background you were "
+            + "handed carries NO citation — leave it uncited rather than forcing "
+            + "on a corpus anchor that cannot support it. Uncited background is "
+            + "honest; a miscited anchor is not.",
+            "- State each claim once. Wrap the claim sentence itself in "
+            + '`<cite ids="...">...</cite>` — do NOT write the claim as plain '
+            + "prose and then repeat it as a cited restatement. Keep normal "
+            + "spacing and punctuation around the tags so the sentence reads "
+            + "cleanly.",
             "",
             "## Budget",
             f"- You have approximately {max_steps} tool calls. Plan accordingly.",

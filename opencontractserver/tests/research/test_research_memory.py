@@ -431,3 +431,25 @@ class DeepResearchSystemPromptTestCase(TestCase):
         self.assertNotIn("Your current plan", prompt)
         self.assertNotIn("Findings recorded so far", prompt)
         self.assertNotIn("RESUMING", prompt)
+
+    def test_prompt_documents_citation_discipline(self):
+        """The citation-discipline section must encode all four failure modes
+        from issues #2180–#2183 so the agent anchors to supporting passages,
+        traverses incorporation-by-reference, refrains from citing task
+        context, and states each claim exactly once."""
+        prompt = build_deep_research_system_prompt(
+            task_description="Investigate X.",
+            corpus_title="Cases",
+            corpus_description=None,
+            max_steps=60,
+        )
+        self.assertIn("Citation discipline", prompt)
+        # #2180 — never cite a bare section header; prefer pinpoint anchors.
+        self.assertIn("section header", prompt)
+        self.assertIn("search_exact_text_as_sources", prompt)
+        # #2181 — follow incorporation-by-reference to the source document.
+        self.assertIn("incorporated-by-reference", prompt)
+        # #2182 — task/prompt/background restatements carry no citation.
+        self.assertIn("NO citation", prompt)
+        # #2183 — state each claim once, with no cited restatement.
+        self.assertIn("State each claim once", prompt)
