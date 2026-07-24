@@ -863,5 +863,14 @@ export const isReconnectingVar = makeVar<boolean>(false);
  * 2. Cache clear happens (if needed)
  * 3. authInitCompleteVar set to true
  * 4. Components can now safely query
+ *
+ * This flow assumes authInitCompleteVar is the gate that's still false when the
+ * cache clear starts (true for AuthGate.tsx's Auth0 path). The local username/
+ * password login in Login.tsx is a deliberate exception: in non-Auth0
+ * deployments AuthGate already latches authInitCompleteVar(true) at mount (there's
+ * no Auth0 SDK to wait on), so by the time Login.tsx's mutation resolves,
+ * authToken() alone gates GET_ME. Login.tsx therefore delays authStatusVar (and
+ * authToken) — not authInitCompleteVar — until after the cache clear. See
+ * Login.tsx's onCompleted comment for the full race it avoids (issue #2104).
  */
 export const authInitCompleteVar = makeVar<boolean>(false);
