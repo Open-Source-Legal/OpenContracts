@@ -20,6 +20,7 @@ import { ErrorMessage, InfoMessage, LoadingState } from "../widgets/feedback";
 import { StatusBadge, ToolBadge, ToolsList } from "../agents/AgentBadges";
 import { StyledTextArea } from "../widgets/modals/styled";
 import { LlmModelPicker } from "../common/LlmModelPicker";
+import { computePreferredLlmUpdateArgs } from "../../utils/agentConfigurationForm";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
 import {
   GET_CORPUS_AGENTS,
@@ -431,15 +432,10 @@ export const CorpusAgentManagement: React.FC<CorpusAgentManagementProps> = ({
   const handleUpdate = () => {
     if (!agentToEdit) return;
 
-    // AgentConfigurationService.update_agent's contract (config/graphql/
-    // agent_mutations.py): preferred_llm=None means "leave unchanged";
-    // clear_preferred_llm=True is the only way to reset the override back to
-    // the corpus/system default (an empty string would fail the model's
-    // validation). So we only ever send a non-empty preferredLlm or the
-    // clear flag — never both, and never an empty-string preferredLlm.
-    const trimmedLlm = formState.preferredLlm.trim();
-    const hadPreferredLlm = Boolean(agentToEdit.preferredLlm?.trim());
-    const clearPreferredLlm = trimmedLlm === "" && hadPreferredLlm;
+    const { preferredLlm, clearPreferredLlm } = computePreferredLlmUpdateArgs(
+      formState.preferredLlm,
+      agentToEdit.preferredLlm
+    );
 
     updateAgent({
       variables: {
@@ -454,7 +450,7 @@ export const CorpusAgentManagement: React.FC<CorpusAgentManagementProps> = ({
         avatarUrl: formState.avatarUrl || null,
         isActive: formState.isActive,
         isPublic: formState.isPublic,
-        preferredLlm: trimmedLlm || undefined,
+        preferredLlm,
         clearPreferredLlm,
       },
     });
