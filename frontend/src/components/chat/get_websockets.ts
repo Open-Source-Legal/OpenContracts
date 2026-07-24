@@ -12,11 +12,11 @@ function getEnvVar(...keys: string[]): string | undefined {
   // check, every Docker deployment falls through to the window.location.host
   // fallback below, which points at nginx (no /ws proxy exists there) instead
   // of the Django/Channels backend (issue #2104).
-  if (typeof window !== "undefined" && (window as any)._env_) {
-    const winEnv = (window as any)._env_;
+  if (typeof window !== "undefined" && window._env_) {
+    const winEnv = window._env_;
     for (const k of keys) {
       const v = winEnv[k];
-      if (v !== undefined && v !== "") return v as string;
+      if (v !== undefined && v !== "") return v;
     }
   }
   if (typeof import.meta !== "undefined" && (import.meta as any).env) {
