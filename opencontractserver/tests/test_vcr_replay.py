@@ -34,7 +34,6 @@ from opencontractserver.utils.vcr_replay import (
     _VOLATILE_PATTERNS,
     _match_llm_body,
     _normalize_body,
-    ensure_aiohttp_vcr_compat,
     maybe_vcr_cassette,
 )
 
@@ -323,69 +322,37 @@ class MaybeVcrCassetteTests(TestCase):
                     self.assertIsNotNone(ctx)
 
 
-class EnsureAiohttpVcrCompatTests(TestCase):
-    """Regression for issue #1920 / kevin1024/vcrpy#995.
+class VcrCassetteEntryTests(TestCase):
+    """Guard the vcrpy <-> aiohttp import contract (issue #1920, #2140).
 
-    aiohttp 3.14 removed ``aiohttp.streams.AsyncStreamReaderMixin``, which the
-    pinned vcrpy 8.1.1 aiohttp stub subclasses at module-evaluation time. vcrpy
-    imports that stub lazily when a cassette is entered, so under aiohttp >= 3.14
-    every VCR cassette entry raises ``AttributeError``. The compat shim restores
-    the symbol so cassette entry works again.
+    Entering a cassette makes ``vcr/patch.py`` build its patchers, which imports
+    ``vcr/stubs/aiohttp_stubs.py`` — a module vcrpy evaluates lazily and that
+    this codebase never otherwise touches (we only record/replay *httpx* LLM
+    traffic; aiohttp is merely importable, transitively via llama-index-core).
+    That lazy import is exactly where vcrpy 8.1.1 blew up under aiohttp 3.14,
+    which had removed ``aiohttp.streams.AsyncStreamReaderMixin``: every cassette
+    entry raised ``AttributeError`` and aborted whole test runs.
+
+    vcrpy 8.2.0 fixed the stub upstream (kevin1024/vcrpy#996), so the local
+    compat shim was deleted in #2140. This test is what remains of that
+    regression guard: it fails if a future vcrpy/aiohttp pair reintroduces an
+    import-time incompatibility. ``import vcr`` alone does NOT trigger the stub,
+    which is why this enters a cassette rather than just importing.
     """
 
-    def test_mixin_symbol_present_after_shim(self):
-        try:
-            from aiohttp import streams
-        except ModuleNotFoundError:  # pragma: no cover - aiohttp always present
-            self.skipTest("aiohttp not installed")
-
-        had_real_symbol = hasattr(streams, "AsyncStreamReaderMixin")
-        original = getattr(streams, "AsyncStreamReaderMixin", None)
-
-        # Keep the test self-contained: restore the module to whatever state it
-        # was in before this test ran (the shim may add the symbol below).
-        def _restore() -> None:
-            if had_real_symbol:
-                setattr(streams, "AsyncStreamReaderMixin", original)
-            elif hasattr(streams, "AsyncStreamReaderMixin"):
-                delattr(streams, "AsyncStreamReaderMixin")
-
-        self.addCleanup(_restore)
-
-        ensure_aiohttp_vcr_compat()
-
-        # Whichever aiohttp is installed, the symbol must exist afterward so
-        # vcrpy's MockStream class statement can evaluate.
-        self.assertTrue(hasattr(streams, "AsyncStreamReaderMixin"))
-        if had_real_symbol:
-            # Under aiohttp < 3.14 the real mixin must be left untouched.
-            self.assertIs(getattr(streams, "AsyncStreamReaderMixin"), original)
-
-    def test_shim_is_idempotent(self):
-        # Called twice (conftest + maybe_vcr_cassette both invoke it) must not
-        # raise or swap the symbol out from under a prior call.
-        ensure_aiohttp_vcr_compat()
-        try:
-            from aiohttp import streams
-        except ModuleNotFoundError:  # pragma: no cover - aiohttp always present
-            self.skipTest("aiohttp not installed")
-        first = getattr(streams, "AsyncStreamReaderMixin")
-        ensure_aiohttp_vcr_compat()
-        self.assertIs(getattr(streams, "AsyncStreamReaderMixin"), first)
-
     def test_vcr_cassette_entry_works(self):
-        # The real contract: vcrpy imports its aiohttp stub lazily when a
-        # cassette is entered (vcr/patch.py builds its patchers). Under aiohttp
-        # >= 3.14 that stub subclasses the removed AsyncStreamReaderMixin and
-        # raises AttributeError. With the shim applied, entering an (empty)
-        # cassette must succeed. (`import vcr` alone does NOT trigger the stub,
-        # which is why this enters a cassette rather than just importing.)
-        ensure_aiohttp_vcr_compat()
         import vcr
 
         with tempfile.TemporaryDirectory() as td:
             with vcr.VCR().use_cassette(os.path.join(td, "regression.yaml")):
                 pass
+
+    def test_aiohttp_stub_is_importable(self):
+        # Pin the specific failure mode directly: the stub module must evaluate
+        # against the installed aiohttp without any shim in place.
+        import vcr.stubs.aiohttp_stubs as aiohttp_stubs
+
+        self.assertTrue(hasattr(aiohttp_stubs, "MockStream"))
 
 
 class LlmHostsTests(TestCase):
