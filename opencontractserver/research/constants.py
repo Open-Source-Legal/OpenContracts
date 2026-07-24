@@ -133,6 +133,34 @@ RESEARCH_HEADER_ANCHOR_LABELS: frozenset[str] = frozenset(
 )
 
 
+# ---------------------------------------------------------------------------
+# Quotation verification (issue #2189)
+# ---------------------------------------------------------------------------
+# Steered to quote the passages it cites, the deep-research agent was observed
+# fabricating quotation-marked strings that occur nowhere in the corpus yet are
+# attached to real annotation anchors — a report that *looks* rigorously cited
+# but isn't. At finalize every quoted passage inside a ``<cite>`` span is checked
+# against the ``raw_text`` of that span's cited annotation(s); a quote that does
+# not match is demoted to plain paraphrase (its quotation marks are stripped) and
+# the report is flagged. See ``ResearchReportService._verify_quoted_spans``.
+#
+# Only quotes of at least this many words are verified. Shorter quoted strings
+# (defined terms like "Confidential Information", scare-quotes, single words) are
+# left untouched: they are rarely fabricated passages and are the main source of
+# false positives. The quotes fabricated in #2189 were all long passages (8+
+# words).
+RESEARCH_QUOTE_MIN_WORDS = 5
+
+# A quote counts as grounded when it is a whitespace-/case-normalized substring
+# of a cited annotation's text, OR its longest contiguous run that appears
+# verbatim in that text covers at least this fraction of the quote. The high bar
+# tolerates a trailing-punctuation / whitespace / single-character drift while
+# still stripping a quote whose wording diverges (an invented tail, a reworded
+# clause). ``difflib.SequenceMatcher``-based, mirroring the annotation-anchor
+# fuzzy match in ``opencontractserver/utils/annotation_anchoring.py``.
+RESEARCH_QUOTE_MATCH_THRESHOLD = 0.92
+
+
 # Plan + memory tool names. Unioned into the deep-research agent's
 # ``restrict_tool_names`` set alongside the scratchpad tools. The closures
 # themselves are appended as caller-supplied tools (never filtered), so this
@@ -281,6 +309,17 @@ def build_deep_research_system_prompt(
             + "handed carries NO citation — leave it uncited rather than forcing "
             + "on a corpus anchor that cannot support it. Uncited background is "
             + "honest; a miscited anchor is not.",
+            "- Quote only what you can copy verbatim. Put a passage in quotation "
+            + "marks ONLY when it is copied exactly, word for word, from a "
+            + "retrieved passage you cite in the SAME `<cite>` tag. If you are "
+            + "paraphrasing or summarising, do NOT use quotation marks. At "
+            + "finalize every quoted passage is checked against the text of its "
+            + "cited annotation; a quote that does not match is stripped of its "
+            + "quotation marks (demoted to paraphrase) and the report is flagged. "
+            + "When you need the exact words, call "
+            + "`search_exact_text_as_sources` to pull the pinpoint passage and "
+            + "cite the annotation that contains them — never reconstruct a quote "
+            + "from memory.",
             "- State each claim once. Wrap the claim sentence itself in "
             + '`<cite ids="...">...</cite>` — do NOT write the claim as plain '
             + "prose and then repeat it as a cited restatement. Keep normal "

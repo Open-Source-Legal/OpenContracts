@@ -401,6 +401,17 @@ class DeepResearchSystemPromptTestCase(TestCase):
         self.assertIn("search_memory", prompt)
         self.assertIn("Managing your context window", prompt)
 
+    def test_prompt_documents_quote_discipline(self):
+        # The citation-discipline section must warn the agent that quotation
+        # marks are for verbatim copies only (issue #2189).
+        prompt = build_deep_research_system_prompt(
+            task_description="Investigate X.",
+            corpus_title="Cases",
+            corpus_description=None,
+            max_steps=60,
+        )
+        self.assertIn("Quote only what you can copy verbatim", prompt)
+
     def test_prompt_injects_recovery_surface_and_resume_preamble(self):
         prompt = build_deep_research_system_prompt(
             task_description="Investigate X.",
