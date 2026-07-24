@@ -339,6 +339,18 @@ class ResearchReportServiceTestCase(TestCase):
         # No citations -> nothing to reject.
         self.assertIsNone(ResearchReportService.header_only_rejection([]))
 
+    def test_header_only_rejection_coerces_stringified_ids(self):
+        h1 = self._make_annotation(
+            raw_text="ITEM 1A. RISK FACTORS",
+            structural=True,
+            annotation_label=self._make_label("section_header"),
+        )
+        # A stringified id must normalize to its int pk so an all-header finding
+        # is still rejected — guards the membership check against type skew if a
+        # caller ever passes unvalidated ids. Bare list so mypy accepts the str.
+        mixed: list = [str(h1.pk)]
+        self.assertIsNotNone(ResearchReportService.header_only_rejection(mixed))
+
     def test_finalize_strips_header_anchor_from_mixed_citation(self):
         header = self._make_annotation(
             raw_text="ITEM 1A. RISK FACTORS",

@@ -335,12 +335,7 @@ class ResearchReportService(BaseService):
         """
         from opencontractserver.annotations.models import Annotation
 
-        wanted: set[int] = set()
-        for raw in ids or []:
-            try:
-                wanted.add(int(raw))
-            except (TypeError, ValueError):
-                continue
+        wanted = set(_coerce_int_ids(ids))
         if not wanted:
             return []
 
@@ -370,11 +365,15 @@ class ResearchReportService(BaseService):
         pattern: the agent-bound ``record_finding`` closure surfaces this string
         to the model so it re-anchors while it still has budget/context.
         """
-        headers = cls.header_like_citation_ids(ids)
+        # Coerce once so the all-header membership test below compares int-to-int
+        # (header_ids are DB pks); a raw stringified id must not slip through as a
+        # false "not a header". Mirrors header_like_citation_ids' own coercion.
+        coerced = _coerce_int_ids(ids)
+        headers = cls.header_like_citation_ids(coerced)
         header_ids = {aid for aid, _ in headers}
         if not header_ids:
             return None
-        if any(sid not in header_ids for sid in ids):
+        if any(sid not in header_ids for sid in coerced):
             return None
         detail = "; ".join(f'{aid} ("{text}")' for aid, text in headers)
         return (
@@ -864,6 +863,23 @@ class ResearchReportService(BaseService):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _coerce_int_ids(ids: list[int]) -> list[int]:
+    """Coerce ``ids`` to ints, dropping any that don't convert.
+
+    Shared by the citation-header helpers so an off-contract id (e.g. a
+    stringified pk from a future unvalidated caller) is normalized once —
+    otherwise a raw ``"123"`` compared against the int pk ``123`` would read as
+    a non-match. Order is preserved; unconvertible entries are skipped.
+    """
+    out: list[int] = []
+    for raw in ids or []:
+        try:
+            out.append(int(raw))
+        except (TypeError, ValueError):
+            continue
+    return out
 
 
 def _clamp_text(text: str, limit: int) -> str:
