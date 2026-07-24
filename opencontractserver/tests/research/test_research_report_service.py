@@ -332,30 +332,37 @@ class ResearchReportServiceTestCase(TestCase):
             report.warnings,
         )
 
-    def test_finalize_flags_filing_heading_by_text_when_not_structural(self):
-        # Even without the structural flag, a short anchor that opens with a
-        # filing-style heading token is treated as a header (issue #2180's
-        # second example: "ITEM 3. QUANTITATIVE AND QUALITATIVE ...").
-        header = self._make_annotation(
+    def test_finalize_does_not_flag_non_structural_clause_opening_with_section_ref(
+        self,
+    ):
+        # Regression guard (review of #2180): the lint keys on the structural
+        # flag ONLY, never on heading-like text. Legal prose routinely opens an
+        # operative clause with its section number ("Section 8.1 requires ...");
+        # a non-structural anchor like that is a real, correct citation and must
+        # NOT be flagged, or the warning would false-positive on contract corpora.
+        clause = self._make_annotation(
             structural=False,
-            raw_text="ITEM 3. QUANTITATIVE AND QUALITATIVE DISCLOSURES ABOUT MARKET RISK.",
+            raw_text="Section 8.1 requires 30 days' written notice prior to termination.",
         )
         report = self._make_report()
         report.findings = [
-            {"section": "Market", "claim": "c", "citations": [header.pk]},
+            {"section": "Termination", "claim": "c", "citations": [clause.pk]},
         ]
         report.save(update_fields=["findings"])
-        body = f'<cite ids="{header.pk}">no quantified sensitivity is disclosed</cite>.'
+        body = (
+            f'<cite ids="{clause.pk}">30 days notice is required to terminate</cite>.'
+        )
         ResearchReportService.finalize(
             report,
             executive_summary="",
             markdown_body=body,
-            retrieved_annotation_ids=[header.pk],
+            retrieved_annotation_ids=[clause.pk],
         )
         report.refresh_from_db()
-        self.assertTrue(report.citations[0]["anchor_is_header"])
-        self.assertTrue(
-            any("section header" in str(w) for w in (report.warnings or []))
+        self.assertFalse(report.citations[0]["anchor_is_header"])
+        self.assertFalse(
+            any("section header" in str(w) for w in (report.warnings or [])),
+            report.warnings,
         )
 
     def test_finalize_does_not_flag_operative_passage_citation(self):
@@ -389,22 +396,13 @@ class ResearchReportServiceTestCase(TestCase):
             report.warnings,
         )
 
-    def test_is_header_anchor_heuristics(self):
-        # Structural flag is the primary signal, regardless of text.
-        self.assertTrue(_is_header_anchor(structural=True, raw_text="anything at all"))
-        # Short filing-heading text is a header even when not structural.
-        self.assertTrue(
-            _is_header_anchor(structural=False, raw_text="ITEM 1A. RISK FACTORS")
-        )
-        # A long operative passage that merely begins with a heading token is
-        # NOT a header (the length gate keeps it eligible as a real citation).
-        long_passage = "Item 1A risk factors are discussed at length below: " + "x" * 80
-        self.assertFalse(_is_header_anchor(structural=False, raw_text=long_passage))
-        # Ordinary prose and empty text are never headers.
-        self.assertFalse(
-            _is_header_anchor(structural=False, raw_text="We bear cost-overrun risk.")
-        )
-        self.assertFalse(_is_header_anchor(structural=False, raw_text=""))
+    def test_is_header_anchor_keys_on_structural_flag_only(self):
+        # The predicate is keyed solely on Annotation.structural — the reliable
+        # OC_SECTION header signal — never on heading-like text, so operative
+        # prose that opens with a section reference is never mistaken for a
+        # header (see the finalize false-positive guard above).
+        self.assertTrue(_is_header_anchor(structural=True))
+        self.assertFalse(_is_header_anchor(structural=False))
 
     # ------------------------------------------------------------------
     # Composer renders each finding once — NOT a doubler  [issue #2183]

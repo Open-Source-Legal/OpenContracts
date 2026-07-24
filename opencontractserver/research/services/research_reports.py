@@ -18,7 +18,6 @@ from django.utils import timezone
 
 from opencontractserver.research.constants import (
     DEFAULT_MAX_STEPS_FALLBACK,
-    MAX_HEADER_ANCHOR_CHARS,
     MAX_RESEARCH_MEMORY_KEY_CHARS,
     MAX_RESEARCH_MEMORY_KEYS,
     MAX_RESEARCH_MEMORY_TOTAL_CHARS,
@@ -889,34 +888,25 @@ def _strip_fabricated_links(markdown: str) -> str:
     return _MARKDOWN_LINK_RE.sub(_replace, markdown)
 
 
-# A citation anchor whose text opens with a filing-style heading token
-# (``ITEM 1A``, ``PART II``, ``ARTICLE III`` …). Used as a fallback header
-# signal for anchors that are not flagged ``structural`` — see
-# ``_is_header_anchor`` and issue #2180.
-_HEADER_ANCHOR_RE = re.compile(
-    r"^\s*(?:ITEM|PART|ARTICLE|SECTION|SCHEDULE|EXHIBIT|APPENDIX)\s+[0-9IVXLA]",
-    re.IGNORECASE,
-)
-
-
-def _is_header_anchor(*, structural: bool, raw_text: str) -> bool:
+def _is_header_anchor(*, structural: bool) -> bool:
     """True when a citation anchor is a bare section header / structural
     element rather than the passage whose words support a claim (issue #2180).
 
-    ``structural`` (the ``Annotation.structural`` flag — set for OC_SECTION
-    layout annotations, which rank well for section-topic queries) is the
-    primary signal. As a fallback for corpora that do not flag headings
-    structurally, a *short* anchor whose text opens with a filing-style heading
-    token (``ITEM 1A``, ``PART II`` …) is also treated as a header; the length
-    gate keeps long operative passages that merely begin with such a token from
-    being mistaken for a heading.
+    Keyed solely on ``Annotation.structural`` — the flag the parsing pipeline
+    sets on OC_SECTION layout annotations (see ``llamaparse_parser`` /
+    ``oc_text_parser``). Those are exactly the section-header annotations that
+    rank well for section-topic queries and produced the mis-anchored citations
+    in #2180.
+
+    We deliberately do NOT also text-match filing-style headings (``ITEM 1A``,
+    ``SECTION 8`` …). Legal drafting very commonly opens an *operative* clause
+    with its section number ("Section 8.1 requires 30 days' written notice …"),
+    so a heading-token regex would false-positive on real, correct citations in
+    contract corpora — and OpenContracts runs over general contracts, not just
+    SEC filings. ``structural`` is the reliable signal; keep this predicate
+    keyed on it.
     """
-    if structural:
-        return True
-    text = (raw_text or "").strip()
-    if not text or len(text) > MAX_HEADER_ANCHOR_CHARS:
-        return False
-    return bool(_HEADER_ANCHOR_RE.match(text))
+    return bool(structural)
 
 
 def _render_citations(
@@ -1011,7 +1001,6 @@ def _render_citations(
                 # future automated citation-checking can key off it (issue #2180).
                 "anchor_is_header": _is_header_anchor(
                     structural=bool(getattr(ann, "structural", False)),
-                    raw_text=raw_text,
                 ),
                 "display": " ".join(display_parts),
             }

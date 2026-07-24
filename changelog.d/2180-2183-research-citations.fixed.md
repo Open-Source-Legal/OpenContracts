@@ -15,11 +15,13 @@
   citation with `anchor_is_header`, and `ResearchReportService.finalize` records
   a concise warning (surfaced in the report's UI warning chips) when a footnote
   resolves to a section header / structural anchor instead of a supporting
-  passage. Detection keys off `Annotation.structural` (OC_SECTION headers) plus a
-  length-gated filing-heading heuristic (`ITEM 1A`, `PART II`, …); the new
-  `MAX_HEADER_ANCHOR_CHARS` constant keeps long operative passages that merely
-  begin with such a token eligible as real citations. The lint is observational —
-  it never rewrites report prose.
+  passage. Detection keys solely off `Annotation.structural` — the flag the
+  parsing pipeline sets on OC_SECTION layout annotations, which are exactly the
+  headers that mis-anchored in #2180. It deliberately does *not* also text-match
+  filing-style headings (`ITEM 1A`, `SECTION 8`, …), because legal prose commonly
+  opens an operative clause with its section number (“Section 8.1 requires …”),
+  which would false-positive on real citations in contract corpora. The lint is
+  observational — it never rewrites report prose.
 - **Confirmed the report composer is not the source of the #2183 duplication.**
   The finalize path emits the agent's `markdown_body` verbatim (cite-rendered)
   and the salvage path renders each finding exactly once; the observed doubling

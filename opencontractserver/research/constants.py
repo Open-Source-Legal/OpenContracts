@@ -105,16 +105,6 @@ RESEARCH_MEMORY_PREVIEW_CHARS = 160
 RESEARCH_RECOVERY_FINDINGS_DIGEST = 20
 
 
-# A citation anchor whose text is a bare section heading (e.g.
-# "ITEM 1A. RISK FACTORS") cannot support a specific claim (issue #2180).
-# ``Annotation.structural`` is the primary signal; as a fallback for corpora
-# that do not flag headers structurally, a *non-structural* anchor is treated
-# as a header only when it is at most this many chars AND opens with a
-# filing-style heading token — long operative passages that merely begin with
-# "Item 1A ..." stay eligible as real citations.
-MAX_HEADER_ANCHOR_CHARS = 80
-
-
 # Plan + memory tool names. Unioned into the deep-research agent's
 # ``restrict_tool_names`` set alongside the scratchpad tools. The closures
 # themselves are appended as caller-supplied tools (never filtered), so this
