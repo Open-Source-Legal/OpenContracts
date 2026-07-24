@@ -19,9 +19,11 @@ from opencontractserver.research.services.research_reports import (
     ResearchCancelled,
     ResearchReportService,
     _derive_title_from_prompt,
+    _is_header_anchor,
     _render_citations,
     _strip_fabricated_links,
 )
+from opencontractserver.tasks.research_tasks import _compose_salvage_body
 from opencontractserver.types.enums import JobStatus
 
 User = get_user_model()
@@ -300,6 +302,145 @@ class ResearchReportServiceTestCase(TestCase):
         )
         report.refresh_from_db()
         self.assertEqual(report.citations, [])
+
+    # ------------------------------------------------------------------
+    # finalize() — weak-citation (section-header) lint  [issue #2180]
+    # ------------------------------------------------------------------
+    def test_finalize_flags_structural_header_citation(self):
+        # A citation resolving to a structural (OC_SECTION) annotation anchors
+        # the top of a section, not the supporting passage — finalize flags it.
+        header = self._make_annotation(
+            structural=True, raw_text="ITEM 1A. RISK FACTORS"
+        )
+        report = self._make_report()
+        report.findings = [
+            {"section": "Risks", "claim": "c", "citations": [header.pk]},
+        ]
+        report.save(update_fields=["findings"])
+
+        body = f'<cite ids="{header.pk}">the filing discloses supply risk</cite>.'
+        ResearchReportService.finalize(
+            report,
+            executive_summary="",
+            markdown_body=body,
+            retrieved_annotation_ids=[header.pk],
+        )
+        report.refresh_from_db()
+        self.assertTrue(report.citations[0]["anchor_is_header"])
+        self.assertTrue(
+            any("section header" in str(w) for w in (report.warnings or [])),
+            report.warnings,
+        )
+
+    def test_finalize_flags_filing_heading_by_text_when_not_structural(self):
+        # Even without the structural flag, a short anchor that opens with a
+        # filing-style heading token is treated as a header (issue #2180's
+        # second example: "ITEM 3. QUANTITATIVE AND QUALITATIVE ...").
+        header = self._make_annotation(
+            structural=False,
+            raw_text="ITEM 3. QUANTITATIVE AND QUALITATIVE DISCLOSURES ABOUT MARKET RISK.",
+        )
+        report = self._make_report()
+        report.findings = [
+            {"section": "Market", "claim": "c", "citations": [header.pk]},
+        ]
+        report.save(update_fields=["findings"])
+        body = f'<cite ids="{header.pk}">no quantified sensitivity is disclosed</cite>.'
+        ResearchReportService.finalize(
+            report,
+            executive_summary="",
+            markdown_body=body,
+            retrieved_annotation_ids=[header.pk],
+        )
+        report.refresh_from_db()
+        self.assertTrue(report.citations[0]["anchor_is_header"])
+        self.assertTrue(
+            any("section header" in str(w) for w in (report.warnings or []))
+        )
+
+    def test_finalize_does_not_flag_operative_passage_citation(self):
+        # A normal, non-structural anchor with real operative language is a
+        # good citation — no weak-citation warning, flag is False.
+        passage = self._make_annotation(
+            structural=False,
+            raw_text=(
+                "Our fixed-price contracts expose us to cost-overrun risk because "
+                "we bear the burden of increases in raw-material prices."
+            ),
+        )
+        report = self._make_report()
+        report.findings = [
+            {"section": "Risks", "claim": "c", "citations": [passage.pk]},
+        ]
+        report.save(update_fields=["findings"])
+        body = (
+            f'<cite ids="{passage.pk}">fixed-price contracts carry overrun risk</cite>.'
+        )
+        ResearchReportService.finalize(
+            report,
+            executive_summary="",
+            markdown_body=body,
+            retrieved_annotation_ids=[passage.pk],
+        )
+        report.refresh_from_db()
+        self.assertFalse(report.citations[0]["anchor_is_header"])
+        self.assertFalse(
+            any("section header" in str(w) for w in (report.warnings or [])),
+            report.warnings,
+        )
+
+    def test_is_header_anchor_heuristics(self):
+        # Structural flag is the primary signal, regardless of text.
+        self.assertTrue(_is_header_anchor(structural=True, raw_text="anything at all"))
+        # Short filing-heading text is a header even when not structural.
+        self.assertTrue(
+            _is_header_anchor(structural=False, raw_text="ITEM 1A. RISK FACTORS")
+        )
+        # A long operative passage that merely begins with a heading token is
+        # NOT a header (the length gate keeps it eligible as a real citation).
+        long_passage = "Item 1A risk factors are discussed at length below: " + "x" * 80
+        self.assertFalse(_is_header_anchor(structural=False, raw_text=long_passage))
+        # Ordinary prose and empty text are never headers.
+        self.assertFalse(
+            _is_header_anchor(structural=False, raw_text="We bear cost-overrun risk.")
+        )
+        self.assertFalse(_is_header_anchor(structural=False, raw_text=""))
+
+    # ------------------------------------------------------------------
+    # Composer renders each finding once — NOT a doubler  [issue #2183]
+    # ------------------------------------------------------------------
+    def test_finalize_renders_each_claim_once(self):
+        # The finalize composer emits the agent's body verbatim (cite-rendered);
+        # it must never stitch a plain + cited variant of a sentence. Guards
+        # against a regression that would double each claim.
+        ann = self._make_annotation(raw_text="operative language here")
+        report = self._make_report()
+        sentence = "Aluminum and copper prices drive input-cost exposure"
+        report.findings = [
+            {"section": "Risks", "claim": sentence, "citations": [ann.pk]},
+        ]
+        report.save(update_fields=["findings"])
+        body = f'<cite ids="{ann.pk}">{sentence}</cite>.'
+        ResearchReportService.finalize(
+            report,
+            executive_summary="",
+            markdown_body=body,
+            retrieved_annotation_ids=[ann.pk],
+        )
+        report.refresh_from_db()
+        self.assertEqual(report.content.count(sentence), 1)
+        self.assertIn("[^1]", report.content)
+
+    def test_compose_salvage_body_renders_each_finding_once(self):
+        report = self._make_report()
+        report.findings = [
+            {"section": "Risks", "claim": "unique-claim-alpha", "citations": [1]},
+            {"section": "Risks", "claim": "unique-claim-beta", "citations": []},
+        ]
+        report.save(update_fields=["findings"])
+        body = _compose_salvage_body(report, response_text="")
+        self.assertEqual(body.count("unique-claim-alpha"), 1)
+        self.assertEqual(body.count("unique-claim-beta"), 1)
 
     # ------------------------------------------------------------------
     # Helpers

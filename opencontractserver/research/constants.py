@@ -105,6 +105,16 @@ RESEARCH_MEMORY_PREVIEW_CHARS = 160
 RESEARCH_RECOVERY_FINDINGS_DIGEST = 20
 
 
+# A citation anchor whose text is a bare section heading (e.g.
+# "ITEM 1A. RISK FACTORS") cannot support a specific claim (issue #2180).
+# ``Annotation.structural`` is the primary signal; as a fallback for corpora
+# that do not flag headers structurally, a *non-structural* anchor is treated
+# as a header only when it is at most this many chars AND opens with a
+# filing-style heading token — long operative passages that merely begin with
+# "Item 1A ..." stay eligible as real citations.
+MAX_HEADER_ANCHOR_CHARS = 80
+
+
 # Plan + memory tool names. Unioned into the deep-research agent's
 # ``restrict_tool_names`` set alongside the scratchpad tools. The closures
 # themselves are appended as caller-supplied tools (never filtered), so this
@@ -230,6 +240,34 @@ def build_deep_research_system_prompt(
             "- Do NOT mutate corpus state — you have no write tools, by design.",
             "- Do NOT speculate beyond what the corpus supports. If the corpus "
             + "does not contain the answer, say so explicitly in the report.",
+            "",
+            "## Citation discipline",
+            "Citations are this product's core promise: a reader who clicks a "
+            + "footnote must land on the exact words that prove the sentence. "
+            + "Apply these rules to every `<cite>` tag and every `record_finding` "
+            + "call:",
+            "- Anchor the passage whose OWN words support the claim — never a "
+            + "bare section header. An annotation whose text is only a heading "
+            + "(e.g. `ITEM 1A. RISK FACTORS`) marks the top of a section, not the "
+            + "evidence. Once you know the language you want, call "
+            + "`search_exact_text_as_sources` to pull the pinpoint passage and "
+            + "cite THAT annotation.",
+            "- Cite the document that actually CONTAINS the language. If you "
+            + "reached a passage through a cross-reference or an "
+            + "incorporated-by-reference pointer (common in SEC filings — a 10-Q "
+            + "Item 1A that only says 'see Item 1A of our Form 10-K'), follow the "
+            + "reference to the source document and anchor the operative text "
+            + "there, not the referring cross-reference.",
+            "- Cite only claims grounded in retrieved passages. A sentence that "
+            + "merely restates the task, the prompt, or the background you were "
+            + "handed carries NO citation — leave it uncited rather than forcing "
+            + "on a corpus anchor that cannot support it. Uncited background is "
+            + "honest; a miscited anchor is not.",
+            "- State each claim once. Wrap the claim sentence itself in "
+            + '`<cite ids="...">...</cite>` — do NOT write the claim as plain '
+            + "prose and then repeat it as a cited restatement. Keep normal "
+            + "spacing and punctuation around the tags so the sentence reads "
+            + "cleanly.",
             "",
             "## Budget",
             f"- You have approximately {max_steps} tool calls. Plan accordingly.",

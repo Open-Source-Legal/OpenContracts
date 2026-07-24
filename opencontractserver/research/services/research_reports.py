@@ -18,6 +18,7 @@ from django.utils import timezone
 
 from opencontractserver.research.constants import (
     DEFAULT_MAX_STEPS_FALLBACK,
+    MAX_HEADER_ANCHOR_CHARS,
     MAX_RESEARCH_MEMORY_KEY_CHARS,
     MAX_RESEARCH_MEMORY_KEYS,
     MAX_RESEARCH_MEMORY_TOTAL_CHARS,
@@ -713,10 +714,28 @@ class ResearchReportService(BaseService):
             "last_progress_at",
             "modified",
         ]
-        if warnings:
+        # Surface a weak-citation warning when any footnote resolves to a
+        # section header / structural anchor rather than a supporting passage
+        # (issue #2180). Observational only — it never rewrites the prose, it
+        # just flags footnotes a reviewer (or future automated checker) should
+        # double-check.
+        extra_warnings: list[str] = list(warnings or [])
+        header_footnotes = [
+            c["footnote"] for c in citations if c.get("anchor_is_header")
+        ]
+        if header_footnotes:
+            markers = ", ".join(f"[^{n}]" for n in header_footnotes)
+            noun = "citation" if len(header_footnotes) == 1 else "citations"
+            extra_warnings.append(
+                f"{len(header_footnotes)} {noun} anchor a section header rather "
+                f"than a supporting passage ({markers}); verify they point at the "
+                "operative language."
+            )
+
+        if extra_warnings:
             # Append rather than replace so prior warnings from
             # ``append_finding`` / ``append_tool_call`` survive.
-            report.warnings = list(report.warnings or []) + list(warnings)
+            report.warnings = list(report.warnings or []) + extra_warnings
             update_fields.append("warnings")
 
         # Single atomic block so the terminal content write and the M2M
@@ -870,6 +889,36 @@ def _strip_fabricated_links(markdown: str) -> str:
     return _MARKDOWN_LINK_RE.sub(_replace, markdown)
 
 
+# A citation anchor whose text opens with a filing-style heading token
+# (``ITEM 1A``, ``PART II``, ``ARTICLE III`` …). Used as a fallback header
+# signal for anchors that are not flagged ``structural`` — see
+# ``_is_header_anchor`` and issue #2180.
+_HEADER_ANCHOR_RE = re.compile(
+    r"^\s*(?:ITEM|PART|ARTICLE|SECTION|SCHEDULE|EXHIBIT|APPENDIX)\s+[0-9IVXLA]",
+    re.IGNORECASE,
+)
+
+
+def _is_header_anchor(*, structural: bool, raw_text: str) -> bool:
+    """True when a citation anchor is a bare section header / structural
+    element rather than the passage whose words support a claim (issue #2180).
+
+    ``structural`` (the ``Annotation.structural`` flag — set for OC_SECTION
+    layout annotations, which rank well for section-topic queries) is the
+    primary signal. As a fallback for corpora that do not flag headings
+    structurally, a *short* anchor whose text opens with a filing-style heading
+    token (``ITEM 1A``, ``PART II`` …) is also treated as a header; the length
+    gate keeps long operative passages that merely begin with such a token from
+    being mistaken for a heading.
+    """
+    if structural:
+        return True
+    text = (raw_text or "").strip()
+    if not text or len(text) > MAX_HEADER_ANCHOR_CHARS:
+        return False
+    return bool(_HEADER_ANCHOR_RE.match(text))
+
+
 def _render_citations(
     markdown_body: str, allowed_annotation_ids: set[int]
 ) -> tuple[str, list[dict]]:
@@ -957,6 +1006,13 @@ def _render_citations(
                 "document_id": doc_id,
                 "page": page,
                 "raw_text": raw_text,
+                # Flag anchors that resolve to a bare section header / structural
+                # element so finalize can surface a weak-citation warning and any
+                # future automated citation-checking can key off it (issue #2180).
+                "anchor_is_header": _is_header_anchor(
+                    structural=bool(getattr(ann, "structural", False)),
+                    raw_text=raw_text,
+                ),
                 "display": " ".join(display_parts),
             }
         )
