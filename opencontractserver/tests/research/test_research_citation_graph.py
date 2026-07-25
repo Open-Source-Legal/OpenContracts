@@ -25,6 +25,7 @@ from django.test import TransactionTestCase
 from opencontractserver.annotations.models import Annotation, AnnotationLabel
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document, DocumentPath
+from opencontractserver.llms import api as llms_api
 from opencontractserver.research.models import ResearchReport
 from opencontractserver.tasks.research_tasks import _run_deep_research_async
 from opencontractserver.types.enums import JobStatus, PermissionTypes
@@ -109,10 +110,23 @@ class CitationGraphContractTestCase(TransactionTestCase):
         report = ResearchReport.objects.select_related(
             "corpus", "creator", "conversation"
         ).get(pk=self.report.pk)
-        with patch(
-            "opencontractserver.llms.agents.for_corpus", side_effect=fake_for_corpus
-        ):
+        # Patch the AgentAPI SINGLETON, not the same-named package. The loop
+        # does ``from opencontractserver.llms import agents``, and
+        # ``llms/__init__`` re-exports ``llms.api.agents`` — the AgentAPI()
+        # instance — which shadows the ``llms.agents`` package of the same
+        # name. Patching the package leaves the real factory in place, builds a
+        # real agent, and sends the run at the live LLM.
+        with patch.object(llms_api.agents, "for_corpus", side_effect=fake_for_corpus):
             captured["result"] = asyncio.run(_run_deep_research_async(report))
+        # Fail loudly if the stub was bypassed. Without this, patching the wrong
+        # object degrades into a real agent quietly reaching for a live LLM, and
+        # the test fails somewhere unrelated (or, with credentials present,
+        # passes for the wrong reason).
+        self.assertIn(
+            "agent",
+            captured,
+            "the agent factory was not stubbed — this run reached the real one",
+        )
         return captured
 
     def test_retrieved_ids_register_and_are_accepted_downstream(self):
