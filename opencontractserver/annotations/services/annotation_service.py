@@ -907,7 +907,12 @@ class AnnotationService(BaseService):
 
         ``raw_text__icontains`` is index-backed: annotations migration 0074 adds
         a pg_trgm GIN index on ``Annotation.raw_text`` precisely so ILIKE
-        substring lookups don't degrade to a sequential scan.
+        substring lookups don't degrade to a sequential scan. The exception is a
+        ``phrase`` under three characters, which has no full trigram to look up
+        and falls back to a scan. Callers passing model-supplied text should
+        know that; it is not worth a length floor here, since a one- or
+        two-character phrase makes a useless anchor anyway and the caller's row
+        cap bounds what comes back.
         """
         from django.db.models.functions import Length
 

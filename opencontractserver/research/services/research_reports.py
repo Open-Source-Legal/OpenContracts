@@ -1143,6 +1143,15 @@ def _summary_duplicates_body(summary: str, body: str) -> bool:
       carrying the same quote stays well clear. The drop is reported by
       ``finalize`` rather than silent, since losing the whole section is a much
       bigger blast radius than the tail cases the other guards trim.
+
+    Only the needle is capped; the body is searched whole, so cost is linear in
+    the report — measured at roughly 6ms per KB, i.e. tens of ms for the report
+    sizes an agent actually writes, against a task that just spent minutes in
+    the model. Capping the haystack too would buy little and would blind the
+    check to a summary that copies the body's MIDDLE, which it currently
+    catches. Unlike the echo guard there is no arithmetic short-circuit to be
+    had here: the unbounded side is the haystack, not the ratio's denominator,
+    so a match can sit anywhere in it.
     """
     body_norm = _normalize_for_quote_match(body)
     summary_norm = _normalize_for_quote_match(summary)
@@ -1379,6 +1388,12 @@ def _is_negated(text: str) -> bool:
     references ("No. A-1") as well as numeric ones, and — unlike looking ahead
     for a number — it does not swallow a genuine negation that happens to
     precede one ("no 30-day cure period").
+
+    The period cannot tell an abbreviation from a one-word answer, so a bare
+    "No." ending a sentence reads as the abbreviation and does not negate.
+    Accepted: it errs toward NOT firing the inversion guard, which costs
+    strictness rather than attribution, and a standalone "No." as a whole
+    sentence is vanishingly rare in the report prose this runs over.
 
     Deliberately keyed on the normalized token stream rather than
     ``_content_words``, so the stopword list (which contains "not") cannot hide
