@@ -882,6 +882,14 @@ class AnnotationService(BaseService):
         straight to ``order_by`` because ``get_corpus_annotations`` returns a
         ``.distinct()`` queryset, and Postgres rejects a SELECT DISTINCT ordered
         by an expression that is not in the select list.
+
+        ``limit`` is a positive row count with a floor of 1 — ``limit=0`` still
+        yields one row rather than none. Pass an empty ``phrase`` (or just don't
+        call this) when the answer you want is "no rows".
+
+        ``raw_text__icontains`` is index-backed: annotations migration 0074 adds
+        a pg_trgm GIN index on ``Annotation.raw_text`` precisely so ILIKE
+        substring lookups don't degrade to a sequential scan.
         """
         from django.db.models.functions import Length
 

@@ -12,7 +12,11 @@ from opencontractserver.annotations.models import (
     AnnotationLabel,
 )
 from opencontractserver.corpuses.models import Corpus
-from opencontractserver.documents.models import Document
+from opencontractserver.documents.models import Document, DocumentPath
+from opencontractserver.research.constants import (
+    RESEARCH_CITABLE_PASSAGE_MAX_HITS,
+    RESEARCH_CITABLE_PASSAGE_PREVIEW_CHARS,
+)
 from opencontractserver.research.models import ResearchReport
 from opencontractserver.research.services.research_reports import (
     ConcurrentResearchInProgress,
@@ -24,8 +28,12 @@ from opencontractserver.research.services.research_reports import (
     _strip_fabricated_links,
     _verify_cite_spans,
 )
-from opencontractserver.tasks.research_tasks import _compose_salvage_body
-from opencontractserver.types.enums import JobStatus
+from opencontractserver.tasks.research_tasks import (
+    _citable_passage_rows,
+    _compose_salvage_body,
+)
+from opencontractserver.types.enums import JobStatus, PermissionTypes
+from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
 User = get_user_model()
 
@@ -939,3 +947,113 @@ class ResearchReportServiceTestCase(TestCase):
         self.assertIn("the source", report.content)
         self.assertIn("[^1]", report.content)
         self.assertIn("## Sources", report.content)
+
+
+class CitablePassageRowsTestCase(TestCase):
+    """``_citable_passage_rows`` — the row shaping behind the deep-research
+    ``find_citable_passages`` tool (issue #2201).
+
+    The permission/ordering semantics live in
+    ``AnnotationService.search_corpus_annotation_text`` and are covered in
+    ``test_corpus_annotations_query``; this pins the LLM-facing contract the
+    agent actually reads — a real citeable id, a paste-ready ``cite`` handle,
+    the ``similarity_search``-shaped keys, and the hit/preview caps.
+    """
+
+    user: User
+    corpus: Corpus
+    doc: Document
+    annotation: Annotation
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_user(username="rows-owner", password="x")
+        cls.corpus = Corpus.objects.create(title="Rows", creator=cls.user)
+        cls.doc = Document.objects.create(
+            title="Lease.pdf", creator=cls.user, file_type="application/pdf"
+        )
+        DocumentPath.objects.create(
+            document=cls.doc,
+            corpus=cls.corpus,
+            path="/lease.pdf",
+            is_current=True,
+            is_deleted=False,
+            version_number=1,
+            creator=cls.user,
+        )
+        label = AnnotationLabel.objects.create(
+            text="SENTENCE", label_type="TOKEN_LABEL", creator=cls.user
+        )
+        cls.annotation = Annotation.objects.create(
+            annotation_label=label,
+            document=cls.doc,
+            corpus=cls.corpus,
+            creator=cls.user,
+            page=3,
+            raw_text="The tenant shall maintain the premises in good repair.",
+            json={},
+        )
+        set_permissions_for_obj_to_user(cls.user, cls.corpus, [PermissionTypes.CRUD])
+        set_permissions_for_obj_to_user(cls.user, cls.doc, [PermissionTypes.CRUD])
+
+    def _rows(self, phrase, **kwargs):
+        return _citable_passage_rows(
+            corpus_id=self.corpus.pk,
+            user=self.user,
+            phrase=phrase,
+            document_id=kwargs.pop("document_id", None),
+            limit=kwargs.pop("limit", RESEARCH_CITABLE_PASSAGE_MAX_HITS),
+        )
+
+    def test_row_carries_a_paste_ready_cite_handle_and_search_shaped_keys(self):
+        rows = self._rows("maintain the premises")
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        # The handle is exactly what the prompt tells the agent to paste, and
+        # what _CITE_SPAN_RE / _render_citations consume.
+        self.assertEqual(row["cite"], f'<cite ids="{self.annotation.pk}"/>')
+        self.assertEqual(row["annotation_id"], self.annotation.pk)
+        self.assertGreater(row["annotation_id"], 0)
+        # similarity_search-shaped so the agent handles both tools identically.
+        self.assertEqual(row["document_id"], self.doc.pk)
+        self.assertEqual(row["document_title"], "Lease.pdf")
+        self.assertEqual(row["page"], 3)
+        self.assertEqual(row["label"], "SENTENCE")
+        self.assertIn("maintain the premises", row["content"])
+
+    def test_content_is_capped_at_the_preview_ceiling(self):
+        long_text = "maintain the premises " + ("x" * 5000)
+        Annotation.objects.create(
+            annotation_label=self.annotation.annotation_label,
+            document=self.doc,
+            corpus=self.corpus,
+            creator=self.user,
+            raw_text=long_text,
+            json={},
+        )
+        rows = self._rows("maintain the premises")
+        self.assertTrue(
+            all(
+                len(r["content"]) <= RESEARCH_CITABLE_PASSAGE_PREVIEW_CHARS
+                for r in rows
+            ),
+            [len(r["content"]) for r in rows],
+        )
+
+    def test_limit_is_clamped_to_the_hit_ceiling(self):
+        for i in range(RESEARCH_CITABLE_PASSAGE_MAX_HITS + 3):
+            Annotation.objects.create(
+                annotation_label=self.annotation.annotation_label,
+                document=self.doc,
+                corpus=self.corpus,
+                creator=self.user,
+                raw_text=f"maintain the premises clause {i}",
+                json={},
+            )
+        # A model asking for more than the ceiling cannot dump the corpus back
+        # into the context window.
+        rows = self._rows("maintain the premises", limit=999)
+        self.assertEqual(len(rows), RESEARCH_CITABLE_PASSAGE_MAX_HITS)
+
+    def test_no_match_returns_no_rows(self):
+        self.assertEqual(self._rows("a phrase that appears nowhere"), [])
