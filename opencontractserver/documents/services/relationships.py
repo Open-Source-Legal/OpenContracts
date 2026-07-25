@@ -106,18 +106,18 @@ class DocumentRelationshipService(BaseService):
             qs = qs.filter(corpus_id=corpus_id)
 
         counts: defaultdict[int, int] = defaultdict(int)
-        for row in qs.values("source_document_id").annotate(c=Count("id")):
-            counts[row["source_document_id"]] += row["c"]
+        for source_row in qs.values("source_document_id").annotate(c=Count("id")):
+            counts[source_row["source_document_id"]] += source_row["c"]
         # Exclude self-referential rows from the target-side aggregation so a
         # relationship where source == target only contributes once. Without
         # this guard, such a row would be counted both as a source and as a
         # target for the same document.
-        for target_row in (
+        for row in (
             qs.exclude(source_document_id=F("target_document_id"))
             .values("target_document_id")
             .annotate(c=Count("id"))
         ):
-            counts[target_row["target_document_id"]] += target_row["c"]
+            counts[row["target_document_id"]] += row["c"]
 
         # Materialise to a plain dict so callers can ``.get(key, 0)`` without
         # accidentally mutating the defaultdict.
