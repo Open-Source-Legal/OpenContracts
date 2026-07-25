@@ -525,7 +525,14 @@ class RunAgentSanitizationTests(TestCase):
             return mock_agent
 
         async def _inner():
+            # get_default_llm_spec is patched because _run_agent now threads
+            # the live PipelineSettings.default_llm tier into the resolver
+            # (issue #2078) — this is a DB read, and these are plain unittest
+            # TestCases with no database access.
             with patch(
+                "opencontractserver.pipeline.utils.get_default_llm_spec",
+                return_value="",
+            ), patch(
                 "opencontractserver.llms.llm_registry.resolve_model_spec",
                 return_value=unittest.mock.MagicMock(),
             ), patch(
@@ -579,7 +586,14 @@ class RunAgentSanitizationTests(TestCase):
         mock_agent.run = AsyncMock(return_value=mock_run_result)
 
         async def _inner():
+            # get_default_llm_spec is patched because _run_agent now threads
+            # the live PipelineSettings.default_llm tier into the resolver
+            # (issue #2078) — this is a DB read, and these are plain unittest
+            # TestCases with no database access.
             with patch(
+                "opencontractserver.pipeline.utils.get_default_llm_spec",
+                return_value="",
+            ), patch(
                 "opencontractserver.llms.llm_registry.resolve_model_spec",
                 return_value=unittest.mock.MagicMock(),
             ), patch(
