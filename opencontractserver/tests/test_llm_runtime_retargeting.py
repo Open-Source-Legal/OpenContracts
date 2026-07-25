@@ -437,8 +437,11 @@ class ContextWindowCoverageTests(TestCase):
             provider_cls = definition.component_class
             if provider_cls is None:
                 continue
+            # ``component_class`` is typed as a bare ``type``; provider
+            # attributes are read via getattr so mypy stays happy.
+            provider_key = getattr(provider_cls, "provider_key", "")
             for model in getattr(provider_cls, "supported_models", ()):
-                spec = f"{provider_cls.provider_key}:{model}"
+                spec = f"{provider_key}:{model}"
                 window = get_context_window_for_model(spec)
                 matched = any(
                     model.startswith(prefix) for prefix in MODEL_CONTEXT_WINDOWS

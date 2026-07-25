@@ -131,7 +131,6 @@ class AgenticWebLocatorProvider(BaseAuthoritySourceProvider):
         enforces the structured output schema on every model response.
         ``result.output`` is the validated ``_LocatorOutput`` instance.
         """
-        from asgiref.sync import sync_to_async
         from pydantic_ai.usage import UsageLimits
 
         from opencontractserver.llms.agents.pydantic_ai_factory import (
