@@ -1001,6 +1001,31 @@ class ResearchReportServiceTestCase(TestCase):
         self.assertEqual(result.cites_dropped, 0)
         self.assertIn(f'<cite ids="{anchor.pk}"/>', result.markdown)
 
+    def test_one_span_can_both_demote_a_quote_and_lose_its_citation(self):
+        # The three guards are independent, so a single badly-anchored span can
+        # trip quote verification AND claim support, incrementing both counters.
+        # Intended, not double counting: two different edits land in the text
+        # the reader sees — the quotation marks come off so no fabricated
+        # verbatim survives, and the footnote comes off so the sentence is not
+        # attributed. Warning about only one would leave the other unexplained.
+        anchor = self._make_annotation(
+            raw_text=(
+                "The lease term commences on the first day of January and runs "
+                "for five years"
+            )
+        )
+        span = (
+            '<cite ids="%d">"the tenant waives all consequential damages" under '
+            "the negotiated indemnity schedule attached hereto</cite>" % anchor.pk
+        )
+        result = _verify_cite_spans(span, {anchor.pk})
+        self.assertEqual(result.quotes_demoted, 1)
+        self.assertEqual(result.cites_dropped, 1)
+        # Both edits are visible: no quote glyphs, no citation, prose retained.
+        self.assertNotIn('"', result.markdown)
+        self.assertNotIn("<cite", result.markdown)
+        self.assertIn("the tenant waives all consequential damages", result.markdown)
+
     def test_claim_support_polarity_guard_treats_multiple_anchors_as_a_union(self):
         # Known limitation, pinned so it stays a decision rather than a
         # surprise. Coverage is measured against the union of the cited

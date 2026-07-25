@@ -587,6 +587,14 @@ def _citable_passage_rows(
     that issue #2201 asks for — the point being that the agent attributes what
     it just read instead of re-hunting for something citeable. Sync; the closure
     wraps it in ``sync_to_async``.
+
+    ``document_id`` can legitimately be ``None``: a structural annotation is
+    shared across the documents of its ``structural_set`` rather than owned by
+    one, so it has no single document to name. Such a row still carries a usable
+    ``annotation_id``/``cite`` handle, so it is returned with an empty
+    ``document_title`` rather than dropped. It is a rare shape here — the header
+    labels most structural rows carry are excluded below — but the row builder
+    must not assume a document is present.
     """
     from opencontractserver.annotations.services import AnnotationService
 

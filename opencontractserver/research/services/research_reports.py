@@ -1440,6 +1440,14 @@ def _verify_cite_spans(
     (3) rather than silently passing through — that is the "cited a real anchor
     but invented the content" hole these guards exist to close.
 
+    The guards are independent, so one badly-anchored span can trip (2) and (3)
+    both, and ``finalize`` will then warn about a demoted quote AND a removed
+    citation for what reads as a single sentence. That is intended: the two
+    remediations are different and both land in the output the reader sees. The
+    quotation marks come off (so no fabricated verbatim survives) and the
+    footnote comes off (so the sentence is not attributed) — reporting only one
+    would leave the other edit unexplained.
+
     Known asymmetry across split markers: when the agent writes
     ``… <cite ids="1"/> <cite ids="2"/>`` instead of the combined
     ``<cite ids="1,2"/>`` the prompt asks for, the carried-forward claim feeds
