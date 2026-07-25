@@ -28,6 +28,7 @@ from opencontractserver.research.services.research_reports import (
     _is_negated,
     _render_citations,
     _strip_fabricated_links,
+    _strip_scaffold_headings,
     _verify_cite_spans,
 )
 from opencontractserver.tasks.research_tasks import (
@@ -929,6 +930,36 @@ class ResearchReportServiceTestCase(TestCase):
         words = _content_words("Landlord shall give 10 days notice and a 5% fee")
         self.assertIn("10", words)
         self.assertIn("5%", words)
+
+    def test_strip_scaffold_headings_is_nesting_aware(self):
+        # A subsection INSIDE the scaffolding section must go with it. Ending
+        # the skip at the first heading of any depth leaked an orphaned
+        # "### By Document" list into the report — the same class of scaffolding
+        # escape #2200 is about.
+        nested = (
+            "## Findings\n\nBody text.\n\n"
+            "## Sources\n\n(All claims above are cited inline.)\n\n"
+            "### By Document\n\n- Lease.pdf, annotation 12\n"
+        )
+        cleaned, sections = _strip_scaffold_headings(nested)
+        self.assertEqual(sections, 1)
+        self.assertNotIn("By Document", cleaned)
+        self.assertNotIn("Lease.pdf", cleaned)
+        self.assertIn("Body text.", cleaned)
+
+        # ...but a sibling section AFTER it is outside the scaffolding and
+        # survives, as does a section following a deeper scaffolding heading.
+        after, _ = _strip_scaffold_headings(
+            "## Sources\n\n(stub)\n\n### Nested\n\nnested body\n\n"
+            "## Appendix\n\nKept text.\n"
+        )
+        self.assertIn("Kept text.", after)
+        self.assertNotIn("nested body", after)
+        deep, _ = _strip_scaffold_headings(
+            "## Findings\n\nBody.\n\n### Sources\n\nstub\n\n## Analysis\n\nAnalysis body.\n"
+        )
+        self.assertIn("Analysis body.", deep)
+        self.assertNotIn("stub", deep)
 
     def test_finalize_warns_when_an_agent_sources_section_is_stripped(self):
         # Dropping a whole section is a bigger blast radius than dropping a

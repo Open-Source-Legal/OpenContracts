@@ -1018,8 +1018,14 @@ def _strip_scaffold_headings(markdown: str) -> tuple[str, int]:
     produces the doubled document of issue #2200 — a full report, a stub
     "## Sources — (all claims are cited inline)" line, then the whole report
     again. A sources-flavoured heading takes its section with it (up to the next
-    heading of any level); the executive-summary heading is dropped alone so the
-    prose beneath it survives as the summary.
+    heading at the same or a shallower level); the executive-summary heading is
+    dropped alone so the prose beneath it survives as the summary.
+
+    Stripping is nesting-aware: a subsection *inside* the scaffolding section
+    (``## Sources`` -> ``### By Document``) goes with it, rather than ending the
+    skip and leaking orphaned scaffolding into the report — which is the very
+    thing #2200 is about. A heading at the same or a shallower level ends the
+    section, as it does in the markdown itself.
 
     Returns ``(cleaned, sections_stripped)``. Dropping a whole section is a much
     bigger blast radius than dropping a heading line, so the count is surfaced
@@ -1030,18 +1036,26 @@ def _strip_scaffold_headings(markdown: str) -> tuple[str, int]:
     if not markdown:
         return "", 0
     kept: list[str] = []
-    skipping = False
+    # Heading level of the scaffolding section currently being skipped, or None.
+    skip_level: int | None = None
     sections = 0
     for line in markdown.splitlines():
         heading = _MD_HEADING_RE.match(line)
         if heading:
-            title = _normalize_label(heading.group(1))
-            skipping = title in _SCAFFOLD_SECTION_HEADINGS
-            if skipping:
-                sections += 1
-            if skipping or title in _SCAFFOLD_HEADING_LINES:
-                continue
-        if not skipping:
+            level = len(heading.group(1))
+            title = _normalize_label(heading.group(2))
+            # A heading at the same or a shallower level closes the section;
+            # a deeper one is nested inside it and keeps the skip running.
+            if skip_level is not None and level <= skip_level:
+                skip_level = None
+            if skip_level is None:
+                if title in _SCAFFOLD_SECTION_HEADINGS:
+                    skip_level = level
+                    sections += 1
+                    continue
+                if title in _SCAFFOLD_HEADING_LINES:
+                    continue
+        if skip_level is None:
             kept.append(line)
     return "\n".join(kept).strip(), sections
 
@@ -1120,8 +1134,9 @@ _CITE_SPAN_RE = re.compile(
 # decorates, and to compare a wrapping span against the prose before it.
 _SENTENCE_BOUNDARY_RE = re.compile(r'[.!?:;]["”’)\]]*\s|\n')
 
-# A markdown ATX heading line of any level, capturing its title text.
-_MD_HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s+(.*?)\s*#*\s*$")
+# A markdown ATX heading line, capturing its level (the run of ``#``) and its
+# title text. The level is what makes section stripping nesting-aware.
+_MD_HEADING_RE = re.compile(r"^\s{0,3}(#{1,6})\s+(.*?)\s*#*\s*$")
 
 # Headings the SYSTEM owns. ``finalize`` writes the executive-summary header and
 # renders the Sources footnote table itself, so an agent-authored copy is
