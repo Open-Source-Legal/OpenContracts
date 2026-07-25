@@ -24,9 +24,16 @@ from opencontractserver.utils.prompt_sanitization import (
 # ``restrict_tool_names``; the list below is intersected with the agent's
 # default tool set so any tool that isn't a recognised registry name is
 # silently dropped.
+# ``search_exact_text_as_sources`` is deliberately NOT here (issue #2201): it
+# returns ad-hoc matches with SYNTHETIC NEGATIVE annotation ids, which
+# ``record_finding`` rejects and ``finalize`` drops. Steering the agent at it
+# for "pinpoint anchors" (the #2180 prompt rule) therefore sent it hunting for
+# an id it could never obtain — a 3M-token run that never finalized. The
+# ``find_citable_passages`` closure (research_tasks) replaces it: same
+# exact-phrase lookup, but over real Annotation rows, so every hit carries a
+# ready-to-paste cite handle.
 DEEP_RESEARCH_READ_ONLY_TOOLS: list[str] = [
     "similarity_search",
-    "search_exact_text_as_sources",
     "load_document_md_summary",
     "get_md_summary_token_length",
     "load_document_text",
@@ -142,7 +149,8 @@ RESEARCH_HEADER_ANCHOR_LABELS: frozenset[str] = frozenset(
 # but isn't. At finalize every quoted passage inside a ``<cite>`` span is checked
 # against the ``raw_text`` of that span's cited annotation(s); a quote that does
 # not match is demoted to plain paraphrase (its quotation marks are stripped) and
-# the report is flagged. See ``ResearchReportService._verify_quoted_spans``.
+# the report is flagged. See ``research_reports._verify_cite_spans``, which runs
+# this check alongside the #2200/#2201 guards in one pass over the cite spans.
 #
 # Only quotes of at least this many words are verified. Shorter quoted strings
 # (defined terms like "Confidential Information", scare-quotes, single words) are
@@ -172,6 +180,76 @@ RESEARCH_QUOTE_MATCH_THRESHOLD = 0.92
 RESEARCH_QUOTE_MAX_CHARS = 2000
 
 
+# ---------------------------------------------------------------------------
+# Report composition + claim-support verification (issues #2200, #2201)
+# ---------------------------------------------------------------------------
+# ``finalize`` composes ONE document (executive summary + body) and runs the
+# citation post-processors over it exactly once. Three deterministic guards run
+# in that pass; the constants they key on live here.
+
+# 1. Duplicate-summary suppression (#2200). The agent was observed passing the
+#    WHOLE report as ``executive_summary`` as well as ``markdown_body``, so the
+#    report rendered twice. The summary is dropped when it merely restates the
+#    body: a normalized-substring hit, or a contiguous run of the summary's
+#    first ``…PROBE_CHARS`` characters covering ``…THRESHOLD`` of that probe
+#    inside the body. Probing the head (rather than diffing two multi-KB
+#    strings) keeps this linear-ish — a genuine copy always matches from its
+#    first sentence.
+RESEARCH_SUMMARY_DUPLICATE_THRESHOLD = 0.8
+RESEARCH_SUMMARY_DUPLICATE_PROBE_CHARS = 400
+
+# 2. Echoed-cite collapse (#2200). The successor of #2183's sentence-doubling:
+#    the agent writes the claim as prose and then repeats it verbatim inside the
+#    `<cite>` tag, so every bullet reads twice. When a span's inner text merely
+#    echoes the prose immediately before it, the span collapses to the
+#    self-closing marker form (`<cite ids="…"/>`), which renders as a bare
+#    footnote on the existing sentence. The threshold is the contiguous-run
+#    coverage of the span text within the preceding prose.
+RESEARCH_CITE_ECHO_THRESHOLD = 0.9
+
+# How far back a self-closing `<cite ids="…"/>` marker looks for the sentence it
+# decorates (also the echo-comparison window). Generous for a long legal
+# sentence, bounded so the lookback stays O(1) per marker rather than O(document).
+RESEARCH_SENTENCE_LOOKBACK_CHARS = 1200
+
+# 3. Claim-support check (#2201). Generalizes the #2189 quote verifier from "is
+#    this quote verbatim" to "does the cited passage say this at all". A cited
+#    sentence must share at least ``…MIN_COVERAGE`` of its content words with
+#    the text of the annotation(s) it cites; below that the citation is stripped
+#    (the prose survives as uncited analysis) and the report is flagged.
+#
+#    This is a deliberately cheap, deterministic lexical floor — no LLM call, no
+#    embedding round-trip at finalize. It decisively kills the two anchoring
+#    failures from #2201: a one-word mention span cited for a full sentence, and
+#    prompt-derived background decorated with a loosely-related entity anchor —
+#    both score near zero. It does NOT catch a well-anchored sentence carrying an
+#    invented tail (#2201's over-attributed paraphrase); the prompt's
+#    "don't extend a cited sentence" rule is the guard there, and swapping
+#    ``_claim_is_supported`` for an entailment call is the drop-in upgrade.
+#
+#    Only claims of at least ``…MIN_WORDS`` words are checked: short spans
+#    (fragments, defined terms, a cited clause name) have too few content words
+#    for a coverage ratio to mean anything and are the main false-positive
+#    source. The floor is set low because stripping a CORRECT citation is worse
+#    than keeping a weak one — a genuine paraphrase of its anchor clears 0.25
+#    comfortably, while the failure modes above land under 0.15.
+RESEARCH_CLAIM_SUPPORT_MIN_WORDS = 12
+RESEARCH_CLAIM_SUPPORT_MIN_COVERAGE = 0.25
+
+# Content-word extraction for the support check: tokens shorter than this are
+# dropped along with the stopword list, so the ratio is computed over the terms
+# that actually carry meaning (parties, amounts, defined terms, verbs).
+RESEARCH_SUPPORT_MIN_TOKEN_CHARS = 3
+RESEARCH_SUPPORT_STOPWORDS: frozenset[str] = frozenset("""
+    the and for that this with from are was were will would can could may might
+    shall should must have has had been being not but our its their there these
+    those they them then than when where which who whom what while into onto
+    over under about above below after before during such any all each other
+    some more most both same own very just also only own per via upon within
+    without because however therefore thus does did doing done here out off
+    """.split())
+
+
 # Plan + memory tool names. Unioned into the deep-research agent's
 # ``restrict_tool_names`` set alongside the scratchpad tools. The closures
 # themselves are appended as caller-supplied tools (never filtered), so this
@@ -185,6 +263,18 @@ DEEP_RESEARCH_MEMORY_TOOL_NAMES: set[str] = {
     "search_memory",
     "delete_memory",
 }
+
+
+# Retrieval closures the deep-research loop binds itself (rather than pulling
+# from the shared tool registry) because they need the run's citation
+# accumulator. Same documentary/defensive role as the memory set above.
+DEEP_RESEARCH_RETRIEVAL_CLOSURE_TOOLS: set[str] = {"find_citable_passages"}
+
+# Max rows ``find_citable_passages`` returns per call, and how much of each
+# anchor's text to show. Bounded so a common phrase cannot dump a corpus-worth
+# of annotations back into the context window.
+RESEARCH_CITABLE_PASSAGE_MAX_HITS = 10
+RESEARCH_CITABLE_PASSAGE_PREVIEW_CHARS = 600
 
 
 def build_deep_research_system_prompt(
@@ -252,10 +342,11 @@ def build_deep_research_system_prompt(
             + "`record_finding` with the claim text, the citing section, and the "
             + "annotation IDs returned by your retrieval tools.",
             "3. When you have enough evidence to answer the task, call "
-            + "`finalize_report` with an executive summary and the final markdown "
-            + 'body. The body MUST use `<cite ids="a,b">claim text</cite>` '
-            + "placeholder tags for every cited claim — the system converts these "
-            + "to footnote markers and a Sources section.",
+            + "`finalize_report`. `executive_summary` is 2–4 sentences of "
+            + "top-line answer; `markdown_body` is the full report. They are "
+            + "DIFFERENT texts — never pass the report as both, and never write "
+            + "your own `## Executive Summary` or `## Sources` headings: the "
+            + "system adds them and renders the footnote table.",
             "4. `finalize_report` is the terminal action. Once you call it, the "
             + "run ends.",
             "",
@@ -303,12 +394,23 @@ def build_deep_research_system_prompt(
             + "footnote must land on the exact words that prove the sentence. "
             + "Apply these rules to every `<cite>` tag and every `record_finding` "
             + "call:",
+            "- Citing is cheap — cite what you retrieved. Every retrieval result "
+            + "carries an `annotation_id`; that number IS the cite handle. Write "
+            + 'the sentence, then attach `<cite ids="123,456"/>` (self-closing, '
+            + "no inner text) right after it. Use the wrapping form "
+            + '`<cite ids="123">…</cite>` ONLY to scope part of a sentence, and '
+            + "never put a copy of the sentence inside the tag — a tag that "
+            + "echoes its own sentence is collapsed to a bare marker at "
+            + "finalize.",
             "- Anchor the passage whose OWN words support the claim — never a "
             + "bare section header. An annotation whose text is only a heading "
             + "(e.g. `ITEM 1A. RISK FACTORS`) marks the top of a section, not the "
-            + "evidence. Once you know the language you want, call "
-            + "`search_exact_text_as_sources` to pull the pinpoint passage and "
-            + "cite THAT annotation.",
+            + "evidence, and neither does a bare entity mention. When you know "
+            + "the language you want but not its annotation, call "
+            + "`find_citable_passages(phrase)` — it returns the real annotations "
+            + "containing that phrase, tightest first, each with its cite handle. "
+            + "Do not go hunting with repeated broad searches for something to "
+            + "cite.",
             "- Cite the document that actually CONTAINS the language. If you "
             + "reached a passage through a cross-reference or an "
             + "incorporated-by-reference pointer (common in SEC filings — a 10-Q "
@@ -320,22 +422,28 @@ def build_deep_research_system_prompt(
             + "handed carries NO citation — leave it uncited rather than forcing "
             + "on a corpus anchor that cannot support it. Uncited background is "
             + "honest; a miscited anchor is not.",
+            "- One anchor must carry the WHOLE sentence it is attached to. Do "
+            + "not extend a cited sentence with detail the passage does not "
+            + "contain — split it into a cited sentence and a separate, uncited "
+            + "analysis sentence. And do not reuse a convenient nearby anchor "
+            + "for a second, different claim it cannot support. At finalize "
+            + "every cited sentence is checked against the words of its cited "
+            + "annotation(s); a sentence its anchor does not support LOSES its "
+            + "footnote and the report is flagged.",
             "- Quote only what you can copy verbatim. Put a passage in quotation "
-            + "marks ONLY when it is copied exactly, word for word, from a "
-            + "retrieved passage you cite in the SAME `<cite>` tag. If you are "
+            + "marks ONLY when it is copied exactly, word for word, from the "
+            + "retrieved passage cited on that same sentence. If you are "
             + "paraphrasing or summarising, do NOT use quotation marks. At "
             + "finalize every quoted passage is checked against the text of its "
             + "cited annotation; a quote that does not match is stripped of its "
             + "quotation marks (demoted to paraphrase) and the report is flagged. "
-            + "When you need the exact words, call "
-            + "`search_exact_text_as_sources` to pull the pinpoint passage and "
-            + "cite the annotation that contains them — never reconstruct a quote "
-            + "from memory.",
-            "- State each claim once. Wrap the claim sentence itself in "
-            + '`<cite ids="...">...</cite>` — do NOT write the claim as plain '
-            + "prose and then repeat it as a cited restatement. Keep normal "
-            + "spacing and punctuation around the tags so the sentence reads "
-            + "cleanly.",
+            + "When you need the exact words, call `find_citable_passages` to "
+            + "pull the passage and cite the annotation it returns — never "
+            + "reconstruct a quote from memory.",
+            "- State each claim once. Write the sentence, then attach the "
+            + "citation — do NOT write the claim as plain prose and then repeat "
+            + "it as a cited restatement. Keep normal spacing and punctuation "
+            + "around the tags so the sentence reads cleanly.",
             "",
             "## Budget",
             f"- You have approximately {max_steps} tool calls. Plan accordingly.",

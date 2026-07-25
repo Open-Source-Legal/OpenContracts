@@ -457,7 +457,11 @@ class DeepResearchSystemPromptTestCase(TestCase):
         self.assertIn("Citation discipline", prompt)
         # #2180 — never cite a bare section header; prefer pinpoint anchors.
         self.assertIn("section header", prompt)
-        self.assertIn("search_exact_text_as_sources", prompt)
+        # #2201 — the pinpoint-anchor tool must be the CITEABLE one; the old
+        # advice pointed at search_exact_text_as_sources, whose synthetic
+        # negative ids can never be cited.
+        self.assertIn("find_citable_passages", prompt)
+        self.assertNotIn("search_exact_text_as_sources", prompt)
         # #2181 — follow incorporation-by-reference to the source document.
         self.assertIn("incorporated-by-reference", prompt)
         # #2182 — task/prompt/background restatements carry no citation.

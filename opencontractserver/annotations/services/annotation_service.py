@@ -851,6 +851,58 @@ class AnnotationService(BaseService):
         )
 
     @classmethod
+    def search_corpus_annotation_text(
+        cls,
+        *,
+        corpus_id: int,
+        user,
+        phrase: str,
+        document_id: Optional[int] = None,
+        limit: int = 10,
+        context: Optional[Any] = None,
+    ) -> QuerySet:
+        """Find corpus annotations whose text contains ``phrase``, tightest first.
+
+        The permission-filtered, *citeable* counterpart to
+        ``search_exact_text_as_sources``: that tool re-derives matches from the
+        PAWLS/text layer and returns synthetic negative ids, which cannot be
+        cited or linked to anything. This returns the real ``Annotation`` rows
+        that contain the phrase, so the caller gets a durable anchor id it can
+        attribute with (see the deep-research ``find_citable_passages`` tool,
+        issue #2201).
+
+        Visibility is delegated wholesale to ``get_corpus_annotations`` —
+        corpus READ plus per-document visibility plus the analysis/extract
+        privacy gate — so this adds no permission logic of its own.
+
+        Ordering is by ``raw_text`` length ascending: the shortest annotation
+        containing the phrase is the most pinpoint anchor, which is exactly what
+        the citation-discipline rules (#2180) ask for. ``id`` breaks ties so
+        results are deterministic. The length is ``annotate``d rather than passed
+        straight to ``order_by`` because ``get_corpus_annotations`` returns a
+        ``.distinct()`` queryset, and Postgres rejects a SELECT DISTINCT ordered
+        by an expression that is not in the select list.
+        """
+        from django.db.models.functions import Length
+
+        from opencontractserver.annotations.models import Annotation
+
+        phrase = (phrase or "").strip()
+        if not phrase:
+            return Annotation.objects.none()
+
+        qs = cls.get_corpus_annotations(corpus_id, user, context=context).filter(
+            raw_text__icontains=phrase
+        )
+        if document_id is not None:
+            qs = qs.filter(document_id=document_id)
+        return (
+            qs.select_related("document", "annotation_label")
+            .annotate(_anchor_chars=Length("raw_text"))
+            .order_by("_anchor_chars", "id")[: max(1, int(limit))]
+        )
+
+    @classmethod
     def resolve_owned_document(cls, *, document_id: int, user: Any) -> Any:
         """Permission-gated fallback fetch of a non-structural annotation's document.
 

@@ -502,3 +502,114 @@ class TestCorpusAnnotationsQueryEdgeCases(TestCase):
 
         # No visible documents = no annotations
         self.assertEqual(result.count(), 0)
+
+
+class TestSearchCorpusAnnotationText(TestCase):
+    """``AnnotationService.search_corpus_annotation_text`` — the citeable
+    exact-phrase lookup behind the deep-research ``find_citable_passages`` tool
+    (issue #2201)."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.owner = User.objects.create_user(
+            username="phrase-owner", email="po@test.com", password="test123"
+        )
+        cls.outsider = User.objects.create_user(
+            username="phrase-outsider", email="pd@test.com", password="test123"
+        )
+        cls.corpus = Corpus.objects.create(title="Phrase Corpus", creator=cls.owner)
+        cls.doc = Document.objects.create(title="Lease.pdf", creator=cls.owner)
+        cls.other_doc = Document.objects.create(title="MSA.pdf", creator=cls.owner)
+        for doc, path in ((cls.doc, "/lease.pdf"), (cls.other_doc, "/msa.pdf")):
+            DocumentPath.objects.create(
+                document=doc,
+                corpus=cls.corpus,
+                path=path,
+                is_current=True,
+                is_deleted=False,
+                version_number=1,
+                creator=cls.owner,
+            )
+        cls.label = AnnotationLabel.objects.create(
+            text="SENTENCE", label_type=LabelType.TOKEN_LABEL, creator=cls.owner
+        )
+        # Two annotations contain the phrase; the tighter one must come first.
+        cls.wide = Annotation.objects.create(
+            annotation_label=cls.label,
+            document=cls.doc,
+            corpus=cls.corpus,
+            creator=cls.owner,
+            raw_text=(
+                "Section 8.1. The tenant shall maintain the premises in good "
+                "repair throughout the term and shall surrender them in like "
+                "condition, ordinary wear and tear excepted."
+            ),
+        )
+        cls.tight = Annotation.objects.create(
+            annotation_label=cls.label,
+            document=cls.doc,
+            corpus=cls.corpus,
+            creator=cls.owner,
+            raw_text="The tenant shall maintain the premises in good repair.",
+        )
+        cls.other = Annotation.objects.create(
+            annotation_label=cls.label,
+            document=cls.other_doc,
+            corpus=cls.corpus,
+            creator=cls.owner,
+            raw_text=(
+                "Supplier shall at its sole cost and expense maintain the "
+                "premises in good repair at all times during the term."
+            ),
+        )
+        set_permissions_for_obj_to_user(cls.owner, cls.corpus, [PermissionTypes.CRUD])
+        for doc in (cls.doc, cls.other_doc):
+            set_permissions_for_obj_to_user(cls.owner, doc, [PermissionTypes.CRUD])
+
+    def test_returns_real_citeable_anchors_tightest_first(self):
+        hits = list(
+            AnnotationService.search_corpus_annotation_text(
+                corpus_id=self.corpus.id,
+                user=self.owner,
+                phrase="maintain the premises in good repair",
+            )
+        )
+        self.assertEqual([h.pk for h in hits][:1], [self.tight.pk])
+        self.assertIn(self.wide, hits)
+        self.assertIn(self.other, hits)
+        # Every id is a real (positive) Annotation PK — the whole point versus
+        # search_exact_text_as_sources' synthetic negative ids.
+        self.assertTrue(all(h.pk > 0 for h in hits))
+
+    def test_scopes_to_a_single_document_and_respects_limit(self):
+        hits = list(
+            AnnotationService.search_corpus_annotation_text(
+                corpus_id=self.corpus.id,
+                user=self.owner,
+                phrase="maintain the premises",
+                document_id=self.doc.id,
+                limit=1,
+            )
+        )
+        self.assertEqual([h.pk for h in hits], [self.tight.pk])
+
+    def test_empty_phrase_and_no_match_return_nothing(self):
+        for phrase in ("", "   ", "a phrase that appears nowhere at all"):
+            with self.subTest(phrase=phrase):
+                self.assertEqual(
+                    AnnotationService.search_corpus_annotation_text(
+                        corpus_id=self.corpus.id, user=self.owner, phrase=phrase
+                    ).count(),
+                    0,
+                )
+
+    def test_visibility_is_delegated_to_get_corpus_annotations(self):
+        # No corpus grant -> nothing, even though the phrase matches.
+        self.assertEqual(
+            AnnotationService.search_corpus_annotation_text(
+                corpus_id=self.corpus.id,
+                user=self.outsider,
+                phrase="maintain the premises",
+            ).count(),
+            0,
+        )

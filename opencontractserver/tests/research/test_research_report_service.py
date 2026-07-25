@@ -22,7 +22,7 @@ from opencontractserver.research.services.research_reports import (
     _is_header_anchor,
     _render_citations,
     _strip_fabricated_links,
-    _verify_quoted_spans,
+    _verify_cite_spans,
 )
 from opencontractserver.tasks.research_tasks import _compose_salvage_body
 from opencontractserver.types.enums import JobStatus
@@ -531,7 +531,7 @@ class ResearchReportServiceTestCase(TestCase):
             report.warnings,
         )
 
-    def test_verify_quoted_spans_skips_short_quotes(self):
+    def test_verify_cite_spans_skips_short_quotes(self):
         # A short quoted term (< RESEARCH_QUOTE_MIN_WORDS words) is a defined
         # term / scare-quote, not a passage claim — left alone even when it is
         # nowhere in the cited annotation.
@@ -540,18 +540,18 @@ class ResearchReportServiceTestCase(TestCase):
             f'<cite ids="{ann.pk}">the agreement defines "Confidential '
             'Information" broadly</cite>'
         )
-        verified, downgraded = _verify_quoted_spans(body, {ann.pk})
+        verified, downgraded, _ = _verify_cite_spans(body, {ann.pk})
         self.assertEqual(downgraded, 0)
         self.assertEqual(verified, body)
 
-    def test_verify_quoted_spans_leaves_uncited_quotes_untouched(self):
+    def test_verify_cite_spans_leaves_uncited_quotes_untouched(self):
         # A quote outside any <cite> span has no anchor to verify against.
         body = 'Background: the task asked about "a five word or longer thing".'
-        verified, downgraded = _verify_quoted_spans(body, set())
+        verified, downgraded, _ = _verify_cite_spans(body, set())
         self.assertEqual(downgraded, 0)
         self.assertEqual(verified, body)
 
-    def test_verify_quoted_spans_matches_any_cited_annotation(self):
+    def test_verify_cite_spans_matches_any_cited_annotation(self):
         # A span may cite several annotations; the quote need only match ONE.
         a1 = self._make_annotation(raw_text="the lessor may terminate on default")
         a2 = self._make_annotation(
@@ -561,37 +561,37 @@ class ResearchReportServiceTestCase(TestCase):
             f'<cite ids="{a1.pk},{a2.pk}">tenant is liable: "shall pay all real '
             'estate taxes and assessments"</cite>'
         )
-        verified, downgraded = _verify_quoted_spans(body, {a1.pk, a2.pk})
+        verified, downgraded, _ = _verify_cite_spans(body, {a1.pk, a2.pk})
         self.assertEqual(downgraded, 0)
         self.assertEqual(verified, body)
 
-    def test_verify_quoted_spans_handles_curly_and_mismatched_quotes(self):
+    def test_verify_cite_spans_handles_curly_and_mismatched_quotes(self):
         # Curly (“...”) and mismatched pairs (straight-open/curly-close) are
         # matched and verified just like straight quotes.
         ann = self._make_annotation(raw_text="the tenant shall not sublet the premises")
         # Fabricated curly quote -> stripped.
         curly = f'<cite ids="{ann.pk}">it says “the landlord may sublet at will freely”</cite>'
-        v, d = _verify_quoted_spans(curly, {ann.pk})
+        v, d, _ = _verify_cite_spans(curly, {ann.pk})
         self.assertEqual(d, 1)
         self.assertNotIn("“the landlord may sublet", v)
         # Grounded but with a mismatched open/close pair -> preserved.
         mismatched = f'<cite ids="{ann.pk}">note: "the tenant shall not sublet the premises”</cite>'
-        v2, d2 = _verify_quoted_spans(mismatched, {ann.pk})
+        v2, d2, _ = _verify_cite_spans(mismatched, {ann.pk})
         self.assertEqual(d2, 0)
         self.assertEqual(v2, mismatched)
 
-    def test_verify_quoted_spans_demotes_quote_when_anchor_has_no_text(self):
+    def test_verify_cite_spans_demotes_quote_when_anchor_has_no_text(self):
         # A quote attributed to a real, cited anchor that has NO raw_text cannot
         # be a verbatim citation of it — demote rather than silently pass it
         # through (the "looks cited but isn't" hole this fix targets).
         ann = self._make_annotation(raw_text="")
         body = f'<cite ids="{ann.pk}">the report states "a fully invented five word passage"</cite>'
-        verified, downgraded = _verify_quoted_spans(body, {ann.pk})
+        verified, downgraded, _ = _verify_cite_spans(body, {ann.pk})
         self.assertEqual(downgraded, 1)
         self.assertNotIn('"a fully invented', verified)
         # Short quoted terms still skip even without any anchor text.
         short = f'<cite ids="{ann.pk}">defines "Force Majeure" here</cite>'
-        v2, d2 = _verify_quoted_spans(short, {ann.pk})
+        v2, d2, _ = _verify_cite_spans(short, {ann.pk})
         self.assertEqual(d2, 0)
         self.assertEqual(v2, short)
 
@@ -619,6 +619,162 @@ class ResearchReportServiceTestCase(TestCase):
         report.refresh_from_db()
         self.assertEqual(report.content.count(sentence), 1)
         self.assertIn("[^1]", report.content)
+
+    # ------------------------------------------------------------------
+    # finalize() — single rendering + pure-marker cites  [issue #2200]
+    # ------------------------------------------------------------------
+    def test_finalize_drops_summary_that_duplicates_the_body(self):
+        # The observed regression: the agent passed the WHOLE report as BOTH
+        # executive_summary and markdown_body, so the report rendered twice —
+        # once with raw <cite> spans (the summary was never cite-rendered) and
+        # once in footnote form. One rendering, one Executive Summary header.
+        ann = self._make_annotation(raw_text="the lessee bears all repair costs")
+        report = self._make_report()
+        report.findings = [
+            {"section": "Costs", "claim": "repairs", "citations": [ann.pk]},
+        ]
+        report.save(update_fields=["findings"])
+
+        whole_report = (
+            "## Repair obligations\n\n"
+            f'The lessee bears all repair costs <cite ids="{ann.pk}"/>.\n\n'
+            "## Sources\n\n(All claims above are cited inline.)"
+        )
+        ResearchReportService.finalize(
+            report,
+            executive_summary=whole_report,
+            markdown_body=whole_report,
+            retrieved_annotation_ids=[ann.pk],
+        )
+        report.refresh_from_db()
+        self.assertEqual(report.content.count("Executive Summary"), 0)
+        self.assertEqual(report.content.count("The lessee bears all repair costs"), 1)
+        # The agent's stub Sources section is gone; the rendered one remains.
+        self.assertNotIn("cited inline", report.content)
+        self.assertEqual(report.content.count("## Sources"), 1)
+        self.assertIn("[^1]", report.content)
+
+    def test_finalize_renders_cite_tags_inside_the_executive_summary(self):
+        # A <cite> tag in the summary used to leak raw into the stored content
+        # because only the body was cite-rendered. Composition now happens
+        # first, so one pass covers both.
+        ann = self._make_annotation(raw_text="indemnity survives termination")
+        report = self._make_report()
+        report.findings = [
+            {"section": "S", "claim": "indemnity", "citations": [ann.pk]},
+        ]
+        report.save(update_fields=["findings"])
+        ResearchReportService.finalize(
+            report,
+            executive_summary=f'Indemnity survives <cite ids="{ann.pk}"/>.',
+            markdown_body="Body prose with no citations.",
+            retrieved_annotation_ids=[ann.pk],
+        )
+        report.refresh_from_db()
+        self.assertNotIn("<cite", report.content)
+        self.assertIn("Indemnity survives [^1]", report.content)
+        self.assertIn("## Executive Summary", report.content)
+
+    def test_finalize_collapses_cite_span_that_echoes_its_own_sentence(self):
+        # #2200's self-quoting spans: the claim is written as prose and then
+        # repeated verbatim inside the tag, doubling every bullet. The span
+        # collapses to a bare footnote on the existing sentence.
+        ann = self._make_annotation(
+            raw_text="the tenant shall maintain the premises in good repair"
+        )
+        report = self._make_report()
+        sentence = "The tenant must maintain the premises in good repair"
+        report.findings = [
+            {"section": "S", "claim": sentence, "citations": [ann.pk]},
+        ]
+        report.save(update_fields=["findings"])
+        body = f'- {sentence}. <cite ids="{ann.pk}">{sentence}.</cite>'
+        ResearchReportService.finalize(
+            report,
+            executive_summary="",
+            markdown_body=body,
+            retrieved_annotation_ids=[ann.pk],
+        )
+        report.refresh_from_db()
+        self.assertEqual(report.content.count(sentence), 1)
+        self.assertIn("[^1]", report.content)
+
+    def test_render_citations_supports_self_closing_marker(self):
+        ann = self._make_annotation()
+        body = f'A cited sentence.<cite ids="{ann.pk}"/> Trailing prose.'
+        rendered, citations = _render_citations(body, {ann.pk})
+        self.assertEqual(rendered, "A cited sentence.[^1] Trailing prose.")
+        self.assertEqual(len(citations), 1)
+
+    # ------------------------------------------------------------------
+    # finalize() — claim-support check  [issue #2201]
+    # ------------------------------------------------------------------
+    def test_finalize_strips_citation_the_anchor_cannot_support(self):
+        # #2201 residual 2: a one-word mention span cited for a full sentence.
+        # The citation goes; the prose stays as uncited analysis.
+        mention = self._make_annotation(raw_text="aluminum")
+        report = self._make_report()
+        sentence = (
+            "The company's fixed-price contracts expose it to margin "
+            "compression from escalating tariffs on imported components"
+        )
+        report.findings = [
+            {"section": "Risks", "claim": sentence, "citations": [mention.pk]},
+        ]
+        report.save(update_fields=["findings"])
+        ResearchReportService.finalize(
+            report,
+            executive_summary="",
+            markdown_body=f'{sentence} <cite ids="{mention.pk}"/>.',
+            retrieved_annotation_ids=[mention.pk],
+        )
+        report.refresh_from_db()
+        self.assertIn(sentence, report.content)
+        self.assertNotIn("[^1]", report.content)
+        self.assertEqual(report.citations, [])
+        self.assertTrue(
+            any("not supported" in str(w) for w in (report.warnings or [])),
+            report.warnings,
+        )
+
+    def test_finalize_keeps_citation_the_anchor_does_support(self):
+        # A genuine paraphrase of its anchor clears the coverage floor.
+        ann = self._make_annotation(
+            raw_text=(
+                "Tenant shall reimburse Landlord for all real estate taxes, "
+                "assessments and insurance premiums allocable to the premises"
+            )
+        )
+        report = self._make_report()
+        sentence = (
+            "The tenant must reimburse the landlord for real estate taxes, "
+            "assessments and insurance premiums allocable to the premises"
+        )
+        report.findings = [
+            {"section": "Costs", "claim": sentence, "citations": [ann.pk]},
+        ]
+        report.save(update_fields=["findings"])
+        ResearchReportService.finalize(
+            report,
+            executive_summary="",
+            markdown_body=f'{sentence} <cite ids="{ann.pk}"/>.',
+            retrieved_annotation_ids=[ann.pk],
+        )
+        report.refresh_from_db()
+        self.assertIn("[^1]", report.content)
+        self.assertFalse(
+            any("not supported" in str(w) for w in (report.warnings or [])),
+            report.warnings,
+        )
+
+    def test_claim_support_skips_short_claims(self):
+        # Below RESEARCH_CLAIM_SUPPORT_MIN_WORDS a coverage ratio is noise, so
+        # short spans pass unchecked even against an unrelated anchor.
+        ann = self._make_annotation(raw_text="entirely unrelated language")
+        body = f'<cite ids="{ann.pk}">a broad indemnity clause</cite>'
+        result = _verify_cite_spans(body, {ann.pk})
+        self.assertEqual(result.cites_dropped, 0)
+        self.assertEqual(result.markdown, body)
 
     def test_compose_salvage_body_renders_each_finding_once(self):
         report = self._make_report()

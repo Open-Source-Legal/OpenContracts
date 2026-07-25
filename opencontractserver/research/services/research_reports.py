@@ -11,7 +11,7 @@ import logging
 import re
 from datetime import timedelta
 from difflib import SequenceMatcher
-from typing import Any
+from typing import Any, NamedTuple
 
 from django.conf import settings
 from django.db import transaction
@@ -25,6 +25,9 @@ from opencontractserver.research.constants import (
     MAX_RESEARCH_MEMORY_VALUE_CHARS,
     MAX_RESEARCH_PLAN_CHARS,
     MAX_RESEARCH_STEPS_CEILING,
+    RESEARCH_CITE_ECHO_THRESHOLD,
+    RESEARCH_CLAIM_SUPPORT_MIN_COVERAGE,
+    RESEARCH_CLAIM_SUPPORT_MIN_WORDS,
     RESEARCH_HEADER_ANCHOR_LABELS,
     RESEARCH_MEMORY_PREVIEW_CHARS,
     RESEARCH_MEMORY_SEARCH_MAX_HITS,
@@ -32,6 +35,11 @@ from opencontractserver.research.constants import (
     RESEARCH_QUOTE_MAX_CHARS,
     RESEARCH_QUOTE_MIN_WORDS,
     RESEARCH_RECOVERY_FINDINGS_DIGEST,
+    RESEARCH_SENTENCE_LOOKBACK_CHARS,
+    RESEARCH_SUMMARY_DUPLICATE_PROBE_CHARS,
+    RESEARCH_SUMMARY_DUPLICATE_THRESHOLD,
+    RESEARCH_SUPPORT_MIN_TOKEN_CHARS,
+    RESEARCH_SUPPORT_STOPWORDS,
 )
 from opencontractserver.research.models import ResearchReport
 from opencontractserver.shared.services.base import BaseService
@@ -653,20 +661,32 @@ class ResearchReportService(BaseService):
     ) -> None:
         """Render the final report and mark it COMPLETED.
 
-        Composes ``executive_summary`` + ``markdown_body`` + a ``## Sources``
-        footnote section. Citation post-processing converts placeholder
-        ``<cite ids="1,2">claim</cite>`` spans into ``[^n]`` footnote
-        markers and builds the structured ``citations`` table. A concise
-        weak-citation warning is appended to ``report.warnings`` when any
-        footnote anchors a section-header label (see ``_is_header_anchor``,
-        issue #2180); it is observational and never rewrites the prose.
+        Composes ONE document — ``## Executive Summary`` + ``executive_summary``
+        + ``markdown_body`` — and runs the citation post-processors over it
+        exactly once, then appends the rendered ``## Sources`` footnote section.
+        Composing first is what keeps the pipeline honest: a ``<cite>`` tag the
+        agent put in its summary is rendered rather than leaking raw into the
+        stored content (issue #2200), and every guard below sees the whole
+        document, not just the body.
 
-        Before rendering, every quoted passage inside a ``<cite>`` span is
-        verified against the ``raw_text`` of that span's cited annotation(s)
-        (see ``_verify_quoted_spans``, issue #2189): a quote that does not match
-        is demoted to plain paraphrase (its quotation marks are stripped) and a
-        warning is appended — so the agent cannot present a fabricated or
-        approximate quote as a verbatim citation.
+        The pipeline, in order:
+
+        - ``_sanitize_agent_markdown`` drops agent-authored ``## Executive
+          Summary`` / ``## Sources`` headings and the hyperlinks the (web-less)
+          agent invented — every URL it emits is fabricated, and the ``<cite>``
+          footnotes are the only sanctioned attribution channel.
+          ``_summary_duplicates_body`` then drops a summary that merely restates
+          the body; together these stop the report rendering twice (#2200).
+        - ``_verify_cite_spans`` collapses self-echoing cite spans, demotes
+          quotes that are not verbatim in their cited annotation (issue #2189),
+          and strips citations whose anchor does not support the sentence
+          (issue #2201). Each rewrite is corrective *and* counted into a warning.
+        - ``_render_citations`` converts the surviving ``<cite ids="1,2">claim
+          </cite>`` / ``<cite ids="1,2"/>`` placeholders into ``[^n]`` markers
+          and builds the structured ``citations`` table; a concise
+          weak-citation warning is appended when any footnote anchors a
+          section-header label (``_is_header_anchor``, issue #2180) —
+          observational only, it never rewrites the prose.
 
         ``retrieved_annotation_ids`` is the union of annotation IDs the
         retrieval tools surfaced during this run (the
@@ -691,39 +711,36 @@ class ResearchReportService(BaseService):
         # appended by some other path (tests, future bulk import, etc.).
         cited_ids &= set(retrieved_annotation_ids)
 
-        # Verify quoted passages against the cited annotation text and demote
-        # any fabricated / approximate "quote" to plain paraphrase before the
-        # body is rendered (issue #2189). Runs on both the normal and salvage
-        # bodies (both flow through here).
-        markdown_body, downgraded_quotes = _verify_quoted_spans(
-            markdown_body, cited_ids
+        # Normalise the two agent-authored fragments, then compose ONE document
+        # so every post-processor below runs over the whole report exactly once
+        # (issue #2200). Both the normal and the salvage body flow through here.
+        summary = _sanitize_agent_markdown(executive_summary or "")
+        body = _sanitize_agent_markdown(markdown_body or "")
+        if _summary_duplicates_body(summary, body):
+            summary = ""
+
+        document = "\n\n".join(
+            part
+            for part in (
+                "## Executive Summary\n\n" + summary if summary else "",
+                body,
+            )
+            if part
         )
 
-        # Build the citation table, ordered by first appearance in the body.
-        rendered_body, citations = _render_citations(markdown_body, cited_ids)
+        verified = _verify_cite_spans(document, cited_ids)
+        rendered, citations = _render_citations(verified.markdown, cited_ids)
 
-        # Strip any hyperlinks the agent fabricated. It has no web tools, so
-        # every URL it emits is invented (canonically ``https://example.com``);
-        # the ``<cite>`` footnotes rendered above are the only sanctioned
-        # attribution channel. Applied to both the body and the summary so no
-        # fabricated link survives into the stored content (or the salvage
-        # path, which also flows through here). See ``_strip_fabricated_links``.
-        rendered_body = _strip_fabricated_links(rendered_body)
-        clean_summary = _strip_fabricated_links(executive_summary or "")
-
-        full_content_parts: list[str] = []
-        # ``.strip()``: a summary that was nothing but a fabricated link reduces
-        # to whitespace after stripping — skip the empty header in that case.
-        if clean_summary.strip():
-            full_content_parts.append("## Executive Summary\n\n" + clean_summary)
-        full_content_parts.append(rendered_body)
+        full_content_parts: list[str] = [rendered]
         if citations:
             sources_section = ["## Sources", ""]
             for entry in citations:
                 sources_section.append(f"[^{entry['footnote']}]: {entry['display']}")
             full_content_parts.append("\n".join(sources_section))
 
-        report.content = "\n\n".join(part for part in full_content_parts if part)
+        report.content = "\n\n".join(
+            part for part in full_content_parts if part.strip()
+        )
         report.citations = citations
         report.status = JobStatus.COMPLETED.value
         report.completed_at = timezone.now()
@@ -747,36 +764,40 @@ class ResearchReportService(BaseService):
         ]
         if header_footnotes:
             markers = ", ".join(f"[^{n}]" for n in header_footnotes)
-            if len(header_footnotes) == 1:
-                extra_warnings.append(
-                    "1 citation anchors a section header rather than a "
-                    f"supporting passage ({markers}); verify it points at the "
-                    "operative language."
+            extra_warnings.append(
+                _pluralize(
+                    len(header_footnotes),
+                    "citation anchors a section header rather than a supporting "
+                    f"passage ({markers}); verify it points",
+                    "citations anchor section headers rather than supporting "
+                    f"passages ({markers}); verify they point",
                 )
-            else:
-                extra_warnings.append(
-                    f"{len(header_footnotes)} citations anchor section headers "
-                    f"rather than supporting passages ({markers}); verify they "
-                    "point at the operative language."
-                )
+                + " at the operative language."
+            )
 
-        # Surface a warning when a quoted passage did not match its cited source
-        # text and was demoted to paraphrase (issue #2189). Corrective (the quote
-        # marks are already stripped from the stored content) *and* observational.
-        if downgraded_quotes:
-            if downgraded_quotes == 1:
-                extra_warnings.append(
-                    "1 quoted passage did not match its cited source text and "
-                    "was converted to paraphrase (quotation marks removed); "
-                    "verify the wording against the source."
+        # Surface warnings for the two corrective guards. Both already rewrote
+        # the stored content; the warning tells the reader what changed and why.
+        if verified.quotes_demoted:
+            extra_warnings.append(
+                _pluralize(
+                    verified.quotes_demoted,
+                    "quoted passage did not match its cited source text and was",
+                    "quoted passages did not match their cited source text and were",
                 )
-            else:
-                extra_warnings.append(
-                    f"{downgraded_quotes} quoted passages did not match their "
-                    "cited source text and were converted to paraphrase "
-                    "(quotation marks removed); verify the wording against the "
-                    "source."
+                + " converted to paraphrase (quotation marks removed); verify "
+                "the wording against the source."
+            )
+        if verified.cites_dropped:
+            extra_warnings.append(
+                _pluralize(
+                    verified.cites_dropped,
+                    "sentence was not supported by the passage it cited, so its "
+                    "citation was",
+                    "sentences were not supported by the passages they cited, so "
+                    "their citations were",
                 )
+                + " removed; the prose is retained as uncited analysis."
+            )
 
         if extra_warnings:
             # Append rather than replace so prior warnings from
@@ -844,6 +865,16 @@ class ResearchReportService(BaseService):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _pluralize(count: int, singular: str, plural: str) -> str:
+    """``"1 citation anchors…"`` / ``"3 citations anchor…"``.
+
+    The finalize warnings are read by humans in the report UI, so the grammar
+    has to agree; this keeps the three warning builders from each re-deriving
+    it.
+    """
+    return f"{count} {singular if count == 1 else plural}"
 
 
 def _clamp_text(text: str, limit: int) -> str:
@@ -935,6 +966,66 @@ def _strip_fabricated_links(markdown: str) -> str:
     return _MARKDOWN_LINK_RE.sub(_replace, markdown)
 
 
+def _sanitize_agent_markdown(markdown: str) -> str:
+    """Normalise one agent-authored fragment before it joins the document.
+
+    Strips the scaffolding ``finalize`` owns (see ``_strip_scaffold_headings``)
+    and the hyperlinks the web-less agent invents (see
+    ``_strip_fabricated_links``). Applied to the executive summary and the body
+    alike so neither can smuggle either past the other's checks — and so a
+    fragment that was *nothing but* a fabricated link reduces to "" and is
+    dropped rather than leaving an empty section behind.
+    """
+    return _strip_fabricated_links(_strip_scaffold_headings(markdown)).strip()
+
+
+def _strip_scaffold_headings(markdown: str) -> str:
+    """Remove the report scaffolding the SYSTEM owns from agent-authored text.
+
+    ``finalize`` writes the ``## Executive Summary`` header and renders the
+    ``## Sources`` footnote table itself. An agent that writes its own copies
+    produces the doubled document of issue #2200 — a full report, a stub
+    "## Sources — (all claims are cited inline)" line, then the whole report
+    again. A sources-flavoured heading takes its section with it (up to the next
+    heading of any level); the executive-summary heading is dropped alone so the
+    prose beneath it survives as the summary.
+    """
+    if not markdown:
+        return ""
+    kept: list[str] = []
+    skipping = False
+    for line in markdown.splitlines():
+        heading = _MD_HEADING_RE.match(line)
+        if heading:
+            title = _normalize_label(heading.group(1))
+            skipping = title in _SCAFFOLD_SECTION_HEADINGS
+            if skipping or title in _SCAFFOLD_HEADING_LINES:
+                continue
+        if not skipping:
+            kept.append(line)
+    return "\n".join(kept).strip()
+
+
+def _summary_duplicates_body(summary: str, body: str) -> bool:
+    """True when ``summary`` is just a copy of ``body`` (issue #2200).
+
+    The agent was observed passing the entire report as BOTH ``executive_summary``
+    and ``markdown_body``, so the report rendered twice. Compares the summary's
+    opening (``RESEARCH_SUMMARY_DUPLICATE_PROBE_CHARS``) against the body rather
+    than diffing two multi-KB strings: a genuine copy always matches from its
+    first sentence, and a real 2–4 sentence summary — written to abstract, not
+    restate — does not.
+    """
+    body_norm = _normalize_for_quote_match(body)
+    summary_norm = _normalize_for_quote_match(summary)
+    if not summary_norm or not body_norm:
+        return False
+    probe = summary_norm[:RESEARCH_SUMMARY_DUPLICATE_PROBE_CHARS]
+    return (
+        _contiguous_coverage(probe, body_norm) >= RESEARCH_SUMMARY_DUPLICATE_THRESHOLD
+    )
+
+
 def _normalize_label(text: str | None) -> str:
     """Lowercase and collapse separator runs so ``"Section Header"``,
     ``"section_header"`` and ``"section-header"`` all compare equal."""
@@ -963,7 +1054,7 @@ def _is_header_anchor(*, label_text: str | None) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Quotation verification (issue #2189)
+# Cite-span verification (issues #2189, #2200, #2201)
 # ---------------------------------------------------------------------------
 # Double-quoted passages: straight ("...") or curly (“...”), including a
 # mismatched pair (straight-open/curly-close or vice versa — LLM output
@@ -975,12 +1066,34 @@ def _is_header_anchor(*, label_text: str | None) -> bool:
 # deliberately NOT matched — they collide with contractions and possessives.
 _QUOTED_PASSAGE_RE = re.compile(rf'["“]([^"“”\n]{{1,{RESEARCH_QUOTE_MAX_CHARS}}})["”]')
 
-# Same cite placeholder the renderer consumes; matched here first so quotes are
-# verified against the annotations the span actually cites.
+# The cite placeholder, in both sanctioned forms — wrapping
+# (``<cite ids="1,2">claim</cite>``) and the self-closing pure marker
+# (``<cite ids="1,2"/>``, issue #2200) that attaches a footnote to the sentence
+# it follows without restating it. ``group(2)`` is None for the marker form.
+# Shared by the verifier and the renderer so both parse exactly one shape.
 _CITE_SPAN_RE = re.compile(
-    r'<cite\s+ids="([0-9,\s]+)">(.*?)</cite>',
+    r'<cite\s+ids="([0-9,\s]+)"\s*(?:/>|>(.*?)</cite>)',
     flags=re.DOTALL | re.IGNORECASE,
 )
+
+# Sentence/line boundary used to recover the prose a self-closing marker
+# decorates, and to compare a wrapping span against the prose before it.
+_SENTENCE_BOUNDARY_RE = re.compile(r'[.!?:;]["”’)\]]*\s|\n')
+
+# A markdown ATX heading line of any level, capturing its title text.
+_MD_HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s+(.*?)\s*#*\s*$")
+
+# Headings the SYSTEM owns. ``finalize`` writes the executive-summary header and
+# renders the Sources footnote table itself, so an agent-authored copy is
+# scaffolding leaking into the document (issue #2200: a stub "## Sources — (all
+# claims are cited inline)" line sat between two renderings of the report).
+# A sources-flavoured heading takes its whole section with it (up to the next
+# heading); the executive-summary heading is dropped on its own so the prose
+# beneath it survives as the summary.
+_SCAFFOLD_SECTION_HEADINGS: frozenset[str] = frozenset(
+    {"sources", "source", "references", "citations", "footnotes", "bibliography"}
+)
+_SCAFFOLD_HEADING_LINES: frozenset[str] = frozenset({"executive summary"})
 
 
 def _normalize_for_quote_match(text: str) -> str:
@@ -995,30 +1108,114 @@ def _normalize_for_quote_match(text: str) -> str:
     return " ".join((text or "").casefold().split())
 
 
+def _contiguous_coverage(needle_norm: str, haystack_norm: str) -> float:
+    """Fraction of ``needle_norm`` covered by its longest run inside
+    ``haystack_norm`` (both already whitespace-/case-normalized).
+
+    ``difflib``'s longest-contiguous-block, expressed as coverage of the needle
+    — a stricter test than ``SequenceMatcher.ratio()`` that a real run of the
+    needle appears verbatim. Shared by quote verification (#2189) and the
+    duplicate-summary / echoed-cite guards (#2200) so "is this text a copy of
+    that text" means one thing everywhere.
+    """
+    if not needle_norm or not haystack_norm:
+        return 0.0
+    if needle_norm in haystack_norm:
+        return 1.0
+    matcher = SequenceMatcher(None, needle_norm, haystack_norm, autojunk=False)
+    block = matcher.find_longest_match(0, len(needle_norm), 0, len(haystack_norm))
+    return block.size / len(needle_norm)
+
+
 def _quote_is_grounded(quote: str, candidates_norm: list[str]) -> bool:
     """True when ``quote`` is verbatim (modulo whitespace/case) in a candidate.
 
     ``candidates_norm`` are the pre-normalized ``raw_text`` values of the
     annotations a ``<cite>`` span cites. A quote shorter than
     ``RESEARCH_QUOTE_MIN_WORDS`` words is treated as grounded (not a passage
-    claim — see the constant). Otherwise the quote must be a normalized
-    substring of some candidate, or share a single contiguous run covering
-    ``RESEARCH_QUOTE_MATCH_THRESHOLD`` of its length with one (fuzzy tolerance
-    for a trailing-punctuation / whitespace / single-character drift).
+    claim — see the constant). Otherwise the quote must share a single
+    contiguous run covering ``RESEARCH_QUOTE_MATCH_THRESHOLD`` of its length
+    with some candidate (an exact substring scores 1.0; the fuzzy band tolerates
+    a trailing-punctuation / whitespace / single-character drift).
     """
     q = _normalize_for_quote_match(quote)
     if len(q.split()) < RESEARCH_QUOTE_MIN_WORDS:
         return True
-    for cand in candidates_norm:
-        if not cand:
+    return any(
+        _contiguous_coverage(q, cand) >= RESEARCH_QUOTE_MATCH_THRESHOLD
+        for cand in candidates_norm
+        if cand
+    )
+
+
+def _content_words(text: str) -> set[str]:
+    """Meaning-bearing tokens of ``text``: normalized, stopwords and tokens
+    shorter than ``RESEARCH_SUPPORT_MIN_TOKEN_CHARS`` removed.
+
+    Punctuation is trimmed but internal hyphens/slashes are kept, so
+    ``fixed-price`` stays one distinctive term rather than dissolving into two
+    common ones.
+    """
+    words: set[str] = set()
+    for token in _normalize_for_quote_match(text).split():
+        token = token.strip("\"“”'’()[]{}.,;:!?*_`")
+        if len(token) < RESEARCH_SUPPORT_MIN_TOKEN_CHARS:
             continue
-        if q in cand:
-            return True
-        matcher = SequenceMatcher(None, q, cand, autojunk=False)
-        block = matcher.find_longest_match(0, len(q), 0, len(cand))
-        if block.size / len(q) >= RESEARCH_QUOTE_MATCH_THRESHOLD:
-            return True
-    return False
+        if token in RESEARCH_SUPPORT_STOPWORDS:
+            continue
+        words.add(token)
+    return words
+
+
+def _claim_is_supported(claim: str, candidates_norm: list[str]) -> bool:
+    """True when the cited annotation(s) plausibly SAY what ``claim`` asserts
+    (issue #2201) — the generalization of #2189's "is the quote verbatim".
+
+    Deterministic lexical floor: at least ``RESEARCH_CLAIM_SUPPORT_MIN_COVERAGE``
+    of the claim's content words must occur in the union of the cited anchors'
+    text. Claims shorter than ``RESEARCH_CLAIM_SUPPORT_MIN_WORDS`` words are
+    accepted unchecked — a fragment has too few content words for a ratio to
+    mean anything. A checked claim with NO usable anchor text (textless anchor,
+    deleted row, id that was never retrieved) is unsupported by construction.
+
+    See the constants for the calibration and for what this deliberately does
+    NOT catch (a well-anchored sentence carrying an invented tail).
+    """
+    if len(claim.split()) < RESEARCH_CLAIM_SUPPORT_MIN_WORDS:
+        return True
+    claim_words = _content_words(claim)
+    if not claim_words:
+        return True
+    anchor_words: set[str] = set()
+    for cand in candidates_norm:
+        anchor_words |= _content_words(cand)
+    if not anchor_words:
+        return False
+    covered = len(claim_words & anchor_words) / len(claim_words)
+    return covered >= RESEARCH_CLAIM_SUPPORT_MIN_COVERAGE
+
+
+def _preceding_claim(text: str) -> tuple[int, str]:
+    """Return ``(start_offset, segment)`` for the sentence ``text`` ends on.
+
+    ``segment`` is the last non-blank sentence/line of ``text`` and always runs
+    to its end, so a caller can splice a rewritten version back in with
+    ``text[:start_offset] + rewritten``. Used for both halves of the
+    self-quoting fix (#2200): it is the prose a wrapping span may be echoing,
+    and the sentence a self-closing ``<cite ids="…"/>`` marker decorates.
+    Lookback is bounded by ``RESEARCH_SENTENCE_LOOKBACK_CHARS``.
+    """
+    head = text[-RESEARCH_SENTENCE_LOOKBACK_CHARS:]
+    base = len(text) - len(head)
+    start = 0
+    last_nonblank = 0
+    for match in _SENTENCE_BOUNDARY_RE.finditer(head):
+        if head[start : match.end()].strip():
+            last_nonblank = start
+        start = match.end()
+    if head[start:].strip():
+        last_nonblank = start
+    return base + last_nonblank, head[last_nonblank:]
 
 
 def _strip_ungrounded_quotes(claim: str, candidates_norm: list[str]) -> tuple[str, int]:
@@ -1042,44 +1239,49 @@ def _strip_ungrounded_quotes(claim: str, candidates_norm: list[str]) -> tuple[st
     return _QUOTED_PASSAGE_RE.sub(_replace, claim), downgraded
 
 
-def _verify_quoted_spans(
-    markdown_body: str, allowed_annotation_ids: set[int]
-) -> tuple[str, int]:
-    """Verify every quoted passage inside a ``<cite>`` span against the text of
-    the annotation(s) that span cites; strip the quotation marks on any that
-    don't match. Returns ``(verified_body, downgraded_quote_count)`` (issue
-    #2189).
+class CiteVerification(NamedTuple):
+    """Outcome of :func:`_verify_cite_spans`."""
 
-    Scope is deliberately the cited ``<cite ids="...">claim</cite>`` spans: a
-    quote presented as evidence for a footnote must actually be in the footnoted
-    passage. Quotes outside any cite span have no anchor to verify against and
-    are left untouched (as are quotes shorter than ``RESEARCH_QUOTE_MIN_WORDS``
-    — see ``_quote_is_grounded``).
+    markdown: str
+    quotes_demoted: int
+    cites_dropped: int
 
-    A quote whose cited annotation(s) yield NO usable ``raw_text`` (an anchor
-    with empty text, a since-deleted row, or an id that wasn't retrieved) is
-    treated as ungrounded and demoted too — a passage attributed to a textless
-    anchor cannot be a verbatim citation of it, so the "cited a real anchor but
-    invented the quote" hole this fix targets stays closed rather than opening
-    a silent pass-through.
+
+def _verify_cite_spans(
+    markdown: str, allowed_annotation_ids: set[int]
+) -> CiteVerification:
+    """Walk every ``<cite>`` span once and enforce the three citation guards.
+
+    Per span, against the ``raw_text`` of the annotation(s) it cites:
+
+    1. **Echo collapse** (#2200) — a wrapping span whose inner text merely
+       restates the prose immediately before it collapses to the self-closing
+       marker form, so the claim renders once with a trailing footnote instead
+       of twice.
+    2. **Quote verification** (#2189) — a quoted passage that is not verbatim in
+       the cited text loses its quotation marks (prose and footnote preserved),
+       so a fabricated quote degrades honestly to paraphrase.
+    3. **Claim support** (#2201) — a cited sentence whose anchor text does not
+       support it loses the citation entirely; the prose survives as uncited
+       analysis. See :func:`_claim_is_supported`.
+
+    The "claim" a span asserts is its inner text, or — for a self-closing
+    marker, and for a span collapsed by (1) — the sentence it follows, so the
+    guards apply identically to both sanctioned cite forms. Returns the
+    rewritten markdown plus the two counts ``finalize`` turns into warnings.
+
+    A span whose cited ids yield NO usable text (textless anchor, deleted row,
+    or an id retrieval never produced) is treated as ungrounded by both (2) and
+    (3) rather than silently passing through — that is the "cited a real anchor
+    but invented the content" hole these guards exist to close.
     """
-    if not markdown_body:
-        return markdown_body, 0
-    # Cheap bail-out: nothing to verify if the body has no double-quote glyph
-    # of any flavour (straight, curly-open, or curly-close).
-    if not any(ch in markdown_body for ch in ('"', "“", "”")):
-        return markdown_body, 0
-
-    spans = list(_CITE_SPAN_RE.finditer(markdown_body))
+    spans = list(_CITE_SPAN_RE.finditer(markdown or ""))
     if not spans:
-        # Quotes exist but none inside a <cite> span -> no anchor to verify
-        # against (scope is cited passages only). Leave them.
-        return markdown_body, 0
+        return CiteVerification(markdown, 0, 0)
 
-    # Gather every cited, allowed annotation id across all spans, then hydrate
-    # their raw_text in one query (no N+1). Normalize once, cache by id. Ids that
-    # weren't retrieved (not in ``allowed_annotation_ids``) are excluded here, so
-    # a span citing only such ids gets no candidates and its quotes are demoted.
+    # Hydrate every cited, allowed annotation's text in ONE query (no N+1),
+    # normalized once and cached by id. Ids outside ``allowed_annotation_ids``
+    # are excluded here, so a span citing only such ids gets no candidates.
     all_ids: set[int] = {
         ann_id
         for match in spans
@@ -1097,30 +1299,64 @@ def _verify_quoted_spans(
             )
         }
 
-    total_downgraded = 0
+    out: list[str] = []
+    cursor = 0
+    quotes_demoted = 0
+    cites_dropped = 0
 
-    def _verify_span(match: re.Match[str]) -> str:
-        nonlocal total_downgraded
+    for match in spans:
+        out.append(markdown[cursor : match.start()])
+        cursor = match.end()
         ids_raw = match.group(1)
-        claim = match.group(2)
-        # Empty when every cited id was filtered (not retrieved, deleted, or
-        # empty raw_text) -> _strip_ungrounded_quotes then demotes every
-        # long quote in the claim (see the docstring).
+        inner = match.group(2)  # None for the self-closing marker form
         candidates = [norm_by_id[i] for i in _parse_ids(ids_raw) if norm_by_id.get(i)]
-        cleaned, downgraded = _strip_ungrounded_quotes(claim, candidates)
-        if not downgraded:
-            return match.group(0)
-        total_downgraded += downgraded
-        return f'<cite ids="{ids_raw}">{cleaned}</cite>'
 
-    verified = _CITE_SPAN_RE.sub(_verify_span, markdown_body)
-    return verified, total_downgraded
+        preceding_offset, preceding = _preceding_claim(out[-1])
+
+        # (1) Echo collapse — inner text that just restates the prose before it.
+        if inner:
+            echo = _contiguous_coverage(
+                _normalize_for_quote_match(inner),
+                _normalize_for_quote_match(preceding),
+            )
+            if echo >= RESEARCH_CITE_ECHO_THRESHOLD:
+                inner = None
+
+        # (2) Quote verification, applied to whichever text carries the claim.
+        # For a marker, that text already sits in the emitted tail, so the
+        # rewrite is spliced back into it.
+        if inner is not None:
+            inner, demoted = _strip_ungrounded_quotes(inner, candidates)
+            claim = inner
+        else:
+            cleaned, demoted = _strip_ungrounded_quotes(preceding, candidates)
+            if demoted and out:
+                out[-1] = out[-1][:preceding_offset] + cleaned
+            claim = cleaned
+        quotes_demoted += demoted
+
+        # (3) Claim support — an unsupported sentence keeps its prose, loses
+        # its footnote.
+        if not _claim_is_supported(claim, candidates):
+            cites_dropped += 1
+            out.append(inner or "")
+            continue
+
+        out.append(
+            f'<cite ids="{ids_raw}"/>'
+            if inner is None
+            else f'<cite ids="{ids_raw}">{inner}</cite>'
+        )
+
+    out.append(markdown[cursor:])
+    return CiteVerification("".join(out), quotes_demoted, cites_dropped)
 
 
 def _render_citations(
     markdown_body: str, allowed_annotation_ids: set[int]
 ) -> tuple[str, list[dict]]:
-    """Convert ``<cite ids="...">claim</cite>`` placeholders into footnotes.
+    """Convert ``<cite ids="...">claim</cite>`` and ``<cite ids="..."/>``
+    placeholders into footnotes.
 
     Returns ``(rendered_markdown, citations_table)``. The citations table
     is ordered by first appearance; each entry has ``footnote``,
@@ -1135,8 +1371,8 @@ def _render_citations(
     """
     from opencontractserver.annotations.models import Annotation
 
-    # Shared with the quote verifier (_verify_quoted_spans) so both parse the
-    # same cite placeholder shape.
+    # Shared with the verifier (_verify_cite_spans) so both parse the same cite
+    # placeholder shape.
     pattern = _CITE_SPAN_RE
 
     # First pass: assign footnote numbers to unique (filtered) annotation ids
@@ -1164,7 +1400,9 @@ def _render_citations(
 
     def _replace(match: re.Match[str]) -> str:
         ids = _parse_ids(match.group(1))
-        claim = match.group(2)
+        # None for the self-closing marker form: the claim is the prose the
+        # marker follows, which stays exactly where it is.
+        claim = match.group(2) or ""
         markers: list[str] = []
         for ann_id in ids:
             if ann_id in footnote_for_id:
