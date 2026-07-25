@@ -21,6 +21,7 @@ from opencontractserver.research.services.research_reports import (
     ConcurrentResearchInProgress,
     ResearchCancelled,
     ResearchReportService,
+    _content_words,
     _derive_title_from_prompt,
     _is_header_anchor,
     _render_citations,
@@ -812,6 +813,99 @@ class ResearchReportServiceTestCase(TestCase):
         self.assertEqual(report.content, "")
         self.assertTrue(
             any("no report content" in str(w) for w in (report.warnings or [])),
+            report.warnings,
+        )
+
+    def test_claim_support_rejects_a_claim_that_inverts_its_anchor(self):
+        # Bag-of-words coverage is blind to negation: "the tenant is NOT liable"
+        # and "the tenant is liable" differ by one token and score identically
+        # against the same anchor. In legal text that inversion is the
+        # highest-stakes misattribution there is, so the polarity guard rejects
+        # it. (Merely un-stopwording "not" would not: coverage stays ~0.86.)
+        anchor = self._make_annotation(
+            raw_text=(
+                "The tenant is liable for repairs to the premises under "
+                "Section 8 of the lease"
+            )
+        )
+        faithful = (
+            "The tenant is liable for repairs to the premises under Section 8 "
+            "of the lease"
+        )
+        inverted = (
+            "The tenant is not liable for repairs to the premises under "
+            "Section 8 of the lease"
+        )
+        self.assertEqual(
+            _verify_cite_spans(
+                f'{faithful} <cite ids="{anchor.pk}"/>.', {anchor.pk}
+            ).cites_dropped,
+            0,
+        )
+        result = _verify_cite_spans(
+            f'{inverted} <cite ids="{anchor.pk}"/>.', {anchor.pk}
+        )
+        self.assertEqual(result.cites_dropped, 1)
+        self.assertNotIn("<cite", result.markdown)
+        # The prose survives as uncited analysis, as with any stripped citation.
+        self.assertIn(inverted, result.markdown)
+
+    def test_claim_support_polarity_guard_spares_honest_paraphrase(self):
+        # Legal text often negates lexically ("prohibited") rather than with a
+        # marker. Such a paraphrase shares far fewer words with the anchor, so
+        # it never reaches the high-coverage gate the polarity guard sits behind
+        # — the citation must survive.
+        anchor = self._make_annotation(
+            raw_text=(
+                "Tenant shall not sublet the premises or assign this lease "
+                "without the prior written consent of Landlord"
+            )
+        )
+        paraphrase = (
+            "Subletting the premises and assignment of the lease are "
+            "prohibited absent the prior written consent of Landlord"
+        )
+        result = _verify_cite_spans(
+            f'{paraphrase} <cite ids="{anchor.pk}"/>.', {anchor.pk}
+        )
+        self.assertEqual(result.cites_dropped, 0)
+        self.assertIn(f'<cite ids="{anchor.pk}"/>', result.markdown)
+
+    def test_content_words_keep_short_numeric_tokens(self):
+        # RESEARCH_SUPPORT_MIN_TOKEN_CHARS used to drop "10"/"5%" from BOTH
+        # sides, so a swapped figure produced no signal at all. Digit-bearing
+        # tokens are exempt from the floor.
+        words = _content_words("Landlord shall give 10 days notice and a 5% fee")
+        self.assertIn("10", words)
+        self.assertIn("5%", words)
+
+    def test_finalize_warns_when_an_agent_sources_section_is_stripped(self):
+        # Dropping a whole section is a bigger blast radius than dropping a
+        # heading line, so it must not be silent — same treatment as the
+        # quote/claim-support guards.
+        ann = self._make_annotation(raw_text="the lessee bears all repair costs")
+        report = self._make_report()
+        report.findings = [
+            {"section": "S", "claim": "repairs", "citations": [ann.pk]},
+        ]
+        report.save(update_fields=["findings"])
+        ResearchReportService.finalize(
+            report,
+            executive_summary="",
+            markdown_body=(
+                "## Repairs\n\n"
+                f'The lessee bears all repair costs <cite ids="{ann.pk}"/>.\n\n'
+                "## Sources\n\n(All claims above are cited inline.)"
+            ),
+            retrieved_annotation_ids=[ann.pk],
+        )
+        report.refresh_from_db()
+        self.assertNotIn("cited inline", report.content)
+        self.assertIn("The lessee bears all repair costs", report.content)
+        self.assertTrue(
+            any(
+                "Sources/References section" in str(w) for w in (report.warnings or [])
+            ),
             report.warnings,
         )
 

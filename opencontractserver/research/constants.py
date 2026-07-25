@@ -222,10 +222,14 @@ RESEARCH_SENTENCE_LOOKBACK_CHARS = 1200
 #    embedding round-trip at finalize. It decisively kills the two anchoring
 #    failures from #2201: a one-word mention span cited for a full sentence, and
 #    prompt-derived background decorated with a loosely-related entity anchor —
-#    both score near zero. It does NOT catch a well-anchored sentence carrying an
-#    invented tail (#2201's over-attributed paraphrase); the prompt's
-#    "don't extend a cited sentence" rule is the guard there, and swapping
-#    ``_claim_is_supported`` for an entailment call is the drop-in upgrade.
+#    both score near zero. What it does NOT catch, so the prompt rules still
+#    matter: a well-anchored sentence carrying an invented tail (#2201's
+#    over-attributed paraphrase — "don't extend a cited sentence" is the guard
+#    there), and a fabricated figure, since one differing number moves the ratio
+#    by only 1/N (see ...MIN_TOKEN_CHARS for why numeric parity is not enforced).
+#    Meaning inversion IS caught, by the polarity guard below. Swapping
+#    ``_claim_is_supported`` for an entailment call is the drop-in upgrade that
+#    would close the remaining two.
 #
 #    Only claims of at least ``…MIN_WORDS`` words are checked: short spans
 #    (fragments, defined terms, a cited clause name) have too few content words
@@ -236,9 +240,40 @@ RESEARCH_SENTENCE_LOOKBACK_CHARS = 1200
 RESEARCH_CLAIM_SUPPORT_MIN_WORDS = 12
 RESEARCH_CLAIM_SUPPORT_MIN_COVERAGE = 0.25
 
+#    Polarity guard. Bag-of-words coverage is blind to negation: "the tenant is
+#    NOT liable for repairs" and "the tenant is liable for repairs" differ by one
+#    token and score the same against the same anchor — an inversion of the
+#    source's meaning, presented with a footnote. In legal text this is the
+#    highest-stakes misattribution there is (liable/not liable, permitted/
+#    prohibited, terminable/non-terminable). Note that merely dropping "not"
+#    from the stopword list does NOT close it: the ratio moves from ~1.0 to
+#    ~0.86, still far above the floor. Parity is what catches it.
+#
+#    So: when a claim otherwise reads as a near-verbatim restatement of its
+#    anchor (coverage at or above ...INVERSION_COVERAGE) but the two disagree on
+#    whether a negation marker is present, treat it as unsupported. The high
+#    coverage gate is what keeps this from firing on honest paraphrase — legal
+#    text often negates lexically ("prohibited", "except", "unless") rather than
+#    with a marker, but such a paraphrase shares far fewer words with the anchor
+#    and never reaches the gate. Checked on the normalized text, not on
+#    ``_content_words``, so the stopword list cannot hide a marker.
+RESEARCH_CLAIM_INVERSION_COVERAGE = 0.8
+RESEARCH_SUPPORT_NEGATION_TOKENS: frozenset[str] = frozenset(
+    {"not", "no", "never", "cannot", "neither", "nor", "without", "non"}
+)
+
 # Content-word extraction for the support check: tokens shorter than this are
 # dropped along with the stopword list, so the ratio is computed over the terms
 # that actually carry meaning (parties, amounts, defined terms, verbs).
+# Digit-bearing tokens are EXEMPT from the floor — "10", "5%" and "$5" are two
+# characters but are exactly the figures a report must not fabricate, and the
+# floor was silently dropping them from both sides of the ratio so a swapped
+# amount produced no signal at all. Note the exemption only restores signal; it
+# does not by itself catch a fabricated figure (one differing number moves the
+# ratio by 1/N). Numeric *parity*, the analogue of the polarity guard, is
+# deliberately NOT applied: legal text writes the same amount as "30", "thirty
+# (30)", "$5" and "$5,000,000", so parity would strip correct citations far more
+# often than it caught invented ones.
 RESEARCH_SUPPORT_MIN_TOKEN_CHARS = 3
 RESEARCH_SUPPORT_STOPWORDS: frozenset[str] = frozenset("""
     the and for that this with from are was were will would can could may might

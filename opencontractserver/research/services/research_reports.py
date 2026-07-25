@@ -26,6 +26,7 @@ from opencontractserver.research.constants import (
     MAX_RESEARCH_PLAN_CHARS,
     MAX_RESEARCH_STEPS_CEILING,
     RESEARCH_CITE_ECHO_THRESHOLD,
+    RESEARCH_CLAIM_INVERSION_COVERAGE,
     RESEARCH_CLAIM_SUPPORT_MIN_COVERAGE,
     RESEARCH_CLAIM_SUPPORT_MIN_WORDS,
     RESEARCH_HEADER_ANCHOR_LABELS,
@@ -39,6 +40,7 @@ from opencontractserver.research.constants import (
     RESEARCH_SUMMARY_DUPLICATE_PROBE_CHARS,
     RESEARCH_SUMMARY_DUPLICATE_THRESHOLD,
     RESEARCH_SUPPORT_MIN_TOKEN_CHARS,
+    RESEARCH_SUPPORT_NEGATION_TOKENS,
     RESEARCH_SUPPORT_STOPWORDS,
 )
 from opencontractserver.research.models import ResearchReport
@@ -714,8 +716,9 @@ class ResearchReportService(BaseService):
         # Normalise the two agent-authored fragments, then compose ONE document
         # so every post-processor below runs over the whole report exactly once
         # (issue #2200). Both the normal and the salvage body flow through here.
-        summary = _sanitize_agent_markdown(executive_summary or "")
-        body = _sanitize_agent_markdown(markdown_body or "")
+        summary, summary_sections = _sanitize_agent_markdown(executive_summary or "")
+        body, body_sections = _sanitize_agent_markdown(markdown_body or "")
+        sections_stripped = summary_sections + body_sections
         if _summary_duplicates_body(summary, body):
             summary = ""
 
@@ -810,6 +813,16 @@ class ResearchReportService(BaseService):
                     "their citations were",
                 )
                 + " removed; the prose is retained as uncited analysis."
+            )
+        if sections_stripped:
+            extra_warnings.append(
+                _pluralize(
+                    sections_stripped,
+                    "agent-authored Sources/References section was",
+                    "agent-authored Sources/References sections were",
+                )
+                + " removed; the system renders the footnote table itself. "
+                "Check nothing substantive was written under that heading."
             )
 
         if extra_warnings:
@@ -979,7 +992,7 @@ def _strip_fabricated_links(markdown: str) -> str:
     return _MARKDOWN_LINK_RE.sub(_replace, markdown)
 
 
-def _sanitize_agent_markdown(markdown: str) -> str:
+def _sanitize_agent_markdown(markdown: str) -> tuple[str, int]:
     """Normalise one agent-authored fragment before it joins the document.
 
     Strips the scaffolding ``finalize`` owns (see ``_strip_scaffold_headings``)
@@ -988,11 +1001,15 @@ def _sanitize_agent_markdown(markdown: str) -> str:
     alike so neither can smuggle either past the other's checks — and so a
     fragment that was *nothing but* a fabricated link reduces to "" and is
     dropped rather than leaving an empty section behind.
+
+    Returns ``(cleaned, sections_stripped)``; the count feeds a warning so a
+    whole dropped section is never silent, matching the other guards.
     """
-    return _strip_fabricated_links(_strip_scaffold_headings(markdown)).strip()
+    stripped, sections = _strip_scaffold_headings(markdown)
+    return _strip_fabricated_links(stripped).strip(), sections
 
 
-def _strip_scaffold_headings(markdown: str) -> str:
+def _strip_scaffold_headings(markdown: str) -> tuple[str, int]:
     """Remove the report scaffolding the SYSTEM owns from agent-authored text.
 
     ``finalize`` writes the ``## Executive Summary`` header and renders the
@@ -1002,21 +1019,30 @@ def _strip_scaffold_headings(markdown: str) -> str:
     again. A sources-flavoured heading takes its section with it (up to the next
     heading of any level); the executive-summary heading is dropped alone so the
     prose beneath it survives as the summary.
+
+    Returns ``(cleaned, sections_stripped)``. Dropping a whole section is a much
+    bigger blast radius than dropping a heading line, so the count is surfaced
+    as a warning by ``finalize`` — consistent with the quote/claim-support
+    guards, and it doubles as the signal for whether the prompt rule forbidding
+    these headings is actually landing.
     """
     if not markdown:
-        return ""
+        return "", 0
     kept: list[str] = []
     skipping = False
+    sections = 0
     for line in markdown.splitlines():
         heading = _MD_HEADING_RE.match(line)
         if heading:
             title = _normalize_label(heading.group(1))
             skipping = title in _SCAFFOLD_SECTION_HEADINGS
+            if skipping:
+                sections += 1
             if skipping or title in _SCAFFOLD_HEADING_LINES:
                 continue
         if not skipping:
             kept.append(line)
-    return "\n".join(kept).strip()
+    return "\n".join(kept).strip(), sections
 
 
 def _summary_duplicates_body(summary: str, body: str) -> bool:
@@ -1172,12 +1198,36 @@ def _content_words(text: str) -> set[str]:
     words: set[str] = set()
     for token in _normalize_for_quote_match(text).split():
         token = token.strip("\"“”'’()[]{}.,;:!?*_`")
-        if len(token) < RESEARCH_SUPPORT_MIN_TOKEN_CHARS:
+        if not token:
+            continue
+        # Digit-bearing tokens skip the length floor: "10", "5%" and "$5" are
+        # short but are exactly the figures a report must not fabricate, and
+        # dropping them left the ratio with no signal either way. See the
+        # constant for why numeric *parity* is deliberately not enforced.
+        if len(token) < RESEARCH_SUPPORT_MIN_TOKEN_CHARS and not any(
+            ch.isdigit() for ch in token
+        ):
             continue
         if token in RESEARCH_SUPPORT_STOPWORDS:
             continue
         words.add(token)
     return words
+
+
+def _is_negated(text: str) -> bool:
+    """True when ``text`` carries an explicit negation marker.
+
+    Deliberately keyed on the normalized token stream rather than
+    ``_content_words``, so the stopword list (which contains "not") cannot hide
+    a polarity marker from the inversion guard.
+    """
+    return bool(
+        RESEARCH_SUPPORT_NEGATION_TOKENS
+        & {
+            token.strip("\"“”'’()[]{}.,;:!?*_`")
+            for token in _normalize_for_quote_match(text).split()
+        }
+    )
 
 
 def _claim_is_supported(claim: str, candidates_norm: list[str]) -> bool:
@@ -1205,7 +1255,18 @@ def _claim_is_supported(claim: str, candidates_norm: list[str]) -> bool:
     if not anchor_words:
         return False
     covered = len(claim_words & anchor_words) / len(claim_words)
-    return covered >= RESEARCH_CLAIM_SUPPORT_MIN_COVERAGE
+    if covered < RESEARCH_CLAIM_SUPPORT_MIN_COVERAGE:
+        return False
+
+    # Polarity guard. Word overlap cannot see negation, so a claim that inverts
+    # its anchor ("the tenant is NOT liable…" against "the tenant is liable…")
+    # scores like a faithful paraphrase. When the claim otherwise reads as a
+    # near-verbatim restatement, a disagreement about whether a negation marker
+    # is present is a meaning inversion, not a rephrasing — see the constants.
+    if covered >= RESEARCH_CLAIM_INVERSION_COVERAGE:
+        if _is_negated(claim) != any(_is_negated(cand) for cand in candidates_norm):
+            return False
+    return True
 
 
 def _preceding_claim(text: str) -> tuple[int, str]:
