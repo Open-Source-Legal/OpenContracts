@@ -717,6 +717,63 @@ class ResearchReportServiceTestCase(TestCase):
         self.assertIn("Indemnity survives [^1]", report.content)
         self.assertIn("## Executive Summary", report.content)
 
+    def test_finalize_accepts_a_retrieved_id_cited_without_a_finding(self):
+        # find_citable_passages hands the agent a ready-to-paste cite handle and
+        # the prompt says that id IS the handle, so the agent will cite straight
+        # from a retrieval without a matching record_finding. Gating on findings
+        # dropped exactly that citation — silently for a short claim, and for a
+        # longer one under a "not supported" warning naming the wrong cause.
+        # Retrieval, not record_finding, is the gate.
+        ann = self._make_annotation(
+            raw_text=(
+                "The tenant shall maintain commercial general liability "
+                "insurance throughout the term of this lease"
+            )
+        )
+        report = self._make_report()
+        report.findings = []  # nothing recorded
+        report.save(update_fields=["findings"])
+        ResearchReportService.finalize(
+            report,
+            executive_summary="",
+            markdown_body=(
+                "The tenant shall maintain commercial general liability "
+                f'insurance throughout the term of this lease <cite ids="{ann.pk}"/>.'
+            ),
+            retrieved_annotation_ids=[ann.pk],
+        )
+        report.refresh_from_db()
+        self.assertNotIn("<cite", report.content)
+        self.assertIn("[^1]", report.content)
+        # Provenance follows the citation, not the finding.
+        self.assertEqual(
+            list(report.source_annotations.values_list("pk", flat=True)), [ann.pk]
+        )
+
+    def test_finalize_still_refuses_an_id_retrieval_never_surfaced(self):
+        # The other half of the same rule: widening the door to document-cited
+        # ids must not widen it to ids the run never retrieved. That intersection
+        # is the closed citation graph, and since every retrieval tool is
+        # permission-filtered, it is also what keeps a citation inside what the
+        # run's creator may read.
+        ann = self._make_annotation(raw_text="entirely unrelated language")
+        report = self._make_report()
+        report.findings = []
+        report.save(update_fields=["findings"])
+        ResearchReportService.finalize(
+            report,
+            executive_summary="",
+            markdown_body=(
+                "The tenant shall maintain commercial general liability "
+                f'insurance throughout the term of this lease <cite ids="{ann.pk}"/>.'
+            ),
+            retrieved_annotation_ids=[],  # nothing was retrieved
+        )
+        report.refresh_from_db()
+        self.assertNotIn("<cite", report.content)
+        self.assertNotIn("[^1]", report.content)
+        self.assertEqual(report.source_annotations.count(), 0)
+
     def test_finalize_collapses_cite_span_that_echoes_its_own_sentence(self):
         # #2200's self-quoting spans: the claim is written as prose and then
         # repeated verbatim inside the tag, doubling every bullet. The span

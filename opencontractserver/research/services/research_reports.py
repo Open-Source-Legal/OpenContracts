@@ -694,12 +694,14 @@ class ResearchReportService(BaseService):
         ``retrieved_annotation_ids`` is the union of annotation IDs the
         retrieval tools surfaced during this run (the
         :attr:`PydanticAIDependencies.retrieved_annotation_ids` accumulator).
-        Used to constrain the ``source_annotations`` M2M to the ones
-        actually cited by ``arecord_finding`` (intersection).
+        It is the sole gate on what may be cited: an id qualifies by coming
+        from a finding OR by appearing in the composed document, but either way
+        only if retrieval surfaced it. That is the closed citation graph, and it
+        is also what bounds the ``source_annotations`` M2M.
         """
         from opencontractserver.annotations.models import Annotation
 
-        # Collect every annotation_id cited by any finding (closed graph).
+        # Collect every annotation_id cited by any finding.
         cited_ids: set[int] = set()
         for finding in report.findings or []:
             for cid in finding.get("citations", []) or []:
@@ -707,12 +709,6 @@ class ResearchReportService(BaseService):
                     cited_ids.add(int(cid))
                 except (TypeError, ValueError):
                     continue
-
-        # Intersect with what retrieval actually surfaced — defence in
-        # depth against any closure leak. The arecord_finding tool already
-        # rejects unknown ids, but we re-enforce here in case findings were
-        # appended by some other path (tests, future bulk import, etc.).
-        cited_ids &= set(retrieved_annotation_ids)
 
         # Normalise the two agent-authored fragments, then compose ONE document
         # so every post-processor below runs over the whole report exactly once
@@ -732,6 +728,23 @@ class ResearchReportService(BaseService):
             )
             if part
         )
+
+        # Plus every id the composed document itself cites. ``record_finding``
+        # is the scratchpad, not the only road to a citation:
+        # ``find_citable_passages`` hands the agent a ready-to-paste handle and
+        # the prompt tells it that id IS the cite handle, so an id legitimately
+        # reaches the body without passing through a finding. Requiring one
+        # dropped exactly that citation — silently for a short claim, and for a
+        # longer one under a "not supported by the passage it cited" warning
+        # naming the wrong cause, since an id outside this set hydrates no
+        # anchor text and so cannot support anything.
+        cited_ids |= _cited_ids_in(document)
+
+        # The closed citation graph is enforced HERE, and only here: whichever
+        # road an id took, it may be cited only if retrieval actually surfaced
+        # it this run. Every retrieval tool is permission-filtered, so this is
+        # also what keeps a citation inside what the run's creator may read.
+        cited_ids &= set(retrieved_annotation_ids)
 
         verified = _verify_cite_spans(document, cited_ids)
         rendered, citations = _render_citations(verified.markdown, cited_ids)
@@ -1793,6 +1806,20 @@ def _render_citations(
         )
 
     return rendered, citations
+
+
+def _cited_ids_in(markdown: str) -> set[int]:
+    """Every annotation id a ``<cite>`` span in ``markdown`` names.
+
+    Unfiltered on purpose — the caller decides which of these are allowed. Uses
+    the same regex and id parser as the verifier so "what the document cites"
+    means one thing across the pipeline.
+    """
+    return {
+        ann_id
+        for match in _CITE_SPAN_RE.finditer(markdown or "")
+        for ann_id in _parse_ids(match.group(1))
+    }
 
 
 def _parse_ids(group: str) -> list[int]:
