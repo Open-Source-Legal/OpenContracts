@@ -1003,6 +1003,36 @@ class ResearchReportServiceTestCase(TestCase):
         self.assertIn("Analysis body.", deep)
         self.assertNotIn("stub", deep)
 
+    def test_strip_scaffold_headings_ignores_headings_inside_code_fences(self):
+        # A "# Sources" COMMENT in a quoted snippet is not a heading. Reading it
+        # as one swallowed the rest of the block AND the prose after it, leaving
+        # an unterminated fence behind — silent content loss.
+        fenced = (
+            "## Findings\n\nThe filing includes this extract:\n\n"
+            "```\n# Sources\nrevenue = 1_200_000\n```\n\n"
+            "Further analysis follows here.\n"
+        )
+        cleaned, sections = _strip_scaffold_headings(fenced)
+        self.assertEqual(sections, 0)
+        self.assertIn("Further analysis follows here.", cleaned)
+        self.assertIn("revenue = 1_200_000", cleaned)
+        self.assertEqual(cleaned.count("```"), 2)
+
+        # A real heading after the fence closes still strips, and tilde fences
+        # are recognised too.
+        mixed, count = _strip_scaffold_headings(
+            "## Findings\n\n```\n# Sources\n```\n\n"
+            "## Sources\n\nstub\n\n## Appendix\n\nKept.\n"
+        )
+        self.assertEqual(count, 1)
+        self.assertNotIn("stub", mixed)
+        self.assertIn("Kept.", mixed)
+        tilde, tilde_count = _strip_scaffold_headings(
+            "## Findings\n\n~~~\n# Sources\n~~~\n\nAfter.\n"
+        )
+        self.assertEqual(tilde_count, 0)
+        self.assertIn("After.", tilde)
+
     def test_finalize_warns_when_an_agent_sources_section_is_stripped(self):
         # Dropping a whole section is a bigger blast radius than dropping a
         # heading line, so it must not be silent — same treatment as the

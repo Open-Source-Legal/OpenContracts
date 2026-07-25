@@ -1039,8 +1039,11 @@ def _strip_scaffold_headings(markdown: str) -> tuple[str, int]:
     # Heading level of the scaffolding section currently being skipped, or None.
     skip_level: int | None = None
     sections = 0
+    in_code_fence = False
     for line in markdown.splitlines():
-        heading = _MD_HEADING_RE.match(line)
+        if _CODE_FENCE_RE.match(line):
+            in_code_fence = not in_code_fence
+        heading = None if in_code_fence else _MD_HEADING_RE.match(line)
         if heading:
             level = len(heading.group(1))
             title = _normalize_label(heading.group(2))
@@ -1133,6 +1136,12 @@ _CITE_SPAN_RE = re.compile(
 # Sentence/line boundary used to recover the prose a self-closing marker
 # decorates, and to compare a wrapping span against the prose before it.
 _SENTENCE_BOUNDARY_RE = re.compile(r'[.!?:;]["”’)\]]*\s|\n')
+
+# A fenced code block delimiter (``` or ~~~). Heading detection is suspended
+# inside a fence: a ``# Sources`` COMMENT in a quoted snippet is not a heading,
+# and reading it as one used to swallow the rest of the block plus everything
+# after it, leaving an unterminated fence behind.
+_CODE_FENCE_RE = re.compile(r"^\s{0,3}(`{3,}|~{3,})")
 
 # A markdown ATX heading line, capturing its level (the run of ``#``) and its
 # title text. The level is what makes section stripping nesting-aware.
