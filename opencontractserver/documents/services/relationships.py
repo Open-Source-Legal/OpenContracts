@@ -112,12 +112,12 @@ class DocumentRelationshipService(BaseService):
         # relationship where source == target only contributes once. Without
         # this guard, such a row would be counted both as a source and as a
         # target for the same document.
-        for row in (
+        for target_row in (
             qs.exclude(source_document_id=F("target_document_id"))
             .values("target_document_id")
             .annotate(c=Count("id"))
         ):
-            counts[row["target_document_id"]] += row["c"]
+            counts[target_row["target_document_id"]] += target_row["c"]
 
         # Materialise to a plain dict so callers can ``.get(key, 0)`` without
         # accidentally mutating the defaultdict.
