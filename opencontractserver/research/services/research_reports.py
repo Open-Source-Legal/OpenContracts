@@ -1434,7 +1434,10 @@ def _verify_cite_spans(
         last_claim = claim
 
         # (3) Claim support — an unsupported sentence keeps its prose, loses
-        # its footnote.
+        # its footnote. A marker with NO prose before it at all (the degenerate
+        # case of one opening the document) yields an empty claim, which falls
+        # under the min-words floor and is left alone: there is no sentence for
+        # the anchor to misrepresent, so there is nothing to strip.
         if not _claim_is_supported(claim, candidates):
             cites_dropped += 1
             out.append(inner or "")

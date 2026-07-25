@@ -34,12 +34,7 @@ class Migration(migrations.Migration):
                 ("is_public", models.BooleanField(default=False)),
                 ("created", models.DateTimeField(auto_now_add=True)),
                 ("modified", models.DateTimeField(auto_now=True)),
-                (
-                    "title",
-                    models.CharField(
-                        default="Untitled Research Report", max_length=255
-                    ),
-                ),
+                ("title", models.CharField(default="Untitled Research Report", max_length=255)),
                 ("slug", models.SlugField(blank=True, max_length=160, unique=True)),
                 ("prompt", models.TextField(help_text="The user's research task")),
                 (

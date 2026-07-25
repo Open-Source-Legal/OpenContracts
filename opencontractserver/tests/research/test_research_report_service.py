@@ -21,6 +21,7 @@ from opencontractserver.research.services.research_reports import (
     ConcurrentResearchInProgress,
     ResearchCancelled,
     ResearchReportService,
+    _claim_is_supported,
     _content_words,
     _derive_title_from_prompt,
     _is_header_anchor,
@@ -870,6 +871,20 @@ class ResearchReportServiceTestCase(TestCase):
         )
         self.assertEqual(result.cites_dropped, 0)
         self.assertIn(f'<cite ids="{anchor.pk}"/>', result.markdown)
+
+    def test_claim_support_rejects_a_checked_claim_with_no_anchor_text(self):
+        # A textless anchor (empty raw_text, a since-deleted row, or an id
+        # retrieval never produced) cannot support anything, so a checked claim
+        # citing only such anchors is unsupported by construction. Pinned
+        # directly rather than only via the quote-verification path.
+        long_claim = (
+            "The company's fixed-price contracts expose it to margin "
+            "compression from escalating tariffs on imported components"
+        )
+        self.assertFalse(_claim_is_supported(long_claim, []))
+        self.assertFalse(_claim_is_supported(long_claim, ["", ""]))
+        # A short claim still short-circuits ahead of the anchor check.
+        self.assertTrue(_claim_is_supported("a broad indemnity clause", []))
 
     def test_content_words_keep_short_numeric_tokens(self):
         # RESEARCH_SUPPORT_MIN_TOKEN_CHARS used to drop "10"/"5%" from BOTH
