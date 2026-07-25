@@ -129,6 +129,16 @@ RESEARCH_RECOVERY_FINDINGS_DIGEST = 20
 # ``Page Header`` are the LlamaParse layout heading labels
 # (``LlamaParseParser.ELEMENT_TYPE_MAPPING``); ``OC_SECTION`` is the canonical
 # cross-parser section label.
+#
+# This set feeds TWO consumers that normalise differently, and they agree only
+# because every entry here is already in its canonical spelling: the warning
+# path (``_is_header_anchor`` -> ``_normalize_label``) folds separators, so
+# ``Section_Header`` matches, while the retrieval filter
+# (``search_corpus_annotation_text(exclude_label_texts=…)`` -> ``iexact``) folds
+# only case, so it would not. Add a separator variant here and the two paths
+# diverge: the anchor would be warned about but still offered as citable. Add
+# labels in the spelling the parser actually writes, or teach the retrieval
+# filter the same normalisation.
 RESEARCH_HEADER_ANCHOR_LABELS: frozenset[str] = frozenset(
     {
         OC_SECTION_LABEL,  # "OC_SECTION" — canonical section layer (issue #2180)
