@@ -1531,10 +1531,26 @@ def _verify_cite_spans(
 
         # (1) Echo collapse — inner text that just restates the prose before it.
         if inner:
-            echo = _contiguous_coverage(
-                _normalize_for_quote_match(inner),
-                _normalize_for_quote_match(preceding),
-            )
+            inner_norm = _normalize_for_quote_match(inner)
+            preceding_norm = _normalize_for_quote_match(preceding)
+            # The inner text is the ONE input here the caller does not bound:
+            # ``_preceding_claim`` caps its side at RESEARCH_SENTENCE_LOOKBACK_CHARS
+            # and quote extraction caps its own, but a <cite> span's inner group
+            # is whatever the agent wrote, and SequenceMatcher costs time linear
+            # in it. It is also unnecessary work: coverage divides the longest
+            # matching block by len(inner), and that block cannot exceed
+            # len(preceding), so coverage <= len(preceding)/len(inner). Once
+            # len(inner) * threshold passes len(preceding) the threshold is
+            # arithmetically out of reach and the comparison can be skipped.
+            # Exact, not heuristic — the result is identical, just not computed.
+            # (Capping the REGEX instead, as for quoted passages, would not be:
+            # an unmatched quote pattern leaves text alone, but an unmatched
+            # cite span is never rendered either, leaking a raw tag into the
+            # report — the #2200 symptom.)
+            if len(inner_norm) * RESEARCH_CITE_ECHO_THRESHOLD > len(preceding_norm):
+                echo = 0.0
+            else:
+                echo = _contiguous_coverage(inner_norm, preceding_norm)
             if echo >= RESEARCH_CITE_ECHO_THRESHOLD:
                 # A collapse below full coverage discards the uncovered
                 # remainder along with the echo, so count it — every other

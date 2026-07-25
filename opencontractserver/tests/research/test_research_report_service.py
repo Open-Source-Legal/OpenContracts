@@ -1228,6 +1228,22 @@ class ResearchReportServiceTestCase(TestCase):
         self.assertEqual(result.echoes_trimmed, 0)
         self.assertIn("renegotiated in 2019", result.markdown)
 
+    def test_echo_check_skips_spans_too_long_to_reach_the_threshold(self):
+        # The inner text is the one input the verifier does not bound, and
+        # SequenceMatcher costs time linear in it. The skip is arithmetic, not
+        # a heuristic: coverage divides the longest matching block by
+        # len(inner) and that block cannot exceed len(preceding), so a long
+        # enough span cannot clear the threshold however it is written. The
+        # span must therefore survive intact — same outcome, not computed.
+        sentence = "The tenant is liable for structural repairs under Section 8"
+        ann = self._make_annotation(raw_text=sentence)
+        # Starts as a perfect echo, so only the length can rule it out.
+        huge = sentence + (" and further provisions of the lease agreement" * 400)
+        body = f'{sentence}. <cite ids="{ann.pk}">{huge}</cite>'
+        result = _verify_cite_spans(body, {ann.pk})
+        self.assertEqual(result.echoes_trimmed, 0)
+        self.assertIn("further provisions of the lease agreement", result.markdown)
+
     def test_scaffold_stripping_closes_a_fence_only_on_its_own_character(self):
         # CommonMark closes a fence on its own character, so a ``~~~`` line
         # inside a backtick block is content. Toggling on any fence line left
