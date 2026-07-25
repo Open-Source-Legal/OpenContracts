@@ -605,6 +605,24 @@ class TestSearchCorpusAnnotationText(TestCase):
         )
         self.assertEqual([h.pk for h in hits], [self.tight.pk])
 
+    def test_limit_is_an_ordinary_cap(self):
+        # ``limit`` means "at most N" for every N, including 0 — a shared
+        # service method that quietly turned 0 into 1 is a footgun for the next
+        # caller. Negative is treated as 0 rather than reaching the queryset,
+        # where Django rejects negative slicing. The "never show an empty page"
+        # rule belongs to the deep-research tool, which floors its own argument.
+        for limit, expected in ((0, 0), (-5, 0), (1, 1)):
+            with self.subTest(limit=limit):
+                self.assertEqual(
+                    AnnotationService.search_corpus_annotation_text(
+                        corpus_id=self.corpus.id,
+                        user=self.owner,
+                        phrase="maintain the premises",
+                        limit=limit,
+                    ).count(),
+                    expected,
+                )
+
     def test_empty_phrase_and_no_match_return_nothing(self):
         for phrase in ("", "   ", "a phrase that appears nowhere at all"):
             with self.subTest(phrase=phrase):

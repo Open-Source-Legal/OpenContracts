@@ -888,9 +888,12 @@ class AnnotationService(BaseService):
         ``.distinct()`` queryset, and Postgres rejects a SELECT DISTINCT ordered
         by an expression that is not in the select list.
 
-        ``limit`` is a positive row count with a floor of 1 — ``limit=0`` still
-        yields one row rather than none. Pass an empty ``phrase`` (or just don't
-        call this) when the answer you want is "no rows".
+        ``limit`` is an ordinary cap: at most that many rows, and ``limit=0``
+        yields none. A negative value is treated as zero rather than reaching
+        the queryset, where Django rejects negative slicing. A caller that must
+        never show an empty page for a phrase that did match owns that rule and
+        should floor its own argument — the deep-research tool does, since
+        "no citable passage" is a message it wants to phrase itself.
 
         ``exclude_label_texts`` drops annotations carrying any of the given
         ``annotation_label.text`` values, matched case-insensitively. Callers use
@@ -934,7 +937,7 @@ class AnnotationService(BaseService):
         return (
             qs.select_related("document", "annotation_label")
             .annotate(_anchor_chars=Length("raw_text"))
-            .order_by("_anchor_chars", "id")[: max(1, int(limit))]
+            .order_by("_anchor_chars", "id")[: max(0, int(limit))]
         )
 
     @classmethod

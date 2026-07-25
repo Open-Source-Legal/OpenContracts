@@ -607,13 +607,15 @@ def _citable_passage_rows(
         # #2180 failure this tool exists to make unnecessary. Keyed on the
         # LABEL, not Annotation.structural; see the constant's docstring.
         exclude_label_texts=RESEARCH_HEADER_ANCHOR_LABELS,
-        # Clamp whatever the model asked for to the hit ceiling so a common
-        # phrase cannot dump a corpus-worth of annotations into the context.
-        # Only the CEILING is applied here — that is the research-specific half.
-        # The floor of 1 belongs to search_corpus_annotation_text and is
-        # documented there; duplicating it would leave two numbers that must
-        # agree with nothing keeping them in step.
-        limit=min(int(limit or 0), RESEARCH_CITABLE_PASSAGE_MAX_HITS),
+        # Clamp whatever the model asked for to [1, ceiling]. The ceiling stops
+        # a common phrase dumping a corpus-worth of annotations into the
+        # context; the floor is here rather than in the service because it is a
+        # UX rule of THIS tool, not of annotation search — a model that omits
+        # ``limit`` or sends 0 still gets its tightest anchor, and the only
+        # empty result it ever sees is a genuine miss, which the caller answers
+        # with guidance instead of a bare empty list. The service treats
+        # ``limit`` as an ordinary cap and would honour the 0.
+        limit=max(1, min(int(limit or 0), RESEARCH_CITABLE_PASSAGE_MAX_HITS)),
     )
     return [
         {

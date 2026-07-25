@@ -1729,6 +1729,14 @@ class CitablePassageRowsTestCase(TestCase):
         # into the context window.
         rows = self._rows("maintain the premises", limit=999)
         self.assertEqual(len(rows), RESEARCH_CITABLE_PASSAGE_MAX_HITS)
+        # The floor is this tool's rule, not the service's: a model that omits
+        # limit or sends 0 still gets its tightest anchor, so the only empty
+        # result it can see is a genuine miss.
+        for asked in (0, None, -1):
+            with self.subTest(limit=asked):
+                self.assertEqual(
+                    len(self._rows("maintain the premises", limit=asked)), 1
+                )
 
     def test_no_match_returns_no_rows(self):
         self.assertEqual(self._rows("a phrase that appears nowhere"), [])
