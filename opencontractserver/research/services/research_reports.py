@@ -1292,6 +1292,13 @@ def _claim_is_supported(claim: str, candidates_norm: list[str]) -> bool:
 
     See the constants for the calibration and for what this deliberately does
     NOT catch (a well-anchored sentence carrying an invented tail).
+
+    The polarity guard treats the cited anchors as a union, matching the
+    coverage check above. A span citing several anchors that disagree on
+    polarity therefore satisfies parity whichever way the claim reads, so an
+    inversion against one of them can pass. Making polarity per-candidate while
+    coverage stays a union would be the inconsistency, not the fix; the honest
+    fix is the entailment call this function is the seam for.
     """
     if len(claim.split()) < RESEARCH_CLAIM_SUPPORT_MIN_WORDS:
         return True
