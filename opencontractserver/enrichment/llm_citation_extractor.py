@@ -18,6 +18,7 @@ import logging
 import re
 from typing import Any, cast
 
+from asgiref.sync import sync_to_async
 from pydantic import BaseModel, Field
 
 from opencontractserver.enrichment import constants as C
@@ -384,8 +385,6 @@ class LLMCitationExtractor:
         to the deploy-time ``DEFAULT_LLM`` / ``OPENAI_MODEL`` env values
         (issue #2078).
         """
-        from asgiref.sync import sync_to_async
-
         from opencontractserver.llms.llm_registry import resolve_model_spec
         from opencontractserver.pipeline.utils import get_default_llm_spec
 
