@@ -262,6 +262,15 @@ RESEARCH_SUPPORT_NEGATION_TOKENS: frozenset[str] = frozenset(
     {"not", "no", "never", "cannot", "neither", "nor", "without", "non"}
 )
 
+# Contracts negate by prefix at least as often as by particle — "non-cancelable",
+# "non-transferable", "non-exclusive" — and a token-exact match misses all of
+# them, leaving exactly the inversion the polarity guard exists to catch
+# ("non-cancelable" against an anchor reading "cancelable"). Matched as a token
+# prefix. Deliberately hyphenated and limited to "non-": bare "un"/"in" prefixes
+# would fire on "under", "until", "interest" and similar, and an unhyphenated
+# "non" would catch "none"/"nonetheless".
+RESEARCH_SUPPORT_NEGATION_PREFIXES: tuple[str, ...] = ("non-",)
+
 # Content-word extraction for the support check: tokens shorter than this are
 # dropped along with the stopword list, so the ratio is computed over the terms
 # that actually carry meaning (parties, amounts, defined terms, verbs).

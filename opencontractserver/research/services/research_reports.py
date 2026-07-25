@@ -40,6 +40,7 @@ from opencontractserver.research.constants import (
     RESEARCH_SUMMARY_DUPLICATE_PROBE_CHARS,
     RESEARCH_SUMMARY_DUPLICATE_THRESHOLD,
     RESEARCH_SUPPORT_MIN_TOKEN_CHARS,
+    RESEARCH_SUPPORT_NEGATION_PREFIXES,
     RESEARCH_SUPPORT_NEGATION_TOKENS,
     RESEARCH_SUPPORT_STOPWORDS,
 )
@@ -1217,17 +1218,21 @@ def _content_words(text: str) -> set[str]:
 def _is_negated(text: str) -> bool:
     """True when ``text`` carries an explicit negation marker.
 
+    Matches both a negating particle ("not", "without", …) and a negating
+    prefix ("non-cancelable"), since contracts use the two interchangeably and a
+    token-exact test would miss the whole prefixed family.
+
     Deliberately keyed on the normalized token stream rather than
     ``_content_words``, so the stopword list (which contains "not") cannot hide
     a polarity marker from the inversion guard.
     """
-    return bool(
-        RESEARCH_SUPPORT_NEGATION_TOKENS
-        & {
-            token.strip("\"“”'’()[]{}.,;:!?*_`")
-            for token in _normalize_for_quote_match(text).split()
-        }
-    )
+    tokens = {
+        token.strip("\"“”'’()[]{}.,;:!?*_`")
+        for token in _normalize_for_quote_match(text).split()
+    }
+    if tokens & RESEARCH_SUPPORT_NEGATION_TOKENS:
+        return True
+    return any(token.startswith(RESEARCH_SUPPORT_NEGATION_PREFIXES) for token in tokens)
 
 
 def _claim_is_supported(claim: str, candidates_norm: list[str]) -> bool:

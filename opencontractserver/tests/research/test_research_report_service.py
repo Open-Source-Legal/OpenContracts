@@ -25,6 +25,7 @@ from opencontractserver.research.services.research_reports import (
     _content_words,
     _derive_title_from_prompt,
     _is_header_anchor,
+    _is_negated,
     _render_citations,
     _strip_fabricated_links,
     _verify_cite_spans,
@@ -850,6 +851,41 @@ class ResearchReportServiceTestCase(TestCase):
         self.assertNotIn("<cite", result.markdown)
         # The prose survives as uncited analysis, as with any stripped citation.
         self.assertIn(inverted, result.markdown)
+
+    def test_claim_support_catches_prefix_negation_inversion(self):
+        # Contracts negate by prefix as often as by particle. A token-exact
+        # match missed the whole "non-…" family, leaving exactly the inversion
+        # the polarity guard exists to catch.
+        anchor = self._make_annotation(
+            raw_text=(
+                "The master agreement is cancelable by either party on sixty "
+                "days written notice"
+            )
+        )
+        inverted = (
+            "The master agreement is non-cancelable by either party on sixty "
+            "days written notice"
+        )
+        result = _verify_cite_spans(
+            f'{inverted} <cite ids="{anchor.pk}"/>.', {anchor.pk}
+        )
+        self.assertEqual(result.cites_dropped, 1)
+        self.assertNotIn("<cite", result.markdown)
+
+    def test_is_negated_does_not_fire_on_lookalike_words(self):
+        # The prefix is hyphenated and limited to "non-" precisely so ordinary
+        # contract vocabulary does not read as a polarity marker.
+        self.assertTrue(_is_negated("the lease is non-cancelable"))
+        self.assertTrue(_is_negated("the lease shall not be cancelled"))
+        self.assertFalse(_is_negated("the tenant is liable for repairs"))
+        for benign in (
+            "payment is due under section 8",
+            "the note matures until 2030",
+            "interest accrues monthly",
+            "none of the above nonetheless applies",
+        ):
+            with self.subTest(text=benign):
+                self.assertFalse(_is_negated(benign))
 
     def test_claim_support_polarity_guard_spares_honest_paraphrase(self):
         # Legal text often negates lexically ("prohibited") rather than with a
