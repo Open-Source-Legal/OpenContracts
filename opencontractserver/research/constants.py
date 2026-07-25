@@ -289,7 +289,7 @@ RESEARCH_SUPPORT_STOPWORDS: frozenset[str] = frozenset("""
     shall should must have has had been being not but our its their there these
     those they them then than when where which who whom what while into onto
     over under about above below after before during such any all each other
-    some more most both same own very just also only own per via upon within
+    some more most both same own very just also only per via upon within
     without because however therefore thus does did doing done here out off
     """.split())
 

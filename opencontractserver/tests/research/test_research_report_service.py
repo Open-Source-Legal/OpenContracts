@@ -888,6 +888,38 @@ class ResearchReportServiceTestCase(TestCase):
             with self.subTest(text=benign):
                 self.assertFalse(_is_negated(benign))
 
+    def test_is_negated_ignores_the_citation_number_abbreviation(self):
+        # "No." spells the reference abbreviation as well as the negation, and
+        # exhibit/item/case numbers are everywhere in this domain. Reading them
+        # as negation let a reference number appearing on only one side of a
+        # near-verbatim restatement trip the inversion guard and strip a VALID
+        # citation.
+        for reference in (
+            "the premises described in Exhibit No. 4",
+            "Case No. 12-3456 governs",
+            "as set out in Item No. 5",
+        ):
+            with self.subTest(text=reference):
+                self.assertFalse(_is_negated(reference))
+        # A bare "no" is still a negation.
+        self.assertTrue(_is_negated("there is no liability for consequential damages"))
+        self.assertTrue(_is_negated("no obligation arises under this section"))
+
+    def test_claim_support_keeps_a_citation_whose_claim_cites_an_exhibit_number(self):
+        anchor = self._make_annotation(
+            raw_text=(
+                "The tenant shall maintain the premises described in the "
+                "attached exhibit in good repair throughout the term of the lease"
+            )
+        )
+        claim = (
+            "The tenant shall maintain the premises described in Exhibit No. 4 "
+            "in good repair throughout the term of the lease"
+        )
+        result = _verify_cite_spans(f'{claim} <cite ids="{anchor.pk}"/>.', {anchor.pk})
+        self.assertEqual(result.cites_dropped, 0)
+        self.assertIn(f'<cite ids="{anchor.pk}"/>', result.markdown)
+
     def test_claim_support_polarity_guard_spares_honest_paraphrase(self):
         # Legal text often negates lexically ("prohibited") rather than with a
         # marker. Such a paraphrase shares far fewer words with the anchor, so

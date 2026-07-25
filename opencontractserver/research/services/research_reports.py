@@ -1150,6 +1150,10 @@ _SCAFFOLD_SECTION_HEADINGS: frozenset[str] = frozenset(
 )
 _SCAFFOLD_HEADING_LINES: frozenset[str] = frozenset({"executive summary"})
 
+# Punctuation trimmed from token edges before a token is compared. Shared by
+# ``_content_words`` and ``_is_negated`` so both agree on where a token ends.
+_TOKEN_PUNCTUATION = "\"“”'’()[]{}.,;:!?*_`"
+
 
 def _normalize_for_quote_match(text: str) -> str:
     """Casefold + collapse all whitespace runs to single spaces.
@@ -1213,7 +1217,7 @@ def _content_words(text: str) -> set[str]:
     """
     words: set[str] = set()
     for token in _normalize_for_quote_match(text).split():
-        token = token.strip("\"“”'’()[]{}.,;:!?*_`")
+        token = token.strip(_TOKEN_PUNCTUATION)
         if not token:
             continue
         # Digit-bearing tokens skip the length floor: "10", "5%" and "$5" are
@@ -1237,17 +1241,30 @@ def _is_negated(text: str) -> bool:
     prefix ("non-cancelable"), since contracts use the two interchangeably and a
     token-exact test would miss the whole prefixed family.
 
+    One exception: "no" also spells the citation-number abbreviation ("Exhibit
+    No. 4", "Case No. 12-3456"), which is not a negation at all. Reading it as
+    one let a reference number that appears on only one side of an otherwise
+    near-verbatim restatement trip the inversion guard and strip a VALID
+    citation — so "no" counts only when a number does not follow it.
+
     Deliberately keyed on the normalized token stream rather than
     ``_content_words``, so the stopword list (which contains "not") cannot hide
     a polarity marker from the inversion guard.
     """
-    tokens = {
-        token.strip("\"“”'’()[]{}.,;:!?*_`")
+    tokens = [
+        token.strip(_TOKEN_PUNCTUATION)
         for token in _normalize_for_quote_match(text).split()
-    }
-    if tokens & RESEARCH_SUPPORT_NEGATION_TOKENS:
-        return True
-    return any(token.startswith(RESEARCH_SUPPORT_NEGATION_PREFIXES) for token in tokens)
+    ]
+    for index, token in enumerate(tokens):
+        if token in RESEARCH_SUPPORT_NEGATION_TOKENS:
+            if token == "no":
+                following = tokens[index + 1] if index + 1 < len(tokens) else ""
+                if following[:1].isdigit():
+                    continue  # "No. 4" — a reference, not a negation.
+            return True
+        if token.startswith(RESEARCH_SUPPORT_NEGATION_PREFIXES):
+            return True
+    return False
 
 
 def _claim_is_supported(claim: str, candidates_norm: list[str]) -> bool:
