@@ -1287,6 +1287,19 @@ def _verify_cite_spans(
     or an id retrieval never produced) is treated as ungrounded by both (2) and
     (3) rather than silently passing through — that is the "cited a real anchor
     but invented the content" hole these guards exist to close.
+
+    Known asymmetry across split markers: when the agent writes
+    ``… <cite ids="1"/> <cite ids="2"/>`` instead of the combined
+    ``<cite ids="1,2"/>`` the prompt asks for, the carried-forward claim feeds
+    (3) but not (2) — the later marker's ``preceding`` is the blank gap between
+    the tags, so quotes were already verified at the first marker against ITS
+    anchors alone. This can only over-strip: a quote grounded in the second
+    anchor but not the first is demoted to paraphrase (honest, and the warning
+    tells the reader to check the wording). It cannot under-strip — a quote in
+    NEITHER anchor is still demoted at the first marker, so nothing ungrounded
+    reaches the reader through the split form. Unioning candidates across a run
+    of adjacent markers would fix the strictness; it is not worth a lookahead
+    pre-pass for a shape the prompt forbids.
     """
     spans = list(_CITE_SPAN_RE.finditer(markdown or ""))
     if not spans:

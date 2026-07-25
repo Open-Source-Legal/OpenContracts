@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 
 from opencontractserver.annotations.models import (
@@ -33,9 +32,8 @@ from opencontractserver.tasks.research_tasks import (
     _compose_salvage_body,
 )
 from opencontractserver.types.enums import JobStatus, PermissionTypes
+from opencontractserver.users.models import User
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
-
-User = get_user_model()
 
 
 @override_settings(DEEP_RESEARCH_CONCURRENCY_GUARD_SECONDS=3600)
