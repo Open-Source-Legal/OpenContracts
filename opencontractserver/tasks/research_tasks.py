@@ -25,6 +25,7 @@ from opencontractserver.research.constants import (
     DEEP_RESEARCH_RETRIEVAL_CLOSURE_TOOLS,
     RESEARCH_CITABLE_PASSAGE_MAX_HITS,
     RESEARCH_CITABLE_PASSAGE_PREVIEW_CHARS,
+    RESEARCH_HEADER_ANCHOR_LABELS,
     build_deep_research_system_prompt,
 )
 from opencontractserver.research.models import ResearchReport
@@ -340,6 +341,11 @@ async def _run_deep_research_async(
         straight into the report body. Use this when you know the language you
         want but not its annotation id — it is far cheaper than re-searching for
         something citeable.
+
+        Pass ``document_id`` to search inside one document you have already
+        identified, which is both faster and more precise than searching the
+        whole corpus. Section headers are never returned: the results are
+        passages you can actually cite.
         """
         rows = await sync_to_async(_citable_passage_rows)(
             corpus_id=corpus.pk,
@@ -587,6 +593,10 @@ def _citable_passage_rows(
         user=user,
         phrase=phrase,
         document_id=document_id,
+        # Never offer a bare section header as a citable passage — that is the
+        # #2180 failure this tool exists to make unnecessary. Keyed on the
+        # LABEL, not Annotation.structural; see the constant's docstring.
+        exclude_label_texts=RESEARCH_HEADER_ANCHOR_LABELS,
         # Clamp whatever the model asked for to the hit ceiling so a common
         # phrase cannot dump a corpus-worth of annotations into the context.
         limit=max(1, min(int(limit or 0), RESEARCH_CITABLE_PASSAGE_MAX_HITS)),

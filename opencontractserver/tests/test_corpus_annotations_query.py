@@ -615,6 +615,44 @@ class TestSearchCorpusAnnotationText(TestCase):
                     0,
                 )
 
+    def test_exclude_label_texts_drops_header_anchors(self):
+        # The deep-research tool passes the section-header labels so a bare
+        # heading is never offered as a citable passage (#2180). Keyed on the
+        # LABEL, never Annotation.structural — that flag marks the parser's
+        # whole layout layer, so filtering on it would drop the body passages
+        # and keep the headers.
+        header_label = AnnotationLabel.objects.create(
+            text="OC_SECTION", label_type=LabelType.TOKEN_LABEL, creator=self.owner
+        )
+        header = Annotation.objects.create(
+            annotation_label=header_label,
+            document=self.doc,
+            corpus=self.corpus,
+            creator=self.owner,
+            raw_text="ITEM 1A. maintain the premises",
+        )
+        unfiltered = list(
+            AnnotationService.search_corpus_annotation_text(
+                corpus_id=self.corpus.id,
+                user=self.owner,
+                phrase="maintain the premises",
+            )
+        )
+        self.assertIn(header, unfiltered)
+
+        filtered = list(
+            AnnotationService.search_corpus_annotation_text(
+                corpus_id=self.corpus.id,
+                user=self.owner,
+                phrase="maintain the premises",
+                # Mixed case on purpose: matching is case-insensitive.
+                exclude_label_texts=["oc_section"],
+            )
+        )
+        self.assertNotIn(header, filtered)
+        # The real passages still come back.
+        self.assertIn(self.tight, filtered)
+
     def test_visibility_is_delegated_to_get_corpus_annotations(self):
         # No corpus grant -> nothing, even though the phrase matches.
         self.assertEqual(

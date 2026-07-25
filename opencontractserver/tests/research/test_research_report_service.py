@@ -894,16 +894,26 @@ class ResearchReportServiceTestCase(TestCase):
         # as negation let a reference number appearing on only one side of a
         # near-verbatim restatement trip the inversion guard and strip a VALID
         # citation.
+        # The abbreviating period is the discriminator, so lettered references
+        # ("No. A-1") and bracketed ones are covered as well as numeric.
         for reference in (
             "the premises described in Exhibit No. 4",
+            "Schedule No. A-1 lists the equipment",
             "Case No. 12-3456 governs",
             "as set out in Item No. 5",
+            "see (No. 7) below",
         ):
             with self.subTest(text=reference):
                 self.assertFalse(_is_negated(reference))
-        # A bare "no" is still a negation.
-        self.assertTrue(_is_negated("there is no liability for consequential damages"))
-        self.assertTrue(_is_negated("no obligation arises under this section"))
+        # A bare "no" is still a negation — including before a number, which a
+        # look-ahead-for-a-digit rule would have swallowed.
+        for negation in (
+            "there is no liability for consequential damages",
+            "no obligation arises under this section",
+            "there is no 30-day cure period",
+        ):
+            with self.subTest(text=negation):
+                self.assertTrue(_is_negated(negation))
 
     def test_claim_support_keeps_a_citation_whose_claim_cites_an_exhibit_number(self):
         anchor = self._make_annotation(

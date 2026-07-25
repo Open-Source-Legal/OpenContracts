@@ -1242,25 +1242,28 @@ def _is_negated(text: str) -> bool:
     token-exact test would miss the whole prefixed family.
 
     One exception: "no" also spells the citation-number abbreviation ("Exhibit
-    No. 4", "Case No. 12-3456"), which is not a negation at all. Reading it as
-    one let a reference number that appears on only one side of an otherwise
+    No. 4", "Schedule No. A-1"), which is not a negation at all. Reading it as
+    one let a reference that appears on only one side of an otherwise
     near-verbatim restatement trip the inversion guard and strip a VALID
-    citation — so "no" counts only when a number does not follow it.
+    citation.
+
+    The discriminator is the abbreviating period on the token itself, not what
+    follows it: bare "no" negates, "no." abbreviates. That covers lettered
+    references ("No. A-1") as well as numeric ones, and — unlike looking ahead
+    for a number — it does not swallow a genuine negation that happens to
+    precede one ("no 30-day cure period").
 
     Deliberately keyed on the normalized token stream rather than
     ``_content_words``, so the stopword list (which contains "not") cannot hide
     a polarity marker from the inversion guard.
     """
-    tokens = [
-        token.strip(_TOKEN_PUNCTUATION)
-        for token in _normalize_for_quote_match(text).split()
-    ]
-    for index, token in enumerate(tokens):
+    for raw in _normalize_for_quote_match(text).split():
+        token = raw.strip(_TOKEN_PUNCTUATION)
         if token in RESEARCH_SUPPORT_NEGATION_TOKENS:
-            if token == "no":
-                following = tokens[index + 1] if index + 1 < len(tokens) else ""
-                if following[:1].isdigit():
-                    continue  # "No. 4" — a reference, not a negation.
+            # ``"." in raw`` rather than ``raw.endswith(".")`` so a bracketed
+            # reference ("(No. 4)") is still recognised as the abbreviation.
+            if token == "no" and "." in raw:
+                continue
             return True
         if token.startswith(RESEARCH_SUPPORT_NEGATION_PREFIXES):
             return True

@@ -859,6 +859,7 @@ class AnnotationService(BaseService):
         phrase: str,
         document_id: Optional[int] = None,
         limit: int = 10,
+        exclude_label_texts: Optional[Any] = None,
         context: Optional[Any] = None,
     ) -> QuerySet:
         """Find corpus annotations whose text contains ``phrase``, tightest first.
@@ -887,6 +888,16 @@ class AnnotationService(BaseService):
         yields one row rather than none. Pass an empty ``phrase`` (or just don't
         call this) when the answer you want is "no rows".
 
+        ``exclude_label_texts`` drops annotations carrying any of the given
+        ``annotation_label.text`` values, matched case-insensitively. Callers use
+        it to keep whole categories of anchor out of the results — the
+        deep-research tool passes the section-header labels so a bare
+        ``ITEM 1A. RISK FACTORS`` is never offered as a citable passage (#2180).
+        Note this is keyed on the LABEL, never on ``Annotation.structural``:
+        the parsing pipeline marks its entire layout layer structural, so
+        filtering on that flag would drop nearly every body passage while
+        keeping the bookmark-derived headers, which are ``structural=False``.
+
         ``raw_text__icontains`` is index-backed: annotations migration 0074 adds
         a pg_trgm GIN index on ``Annotation.raw_text`` precisely so ILIKE
         substring lookups don't degrade to a sequential scan.
@@ -904,6 +915,8 @@ class AnnotationService(BaseService):
         )
         if document_id is not None:
             qs = qs.filter(document_id=document_id)
+        for label_text in exclude_label_texts or ():
+            qs = qs.exclude(annotation_label__text__iexact=label_text)
         return (
             qs.select_related("document", "annotation_label")
             .annotate(_anchor_chars=Length("raw_text"))
