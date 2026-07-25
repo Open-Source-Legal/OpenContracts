@@ -1602,9 +1602,7 @@ def _verify_cite_spans(
         )
 
     out.append(markdown[cursor:])
-    return CiteVerification(
-        "".join(out), quotes_demoted, cites_dropped, echoes_trimmed
-    )
+    return CiteVerification("".join(out), quotes_demoted, cites_dropped, echoes_trimmed)
 
 
 def _render_citations(
