@@ -2480,6 +2480,11 @@ class PydanticAIDocumentAgent(PydanticAICoreAgent):
     ) -> "PydanticAIDocumentAgent":
         """Create a Pydantic-AI document agent tied to a specific corpus."""
         if config is None:
+            # Settings-only default (DEFAULT_LLM → OPENAI_MODEL → "gpt-4o").
+            # Deliberately skips the PipelineSettings.default_llm tier — see
+            # get_default_config's docstring; callers needing the full runtime
+            # chain (i.e. all production paths) go through UnifiedAgentFactory,
+            # which passes an explicitly resolved model_name.
             config = get_default_config()
 
         logger.debug(
@@ -3154,6 +3159,11 @@ class PydanticAICorpusAgent(PydanticAICoreAgent):
     ) -> "PydanticAICorpusAgent":
         """Create a PydanticAI corpus agent using core functionality."""
         if config is None:
+            # Settings-only default (DEFAULT_LLM → OPENAI_MODEL → "gpt-4o").
+            # Deliberately skips the PipelineSettings.default_llm tier — see
+            # get_default_config's docstring; callers needing the full runtime
+            # chain (i.e. all production paths) go through UnifiedAgentFactory,
+            # which passes an explicitly resolved model_name.
             config = get_default_config()
 
         if not isinstance(corpus, Corpus):  # Ensure corpus is loaded if ID is passed
