@@ -22,6 +22,10 @@ from django.utils import timezone
 from opencontractserver.research.constants import (
     DEEP_RESEARCH_MEMORY_TOOL_NAMES,
     DEEP_RESEARCH_READ_ONLY_TOOLS,
+    DEEP_RESEARCH_RETRIEVAL_CLOSURE_TOOLS,
+    RESEARCH_CITABLE_PASSAGE_MAX_HITS,
+    RESEARCH_CITABLE_PASSAGE_PREVIEW_CHARS,
+    RESEARCH_HEADER_ANCHOR_LABEL_VARIANTS,
     build_deep_research_system_prompt,
 )
 from opencontractserver.research.models import ResearchReport
@@ -325,15 +329,69 @@ async def _run_deep_research_async(
             f"{len(supporting_source_ids)} citation(s)."
         )
 
+    async def find_citable_passages(
+        phrase: str,
+        document_id: int | None = None,
+        limit: int = RESEARCH_CITABLE_PASSAGE_MAX_HITS,
+    ) -> list[dict] | str:
+        """Find corpus passages containing an exact phrase, ready to cite.
+
+        Returns the real annotations whose text contains ``phrase``, tightest
+        (most pinpoint) first. Every row carries a ``cite`` handle you can paste
+        straight into the report body. Use this when you know the language you
+        want but not its annotation id — it is far cheaper than re-searching for
+        something citeable.
+
+        Pass ``document_id`` to search inside one document you have already
+        identified, which is both faster and more precise than searching the
+        whole corpus. ``limit`` is a MAXIMUM row count with a floor of 1 —
+        passing 0 still returns a row, so use a more specific ``phrase`` rather
+        than ``limit=0`` when you want nothing back. Section headers are never
+        returned: the results are passages you can actually cite.
+        """
+        rows = await sync_to_async(_citable_passage_rows)(
+            corpus_id=corpus.pk,
+            user=report.creator,
+            phrase=phrase,
+            document_id=document_id,
+            limit=limit,
+        )
+        if not rows:
+            # A miss returns guidance rather than ``[]`` — the model is most
+            # likely to act on "try a shorter fragment" at exactly this moment,
+            # and a bare empty list says nothing about what to do next. The
+            # ``list[dict] | str`` return that implies is not a new shape for
+            # the agent: ``PydanticAIToolWrapper`` already returns a plain
+            # string from ANY tool on the operational-error path (issue #820),
+            # whatever the tool's annotation says, and tool *outputs* are not
+            # schema-validated the way inputs are.
+            return (
+                f"No corpus passage contains {phrase!r}. Try a shorter or "
+                "differently-cased fragment, or use similarity_search."
+            )
+        # Register the anchors so record_finding / finalize accept them: this is
+        # the same closed-citation-graph contract similarity_search satisfies by
+        # appending to the accumulator.
+        deps = deps_ref["deps"]
+        if deps is not None:
+            deps.retrieved_annotation_ids.extend(row["annotation_id"] for row in rows)
+        return rows
+
     async def finalize_report(
         executive_summary: str,
         markdown_body: str,
     ) -> str:
         """Render the final markdown report and end the run.
 
-        ``markdown_body`` should use ``<cite ids="a,b">claim</cite>``
-        placeholders for citations; the system converts those to footnote
-        markers and builds the Sources section.
+        ``executive_summary`` is 2–4 sentences of top-line answer;
+        ``markdown_body`` is the full report. They are DIFFERENT texts — do not
+        pass the report as both — and neither should carry its own
+        ``## Executive Summary`` or ``## Sources`` heading: the system adds
+        those and renders the footnote table.
+
+        Cite by writing the sentence and attaching ``<cite ids="1,2"/>`` after
+        it; use ``<cite ids="1">…</cite>`` only to scope part of a sentence, and
+        never restate the sentence inside the tag.
         """
         deps = deps_ref["deps"]
         retrieved = list(deps.retrieved_annotation_ids) if deps is not None else []
@@ -432,6 +490,7 @@ async def _run_deep_research_async(
     closure_tools = cast(
         "list[str | Any | Callable[..., Any]]",
         [
+            find_citable_passages,
             record_finding,
             finalize_report,
             update_research_plan,
@@ -447,6 +506,7 @@ async def _run_deep_research_async(
         set(DEEP_RESEARCH_READ_ONLY_TOOLS)
         | SCRATCHPAD_TOOL_NAMES
         | DEEP_RESEARCH_MEMORY_TOOL_NAMES
+        | DEEP_RESEARCH_RETRIEVAL_CLOSURE_TOOLS
     )
 
     agent = await agents.for_corpus(
@@ -511,12 +571,80 @@ async def _run_deep_research_async(
     }
 
 
+def _citable_passage_rows(
+    *,
+    corpus_id: int,
+    user: Any,
+    phrase: str,
+    document_id: int | None,
+    limit: int,
+) -> list[dict]:
+    """Shape ``AnnotationService.search_corpus_annotation_text`` hits for the LLM.
+
+    Mirrors the ``similarity_search`` result shape (``annotation_id``,
+    ``content``, ``document_id``, ``page``, ``label``) so the agent handles both
+    retrieval tools identically, and adds the ready-to-paste ``cite`` handle
+    that issue #2201 asks for — the point being that the agent attributes what
+    it just read instead of re-hunting for something citeable. Sync; the closure
+    wraps it in ``sync_to_async``.
+
+    ``document_id`` can legitimately be ``None``: a structural annotation is
+    shared across the documents of its ``structural_set`` rather than owned by
+    one, so it has no single document to name. Such a row still carries a usable
+    ``annotation_id``/``cite`` handle, so it is returned with an empty
+    ``document_title`` rather than dropped. It is a rare shape here — the header
+    labels most structural rows carry are excluded below — but the row builder
+    must not assume a document is present.
+    """
+    from opencontractserver.annotations.services import AnnotationService
+
+    annotations = AnnotationService.search_corpus_annotation_text(
+        corpus_id=corpus_id,
+        user=user,
+        phrase=phrase,
+        document_id=document_id,
+        # Never offer a bare section header as a citable passage — that is the
+        # #2180 failure this tool exists to make unnecessary. Keyed on the
+        # LABEL, not Annotation.structural; see the constant's docstring. The
+        # _VARIANTS spelling is what the SQL side needs: ``iexact`` folds case
+        # but not separators, so passing the base set would let a label stored
+        # as ``Section_Header`` through the filter while the warning path — which
+        # does fold separators — still flagged it.
+        exclude_label_texts=RESEARCH_HEADER_ANCHOR_LABEL_VARIANTS,
+        # Clamp whatever the model asked for to [1, ceiling]. The ceiling stops
+        # a common phrase dumping a corpus-worth of annotations into the
+        # context; the floor is here rather than in the service because it is a
+        # UX rule of THIS tool, not of annotation search — a model that omits
+        # ``limit`` or sends 0 still gets its tightest anchor, and the only
+        # empty result it ever sees is a genuine miss, which the caller answers
+        # with guidance instead of a bare empty list. The service treats
+        # ``limit`` as an ordinary cap and would honour the 0.
+        limit=max(1, min(int(limit or 0), RESEARCH_CITABLE_PASSAGE_MAX_HITS)),
+    )
+    return [
+        {
+            "annotation_id": ann.pk,
+            "cite": f'<cite ids="{ann.pk}"/>',
+            "document_id": ann.document_id,
+            "document_title": (
+                getattr(ann.document, "title", "") if ann.document_id else ""
+            ),
+            "page": ann.page,
+            "label": getattr(ann.annotation_label, "text", None),
+            "content": (ann.raw_text or "")[:RESEARCH_CITABLE_PASSAGE_PREVIEW_CHARS],
+        }
+        for ann in annotations
+    ]
+
+
 def _compose_salvage_body(report: ResearchReport, *, response_text: str) -> str:
     """Build a minimal markdown body from recorded findings.
 
     Used when the agent never called ``finalize_report``. Concatenates
-    findings by section and emits placeholder cite tags so the regular
-    citation post-processor can still produce footnotes.
+    findings by section and emits self-closing cite markers so the regular
+    citation post-processor can still produce footnotes — the same placeholder
+    form the system prompt asks the agent for, so salvage and normal bodies
+    render identically.
     """
     findings = list(report.findings or [])
     if not findings:
@@ -536,7 +664,7 @@ def _compose_salvage_body(report: ResearchReport, *, response_text: str) -> str:
             claim = (item.get("claim") or "").strip()
             cites = ",".join(str(c) for c in (item.get("citations") or []) if c)
             if cites:
-                parts.append(f'- <cite ids="{cites}">{claim}</cite>')
+                parts.append(f'- {claim} <cite ids="{cites}"/>')
             else:
                 parts.append(f"- {claim}")
     return "\n\n".join(parts)

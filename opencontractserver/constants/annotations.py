@@ -193,3 +193,12 @@ ANNOTATION_COUNT_CACHE_TTL_SECONDS = 60 * 60  # 60 minutes
 # version when the visibility predicate or count semantics change so stale
 # entries from the old shape are never served.
 ANNOTATION_COUNT_CACHE_PREFIX = "oc:annotation_count:v1"
+
+# ── Text-search default page size ──
+# Default row cap for ``AnnotationService.search_corpus_annotation_text`` when a
+# caller does not name one. Deliberately NOT coupled to any caller's own
+# ceiling: the deep-research ``find_citable_passages`` tool clamps to
+# ``RESEARCH_CITABLE_PASSAGE_MAX_HITS`` before it calls in, and that number is
+# research's to choose. This is only the fallback for callers that express no
+# preference; the two agreeing today is coincidence, not a contract.
+ANNOTATION_TEXT_SEARCH_DEFAULT_LIMIT = 10

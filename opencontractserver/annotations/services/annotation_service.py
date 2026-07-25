@@ -10,6 +10,7 @@ permission / instance caches, and the ``MIN(document, corpus)`` effective-
 permission model are byte-for-byte identical to the former optimizer.
 """
 
+from collections.abc import Iterable
 from typing import Any, Optional, cast
 
 from django.db.models import (
@@ -23,6 +24,9 @@ from django.db.models import (
     When,
 )
 
+from opencontractserver.constants.annotations import (
+    ANNOTATION_TEXT_SEARCH_DEFAULT_LIMIT,
+)
 from opencontractserver.shared.services import BaseService
 
 # ``source_visibility`` imports stay inside methods below: importing that module
@@ -848,6 +852,97 @@ class AnnotationService(BaseService):
         return Prefetch(
             "structural_set__documents",
             queryset=documents.order_by("slug").distinct(),
+        )
+
+    @classmethod
+    def search_corpus_annotation_text(
+        cls,
+        *,
+        corpus_id: int,
+        user,
+        phrase: str,
+        document_id: Optional[int] = None,
+        limit: int = ANNOTATION_TEXT_SEARCH_DEFAULT_LIMIT,
+        exclude_label_texts: Optional[Iterable[str]] = None,
+        context: Optional[Any] = None,
+    ) -> QuerySet:
+        """Find corpus annotations whose text contains ``phrase``, tightest first.
+
+        The permission-filtered, *citeable* counterpart to
+        ``search_exact_text_as_sources``: that tool re-derives matches from the
+        PAWLS/text layer and returns synthetic negative ids, which cannot be
+        cited or linked to anything. This returns the real ``Annotation`` rows
+        that contain the phrase, so the caller gets a durable anchor id it can
+        attribute with (see the deep-research ``find_citable_passages`` tool,
+        issue #2201).
+
+        Visibility is delegated wholesale to ``get_corpus_annotations`` —
+        corpus READ plus per-document visibility plus the analysis/extract
+        privacy gate — so this adds no permission logic of its own.
+
+        Ordering is by ``raw_text`` length ascending: the shortest annotation
+        containing the phrase is the most pinpoint anchor, which is exactly what
+        the citation-discipline rules (#2180) ask for. ``id`` breaks ties so
+        results are deterministic. The length is ``annotate``d rather than passed
+        straight to ``order_by`` because ``get_corpus_annotations`` returns a
+        ``.distinct()`` queryset, and Postgres rejects a SELECT DISTINCT ordered
+        by an expression that is not in the select list.
+
+        ``limit`` is an ordinary cap: at most that many rows, and ``limit=0``
+        yields none. A negative value is treated as zero rather than reaching
+        the queryset, where Django rejects negative slicing. A caller that must
+        never show an empty page for a phrase that did match owns that rule and
+        should floor its own argument — the deep-research tool does, since
+        "no citable passage" is a message it wants to phrase itself.
+
+        ``exclude_label_texts`` drops annotations carrying any of the given
+        ``annotation_label.text`` values, matched case-insensitively. Callers use
+        it to keep whole categories of anchor out of the results — the
+        deep-research tool passes the section-header labels so a bare
+        ``ITEM 1A. RISK FACTORS`` is never offered as a citable passage (#2180).
+        Note this is keyed on the LABEL, never on ``Annotation.structural``:
+        the parsing pipeline marks its entire layout layer structural, so
+        filtering on that flag would drop nearly every body passage while
+        keeping the bookmark-derived headers, which are ``structural=False``.
+
+        ``raw_text__icontains`` is index-backed: annotations migration 0074 adds
+        a pg_trgm GIN index on ``Annotation.raw_text`` precisely so ILIKE
+        substring lookups don't degrade to a sequential scan. The exception is a
+        ``phrase`` under three characters, which has no full trigram to look up
+        and falls back to a scan. Callers passing model-supplied text should
+        know that; it is not worth a length floor here, since a one- or
+        two-character phrase makes a useless anchor anyway and the caller's row
+        cap bounds what comes back.
+        """
+        from django.db.models.functions import Length
+
+        from opencontractserver.annotations.models import Annotation
+
+        phrase = (phrase or "").strip()
+        if not phrase:
+            return Annotation.objects.none()
+
+        qs = cls.get_corpus_annotations(corpus_id, user, context=context).filter(
+            raw_text__icontains=phrase
+        )
+        if document_id is not None:
+            qs = qs.filter(document_id=document_id)
+        if exclude_label_texts:
+            excluded = Q()
+            for label_text in exclude_label_texts:
+                excluded |= Q(annotation_label__text__iexact=label_text)
+            # ``annotation_label`` is nullable, and a negated lookup across a
+            # nullable FK drops the NULL-label rows too (SQL three-valued
+            # logic: ``NOT (NULL = 'x')`` is NULL, not TRUE). Re-admit them
+            # explicitly so excluding a header label never silently costs us
+            # every unlabelled passage. One combined Q rather than a chain of
+            # ``exclude()`` calls, so this stays a single condition however
+            # many labels the caller passes.
+            qs = qs.filter(~excluded | Q(annotation_label__isnull=True))
+        return (
+            qs.select_related("document", "annotation_label")
+            .annotate(_anchor_chars=Length("raw_text"))
+            .order_by("_anchor_chars", "id")[: max(0, int(limit))]
         )
 
     @classmethod
