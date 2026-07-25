@@ -601,7 +601,11 @@ def _citable_passage_rows(
         exclude_label_texts=RESEARCH_HEADER_ANCHOR_LABELS,
         # Clamp whatever the model asked for to the hit ceiling so a common
         # phrase cannot dump a corpus-worth of annotations into the context.
-        limit=max(1, min(int(limit or 0), RESEARCH_CITABLE_PASSAGE_MAX_HITS)),
+        # Only the CEILING is applied here — that is the research-specific half.
+        # The floor of 1 belongs to search_corpus_annotation_text and is
+        # documented there; duplicating it would leave two numbers that must
+        # agree with nothing keeping them in step.
+        limit=min(int(limit or 0), RESEARCH_CITABLE_PASSAGE_MAX_HITS),
     )
     return [
         {
