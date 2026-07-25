@@ -1787,3 +1787,31 @@ class CitablePassageRowsTestCase(TestCase):
 
     def test_no_match_returns_no_rows(self):
         self.assertEqual(self._rows("a phrase that appears nowhere"), [])
+
+    def test_header_labels_are_excluded_in_every_separator_spelling(self):
+        # The warning path folds separators (_is_header_anchor treats
+        # "section_header" as a header) but the retrieval filter compares in
+        # SQL with iexact, which folds only case. Passing the base set left a
+        # label stored as "Section_Header" flagged as a header yet still
+        # offered as a citable passage — #2180 reintroduced, silently, for
+        # whichever parser spells it that way. The two agree by construction
+        # now, so assert against the same spellings the warning path accepts.
+        for spelling in ("Section Header", "Section_Header", "Section-Header"):
+            with self.subTest(label=spelling):
+                label = AnnotationLabel.objects.create(
+                    text=spelling, label_type="TOKEN_LABEL", creator=self.user
+                )
+                header = Annotation.objects.create(
+                    annotation_label=label,
+                    document=self.doc,
+                    corpus=self.corpus,
+                    creator=self.user,
+                    raw_text="ITEM 1A. RISK FACTORS maintain the premises",
+                    json={},
+                )
+                # Both consumers must agree that this is a header.
+                self.assertTrue(_is_header_anchor(label_text=spelling))
+                returned = {row["annotation_id"] for row in self._rows("premises")}
+                self.assertNotIn(header.pk, returned)
+                header.delete()
+                label.delete()

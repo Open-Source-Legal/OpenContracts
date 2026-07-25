@@ -7,6 +7,8 @@ runner) and the kickoff tool / tests.
 
 from __future__ import annotations
 
+import re
+
 from opencontractserver.constants.annotations import OC_SECTION_LABEL
 from opencontractserver.utils.prompt_sanitization import (
     UNTRUSTED_CONTENT_NOTICE,
@@ -129,16 +131,6 @@ RESEARCH_RECOVERY_FINDINGS_DIGEST = 20
 # ``Page Header`` are the LlamaParse layout heading labels
 # (``LlamaParseParser.ELEMENT_TYPE_MAPPING``); ``OC_SECTION`` is the canonical
 # cross-parser section label.
-#
-# This set feeds TWO consumers that normalise differently, and they agree only
-# because every entry here is already in its canonical spelling: the warning
-# path (``_is_header_anchor`` -> ``_normalize_label``) folds separators, so
-# ``Section_Header`` matches, while the retrieval filter
-# (``search_corpus_annotation_text(exclude_label_texts=…)`` -> ``iexact``) folds
-# only case, so it would not. Add a separator variant here and the two paths
-# diverge: the anchor would be warned about but still offered as citable. Add
-# labels in the spelling the parser actually writes, or teach the retrieval
-# filter the same normalisation.
 RESEARCH_HEADER_ANCHOR_LABELS: frozenset[str] = frozenset(
     {
         OC_SECTION_LABEL,  # "OC_SECTION" — canonical section layer (issue #2180)
@@ -147,6 +139,33 @@ RESEARCH_HEADER_ANCHOR_LABELS: frozenset[str] = frozenset(
         "Heading",
         "Page Header",
     }
+)
+
+
+def _separator_variants(label: str) -> set[str]:
+    """``"Section Header"`` -> the space, underscore and hyphen spellings."""
+    canonical = re.sub(r"[\s_\-]+", " ", label.strip())
+    return {canonical.replace(" ", sep) for sep in (" ", "_", "-")}
+
+
+# The same labels, spelled every way a parser might separate their words.
+#
+# Two consumers ask "is this a header label" and normalise differently: the
+# warning path (``_is_header_anchor`` -> ``_normalize_label``) folds separators,
+# while the retrieval filter (``search_corpus_annotation_text`` ->
+# ``iexact``) folds only case, because it compares in SQL. So a stored label
+# spelled ``Section_Header`` against a constant spelled ``Section Header`` is
+# warned about but still offered as a citable passage — silently reintroducing
+# #2180, and only for whichever parser drifts.
+#
+# Expanding the spellings for the SQL side costs one OR term per variant and
+# makes the two agree by construction, which beats a comment telling the next
+# editor to keep them in step by hand. Runs of separators are not expanded;
+# the parsers emit single ones.
+RESEARCH_HEADER_ANCHOR_LABEL_VARIANTS: frozenset[str] = frozenset(
+    variant
+    for label in RESEARCH_HEADER_ANCHOR_LABELS
+    for variant in _separator_variants(label)
 )
 
 

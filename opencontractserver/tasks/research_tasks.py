@@ -25,7 +25,7 @@ from opencontractserver.research.constants import (
     DEEP_RESEARCH_RETRIEVAL_CLOSURE_TOOLS,
     RESEARCH_CITABLE_PASSAGE_MAX_HITS,
     RESEARCH_CITABLE_PASSAGE_PREVIEW_CHARS,
-    RESEARCH_HEADER_ANCHOR_LABELS,
+    RESEARCH_HEADER_ANCHOR_LABEL_VARIANTS,
     build_deep_research_system_prompt,
 )
 from opencontractserver.research.models import ResearchReport
@@ -605,8 +605,12 @@ def _citable_passage_rows(
         document_id=document_id,
         # Never offer a bare section header as a citable passage — that is the
         # #2180 failure this tool exists to make unnecessary. Keyed on the
-        # LABEL, not Annotation.structural; see the constant's docstring.
-        exclude_label_texts=RESEARCH_HEADER_ANCHOR_LABELS,
+        # LABEL, not Annotation.structural; see the constant's docstring. The
+        # _VARIANTS spelling is what the SQL side needs: ``iexact`` folds case
+        # but not separators, so passing the base set would let a label stored
+        # as ``Section_Header`` through the filter while the warning path — which
+        # does fold separators — still flagged it.
+        exclude_label_texts=RESEARCH_HEADER_ANCHOR_LABEL_VARIANTS,
         # Clamp whatever the model asked for to [1, ceiling]. The ceiling stops
         # a common phrase dumping a corpus-worth of annotations into the
         # context; the floor is here rather than in the service because it is a
