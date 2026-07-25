@@ -915,8 +915,18 @@ class AnnotationService(BaseService):
         )
         if document_id is not None:
             qs = qs.filter(document_id=document_id)
-        for label_text in exclude_label_texts or ():
-            qs = qs.exclude(annotation_label__text__iexact=label_text)
+        if exclude_label_texts:
+            excluded = Q()
+            for label_text in exclude_label_texts:
+                excluded |= Q(annotation_label__text__iexact=label_text)
+            # ``annotation_label`` is nullable, and a negated lookup across a
+            # nullable FK drops the NULL-label rows too (SQL three-valued
+            # logic: ``NOT (NULL = 'x')`` is NULL, not TRUE). Re-admit them
+            # explicitly so excluding a header label never silently costs us
+            # every unlabelled passage. One combined Q rather than a chain of
+            # ``exclude()`` calls, so this stays a single condition however
+            # many labels the caller passes.
+            qs = qs.filter(~excluded | Q(annotation_label__isnull=True))
         return (
             qs.select_related("document", "annotation_label")
             .annotate(_anchor_chars=Length("raw_text"))

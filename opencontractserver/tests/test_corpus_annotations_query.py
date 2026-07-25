@@ -653,6 +653,29 @@ class TestSearchCorpusAnnotationText(TestCase):
         # The real passages still come back.
         self.assertIn(self.tight, filtered)
 
+    def test_exclude_label_texts_keeps_unlabelled_annotations(self):
+        # ``annotation_label`` is nullable, and a negated lookup across a
+        # nullable FK drops the NULL rows too under SQL three-valued logic
+        # (``NOT (NULL = 'x')`` is NULL, not TRUE). Excluding a header label
+        # must not silently cost us every unlabelled passage.
+        unlabelled = Annotation.objects.create(
+            annotation_label=None,
+            document=self.doc,
+            corpus=self.corpus,
+            creator=self.owner,
+            raw_text="An unlabelled clause: maintain the premises as required.",
+        )
+        results = list(
+            AnnotationService.search_corpus_annotation_text(
+                corpus_id=self.corpus.id,
+                user=self.owner,
+                phrase="maintain the premises",
+                exclude_label_texts=["OC_SECTION", "Title", "Section Header"],
+            )
+        )
+        self.assertIn(unlabelled, results)
+        self.assertIn(self.tight, results)
+
     def test_visibility_is_delegated_to_get_corpus_annotations(self):
         # No corpus grant -> nothing, even though the phrase matches.
         self.assertEqual(
