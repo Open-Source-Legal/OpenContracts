@@ -551,14 +551,14 @@ class ResearchReportServiceTestCase(TestCase):
             f'<cite ids="{ann.pk}">the agreement defines "Confidential '
             'Information" broadly</cite>'
         )
-        verified, downgraded, _ = _verify_cite_spans(body, {ann.pk})
+        verified, downgraded, *_ = _verify_cite_spans(body, {ann.pk})
         self.assertEqual(downgraded, 0)
         self.assertEqual(verified, body)
 
     def test_verify_cite_spans_leaves_uncited_quotes_untouched(self):
         # A quote outside any <cite> span has no anchor to verify against.
         body = 'Background: the task asked about "a five word or longer thing".'
-        verified, downgraded, _ = _verify_cite_spans(body, set())
+        verified, downgraded, *_ = _verify_cite_spans(body, set())
         self.assertEqual(downgraded, 0)
         self.assertEqual(verified, body)
 
@@ -572,7 +572,7 @@ class ResearchReportServiceTestCase(TestCase):
             f'<cite ids="{a1.pk},{a2.pk}">tenant is liable: "shall pay all real '
             'estate taxes and assessments"</cite>'
         )
-        verified, downgraded, _ = _verify_cite_spans(body, {a1.pk, a2.pk})
+        verified, downgraded, *_ = _verify_cite_spans(body, {a1.pk, a2.pk})
         self.assertEqual(downgraded, 0)
         self.assertEqual(verified, body)
 
@@ -582,12 +582,12 @@ class ResearchReportServiceTestCase(TestCase):
         ann = self._make_annotation(raw_text="the tenant shall not sublet the premises")
         # Fabricated curly quote -> stripped.
         curly = f'<cite ids="{ann.pk}">it says “the landlord may sublet at will freely”</cite>'
-        v, d, _ = _verify_cite_spans(curly, {ann.pk})
+        v, d, *_ = _verify_cite_spans(curly, {ann.pk})
         self.assertEqual(d, 1)
         self.assertNotIn("“the landlord may sublet", v)
         # Grounded but with a mismatched open/close pair -> preserved.
         mismatched = f'<cite ids="{ann.pk}">note: "the tenant shall not sublet the premises”</cite>'
-        v2, d2, _ = _verify_cite_spans(mismatched, {ann.pk})
+        v2, d2, *_ = _verify_cite_spans(mismatched, {ann.pk})
         self.assertEqual(d2, 0)
         self.assertEqual(v2, mismatched)
 
@@ -597,12 +597,12 @@ class ResearchReportServiceTestCase(TestCase):
         # through (the "looks cited but isn't" hole this fix targets).
         ann = self._make_annotation(raw_text="")
         body = f'<cite ids="{ann.pk}">the report states "a fully invented five word passage"</cite>'
-        verified, downgraded, _ = _verify_cite_spans(body, {ann.pk})
+        verified, downgraded, *_ = _verify_cite_spans(body, {ann.pk})
         self.assertEqual(downgraded, 1)
         self.assertNotIn('"a fully invented', verified)
         # Short quoted terms still skip even without any anchor text.
         short = f'<cite ids="{ann.pk}">defines "Force Majeure" here</cite>'
-        v2, d2, _ = _verify_cite_spans(short, {ann.pk})
+        v2, d2, *_ = _verify_cite_spans(short, {ann.pk})
         self.assertEqual(d2, 0)
         self.assertEqual(v2, short)
 
@@ -1193,6 +1193,66 @@ class ResearchReportServiceTestCase(TestCase):
         result = _verify_cite_spans(body, {ann.pk})
         self.assertEqual(result.cites_dropped, 0)
         self.assertEqual(result.markdown, body)
+
+    def test_echo_collapse_reports_itself_only_when_it_loses_text(self):
+        # Echo collapse discards the whole inner span, so a collapse below full
+        # coverage takes the uncovered remainder with it. Every other strip in
+        # this pipeline is counted, and this one now is too — but gated on the
+        # loss, so the observed shape (an exact restatement) stays silent
+        # instead of putting a warning on every report that has one.
+        sentence = (
+            "The tenant is liable for all structural repairs to the roof and "
+            "exterior walls of the premises under Section 8 of the lease"
+        )
+        ann = self._make_annotation(raw_text=sentence)
+
+        exact = f'{sentence}. <cite ids="{ann.pk}">{sentence}</cite>'
+        result = _verify_cite_spans(exact, {ann.pk})
+        self.assertEqual(result.echoes_trimmed, 0)
+        self.assertIn(f'<cite ids="{ann.pk}"/>', result.markdown)
+
+        # The ratio is over the INNER text, so a tail this short is what it
+        # takes to stay above the threshold and still lose something.
+        lossy = f'{sentence}. <cite ids="{ann.pk}">{sentence} as amended</cite>'
+        result = _verify_cite_spans(lossy, {ann.pk})
+        self.assertEqual(result.echoes_trimmed, 1)
+        self.assertNotIn("as amended", result.markdown)
+
+        # A tail any longer drops the span under the threshold, so it is left
+        # intact rather than collapsed — nothing to lose, nothing to report.
+        kept = (
+            f'{sentence}. <cite ids="{ann.pk}">{sentence}, which the parties '
+            f"renegotiated in 2019</cite>"
+        )
+        result = _verify_cite_spans(kept, {ann.pk})
+        self.assertEqual(result.echoes_trimmed, 0)
+        self.assertIn("renegotiated in 2019", result.markdown)
+
+    def test_scaffold_stripping_closes_a_fence_only_on_its_own_character(self):
+        # CommonMark closes a fence on its own character, so a ``~~~`` line
+        # inside a backtick block is content. Toggling on any fence line left
+        # heading detection suspended for the rest of the document after such a
+        # block, which fails QUIET — scaffolding silently unstripped.
+        body = "\n".join(
+            [
+                "Intro paragraph.",
+                "```",
+                "# Sources",
+                "~~~",
+                "```",
+                "## Sources",
+                "- a fabricated citation list",
+                "## Findings",
+                "Real content.",
+            ]
+        )
+        cleaned, sections = _strip_scaffold_headings(body)
+        self.assertEqual(sections, 1)
+        # The heading inside the fence is content and survives...
+        self.assertIn("# Sources", cleaned)
+        # ...while the real scaffolding section after the fence closes is gone.
+        self.assertNotIn("fabricated citation list", cleaned)
+        self.assertIn("Real content.", cleaned)
 
     def test_compose_salvage_body_renders_each_finding_once(self):
         report = self._make_report()

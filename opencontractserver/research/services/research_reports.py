@@ -815,6 +815,16 @@ class ResearchReportService(BaseService):
                 )
                 + " removed; the prose is retained as uncited analysis."
             )
+        if verified.echoes_trimmed:
+            extra_warnings.append(
+                _pluralize(
+                    verified.echoes_trimmed,
+                    "citation restated the sentence before it and was",
+                    "citations restated the sentences before them and were",
+                )
+                + " collapsed to a footnote; a small amount of text inside the "
+                "tag went with the restatement."
+            )
         if sections_stripped:
             extra_warnings.append(
                 _pluralize(
@@ -1039,11 +1049,22 @@ def _strip_scaffold_headings(markdown: str) -> tuple[str, int]:
     # Heading level of the scaffolding section currently being skipped, or None.
     skip_level: int | None = None
     sections = 0
-    in_code_fence = False
+    # The fence CHARACTER of the open block, or None outside one. CommonMark
+    # closes a fence only on its own character, so a stray ``~~~`` inside a
+    # backtick block is content, not a close. Tracking the character rather
+    # than a bool keeps an unevenly-fenced body from suspending heading
+    # detection for the rest of the document — which fails quiet (scaffolding
+    # left unstripped), the hardest direction to notice.
+    fence_char: str | None = None
     for line in markdown.splitlines():
-        if _CODE_FENCE_RE.match(line):
-            in_code_fence = not in_code_fence
-        heading = None if in_code_fence else _MD_HEADING_RE.match(line)
+        fence = _CODE_FENCE_RE.match(line)
+        if fence:
+            char = fence.group(1)[0]
+            if fence_char is None:
+                fence_char = char
+            elif fence_char == char:
+                fence_char = None
+        heading = None if fence_char else _MD_HEADING_RE.match(line)
         if heading:
             level = len(heading.group(1))
             title = _normalize_label(heading.group(2))
@@ -1410,6 +1431,7 @@ class CiteVerification(NamedTuple):
     markdown: str
     quotes_demoted: int
     cites_dropped: int
+    echoes_trimmed: int
 
 
 def _verify_cite_spans(
@@ -1422,7 +1444,13 @@ def _verify_cite_spans(
     1. **Echo collapse** (#2200) — a wrapping span whose inner text merely
        restates the prose immediately before it collapses to the self-closing
        marker form, so the claim renders once with a trailing footnote instead
-       of twice.
+       of twice. The threshold is a ratio over the INNER text, so any tail the
+       span adds beyond the restatement shrinks it: on a typical sentence a
+       tail of more than about a word already falls under
+       ``RESEARCH_CITE_ECHO_THRESHOLD`` and the span is left intact. What can
+       still be lost is bounded by that same ratio, and a collapse that is not
+       total is counted (``echoes_trimmed``) so it is reported rather than
+       silent.
     2. **Quote verification** (#2189) — a quoted passage that is not verbatim in
        the cited text loses its quotation marks (prose and footnote preserved),
        so a fabricated quote degrades honestly to paraphrase.
@@ -1433,7 +1461,7 @@ def _verify_cite_spans(
     The "claim" a span asserts is its inner text, or — for a self-closing
     marker, and for a span collapsed by (1) — the sentence it follows, so the
     guards apply identically to both sanctioned cite forms. Returns the
-    rewritten markdown plus the two counts ``finalize`` turns into warnings.
+    rewritten markdown plus the three counts ``finalize`` turns into warnings.
 
     A span whose cited ids yield NO usable text (textless anchor, deleted row,
     or an id retrieval never produced) is treated as ungrounded by both (2) and
@@ -1463,7 +1491,7 @@ def _verify_cite_spans(
     """
     spans = list(_CITE_SPAN_RE.finditer(markdown or ""))
     if not spans:
-        return CiteVerification(markdown, 0, 0)
+        return CiteVerification(markdown, 0, 0, 0)
 
     # Hydrate every cited, allowed annotation's text in ONE query (no N+1),
     # normalized once and cached by id. Ids outside ``allowed_annotation_ids``
@@ -1489,6 +1517,7 @@ def _verify_cite_spans(
     cursor = 0
     quotes_demoted = 0
     cites_dropped = 0
+    echoes_trimmed = 0
     last_claim = ""
 
     for match in spans:
@@ -1507,6 +1536,14 @@ def _verify_cite_spans(
                 _normalize_for_quote_match(preceding),
             )
             if echo >= RESEARCH_CITE_ECHO_THRESHOLD:
+                # A collapse below full coverage discards the uncovered
+                # remainder along with the echo, so count it — every other
+                # strip in this pipeline is reported, and this one should not
+                # be the exception. Gated on the loss, not the collapse: an
+                # exact echo (the observed shape, and 1.0 even when only
+                # punctuation differs) loses nothing and stays silent.
+                if echo < 1.0:
+                    echoes_trimmed += 1
                 inner = None
 
         # (2) Quote verification, applied to whichever text carries the claim.
@@ -1549,7 +1586,9 @@ def _verify_cite_spans(
         )
 
     out.append(markdown[cursor:])
-    return CiteVerification("".join(out), quotes_demoted, cites_dropped)
+    return CiteVerification(
+        "".join(out), quotes_demoted, cites_dropped, echoes_trimmed
+    )
 
 
 def _render_citations(
