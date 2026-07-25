@@ -183,6 +183,10 @@ async def _aresolve_extract_model(
     top of the chain, so a stock install with nothing configured resolves to
     exactly the same model as before, while an install that has expressed a
     preference at any tier now retargets extraction without a worker restart.
+    Deliberate asymmetry vs. the general resolver: because the composed
+    ``settings_default`` here is always truthy, ``resolve_model_spec``'s own
+    legacy ``settings.OPENAI_MODEL`` fallback never engages for extraction —
+    matching the pre-#2078 behaviour, which never consulted it either.
 
     ORM reads (the corpus row and the ``PipelineSettings`` singleton) are
     threaded through ``sync_to_async``; ``resolve_model_spec`` stays ORM-free.
