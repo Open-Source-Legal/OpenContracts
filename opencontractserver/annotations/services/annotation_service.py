@@ -24,6 +24,9 @@ from django.db.models import (
     When,
 )
 
+from opencontractserver.constants.annotations import (
+    ANNOTATION_TEXT_SEARCH_DEFAULT_LIMIT,
+)
 from opencontractserver.shared.services import BaseService
 
 # ``source_visibility`` imports stay inside methods below: importing that module
@@ -859,7 +862,7 @@ class AnnotationService(BaseService):
         user,
         phrase: str,
         document_id: Optional[int] = None,
-        limit: int = 10,
+        limit: int = ANNOTATION_TEXT_SEARCH_DEFAULT_LIMIT,
         exclude_label_texts: Optional[Iterable[str]] = None,
         context: Optional[Any] = None,
     ) -> QuerySet:

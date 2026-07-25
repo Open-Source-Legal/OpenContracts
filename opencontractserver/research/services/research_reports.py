@@ -720,7 +720,8 @@ class ResearchReportService(BaseService):
         summary, summary_sections = _sanitize_agent_markdown(executive_summary or "")
         body, body_sections = _sanitize_agent_markdown(markdown_body or "")
         sections_stripped = summary_sections + body_sections
-        if _summary_duplicates_body(summary, body):
+        summary_dropped = bool(summary) and _summary_duplicates_body(summary, body)
+        if summary_dropped:
             summary = ""
 
         document = "\n\n".join(
@@ -824,6 +825,14 @@ class ResearchReportService(BaseService):
                 )
                 + " collapsed to a footnote; a small amount of text inside the "
                 "tag went with the restatement."
+            )
+        if summary_dropped:
+            extra_warnings.append(
+                "The executive summary restated the body rather than abstracting "
+                "it, so it was dropped and the report opens with the body. A "
+                "terse summary built mostly around one quoted body sentence can "
+                "read the same way to this check — see the report body for the "
+                "material either way."
             )
         if sections_stripped:
             extra_warnings.append(
@@ -1093,6 +1102,19 @@ def _summary_duplicates_body(summary: str, body: str) -> bool:
     than diffing two multi-KB strings: a genuine copy always matches from its
     first sentence, and a real 2–4 sentence summary — written to abstract, not
     restate — does not.
+
+    Two known edges, both pinned by tests:
+
+    * Being opening-anchored, this does not catch a summary that pastes the body
+      after a throwaway first sentence. The observed mode is a verbatim copy of
+      the whole thing, and a general dedup would mean the multi-KB diff this
+      deliberately avoids.
+    * A very SHORT summary built mostly around one verbatim body sentence reads
+      as a copy, because coverage is a ratio over the summary: at ~150 chars a
+      single quoted sentence is already most of it. A normal-length summary
+      carrying the same quote stays well clear. The drop is reported by
+      ``finalize`` rather than silent, since losing the whole section is a much
+      bigger blast radius than the tail cases the other guards trim.
     """
     body_norm = _normalize_for_quote_match(body)
     summary_norm = _normalize_for_quote_match(summary)

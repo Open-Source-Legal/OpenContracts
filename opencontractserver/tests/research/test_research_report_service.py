@@ -30,6 +30,7 @@ from opencontractserver.research.services.research_reports import (
     _render_citations,
     _strip_fabricated_links,
     _strip_scaffold_headings,
+    _summary_duplicates_body,
     _verify_cite_spans,
 )
 from opencontractserver.tasks.research_tasks import (
@@ -664,6 +665,36 @@ class ResearchReportServiceTestCase(TestCase):
         self.assertNotIn("cited inline", report.content)
         self.assertEqual(report.content.count("## Sources"), 1)
         self.assertIn("[^1]", report.content)
+        # Losing a whole section is the biggest blast radius of any guard here,
+        # so the drop is reported rather than silent.
+        self.assertTrue(
+            any("restated the body" in w for w in report.warnings), report.warnings
+        )
+
+    def test_summary_duplicate_check_is_a_ratio_so_terse_summaries_are_at_risk(self):
+        # Known limitation, pinned. Coverage is a ratio over the SUMMARY, so a
+        # very short summary built mostly around one verbatim body sentence
+        # reads as a copy and is dropped. A normal-length summary carrying the
+        # same quote is nowhere near the threshold. finalize warns on the drop,
+        # so the failure is visible rather than a silently missing section.
+        quote = (
+            "The tenant is liable for all structural repairs to the roof and "
+            "exterior walls of the premises under Section 8 of the lease."
+        )
+        body = (
+            f"## Findings\n\n{quote} The landlord retains responsibility for "
+            "the foundation. Insurance obligations are allocated in Section 12."
+        )
+        terse = f'"{quote}" This is the core allocation.'
+        self.assertTrue(_summary_duplicates_body(terse, body))
+
+        roomy = (
+            "The lease allocates repair duties asymmetrically. "
+            f'"{quote}" The landlord keeps only the foundation, and insurance '
+            "is handled separately in Section 12, so the tenant carries most of "
+            "the physical risk of the building over the term."
+        )
+        self.assertFalse(_summary_duplicates_body(roomy, body))
 
     def test_finalize_renders_cite_tags_inside_the_executive_summary(self):
         # A <cite> tag in the summary used to leak raw into the stored content
