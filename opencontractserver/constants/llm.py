@@ -53,3 +53,13 @@ TITLE_GENERATION_TEMPERATURE = 0.3
 # explicit temperature. Mirrors the bare ``0.7`` default used across the agent
 # API; named here so the helper signature carries no magic number.
 DEFAULT_COMPLETION_TEMPERATURE = 0.7
+
+# Default bare Anthropic model for the Claude-specific analyzer tasks
+# (``doc_analysis_tasks.agentic_highlighter_claude`` / ``pii_highlighter_claude``).
+# These tasks are deliberately provider-pinned — the highlighter depends on
+# Claude's citations API, which no other provider (or pydantic-ai) exposes —
+# so they do NOT walk the ``resolve_model_spec`` chain. The *model within the
+# family* is retargetable at runtime instead: both tasks read
+# ``ANTHROPIC_MODEL`` from their per-task ``settings.ANALYZER_KWARGS`` entry
+# and fall back to this constant (issue #2078).
+CLAUDE_ANALYZER_DEFAULT_MODEL = "claude-3-5-sonnet-latest"

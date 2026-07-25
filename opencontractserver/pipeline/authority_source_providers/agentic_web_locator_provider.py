@@ -143,6 +143,7 @@ class AgenticWebLocatorProvider(BaseAuthoritySourceProvider):
             PydanticAIToolFactory,
         )
         from opencontractserver.llms.tools.tool_factory import CoreTool
+        from opencontractserver.pipeline.utils import get_default_llm_spec
 
         # Sanitize inputs before embedding in instructions: reduce to printable
         # ASCII and collapse whitespace to prevent prompt injection (control
@@ -153,7 +154,14 @@ class AgenticWebLocatorProvider(BaseAuthoritySourceProvider):
         jurisdiction = sanitize_for_prompt_strict(jurisdiction)
 
         # Resolve the deployment-configured model spec (no explicit override).
-        spec = resolve_model_spec(explicit=None)
+        # ``settings_default`` carries the install-wide, live-editable
+        # ``PipelineSettings.default_llm`` so a retarget in System Settings
+        # reaches this provider without a worker restart; omitting it pinned
+        # the locator to the deploy-time env defaults (issue #2078).
+        spec = resolve_model_spec(
+            explicit=None,
+            settings_default=await sync_to_async(get_default_llm_spec)(),
+        )
         model = await abuild_agent_model(spec)
 
         # Wrap bound methods as pydantic-ai tools.  The wrapper adds
