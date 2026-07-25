@@ -367,9 +367,15 @@ async def _run_deep_research_async(
     ) -> str:
         """Render the final markdown report and end the run.
 
-        ``markdown_body`` should use ``<cite ids="a,b">claim</cite>``
-        placeholders for citations; the system converts those to footnote
-        markers and builds the Sources section.
+        ``executive_summary`` is 2–4 sentences of top-line answer;
+        ``markdown_body`` is the full report. They are DIFFERENT texts — do not
+        pass the report as both — and neither should carry its own
+        ``## Executive Summary`` or ``## Sources`` heading: the system adds
+        those and renders the footnote table.
+
+        Cite by writing the sentence and attaching ``<cite ids="1,2"/>`` after
+        it; use ``<cite ids="1">…</cite>`` only to scope part of a sentence, and
+        never restate the sentence inside the tag.
         """
         deps = deps_ref["deps"]
         retrieved = list(deps.retrieved_annotation_ids) if deps is not None else []

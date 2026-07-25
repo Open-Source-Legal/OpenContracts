@@ -509,6 +509,18 @@ class TestSearchCorpusAnnotationText(TestCase):
     exact-phrase lookup behind the deep-research ``find_citable_passages`` tool
     (issue #2201)."""
 
+    # Declared for mypy: ``setUpTestData`` assigns these on the class, which the
+    # checker cannot infer (same pattern as TestCorpusAnnotationsQuery above).
+    owner: User
+    outsider: User
+    corpus: Corpus
+    doc: Document
+    other_doc: Document
+    label: AnnotationLabel
+    wide: Annotation
+    tight: Annotation
+    other: Annotation
+
     @classmethod
     def setUpTestData(cls):
         cls.owner = User.objects.create_user(
