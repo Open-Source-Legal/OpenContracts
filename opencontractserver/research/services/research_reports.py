@@ -1083,13 +1083,24 @@ def _strip_scaffold_headings(markdown: str) -> tuple[str, int]:
     # which is the hardest kind of wrong to notice.
     fence: tuple[str, int] | None = None
     for line in markdown.splitlines():
-        rule = _CODE_FENCE_RE.match(line)
-        if rule:
-            marker = rule.group(1)
-            if fence is None:
-                fence = (marker[0], len(marker))
-            elif fence[0] == marker[0] and len(marker) >= fence[1]:
-                fence = None
+        # Fences inside a section being SKIPPED are discarded content and must
+        # not move the surviving document's state. A skip can only begin on a
+        # heading, and a heading is only detected outside a fence, so entering a
+        # skip already implies ``fence is None`` — which is what keeps heading
+        # detection alive through the skip so its closing heading is found. Let
+        # a skipped section's fence through and one unbalanced ``` in the
+        # scaffolding the agent was told not to write suspends heading
+        # detection for good: the section never ends, and the whole rest of the
+        # report is dropped without a word. Unbalanced fences are exactly the
+        # malformed-LLM-markdown shape this function exists to survive.
+        if skip_level is None:
+            rule = _CODE_FENCE_RE.match(line)
+            if rule:
+                marker = rule.group(1)
+                if fence is None:
+                    fence = (marker[0], len(marker))
+                elif fence[0] == marker[0] and len(marker) >= fence[1]:
+                    fence = None
         heading = None if fence else _MD_HEADING_RE.match(line)
         if heading:
             level = len(heading.group(1))

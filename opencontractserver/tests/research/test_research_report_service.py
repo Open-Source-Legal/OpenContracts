@@ -1446,6 +1446,53 @@ class ResearchReportServiceTestCase(TestCase):
                 self.assertIn("Substantive analysis the report needs.", cleaned)
                 self.assertIn(title, cleaned)
 
+    def test_scaffold_stripping_ignores_fences_inside_the_skipped_section(self):
+        # A section being skipped is discarded content, so its fences must not
+        # move the surviving document's state. Tracking them meant one
+        # unbalanced ``` inside the scaffolding — malformed LLM markdown, which
+        # is precisely what this function exists to survive — suspended heading
+        # detection permanently: the section never ended and the entire rest of
+        # the report vanished without a warning.
+        body = "\n".join(
+            [
+                "Real prose before.",
+                "## Sources",
+                "```",
+                "- [1] a fabricated citation",
+                "## Appendix",
+                "Substantive appendix content.",
+                "## Conclusion",
+                "The conclusion.",
+            ]
+        )
+        cleaned, sections = _strip_scaffold_headings(body)
+        self.assertEqual(sections, 1)
+        self.assertNotIn("fabricated citation", cleaned)
+        # Everything after the scaffolding section survives.
+        self.assertIn("## Appendix", cleaned)
+        self.assertIn("Substantive appendix content.", cleaned)
+        self.assertIn("## Conclusion", cleaned)
+        self.assertIn("The conclusion.", cleaned)
+
+        # A balanced fence inside the skipped section goes with it, and the
+        # document after it is likewise untouched.
+        cleaned, sections = _strip_scaffold_headings(
+            "\n".join(
+                [
+                    "Prose.",
+                    "## Sources",
+                    "```",
+                    "- [1] x",
+                    "```",
+                    "## Appendix",
+                    "Kept.",
+                ]
+            )
+        )
+        self.assertEqual(sections, 1)
+        self.assertNotIn("```", cleaned)
+        self.assertIn("Kept.", cleaned)
+
     def test_scaffold_stripping_needs_a_closing_fence_at_least_as_long(self):
         # CommonMark's other fence rule: a closing fence must run at least as
         # long as the opening one. Closing on any 3+ run ended a ```` block at
