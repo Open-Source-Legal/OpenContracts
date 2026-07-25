@@ -845,6 +845,30 @@ class ResearchReportServiceTestCase(TestCase):
                 _, segment = _preceding_claim(text)
                 self.assertEqual(segment, expected)
 
+    def test_preceding_claim_truncates_at_other_legal_abbreviations(self):
+        # Pins a KNOWN, deliberate limitation rather than desired behaviour:
+        # only "No." is carved out of the boundary rule, so "Inc." / "U.S.C."
+        # still split a sentence and hand the guards a truncated claim.
+        #
+        # Not extended, because the two errors are not symmetric. "No." is
+        # unambiguous — a reference identifier always follows. "Inc." genuinely
+        # ends sentences in filing prose, so suppressing that boundary would
+        # MERGE two sentences into one claim, padding it with unrelated
+        # vocabulary and eroding the coverage margin toward a false strip.
+        # Truncation instead shortens the claim and fails open. Prefer that
+        # until this uses real sentence segmentation.
+        _, truncated = _preceding_claim(
+            "Acquired by Karman Holdings Inc. reported strong margins "
+        )
+        self.assertEqual(truncated, "reported strong margins ")
+
+        # And the boundary a merge would destroy — "Inc." ending a real
+        # sentence — is currently split correctly.
+        _, split = _preceding_claim(
+            "The buyer was Karman Holdings Inc. The transaction closed in June "
+        )
+        self.assertEqual(split, "The transaction closed in June ")
+
     def test_claim_support_rejects_a_claim_that_inverts_its_anchor(self):
         # Bag-of-words coverage is blind to negation: "the tenant is NOT liable"
         # and "the tenant is liable" differ by one token and score identically

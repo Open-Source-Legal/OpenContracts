@@ -344,8 +344,10 @@ async def _run_deep_research_async(
 
         Pass ``document_id`` to search inside one document you have already
         identified, which is both faster and more precise than searching the
-        whole corpus. Section headers are never returned: the results are
-        passages you can actually cite.
+        whole corpus. ``limit`` is a MAXIMUM row count with a floor of 1 —
+        passing 0 still returns a row, so use a more specific ``phrase`` rather
+        than ``limit=0`` when you want nothing back. Section headers are never
+        returned: the results are passages you can actually cite.
         """
         rows = await sync_to_async(_citable_passage_rows)(
             corpus_id=corpus.pk,

@@ -1344,6 +1344,21 @@ def _preceding_claim(text: str) -> tuple[int, str]:
     self-quoting fix (#2200): it is the prose a wrapping span may be echoing,
     and the sentence a self-closing ``<cite ids="…"/>`` marker decorates.
     Lookback is bounded by ``RESEARCH_SENTENCE_LOOKBACK_CHARS``.
+
+    Known limitation: only ``No.`` is carved out of the boundary rule, so other
+    legal abbreviations (``Inc.``, ``Corp.``, ``U.S.C.``, ``e.g.``) still split
+    a sentence and hand the guards a truncated claim. That is deliberate rather
+    than unfinished. ``No.`` is unambiguous — a reference identifier always
+    follows it, so it is never a sentence end. ``Inc.``/``Corp.`` genuinely end
+    sentences in filing prose ("...acquired by Karman Holdings Inc. The
+    transaction closed..."), so suppressing the boundary there would MERGE two
+    sentences into one claim. The two errors are not symmetric: truncation
+    shortens the claim and fails open (the check is skipped or scores higher),
+    whereas merging pads it with unrelated vocabulary and erodes the coverage
+    margin toward a false strip — measured at 1.00 -> 0.40 for one unrelated
+    preceding sentence, which stays above the floor but spends most of the
+    headroom. Prefer the failing-open error until this uses real sentence
+    segmentation.
     """
     head = text[-RESEARCH_SENTENCE_LOOKBACK_CHARS:]
     base = len(text) - len(head)
