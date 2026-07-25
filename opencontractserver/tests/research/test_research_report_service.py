@@ -1001,6 +1001,53 @@ class ResearchReportServiceTestCase(TestCase):
         self.assertEqual(result.cites_dropped, 0)
         self.assertIn(f'<cite ids="{anchor.pk}"/>', result.markdown)
 
+    def test_claim_support_polarity_guard_treats_multiple_anchors_as_a_union(self):
+        # Known limitation, pinned so it stays a decision rather than a
+        # surprise. Coverage is measured against the union of the cited
+        # anchors, and the polarity guard follows suit: it asks whether ANY
+        # anchor carries a negation marker. So a span citing two anchors that
+        # disagree on polarity satisfies parity whichever way the claim reads,
+        # and an inversion against one of them survives — even though the same
+        # claim citing that anchor alone is correctly rejected (the control
+        # below). Making polarity per-candidate while coverage stays a union
+        # would be the inconsistency, not the fix; see _claim_is_supported.
+        inverted = (
+            "The tenant is not liable for structural repairs to the roof "
+            "under Section 8 of this lease"
+        )
+        affirming = (
+            "The tenant is liable for structural repairs to the roof under "
+            "Section 8 of this lease"
+        )
+        negated_but_about_someone_else = (
+            "The landlord is not liable for structural repairs to the roof "
+            "under Section 8 of this lease"
+        )
+        self.assertFalse(_claim_is_supported(inverted, [affirming]))
+        self.assertTrue(
+            _claim_is_supported(inverted, [affirming, negated_but_about_someone_else])
+        )
+
+    def test_claim_support_polarity_guard_over_strips_lexical_negation(self):
+        # The other side of the same known limitation. The guard reads polarity
+        # off a fixed marker lexicon, so an anchor that negates lexically
+        # ("excluding") reads as affirmative. A faithful claim restating it with
+        # "not" then looks like an inversion at high coverage and loses its
+        # citation. The failure is one-directional — an over-strip, never a
+        # fabricated attribution — which is the right way round for this guard;
+        # the honest fix is entailment, not a longer lexicon.
+        # Contrast test_claim_support_polarity_guard_spares_honest_paraphrase,
+        # where the paraphrase diverges enough to fall below the coverage gate.
+        claim = (
+            "The tenant is not responsible for painting the interior walls of "
+            "the demised premises"
+        )
+        anchor = (
+            "Tenant obligations, excluding painting the interior walls of the "
+            "demised premises"
+        )
+        self.assertFalse(_claim_is_supported(claim, [anchor]))
+
     def test_claim_support_rejects_a_checked_claim_with_no_anchor_text(self):
         # A textless anchor (empty raw_text, a since-deleted row, or an id
         # retrieval never produced) cannot support anything, so a checked claim

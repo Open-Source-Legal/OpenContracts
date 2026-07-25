@@ -10,6 +10,7 @@ permission / instance caches, and the ``MIN(document, corpus)`` effective-
 permission model are byte-for-byte identical to the former optimizer.
 """
 
+from collections.abc import Iterable
 from typing import Any, Optional, cast
 
 from django.db.models import (
@@ -859,7 +860,7 @@ class AnnotationService(BaseService):
         phrase: str,
         document_id: Optional[int] = None,
         limit: int = 10,
-        exclude_label_texts: Optional[Any] = None,
+        exclude_label_texts: Optional[Iterable[str]] = None,
         context: Optional[Any] = None,
     ) -> QuerySet:
         """Find corpus annotations whose text contains ``phrase``, tightest first.
