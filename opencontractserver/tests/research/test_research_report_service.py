@@ -1446,6 +1446,34 @@ class ResearchReportServiceTestCase(TestCase):
                 self.assertIn("Substantive analysis the report needs.", cleaned)
                 self.assertIn(title, cleaned)
 
+    def test_scaffold_stripping_keeps_a_fenced_heading_from_ending_the_skip(self):
+        # A heading-SHAPED line inside a fenced block inside the scaffolding is
+        # content, not a heading, so it must not end the skip. When fence state
+        # was suspended during a skip this line ended it early and the rest of
+        # the scaffolding leaked into the report — the #2200 symptom, arriving
+        # by the opposite route to the unbalanced-fence case below. Resolving
+        # fence spans independently of the skip is what makes both hold at once.
+        body = "\n".join(
+            [
+                "Real prose.",
+                "## Sources",
+                "```",
+                "## Findings",
+                "citation garbage",
+                "```",
+                "- more garbage",
+                "## Conclusion",
+                "Real text.",
+            ]
+        )
+        cleaned, sections = _strip_scaffold_headings(body)
+        self.assertEqual(sections, 1)
+        self.assertNotIn("citation garbage", cleaned)
+        self.assertNotIn("more garbage", cleaned)
+        self.assertIn("Real prose.", cleaned)
+        self.assertIn("## Conclusion", cleaned)
+        self.assertIn("Real text.", cleaned)
+
     def test_scaffold_stripping_ignores_fences_inside_the_skipped_section(self):
         # A section being skipped is discarded content, so its fences must not
         # move the surviving document's state. Tracking them meant one

@@ -1042,6 +1042,50 @@ def _sanitize_agent_markdown(markdown: str) -> tuple[str, int]:
     return _strip_fabricated_links(stripped).strip(), sections
 
 
+def _fenced_line_indexes(lines: list[str]) -> set[int]:
+    """Indexes of lines sitting inside a CLOSED fenced code block.
+
+    Follows CommonMark on what closes a fence — the same character, on a run at
+    least as long as the opening — so neither a stray ``~~~`` nor a literal
+    ```` ``` ```` line inside a ```` ```` ```` block ends one early.
+
+    Departs from CommonMark on one point, deliberately: an opener with no
+    matching closer is ignored rather than treated as running to end of
+    document. In LLM-authored markdown a lone ``` is far likelier a stray
+    artifact than an intent to code-block everything that follows, and honouring
+    it would suspend heading detection for the rest of the report — which is how
+    scaffolding stops being stripped, or a section skip runs off the end and
+    takes the report's tail with it. Both failures are silent.
+
+    Scanning forward for the closer is quadratic only in the number of
+    unmatched openers, which is bounded by how many fence lines the agent
+    writes; every matched pair advances past its own block.
+    """
+    inside: set[int] = set()
+    index, total = 0, len(lines)
+    while index < total:
+        opener = _CODE_FENCE_RE.match(lines[index])
+        if not opener:
+            index += 1
+            continue
+        marker = opener.group(1)
+        for close in range(index + 1, total):
+            candidate = _CODE_FENCE_RE.match(lines[close])
+            if (
+                candidate
+                and candidate.group(1)[0] == marker[0]
+                and len(candidate.group(1)) >= len(marker)
+            ):
+                inside.update(range(index, close + 1))
+                index = close + 1
+                break
+        else:
+            # Unmatched opener: not a fence. Keep scanning after it, so a later
+            # balanced pair in the same document is still recognised.
+            index += 1
+    return inside
+
+
 def _strip_scaffold_headings(markdown: str) -> tuple[str, int]:
     """Remove the report scaffolding the SYSTEM owns from agent-authored text.
 
@@ -1071,37 +1115,18 @@ def _strip_scaffold_headings(markdown: str) -> tuple[str, int]:
     # Heading level of the scaffolding section currently being skipped, or None.
     skip_level: int | None = None
     sections = 0
-    # The open block's fence CHARACTER and RUN LENGTH, or None outside one.
-    # CommonMark closes a fence only on its own character and only on a run at
-    # least as long as the opening, so both a stray ``~~~`` and a literal
-    # ```` ``` ```` line inside a ```` ```` ```` block are content, not a close.
-    # Both halves matter, and each fails a different way: ignoring the character
-    # leaves heading detection suspended for the rest of the document
-    # (scaffolding silently unstripped), while ignoring the length closes the
-    # block early and lets a heading inside literal content start a section
-    # skip — which then swallows everything after it. Quiet in both directions,
-    # which is the hardest kind of wrong to notice.
-    fence: tuple[str, int] | None = None
-    for line in markdown.splitlines():
-        # Fences inside a section being SKIPPED are discarded content and must
-        # not move the surviving document's state. A skip can only begin on a
-        # heading, and a heading is only detected outside a fence, so entering a
-        # skip already implies ``fence is None`` — which is what keeps heading
-        # detection alive through the skip so its closing heading is found. Let
-        # a skipped section's fence through and one unbalanced ``` in the
-        # scaffolding the agent was told not to write suspends heading
-        # detection for good: the section never ends, and the whole rest of the
-        # report is dropped without a word. Unbalanced fences are exactly the
-        # malformed-LLM-markdown shape this function exists to survive.
-        if skip_level is None:
-            rule = _CODE_FENCE_RE.match(line)
-            if rule:
-                marker = rule.group(1)
-                if fence is None:
-                    fence = (marker[0], len(marker))
-                elif fence[0] == marker[0] and len(marker) >= fence[1]:
-                    fence = None
-        heading = None if fence else _MD_HEADING_RE.match(line)
+    # Fence spans are resolved up front, over the whole document and with no
+    # reference to what is being skipped. Interleaving the two states is what
+    # produced both of this helper's fence bugs: track fences during a skip and
+    # one unbalanced ``` in the scaffolding suspends heading detection for good,
+    # so the section never ends and the report's tail is dropped; stop tracking
+    # them during a skip and a heading-shaped line inside a fenced block ends the
+    # skip early, leaking the rest of the scaffolding. Neither is a trade worth
+    # making, and neither arises once the two are independent.
+    lines = markdown.splitlines()
+    fenced = _fenced_line_indexes(lines)
+    for index, line in enumerate(lines):
+        heading = None if index in fenced else _MD_HEADING_RE.match(line)
         if heading:
             level = len(heading.group(1))
             title = _normalize_label(heading.group(2))
