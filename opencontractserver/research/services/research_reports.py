@@ -1599,6 +1599,16 @@ def _verify_cite_spans(
         cursor = match.end()
         ids_raw = match.group(1)
         inner = match.group(2)  # None for the self-closing marker form
+        # An empty or whitespace-only wrapping span asserts nothing, so it IS a
+        # marker and must be treated as one. Left as "", it skipped the echo
+        # check, produced an empty claim, and fell through to the carried-over
+        # ``last_claim`` — so the span was judged against a PREVIOUS sentence,
+        # or against nothing at all when it came first. Either way the guards
+        # let it stand where the marker form on the same text drops it, which
+        # is a hole straight through (3). Normalising here keeps the two forms
+        # on one code path rather than documenting the divergence.
+        if inner is not None and not inner.strip():
+            inner = None
         candidates = [norm_by_id[i] for i in _parse_ids(ids_raw) if norm_by_id.get(i)]
 
         preceding_offset, preceding = _preceding_claim(out[-1])

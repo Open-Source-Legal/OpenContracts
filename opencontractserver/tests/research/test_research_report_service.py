@@ -1275,6 +1275,40 @@ class ResearchReportServiceTestCase(TestCase):
         self.assertEqual(result.echoes_trimmed, 0)
         self.assertIn("further provisions of the lease agreement", result.markdown)
 
+    def test_empty_wrapping_span_is_treated_as_a_marker(self):
+        # A wrapping span with nothing in it asserts nothing, so it IS a marker.
+        # Left as "", it skipped the echo check, produced an empty claim, and
+        # fell through to the carried-over last_claim — so the same sentence
+        # and anchor that the marker form correctly rejects sailed through the
+        # claim-support guard. All three spellings must agree.
+        anchor = self._make_annotation(
+            raw_text=(
+                "The tenant shall pay all real property taxes assessed against "
+                "the premises"
+            )
+        )
+        unsupported = (
+            "The landlord shall remediate every environmental condition "
+            "discovered on the site at its sole cost and expense"
+        )
+        supported = (
+            "The tenant shall pay all real property taxes assessed against the "
+            "premises"
+        )
+        marker = f'<cite ids="{anchor.pk}"/>'
+        for span in (marker, f'<cite ids="{anchor.pk}"></cite>'):
+            with self.subTest(span=span):
+                self.assertEqual(
+                    _verify_cite_spans(
+                        f"{unsupported} {span}.", {anchor.pk}
+                    ).cites_dropped,
+                    1,
+                )
+                kept = _verify_cite_spans(f"{supported} {span}.", {anchor.pk})
+                self.assertEqual(kept.cites_dropped, 0)
+                # ...and the surviving citation renders in the marker form.
+                self.assertIn(marker, kept.markdown)
+
     def test_claim_support_scopes_a_marker_to_its_own_clause(self):
         # In a compound sentence each marker's claim runs back to the previous
         # span, not to the sentence start, so an anchor answers for its OWN
