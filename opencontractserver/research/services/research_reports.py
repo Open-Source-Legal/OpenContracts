@@ -1058,22 +1058,26 @@ def _strip_scaffold_headings(markdown: str) -> tuple[str, int]:
     # Heading level of the scaffolding section currently being skipped, or None.
     skip_level: int | None = None
     sections = 0
-    # The fence CHARACTER of the open block, or None outside one. CommonMark
-    # closes a fence only on its own character, so a stray ``~~~`` inside a
-    # backtick block is content, not a close. Tracking the character rather
-    # than a bool keeps an unevenly-fenced body from suspending heading
-    # detection for the rest of the document — which fails quiet (scaffolding
-    # left unstripped), the hardest direction to notice.
-    fence_char: str | None = None
+    # The open block's fence CHARACTER and RUN LENGTH, or None outside one.
+    # CommonMark closes a fence only on its own character and only on a run at
+    # least as long as the opening, so both a stray ``~~~`` and a literal
+    # ```` ``` ```` line inside a ```` ```` ```` block are content, not a close.
+    # Both halves matter, and each fails a different way: ignoring the character
+    # leaves heading detection suspended for the rest of the document
+    # (scaffolding silently unstripped), while ignoring the length closes the
+    # block early and lets a heading inside literal content start a section
+    # skip — which then swallows everything after it. Quiet in both directions,
+    # which is the hardest kind of wrong to notice.
+    fence: tuple[str, int] | None = None
     for line in markdown.splitlines():
-        fence = _CODE_FENCE_RE.match(line)
-        if fence:
-            char = fence.group(1)[0]
-            if fence_char is None:
-                fence_char = char
-            elif fence_char == char:
-                fence_char = None
-        heading = None if fence_char else _MD_HEADING_RE.match(line)
+        rule = _CODE_FENCE_RE.match(line)
+        if rule:
+            marker = rule.group(1)
+            if fence is None:
+                fence = (marker[0], len(marker))
+            elif fence[0] == marker[0] and len(marker) >= fence[1]:
+                fence = None
+        heading = None if fence else _MD_HEADING_RE.match(line)
         if heading:
             level = len(heading.group(1))
             title = _normalize_label(heading.group(2))

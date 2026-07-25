@@ -1355,6 +1355,35 @@ class ResearchReportServiceTestCase(TestCase):
                 self.assertIn("Substantive analysis the report needs.", cleaned)
                 self.assertIn(title, cleaned)
 
+    def test_scaffold_stripping_needs_a_closing_fence_at_least_as_long(self):
+        # CommonMark's other fence rule: a closing fence must run at least as
+        # long as the opening one. Closing on any 3+ run ended a ```` block at
+        # the literal ``` line inside it, so the ## Sources in that literal
+        # content read as real scaffolding, started a section skip, and
+        # swallowed every remaining line of the document.
+        body = "\n".join(
+            [
+                "Intro.",
+                "````",
+                "```",
+                "## Sources",
+                "````",
+                "## Sources",
+                "- a fabricated citation list",
+                "## Findings",
+                "Real content.",
+            ]
+        )
+        cleaned, sections = _strip_scaffold_headings(body)
+        self.assertEqual(sections, 1)
+        # The heading inside the literal block survives as content...
+        self.assertEqual(cleaned.count("## Sources"), 1)
+        # ...the real scaffolding section is stripped...
+        self.assertNotIn("fabricated citation list", cleaned)
+        # ...and everything after it is still here.
+        self.assertIn("## Findings", cleaned)
+        self.assertIn("Real content.", cleaned)
+
     def test_scaffold_stripping_closes_a_fence_only_on_its_own_character(self):
         # CommonMark closes a fence on its own character, so a ``~~~`` line
         # inside a backtick block is content. Toggling on any fence line left
