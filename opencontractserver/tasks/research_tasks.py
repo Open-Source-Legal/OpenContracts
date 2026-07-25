@@ -349,6 +349,14 @@ async def _run_deep_research_async(
             limit=limit,
         )
         if not rows:
+            # A miss returns guidance rather than ``[]`` — the model is most
+            # likely to act on "try a shorter fragment" at exactly this moment,
+            # and a bare empty list says nothing about what to do next. The
+            # ``list[dict] | str`` return that implies is not a new shape for
+            # the agent: ``PydanticAIToolWrapper`` already returns a plain
+            # string from ANY tool on the operational-error path (issue #820),
+            # whatever the tool's annotation says, and tool *outputs* are not
+            # schema-validated the way inputs are.
             return (
                 f"No corpus passage contains {phrase!r}. Try a shorter or "
                 "differently-cased fragment, or use similarity_search."
