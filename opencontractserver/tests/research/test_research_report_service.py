@@ -767,6 +767,48 @@ class ResearchReportServiceTestCase(TestCase):
             report.warnings,
         )
 
+    def test_claim_support_carries_the_sentence_across_split_markers(self):
+        # The prompt asks for the combined `<cite ids="1,2"/>` form, but when the
+        # agent splits it into consecutive markers the later one has only
+        # whitespace before it. That must not let an unsupported anchor through
+        # as a "short claim" — the sentence carries forward.
+        good = self._make_annotation(
+            raw_text=(
+                "Tenant shall reimburse Landlord for all real estate taxes, "
+                "assessments and insurance premiums allocable to the premises"
+            )
+        )
+        mention = self._make_annotation(raw_text="aluminum")
+        sentence = (
+            "The tenant must reimburse the landlord for real estate taxes, "
+            "assessments and insurance premiums allocable to the premises"
+        )
+        body = f'{sentence} <cite ids="{good.pk}"/> <cite ids="{mention.pk}"/>.'
+        result = _verify_cite_spans(body, {good.pk, mention.pk})
+        # The supported anchor keeps its marker; the unrelated one loses it.
+        self.assertEqual(result.cites_dropped, 1)
+        self.assertIn(f'<cite ids="{good.pk}"/>', result.markdown)
+        self.assertNotIn(f'<cite ids="{mention.pk}"/>', result.markdown)
+        self.assertIn(sentence, result.markdown)
+
+    def test_finalize_warns_when_nothing_survives_composition(self):
+        # A body that is nothing but scaffolding reduces to "" — a COMPLETED
+        # report must say so rather than store a silently empty document.
+        report = self._make_report()
+        ResearchReportService.finalize(
+            report,
+            executive_summary="",
+            markdown_body="## Sources\n\n(All claims above are cited inline.)",
+            retrieved_annotation_ids=[],
+        )
+        report.refresh_from_db()
+        self.assertEqual(report.status, JobStatus.COMPLETED.value)
+        self.assertEqual(report.content, "")
+        self.assertTrue(
+            any("no report content" in str(w) for w in (report.warnings or [])),
+            report.warnings,
+        )
+
     def test_claim_support_skips_short_claims(self):
         # Below RESEARCH_CLAIM_SUPPORT_MIN_WORDS a coverage ratio is noise, so
         # short spans pass unchecked even against an unrelated anchor.

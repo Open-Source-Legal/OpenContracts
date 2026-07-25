@@ -759,6 +759,19 @@ class ResearchReportService(BaseService):
         # just flags footnotes a reviewer (or future automated checker) should
         # double-check.
         extra_warnings: list[str] = list(warnings or [])
+
+        # A COMPLETED report must never be silently blank. The agent can hand
+        # finalize vacuous content — a body that was nothing but scaffolding or
+        # a fabricated link, so ``_sanitize_agent_markdown`` reduced it to "" —
+        # which the salvage path does not cover (it only catches "the agent
+        # never called finalize"). Say so rather than storing an empty report
+        # that looks like a successful run.
+        if not (report.content or "").strip():
+            extra_warnings.append(
+                "The agent finalized with no report content; nothing survived "
+                "composition. Re-run the research task."
+            )
+
         header_footnotes = [
             c["footnote"] for c in citations if c.get("anchor_is_header")
         ]
@@ -1303,6 +1316,7 @@ def _verify_cite_spans(
     cursor = 0
     quotes_demoted = 0
     cites_dropped = 0
+    last_claim = ""
 
     for match in spans:
         out.append(markdown[cursor : match.start()])
@@ -1334,6 +1348,16 @@ def _verify_cite_spans(
                 out[-1] = out[-1][:preceding_offset] + cleaned
             claim = cleaned
         quotes_demoted += demoted
+
+        # The claim is the text immediately before the span, so consecutive
+        # markers on one sentence (``… <cite ids="1"/> <cite ids="2"/>`` instead
+        # of the combined ``<cite ids="1,2"/>`` the prompt asks for) leave the
+        # later span nothing but the whitespace between the tags. Carry the
+        # previous span's claim forward so the second anchor is checked against
+        # the sentence it decorates rather than passing unchecked as a fragment.
+        if not claim.strip():
+            claim = last_claim
+        last_claim = claim
 
         # (3) Claim support — an unsupported sentence keeps its prose, loses
         # its footnote.
