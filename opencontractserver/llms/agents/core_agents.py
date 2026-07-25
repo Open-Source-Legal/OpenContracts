@@ -1765,9 +1765,25 @@ class CoreConversationManager:
 
 
 def get_default_config(**overrides: Any) -> AgentConfig:
-    """Get default agent configuration with optional overrides."""
+    """Get default agent configuration with optional overrides.
+
+    The ``model_name`` default is produced by
+    :func:`~opencontractserver.llms.llm_registry.resolve_model_spec` with no
+    tiers supplied, i.e. ``settings.DEFAULT_LLM`` → ``settings.OPENAI_MODEL``
+    → ``"gpt-4o"``, normalised to the canonical ``"{provider}:{model}"`` form.
+    Reading ``OPENAI_MODEL`` directly (the pre-#2078 behaviour) skipped
+    ``DEFAULT_LLM`` entirely, so a bare caller silently ran on the legacy
+    OpenAI model even on an install retargeted to another provider.
+
+    This function is deliberately ORM-free (it is called from async contexts),
+    so it cannot consult the ``PipelineSettings.default_llm`` singleton. Callers
+    that need the *full* runtime chain must resolve it themselves and pass
+    ``model_name=`` — which is what ``UnifiedAgentFactory`` does.
+    """
+    from opencontractserver.llms.llm_registry import resolve_model_spec
+
     defaults: dict[str, Any] = {
-        "model_name": getattr(settings, "OPENAI_MODEL", "gpt-4o"),
+        "model_name": resolve_model_spec(),
         "api_key": getattr(settings, "OPENAI_API_KEY", None),
         "similarity_top_k": 10,
         "streaming": True,

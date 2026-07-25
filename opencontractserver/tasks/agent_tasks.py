@@ -795,7 +795,6 @@ async def _run_agent_corpus_action_async(
 ) -> dict:
     """Async implementation of agent corpus action execution."""
     from channels.db import database_sync_to_async
-    from django.conf import settings
     from django.utils import timezone
 
     from opencontractserver.agents.models import AgentActionResult
@@ -900,7 +899,12 @@ async def _run_agent_corpus_action_async(
 
         # Build execution metadata
         execution_metadata = {
-            "model": getattr(settings, "LLMS_DEFAULT_MODEL", "unknown"),
+            # The model the agent actually resolved to (per-agent → corpus →
+            # PipelineSettings singleton → settings). Previously this read a
+            # ``LLMS_DEFAULT_MODEL`` setting that does not exist anywhere in
+            # the project, so every recorded action logged "unknown" and an
+            # operator could not tell which model ran (issue #2078).
+            "model": getattr(getattr(agent, "config", None), "model_name", "unknown"),
             "tools_available": tools,
             "sources_count": len(response.sources) if response.sources else 0,
             "agent_config_id": action.agent_config_id,
@@ -1057,7 +1061,6 @@ async def _run_agent_thread_action_async(
 ) -> dict:
     """Async implementation of agent thread action execution."""
     from channels.db import database_sync_to_async
-    from django.conf import settings
     from django.utils import timezone
 
     from opencontractserver.agents.models import AgentActionResult
@@ -1196,7 +1199,12 @@ async def _run_agent_thread_action_async(
 
         # Build execution metadata
         execution_metadata = {
-            "model": getattr(settings, "LLMS_DEFAULT_MODEL", "unknown"),
+            # The model the agent actually resolved to (per-agent → corpus →
+            # PipelineSettings singleton → settings). Previously this read a
+            # ``LLMS_DEFAULT_MODEL`` setting that does not exist anywhere in
+            # the project, so every recorded action logged "unknown" and an
+            # operator could not tell which model ran (issue #2078).
+            "model": getattr(getattr(agent, "config", None), "model_name", "unknown"),
             "tools_available": tools,
             "agent_config_id": action.agent_config_id,
             "agent_config_name": (

@@ -375,14 +375,27 @@ class LLMCitationExtractor:
         ``abuild_agent_model`` in this module cover BOTH call paths (the
         orchestrator no longer builds via a separate import, which silently
         bypassed the patch and issued real provider calls).
+
+        ``settings_default`` is threaded in from
+        :func:`~opencontractserver.pipeline.utils.get_default_llm_spec` so a
+        live retarget of the install-wide ``PipelineSettings.default_llm``
+        (System Settings UI) takes effect here without a worker restart.
+        Leaving it ``None`` silently skipped that tier and pinned enrichment
+        to the deploy-time ``DEFAULT_LLM`` / ``OPENAI_MODEL`` env values
+        (issue #2078).
         """
+        from asgiref.sync import sync_to_async
+
         from opencontractserver.llms.llm_registry import resolve_model_spec
+        from opencontractserver.pipeline.utils import get_default_llm_spec
 
         spec = resolve_model_spec(
             explicit=self._model_spec,
             agent_preferred=None,
             corpus_preferred=None,
-            settings_default=None,
+            # ORM access (reads the PipelineSettings singleton), so it is
+            # threaded through sync_to_async; resolve_model_spec stays ORM-free.
+            settings_default=await sync_to_async(get_default_llm_spec)(),
         )
         return await abuild_agent_model(spec)
 
