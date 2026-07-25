@@ -1207,10 +1207,47 @@ _MD_HEADING_RE = re.compile(r"^\s{0,3}(#{1,6})\s+(.*?)\s*#*\s*$")
 # A sources-flavoured heading takes its whole section with it (up to the next
 # heading); the executive-summary heading is dropped on its own so the prose
 # beneath it survives as the summary.
+#
+# The two sets carry VERY different risk, which is why they are matched the way
+# they are. Matching is exact (after ``_normalize_label`` folds case and
+# separators) rather than by token or substring, and that is deliberate for the
+# SECTION set: a false positive there deletes every line up to the next heading,
+# and "Sources of Supply Risk", "References to Prior Agreements" and "Citations
+# in the Record" are all headings a real legal research report might carry. A
+# token-overlap rule strips all three. Losing a substantive section to a fuzzy
+# match is far worse than leaving one scaffolding heading in place.
+#
+# The cost of exactness is that a title just outside the set sails through and
+# reproduces #2200 under a different name, so the set enumerates the variants a
+# report generator actually reaches for. Extend it with more exact names when a
+# new one is observed; do not loosen the match.
 _SCAFFOLD_SECTION_HEADINGS: frozenset[str] = frozenset(
-    {"sources", "source", "references", "citations", "footnotes", "bibliography"}
+    {
+        "sources",
+        "source",
+        "source list",
+        "list of sources",
+        "sources cited",
+        "references",
+        "reference",
+        "reference list",
+        "list of references",
+        "works cited",
+        "works consulted",
+        "citations",
+        "citation",
+        "footnotes",
+        "footnote",
+        "endnotes",
+        "endnote",
+        "bibliography",
+    }
 )
-_SCAFFOLD_HEADING_LINES: frozenset[str] = frozenset({"executive summary"})
+# Dropping only the heading line, keeping the prose, is a small enough blast
+# radius that a bare "summary" earns its place here — a "## Summary" the agent
+# writes at the top of its own summary text lands directly under the system's
+# "## Executive Summary", which is the doubled-scaffolding symptom itself.
+_SCAFFOLD_HEADING_LINES: frozenset[str] = frozenset({"executive summary", "summary"})
 
 # Punctuation trimmed from token edges before a token is compared. Shared by
 # ``_content_words`` and ``_is_negated`` so both agree on where a token ends.
@@ -1481,9 +1518,20 @@ def _verify_cite_spans(
        analysis. See :func:`_claim_is_supported`.
 
     The "claim" a span asserts is its inner text, or — for a self-closing
-    marker, and for a span collapsed by (1) — the sentence it follows, so the
-    guards apply identically to both sanctioned cite forms. Returns the
-    rewritten markdown plus the three counts ``finalize`` turns into warnings.
+    marker, and for a span collapsed by (1) — the text it follows, so the guards
+    apply to both sanctioned cite forms. Returns the rewritten markdown plus the
+    three counts ``finalize`` turns into warnings.
+
+    That trailing text runs back to the previous span or the sentence boundary,
+    whichever is nearer, so in a compound sentence each marker is checked
+    against ITS OWN clause rather than the whole sentence: in
+    ``… pay taxes <cite ids="1"/> and maintain insurance <cite ids="2"/>``,
+    anchor 2 answers for the insurance clause alone. That is the right scope —
+    the alternative would judge every anchor in the sentence against the union
+    of all of them — but it means a clause under
+    ``RESEARCH_CLAIM_SUPPORT_MIN_WORDS`` passes unchecked, exactly as any short
+    claim does anywhere else. A clause long enough to check IS checked, and a
+    mis-anchored one loses its citation.
 
     A span whose cited ids yield NO usable text (textless anchor, deleted row,
     or an id retrieval never produced) is treated as ungrounded by both (2) and

@@ -1275,6 +1275,86 @@ class ResearchReportServiceTestCase(TestCase):
         self.assertEqual(result.echoes_trimmed, 0)
         self.assertIn("further provisions of the lease agreement", result.markdown)
 
+    def test_claim_support_scopes_a_marker_to_its_own_clause(self):
+        # In a compound sentence each marker's claim runs back to the previous
+        # span, not to the sentence start, so an anchor answers for its OWN
+        # clause. The consequence is that a short clause passes unchecked (the
+        # min-words floor, same as any short claim anywhere) while a clause long
+        # enough to check is genuinely checked — the guard is scoped, not
+        # skipped.
+        taxes = self._make_annotation(
+            raw_text=(
+                "The tenant shall pay all real property taxes assessed against "
+                "the premises"
+            )
+        )
+        insurance = self._make_annotation(
+            raw_text=(
+                "The tenant shall maintain commercial general liability "
+                "insurance at all times"
+            )
+        )
+        ids = {taxes.pk, insurance.pk}
+
+        short = (
+            f'The tenant shall pay taxes <cite ids="{taxes.pk}"/> and maintain '
+            f'insurance <cite ids="{insurance.pk}"/>.'
+        )
+        self.assertEqual(_verify_cite_spans(short, ids).cites_dropped, 0)
+
+        # Same shape, but the second clause is long enough to check and is NOT
+        # what its anchor says — the citation goes, the prose stays.
+        mismatched = (
+            "The tenant shall pay all real property taxes assessed against the "
+            f'premises during the term <cite ids="{taxes.pk}"/> and shall '
+            "additionally indemnify the landlord for every environmental "
+            f'remediation cost arising on the site <cite ids="{insurance.pk}"/>.'
+        )
+        result = _verify_cite_spans(mismatched, ids)
+        self.assertEqual(result.cites_dropped, 1)
+        self.assertIn(f'<cite ids="{taxes.pk}"/>', result.markdown)
+        self.assertNotIn(f'<cite ids="{insurance.pk}"/>', result.markdown)
+        self.assertIn("environmental remediation cost", result.markdown)
+
+    def test_scaffold_stripping_covers_common_sources_heading_variants(self):
+        # The premise of this fix is that the agent keeps writing scaffolding
+        # the prompt forbids, so a heading just outside the set reproduces #2200
+        # under a different name — and silently, since the warning only fires on
+        # a strip. The set enumerates the names a report generator reaches for.
+        for title in (
+            "Sources",
+            "Works Cited",
+            "Reference List",
+            "Sources Cited",
+            "Citation",
+            "Endnotes",
+            "Bibliography",
+        ):
+            with self.subTest(heading=title):
+                cleaned, sections = _strip_scaffold_headings(
+                    f"Real prose.\n\n## {title}\n\n- [1] a fabricated citation\n"
+                )
+                self.assertEqual(sections, 1)
+                self.assertNotIn("fabricated citation", cleaned)
+                self.assertIn("Real prose.", cleaned)
+
+    def test_scaffold_stripping_keeps_substantive_headings_that_merely_mention(self):
+        # Why the match is exact rather than token-overlap: stripping a SECTION
+        # deletes everything under it, and these are headings a real legal
+        # research report carries. A token rule would delete all three.
+        for title in (
+            "Sources of Supply Risk",
+            "References to Prior Agreements",
+            "Citations in the Record",
+        ):
+            with self.subTest(heading=title):
+                cleaned, sections = _strip_scaffold_headings(
+                    f"## {title}\n\nSubstantive analysis the report needs.\n"
+                )
+                self.assertEqual(sections, 0)
+                self.assertIn("Substantive analysis the report needs.", cleaned)
+                self.assertIn(title, cleaned)
+
     def test_scaffold_stripping_closes_a_fence_only_on_its_own_character(self):
         # CommonMark closes a fence on its own character, so a ``~~~`` line
         # inside a backtick block is content. Toggling on any fence line left
