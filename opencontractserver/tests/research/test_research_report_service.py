@@ -26,6 +26,7 @@ from opencontractserver.research.services.research_reports import (
     _derive_title_from_prompt,
     _is_header_anchor,
     _is_negated,
+    _preceding_claim,
     _render_citations,
     _strip_fabricated_links,
     _strip_scaffold_headings,
@@ -818,6 +819,31 @@ class ResearchReportServiceTestCase(TestCase):
             any("no report content" in str(w) for w in (report.warnings or [])),
             report.warnings,
         )
+
+    def test_preceding_claim_sentence_boundary_rules(self):
+        # Pins the two deliberate constraints on _SENTENCE_BOUNDARY_RE, both of
+        # which exist to keep the claim the support check sees intact.
+        cases = [
+            # The trailing whitespace requirement is what stops a decimal from
+            # reading as a sentence end.
+            ("The cap is 1.5 million dollars ", "The cap is 1.5 million dollars "),
+            # ...and the "No." carve-out stops a legal reference from splitting
+            # the claim, which would truncate it under the min-words floor and
+            # skip the support check entirely.
+            (
+                "It governs Exhibit No. 4 for the term ",
+                "It governs Exhibit No. 4 for the term ",
+            ),
+            ("see Schedule no. A-1 herein ", "see Schedule no. A-1 herein "),
+            # An ordinary sentence end still ends a sentence, including a word
+            # that merely ends in "no".
+            ("Sentence one. Sentence two ", "Sentence two "),
+            ("We visited the casino. Next we left ", "Next we left "),
+        ]
+        for text, expected in cases:
+            with self.subTest(text=text):
+                _, segment = _preceding_claim(text)
+                self.assertEqual(segment, expected)
 
     def test_claim_support_rejects_a_claim_that_inverts_its_anchor(self):
         # Bag-of-words coverage is blind to negation: "the tenant is NOT liable"

@@ -1135,7 +1135,17 @@ _CITE_SPAN_RE = re.compile(
 
 # Sentence/line boundary used to recover the prose a self-closing marker
 # decorates, and to compare a wrapping span against the prose before it.
-_SENTENCE_BOUNDARY_RE = re.compile(r'[.!?:;]["”’)\]]*\s|\n')
+# The trailing ``\s`` is required, not incidental: it is what stops a decimal
+# ("the cap is 1.5 million") from reading as a sentence end. The ``(?<!\bno)``
+# lookbehind carves out the citation-number abbreviation for the same reason
+# ``_is_negated`` does (spelled out per-case because this regex, unlike the
+# negation check, runs on RAW text rather than the casefolded stream) —
+# without it "Exhibit No. 4 governs the term" splits at
+# the reference and the claim seen by the support check is truncated to
+# "4 governs the term", short enough to fall under the min-words floor and skip
+# the check entirely. The word boundary keeps it to a standalone "no", so
+# "casino." still ends a sentence.
+_SENTENCE_BOUNDARY_RE = re.compile(r'(?<!\b[Nn][Oo])[.!?:;]["”’)\]]*\s|\n')
 
 # A fenced code block delimiter (``` or ~~~). Heading detection is suspended
 # inside a fence: a ``# Sources`` COMMENT in a quoted snippet is not a heading,
