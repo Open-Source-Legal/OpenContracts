@@ -23,7 +23,7 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase, override_settings
+from django.test import TestCase, TransactionTestCase, override_settings
 
 from opencontractserver.constants.extraction import DEFAULT_EXTRACT_MODEL
 from opencontractserver.corpuses.models import Corpus
@@ -35,8 +35,17 @@ RETARGET_SPEC = "anthropic:claude-haiku-4-5"
 OTHER_SPEC = "google-gla:gemini-2.5-flash"
 
 
-class RetargetingTestCase(TestCase):
-    """Shared helpers for configuring the live singleton."""
+class RetargetingTestCase(TransactionTestCase):
+    """Shared helpers for configuring the live singleton.
+
+    ``TransactionTestCase`` (not ``TestCase``) is required: every workflow
+    under test resolves the model inside ``sync_to_async`` /
+    ``database_sync_to_async``, which runs the ORM on a *different* DB
+    connection than the test body. Under ``TestCase`` the singleton write in
+    :meth:`set_install_default` stays uncommitted on the main connection and
+    the workflow's connection never sees it — the test would always observe
+    the terminal fallback.
+    """
 
     def setUp(self) -> None:
         super().setUp()
