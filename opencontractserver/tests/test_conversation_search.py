@@ -8,10 +8,12 @@ This test suite covers:
 - GraphQL query integration
 """
 
+from unittest.mock import patch
+
 import pytest
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from graphql_relay import to_global_id
 
 from config.graphql.schema import schema
@@ -527,24 +529,6 @@ class MessageVectorSearchTest(TestCase):
                 "len(" in error_msg or "embedder" in error_msg or "vector" in error_msg
             )
 
-    def test_message_search_nonexistent_user(self):
-        """Test message search with nonexistent user."""
-        store = CoreChatMessageVectorStore(
-            user_id=99999,  # Non-existent user
-            corpus_id=self.corpus.id,
-            embedder_path="test/embedder",
-        )
-
-        query = VectorSearchQuery(
-            query_embedding=[0.1] * 384,
-            similarity_top_k=10,
-        )
-
-        results = store.search(query)
-
-        # Should return empty results, not crash
-        self.assertEqual(len(results), 0)
-
     def test_message_search_missing_query_raises_error(self):
         """Test that message search raises ValueError when neither text nor embedding provided."""
         store = CoreChatMessageVectorStore(
@@ -561,6 +545,40 @@ class MessageVectorSearchTest(TestCase):
             store.search(query)
 
         self.assertIn("Either query_text or query_embedding", str(ctx.exception))
+
+
+class MessageVectorSearchMissingUserTest(SimpleTestCase):
+    """Test the missing-user branch without database or embedder dependencies."""
+
+    def test_message_search_nonexistent_user(self):
+        """A missing user returns no results without attempting vector search."""
+        missing_user_id = 99999
+
+        with (
+            patch(
+                "opencontractserver.llms.vector_stores."
+                "core_conversation_vector_stores.get_embedder",
+                return_value=(None, "test/embedder"),
+            ),
+            patch("django.contrib.auth.get_user_model") as mock_get_user_model,
+        ):
+            mock_user_model = mock_get_user_model.return_value
+            mock_user_model.DoesNotExist = User.DoesNotExist
+            mock_user_model.objects.get.side_effect = User.DoesNotExist
+
+            store = CoreChatMessageVectorStore(
+                user_id=missing_user_id,
+                embedder_path="test/embedder",
+            )
+            query = VectorSearchQuery(
+                query_embedding=[0.1] * 384,
+                similarity_top_k=10,
+            )
+
+            results = store.search(query)
+
+        self.assertEqual(results, [])
+        mock_user_model.objects.get.assert_called_once_with(id=missing_user_id)
 
 
 class GraphQLConversationSearchTest(TestCase):
