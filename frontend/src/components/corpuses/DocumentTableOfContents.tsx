@@ -502,6 +502,14 @@ export const DocumentTableOfContents: React.FC<
       variables: {
         corpusId,
         first: CORPUS_DOCUMENTS_TOC_LIMIT,
+        // ``documents(inCorpusWithId:)`` excludes markdown unless asked
+        // otherwise (config/graphql/filters.py::filter_queryset) — a default
+        // aimed at extractors and analyzers, which must not ingest CAML
+        // articles. This is a corpus VIEW, so it wants the opposite: without
+        // the flag, generated markdown artifacts (research reports filed in a
+        // user's My Documents workspace) exist but render as "No Documents"
+        // in the very list a user opens to find them.
+        includeCaml: true,
       },
       skip: !corpusId,
       fetchPolicy: "cache-and-network",

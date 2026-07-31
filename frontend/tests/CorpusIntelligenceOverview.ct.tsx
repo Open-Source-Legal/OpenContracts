@@ -32,7 +32,7 @@ const CORPUS_ID = "Q29ycHVzVHlwZTox";
 const collectionDocsMock = {
   request: {
     query: GET_CORPUS_COLLECTION_DOCS,
-    variables: { corpusId: CORPUS_ID, limit: 100 },
+    variables: { corpusId: CORPUS_ID, limit: 100, includeCaml: true },
   },
   result: {
     data: {

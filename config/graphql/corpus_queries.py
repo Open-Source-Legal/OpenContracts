@@ -86,6 +86,7 @@ def _corpus_count_subqueries() -> tuple[Any, Any]:
     from django.db.models import Count, OuterRef
 
     from opencontractserver.annotations.models import Annotation
+    from opencontractserver.corpuses.models import CAML_ARTICLE_DOCUMENT_PATH_Q
     from opencontractserver.documents.models import DocumentPath
 
     document_count_sq = (
@@ -94,7 +95,9 @@ def _corpus_count_subqueries() -> tuple[Any, Any]:
             is_current=True,
             is_deleted=False,
         )
-        .exclude(document__file_type=MARKDOWN_MIME_TYPE)
+        # Shared with ``Corpus.document_count()`` so the list and detail views
+        # cannot disagree about the same number.
+        .exclude(CAML_ARTICLE_DOCUMENT_PATH_Q)
         .values("corpus_id")
         .annotate(count=Count("document_id", distinct=True))
         .values("count")

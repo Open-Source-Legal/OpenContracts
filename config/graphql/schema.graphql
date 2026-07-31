@@ -1839,6 +1839,44 @@ type DeleteAuthorityNamespaceMutation {
   message: String
 }
 
+type AuthorityPackCorpus {
+  corpusId: ID
+  slug: String!
+  title: String!
+  approvalStatus: String!
+  installed: Boolean!
+  isPublic: Boolean!
+}
+
+type AuthorityPack {
+  id: String!
+  name: String!
+  displayName: String!
+  description: String!
+  jurisdiction: String!
+  schemaVersion: Int!
+  fingerprint: String!
+  sourceHosts: [String!]!
+  valid: Boolean!
+  validationError: String
+  approvalStatus: String!
+  canInstall: Boolean!
+  canPublish: Boolean!
+  installedCount: Int!
+  publicCount: Int!
+  totalCorpora: Int!
+  installed: Boolean!
+  fullyPublic: Boolean!
+  corpora: [AuthorityPackCorpus!]!
+}
+
+type InstallAuthorityPackMutation {
+  ok: Boolean!
+  message: String
+  result: GenericScalar
+  pack: AuthorityPack
+}
+
 """Create a new badge (admin/corpus owner only)."""
 type CreateBadgeMutation {
   ok: Boolean
@@ -2058,6 +2096,15 @@ type UpdateMessageMutation {
   ok: Boolean
   message: String
   obj: MessageType
+}
+
+"""
+Save a chat message to the caller's personal 'My Documents' workspace as a markdown document.
+"""
+type SaveMessageToWorkspaceMutation {
+  ok: Boolean
+  message: String
+  obj: DocumentType
 }
 
 """Soft delete a conversation/thread."""
@@ -6158,6 +6205,11 @@ type ResearchReportType implements Node {
   """Chat conversation that kicked this off, if any"""
   conversation: ConversationType
 
+  """
+  Markdown copy of this report filed in the creator's personal 'My Documents' workspace. Null until the report completes, or if the (non-fatal) workspace write failed.
+  """
+  workspaceDocument: DocumentType
+
   """Seconds between start and completion (null if not finished)."""
   durationSeconds: Float
 
@@ -7568,6 +7620,12 @@ type Query {
   """
   authorityNamespaces(offset: Int, before: String, after: String, first: Int, last: Int, jurisdiction: String, authorityType: String, scope: String, search: String): AuthorityNamespaceNodeConnection
 
+  """Trusted authority packs configured on this server."""
+  authorityPacks: [AuthorityPack!]!
+
+  """Side-effect-free validation of one trusted authority pack."""
+  authorityPackPreflight(packId: String!): AuthorityPack
+
   """
   Retrieve conversations, optionally filtered by document_id or corpus_id
   """
@@ -8597,6 +8655,9 @@ type Mutation {
   """
   deleteAuthorityNamespace(id: ID!): DeleteAuthorityNamespaceMutation
 
+  """Install a freshly preflighted trusted authority pack."""
+  installAuthorityPack(packId: String!, expectedFingerprint: String!, publish: Boolean!): InstallAuthorityPackMutation!
+
   """Create a new badge (admin/corpus owner only)."""
   createBadge(
     """Badge type: GLOBAL or CORPUS"""
@@ -8729,6 +8790,20 @@ type Mutation {
     """ID of the message to update"""
     messageId: ID!
   ): UpdateMessageMutation
+
+  """
+  Save a chat message to the caller's personal 'My Documents' workspace as a markdown document, optionally inside a folder.
+  """
+  saveMessageToWorkspace(
+    """ID of the message to save"""
+    messageId: ID!
+
+    """Document title. Defaults to a title derived from the message."""
+    title: String
+
+    """Optional folder in My Documents; created if it does not exist."""
+    folderName: String
+  ): SaveMessageToWorkspaceMutation
 
   """Soft delete a conversation/thread."""
   deleteConversation(
@@ -10218,7 +10293,7 @@ type Mutation {
   ): DeleteToolSecretsMutation
 
   """Kick off a deep-research job over a corpus (explicit, non-chat path)."""
-  startResearchReport(corpusId: ID!, maxSteps: Int, prompt: String!, title: String): StartResearchReport
+  startResearchReport(corpusId: ID!, corpusGroupId: ID, maxSteps: Int, prompt: String!, title: String): StartResearchReport
 
   """Request cooperative cancellation of an in-flight research job."""
   cancelResearchReport(id: ID!): CancelResearchReport

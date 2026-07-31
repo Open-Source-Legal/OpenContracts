@@ -18,6 +18,7 @@ import {
   ResearchReportType,
   JobStatus,
 } from "../types/graphql-api";
+import type { AuthorityPack } from "./queries";
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ///
@@ -178,6 +179,36 @@ export interface SetCorpusVisibilityOutputs {
 export const SET_CORPUS_VISIBILITY = gql`
   mutation SetCorpusVisibility($corpusId: ID!, $isPublic: Boolean!) {
     setCorpusVisibility(corpusId: $corpusId, isPublic: $isPublic) {
+      ok
+      message
+    }
+  }
+`;
+
+export interface ReEmbedCorpusInputs {
+  corpusId: string;
+  newEmbedder: string;
+}
+
+export interface ReEmbedCorpusOutputs {
+  reEmbedCorpus: {
+    ok: boolean;
+    message: string;
+  };
+}
+
+/**
+ * Migrate an existing corpus to a different embedder.
+ *
+ * ``updateCorpus`` deliberately refuses to change ``preferredEmbedder`` once a
+ * corpus holds documents (issue #437) — silently swapping it would leave the
+ * corpus half-embedded in two incomparable vector spaces, where search returns
+ * plausible-looking but arbitrary results. This is the controlled path: it
+ * locks the corpus and re-embeds every annotation in the background.
+ */
+export const RE_EMBED_CORPUS = gql`
+  mutation ReEmbedCorpus($corpusId: String!, $newEmbedder: String!) {
+    reEmbedCorpus(corpusId: $corpusId, newEmbedder: $newEmbedder) {
       ok
       message
     }
@@ -779,6 +810,69 @@ export const DELETE_AUTHORITY_NAMESPACE = gql`
     deleteAuthorityNamespace(id: $id) {
       ok
       message
+    }
+  }
+`;
+
+// ---- Server-discovered authority packs ------------------------------------ //
+
+export interface InstallAuthorityPackInputs {
+  packId: string;
+  expectedFingerprint: string;
+  publish: boolean;
+}
+
+export interface InstallAuthorityPackOutputs {
+  installAuthorityPack: {
+    ok: boolean;
+    message?: string | null;
+    result?: unknown;
+    pack?: AuthorityPack | null;
+  };
+}
+
+export const INSTALL_AUTHORITY_PACK = gql`
+  mutation InstallAuthorityPack(
+    $packId: String!
+    $expectedFingerprint: String!
+    $publish: Boolean!
+  ) {
+    installAuthorityPack(
+      packId: $packId
+      expectedFingerprint: $expectedFingerprint
+      publish: $publish
+    ) {
+      ok
+      message
+      result
+      pack {
+        id
+        name
+        displayName
+        description
+        jurisdiction
+        schemaVersion
+        fingerprint
+        sourceHosts
+        valid
+        validationError
+        approvalStatus
+        canInstall
+        canPublish
+        installedCount
+        publicCount
+        totalCorpora
+        installed
+        fullyPublic
+        corpora {
+          corpusId
+          slug
+          title
+          approvalStatus
+          installed
+          isPublic
+        }
+      }
     }
   }
 `;
@@ -4252,6 +4346,13 @@ export interface StartResearchReportInput {
   prompt: string;
   title?: string;
   maxSteps?: number;
+  /**
+   * Widens retrieval past the anchor corpus to every corpus in the group the
+   * viewer may read. A group the viewer cannot see is REFUSED server-side
+   * rather than ignored — a silently narrowed run would report as though it
+   * had read the group.
+   */
+  corpusGroupId?: string;
 }
 export interface StartResearchReportOutput {
   startResearchReport: {
@@ -4266,12 +4367,14 @@ export const START_RESEARCH_REPORT = gql`
     $prompt: String!
     $title: String
     $maxSteps: Int
+    $corpusGroupId: ID
   ) {
     startResearchReport(
       corpusId: $corpusId
       prompt: $prompt
       title: $title
       maxSteps: $maxSteps
+      corpusGroupId: $corpusGroupId
     ) {
       ok
       message
@@ -4315,3 +4418,54 @@ export const CANCEL_RESEARCH_REPORT = gql`
     }
   }
 `;
+
+/**
+ * Save a single chat message into the caller's personal "My Documents"
+ * workspace as a markdown document, optionally inside a folder.
+ *
+ * Visibility-gated server-side (see the discussion-permissions table in
+ * docs/permissioning/consolidated_permissioning_guide.md): anyone who can READ
+ * the conversation may keep a copy, and the copy always lands in the *saver's*
+ * own corpus — never the message author's.
+ */
+export const SAVE_MESSAGE_TO_WORKSPACE = gql`
+  mutation SaveMessageToWorkspace(
+    $messageId: ID!
+    $title: String
+    $folderName: String
+  ) {
+    saveMessageToWorkspace(
+      messageId: $messageId
+      title: $title
+      folderName: $folderName
+    ) {
+      ok
+      message
+      obj {
+        id
+        title
+        fileType
+      }
+    }
+  }
+`;
+
+export interface SaveMessageToWorkspaceInput {
+  messageId: string;
+  /** Omit to derive the title from the message's first meaningful line. */
+  title?: string;
+  /** Omit to save at the workspace root. Created on demand if it doesn't exist. */
+  folderName?: string;
+}
+
+export interface SaveMessageToWorkspaceOutput {
+  saveMessageToWorkspace: {
+    ok: boolean;
+    message: string;
+    obj: {
+      id: string;
+      title: string;
+      fileType: string;
+    } | null;
+  };
+}

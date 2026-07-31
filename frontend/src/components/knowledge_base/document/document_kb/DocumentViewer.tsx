@@ -16,7 +16,9 @@ import {
   isTextFileType,
   isPdfFileType,
   isDocxFileType,
+  isMarkdownFileType,
 } from "../../../../utils/files";
+import { MarkdownDocumentViewer } from "./MarkdownDocumentViewer";
 import { EmptyState } from "./EmptyStates";
 import { ServerTokenAnnotation } from "../../../annotator/types/annotations";
 
@@ -90,7 +92,8 @@ export interface DocumentViewerProps {
 }
 
 /**
- * Renders the central document body — PDF, plain-text, or DOCX — based on the
+ * Renders the central document body — PDF, Markdown, plain-text, or DOCX —
+ * based on the
  * document's filetype. Each branch shares the same loading / error scaffolding;
  * only the loaded renderer differs. Unsupported filetypes show a generic empty
  * state.
@@ -119,6 +122,24 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
             createAnnotationHandler={createAnnotationHandler}
             createUrlAnnotationHandler={createUrlAnnotationHandler}
           />
+        </ViewerStatus>
+      </ViewerContainer>
+    );
+  }
+
+  // BEFORE the plain-text branch: markdown is a text/… subtype, so testing
+  // isTextFileType first would send every markdown document to the annotator
+  // and render saved answers and CAML articles as their own source.
+  if (isMarkdownFileType(fileType)) {
+    return (
+      <ViewerContainer id="markdown-container" ref={containerRefCallback}>
+        <ViewerStatus
+          loadingLabel="Loading Markdown..."
+          errorTitle="Error Loading Markdown"
+          errorDescription="Could not load the Markdown document."
+          viewState={viewState}
+        >
+          <MarkdownDocumentViewer canEdit={canEdit} />
         </ViewerStatus>
       </ViewerContainer>
     );

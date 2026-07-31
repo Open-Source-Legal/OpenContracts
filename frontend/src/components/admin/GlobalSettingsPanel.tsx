@@ -262,7 +262,7 @@ const settingsItems: SettingItem[] = [
     id: "authority-console",
     title: "Authority Console",
     description:
-      "View, manage and edit legal authorities — the bodies of law and their aliases, relationships, discovery queue, scrapers and enrichment runs — in one unified place.",
+      "Install server-provided authority packs, sideload corpus exports, and manage their authorities, aliases, relationships, and run history.",
     icon: Scale,
     gradient: `linear-gradient(135deg, ${OS_LEGAL_COLORS.folderIcon} 0%, ${OS_LEGAL_COLORS.accent} 100%)`,
     route: "/admin/authority",

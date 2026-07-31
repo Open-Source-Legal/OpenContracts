@@ -126,6 +126,23 @@ register_type("UpdateMessageMutation", UpdateMessageMutation, model=None)
 
 
 @strawberry.type(
+    name="SaveMessageToWorkspaceMutation",
+    description="Save a chat message to the caller's personal 'My Documents' workspace as a markdown document.",
+)
+class SaveMessageToWorkspaceMutation:
+    ok: bool | None = strawberry.field(name="ok", default=None)
+    message: str | None = strawberry.field(name="message", default=None)
+    obj: None | (
+        Annotated[DocumentType, strawberry.lazy("config.graphql.document_types")]
+    ) = strawberry.field(name="obj", default=None)
+
+
+register_type(
+    "SaveMessageToWorkspaceMutation", SaveMessageToWorkspaceMutation, model=None
+)
+
+
+@strawberry.type(
     name="DeleteConversationMutation", description="Soft delete a conversation/thread."
 )
 class DeleteConversationMutation:
@@ -934,6 +951,181 @@ def m_delete_message(
     return _mutate_DeleteMessageMutation(DeleteMessageMutation, None, info, **kwargs)
 
 
+def _resolve_message_pk(message_id) -> int | None:
+    """Accept either a relay global ID or a raw primary key.
+
+    The same ``messageId`` field carries two formats depending on where the
+    message came from: history loaded over GraphQL is a relay global ID
+    (``CorpusChat.tsx`` ``messageId: msg.id``), while a message streamed over
+    the agent WebSocket is the raw integer pk (``messageId: data.message_id``).
+    Decoding blindly turns the raw form into an empty string and then a
+    ``ValueError`` deep in the ORM, which is exactly what a freshly streamed
+    answer — the most likely thing a user wants to save — would hit.
+
+    Returns ``None`` for anything unusable so the caller can answer with the
+    same "not found" it uses for invisible messages, rather than 500-ing.
+    """
+    try:
+        decoded = from_global_id(message_id)[1]
+    except Exception:
+        decoded = None
+    if decoded and str(decoded).isdigit():
+        return int(decoded)
+    raw = str(message_id or "")
+    if raw.isdigit():
+        return int(raw)
+    return None
+
+
+# Chat answers have no natural filename, so derive a readable one from the
+# opening line and keep it short enough to be a sane document title.
+MAX_DERIVED_MESSAGE_TITLE_CHARS = 80
+
+
+def _default_saved_message_title(chat_message) -> str:
+    """Best-effort title from the message body's first meaningful line."""
+    for raw_line in (chat_message.content or "").splitlines():
+        line = raw_line.strip().lstrip("#").strip()
+        if not line:
+            continue
+        # Drop obvious markdown emphasis so the title is not "**Summary**".
+        line = line.replace("*", "").replace("`", "").strip()
+        if line:
+            if len(line) > MAX_DERIVED_MESSAGE_TITLE_CHARS:
+                line = line[:MAX_DERIVED_MESSAGE_TITLE_CHARS].rstrip() + "…"
+            return line
+    return f"Saved chat message {chat_message.pk}"
+
+
+def _saved_message_markdown(chat_message, title: str) -> str:
+    """Compose the file: provenance header, then the message verbatim.
+
+    The header matters more here than for a research report: a chat answer read
+    six months later, outside the thread that produced it, otherwise gives no
+    indication of what it was answering or which corpus it drew on.
+    """
+    conversation = chat_message.conversation
+    corpus = getattr(conversation, "chat_with_corpus", None) if conversation else None
+    created = chat_message.created or timezone.now()
+
+    header = [f"# {title}", ""]
+    if corpus is not None:
+        header.append(f"- **Corpus:** {corpus.title}")
+    if conversation is not None and conversation.title:
+        header.append(f"- **Conversation:** {conversation.title}")
+    header.append(f"- **Saved from chat:** {created.date().isoformat()}")
+    header.extend(["", "---", ""])
+    return "\n".join(header) + "\n" + (chat_message.content or "")
+
+
+def _mutate_SaveMessageToWorkspaceMutation(
+    payload_cls, root, info, message_id, title, folder_name
+):
+    """Save one chat message into the caller's personal workspace.
+
+    A chat answer is otherwise unsaved: unlike a research report it has no
+    durable artifact, so the moment the conversation scrolls away the analysis
+    is only findable by re-reading the thread. This files it as a markdown
+    document the user owns, in their own corpus, optionally under a folder.
+    """
+    if not info.context.user.is_authenticated:
+        raise PermissionDenied()
+
+    @graphql_ratelimit(rate="30/m")
+    def mutate(root, info, message_id, title, folder_name):
+        from opencontractserver.corpuses.services import WorkspaceService
+
+        user = info.context.user
+        message_pk = _resolve_message_pk(message_id)
+        if message_pk is None:
+            return payload_cls(ok=False, message="Message not found", obj=None)
+
+        # Same IDOR-safe lookup the edit/delete mutations use: an invisible
+        # message and a nonexistent one must be indistinguishable.
+        try:
+            chat_message = (
+                BaseService.filter_visible(ChatMessage, user, request=info.context)
+                .select_related("conversation")
+                .get(pk=message_pk)
+            )
+        except ChatMessage.DoesNotExist:
+            return payload_cls(
+                ok=False,
+                message="Message not found",
+                obj=None,
+            )
+
+        content = (chat_message.content or "").strip()
+        if not content:
+            return payload_cls(
+                ok=False,
+                message="This message has no content to save.",
+                obj=None,
+            )
+
+        resolved_title = (title or "").strip() or _default_saved_message_title(
+            chat_message
+        )
+
+        try:
+            document = WorkspaceService.save_markdown(
+                user=user,
+                title=resolved_title,
+                content=_saved_message_markdown(chat_message, resolved_title),
+                folder_name=(folder_name or "").strip() or None,
+            )
+        except Exception:
+            logger.exception(
+                "Failed to save chat message %s to the workspace of user %s",
+                chat_message.pk,
+                user.pk,
+            )
+            return payload_cls(
+                ok=False,
+                message="Could not save this message to your workspace.",
+                obj=None,
+            )
+
+        return payload_cls(
+            ok=True,
+            message=f"Saved to My Documents as '{resolved_title}'.",
+            obj=document,
+        )
+
+    return mutate(root, info, message_id, title, folder_name)
+
+
+def m_save_message_to_workspace(
+    info: strawberry.Info,
+    message_id: Annotated[
+        strawberry.ID,
+        strawberry.argument(name="messageId", description="ID of the message to save"),
+    ] = strawberry.UNSET,
+    title: Annotated[
+        str | None,
+        strawberry.argument(
+            name="title",
+            description="Document title. Defaults to a title derived from the message.",
+        ),
+    ] = strawberry.UNSET,
+    folder_name: Annotated[
+        str | None,
+        strawberry.argument(
+            name="folderName",
+            description="Optional folder in My Documents; created if it does not exist.",
+        ),
+    ] = strawberry.UNSET,
+) -> SaveMessageToWorkspaceMutation | None:
+    kwargs = strip_unset(
+        {"message_id": message_id, "title": title, "folder_name": folder_name}
+    )
+    kwargs.setdefault("title", None)
+    kwargs.setdefault("folder_name", None)
+    return _mutate_SaveMessageToWorkspaceMutation(
+        SaveMessageToWorkspaceMutation, None, info, **kwargs
+    )
+
+
 MUTATION_FIELDS = {
     "create_thread": strawberry.field(
         resolver=m_create_thread,
@@ -954,6 +1146,11 @@ MUTATION_FIELDS = {
         resolver=m_update_message,
         name="updateMessage",
         description="Update the content of an existing message.\n\nSecurity Note: Only the message creator or a moderator can edit messages.\nMention links are re-parsed when content is updated.\n\nXSS Prevention Note: The content field contains user-generated markdown text\nthat must be properly escaped when rendered in the frontend to prevent XSS\nattacks. GraphQL's GenericScalar handles JSON serialization safely, but the\nfrontend must use a markdown renderer that sanitizes HTML output.\n\nPart of Issue #686 - Mobile UI for Edit Message Modal",
+    ),
+    "save_message_to_workspace": strawberry.field(
+        resolver=m_save_message_to_workspace,
+        name="saveMessageToWorkspace",
+        description="Save a chat message to the caller's personal 'My Documents' workspace as a markdown document, optionally inside a folder.",
     ),
     "delete_conversation": strawberry.field(
         resolver=m_delete_conversation,

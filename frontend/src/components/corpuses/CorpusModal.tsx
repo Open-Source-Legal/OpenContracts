@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { useApolloClient } from "@apollo/client";
+import { useApolloClient, useMutation } from "@apollo/client";
 import styled, { createGlobalStyle } from "styled-components";
 import {
   Modal,
@@ -28,6 +28,11 @@ import {
   GET_CORPUS_CREATE_DEFAULTS,
   GetCorpusCreateDefaultsOutput,
 } from "../../graphql/queries";
+import {
+  RE_EMBED_CORPUS,
+  ReEmbedCorpusInputs,
+  ReEmbedCorpusOutputs,
+} from "../../graphql/mutations";
 import {
   OS_LEGAL_COLORS,
   accentAlpha,
@@ -173,6 +178,42 @@ const SectionTitle = styled.h3`
   @media (max-width: ${MOBILE_VIEW_BREAKPOINT}px) {
     font-size: 11px;
     margin-bottom: var(--oc-spacing-sm);
+  }
+`;
+
+/**
+ * Inline migration prompt shown when the embedder selection changes on an
+ * existing corpus. Styled as a warning until the mutation reports success so
+ * the state ("you have changed something that needs a migration") stays
+ * visually distinct from the ordinary form.
+ */
+const EmbedderMigrationNotice = styled.div<{ $ok?: boolean }>`
+  margin-top: var(--oc-spacing-sm);
+  padding: var(--oc-spacing-sm);
+  border-radius: 6px;
+  border: 1px solid
+    ${({ $ok }) =>
+      $ok === true
+        ? OS_LEGAL_COLORS.successBorder
+        : OS_LEGAL_COLORS.warningBorder};
+  background: ${({ $ok }) =>
+    $ok === true
+      ? OS_LEGAL_COLORS.successSurface
+      : OS_LEGAL_COLORS.warningSurface};
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--oc-spacing-xs);
+
+  p {
+    margin: 0;
+    font-size: 0.85rem;
+    line-height: 1.4;
+  }
+
+  span {
+    font-size: 0.8rem;
+    opacity: 0.9;
   }
 `;
 
@@ -545,7 +586,49 @@ export const CorpusModal: React.FC<CorpusModalProps> = ({
 
   const handleEmbedderChange = useCallback((values: any) => {
     setPreferredEmbedder(values.preferredEmbedder || null);
+    setReEmbedResult(null);
   }, []);
+
+  // Re-embedding an existing corpus is a distinct operation from saving the
+  // form: ``updateCorpus`` refuses an embedder change once documents exist
+  // (issue #437), because a half-migrated corpus searches across two
+  // incomparable vector spaces. Before this control the refusal named a
+  // mutation the UI never exposed, so the only way out of the dialog was to
+  // put the original embedder back.
+  const [reEmbedResult, setReEmbedResult] = useState<{
+    ok: boolean;
+    message: string;
+  } | null>(null);
+  const [reEmbedCorpus, { loading: reEmbedding }] = useMutation<
+    ReEmbedCorpusOutputs,
+    ReEmbedCorpusInputs
+  >(RE_EMBED_CORPUS);
+
+  const embedderChanged =
+    mode === "EDIT" &&
+    originalValues !== null &&
+    preferredEmbedder !== originalValues.preferredEmbedder;
+
+  const handleReEmbed = useCallback(async () => {
+    if (!corpus?.id || !preferredEmbedder) return;
+    try {
+      const { data } = await reEmbedCorpus({
+        variables: { corpusId: corpus.id, newEmbedder: preferredEmbedder },
+      });
+      setReEmbedResult(
+        data?.reEmbedCorpus ?? {
+          ok: false,
+          message: "Re-embedding did not return a result.",
+        }
+      );
+    } catch (error) {
+      setReEmbedResult({
+        ok: false,
+        message:
+          error instanceof Error ? error.message : "Re-embedding failed.",
+      });
+    }
+  }, [corpus?.id, preferredEmbedder, reEmbedCorpus]);
 
   // Form validation - title and description are required;
   // CUSTOM license also requires a license URL.
@@ -848,6 +931,34 @@ export const CorpusModal: React.FC<CorpusModalProps> = ({
                 onChange={handleEmbedderChange}
                 upward
               />
+              {embedderChanged && !isReadOnly && (
+                <EmbedderMigrationNotice
+                  data-testid="corpus-reembed-notice"
+                  $ok={reEmbedResult?.ok}
+                >
+                  <p>
+                    Changing the embedder on a corpus that already holds
+                    documents requires re-embedding every annotation. Saving
+                    alone will not do it — existing embeddings would stay in the
+                    old vector space and search would silently mix the two.
+                  </p>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    disabled={reEmbedding || !preferredEmbedder}
+                    onClick={handleReEmbed}
+                    data-testid="corpus-reembed-button"
+                  >
+                    {reEmbedding ? "Starting…" : "Re-embed corpus"}
+                  </Button>
+                  {reEmbedResult && (
+                    <span data-testid="corpus-reembed-message">
+                      {reEmbedResult.message}
+                    </span>
+                  )}
+                </EmbedderMigrationNotice>
+              )}
             </CorpusFormField>
 
             {isCreate && (

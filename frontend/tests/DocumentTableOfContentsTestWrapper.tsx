@@ -413,6 +413,9 @@ export const DocumentTableOfContentsTestWrapper: React.FC<Props> = ({
     const documentsVariables = {
       corpusId: TEST_CORPUS_ID,
       first: CORPUS_DOCUMENTS_TOC_LIMIT,
+      // Must mirror the component exactly — a mock missing this silently stops
+      // matching and the panel renders its "No Documents" empty state.
+      includeCaml: true,
     };
 
     // Helper to create documents mock

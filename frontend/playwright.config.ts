@@ -1,5 +1,14 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const frontendPort = process.env.E2E_FRONTEND_PORT || "5173";
+const frontendBaseUrl =
+  process.env.E2E_BASE_URL || `http://127.0.0.1:${frontendPort}`;
+const djangoUrl =
+  process.env.E2E_DJANGO_URL ||
+  process.env.REACT_APP_API_ROOT_URL ||
+  "http://127.0.0.1:8000";
+const authorityImportRun = process.env.E2E_RUN_AUTHORITY_IMPORTS === "true";
+
 /**
  * Playwright configuration for full-stack E2E integration tests.
  *
@@ -46,7 +55,7 @@ export default defineConfig({
   /* Coverage instrumentation slows the first request meaningfully;
    * give the global run a generous ceiling. */
   globalTimeout: process.env.CI
-    ? (process.env.COVERAGE ? 25 : 15) * 60 * 1000
+    ? (authorityImportRun ? 120 : process.env.COVERAGE ? 25 : 15) * 60 * 1000
     : undefined,
   /* Per-test timeout — coverage-instrumented vite is ~3x slower on
    * the first cold-load of a route. */
@@ -58,7 +67,7 @@ export default defineConfig({
   use: {
     /* Base URL for `page.goto("/login")` etc. Points at the vite dev
      * server started by `webServer` below. */
-    baseURL: process.env.E2E_BASE_URL || "http://127.0.0.1:5173",
+    baseURL: frontendBaseUrl,
     /* Capture a trace + screenshot on failure to make CI failures
      * triageable from the uploaded HTML report. */
     trace: "on-first-retry",
@@ -88,8 +97,8 @@ export default defineConfig({
    * `reuseExistingServer: true` lets contributors leave their dev server
    * running locally and just run `yarn test:e2e`. */
   webServer: {
-    command: "PORT=5173 yarn start",
-    url: "http://127.0.0.1:5173",
+    command: `yarn start -- --port ${frontendPort}`,
+    url: frontendBaseUrl,
     reuseExistingServer: !process.env.CI,
     timeout: 180 * 1000,
     stdout: "pipe",
@@ -101,7 +110,7 @@ export default defineConfig({
       REACT_APP_USE_AUTH0: "false",
       REACT_APP_USE_ANALYZERS: "false",
       REACT_APP_ALLOW_IMPORTS: "false",
-      REACT_APP_API_ROOT_URL: "http://127.0.0.1:8000",
+      REACT_APP_API_ROOT_URL: djangoUrl,
       // Pass through coverage flag for vite-plugin-istanbul.
       ...(process.env.COVERAGE ? { COVERAGE: process.env.COVERAGE } : {}),
     },

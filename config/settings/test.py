@@ -13,6 +13,19 @@ SECRET_KEY = env(
     default="q1JMhn0BHYv6DB4QTeSuvO06R3cMWn362D3DJhnNqSO3CO9z4aMbPqPgd8yKUNf8",
 )
 
+# Browser E2E
+# ------------------------------------------------------------------------------
+# Full-stack browser tests may bind Vite to an isolated, non-default port.
+# Trust only the exact origin explicitly supplied by that test runtime.
+_E2E_FRONTEND_ORIGIN = env("E2E_FRONTEND_ORIGIN", default="").strip().rstrip("/")
+if _E2E_FRONTEND_ORIGIN:
+    CORS_ALLOWED_ORIGINS = list(  # noqa: F405
+        dict.fromkeys([*CORS_ALLOWED_ORIGINS, _E2E_FRONTEND_ORIGIN])  # noqa: F405
+    )
+    CSRF_TRUSTED_ORIGINS = list(  # noqa: F405
+        dict.fromkeys([*CSRF_TRUSTED_ORIGINS, _E2E_FRONTEND_ORIGIN])  # noqa: F405
+    )
+
 # Database
 # ------------------------------------------------------------------------------
 # Update database connection settings for tests
