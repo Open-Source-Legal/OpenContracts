@@ -89,7 +89,14 @@ register_type("CancelResearchReport", CancelResearchReport, model=None)
 
 
 def _mutate_StartResearchReport(
-    payload_cls, root, info, corpus_id, prompt, title=None, max_steps=None
+    payload_cls,
+    root,
+    info,
+    corpus_id,
+    prompt,
+    title=None,
+    max_steps=None,
+    corpus_group_id=None,
 ):
     """PORT: /home/user/venv-oc/lib/python3.11/site-packages/graphql_jwt/decorators.py:43
 
@@ -119,6 +126,28 @@ def _mutate_StartResearchReport(
         return payload_cls(
             ok=False, message="Corpus not found or not visible.", obj=None
         )
+
+    # An optional group widens retrieval past the anchor corpus. Resolved and
+    # permission-gated here rather than passed as an id, so a group the caller
+    # cannot see is REFUSED — silently ignoring it would start a run that reads
+    # only the anchor corpus and reports as though it had read the group.
+    corpus_group = None
+    if corpus_group_id:
+        from opencontractserver.corpuses.services import CorpusGroupService
+
+        group_pk = _decode_global_pk(corpus_group_id)
+        corpus_group = (
+            CorpusGroupService.get_group_by_id(
+                info.context.user, group_pk, request=info.context
+            )
+            if group_pk is not None
+            else None
+        )
+        if corpus_group is None:
+            return payload_cls(
+                ok=False, message="Corpus group not found or not visible.", obj=None
+            )
+
     try:
         report = ResearchReportService.start(
             user=info.context.user,
@@ -126,6 +155,7 @@ def _mutate_StartResearchReport(
             prompt=prompt,
             title=title,
             max_steps=max_steps,
+            corpus_group=corpus_group,
             request=info.context,
         )
     except ConcurrentResearchInProgress as exc:
@@ -145,6 +175,9 @@ def m_start_research_report(
     corpus_id: Annotated[
         strawberry.ID, strawberry.argument(name="corpusId")
     ] = strawberry.UNSET,
+    corpus_group_id: Annotated[
+        strawberry.ID | None, strawberry.argument(name="corpusGroupId")
+    ] = strawberry.UNSET,
     max_steps: Annotated[
         int | None, strawberry.argument(name="maxSteps")
     ] = strawberry.UNSET,
@@ -154,6 +187,7 @@ def m_start_research_report(
     kwargs = strip_unset(
         {
             "corpus_id": corpus_id,
+            "corpus_group_id": corpus_group_id,
             "max_steps": max_steps,
             "prompt": prompt,
             "title": title,

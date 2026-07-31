@@ -272,6 +272,222 @@ class ResearchReportServiceTestCase(TestCase):
         # M2M populated.
         self.assertIn(ann1, report.source_annotations.all())
 
+    def test_finalize_flags_a_card_that_conflates_approval_with_effectiveness(self):
+        """A regulator approving an instrument is not the instrument taking
+        effect, and the gap between them is the window a reader needs when
+        asking which regime governed a given day. The card keeps the two in
+        separate fields precisely so a conflation is visible.
+        """
+        report = self._make_report()
+        report.findings = [
+            {
+                "section": "Findings",
+                "claim": "security must be posted",
+                "citations": [],
+                "card": {
+                    "kind": "OBLIGATION",
+                    "approval_date": "2026-07-11",
+                    "effective_date": "2026-07-11",
+                },
+            }
+        ]
+        report.save(update_fields=["findings"])
+
+        ResearchReportService.finalize(
+            report,
+            executive_summary="Concise summary.",
+            markdown_body="Some findings.",
+            retrieved_annotation_ids=[],
+        )
+
+        report.refresh_from_db()
+        self.assertTrue(
+            any("approval is not effectiveness" in w for w in report.warnings),
+            report.warnings,
+        )
+
+    def test_finalize_does_not_flag_a_card_that_states_only_one_of_the_two(self):
+        """An absent effective date is not a conflation — it is a date the
+        record does not give, which the card is entitled to leave null.
+        """
+        report = self._make_report()
+        report.findings = [
+            {
+                "section": "Findings",
+                "claim": "security must be posted",
+                "citations": [],
+                "card": {
+                    "kind": "OBLIGATION",
+                    "approval_date": "2026-06-18",
+                    "effective_date": None,
+                },
+            }
+        ]
+        report.save(update_fields=["findings"])
+
+        ResearchReportService.finalize(
+            report,
+            executive_summary="Concise summary.",
+            markdown_body="Some findings.",
+            retrieved_annotation_ids=[],
+        )
+
+        report.refresh_from_db()
+        self.assertFalse(
+            any("approval is not effectiveness" in w for w in report.warnings),
+            report.warnings,
+        )
+
+    def test_finalizing_twice_appends_its_warnings_twice(self):
+        """Why ``finalize_report`` refuses a second call.
+
+        ``ResearchReportService.finalize`` is not idempotent and is not
+        expected to be — the salvage path relies on being able to finalize a
+        report the agent never finished. What it must not do is run twice for
+        one run: composition happens again, the stored report becomes the LATER
+        body, and both passes' warnings accumulate. Observed live on a run that
+        called the terminal tool twice 25 seconds apart, leaving a report whose
+        warnings disagreed with each other about how many citations were
+        dropped. The guard lives in the tool closure; this pins the service
+        behaviour that makes the guard necessary, so nobody removes it as
+        redundant.
+        """
+        report = self._make_report()
+        for _ in range(2):
+            ResearchReportService.finalize(
+                report,
+                executive_summary="Concise summary.",
+                markdown_body="Some findings.",
+                retrieved_annotation_ids=[],
+            )
+        report.refresh_from_db()
+        self.assertEqual(report.status, JobStatus.COMPLETED.value)
+        # Two passes, so any warning either pass raises is present twice. The
+        # tool-level guard is what keeps a run from reaching this state.
+        self.assertEqual(len(report.warnings), 2 * len(set(report.warnings)))
+
+    # ------------------------------------------------------------------
+    # finalize() -> workspace copy
+    # ------------------------------------------------------------------
+    def test_finalize_files_the_report_in_the_creators_workspace(self):
+        report = self._make_report()
+
+        ResearchReportService.finalize(
+            report,
+            executive_summary="Concise summary.",
+            markdown_body="Some findings.",
+            retrieved_annotation_ids=[],
+        )
+
+        report.refresh_from_db()
+        self.assertIsNotNone(report.workspace_document)
+        document = report.workspace_document
+        self.assertEqual(document.creator_id, self.user.pk)
+        self.assertEqual(document.file_type, "text/markdown")
+
+        personal = Corpus.objects.get(creator=self.user, is_personal=True)
+        self.assertIn(
+            document.pk,
+            personal._get_active_documents(include_caml=True).values_list(
+                "pk", flat=True
+            ),
+        )
+
+        document.txt_extract_file.open("rb")
+        try:
+            saved = document.txt_extract_file.read().decode("utf-8")
+        finally:
+            document.txt_extract_file.close()
+        # Provenance header, then the report itself.
+        self.assertIn(f"**Source corpus:** {self.corpus.title}", saved)
+        self.assertIn(f"/research/{report.slug}", saved)
+        self.assertIn("Some findings.", saved)
+
+    def test_workspace_save_failure_never_fails_a_completed_report(self):
+        """A finished research run must survive a broken workspace write.
+
+        The report has already cost minutes of model time and its provenance is
+        committed by the time the save runs, so the save is deliberately outside
+        finalize's atomic block and swallows its errors.
+        """
+        report = self._make_report()
+
+        with patch(
+            "opencontractserver.corpuses.services.WorkspaceService.save_markdown",
+            side_effect=RuntimeError("storage down"),
+        ):
+            ResearchReportService.finalize(
+                report,
+                executive_summary="Concise summary.",
+                markdown_body="Some findings.",
+                retrieved_annotation_ids=[],
+            )
+
+        report.refresh_from_db()
+        self.assertEqual(report.status, JobStatus.COMPLETED.value)
+        self.assertIn("Some findings.", report.content)
+        self.assertIsNone(report.workspace_document)
+
+    def test_linking_failure_after_a_successful_save_still_cannot_fail_finalize(self):
+        """The link write is inside the guard, not just the save.
+
+        Guarding only ``save_markdown`` leaves the hole this test closes: the
+        document is written, then ``report.save()`` raises (stale instance,
+        row deleted concurrently, DB hiccup) and the exception escapes
+        ``finalize`` into the Celery task — failing a run whose report is
+        already committed COMPLETED.
+        """
+        report = self._make_report()
+
+        original_save = type(report).save
+
+        def _raise_on_link(self, *args, **kwargs):
+            if "workspace_document" in (kwargs.get("update_fields") or []):
+                raise RuntimeError("row vanished")
+            return original_save(self, *args, **kwargs)
+
+        with patch.object(type(report), "save", _raise_on_link):
+            ResearchReportService.finalize(
+                report,
+                executive_summary="Concise summary.",
+                markdown_body="Some findings.",
+                retrieved_annotation_ids=[],
+            )
+
+        report.refresh_from_db()
+        self.assertEqual(report.status, JobStatus.COMPLETED.value)
+        self.assertIn("Some findings.", report.content)
+        # The file was written; only the convenience link is missing.
+        self.assertIsNone(report.workspace_document)
+
+    def test_refinalizing_versions_the_workspace_file_in_place(self):
+        report = self._make_report()
+        ResearchReportService.finalize(
+            report,
+            executive_summary="First pass.",
+            markdown_body="Initial findings.",
+            retrieved_annotation_ids=[],
+        )
+        report.refresh_from_db()
+        first_document = report.workspace_document
+
+        ResearchReportService.finalize(
+            report,
+            executive_summary="Second pass.",
+            markdown_body="Revised findings.",
+            retrieved_annotation_ids=[],
+        )
+        report.refresh_from_db()
+        second_document = report.workspace_document
+
+        self.assertNotEqual(first_document.pk, second_document.pk)
+        self.assertEqual(
+            first_document.version_tree_id, second_document.version_tree_id
+        )
+        personal = Corpus.objects.get(creator=self.user, is_personal=True)
+        # One file, two versions — not two files.
+        self.assertEqual(personal._get_active_documents(include_caml=True).count(), 1)
+
     def test_finalize_drops_citations_not_in_retrieved_set(self):
         ann = self._make_annotation()
         rogue = self._make_annotation()  # exists but never "retrieved"

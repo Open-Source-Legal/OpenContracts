@@ -187,7 +187,12 @@ export const CorpusGroupManagement: React.FC = () => {
     MyCorpusGroupsInputs
   >(GET_MY_CORPUS_GROUPS, {
     variables: {
-      mine: true,
+      // Every group the viewer can see, not just the ones they created. A
+      // group's whole purpose is to be named in a cross-corpus query, so a
+      // public or shared group that only its creator can find is unusable by
+      // the collaborators it exists for. Ownership still governs editing
+      // (below) and the mutations are permission-gated server-side.
+      mine: false,
       corporaLimit: CORPUS_GROUP_MEMBERSHIP_FETCH_LIMIT,
     },
     fetchPolicy: "cache-and-network",
@@ -514,6 +519,7 @@ export const CorpusGroupManagement: React.FC = () => {
                   <Table.HeadCell>Corpora</Table.HeadCell>
                   <Table.HeadCell>Default Agent</Table.HeadCell>
                   <Table.HeadCell>Visibility</Table.HeadCell>
+                  <Table.HeadCell>Owner</Table.HeadCell>
                   <Table.HeadCell>Actions</Table.HeadCell>
                 </Table.Row>
               </Table.Head>
@@ -529,6 +535,8 @@ export const CorpusGroupManagement: React.FC = () => {
                     .join(", ");
                   const elided =
                     memberCount > CORPORA_TITLE_PREVIEW_COUNT ? "…" : "";
+                  const isOwner =
+                    !!backendUser?.id && group.creator?.id === backendUser.id;
                   return (
                     <Table.Row key={group.id} data-testid="corpus-group-row">
                       <Table.Cell>{group.title}</Table.Cell>
@@ -555,18 +563,32 @@ export const CorpusGroupManagement: React.FC = () => {
                         {group.isPublic ? "Public" : "Private"}
                       </Table.Cell>
                       <Table.Cell>
-                        <IconButton
-                          aria-label={`Edit ${group.title}`}
-                          onClick={() => openEditModal(group)}
-                        >
-                          <Pencil size={16} />
-                        </IconButton>
-                        <IconButton
-                          aria-label={`Delete ${group.title}`}
-                          onClick={() => setGroupToDelete(group)}
-                        >
-                          <Trash2 size={16} color={OS_LEGAL_COLORS.danger} />
-                        </IconButton>
+                        {group.creator?.displayName ?? (
+                          <Muted>{NO_VALUE}</Muted>
+                        )}
+                      </Table.Cell>
+                      <Table.Cell>
+                        {isOwner ? (
+                          <>
+                            <IconButton
+                              aria-label={`Edit ${group.title}`}
+                              onClick={() => openEditModal(group)}
+                            >
+                              <Pencil size={16} />
+                            </IconButton>
+                            <IconButton
+                              aria-label={`Delete ${group.title}`}
+                              onClick={() => setGroupToDelete(group)}
+                            >
+                              <Trash2
+                                size={16}
+                                color={OS_LEGAL_COLORS.danger}
+                              />
+                            </IconButton>
+                          </>
+                        ) : (
+                          <Muted>Read-only</Muted>
+                        )}
                       </Table.Cell>
                     </Table.Row>
                   );

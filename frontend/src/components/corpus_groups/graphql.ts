@@ -120,9 +120,45 @@ export interface DeleteCorpusGroupInputs {
   corpusGroupId: string;
 }
 
+/** Just enough of a group to offer it as a choice. */
+export interface CorpusGroupOption {
+  id: string;
+  title: string;
+  slug: string;
+}
+
+export interface CorpusGroupOptionsResult {
+  corpusGroups: {
+    edges: Array<{ node: CorpusGroupOption }>;
+  };
+}
+
 // ============================================================================
 // GraphQL Operations
 // ============================================================================
+
+/**
+ * Every group the viewer can see, as pickable options.
+ *
+ * Deliberately NOT filtered to groups containing the anchor corpus: a
+ * group-scoped research run searches every member corpus the viewer may read,
+ * and the anchor does not have to be one of them. Kept to id/title/slug so it
+ * can be fetched inside a modal without pulling each group's membership —
+ * ``GET_MY_CORPUS_GROUPS`` is the heavy management-screen query.
+ */
+export const GET_CORPUS_GROUP_OPTIONS = gql`
+  query GetCorpusGroupOptions {
+    corpusGroups {
+      edges {
+        node {
+          id
+          title
+          slug
+        }
+      }
+    }
+  }
+`;
 
 export const GET_MY_CORPUS_GROUPS = gql`
   query GetMyCorpusGroups($mine: Boolean, $corporaLimit: Int) {

@@ -27,7 +27,7 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.test import TransactionTestCase
 
-from opencontractserver.corpuses.models import Corpus
+from opencontractserver.corpuses.models import Corpus, CorpusGroup
 from opencontractserver.documents.models import Document
 from opencontractserver.llms.agents.core_agents import (
     MessageState,
@@ -304,6 +304,53 @@ class TestNestedApprovalGates(TransactionTestCase):
 
             self.assertIn("answer", result)
             self.assertEqual(result["answer"], "The document is about testing.")
+
+    async def test_ask_document_tool_resolves_cross_corpus_group_member(self):
+        """A group-qualified cross-corpus result keeps the group permission gate."""
+        foreign_corpus = Corpus.objects.create(
+            title="Group Member Corpus",
+            description="",
+            creator=self.user,
+            is_public=False,
+        )
+        foreign_document = Document.objects.create(
+            title="Group Member Document",
+            description="",
+            creator=self.user,
+            is_public=False,
+        )
+        foreign_document, _, _ = foreign_corpus.add_document(
+            document=foreign_document, user=self.user
+        )
+        group = CorpusGroup.objects.create(
+            title="Nested Group", creator=self.user, is_public=False
+        )
+        group.corpora.set([self.corpus, foreign_corpus])
+
+        normal_events = [
+            _FakeContentEvent(content="Cross-corpus document answer."),
+            _FakeFinalEvent(content="Done.", sources=[], metadata={}),
+        ]
+        agent = await self._create_corpus_agent(sub_agent_events=normal_events)
+        ask_doc_fn = self._get_ask_doc(agent)
+
+        with patch(
+            _AGENTS_API_FOR_DOC_PATCH,
+            new_callable=AsyncMock,
+            return_value=agent._mock_sub_agent,
+        ) as for_document:
+            result = await ask_doc_fn(
+                self._make_ctx(),
+                document_id=foreign_document.id,
+                question="What does this group document say?",
+                corpus_group=group.slug,
+            )
+
+        self.assertEqual(result["answer"], "Cross-corpus document answer.")
+        self.assertEqual(
+            for_document.await_args.kwargs["document"], foreign_document.id
+        )
+        self.assertEqual(for_document.await_args.kwargs["corpus"], foreign_corpus.id)
 
     # ------------------------------------------------------------------
     # Tests: malformed approval events

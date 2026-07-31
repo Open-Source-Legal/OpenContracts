@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 async def astart_deep_research(
     task_description: str,
     title: str | None = None,
+    corpus_group_slug: str | None = None,
     *,
     corpus_id: int,
     user_id: int,
@@ -48,6 +49,13 @@ async def astart_deep_research(
             agent's instructions.
         title: Optional short title for the report. Defaults to a
             slug derived from the task.
+        corpus_group_slug: Optional Corpus Group to search across instead of
+            this corpus alone. Pass it when the question spans corpora — the
+            statute in one, the rule in another, the implementing notices in a
+            third. The group must be visible to the requesting user; an
+            invisible one is refused rather than quietly narrowed to the
+            anchor corpus, which would return a report that looks group-wide
+            and is not.
     """
     user, corpus = await sync_to_async(_load_user_and_corpus)(user_id, corpus_id)
 
@@ -56,6 +64,15 @@ async def astart_deep_research(
             "Error: could not start research — the corpus or user could not "
             "be resolved. Ask the user to retry from inside the corpus chat."
         )
+
+    corpus_group = None
+    if corpus_group_slug:
+        corpus_group = await sync_to_async(_load_group)(corpus_group_slug)
+        if corpus_group is None:
+            return (
+                f"Error: no corpus group named {corpus_group_slug!r}. Start "
+                "without it, or check the group's slug."
+            )
 
     conversation = None
     originating_message = None
@@ -72,6 +89,7 @@ async def astart_deep_research(
             title=title,
             conversation=conversation,
             originating_message=originating_message,
+            corpus_group=corpus_group,
         )
     except ConcurrentResearchInProgress as exc:
         return f"Could not start: {exc}"
@@ -84,6 +102,13 @@ async def astart_deep_research(
         "back in this chat) when the report is ready. Typical wall-clock is "
         "5-30 minutes."
     )
+
+
+def _load_group(slug: str):
+    """Resolve a group by slug. Visibility is enforced by the service."""
+    from opencontractserver.corpuses.models import CorpusGroup
+
+    return CorpusGroup.objects.filter(slug=slug).first()
 
 
 def _load_user_and_corpus(user_id: int, corpus_id: int):

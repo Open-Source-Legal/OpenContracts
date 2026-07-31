@@ -183,7 +183,18 @@ class BuildDelegationToolTests(TestCase):
         self.assertIsInstance(tool, CoreTool)
         self.assertEqual(tool.name, "delegate_to_research_bot")
 
-    def test_tool_description_is_agent_description(self):
+    def test_tool_description_states_the_mention_and_carries_agent_description(self):
+        """The description must route, not merely describe.
+
+        This previously asserted ``tool.description == agent.description``.
+        That was empirically insufficient: the conductor sees a
+        ``delegate_to_<slug>`` tool with no indication that the user named that
+        agent, weighs it against its own retrieval tools, and frequently
+        answers locally — the mention is silently dropped and the reply looks
+        indistinguishable from a delegated one. The description is the only
+        channel that can carry the routing intent, so it now leads with the
+        mention and appends the agent's own description as context.
+        """
         from opencontractserver.llms.tools.delegation_tools import (
             build_delegation_tool,
         )
@@ -195,7 +206,9 @@ class BuildDelegationToolTests(TestCase):
             corpus=None,
             document=None,
         )
-        self.assertEqual(tool.description, "Reads documents and summarizes them")
+        self.assertIn("@-mentioned", tool.description)
+        self.assertIn(f"@{self.agent.slug}", tool.description)
+        self.assertIn("Reads documents and summarizes them", tool.description)
 
     def test_tool_falls_back_to_default_description_when_agent_has_none(self):
         agent_no_desc = AgentConfiguration.objects.create(

@@ -64,6 +64,8 @@ import {
 import { getCorpusUrl, getDocumentUrl } from "../utils/navigationUtils";
 import { getNumericIdFromGlobalId } from "../utils/idValidation";
 import { SafeMarkdown } from "../components/knowledge_base/markdown/SafeMarkdown";
+import { CAML_COMPONENTS } from "../utils/camlComponentRegistry";
+import { resolveComponentMarker } from "../utils/camlComponents";
 import { useResearchCompletionNotification } from "../hooks/useResearchCompletionNotification";
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -602,6 +604,22 @@ export const ResearchReportDetail: React.FC = () => {
   // click on the inner ``↩`` back-reference anchor is left to its native scroll.
   const reportMarkdownComponents = useMemo<Components>(
     () => ({
+      // Resolve `[component:TYPE ...]` markers through the same registry the
+      // CAML article editor and view use, so a component added there renders
+      // here too. ``finalize`` emits ``research-findings`` above the prose;
+      // without this the marker would print as literal text in the one view
+      // the report is actually read in.
+      p: ({ node, children, ...props }) => {
+        const raw =
+          Array.isArray(children) && children.length === 1
+            ? children[0]
+            : children;
+        if (typeof raw === "string") {
+          const resolved = resolveComponentMarker(raw, CAML_COMPONENTS, raw);
+          if (resolved) return resolved;
+        }
+        return <p {...props}>{children}</p>;
+      },
       li: ({ node, children, ...props }) => {
         const id = typeof props.id === "string" ? props.id : undefined;
         const match = id ? /^user-content-fn-(\d+)$/.exec(id) : null;

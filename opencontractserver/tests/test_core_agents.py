@@ -18,10 +18,13 @@ from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
 from opencontractserver.llms.agents.core_agents import (
     AgentConfig,
+    ContentEvent,
+    CoreAgentBase,
     CoreConversationManager,
     CoreCorpusAgentFactory,
     CoreDocumentAgentFactory,
     DocumentAgentContext,
+    FinalEvent,
     get_default_config,
 )
 from opencontractserver.llms.vector_stores.core_vector_stores import (
@@ -551,6 +554,29 @@ class TestEphemeralConversationManager(TestCase):
         self.assertEqual(manager._ephemeral_messages, [])
         self.assertEqual(manager._ephemeral_token_estimate, 0)
         self.assertEqual(manager._ephemeral_next_id, 1)
+
+    async def test_stream_final_snapshot_does_not_duplicate_content(self):
+        """The terminal event repeats the streamed answer; persist it once."""
+
+        class _SnapshotAgent(CoreAgentBase):
+            async def _stream_raw(self, message, **kwargs):
+                yield ContentEvent(
+                    content="Grounded answer", accumulated_content="Grounded answer"
+                )
+                yield FinalEvent(
+                    content="Grounded answer",
+                    accumulated_content="Grounded answer",
+                )
+
+        manager = self._make_ephemeral_manager()
+        agent = _SnapshotAgent(manager.config, manager)
+        # Drain the stream: the assertions below are about what streaming does
+        # to the ephemeral message buffer, not about the events themselves.
+        async for _event in agent.stream("Question"):
+            pass
+
+        self.assertEqual(len(manager._ephemeral_messages), 2)
+        self.assertEqual(manager._ephemeral_messages[-1].content, "Grounded answer")
 
     # ------------------------------------------------------------------
     # Task 2: store_user_message and create_placeholder_message

@@ -360,6 +360,23 @@ class ResearchReportType(Node):
     )
 
     @strawberry.field(
+        name="workspaceDocument",
+        description=(
+            "Markdown copy of this report filed in the creator's personal "
+            "'My Documents' workspace. Null until the report completes, or if "
+            "the (non-fatal) workspace write failed."
+        ),
+    )
+    def workspace_document(
+        self, info: strawberry.Info
+    ) -> None | (
+        Annotated[DocumentType, strawberry.lazy("config.graphql.document_types")]
+    ):
+        # Visibility-filtered like every other FK on this type: the document
+        # lives in a private personal corpus, so only its owner resolves it.
+        return resolve_visible_fk(self, info, "workspace_document_id", "DocumentType")
+
+    @strawberry.field(
         name="durationSeconds",
         description="Seconds between start and completion (null if not finished).",
     )
