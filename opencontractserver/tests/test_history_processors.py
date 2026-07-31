@@ -155,7 +155,19 @@ def test_over_threshold_shrinks_oldest_tool_return():
 
 
 def test_drops_older_thinking_parts():
-    """ThinkingPart in older messages is dropped; recent ones survive."""
+    """ThinkingPart in older messages is dropped; recent ones survive.
+
+    BEHAVIOUR CHANGE (Responses API): reasoning is no longer dropped from a
+    response that also carries a ToolCallPart — OpenAI's Responses API rejects
+    a ``function_call`` whose ``reasoning`` item is missing, which killed a
+    deep-research run outright. Every response ``_make_pair`` builds carries a
+    tool call, so the drop is now demonstrated on a reasoning-only response and
+    the tool-calling one is asserted to KEEP its thinking. The original intent
+    of the test — older thinking goes, recent thinking stays — is unchanged.
+    """
+    thinking_only = ModelResponse(
+        parts=[TextPart(content="pondering"), ThinkingPart(content="t" * 8_000)]
+    )
     old_resp, old_req = _make_pair(
         tool_call_id="OLD",
         tool_name="load_document_text",
@@ -173,6 +185,7 @@ def test_drops_older_thinking_parts():
         recent_pairs.extend([r1, r2])
     messages: list[ModelMessage] = [
         ModelRequest(parts=[UserPromptPart(content="start")]),
+        thinking_only,
         old_resp,
         old_req,
         *recent_pairs,
@@ -183,9 +196,15 @@ def test_drops_older_thinking_parts():
     deps = _FakeDeps()
     result = _run(messages, deps)
 
-    # Older ModelResponse no longer carries a ThinkingPart. Locate it by
-    # the ToolCallPart's tool_call_id rather than positional index so the
-    # assertion survives fixture reshuffles.
+    # The older reasoning-only response lost its ThinkingPart: nothing pairs
+    # with it, so there is no function_call to orphan.
+    stripped = result[1]
+    assert isinstance(stripped, ModelResponse)
+    assert not any(isinstance(p, ThinkingPart) for p in stripped.parts)
+
+    # The older TOOL-CALLING response keeps both parts. Located by
+    # tool_call_id rather than positional index so the assertion survives
+    # fixture reshuffles.
     old_resp_new = next(
         m
         for m in result
@@ -194,8 +213,7 @@ def test_drops_older_thinking_parts():
             isinstance(p, ToolCallPart) and p.tool_call_id == "OLD" for p in m.parts
         )
     )
-    assert not any(isinstance(p, ThinkingPart) for p in old_resp_new.parts)
-    # But ToolCallPart survives.
+    assert any(isinstance(p, ThinkingPart) for p in old_resp_new.parts)
     assert any(isinstance(p, ToolCallPart) for p in old_resp_new.parts)
 
     # A recent ModelResponse still carries its ThinkingPart. Older
@@ -210,11 +228,12 @@ def test_drops_older_thinking_parts():
     )
     assert any(isinstance(p, ThinkingPart) for p in recent_resp.parts)
 
-    # Telemetry event reflects the drop.
-    # Older prefix has 3 ModelResponses with ThinkingParts:
-    # old_resp, R0-resp, R1-resp (all outside the keep_recent_pairs=4 window).
+    # Telemetry event reflects the drop. Of the four thinking-bearing
+    # responses in the older prefix (thinking_only, old_resp, R0-resp,
+    # R1-resp), only the reasoning-only one is droppable now — the other three
+    # each carry a tool call.
     assert len(deps.events) == 1
-    assert deps.events[0].thinking_parts_dropped == 3
+    assert deps.events[0].thinking_parts_dropped == 1
     # The 600k char old tool return was also shrunk in the same pass.
     assert deps.events[0].tool_returns_shrunk == 1
 
@@ -380,7 +399,16 @@ def test_deps_none_does_not_crash():
 
 
 def test_callback_receives_correct_event_shape():
-    """on_in_run_shrink callback is called once with a fully-populated event."""
+    """on_in_run_shrink callback is called once with a fully-populated event.
+
+    The reasoning-only response exists so ``thinking_parts_dropped`` has
+    something to count: reasoning attached to a TOOL-CALLING response is no
+    longer droppable (the Responses API rejects an orphaned ``function_call``),
+    and every response ``_make_pair`` builds carries a tool call.
+    """
+    thinking_only = ModelResponse(
+        parts=[TextPart(content="pondering"), ThinkingPart(content="t" * 8_000)]
+    )
     old_resp, old_req = _make_pair(
         tool_call_id="A", tool_name="t", return_chars=600_000, thinking_chars=8_000
     )
@@ -390,6 +418,7 @@ def test_callback_receives_correct_event_shape():
         recent_pairs.extend([r1, r2])
     messages: list[ModelMessage] = [
         ModelRequest(parts=[UserPromptPart(content="start")]),
+        thinking_only,
         old_resp,
         old_req,
         *recent_pairs,
@@ -631,3 +660,93 @@ def test_non_string_tool_return_serialized_as_json():
     # tool_call_id correlation preserved across the serialise+shrink.
     assert part.tool_call_id == "JSON"
     assert deps.events and deps.events[0].tool_returns_shrunk == 1
+
+
+def test_reasoning_survives_on_a_response_that_called_a_tool():
+    """A ``function_call`` and the reasoning that produced it travel together.
+
+    OpenAI's Responses API treats them as one unit and rejects the whole
+    request when they are separated::
+
+        Item 'fc_...' of type 'function_call' was provided without its required
+        'reasoning' item: 'rs_...'.
+
+    Chat Completions tolerates the split, so this stayed invisible until a
+    GPT-5.6 model moved a deep-research run onto ``/v1/responses`` — where it
+    surfaced as a 400 that killed the run after 38 tool calls with nothing
+    recorded. Pinned as an invariant rather than a provider switch: reasoning
+    that produced a tool call is part of that call's record.
+    """
+    old_resp, old_req = _make_pair(
+        tool_call_id="OLD",
+        tool_name="search",
+        return_chars=600_000,
+        thinking_chars=8_000,
+    )
+    recent_pairs: list[ModelMessage] = []
+    for i in range(5):
+        r1, r2 = _make_pair(tool_call_id=f"R{i}", tool_name="ping", return_chars=50)
+        recent_pairs.extend([r1, r2])
+    messages: list[ModelMessage] = [
+        ModelRequest(parts=[UserPromptPart(content="start")]),
+        old_resp,
+        old_req,
+        *recent_pairs,
+        ModelRequest(parts=[UserPromptPart(content="continue")]),
+    ]
+
+    deps = _FakeDeps()
+    result = _run(messages, deps)
+
+    survivor = next(
+        m
+        for m in result
+        if isinstance(m, ModelResponse)
+        and any(
+            isinstance(p, ToolCallPart) and p.tool_call_id == "OLD" for p in m.parts
+        )
+    )
+    assert any(isinstance(p, ThinkingPart) for p in survivor.parts)
+
+    # The shrink really ran this pass — the sibling tool return was truncated —
+    # so the ThinkingPart survived by the guard, not by an early return.
+    assert deps.events and deps.events[0].tool_returns_shrunk == 1
+    assert deps.events[0].thinking_parts_dropped == 0
+
+
+def test_reasoning_is_still_dropped_when_no_tool_call_accompanies_it():
+    """The context saving is kept where it is safe.
+
+    A reasoning-only response has no ``function_call`` to orphan, so the
+    Responses API has no objection and the bulk of the saving remains.
+    """
+    thinking_only = ModelResponse(
+        parts=[TextPart(content="pondering"), ThinkingPart(content="t" * 8_000)]
+    )
+    old_resp, old_req = _make_pair(
+        tool_call_id="OLD", tool_name="search", return_chars=600_000
+    )
+    recent_pairs: list[ModelMessage] = []
+    for i in range(5):
+        r1, r2 = _make_pair(tool_call_id=f"R{i}", tool_name="ping", return_chars=50)
+        recent_pairs.extend([r1, r2])
+    messages: list[ModelMessage] = [
+        ModelRequest(parts=[UserPromptPart(content="start")]),
+        thinking_only,
+        old_resp,
+        old_req,
+        *recent_pairs,
+        ModelRequest(parts=[UserPromptPart(content="continue")]),
+    ]
+
+    deps = _FakeDeps()
+    result = _run(messages, deps)
+
+    stripped = next(
+        m
+        for m in result
+        if isinstance(m, ModelResponse)
+        and any(isinstance(p, TextPart) and p.content == "pondering" for p in m.parts)
+    )
+    assert not any(isinstance(p, ThinkingPart) for p in stripped.parts)
+    assert deps.events and deps.events[0].thinking_parts_dropped == 1

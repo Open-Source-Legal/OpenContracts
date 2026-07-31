@@ -3314,16 +3314,25 @@ class PydanticAICorpusAgent(PydanticAICoreAgent):
         async def ask_document_tool(
             document_id: int,
             question: str,
+            corpus_group: str | None = None,
         ) -> dict[str, Any]:
-            """Ask a question to a **document-specific** agent inside this corpus.
+            """Ask a question to a document-specific agent.
 
             The call transparently streams the document agent so we can capture
             its *full* reasoning timeline (tool calls, vector-search citations…)
             and surface that back to the coordinator LLM.
 
+            ``corpus_group`` is required when ``document_id`` came from a
+            ``search_across_corpora`` result outside this chat's corpus.  The
+            target document is then resolved through that group's live
+            membership and the caller's READ-visible subset; this retains the
+            ordinary corpus isolation boundary instead of treating a bare
+            global document ID as authority to read it.
+
             Args:
-                document_id: ID of the target document (must belong to this corpus).
+                document_id: ID of the target document.
                 question:   The natural-language question to forward.
+                corpus_group: The source group slug for a cross-corpus result.
 
             Returns:
                 An object with keys:
@@ -3347,23 +3356,47 @@ class PydanticAICorpusAgent(PydanticAICoreAgent):
                     description="Event timeline (thoughts, tool calls, etc.) from the document agent run",
                 )
 
-            # Guard against cross-corpus leakage – return a structured error
-            # payload instead of raising so the LLM can inform the user
-            # gracefully (see issue #820).
+            target_corpus = context.corpus
             if document_id not in {d.id for d in context.documents}:
-                available = [{"id": d.id, "title": d.title} for d in context.documents]
-                logger.warning(
-                    f"[ask_document] Document {document_id} not found in corpus documents. "
-                    f"Available document IDs: {[d.id for d in context.documents]}"
+                if corpus_group:
+                    from opencontractserver.llms.tools.core_tools.multi_corpus import (
+                        aresolve_group_document,
+                    )
+
+                    try:
+                        target_document, target_corpus = await aresolve_group_document(
+                            corpus_group, document_id, config.user_id
+                        )
+                    except ValueError as exc:
+                        return DocAnswer(
+                            answer=f"Error: {exc}", sources=[], timeline=[]
+                        ).model_dump()
+                else:
+                    # Preserve the original corpus-only default.  A bare
+                    # document ID remains insufficient to cross a boundary.
+                    # The guidance tells an orchestrator exactly how to make
+                    # a permitted follow-up from a search result.
+                    available = [
+                        {"id": d.id, "title": d.title} for d in context.documents
+                    ]
+                    logger.warning(
+                        f"[ask_document] Document {document_id} not found in corpus documents. "
+                        f"Available document IDs: {[d.id for d in context.documents]}"
+                    )
+                    return DocAnswer(
+                        answer=(
+                            f"Error: Document {document_id} does not belong to the "
+                            "current corpus. For a document returned by "
+                            "search_across_corpora, call ask_document again with its "
+                            f"corpus_group slug. Available documents: {available}"
+                        ),
+                        sources=[],
+                        timeline=[],
+                    ).model_dump()
+            else:
+                target_document = next(
+                    doc for doc in context.documents if doc.id == document_id
                 )
-                return DocAnswer(
-                    answer=(
-                        f"Error: Document {document_id} does not belong to the "
-                        f"current corpus. Available documents: {available}"
-                    ),
-                    sources=[],
-                    timeline=[],
-                ).model_dump()
 
             # The _approval_bypass_allowed flag is set by resume_with_approval()
             # when the user has already approved the sub-agent tool.  It is NOT
@@ -3371,8 +3404,8 @@ class PydanticAICorpusAgent(PydanticAICoreAgent):
             bypass = getattr(config, "_approval_bypass_allowed", False)
 
             doc_agent = await _agents_api.for_document(
-                document=document_id,
-                corpus=context.corpus.id,
+                document=target_document.id,
+                corpus=target_corpus.id,
                 user_id=config.user_id,
                 store_user_messages=False,
                 store_llm_messages=False,
@@ -3421,6 +3454,7 @@ class PydanticAICorpusAgent(PydanticAICoreAgent):
                         tool_args={
                             "document_id": document_id,
                             "question": question,
+                            **({"corpus_group": corpus_group} if corpus_group else {}),
                             # Preserve sub-agent tool details for the UI.
                             # Prefixed with _ so resume_with_approval strips
                             # them before calling the function.
@@ -3475,10 +3509,20 @@ class PydanticAICorpusAgent(PydanticAICoreAgent):
         ask_doc_tool_wrapped = PydanticAIToolFactory.from_function(
             ask_document_tool,
             name="ask_document",
-            description="Delegate a question to a document-specific agent and return its answer and sources.",
+            description=(
+                "Delegate a question to a document-specific agent and return its "
+                "answer and sources. For a document returned by "
+                "search_across_corpora outside the current corpus, pass that "
+                "result's corpus_group_slug so access stays within the selected "
+                "group's visible members."
+            ),
             parameter_descriptions={
-                "document_id": "ID of the document to query (must be in this corpus)",
+                "document_id": "ID of the document to query",
                 "question": "The natural-language question to ask the document agent",
+                "corpus_group": (
+                    "Required only for a document from search_across_corpora outside "
+                    "the current corpus; pass the result's corpus_group_slug"
+                ),
             },
             requires_corpus=True,
         )

@@ -31,6 +31,9 @@ class OpenAIProvider(BaseLLMProvider):
 
     provider_key: ClassVar[str] = "openai"
     supported_models: ClassVar[tuple[str, ...]] = (
+        "gpt-5.6-sol",
+        "gpt-5.6-terra",
+        "gpt-5.6-luna",
         "gpt-4o",
         "gpt-4o-mini",
         "gpt-4.1",
