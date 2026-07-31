@@ -251,6 +251,22 @@ class TestGenerateUniqueSlug(TestCase):
         self.assertEqual(result, "abcde-2")
         self.assertLessEqual(len(result), 7)
 
+    def test_truncated_separator_is_not_reintroduced_as_a_slug_collision(self):
+        # The separator comes from the middle of the original title, but lands
+        # at the boundary after truncation.  It must be stripped before the
+        # uniqueness probe, otherwise a later validation pass strips it and
+        # collides with the already-existing 127-character slug.
+        base = "a" * 127
+        qs = self._make_qs({base})
+        result = generate_unique_slug(
+            base_value=f"{base} tail",
+            scope_qs=qs,
+            max_length=128,
+            fallback_prefix="item",
+        )
+        self.assertEqual(result, f"{'a' * 126}-2")
+        self.assertLessEqual(len(result), 128)
+
 
 class TestValidateUserSlugOrRaise(TestCase):
     """Tests for shared/slug_utils.py validate_user_slug_or_raise function."""

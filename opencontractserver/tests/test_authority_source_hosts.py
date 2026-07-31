@@ -16,11 +16,18 @@ from unittest import mock
 import yaml
 from django.test import SimpleTestCase, override_settings
 
+from opencontractserver.enrichment.data.authority_packs.texas_electric_law.providers.texas_statute_provider import (
+    TexasStatuteAuthoritySourceProvider,
+)
 from opencontractserver.enrichment.services import authority_source_hosts as ash
 from opencontractserver.enrichment.services.authority_source_hosts import (
     effective_source_allowlist,
     is_valid_source_host,
     reset_source_hosts_cache,
+    source_hosts_for_pack_component,
+)
+from opencontractserver.pipeline.authority_source_providers.us_code_provider import (
+    USCodeAuthoritySourceProvider,
 )
 from opencontractserver.utils.safe_http import host_on_allowlist
 
@@ -44,6 +51,16 @@ class SourceHostValidationTests(SimpleTestCase):
             "под.gov",  # non-ascii
         ):
             self.assertFalse(is_valid_source_host(bad), bad)
+
+    def test_component_host_ownership_is_pack_local_and_core_is_unscoped(self):
+        self.assertEqual(
+            source_hosts_for_pack_component(TexasStatuteAuthoritySourceProvider),
+            ("capitol.texas.gov", "legis.texas.gov"),
+        )
+        self.assertEqual(
+            source_hosts_for_pack_component(USCodeAuthoritySourceProvider),
+            (),
+        )
 
 
 class PackSourceHostAllowlistTests(SimpleTestCase):

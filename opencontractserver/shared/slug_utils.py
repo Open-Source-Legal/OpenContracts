@@ -54,10 +54,13 @@ def sanitize_slug(value: str, *, max_length: int) -> str:
     value = re.sub(r"-+", "-", value)
     # Trim hyphens
     value = value.strip("-")
-    # Enforce max length
+    # Enforce max length.  Truncation can expose a separator that was not at
+    # either edge of the original value (``"a…a tail"`` can become
+    # ``"a…a-"``).  Trim once more so callers that later validate/sanitise a
+    # generated slug do not silently turn it into a colliding shorter value.
     if max_length and len(value) > max_length:
         value = value[:max_length]
-    return value
+    return value.strip("-")
 
 
 def generate_unique_slug(

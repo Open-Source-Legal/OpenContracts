@@ -39,7 +39,9 @@ from __future__ import annotations
 import ipaddress
 import logging
 import socket
-from collections.abc import Callable
+import ssl
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from urllib.parse import urlparse
 
 import httpx
@@ -109,6 +111,24 @@ def register_allowlist_provider(
     """Install (or clear, with ``None``) the dynamic default-allowlist provider."""
     global _allowlist_provider
     _allowlist_provider = provider
+
+
+@contextmanager
+def scoped_default_allowlist(allowlist: frozenset[str]) -> Iterator[None]:
+    """Temporarily replace the default host allowlist for standalone work.
+
+    Authority-pack artifact builders do not run inside a long-lived Django
+    process, but still need the same manifest-declared host expansion as the
+    app.  This context keeps that expansion narrow and restores the prior
+    provider even when collection fails.  All other SSRF checks remain active.
+    """
+
+    previous = _allowlist_provider
+    register_allowlist_provider(lambda: allowlist)
+    try:
+        yield
+    finally:
+        register_allowlist_provider(previous)
 
 
 def _resolve_allowlist(allowlist: frozenset[str] | None) -> frozenset[str]:
@@ -259,6 +279,34 @@ def validate_url(url: str, *, allowlist: frozenset[str] | None = None) -> str:
     return host
 
 
+def _extra_ca_ssl_context(
+    extra_ca_certificates: tuple[str, ...] | None,
+) -> ssl.SSLContext | None:
+    """Build a normal system-trust context with additive PEM certificates.
+
+    Some official publishers serve a valid leaf certificate while omitting an
+    intermediate from the TLS handshake.  Callers may supply the missing CA
+    certificates as audited PEM text.  This never disables hostname or chain
+    verification and never replaces the platform trust store.
+    """
+
+    if not extra_ca_certificates:
+        return None
+    context = ssl.create_default_context(purpose=ssl.Purpose.SERVER_AUTH)
+    for index, certificate in enumerate(extra_ca_certificates):
+        if not isinstance(certificate, str) or not certificate.strip():
+            raise ValueError(
+                f"extra_ca_certificates[{index}] must be non-empty PEM text"
+            )
+        try:
+            context.load_verify_locations(cadata=certificate)
+        except ssl.SSLError as exc:
+            raise ValueError(
+                f"extra_ca_certificates[{index}] is not a valid CA certificate"
+            ) from exc
+    return context
+
+
 class _DNSPinnedTransport(httpx.HTTPTransport):
     """``httpx.HTTPTransport`` that connects to a pre-resolved, pre-validated IP
     instead of letting httpx/httpcore resolve DNS independently at connect time.
@@ -285,8 +333,14 @@ class _DNSPinnedTransport(httpx.HTTPTransport):
       still checks the real hostname rather than the bare IP.
     """
 
-    def __init__(self, *, pinned_ip: str, sni_hostname: str) -> None:
-        super().__init__()
+    def __init__(
+        self,
+        *,
+        pinned_ip: str,
+        sni_hostname: str,
+        ssl_context: ssl.SSLContext | None = None,
+    ) -> None:
+        super().__init__(verify=ssl_context if ssl_context is not None else True)
         self._pinned_ip = pinned_ip
         self._sni_hostname = sni_hostname
 
@@ -306,6 +360,7 @@ def safe_fetch_bytes(
     headers: dict | None = None,
     allowlist: frozenset[str] | None = None,
     max_bytes: int = MAX_RESPONSE_BYTES,
+    extra_ca_certificates: tuple[str, ...] | None = None,
 ) -> tuple[bytes, str]:
     """SSRF-safe GET. Returns ``(body_bytes, final_host)``.
 
@@ -332,6 +387,7 @@ def safe_fetch_bytes(
     # validated against the same host set (the registered provider is consulted
     # only here, not per-hop).
     allowlist = _resolve_allowlist(allowlist)
+    ssl_context = _extra_ca_ssl_context(extra_ca_certificates)
     # Default User-Agent so fetches identify OpenContracts to .gov servers
     # rather than going out as an anonymous httpx client; a caller-supplied
     # User-Agent (e.g. the FR/CFR providers) overrides it. httpx.Headers is
@@ -351,7 +407,17 @@ def safe_fetch_bytes(
         final_host, ips = _validate_scheme_allowlist_and_ip(
             current, allowlist=allowlist
         )
-        transport = _DNSPinnedTransport(pinned_ip=str(ips[0]), sni_hostname=final_host)
+        if ssl_context is not None:
+            transport = _DNSPinnedTransport(
+                pinned_ip=str(ips[0]),
+                sni_hostname=final_host,
+                ssl_context=ssl_context,
+            )
+        else:
+            transport = _DNSPinnedTransport(
+                pinned_ip=str(ips[0]),
+                sni_hostname=final_host,
+            )
         with httpx.Client(
             transport=transport, follow_redirects=False, timeout=_DEFAULT_TIMEOUT
         ) as client:
@@ -445,6 +511,7 @@ def safe_fetch_text(
     headers: dict | None = None,
     allowlist: frozenset[str] | None = None,
     max_bytes: int = MAX_RESPONSE_BYTES,
+    extra_ca_certificates: tuple[str, ...] | None = None,
 ) -> tuple[str, str]:
     """SSRF-safe GET returning ``(text, final_host)``.
 
@@ -459,5 +526,6 @@ def safe_fetch_text(
         headers=headers,
         allowlist=allowlist,
         max_bytes=max_bytes,
+        extra_ca_certificates=extra_ca_certificates,
     )
     return body.decode("utf-8", errors="replace"), final_host

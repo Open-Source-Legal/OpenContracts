@@ -111,13 +111,33 @@ class IterAbbreviationsValidationTests(SimpleTestCase):
             {
                 "abbreviations": {
                     "municipal": {
-                        "Some Ord.": {"prefix": "bo-ord", "authority_type": "statute"}
+                        "Some Ord.": {
+                            "prefix": "bo-ord",
+                            "authority_type": "statute",
+                            "requires_section_marker": True,
+                        }
                     }
                 }
             }
         )
         self.assertEqual(out["municipal"]["Some Ord."]["prefix"], "bo-ord")
+        self.assertTrue(out["municipal"]["Some Ord."]["requires_section_marker"])
         self.assertEqual(out["state"], {})
+
+    def test_section_marker_flag_must_be_boolean(self):
+        with self.assertRaisesMessage(ValueError, "must be true or false"):
+            apc.iter_abbreviations(
+                {
+                    "abbreviations": {
+                        "state": {
+                            "Bol. Civ. Code": {
+                                "prefix": "bo-civ",
+                                "requires_section_marker": "yes",
+                            }
+                        }
+                    }
+                }
+            )
 
 
 class LoadYamlTests(SimpleTestCase):

@@ -3,9 +3,10 @@
 ``AuthorityDiscoveryService`` is the single entry point for the automated
 discovery pipeline.  Given an ``AuthorityFrontier`` row it:
 
-1. Finds a public-domain provider that ``can_handle`` the row's key.
-2. Calls the provider's ``locate`` + ``fetch`` to retrieve section text.
-3. Delegates to ``bootstrap_authority_corpus`` for idempotent materialisation.
+1. Finds a registered provider that ``can_handle`` the row's key.
+2. Calls the provider's ``locate`` + ``fetch`` to retrieve authority records.
+3. Applies per-record rights/domain verification, then delegates to
+   ``bootstrap_authority_corpus`` for idempotent materialisation.
 4. Triggers a cross-corpus relink that upgrades act-section EXTERNAL
    references (e.g. ``exchange-act:10(b)``) to RESOLVED once the USC
    document lands — the equivalence relink seam.
@@ -14,10 +15,14 @@ discovery pipeline.  Given an ``AuthorityFrontier`` row it:
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import xml.etree.ElementTree as ET
 import zipfile
+from collections.abc import Mapping, Sequence
 from typing import Any, TypedDict
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 import requests
@@ -47,6 +52,9 @@ class _AuditRecord(TypedDict):
     outcome: str
     error: str | None
     attempted_at: str
+    rights_status: str | None
+    discovery_mode: str | None
+    approval_fingerprint: str | None
 
 
 class AuthorityDiscoveryService(BaseService):
@@ -161,6 +169,9 @@ class AuthorityDiscoveryService(BaseService):
         source_domain: str | None = None,
         verify: str = "skipped",
         error: str | None = None,
+        rights_status: str | None = None,
+        discovery_mode: str | None = None,
+        approval_fingerprint: str | None = None,
     ) -> _AuditRecord:
         """Build a frontier ``candidate_record`` audit entry.
 
@@ -177,7 +188,180 @@ class AuthorityDiscoveryService(BaseService):
             outcome=outcome,
             error=error,
             attempted_at=timezone.now().isoformat(),
+            rights_status=rights_status,
+            discovery_mode=discovery_mode,
+            approval_fingerprint=approval_fingerprint,
         )
+
+    @staticmethod
+    def _normalized_source_url(value: str | None) -> str | None:
+        """Normalize URL casing/fragment without erasing source distinctions."""
+
+        if not isinstance(value, str) or not value.strip():
+            return None
+        parsed = urlsplit(value.strip())
+        return urlunsplit(
+            (
+                parsed.scheme.casefold(),
+                parsed.netloc.casefold(),
+                parsed.path,
+                parsed.query,
+                "",  # fragments are client-side and never part of fetched bytes
+            )
+        )
+
+    @classmethod
+    def _response_approval_fingerprint(
+        cls,
+        *,
+        provider_name: str | None,
+        fetch_key: str,
+        request: Any,
+        sections: Sequence[Any],
+    ) -> str:
+        """Bind approval to provider, fetch source, evidence, and exact bytes.
+
+        Records are individually serialized then sorted by their canonical JSON
+        representation, making the fingerprint invariant to provider response
+        order while remaining sensitive to changed bytes, URL, identity
+        evidence, rights disposition, or redirect provenance.
+        """
+
+        from opencontractserver.enrichment.authority_sources import (
+            AuthoritySourceRecord,
+        )
+
+        serialized_records: list[dict[str, object]] = []
+        for section in sections:
+            if isinstance(section, AuthoritySourceRecord):
+                serialized_records.append(
+                    {
+                        "canonical_key": section.canonical_key,
+                        "source_url": cls._normalized_source_url(section.source_url),
+                        "final_source_host": str(
+                            section.metadata.get("final_source_host") or ""
+                        )
+                        .strip()
+                        .rstrip(".")
+                        .casefold(),
+                        "content_hash": section.content_hash,
+                        "rights_status": str(section.rights_status),
+                        "source_identifier": section.source_identifier,
+                        "title": section.title,
+                        "publisher_evidence": sorted(
+                            (
+                                evidence.as_dict()
+                                for evidence in section.publisher_evidence
+                            ),
+                            key=lambda item: json.dumps(
+                                item,
+                                sort_keys=True,
+                                separators=(",", ":"),
+                            ),
+                        ),
+                    }
+                )
+            else:
+                text = str(section.text)
+                serialized_records.append(
+                    {
+                        "canonical_key": section.key,
+                        "source_url": cls._normalized_source_url(section.source_url),
+                        "final_source_host": (
+                            urlsplit(section.source_url or "").hostname or ""
+                        )
+                        .rstrip(".")
+                        .casefold(),
+                        "content_hash": hashlib.sha256(
+                            text.encode("utf-8")
+                        ).hexdigest(),
+                        "rights_status": None,
+                        # Legacy verification evidence is the heading fallback.
+                        "heading": section.heading,
+                    }
+                )
+        serialized_records.sort(
+            key=lambda item: json.dumps(
+                item,
+                sort_keys=True,
+                separators=(",", ":"),
+                default=str,
+            )
+        )
+        payload = {
+            "schema": "authority-response-approval-v1",
+            "provider": provider_name,
+            "fetch_key": fetch_key,
+            "request_url": cls._normalized_source_url(getattr(request, "url", None)),
+            "request_params": getattr(request, "params", {}),
+            "records": serialized_records,
+        }
+        encoded = json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+    @staticmethod
+    def _listing_candidate_for(
+        frontier_row: AuthorityFrontier,
+        *,
+        fetch_key: str,
+    ):
+        """Rehydrate the durable listing candidate for provider ``locate``.
+
+        Fetching an equivalent/rewrite key must not receive an unrelated source
+        URL discovered for the original key.  Directly handled listing keys,
+        however, need the exact URL/title/extra that discovery persisted because
+        many publisher attachment URLs cannot be derived from their canonical
+        identity.
+        """
+
+        if fetch_key != frontier_row.canonical_key:
+            return None
+        from opencontractserver.pipeline.base.base_authority_discovery_provider import (
+            DiscoveryCandidate,
+        )
+
+        for record in reversed(list(frontier_row.candidate_sources or [])):
+            if not isinstance(record, Mapping):
+                continue
+            url = record.get("url")
+            provider_name = record.get("discovery_provider")
+            if not isinstance(url, str) or not url or not provider_name:
+                continue
+            title = record.get("title")
+            extra = record.get("extra")
+            return DiscoveryCandidate(
+                canonical_key=frontier_row.canonical_key,
+                url=url,
+                title=title if isinstance(title, str) else None,
+                extra=dict(extra) if isinstance(extra, Mapping) else {},
+            )
+        return None
+
+    @staticmethod
+    def _has_durable_approval(
+        frontier_row: AuthorityFrontier,
+        *,
+        provider_name: str | None,
+        approval_fingerprint: str,
+    ) -> bool:
+        """Return whether this exact provider response has an approval."""
+
+        for record in reversed(list(frontier_row.candidate_sources or [])):
+            if not isinstance(record, Mapping):
+                continue
+            if (
+                record.get("outcome") == "approved"
+                and record.get("approval_scope") == "authority-ingestion"
+                and record.get("provider") == provider_name
+                and record.get("approval_fingerprint") == approval_fingerprint
+            ):
+                return True
+        return False
 
     @classmethod
     def discover_and_bootstrap(
@@ -247,8 +431,22 @@ class AuthorityDiscoveryService(BaseService):
         AuthorityFrontierService.mark(frontier_row, C.DISCOVERY_STATE_IN_PROGRESS)
 
         # --- fetch -----------------------------------------------------------
+        listing_candidate = cls._listing_candidate_for(
+            frontier_row, fetch_key=fetch_key
+        )
+        discovery_mode = (
+            listing_candidate.extra.get("discovery_mode")
+            if listing_candidate is not None
+            else None
+        )
+        if not isinstance(discovery_mode, str):
+            discovery_mode = None
+
         try:
-            request = provider.locate(fetch_key)
+            request = provider.locate(
+                fetch_key,
+                discovery_candidate=listing_candidate,
+            )
             sections = provider.fetch(request)
         except (
             requests.RequestException,
@@ -269,6 +467,7 @@ class AuthorityDiscoveryService(BaseService):
                 provider_license=provider.license,
                 outcome=C.DISCOVERY_STATE_FAILED,
                 error=str(exc),
+                discovery_mode=discovery_mode,
             )
             AuthorityFrontierService.mark(
                 frontier_row,
@@ -288,6 +487,9 @@ class AuthorityDiscoveryService(BaseService):
         # module, and the gate transitively pulls enrichment.authorities, which
         # re-enters the enrichment.services package — a module-level import here
         # would form an import cycle during app/registry loading.
+        from opencontractserver.enrichment.authority_sources import (
+            AuthoritySourceRecord,
+        )
         from opencontractserver.enrichment.services.authority_gate_service import (
             GATE_OK,
             AuthorityGateService,
@@ -297,11 +499,48 @@ class AuthorityDiscoveryService(BaseService):
         # Verify against the key we actually fetched (``fetch_key``) — for a
         # bridged domain key the located text is the statutory section
         # (usc-15:78j), not the popular-name key.
+        #
+        # Rights are a disposition of each fetched record, not of the provider
+        # class.  A single fetch must have one unambiguous disposition: otherwise
+        # an approved record could accidentally authorize a LINK_ONLY sibling in
+        # the same provider response.  Feeding the sentinel through the normal
+        # gate produces a durable blocked-license decision without duplicating
+        # the gate's state transition here.
+        rich_records = [
+            section
+            for section in sections
+            if isinstance(section, AuthoritySourceRecord)
+        ]
+        if rich_records and len(rich_records) != len(sections):
+            rights_status: str | None = "MIXED_LEGACY_AND_RICH"
+        elif rich_records:
+            dispositions = {record.rights_status for record in rich_records}
+            rights_status = (
+                next(iter(dispositions))
+                if len(dispositions) == 1
+                else "MIXED_RECORD_RIGHTS"
+            )
+        else:
+            rights_status = None
+        approval_fingerprint = cls._response_approval_fingerprint(
+            provider_name=name,
+            fetch_key=fetch_key,
+            request=request,
+            sections=sections,
+        )
+        rights_approved = cls._has_durable_approval(
+            frontier_row,
+            provider_name=name,
+            approval_fingerprint=approval_fingerprint,
+        )
         decision: GateDecision = AuthorityGateService.evaluate(
             canonical_key=fetch_key,
             sections=sections,
             provider_license=provider.license,
             require_approval_for_agentic=getattr(provider, "requires_approval", False),
+            rights_status=rights_status,
+            rights_approved=rights_approved,
+            publisher_evidence_verifier=provider.verify_publisher_evidence,
         )
         candidate_record = cls._audit_record(
             provider_name=name,
@@ -314,6 +553,9 @@ class AuthorityDiscoveryService(BaseService):
                 else C.DISCOVERY_STATE_INGESTED
             ),
             error=None if decision.verdict == GATE_OK else decision.reason,
+            rights_status=rights_status,
+            discovery_mode=discovery_mode,
+            approval_fingerprint=approval_fingerprint,
         )
         if decision.verdict != GATE_OK:
             AuthorityFrontierService.mark(
@@ -336,27 +578,78 @@ class AuthorityDiscoveryService(BaseService):
         try:
             # Pass relink=False here; we do a wider relink below that includes
             # the equivalence from_keys so act-section refs also upgrade.
-            result = bootstrap_authority_corpus(
-                creator_id=creator_id,
-                corpus_title=provider.title,
-                sections=sections,
-                aliases=list(provider.supported_prefixes),
-                make_public=make_public,
-                relink=False,
-            )
-
-            # --- locate the ingested document to record on the frontier row --
-            from opencontractserver.documents.models import Document
-
-            ingested_doc = (
-                Document.objects.filter(
-                    custom_meta__canonical_key=sections[0].key,
-                    path_records__is_current=True,
-                    path_records__is_deleted=False,
+            # Rich records own their target corpus.  Grouping by the declared
+            # slug keeps a provider free to return related records for more than
+            # one pack corpus while preserving the legacy title-keyed behaviour
+            # for AuthoritySection providers.  Passing corpus_slug is essential:
+            # otherwise a provider title shared across runs can create a second,
+            # title-keyed corpus beside the pack-managed corpus.
+            section_groups: dict[str | None, list] = {}
+            for section in sections:
+                corpus_slug = (
+                    section.corpus_slug
+                    if isinstance(section, AuthoritySourceRecord)
+                    else None
                 )
-                .order_by("id")
-                .first()
-            )
+                section_groups.setdefault(corpus_slug, []).append(section)
+
+            bootstrap_results: list[dict] = []
+            document_id_by_key: dict[str, int] = {}
+            for corpus_slug, group in section_groups.items():
+                group_result = bootstrap_authority_corpus(
+                    creator_id=creator_id,
+                    corpus_title=provider.title,
+                    sections=group,
+                    aliases=list(provider.supported_prefixes),
+                    corpus_slug=corpus_slug,
+                    make_public=make_public,
+                    relink=False,
+                    relationship_origin=name,
+                )
+                bootstrap_results.append(group_result)
+                for section, document_id in zip(
+                    group, group_result.get("document_ids", []), strict=False
+                ):
+                    document_id_by_key[section.key] = document_id
+
+            if len(bootstrap_results) == 1:
+                result = bootstrap_results[0]
+            else:
+                numeric_summary_fields = (
+                    "documents_created",
+                    "documents_updated",
+                    "documents_skipped",
+                    "documents_restamped",
+                    "documents_metadata_updated",
+                )
+                result = {
+                    field: sum(
+                        int(group_result.get(field, 0))
+                        for group_result in bootstrap_results
+                    )
+                    for field in numeric_summary_fields
+                }
+                result.update(
+                    {
+                        "corpus_ids": [
+                            group_result["corpus_id"]
+                            for group_result in bootstrap_results
+                        ],
+                        "document_ids": [
+                            document_id
+                            for group_result in bootstrap_results
+                            for document_id in group_result.get("document_ids", [])
+                        ],
+                        "bootstrap_results": bootstrap_results,
+                    }
+                )
+
+            # Bootstrap returns document ids in section order; use that exact
+            # result instead of a global first-key query that can select another
+            # creator's/current corpus document for the same canonical key.
+            ingested_document_id = document_id_by_key.get(fetch_key)
+            if ingested_document_id is None and sections:
+                ingested_document_id = document_id_by_key.get(sections[0].key)
 
             # --- equivalence-aware relink seam -------------------------------
             # Filings cite act-section keys (e.g. exchange-act:10) while we
@@ -397,7 +690,7 @@ class AuthorityDiscoveryService(BaseService):
             AuthorityFrontierService.mark(
                 frontier_row,
                 C.DISCOVERY_STATE_INGESTED,
-                document_id=ingested_doc.id if ingested_doc else None,
+                document_id=ingested_document_id,
                 candidate_record=candidate_record,
             )
         except Exception as exc:
@@ -419,6 +712,9 @@ class AuthorityDiscoveryService(BaseService):
                     verify=decision.verify,
                     outcome=C.DISCOVERY_STATE_FAILED,
                     error=str(exc),
+                    rights_status=rights_status,
+                    discovery_mode=discovery_mode,
+                    approval_fingerprint=approval_fingerprint,
                 ),
             )
             return {

@@ -926,7 +926,19 @@ class AnnotationService(BaseService):
             raw_text__icontains=phrase
         )
         if document_id is not None:
-            qs = qs.filter(document_id=document_id)
+            # A structural annotation carries ``document_id=None`` and reaches
+            # its document through the shared ``structural_set``, so filtering
+            # the column alone matches nothing in a structurally-annotated
+            # corpus — which is every authority corpus. The symptom is not an
+            # error: every scoped lookup simply reports "no passage contains
+            # X", and a research agent burns its whole token budget retrying
+            # with shorter and shorter phrases. Same root cause as the
+            # document-less cross-corpus hits in
+            # ``llms/tools/core_tools/multi_corpus.py``.
+            qs = qs.filter(
+                Q(document_id=document_id)
+                | Q(structural_set__documents__id=document_id)
+            )
         if exclude_label_texts:
             excluded = Q()
             for label_text in exclude_label_texts:

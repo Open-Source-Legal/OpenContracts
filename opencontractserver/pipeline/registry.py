@@ -1050,3 +1050,10 @@ def reset_registry() -> None:
     get_registry.cache_clear()
     get_supported_mime_types.cache_clear()
     get_allowed_mime_types.cache_clear()
+    # Installed pack paths determine both component discovery and each in-pack
+    # provider's narrow manifest host ownership.
+    from opencontractserver.enrichment.services.authority_source_hosts import (
+        reset_source_hosts_cache,
+    )
+
+    reset_source_hosts_cache()

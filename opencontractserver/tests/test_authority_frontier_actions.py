@@ -107,7 +107,15 @@ class AuthorityFrontierActionTests(TestCase):
         pending = AuthorityFrontier.objects.create(
             canonical_key="dgcl:145",
             authority="dgcl",
+            provider="TestProvider",
             discovery_state="pending_approval",
+            candidate_sources=[
+                {
+                    "provider": "TestProvider",
+                    "outcome": "pending_approval",
+                    "approval_fingerprint": "a" * 64,
+                }
+            ],
         )
         res = AuthorityFrontierService.approve(self.superuser, pk=pending.pk)
         assert res.ok, res.error
@@ -120,6 +128,19 @@ class AuthorityFrontierActionTests(TestCase):
         res2 = AuthorityFrontierService.approve(self.superuser, pk=other.pk)
         assert not res2.ok
         assert "pending-approval" in res2.error
+
+    def test_approve_rejects_unbound_legacy_pending_attempt(self):
+        pending = AuthorityFrontier.objects.create(
+            canonical_key="dgcl:147",
+            authority="dgcl",
+            provider="TestProvider",
+            discovery_state="pending_approval",
+        )
+        res = AuthorityFrontierService.approve(self.superuser, pk=pending.pk)
+        assert not res.ok
+        assert "fingerprint" in res.error
+        pending.refresh_from_db()
+        assert pending.discovery_state == "pending_approval"
 
     # ---- delete --------------------------------------------------------------
     def test_delete_rows(self):
@@ -295,7 +316,15 @@ class AuthorityFrontierGraphQLTests(TestCase):
         row = self._row(
             canonical_key="dgcl:145",
             authority="dgcl",
+            provider="TestProvider",
             discovery_state="pending_approval",
+            candidate_sources=[
+                {
+                    "provider": "TestProvider",
+                    "outcome": "pending_approval",
+                    "approval_fingerprint": "b" * 64,
+                }
+            ],
         )
         res = _run(_APPROVE, self.superuser, id=self._gid(row))
         assert res["data"]["approveAuthorityFrontier"]["ok"] is True

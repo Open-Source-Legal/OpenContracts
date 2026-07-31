@@ -42,6 +42,9 @@ from opencontractserver.pipeline.authority_discovery_providers.listing_index_pro
     ListingIndexDiscoveryProvider,
     ListingIndexRule,
 )
+from opencontractserver.pipeline.registry import (
+    get_all_authority_discovery_providers_cached,
+)
 
 
 class Command(BaseCommand):
@@ -60,23 +63,32 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             "--link-pattern",
-            required=True,
             help=(
                 "Regex applied to the fetched index page HTML (re.finditer). "
                 "MUST define a named group 'url'; MAY define others (e.g. 'id', "
-                "'title') consumed by --canonical-key-template."
+                "'title') consumed by --canonical-key-template. Required unless "
+                "--provider is supplied."
             ),
         )
         parser.add_argument(
             "--canonical-key-template",
-            required=True,
             help="str.format template consuming 'prefix' + the regex's named "
-            "groups, e.g. '{prefix}:{id}'.",
+            "groups, e.g. '{prefix}:{id}'. Required unless --provider is supplied.",
         )
         parser.add_argument(
             "--prefix",
-            required=True,
-            help="canonical_key prefix/authority for this source, e.g. 'bo-gaceta'.",
+            help=(
+                "canonical_key prefix/authority for the config-driven listing "
+                "provider, e.g. 'bo-gaceta'. Required unless --provider is supplied."
+            ),
+        )
+        parser.add_argument(
+            "--provider",
+            help=(
+                "Registered BaseAuthorityDiscoveryProvider class name or full class "
+                "path. Selects an in-pack/core bespoke parser instead of requiring "
+                "--link-pattern/--canonical-key-template/--prefix."
+            ),
         )
         parser.add_argument(
             "--max-candidates",
@@ -91,23 +103,77 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args: Any, **options: Any) -> None:
-        try:
-            rule = ListingIndexRule(
-                link_pattern=options["link_pattern"],
-                canonical_key_template=options["canonical_key_template"],
-                prefix=options["prefix"],
-            )
-        except ValueError as exc:
-            raise CommandError(str(exc)) from exc
+        provider_name = (options.get("provider") or "").strip()
+        discover_kwargs: dict[str, object] = {}
+        if provider_name:
+            rule_values = [
+                options.get("link_pattern"),
+                options.get("canonical_key_template"),
+                options.get("prefix"),
+            ]
+            if any(rule_values):
+                raise CommandError(
+                    "--provider cannot be combined with --link-pattern, "
+                    "--canonical-key-template, or --prefix."
+                )
+            matches = [
+                definition
+                for definition in get_all_authority_discovery_providers_cached()
+                if provider_name in {definition.name, definition.class_name}
+            ]
+            if not matches:
+                raise CommandError(
+                    f"Unknown authority discovery provider {provider_name!r}."
+                )
+            if len(matches) > 1:
+                full_names = ", ".join(sorted(d.class_name for d in matches))
+                raise CommandError(
+                    f"Ambiguous authority discovery provider {provider_name!r}; "
+                    f"use a full class path ({full_names})."
+                )
+            provider_class = matches[0].component_class
+            if provider_class is None:  # pragma: no cover - registry invariant
+                raise CommandError(
+                    f"Authority discovery provider {provider_name!r} is unavailable."
+                )
+            provider = provider_class()
+        else:
+            missing = [
+                option
+                for option in ("link_pattern", "canonical_key_template", "prefix")
+                if not options.get(option)
+            ]
+            if missing:
+                rendered = ", ".join(f"--{name.replace('_', '-')}" for name in missing)
+                raise CommandError(
+                    f"{rendered} required when --provider is not supplied."
+                )
+            try:
+                discover_kwargs["rule"] = ListingIndexRule(
+                    link_pattern=options["link_pattern"],
+                    canonical_key_template=options["canonical_key_template"],
+                    prefix=options["prefix"],
+                )
+            except ValueError as exc:
+                raise CommandError(str(exc)) from exc
+            provider = ListingIndexDiscoveryProvider()
 
-        provider = ListingIndexDiscoveryProvider()
+        discovery_provider_name = type(provider).__name__
+        exclude_identities = (
+            set()
+            if options["dry_run"]
+            else AuthorityFrontierService.discovery_identities_for_provider(
+                discovery_provider_name
+            )
+        )
         try:
             result = provider.discover_candidates(
                 options["index_urls"],
                 max_candidates=options["max_candidates"],
-                rule=rule,
+                exclude_identities=exclude_identities,
+                **discover_kwargs,
             )
-        except PermissionError as exc:
+        except (PermissionError, ValueError) as exc:
             raise CommandError(str(exc)) from exc
 
         for url, reason in result.skipped_index_urls.items():
@@ -116,6 +182,11 @@ class Command(BaseCommand):
         self.stdout.write(
             f"discovered {len(result.candidates)} candidate(s)"
             f"{' (capped)' if result.capped else ''}"
+            + (
+                f"; skipped {result.excluded_count} previously seeded"
+                if result.excluded_count
+                else ""
+            )
         )
         for candidate in result.candidates:
             self.stdout.write(f"  {candidate.canonical_key}  {candidate.url}")
@@ -126,12 +197,13 @@ class Command(BaseCommand):
 
         seeded = AuthorityFrontierService.seed_from_discovery(
             result.candidates,
-            discovery_provider=type(provider).__name__,
+            discovery_provider=discovery_provider_name,
         )
         self.stdout.write(
             self.style.SUCCESS(
                 "frontier seeded: "
                 f"created={seeded['discovery_created']} "
+                f"appended={seeded['discovery_appended']} "
                 f"skipped={seeded['discovery_skipped']}"
             )
         )

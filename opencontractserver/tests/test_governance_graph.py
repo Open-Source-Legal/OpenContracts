@@ -3,9 +3,10 @@
 The governance graph is the in-app surface of the reference web: nodes are
 documents (filing primaries, exhibits, statute sections) plus "ghost" nodes
 for still-EXTERNAL law citations; edges are resolved LAW links (possibly
-cross-corpus), EXTERNAL law citations, and ``DocumentRelationship`` rows —
-weighted by mention count. Mirrors ``demo/export_governance_graph.py``,
-visibility-enforced through the service layer.
+cross-corpus), EXTERNAL law citations, ``DocumentRelationship`` rows, and
+verified canonical-key ``AuthorityRelationship`` rows — weighted by mention
+count. Mirrors ``demo/export_governance_graph.py``, visibility-enforced through
+the service layer.
 """
 
 from django.contrib.auth import get_user_model
@@ -13,8 +14,10 @@ from django.core.files.base import ContentFile
 from django.test import TestCase
 from graphql_relay import to_global_id
 
+from opencontractserver.annotations.models import AuthorityRelationship
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
+from opencontractserver.documents.versioning import import_document
 from opencontractserver.enrichment.authorities import (
     AuthorityCorpusBootstrapper,
     AuthoritySection,
@@ -291,6 +294,253 @@ class GovernanceGraphTests(TestCase):
         reader_statute = _run_refs(reader, self.corpus.id, statute_gid)
         assert reader_statute.get("errors") is None, reader_statute.get("errors")
         assert reader_statute["data"]["corpusReferences"]["edges"] == []
+
+
+class GovernanceGraphAuthorityRelationshipTests(TestCase):
+    """Verified canonical authority edges reuse the production graph rail."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username="authority-graph-owner", password="p"
+        )
+        self.source_corpus = Corpus.objects.create(
+            title="PUCT Orders", creator=self.owner
+        )
+        self.target_corpus = Corpus.objects.create(
+            title="ERCOT Revision History", creator=self.owner
+        )
+        self.source_key = "puct-order:project-123:final"
+        self.target_key = "ercot-pgrr:145"
+        self.source_document, _, _ = import_document(
+            corpus=self.source_corpus,
+            path="/documents/final-order.txt",
+            content=b"Final order text.",
+            user=self.owner,
+            file_type="text/plain",
+            title="PUCT Final Order",
+            custom_meta={
+                "canonical_key": self.source_key,
+                "authority": "puct-order",
+            },
+        )
+        self.target_document, _, _ = import_document(
+            corpus=self.target_corpus,
+            path="/documents/pgrr-145.txt",
+            content=b"Revision request text.",
+            user=self.owner,
+            file_type="text/plain",
+            title="PGRR 145 Private Title",
+            custom_meta={
+                "canonical_key": self.target_key,
+                "authority": "ercot-pgrr",
+            },
+        )
+
+    def _create_relationship(self, *, verified: bool) -> AuthorityRelationship:
+        return AuthorityRelationship.objects.create(
+            source_key=self.source_key,
+            relationship_type="IMPLEMENTS",
+            target_key=self.target_key,
+            source="manual",
+            origin="governance-graph-test",
+            verified=verified,
+        )
+
+    @staticmethod
+    def _graph(user, corpus_pk):
+        result = _run_graph(user, corpus_pk)
+        assert result.get("errors") is None, result.get("errors")
+        return result["data"]["governanceGraph"]
+
+    def test_verified_cross_corpus_relationship_preserves_target_corpus(self):
+        self._create_relationship(verified=True)
+
+        graph = self._graph(self.owner, self.source_corpus.pk)
+        source_gid = to_global_id("DocumentType", self.source_document.pk)
+        target_gid = to_global_id("DocumentType", self.target_document.pk)
+        target_corpus_gid = to_global_id("CorpusType", self.target_corpus.pk)
+
+        assert {
+            "source": source_gid,
+            "target": target_gid,
+            "edgeType": "IMPLEMENTS",
+            "weight": 1,
+        } in graph["edges"]
+        target_node = next(node for node in graph["nodes"] if node["id"] == target_gid)
+        assert target_node["corpusId"] == target_corpus_gid
+        target_corpus = next(
+            corpus for corpus in graph["corpora"] if corpus["id"] == target_corpus_gid
+        )
+        assert target_corpus["kind"] == "authority"
+
+    def test_independent_installs_resolve_their_own_visible_current_copies(self):
+        second_owner = User.objects.create_user(
+            username="authority-graph-second-owner", password="p"
+        )
+        second_source_corpus = Corpus.objects.create(
+            title="Second PUCT Orders", creator=second_owner
+        )
+        second_target_corpus = Corpus.objects.create(
+            title="Second ERCOT Revision History", creator=second_owner
+        )
+        second_source_document, _, _ = import_document(
+            corpus=second_source_corpus,
+            path="/documents/final-order.txt",
+            content=b"Independent final order copy.",
+            user=second_owner,
+            file_type="text/plain",
+            title="Second PUCT Final Order",
+            custom_meta={
+                "canonical_key": self.source_key,
+                "authority": "puct-order",
+            },
+        )
+        second_target_document, _, _ = import_document(
+            corpus=second_target_corpus,
+            path="/documents/pgrr-145.txt",
+            content=b"Independent revision request copy.",
+            user=second_owner,
+            file_type="text/plain",
+            title="Second PGRR 145",
+            custom_meta={
+                "canonical_key": self.target_key,
+                "authority": "ercot-pgrr",
+            },
+        )
+        self._create_relationship(verified=True)
+
+        first_current_source, _, _ = import_document(
+            corpus=self.source_corpus,
+            path="/documents/final-order.txt",
+            content=b"Current final order text.",
+            user=self.owner,
+            file_type="text/plain",
+            title="Current PUCT Final Order",
+            custom_meta={
+                "canonical_key": self.source_key,
+                "authority": "puct-order",
+            },
+        )
+        first_current_target, _, _ = import_document(
+            corpus=self.target_corpus,
+            path="/documents/pgrr-145.txt",
+            content=b"Current revision request text.",
+            user=self.owner,
+            file_type="text/plain",
+            title="Current PGRR 145",
+            custom_meta={
+                "canonical_key": self.target_key,
+                "authority": "ercot-pgrr",
+            },
+        )
+        second_current_source, _, _ = import_document(
+            corpus=second_source_corpus,
+            path="/documents/final-order.txt",
+            content=b"Second current final order text.",
+            user=second_owner,
+            file_type="text/plain",
+            title="Second Current PUCT Final Order",
+            custom_meta={
+                "canonical_key": self.source_key,
+                "authority": "puct-order",
+            },
+        )
+        second_current_target, _, _ = import_document(
+            corpus=second_target_corpus,
+            path="/documents/pgrr-145.txt",
+            content=b"Second current revision request text.",
+            user=second_owner,
+            file_type="text/plain",
+            title="Second Current PGRR 145",
+            custom_meta={
+                "canonical_key": self.target_key,
+                "authority": "ercot-pgrr",
+            },
+        )
+
+        first_graph = self._graph(self.owner, self.source_corpus.pk)
+        second_graph = self._graph(second_owner, second_source_corpus.pk)
+        first_source_gid = to_global_id("DocumentType", first_current_source.pk)
+        first_target_gid = to_global_id("DocumentType", first_current_target.pk)
+        second_source_gid = to_global_id("DocumentType", second_current_source.pk)
+        second_target_gid = to_global_id("DocumentType", second_current_target.pk)
+
+        assert {
+            "source": first_source_gid,
+            "target": first_target_gid,
+            "edgeType": "IMPLEMENTS",
+            "weight": 1,
+        } in first_graph["edges"]
+        assert {
+            "source": second_source_gid,
+            "target": second_target_gid,
+            "edgeType": "IMPLEMENTS",
+            "weight": 1,
+        } in second_graph["edges"]
+
+        first_node_ids = {node["id"] for node in first_graph["nodes"]}
+        second_node_ids = {node["id"] for node in second_graph["nodes"]}
+        assert second_source_gid not in first_node_ids
+        assert second_target_gid not in first_node_ids
+        assert first_source_gid not in second_node_ids
+        assert first_target_gid not in second_node_ids
+        historical_gids = {
+            to_global_id("DocumentType", document.pk)
+            for document in (
+                self.source_document,
+                self.target_document,
+                second_source_document,
+                second_target_document,
+            )
+        }
+        assert historical_gids.isdisjoint(first_node_ids)
+        assert historical_gids.isdisjoint(second_node_ids)
+        assert to_global_id("CorpusType", second_target_corpus.pk) not in {
+            corpus["id"] for corpus in first_graph["corpora"]
+        }
+        assert to_global_id("CorpusType", self.target_corpus.pk) not in {
+            corpus["id"] for corpus in second_graph["corpora"]
+        }
+
+    def test_unverified_relationship_is_excluded(self):
+        self._create_relationship(verified=False)
+
+        graph = self._graph(self.owner, self.source_corpus.pk)
+
+        assert graph["edges"] == []
+        assert graph["nodes"] == []
+
+    def test_invisible_target_degrades_without_title_or_corpus_leak(self):
+        self._create_relationship(verified=True)
+        self.source_corpus.is_public = True
+        self.source_corpus.save(update_fields=["is_public"])
+        self.source_document.is_public = True
+        self.source_document.save(update_fields=["is_public"])
+        reader = User.objects.create_user(
+            username="authority-graph-reader", password="p"
+        )
+
+        graph = self._graph(reader, self.source_corpus.pk)
+        source_gid = to_global_id("DocumentType", self.source_document.pk)
+        target_gid = to_global_id("DocumentType", self.target_document.pk)
+        target_corpus_gid = to_global_id("CorpusType", self.target_corpus.pk)
+        ghost_id = f"key:{self.target_key}"
+
+        assert {
+            "source": source_gid,
+            "target": ghost_id,
+            "edgeType": "IMPLEMENTS",
+            "weight": 1,
+        } in graph["edges"]
+        node_ids = {node["id"] for node in graph["nodes"]}
+        assert ghost_id in node_ids
+        assert target_gid not in node_ids
+        ghost = next(node for node in graph["nodes"] if node["id"] == ghost_id)
+        assert ghost["title"] == self.target_key
+        assert "PGRR 145 Private Title" not in {
+            node["title"] for node in graph["nodes"]
+        }
+        assert target_corpus_gid not in {corpus["id"] for corpus in graph["corpora"]}
 
 
 class GovernanceGraphRegimeFieldTests(TestCase):

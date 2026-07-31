@@ -62,6 +62,72 @@ class StateGrammarTests(SimpleTestCase):
         assert "ca-corp:300" in self._keys("Cal. Corp. Code § 300 requires")
 
 
+class TexasGridAuthorityGrammarTests(SimpleTestCase):
+    def setUp(self):
+        self.ex = GenericCitationExtractor()
+
+    def _keys(self, text):
+        return {
+            candidate.canonical_key: candidate for candidate in self.ex.extract(text)
+        }
+
+    def test_puct_texas_admin_code_forms(self):
+        tac = self._keys("The standard in 16 TAC § 25.361(c) controls.")[
+            "tx-admin-puct:25.361(c)"
+        ]
+        assert tac.raw_text == "16 TAC § 25.361(c)"
+        assert tac.jurisdiction == "us-tx"
+        assert tac.authority_type == C.AUTHORITY_TYPE_REGULATION
+        assert "tx-admin-puct:25.361" in self._keys("See 16 Tex. Admin. Code § 25.361.")
+
+    def test_pack_names_with_required_markers_preserve_real_citations(self):
+        assert "tx-util:37.0561" in self._keys(
+            "Texas Utilities Code section 37.0561 applies."
+        )
+        assert "tx-util:37.0561" in self._keys("PURA § 37.0561 applies.")
+        assert "oncor-tariff:6.1.2" in self._keys("See Oncor Tariff § 6.1.2.")
+
+    def test_revision_request_identifiers(self):
+        keys = self._keys("PGRR145 was coordinated with NPRR 1325.")
+        assert keys["ercot-pgrr:145"].raw_text == "PGRR145"
+        assert keys["ercot-nprr:1325"].raw_text == "NPRR 1325"
+        assert all(
+            candidate.authority_type == C.AUTHORITY_TYPE_ADMIN_RULE
+            for candidate in keys.values()
+        )
+
+    def test_multilevel_ercot_guide_section(self):
+        keys = self._keys("ERCOT Planning Guide § 9.2.1.1(1)(e) requires the study.")
+        candidate = keys["ercot-planning:9.2.1.1(1)(e)"]
+        assert candidate.raw_text == "ERCOT Planning Guide § 9.2.1.1(1)(e)"
+        assert candidate.jurisdiction == "us-tx-ercot"
+        assert "ercot-planning:9" in self._keys("ERCOT Planning Guide Section 9")
+
+    def test_market_notice_identifier(self):
+        keys = self._keys(
+            "Implementation followed Market Notices M-B062326-01 and M-A301326-01."
+        )
+        candidate = keys["ercot-notice:M-B062326-01"]
+        assert candidate.raw_text == "M-B062326-01"
+        assert candidate.authority_type == C.AUTHORITY_TYPE_GUIDANCE
+        assert "ercot-notice:M-A301326-01" in keys
+
+    def test_grid_shapes_reject_nearby_ordinary_numbers(self):
+        assert not self._keys(
+            "Planning guide section 9 is discussed in project 1325 on 06/23/26."
+        )
+        assert not self._keys("The ERCOT Planning Guide 2026 edition is current.")
+        assert not self._keys("The ERCOT Protocols 2026 edition is current.")
+        assert not self._keys("The Texas Utilities Code 2026 edition is current.")
+        assert not self._keys("The Oncor Tariff 2026 edition is current.")
+        assert not self._keys(
+            "The Oncor Electric Service Guidelines 2026 edition is current."
+        )
+        assert not self._keys("The 16 TAC 2026 edition is current.")
+        assert not self._keys("The labels PGRR and NPRR are incomplete identifiers.")
+        assert not self._keys("Inventory item B062326-01 is not a market notice.")
+
+
 class BareActGrammarTests(SimpleTestCase):
     def setUp(self):
         self.ex = GenericCitationExtractor()
@@ -499,6 +565,8 @@ class ReferenceTypeFilterTests(SimpleTestCase):
         "_fedreg",
         "_publ",
         "_stat",
+        "_puct_texas_admin_code",
+        "_ercot_authorities",
         "_bare_acts",
     )
     _INSTANCE_PASSES = ("_states", "_municipal", "_municipal_generic")

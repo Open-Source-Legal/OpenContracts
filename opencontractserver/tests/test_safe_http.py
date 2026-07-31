@@ -138,6 +138,27 @@ class TestHostOnAllowlist:
         assert host_on_allowlist("uscode.house.gov.")
 
 
+class TestAdditiveCACertificates:
+    def test_builds_system_context_and_loads_each_pem(self):
+        context = MagicMock()
+        with patch("ssl.create_default_context", return_value=context) as create:
+            result = _safe_http_module._extra_ca_ssl_context(
+                ("first audited PEM", "second audited PEM")
+            )
+
+        assert result is context
+        create.assert_called_once()
+        assert [
+            call.kwargs["cadata"]
+            for call in context.load_verify_locations.call_args_list
+        ] == ["first audited PEM", "second audited PEM"]
+
+    @pytest.mark.parametrize("value", ["", "   ", None])
+    def test_rejects_empty_or_non_string_certificate(self, value):
+        with pytest.raises(ValueError, match="non-empty PEM text"):
+            _safe_http_module._extra_ca_ssl_context((value,))
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # validate_url — scheme rejection
 # ─────────────────────────────────────────────────────────────────────────────
