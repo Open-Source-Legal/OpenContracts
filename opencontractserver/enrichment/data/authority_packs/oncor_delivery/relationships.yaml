@@ -1,0 +1,49 @@
+schema_version: 1
+relationships:
+  - source_key: "oncor-tariff:retail-delivery"
+    relationship_type: "IMPLEMENTS"
+    target_key: "tx-admin-puct:25.214"
+    verified: false
+    metadata:
+      review_status: "pending_legal_review"
+      provenance:
+        kind: "curated_seed"
+        source_url: "https://www.oncor.com/content/oncorwww/us/en/home/about-us/regulatory/tariffs-rate-schedules.html"
+        note: "Verify the precise tariff provisions implementing the PUCT rule."
+  - source_key: "oncor-service-guide:electric-service-guidelines"
+    relationship_type: "IMPLEMENTS"
+    target_key: "oncor-tariff:retail-delivery"
+    verified: false
+    metadata:
+      review_status: "pending_legal_review"
+      provenance:
+        kind: "curated_seed"
+        source_url: >-
+          https://www.oncor.com/content/dam/oncorwww/documents/new-construction/construction-guidelines/Electric%20Service%20Guidelines%20Book.pdf.coredownload.inline.pdf
+        note: "Verify which technical requirements are tariff prerequisites."
+  - source_key: "oncor-tariff:retail-delivery-2017-11-27"
+    relationship_type: "EFFECTIVE_VERSION_OF"
+    target_key: "oncor-tariff:retail-delivery"
+    verified: false
+    metadata:
+      review_status: "pending_legal_review"
+      provenance:
+        kind: "publisher_artifact"
+        source_url: >-
+          https://www.oncor.com/content/dam/oncorwww/documents/safety/Tariff%20for%20Retail%20Delivery%20Service.pdf
+        note: >
+          The official artifact identifies itself as Revision Twenty, effective
+          November 27, 2017. Confirm its complete effective interval.
+  - source_key: "oncor-tariff:retail-delivery-2017-11-27"
+    relationship_type: "SUPERSEDED_BY"
+    target_key: "oncor-tariff:retail-delivery"
+    verified: false
+    metadata:
+      review_status: "pending_legal_review"
+      provenance:
+        kind: "publisher_artifact"
+        source_url: >-
+          https://www.oncor.com/content/dam/oncorwww/documents/safety/Tariff%20for%20Retail%20Delivery%20Service.pdf
+        note: >
+          The 2017 Revision Twenty artifact predates the current Revision
+          Twenty-Two tariff. Confirm intervening versions before publication.

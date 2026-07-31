@@ -1,0 +1,23 @@
+title: "PUCT Large-Load Proceedings"
+slug: "puct-large-load-proceedings"
+purpose: >
+  Preserve the official PUCT proceeding record needed to trace proposals,
+  comments, recommendations, and decisions affecting large loads.
+include:
+  - "Project No. 59142 and other approved large-load project inventories"
+  - "staff memoranda, utility filings, party comments, testimony, and exhibits"
+  - "transcripts, proposed orders, and procedural filings"
+exclude:
+  - "unrelated electric dockets"
+  - "duplicates whose official source identifier and content hash match"
+  - "unofficial summaries"
+authority_tiers:
+  default: "EVIDENTIARY"
+  final_order: "CONTROLLING"
+  staff_interpretation: "INTERPRETIVE"
+  party_filing: "ADVOCACY"
+update_expectation: "daily_during_active_proceedings"
+current_as_of: "2026-07-25"
+approval_status: "pending_legal_review"
+legal_owner: null
+technical_owner: null

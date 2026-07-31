@@ -1,0 +1,54 @@
+schema_version: 1
+relationships:
+  - source_key: "ercot-pgrr:115"
+    relationship_type: "REVISES"
+    target_key: "ercot-planning:9"
+    verified: false
+    metadata:
+      review_status: "pending_legal_review"
+      provenance:
+        kind: "curated_seed"
+        source_url: "https://www.ercot.com/mktrules/issues/PGRR115"
+        note: >
+          ERCOT identifies Planning Guide Section 9 among PGRR 115's affected
+          sections. Legal review must confirm the subsection-level lineage.
+  - source_key: "ercot-pgrr:145"
+    relationship_type: "REVISES"
+    target_key: "ercot-planning:9"
+    verified: false
+    metadata:
+      review_status: "pending_legal_review"
+      provenance:
+        kind: "curated_seed"
+        source_url: "https://www.ercot.com/mktrules/issues/PGRR145"
+        note: "Candidate PGRR 145 lineage edge; verify affected subsections."
+  - source_key: "ercot-nprr:1325"
+    relationship_type: "REVISES"
+    target_key: "ercot-protocol:16"
+    verified: false
+    metadata:
+      review_status: "pending_legal_review"
+      provenance:
+        kind: "curated_seed"
+        source_url: "https://www.ercot.com/mktrules/issues/NPRR1325"
+        note: "Candidate NPRR 1325 lineage edge; verify affected subsections."
+  - source_key: "ercot-notice:M-B062326-04"
+    relationship_type: "IMPLEMENTS"
+    target_key: "ercot-planning:9"
+    verified: false
+    metadata:
+      review_status: "pending_legal_review"
+      provenance:
+        kind: "curated_seed"
+        source_url: "https://www.ercot.com/services/comm/mkt_notices/M-B062326-04"
+        note: "Verify the notice's exact governing provisions."
+  - source_key: "ercot-planning:9"
+    relationship_type: "REQUIRES_FORM"
+    target_key: "ercot-form:batch-zero-load-information-form-06172026"
+    verified: false
+    metadata:
+      review_status: "pending_legal_review"
+      provenance:
+        kind: "curated_seed"
+        source_url: "https://www.ercot.com/services/rq/large-load-integration"
+        note: "Verify the form version and subsection before production publication."

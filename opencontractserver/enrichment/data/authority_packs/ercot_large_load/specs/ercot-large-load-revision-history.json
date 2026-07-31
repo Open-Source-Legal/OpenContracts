@@ -1,0 +1,17 @@
+{
+  "aliases": ["ercot-pgrr", "ercot-nprr"],
+  "sections": [
+    {
+      "key": "ercot-pgrr:145",
+      "heading": "[LEGAL REVIEW REQUIRED] Planning Guide Revision Request 145",
+      "text": "Curated seed locator for PGRR 145 and its official issue-page attachments. Preserve each attachment as a distinct record and verify lifecycle status before agent use.",
+      "source_url": "https://www.ercot.com/mktrules/issues/PGRR145"
+    },
+    {
+      "key": "ercot-nprr:1325",
+      "heading": "[LEGAL REVIEW REQUIRED] Nodal Protocol Revision Request 1325",
+      "text": "Curated seed locator for NPRR 1325 and its official issue-page attachments. Preserve each attachment as a distinct record and verify lifecycle status before agent use.",
+      "source_url": "https://www.ercot.com/mktrules/issues/NPRR1325"
+    }
+  ]
+}

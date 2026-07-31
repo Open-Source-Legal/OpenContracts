@@ -1,0 +1,58 @@
+schema_version: 2
+name: "ercot_large_load"
+display_name: "ERCOT Large Load"
+description: >
+  Current ERCOT large-load rules, revision-request lineage, and official
+  implementation materials, preserved as distinct corpora.
+jurisdiction: "us-tx-ercot"
+mappings: "authority_mappings.ercot_large_load.yaml"
+metadata_schema: "metadata/authority_source_record.yaml"
+relationships: "relationships.yaml"
+sources: "sources.yaml"
+source_hosts:
+  - "ercot.com"
+corpora:
+  - slug: "ercot-current-large-load-rules"
+    title: "ERCOT Current Large-Load Rules"
+    # Binding the prefixes this corpus owns is what lets a sideloaded corpus
+    # export promote its provider-authored relationships into the authority
+    # graph: the importer only reconciles documents whose canonical-key prefix
+    # is bound to the corpus being imported.
+    authority_prefixes:
+      - "ercot-planning"
+      - "ercot-protocol"
+      - "ercot-operating"
+    description: >
+      Currently effective ERCOT Planning Guide, Protocol, Operating Guide, and
+      incorporated form provisions governing large-load integration.
+    charter: "charters/ercot-current-large-load-rules.yaml"
+    spec: "specs/ercot-current-large-load-rules.json"
+    persona: "personas/ercot-current-large-load-rules.txt"
+    metadata_schema: "metadata/authority_source_record.yaml"
+    default_authority_weight: "CONTROLLING"
+  - slug: "ercot-large-load-revision-history"
+    title: "ERCOT Large-Load Revision History"
+    authority_prefixes:
+      - "ercot-pgrr"
+      - "ercot-nprr"
+    description: >
+      Revision requests and their sponsor, stakeholder, committee, Board, and
+      PUCT approval records.
+    charter: "charters/ercot-large-load-revision-history.yaml"
+    spec: "specs/ercot-large-load-revision-history.json"
+    persona: "personas/ercot-large-load-revision-history.txt"
+    metadata_schema: "metadata/authority_source_record.yaml"
+    default_authority_weight: "EVIDENTIARY"
+  - slug: "ercot-large-load-implementation"
+    title: "ERCOT Large-Load Implementation Materials"
+    authority_prefixes:
+      - "ercot-notice"
+      - "ercot-form"
+    description: >
+      Official notices, forms, attestations, instructions, FAQs, and timelines
+      that implement effective large-load rules.
+    charter: "charters/ercot-large-load-implementation-materials.yaml"
+    spec: "specs/ercot-large-load-implementation-materials.json"
+    persona: "personas/ercot-large-load-implementation-materials.txt"
+    metadata_schema: "metadata/authority_source_record.yaml"
+    default_authority_weight: "IMPLEMENTING"

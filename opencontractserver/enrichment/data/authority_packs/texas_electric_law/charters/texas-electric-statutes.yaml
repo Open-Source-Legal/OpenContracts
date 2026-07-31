@@ -1,0 +1,20 @@
+title: "Texas Electric Statutes"
+slug: "texas-electric-statutes"
+purpose: >
+  Provide currently effective Texas statutory provisions governing large-load
+  interconnection, operation, reliability, and cost responsibility.
+include:
+  - "currently effective Texas Utilities Code provisions directly relevant to large loads"
+  - "cross-referenced provisions needed to interpret those requirements"
+  - "official amendment and effective-date information"
+exclude:
+  - "superseded statutory text except as version history"
+  - "bill analyses and other legislative history"
+  - "unofficial commentary"
+authority_tiers:
+  default: "CONTROLLING"
+update_expectation: "event_driven"
+current_as_of: "2026-07-25"
+approval_status: "pending_legal_review"
+legal_owner: null
+technical_owner: null

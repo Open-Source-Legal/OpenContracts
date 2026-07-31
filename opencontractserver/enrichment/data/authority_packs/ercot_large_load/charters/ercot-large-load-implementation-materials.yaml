@@ -1,0 +1,22 @@
+title: "ERCOT Large-Load Implementation Materials"
+slug: "ercot-large-load-implementation"
+purpose: >
+  Provide official forms, notices, timelines, and operating instructions needed
+  to implement effective ERCOT large-load rules.
+include:
+  - "market notices and corrections"
+  - "forms, attestations, submission instructions, and official FAQs"
+  - "responsible-party, prerequisite, recipient, and deadline metadata"
+exclude:
+  - "stakeholder advocacy"
+  - "unofficial training or consulting materials"
+  - "superseded forms except as explicit version history"
+authority_tiers:
+  default: "IMPLEMENTING"
+  incorporated_form: "CONTROLLING"
+  informal_faq: "INTERPRETIVE"
+update_expectation: "daily"
+current_as_of: "2026-07-25"
+approval_status: "pending_legal_review"
+legal_owner: null
+technical_owner: null

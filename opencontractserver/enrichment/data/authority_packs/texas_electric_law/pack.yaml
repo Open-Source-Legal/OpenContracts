@@ -1,0 +1,41 @@
+schema_version: 2
+name: "texas_electric_law"
+display_name: "Texas Electric Law"
+description: >
+  Texas statutes and legislative history relevant to large-load planning,
+  interconnection, operation, reliability, and cost responsibility.
+jurisdiction: "us-tx"
+mappings: "authority_mappings.texas_electric_law.yaml"
+metadata_schema: "metadata/authority_source_record.yaml"
+relationships: "relationships.yaml"
+sources: "sources.yaml"
+source_hosts:
+  - "capitol.texas.gov"
+  - "legis.texas.gov"
+corpora:
+  - slug: "texas-electric-statutes"
+    title: "Texas Electric Statutes"
+    # See the note in ercot_large_load/pack.yaml.
+    authority_prefixes:
+      - "tx-util"
+    description: >
+      Currently effective Texas Utilities Code provisions governing large
+      electrical loads and directly relevant cross-references.
+    charter: "charters/texas-electric-statutes.yaml"
+    spec: "specs/texas-electric-statutes.json"
+    persona: "personas/texas-electric-statutes.txt"
+    metadata_schema: "metadata/authority_source_record.yaml"
+    default_authority_weight: "CONTROLLING"
+  - slug: "texas-large-load-legislative-history"
+    title: "Texas Large-Load Legislative History"
+    authority_prefixes:
+      - "tx-sb"
+      - "tx-hb"
+    description: >
+      Official bill versions, analyses, fiscal notes, reports, and other
+      legislative materials explaining Texas large-load legislation.
+    charter: "charters/texas-large-load-legislative-history.yaml"
+    spec: "specs/texas-large-load-legislative-history.json"
+    persona: "personas/texas-large-load-legislative-history.txt"
+    metadata_schema: "metadata/authority_source_record.yaml"
+    default_authority_weight: "EVIDENTIARY"

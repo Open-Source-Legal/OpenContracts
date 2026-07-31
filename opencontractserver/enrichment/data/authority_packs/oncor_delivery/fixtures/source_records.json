@@ -1,0 +1,119 @@
+{
+  "schema_version": 1,
+  "review_status": "pending_legal_review",
+  "records": [
+    {
+      "canonical_key": "oncor-tariff:retail-delivery",
+      "corpus_slug": "oncor-current-delivery-tariff",
+      "title": "Oncor Tariff for Retail Delivery Service",
+      "source_url": "https://www.oncor.com/content/oncorwww/us/en/home/about-us/regulatory/tariffs-rate-schedules.html",
+      "source_identifier": "oncor-retail-delivery-tariff",
+      "publisher": "Oncor Electric Delivery Company LLC",
+      "jurisdiction": "us-tx-oncor",
+      "authority_type": "regulation",
+      "instrument_type": "TARIFF",
+      "issued_date": null,
+      "effective_from": null,
+      "effective_until": null,
+      "status": "CURRENT",
+      "authority_weight": "CONTROLLING",
+      "parent_key": null,
+      "version_label": null,
+      "mime_type": "application/pdf",
+      "current_version": true,
+      "metadata": {
+        "authority_family": "oncor-tariff",
+        "effective_date_review_state": "UNKNOWN_PENDING_REVIEW",
+        "fixture_only": true
+      },
+      "relationships": [
+        {
+          "relationship_type": "IMPLEMENTS",
+          "target_key": "tx-admin-puct:25.214",
+          "verified": false,
+          "metadata": {
+            "review_status": "pending_legal_review"
+          }
+        }
+      ]
+    },
+    {
+      "canonical_key": "oncor-tariff:retail-delivery-2017-11-27",
+      "corpus_slug": "oncor-tariff-history",
+      "title": "Oncor Tariff for Retail Delivery Service, Revision Twenty",
+      "source_url": "https://www.oncor.com/content/dam/oncorwww/documents/safety/Tariff%20for%20Retail%20Delivery%20Service.pdf",
+      "source_identifier": "oncor-retail-delivery-tariff-revision-20",
+      "publisher": "Oncor Electric Delivery Company LLC",
+      "jurisdiction": "us-tx-oncor",
+      "authority_type": "regulation",
+      "instrument_type": "TARIFF",
+      "issued_date": null,
+      "effective_from": "2017-11-27",
+      "effective_until": null,
+      "status": "SUPERSEDED",
+      "authority_weight": "EVIDENTIARY",
+      "parent_key": "oncor-tariff:retail-delivery",
+      "version_label": "revision-20",
+      "mime_type": "application/pdf",
+      "current_version": false,
+      "metadata": {
+        "authority_family": "oncor-tariff-history",
+        "effective_date_review_state": "KNOWN",
+        "review_status": "pending_legal_review"
+      },
+      "relationships": [
+        {
+          "relationship_type": "EFFECTIVE_VERSION_OF",
+          "target_key": "oncor-tariff:retail-delivery",
+          "verified": false,
+          "metadata": {
+            "review_status": "pending_legal_review"
+          }
+        },
+        {
+          "relationship_type": "SUPERSEDED_BY",
+          "target_key": "oncor-tariff:retail-delivery",
+          "verified": false,
+          "metadata": {
+            "review_status": "pending_legal_review"
+          }
+        }
+      ]
+    },
+    {
+      "canonical_key": "oncor-service-guide:electric-service-guidelines",
+      "corpus_slug": "oncor-service-requirements",
+      "title": "Oncor Electric Service Guidelines",
+      "source_url": "https://www.oncor.com/content/dam/oncorwww/documents/new-construction/construction-guidelines/Electric%20Service%20Guidelines%20Book.pdf.coredownload.inline.pdf",
+      "source_identifier": "Electric Service Guidelines Book",
+      "publisher": "Oncor Electric Delivery Company LLC",
+      "jurisdiction": "us-tx-oncor",
+      "authority_type": "guidance",
+      "instrument_type": "TECHNICAL_GUIDE",
+      "issued_date": null,
+      "effective_from": "2025-02-01",
+      "effective_until": null,
+      "status": "CURRENT",
+      "authority_weight": "IMPLEMENTING",
+      "parent_key": null,
+      "version_label": "2025-02",
+      "mime_type": "application/pdf",
+      "current_version": true,
+      "metadata": {
+        "authority_family": "oncor-service-requirement",
+        "effective_date_review_state": "UNKNOWN_PENDING_REVIEW",
+        "fixture_only": true
+      },
+      "relationships": [
+        {
+          "relationship_type": "IMPLEMENTS",
+          "target_key": "oncor-tariff:retail-delivery",
+          "verified": false,
+          "metadata": {
+            "review_status": "pending_legal_review"
+          }
+        }
+      ]
+    }
+  ]
+}

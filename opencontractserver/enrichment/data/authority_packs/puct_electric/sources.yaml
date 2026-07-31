@@ -1,0 +1,96 @@
+schema_version: 1
+sources:
+  # These two codified agency rules are public-domain legal edicts. Use the
+  # certificate-valid no-www PUCT origin for the external scraper.
+  - id: "puct-electric-rule-seeds"
+    ingestion_mode: "full_content"
+    corpus_slug: "puct-electric-rules-and-orders"
+    source_provider: "PUCTRuleAuthoritySourceProvider"
+    candidates:
+      - canonical_key: "tx-admin-puct:25.214"
+        url: "https://puc.texas.gov/agency/rulesnlaws/subrules/electric/25.214/"
+        publisher_title: >-
+          Terms and Conditions of Retail Delivery Service Provided by Investor
+          Owned Transmission and Distribution Utilities
+        display_title: >-
+          [LEGAL REVIEW REQUIRED] 16 Texas Administrative Code § 25.214
+        extra:
+          section: "25.214"
+          source_identifier: "16-TAC-25.214"
+      - canonical_key: "tx-admin-puct:25.361"
+        url: "https://puc.texas.gov/agency/rulesnlaws/subrules/electric/25.361/"
+        publisher_title: "Electric Reliability Council of Texas (ERCOT)"
+        display_title: >-
+          [LEGAL REVIEW REQUIRED] 16 Texas Administrative Code § 25.361
+        extra:
+          section: "25.361"
+          source_identifier: "16-TAC-25.361"
+
+  # Exercise the live Chapter 25 publisher listing while tightly retaining only
+  # the two chartered rule sections. The cap covers the current 188-entry page.
+  - id: "puct-electric-rule-discovery"
+    ingestion_mode: "full_content"
+    corpus_slug: "puct-electric-rules-and-orders"
+    discovery_provider: "PUCTRuleDiscoveryProvider"
+    source_provider: "PUCTRuleAuthoritySourceProvider"
+    index_urls:
+      - "https://puc.texas.gov/agency/rulesnlaws/subrules/electric/"
+    discovery_kwargs:
+      max_candidates: 300
+    candidate_filters:
+      include_url:
+        - '/agency/rulesnlaws/subrules/electric/25\.(?:214|361)/$'
+
+  # PUCT Interchange is a mixed-rights repository. Collection is deliberately
+  # external to the app and requires the operator's explicit rights approval.
+  # The server currently omits TLS intermediates, so the collector adds the
+  # audited public CA bundle while retaining normal TLS verification.
+  - id: "puct-project-59142-seed"
+    ingestion_mode: "full_content"
+    corpus_slug: "puct-large-load-proceedings"
+    source_provider: "PUCTInterchangeDocumentAuthoritySourceProvider"
+    fetch_kwargs:
+      extra_ca_certificates:
+        - "certificates/interchange-missing-intermediates.pem"
+      max_bytes: 134217728
+    metadata:
+      authority_family: "puct-proceeding"
+      instrument_type: "STAFF_MEMO"
+      publisher: "Public Utility Commission of Texas"
+      jurisdiction: "us-tx"
+      status: "PUBLISHED"
+      authority_weight: "EVIDENTIARY"
+    candidates:
+      - canonical_key: "puct-project:59142"
+        url: >-
+          https://interchange.puc.texas.gov/search/filings/?ControlNumber=59142
+        publisher_title: "PUCT Project No. 59142"
+        display_title: "[LEGAL REVIEW REQUIRED] PUCT Project No. 59142"
+        extra:
+          control_number: "59142"
+          source_identifier: "59142"
+
+  # Enumerate every filing item and every official PDF/native ZIP attachment.
+  # Fetching a native ZIP also expands all safely bounded publisher members into
+  # distinct source records while retaining the exact ZIP package itself.
+  - id: "puct-project-59142-attachment-discovery"
+    ingestion_mode: "full_content"
+    corpus_slug: "puct-large-load-proceedings"
+    discovery_provider: "PUCTProjectDiscoveryProvider"
+    source_provider: "PUCTInterchangeDocumentAuthoritySourceProvider"
+    index_urls:
+      - >-
+        https://interchange.puc.texas.gov/search/filings/?ControlNumber=59142
+    discovery_kwargs:
+      max_candidates: 300
+      max_detail_pages: 100
+      extra_ca_certificates:
+        - "certificates/interchange-missing-intermediates.pem"
+    fetch_kwargs:
+      extra_ca_certificates:
+        - "certificates/interchange-missing-intermediates.pem"
+      max_bytes: 134217728
+    candidate_filters:
+      include_url:
+        - >-
+          ^https://interchange\.puc\.texas\.gov/Documents/59142_\d+_\d+\.(?:PDF|ZIP)$

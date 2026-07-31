@@ -1,0 +1,11 @@
+{
+  "aliases": ["oncor-tariff", "oncor-rider"],
+  "sections": [
+    {
+      "key": "oncor-tariff:retail-delivery",
+      "heading": "[LEGAL REVIEW REQUIRED] Oncor Tariff for Retail Delivery Service",
+      "text": "Curated seed locator for Oncor's current Tariff for Retail Delivery Service. Preserve the official PDF, verify the PUCT approval record and effective date, and replace this locator before production use.",
+      "source_url": "https://www.oncor.com/content/oncorwww/us/en/home/about-us/regulatory/tariffs-rate-schedules.html"
+    }
+  ]
+}

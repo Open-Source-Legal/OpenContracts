@@ -1,0 +1,52 @@
+prefixes:
+  tx-util:
+    display_name: "Texas Utilities Code"
+    jurisdiction: "us-tx"
+    authority_type: "statute"
+    aliases:
+      - "texas utilities code"
+      - "tex. util. code"
+      - "tex util code"
+      - "pura"
+  tx-sb:
+    display_name: "Texas Senate Bills"
+    jurisdiction: "us-tx"
+    authority_type: "statute"
+    aliases:
+      - "texas senate bill"
+      - "texas s.b."
+  tx-hb:
+    display_name: "Texas House Bills"
+    jurisdiction: "us-tx"
+    authority_type: "statute"
+    aliases:
+      - "texas house bill"
+      - "texas h.b."
+
+equivalences: []
+rewrite_rules: []
+shape_rules: []
+
+abbreviations:
+  state:
+    "Tex. Util. Code":
+      prefix: "tx-util"
+      jurisdiction: "us-tx"
+      authority_type: "statute"
+      requires_section_marker: true
+    "Tex. Util. Code Ann.":
+      prefix: "tx-util"
+      jurisdiction: "us-tx"
+      authority_type: "statute"
+      requires_section_marker: true
+    "Texas Utilities Code":
+      prefix: "tx-util"
+      jurisdiction: "us-tx"
+      authority_type: "statute"
+      requires_section_marker: true
+    "PURA":
+      prefix: "tx-util"
+      jurisdiction: "us-tx"
+      authority_type: "statute"
+      requires_section_marker: true
+  municipal: {}

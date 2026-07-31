@@ -206,7 +206,11 @@ test.describe("AuthorityConsole", () => {
         timeout: 15000,
       }
     );
-    // Tab rail present with the five sections.
+    // Tab rail includes the server-discovered authority-pack catalog alongside
+    // every existing console section.
+    await expect(
+      page.locator('[data-testid="authority-tab-packs"]')
+    ).toBeVisible();
     await expect(
       page.locator('[data-testid="authority-tab-registry"]')
     ).toBeVisible();

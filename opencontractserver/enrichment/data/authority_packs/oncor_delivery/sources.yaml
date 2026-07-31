@@ -1,0 +1,130 @@
+schema_version: 1
+sources:
+  # Oncor-authored tariff and technical works are fetched by the standalone
+  # collector only after explicit operator rights approval.
+  - id: "oncor-current-tariff-seeds"
+    ingestion_mode: "full_content"
+    corpus_slug: "oncor-current-delivery-tariff"
+    source_provider: "OncorTariffAuthoritySourceProvider"
+    metadata:
+      authority_family: "oncor-tariff"
+      instrument_type: "TARIFF"
+      publisher: "Oncor Electric Delivery Company LLC"
+      jurisdiction: "us-tx-oncor"
+      status: "CURRENT"
+      authority_weight: "CONTROLLING"
+    candidates:
+      - canonical_key: "oncor-tariff:retail-delivery"
+        url: >-
+          https://www.oncor.com/content/dam/oncorwww/documents/about-us/regulatory/tariff-and-rate-schedules/Tariff%20for%20Retail%20Delivery%20Service.pdf.coredownload.pdf
+        publisher_title: "Oncor Tariff for Retail Delivery Service"
+        display_title: >-
+          [LEGAL REVIEW REQUIRED] Oncor Tariff for Retail Delivery Service
+        extra:
+          source_identifier: "Tariff for Retail Delivery Service"
+          current_version: true
+          effective_from: "2026-06-01"
+          version_label: "revision-22"
+      - canonical_key: "oncor-tariff:rate-codes"
+        url: >-
+          https://www.oncor.com/content/dam/oncorwww/documents/about-us/regulatory/tariff-and-rate-schedules/Rate%20Codes%20Info.pdf.coredownload.pdf
+        publisher_title: "Oncor Rate Codes"
+        display_title: "[LEGAL REVIEW REQUIRED] Oncor Rate Codes"
+        extra:
+          source_identifier: "Rate Codes Info"
+          current_version: true
+
+  - id: "oncor-current-tariff-discovery"
+    ingestion_mode: "full_content"
+    corpus_slug: "oncor-current-delivery-tariff"
+    discovery_provider: "OncorTariffIndexDiscoveryProvider"
+    source_provider: "OncorTariffAuthoritySourceProvider"
+    metadata:
+      authority_family: "oncor-tariff"
+      publisher: "Oncor Electric Delivery Company LLC"
+      jurisdiction: "us-tx-oncor"
+    index_urls:
+      - >-
+        https://www.oncor.com/content/oncorwww/us/en/home/about-us/regulatory/tariffs-rate-schedules.html
+    discovery_kwargs:
+      max_candidates: 50
+    candidate_filters:
+      include_url:
+        - '/Tariff%20for%20Retail%20Delivery%20Service\.pdf'
+        - '/Rate%20Codes%20Info\.pdf'
+
+  # This official prior tariff identifies itself as Revision Twenty, effective
+  # November 27, 2017. It replaces reliance on the pack's fixture-only lineage
+  # as the real historical artifact while the fixture remains explicit.
+  - id: "oncor-2017-retail-tariff"
+    ingestion_mode: "full_content"
+    corpus_slug: "oncor-tariff-history"
+    source_provider: "OncorTariffAuthoritySourceProvider"
+    metadata:
+      authority_family: "oncor-tariff-history"
+      instrument_type: "TARIFF"
+      publisher: "Oncor Electric Delivery Company LLC"
+      jurisdiction: "us-tx-oncor"
+      status: "SUPERSEDED"
+      authority_weight: "EVIDENTIARY"
+    candidates:
+      - canonical_key: "oncor-tariff:retail-delivery-2017-11-27"
+        url: >-
+          https://www.oncor.com/content/dam/oncorwww/documents/safety/Tariff%20for%20Retail%20Delivery%20Service.pdf
+        publisher_title: >-
+          Oncor Tariff for Retail Delivery Service, Revision Twenty
+        display_title: >-
+          [LEGAL REVIEW REQUIRED] Oncor Tariff for Retail Delivery Service,
+          effective November 27, 2017
+        extra:
+          source_identifier: "Tariff for Retail Delivery Service"
+          current_version: false
+          parent_key: "oncor-tariff:retail-delivery"
+          effective_from: "2017-11-27"
+          version_label: "revision-20"
+
+  - id: "oncor-service-guideline-seed"
+    ingestion_mode: "full_content"
+    corpus_slug: "oncor-service-requirements"
+    source_provider: "OncorServiceDocumentAuthoritySourceProvider"
+    metadata:
+      authority_family: "oncor-service-requirement"
+      instrument_type: "TECHNICAL_GUIDE"
+      publisher: "Oncor Electric Delivery Company LLC"
+      jurisdiction: "us-tx-oncor"
+      status: "CURRENT"
+      authority_weight: "IMPLEMENTING"
+    candidates:
+      - canonical_key: "oncor-service-guide:electric-service-guidelines"
+        url: >-
+          https://www.oncor.com/content/dam/oncorwww/documents/new-construction/construction-guidelines/Electric%20Service%20Guidelines%20Book.pdf.coredownload.inline.pdf
+        publisher_title: "Oncor Electric Service Guidelines"
+        display_title: >-
+          [LEGAL REVIEW REQUIRED] Oncor Electric Service Guidelines
+        extra:
+          source_identifier: "Electric Service Guidelines Book"
+          current_version: true
+          effective_from: "2025-02-01"
+          version_label: "2025-02"
+
+  - id: "oncor-service-document-discovery"
+    ingestion_mode: "full_content"
+    corpus_slug: "oncor-service-requirements"
+    discovery_provider: "OncorServiceDocumentDiscoveryProvider"
+    source_provider: "OncorServiceDocumentAuthoritySourceProvider"
+    metadata:
+      authority_family: "oncor-service-requirement"
+      publisher: "Oncor Electric Delivery Company LLC"
+      jurisdiction: "us-tx-oncor"
+    index_urls:
+      - >-
+        https://www.oncor.com/content/oncorwww/us/en/home/constructionanddevelopment/new-construction.html
+    discovery_kwargs:
+      max_candidates: 100
+    candidate_filters:
+      include_title:
+        - >-
+          (?:Electric Service Guidelines|Customer Requirements|Metering|
+          Specification|Load Requirements|Construction)
+      include_url:
+        - '\.pdf$'

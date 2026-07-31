@@ -1,0 +1,23 @@
+{
+  "aliases": ["oncor-tariff", "oncor-rider"],
+  "sections": [
+    {
+      "key": "oncor-tariff:retail-delivery-2017-11-27",
+      "heading": "[LEGAL REVIEW REQUIRED] Oncor Tariff for Retail Delivery Service, Revision Twenty",
+      "text": "Official prior Oncor Tariff for Retail Delivery Service, identified by the publisher artifact as Revision Twenty with an effective date of November 27, 2017. Verify its complete effective interval and approving PUCT order before treating the lineage as production-ready.",
+      "source_url": "https://www.oncor.com/content/dam/oncorwww/documents/safety/Tariff%20for%20Retail%20Delivery%20Service.pdf",
+      "metadata": {
+        "publisher": "Oncor Electric Delivery Company LLC",
+        "authority_family": "oncor-tariff-history",
+        "instrument_type": "TARIFF",
+        "status": "SUPERSEDED",
+        "authority_weight": "EVIDENTIARY",
+        "current_version": false,
+        "effective_from": "2017-11-27",
+        "version_label": "revision-20",
+        "rights_status": "REVIEW_REQUIRED",
+        "review_status": "pending_legal_review"
+      }
+    }
+  ]
+}

@@ -1,0 +1,70 @@
+schema_version: 1
+sources:
+  # Official codified law is fetched in full. These are legal edicts and the
+  # existing provider extracts only the cited section from each chapter page.
+  - id: "texas-utilities-code-seeds"
+    ingestion_mode: "full_content"
+    corpus_slug: "texas-electric-statutes"
+    source_provider: "TexasStatuteAuthoritySourceProvider"
+    candidates:
+      - canonical_key: "tx-util:37.0561"
+        url: "https://tcss.legis.texas.gov/resources/UT/htm/UT.37.htm"
+        publisher_title: "Texas Utilities Code § 37.0561"
+        display_title: "[LEGAL REVIEW REQUIRED] Texas Utilities Code § 37.0561"
+        extra:
+          source_identifier: "UT-37.0561"
+      - canonical_key: "tx-util:39.151"
+        url: "https://tcss.legis.texas.gov/resources/UT/htm/UT.39.htm"
+        publisher_title: "Texas Utilities Code § 39.151"
+        display_title: "[LEGAL REVIEW REQUIRED] Texas Utilities Code § 39.151"
+        extra:
+          source_identifier: "UT-39.151"
+
+  # Legislative-history works are fetched by the standalone collector after
+  # the operator explicitly approves the review-required publisher content.
+  - id: "texas-sb6-enrolled-seed"
+    ingestion_mode: "full_content"
+    corpus_slug: "texas-large-load-legislative-history"
+    source_provider: "TexasBillAuthoritySourceProvider"
+    metadata:
+      authority_family: "texas-legislative-history"
+      instrument_type: "STATUTE"
+      publisher: "Texas Legislature"
+      jurisdiction: "us-tx"
+      status: "ENACTED"
+      authority_weight: "EVIDENTIARY"
+    candidates:
+      - canonical_key: "tx-sb:89r-6:enrolled"
+        url: "https://capitol.texas.gov/tlodocs/89R/billtext/html/SB00006F.htm"
+        publisher_title: "89th Legislature, Senate Bill 6, enrolled version"
+        display_title: >-
+          [LEGAL REVIEW REQUIRED] 89th Legislature, Senate Bill 6, enrolled
+          version
+        extra:
+          chamber: "SB"
+          session: "89R"
+          number: 6
+          stage: "enrolled"
+          source_identifier: "SB00006F"
+
+  - id: "texas-sb6-history-discovery"
+    ingestion_mode: "full_content"
+    corpus_slug: "texas-large-load-legislative-history"
+    discovery_provider: "TexasBillHistoryDiscoveryProvider"
+    source_provider: "TexasBillAuthoritySourceProvider"
+    metadata:
+      authority_family: "texas-legislative-history"
+      publisher: "Texas Legislature"
+      jurisdiction: "us-tx"
+      authority_weight: "EVIDENTIARY"
+    index_urls:
+      - "https://capitol.texas.gov/billlookup/Text.aspx?Bill=SB6&LegSess=89R"
+    discovery_kwargs:
+      max_candidates: 100
+    candidate_filters:
+      include_url:
+        - '/tlodocs/89R/.*/SB00006[^/]*\.(?:htm|html|pdf|docx?)$'
+      # The stable enrolled seed above supplies its warning-preserving bill-text
+      # title. Retain the separately authored enrolled fiscal note and analysis.
+      exclude_url:
+        - '/tlodocs/89R/billtext/.*/SB00006F\.(?:htm|html|pdf|docx?)$'

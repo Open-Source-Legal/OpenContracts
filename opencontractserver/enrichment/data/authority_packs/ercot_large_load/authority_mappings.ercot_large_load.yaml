@@ -1,0 +1,87 @@
+prefixes:
+  ercot-planning:
+    display_name: "ERCOT Planning Guide"
+    jurisdiction: "us-tx-ercot"
+    authority_type: "admin-rule"
+    aliases:
+      - "ercot planning guide"
+      - "planning guide"
+  ercot-protocol:
+    display_name: "ERCOT Nodal Protocols"
+    jurisdiction: "us-tx-ercot"
+    authority_type: "admin-rule"
+    aliases:
+      - "ercot nodal protocols"
+      - "ercot protocols"
+      - "nodal protocols"
+  ercot-operating:
+    display_name: "ERCOT Nodal Operating Guides"
+    jurisdiction: "us-tx-ercot"
+    authority_type: "admin-rule"
+    aliases:
+      - "ercot nodal operating guide"
+      - "ercot operating guide"
+      - "operating guide"
+  ercot-pgrr:
+    display_name: "ERCOT Planning Guide Revision Requests"
+    jurisdiction: "us-tx-ercot"
+    authority_type: "admin-rule"
+    aliases:
+      - "planning guide revision request"
+      - "pgrr"
+  ercot-nprr:
+    display_name: "ERCOT Nodal Protocol Revision Requests"
+    jurisdiction: "us-tx-ercot"
+    authority_type: "admin-rule"
+    aliases:
+      - "nodal protocol revision request"
+      - "protocol revision request"
+      - "nprr"
+  ercot-notice:
+    display_name: "ERCOT Market Notices"
+    jurisdiction: "us-tx-ercot"
+    authority_type: "guidance"
+    aliases:
+      - "ercot market notice"
+      - "market notice"
+  ercot-form:
+    display_name: "ERCOT Forms and Attestations"
+    jurisdiction: "us-tx-ercot"
+    authority_type: "guidance"
+    aliases:
+      - "ercot form"
+      - "ercot attestation"
+
+equivalences:
+  - from_key: "ercot-protocol:16.5.5"
+    to_key: "ercot-protocol:16"
+    note: >
+      The publisher distributes Section 16 as one document; retain the
+      subsection citation as an alias of that exact source document.
+  - from_key: "ercot-form:batch-zero-lif:v1"
+    to_key: "ercot-form:batch-zero-load-information-form-06172026"
+    note: >
+      Preserve the former application label as an alias of the publisher
+      filename-derived identity for the June 17, 2026 form.
+rewrite_rules: []
+shape_rules: []
+
+abbreviations:
+  state:
+    "PGRR":
+      prefix: "ercot-pgrr"
+      jurisdiction: "us-tx-ercot"
+      authority_type: "admin-rule"
+    "Planning Guide Revision Request":
+      prefix: "ercot-pgrr"
+      jurisdiction: "us-tx-ercot"
+      authority_type: "admin-rule"
+    "NPRR":
+      prefix: "ercot-nprr"
+      jurisdiction: "us-tx-ercot"
+      authority_type: "admin-rule"
+    "Nodal Protocol Revision Request":
+      prefix: "ercot-nprr"
+      jurisdiction: "us-tx-ercot"
+      authority_type: "admin-rule"
+  municipal: {}

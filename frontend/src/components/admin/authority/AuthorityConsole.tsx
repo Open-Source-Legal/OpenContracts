@@ -5,12 +5,12 @@
  * / Authority Mappings / Enrichment Runner) with one shell: a left tab rail +
  * a single "Back to Admin Settings" link, gated once at mount by the authority-
  * admin check. The active tab + (for the registry) the selected authority prefix
- * live in the URL, so every view is deep-linkable. All five concerns —
- * authorities, aliases & relationships, the discovery queue, scrapers, and runs
- * — are absorbed here as real tabs (the standalone panels they replaced are
+ * live in the URL, so every view is deep-linkable. Authority packs,
+ * authorities, aliases & relationships, the discovery queue, scrapers, and
+ * runs are absorbed here as real tabs (the standalone panels they replaced are
  * deleted).
  */
-import React from "react";
+import React, { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
@@ -19,11 +19,16 @@ import {
   GitBranch,
   Library,
   LucideIcon,
+  PackageOpen,
   Scale,
   Zap,
 } from "lucide-react";
 
 import { WarningMessage } from "../../widgets/feedback";
+import {
+  ImportCorpusModal,
+  ImportCorpusTarget,
+} from "../../widgets/modals/ImportCorpusModal";
 import { OS_LEGAL_COLORS } from "../../../assets/configurations/osLegalStyles";
 import {
   BackLink,
@@ -42,8 +47,9 @@ import { MappingsTab } from "./MappingsTab";
 import { DiscoveryQueueTab } from "./DiscoveryQueueTab";
 import { ScrapersTab } from "./ScrapersTab";
 import { RunsTab } from "./RunsTab";
+import { PacksTab } from "./PacksTab";
 
-type TabKey = "registry" | "mappings" | "queue" | "scrapers" | "runs";
+type TabKey = "packs" | "registry" | "mappings" | "queue" | "scrapers" | "runs";
 
 interface TabDef {
   key: TabKey;
@@ -52,6 +58,7 @@ interface TabDef {
 }
 
 const TABS: TabDef[] = [
+  { key: "packs", label: "Authority Packs", icon: PackageOpen },
   { key: "registry", label: "Authorities", icon: Library },
   { key: "mappings", label: "Aliases & Relationships", icon: GitBranch },
   { key: "queue", label: "Discovery Queue", icon: Scale },
@@ -83,6 +90,9 @@ function parsePath(pathname: string): ParsedPath {
 export const AuthorityConsole: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const [importTarget, setImportTarget] = useState<ImportCorpusTarget | null>(
+    null
+  );
   const { ready, isAdmin } = useIsAuthorityAdmin();
   const { tab, prefix } = parsePath(location.pathname);
 
@@ -116,9 +126,10 @@ export const AuthorityConsole: React.FC = () => {
             Authority Console
           </PageTitle>
           <PageSubtitle>
-            One place to view, manage and edit legal authorities — the bodies of
-            law whose aliases drive citation extraction — together with their
-            aliases, relationships, discovery status, and scrapers.
+            One place to install authority packs and manage legal authorities —
+            the bodies of law whose aliases drive citation extraction — together
+            with their aliases, relationships, sideloaded corpora, and run
+            history.
           </PageSubtitle>
         </div>
       </PageHeader>
@@ -143,7 +154,13 @@ export const AuthorityConsole: React.FC = () => {
         </TabRail>
 
         <TabContent>
-          {tab === "registry" ? (
+          {tab === "packs" ? (
+            <PacksTab
+              onImportCorpus={(corpusId, corpus) =>
+                setImportTarget({ id: corpusId, title: corpus.title })
+              }
+            />
+          ) : tab === "registry" ? (
             <RegistryTab
               selectedPrefix={prefix}
               onOpenAuthority={(p) =>
@@ -162,6 +179,12 @@ export const AuthorityConsole: React.FC = () => {
           )}
         </TabContent>
       </ConsoleLayout>
+
+      <ImportCorpusModal
+        visible={importTarget !== null}
+        targetCorpus={importTarget}
+        onClose={() => setImportTarget(null)}
+      />
     </Container>
   );
 };

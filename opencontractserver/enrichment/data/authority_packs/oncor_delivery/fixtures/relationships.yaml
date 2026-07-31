@@ -1,0 +1,23 @@
+schema_version: 1
+review_status: "pending_legal_review"
+expected:
+  - source_key: "oncor-tariff:retail-delivery"
+    relationship_type: "IMPLEMENTS"
+    target_key: "tx-admin-puct:25.214"
+    verified: false
+  - source_key: "oncor-service-guide:electric-service-guidelines"
+    relationship_type: "IMPLEMENTS"
+    target_key: "oncor-tariff:retail-delivery"
+    verified: false
+  - source_key: "oncor-tariff:retail-delivery-2017-11-27"
+    relationship_type: "EFFECTIVE_VERSION_OF"
+    target_key: "oncor-tariff:retail-delivery"
+    verified: false
+    metadata:
+      review_status: "pending_legal_review"
+  - source_key: "oncor-tariff:retail-delivery-2017-11-27"
+    relationship_type: "SUPERSEDED_BY"
+    target_key: "oncor-tariff:retail-delivery"
+    verified: false
+    metadata:
+      review_status: "pending_legal_review"
