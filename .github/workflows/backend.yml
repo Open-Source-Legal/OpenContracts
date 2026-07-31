@@ -142,7 +142,7 @@ jobs:
       # so no auth is required to *pull* on first publish — confirm in
       # GitHub Packages settings if the package was created private).
       - name: Login to ghcr.io
-        uses: docker/login-action@v4
+        uses: docker/login-action@v4.5.2
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
