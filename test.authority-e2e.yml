@@ -1,0 +1,164 @@
+# Isolated full-stack runtime for the authority-pack Playwright workflow.
+#
+# Run this as an override on top of test.yml with a unique Compose project:
+#
+#   docker compose -p grid_dossier_authority_e2e \
+#     -f test.yml -f test.authority-e2e.yml up ...
+#
+# `test.yml` bind-mounts the checkout that invokes Compose at /app. The
+# overrides below isolate externally-visible names, the Django port, and media;
+# named volumes are project-scoped and therefore never touch a developer's
+# normal local database or media directory.
+
+services:
+  django:
+    container_name: grid-dossier-authority-e2e-django
+    depends_on:
+      gotenberg:
+        condition: service_started
+    environment:
+      # The ordinary test profile executes Celery eagerly inside the Django
+      # request. This full-stack workflow needs the existing Redis-backed
+      # integration profile so large corpus imports and per-document
+      # conversion/parsing run on the real worker queues.
+      DJANGO_SETTINGS_MODULE: "config.settings.test_integration"
+      # Retrieval must run on a REAL embedder. The test profile pins
+      # ``DEFAULT_EMBEDDER`` to ``TestEmbedder``, which derives its vector from
+      # an MD5 hash of the text: deterministic and fast, but semantically
+      # meaningless — two paraphrases of the same sentence land in unrelated
+      # directions. Hybrid search then degrades to its BM25 half alone, and the
+      # vector half contributes pure noise (a query for the large-load
+      # transition returns "Texas Veterans" and PUCT copyright footers).
+      # ``BENCHMARK_MODE`` is the sanctioned escape hatch for that pin (see the
+      # issue #1410 footgun guard in config/settings/test.py) — it exists so a
+      # stack like this one can swap in the real microservice deliberately.
+      # Cumulative input tokens across the whole run: the message history is
+      # resent on every model call, so a multi-step investigation burns this
+      # far faster than "400k tokens" suggests. The default is sized for a
+      # 128K-window model; gpt-4.1 holds ~1M, and a run that dies mid-
+      # investigation finalises as a salvage composition with whatever it had
+      # recorded so far.
+      DEEP_RESEARCH_MAX_TOKENS_DEFAULT: "${AUTHORITY_E2E_DR_MAX_TOKENS:-2000000}"
+      BENCHMARK_MODE: "1"
+      DEFAULT_EMBEDDER: "${AUTHORITY_E2E_EMBEDDER:-opencontractserver.pipeline.embedders.sent_transformer_microservice.MicroserviceEmbedder}"
+      E2E_FRONTEND_ORIGIN: "${AUTHORITY_E2E_FRONTEND_ORIGIN:-http://127.0.0.1:15173}"
+      DEFAULT_FILE_CONVERTER: "opencontractserver.pipeline.file_converters.gotenberg_converter.GotenbergFileConverter"
+      GOTENBERG_SERVICE_URL: "http://gotenberg:3000"
+      PDF_PARSER: "warp_ingest"
+      WARP_INGEST_API_KEY: "abc123"
+      WARP_INGEST_PARSER_SERVICE_URL: "http://warp-ingest:5001/api/parse"
+      # The archive includes publisher PDFs up to ~80 MB. Keep the real
+      # Warp-Ingest route alive for an entire CPU-bound extraction, rather
+      # than creating duplicate retry work after a partial parse.
+      WARP_INGEST_PARSER_TIMEOUT: "3600"
+      # An operator may explicitly inject only model configuration for an
+      # optional real-model acceptance run.  This leaves the isolated stack's
+      # database, media, pipeline settings, and all non-LLM test settings
+      # untouched; use the existing test credentials when these are unset.
+      OPENAI_API_KEY: ${AUTHORITY_E2E_OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${AUTHORITY_E2E_OPENAI_MODEL:-}
+      ANTHROPIC_API_KEY: ${AUTHORITY_E2E_ANTHROPIC_API_KEY:-}
+    ports: !override
+      - "127.0.0.1:${AUTHORITY_E2E_DJANGO_PORT:-18080}:8000"
+    volumes:
+      - authority_e2e_media:/app/opencontractserver/media
+
+  celeryworker:
+    container_name: grid-dossier-authority-e2e-celeryworker
+    depends_on:
+      gotenberg:
+        condition: service_started
+    environment:
+      DJANGO_SETTINGS_MODULE: "config.settings.test_integration"
+      # MUST match the django service exactly. The worker writes annotation
+      # embeddings at ingest; django embeds the query at search time. If the two
+      # disagree, every newly ingested document is written into a vector space
+      # no query ever reaches — it is indexed, retrievable by keyword, and
+      # invisible to vector search, with nothing in the logs to say so.
+      # Cumulative input tokens across the whole run: the message history is
+      # resent on every model call, so a multi-step investigation burns this
+      # far faster than "400k tokens" suggests. The default is sized for a
+      # 128K-window model; gpt-4.1 holds ~1M, and a run that dies mid-
+      # investigation finalises as a salvage composition with whatever it had
+      # recorded so far.
+      DEEP_RESEARCH_MAX_TOKENS_DEFAULT: "${AUTHORITY_E2E_DR_MAX_TOKENS:-2000000}"
+      BENCHMARK_MODE: "1"
+      DEFAULT_EMBEDDER: "${AUTHORITY_E2E_EMBEDDER:-opencontractserver.pipeline.embedders.sent_transformer_microservice.MicroserviceEmbedder}"
+      DEFAULT_FILE_CONVERTER: "opencontractserver.pipeline.file_converters.gotenberg_converter.GotenbergFileConverter"
+      GOTENBERG_SERVICE_URL: "http://gotenberg:3000"
+      PDF_PARSER: "warp_ingest"
+      WARP_INGEST_API_KEY: "abc123"
+      WARP_INGEST_PARSER_SERVICE_URL: "http://warp-ingest:5001/api/parse"
+      WARP_INGEST_PARSER_TIMEOUT: "3600"
+      # Keep any worker-side agent execution on the same opt-in model.
+      OPENAI_API_KEY: ${AUTHORITY_E2E_OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${AUTHORITY_E2E_OPENAI_MODEL:-}
+      ANTHROPIC_API_KEY: ${AUTHORITY_E2E_ANTHROPIC_API_KEY:-}
+    # The local development entrypoint wraps Celery in ``watchfiles``. Its
+    # relative ``media`` ignore does not cover this nested E2E media mount, so
+    # every parser output would restart the worker mid-import. Run the same
+    # queues directly for this disposable full-stack acceptance environment.
+    command:
+      - celery
+      - -A
+      - config.celery_app
+      - worker
+      - -l
+      - INFO
+      # Warp-Ingest already uses the available CPU cores within a parse. Keep
+      # the outer document lane serial by default so several large PDFs do not
+      # contend for those same cores; an operator can still raise this on a
+      # host with spare capacity without changing the pipeline itself.
+      - --concurrency=${AUTHORITY_E2E_CELERY_CONCURRENCY:-1}
+      - -Q
+      - celery,worker_uploads,doc_parse
+    volumes:
+      - authority_e2e_media:/app/opencontractserver/media
+
+  postgres:
+    container_name: grid-dossier-authority-e2e-postgres
+
+  redis:
+    container_name: grid-dossier-authority-e2e-redis
+
+  vector-embedder:
+    container_name: grid-dossier-authority-e2e-vector-embedder
+    # The published image serves 2 gunicorn workers, which caps the whole stack
+    # at ~3 embeddings/sec — a one-off backfill of this archive's ~119k
+    # annotations would take ~11 hours. The service is CPU-bound and holds no
+    # shared state, so it scales with processes; ``OMP_NUM_THREADS=1`` stops
+    # each worker's torch runtime from grabbing every core and thrashing
+    # against its siblings. Sized below the host core count to leave room for
+    # postgres and the parsers.
+    command:
+      - /bin/sh
+      - -c
+      - exec gunicorn --bind :$$PORT --workers ${AUTHORITY_E2E_EMBEDDER_WORKERS:-6} --threads 1 --timeout 0 main:app
+    environment:
+      PORT: 8000
+      TRANSFORMERS_OFFLINE: 1
+      HF_DATASETS_OFFLINE: 1
+      OMP_NUM_THREADS: 1
+      VECTOR_EMBEDDER_API_KEY: ${VECTOR_EMBEDDER_API_KEY:-abc123}
+
+  multimodal-embedder:
+    container_name: grid-dossier-authority-e2e-multimodal-embedder
+
+  docling-parser:
+    container_name: grid-dossier-authority-e2e-docling-parser
+
+  docxodus-parser:
+    container_name: grid-dossier-authority-e2e-docxodus-parser
+
+  gotenberg:
+    image: gotenberg/gotenberg:8
+    container_name: grid-dossier-authority-e2e-gotenberg
+
+  warp-ingest:
+    image: ghcr.io/open-source-legal/warp-ingest:1.0.0
+    container_name: grid-dossier-authority-e2e-warp-ingest
+    environment:
+      WARP_API_KEY: "abc123"
+
+volumes:
+  authority_e2e_media: {}

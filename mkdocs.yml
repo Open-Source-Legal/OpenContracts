@@ -89,6 +89,7 @@ nav:
       - Building Document Imports with CAML: guides/building-document-imports-with-caml.md
       - Ingesting Authorities & Adding Providers: guides/ingesting-authorities.md
       - Authoring an Authority Pack: guides/authoring-authority-packs.md
+      - Deploying GridDossier Authorities: guides/deploying-grid-dossier-authorities.md
   - Architecture:
       - System Data Flow: architecture/components/Data-flow-diagram.md
       - PDF Data Layer (PAWLs): architecture/PDF-data-layer.md
@@ -107,6 +108,7 @@ nav:
       - Agent Corpus Actions: architecture/agent_corpus_actions_design.md
       - Corpus Auto-Branding (Logo + README): architecture/corpus_auto_branding.md
       - Document Versioning: architecture/document_versioning.md
+      - User Workspace Storage: architecture/user-workspace-storage.md
       - Querying Annotations on Versioned Docs: architecture/querying_annotations_on_versioned_docs.md
       - Corpus Forking: architecture/corpus_forking.md
       - Corpus Export Format Spec: architecture/corpus-export-format-spec.md
