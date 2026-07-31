@@ -363,6 +363,66 @@ class CorpusService(BaseService):
         return ""
 
     @classmethod
+    def annotations_in_corpus(cls, corpus: Corpus) -> Any:
+        """Every annotation reachable from ``corpus``'s current documents.
+
+        Covers both corpus-scoped annotations and the structural annotations
+        that reach their document through a shared ``StructuralAnnotationSet``
+        — authority corpora use the latter almost exclusively, so a query that
+        only followed ``document_id`` would see nearly nothing.
+        """
+        from django.db.models import Q
+
+        from opencontractserver.annotations.models import Annotation
+        from opencontractserver.documents.models import DocumentPath
+
+        document_ids = DocumentPath.objects.filter(
+            corpus=corpus, is_current=True, is_deleted=False
+        ).values_list("document_id", flat=True)
+        return Annotation.objects.filter(
+            Q(document_id__in=document_ids)
+            | Q(structural=True, structural_set__documents__in=document_ids)
+        ).distinct()
+
+    @classmethod
+    def count_annotations_missing_embeddings(
+        cls, corpus: Corpus, embedder_path: str
+    ) -> int:
+        """How many of ``corpus``'s annotations lack ``embedder_path`` vectors.
+
+        This is what makes "is this corpus migrated?" answerable. Comparing
+        ``preferred_embedder`` alone cannot answer it: ``reembed_corpus`` writes
+        the new path *before* queueing and caps each dispatch at
+        ``MAX_REEMBED_TASKS_PER_RUN``, so a large corpus routinely ends a run
+        with the new embedder recorded and most of its annotations still on the
+        old one.
+
+        Counts only annotations that *can* be embedded. Embedders skip any text
+        that is blank once stripped (``BaseEmbedder`` returns early on
+        ``not text.strip()``), and real corpora carry a steady tail of such
+        rows — parser artefacts that are a lone space or a form feed, ~44k of
+        them in one 77k-annotation revision-history corpus here. Counting them
+        would hold the number permanently above zero, so a fully-migrated corpus
+        would re-dispatch on every call and never report itself done, trading
+        the old silent lie for a loud one.
+
+        The match is a whitespace regex rather than ``Trim``: SQL ``TRIM``
+        strips spaces only, which would leave the form-feed rows counted.
+        """
+        from django.db.models import Q
+
+        from opencontractserver.annotations.models import Embedding
+
+        embeddable = cls.annotations_in_corpus(corpus).exclude(
+            Q(raw_text__isnull=True) | Q(raw_text__regex=r"^\s*$")
+        )
+        embedded = Embedding.objects.filter(
+            annotation_id__in=embeddable.values_list("id", flat=True),
+            embedder_path=embedder_path,
+        ).values_list("annotation_id", flat=True)
+        return embeddable.exclude(id__in=embedded).count()
+
+    @classmethod
     def grant_creator_permissions(
         cls,
         user: User,

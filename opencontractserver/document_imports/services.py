@@ -120,10 +120,10 @@ class ZipImportResult:
 class CorpusImportResult:
     """Result of an OpenContracts corpus-export zip import.
 
-    Unlike the bulk-zip path, the corpus-export import creates a brand-new
-    corpus synchronously (as a placeholder) and then asynchronously
-    hydrates it from the zip. We surface the placeholder corpus so callers
-    can deep-link or refresh their corpus list.
+    Unlike the bulk-zip path, the corpus-export import returns its destination
+    corpus synchronously and then asynchronously hydrates it from the zip.
+    The destination is either a newly-created placeholder or an authorized
+    existing corpus selected by the caller.
     """
 
     corpus: Corpus | None
@@ -739,16 +739,21 @@ def import_corpus_export_for_user(
     *,
     user,
     zip_source: File | bytes,
+    corpus_id: Any = None,
     reingest_and_remap: bool = True,
 ) -> CorpusImportResult:
     """
-    Create a placeholder :class:`Corpus`, stage the OpenContracts export
-    zip in a :class:`TemporaryFileHandle`, and queue ``import_corpus`` to
-    hydrate the corpus from the export.
+    Resolve or create a destination :class:`Corpus`, stage the OpenContracts
+    export zip in a :class:`TemporaryFileHandle`, and queue ``import_corpus``
+    to hydrate the corpus from the export.
 
-    The placeholder corpus is created synchronously (so the caller has
-    something to deep-link / show in their corpus list immediately); the
-    background task rewrites its title/description/etc. from the import.
+    When ``corpus_id`` is omitted, a placeholder corpus is created
+    synchronously (so the caller has something to deep-link / show in their
+    corpus list immediately), preserving the historical behavior. When it is
+    supplied, the shared corpus EDIT gate resolves the existing destination
+    and no placeholder or additional permission rows are created. In either
+    case the background task rewrites the destination's
+    title/description/etc. from the import.
 
     ``reingest_and_remap`` defaults to ``True`` here — this is the opt-out
     boundary for the **user-facing** corpus-export import (the REST
@@ -781,15 +786,24 @@ def import_corpus_export_for_user(
             error="Uploaded file does not appear to be a valid ZIP archive",
         )
 
+    corpus_obj: Corpus | None = None
+    if corpus_id is not None:
+        corpus_obj, corpus_error = _resolve_corpus_for_edit(user, corpus_id)
+        if corpus_obj is None:
+            return CorpusImportResult(corpus=None, error=corpus_error)
+
     storage_filename = f"corpus_import_{uuid.uuid4()}.zip"
     try:
         with transaction.atomic():
-            corpus_obj = Corpus.objects.create(
-                title="New Import",
-                creator=user,
-                backend_lock=False,
-            )
-            set_permissions_for_obj_to_user(user, corpus_obj, [PermissionTypes.CRUD])
+            if corpus_obj is None:
+                corpus_obj = Corpus.objects.create(
+                    title="New Import",
+                    creator=user,
+                    backend_lock=False,
+                )
+                set_permissions_for_obj_to_user(
+                    user, corpus_obj, [PermissionTypes.CRUD]
+                )
 
             temporary_file = TemporaryFileHandle.objects.create()
             if isinstance(zip_source, (bytes, bytearray)):
@@ -810,6 +824,16 @@ def import_corpus_export_for_user(
             error="Failed to stage the corpus export. Please try again.",
         )
 
+    if corpus_obj is None:  # pragma: no cover - guarded by create/resolve above
+        logger.error(
+            "[IMPORT-CORPUS] No destination corpus after staging for user %s",
+            user.id,
+        )
+        return CorpusImportResult(
+            corpus=None,
+            error="Failed to stage the corpus export. Please try again.",
+        )
+
     task_signature = import_corpus.s(
         temporary_file.id,
         user.id,
@@ -822,8 +846,9 @@ def import_corpus_export_for_user(
         transaction.on_commit(lambda: chain(task_signature).apply_async())
 
     logger.info(
-        f"[IMPORT-CORPUS] Corpus export staged into corpus {corpus_obj.id} "
-        f"for user {user.id}"
+        "[IMPORT-CORPUS] Corpus export staged into corpus %s for user %s",
+        corpus_obj.id,
+        user.id,
     )
     return CorpusImportResult(corpus=corpus_obj, error=None)
 
@@ -1039,6 +1064,12 @@ def start_chunked_upload(
         elif kind == ChunkedUploadKind.DOCUMENTS_ZIP:
             _gate_chunked_corpus(
                 normalise_optional(metadata.get("add_to_corpus_id")),
+                user=user,
+                access_token=access_token,
+            )
+        elif kind == ChunkedUploadKind.CORPUS_EXPORT:
+            _gate_chunked_corpus(
+                normalise_optional(metadata.get("corpus_id")),
                 user=user,
                 access_token=access_token,
             )
@@ -1330,6 +1361,7 @@ def complete_chunked_upload(
             result = import_corpus_export_for_user(
                 user=user,
                 zip_source=File(tmp, name=session.filename),
+                corpus_id=normalise_optional(md.get("corpus_id")),
             )
     except DocumentImportPermissionError:
         _mark_failed(session, "Permission denied")

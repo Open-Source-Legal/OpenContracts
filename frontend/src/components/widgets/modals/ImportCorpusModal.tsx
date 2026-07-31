@@ -3,7 +3,7 @@
  *
  * The import streams the ZIP via multipart/form-data to
  * ``POST /api/imports/corpus/``. The backend then:
- * - Creates a NEW corpus (the user becomes the creator with CRUD permissions)
+ * - Creates a NEW corpus by default, or hydrates an explicitly targeted corpus
  * - Hydrates documents, annotations, label sets, and analyses from the export
  *
  * Visibility of the trigger button is gated on the server-derived
@@ -63,8 +63,31 @@ import {
 
 type ImportStep = "confirm" | "upload" | "progress";
 
-export const ImportCorpusModal: React.FC = () => {
-  const visible = useReactiveVar(showImportCorpusModal);
+export interface ImportCorpusTarget {
+  id: string;
+  title: string;
+}
+
+export interface ImportCorpusModalProps {
+  /**
+   * Omit for the existing reactive-var-controlled global import modal.
+   * Supplying this prop makes the modal controlled by its caller.
+   */
+  visible?: boolean;
+  /** Existing corpus to hydrate instead of creating a new corpus. */
+  targetCorpus?: ImportCorpusTarget | null;
+  onClose?: () => void;
+  onImportStarted?: () => void;
+}
+
+export const ImportCorpusModal: React.FC<ImportCorpusModalProps> = ({
+  visible: controlledVisible,
+  targetCorpus,
+  onClose,
+  onImportStarted,
+}) => {
+  const globalVisible = useReactiveVar(showImportCorpusModal);
+  const visible = controlledVisible ?? globalVisible;
 
   const [step, setStep] = useState<ImportStep>("confirm");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -95,8 +118,12 @@ export const ImportCorpusModal: React.FC = () => {
     setError(null);
     setUploadProgress(0);
     setIsDragActive(false);
-    showImportCorpusModal(false);
-  }, []);
+    if (onClose) {
+      onClose();
+    } else {
+      showImportCorpusModal(false);
+    }
+  }, [onClose]);
 
   const handleFileSelect = useCallback((file: File) => {
     if (!file.name.toLowerCase().endsWith(".zip")) {
@@ -170,7 +197,10 @@ export const ImportCorpusModal: React.FC = () => {
     }, 500);
 
     try {
-      const result = await importCorpusExportMultipart({ file: selectedFile });
+      const result = await importCorpusExportMultipart({
+        file: selectedFile,
+        corpusId: targetCorpus?.id,
+      });
 
       clearProgressInterval();
 
@@ -180,7 +210,12 @@ export const ImportCorpusModal: React.FC = () => {
         apolloClient.cache.gc();
 
         setUploadProgress(100);
-        toast.success("SUCCESS! Corpus file upload and import has started.");
+        toast.success(
+          targetCorpus
+            ? `Import into ${targetCorpus.title} has started.`
+            : "SUCCESS! Corpus file upload and import has started."
+        );
+        onImportStarted?.();
         setTimeout(() => handleClose(), 1500);
       } else {
         setError(result.error || "Import failed. Please try again.");
@@ -197,7 +232,14 @@ export const ImportCorpusModal: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [selectedFile, apolloClient, handleClose, clearProgressInterval]);
+  }, [
+    selectedFile,
+    targetCorpus,
+    apolloClient,
+    onImportStarted,
+    handleClose,
+    clearProgressInterval,
+  ]);
 
   const handleConfirm = useCallback(() => setStep("upload"), []);
 
@@ -231,10 +273,15 @@ export const ImportCorpusModal: React.FC = () => {
       <AlertBox $variant="warning">
         <AlertTriangle />
         <AlertBody>
-          <AlertTitle>Importing creates a new corpus</AlertTitle>
+          <AlertTitle>
+            {targetCorpus
+              ? `Import into ${targetCorpus.title}`
+              : "Importing creates a new corpus"}
+          </AlertTitle>
           <p>
-            This will unpack the OpenContracts export ZIP into a brand-new
-            corpus that you own. Note:
+            {targetCorpus
+              ? "This will hydrate the installed pack corpus from an OpenContracts export ZIP. Note:"
+              : "This will unpack the OpenContracts export ZIP into a brand-new corpus that you own. Note:"}
           </p>
           <ul>
             <li>
@@ -246,8 +293,9 @@ export const ImportCorpusModal: React.FC = () => {
             </li>
             <li>The import runs asynchronously; refresh to see progress</li>
             <li>
-              Imports cannot be partially undone — delete the corpus to roll
-              back
+              {targetCorpus
+                ? "Documents with canonical_key metadata converge onto the installed pack path when this archive is imported again"
+                : "Imports cannot be partially undone — delete the corpus to roll back"}
             </li>
           </ul>
         </AlertBody>
@@ -348,7 +396,9 @@ export const ImportCorpusModal: React.FC = () => {
       case "confirm":
         return "Review import details before proceeding";
       case "upload":
-        return "Select a corpus export ZIP to import";
+        return targetCorpus
+          ? `Select the export ZIP for ${targetCorpus.title}`
+          : "Select a corpus export ZIP to import";
       case "progress":
         return "Processing your import...";
     }
@@ -365,7 +415,7 @@ export const ImportCorpusModal: React.FC = () => {
               <HeaderIcon>
                 <FileArchive />
               </HeaderIcon>
-              Import Corpus
+              {targetCorpus ? "Sideload Corpus" : "Import Corpus"}
             </>
           }
           subtitle={getSubtitle(step)}

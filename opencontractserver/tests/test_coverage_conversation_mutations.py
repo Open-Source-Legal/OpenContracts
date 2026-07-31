@@ -51,6 +51,7 @@ from config.graphql.testing import Client
 from opencontractserver.agents.models import AgentConfiguration
 from opencontractserver.conversations.models import ChatMessage, Conversation
 from opencontractserver.corpuses.models import Corpus
+from opencontractserver.documents.models import Document
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
@@ -755,3 +756,208 @@ class DeleteMessageCoverageTests(TestCase):
         data = result["data"]["deleteMessage"]
         self.assertFalse(data["ok"])
         self.assertEqual(data["message"], "Failed to delete message")
+
+
+SAVE_MESSAGE_TO_WORKSPACE_MUTATION = """
+    mutation SaveMessageToWorkspace($messageId: ID!, $title: String, $folderName: String) {
+        saveMessageToWorkspace(messageId: $messageId, title: $title, folderName: $folderName) {
+            ok
+            message
+            obj {
+                id
+                title
+                fileType
+            }
+        }
+    }
+"""
+
+
+class SaveMessageToWorkspaceTests(TestCase):
+    """A chat answer is otherwise unsaved; this files it as a real document."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(username="smw_owner", password="pw")
+        self.corpus = Corpus.objects.create(
+            title="Workspace Corpus", creator=self.owner, is_public=False
+        )
+        self.conversation = Conversation.objects.create(
+            title="Analysis Thread",
+            conversation_type="thread",
+            chat_with_corpus=self.corpus,
+            creator=self.owner,
+        )
+        self.message = ChatMessage.objects.create(
+            conversation=self.conversation,
+            msg_type="LLM",
+            content="## Key finding\n\nThe July 11 process replaces the legacy one.",
+            creator=self.owner,
+        )
+
+    def _gid(self):
+        return to_global_id("MessageType", self.message.id)
+
+    def test_unauthenticated_raises(self):
+        result = _execute(
+            SAVE_MESSAGE_TO_WORKSPACE_MUTATION,
+            AnonymousUser(),
+            {"messageId": self._gid()},
+        )
+        self.assertIsNotNone(result.get("errors"))
+
+    def test_saves_into_the_callers_personal_corpus(self):
+        result = _execute(
+            SAVE_MESSAGE_TO_WORKSPACE_MUTATION,
+            self.owner,
+            {"messageId": self._gid(), "folderName": "Chat Exports"},
+        )
+        self.assertIsNone(result.get("errors"))
+        payload = result["data"]["saveMessageToWorkspace"]
+        self.assertTrue(payload["ok"], payload["message"])
+        self.assertEqual(payload["obj"]["fileType"], "text/markdown")
+        # Title derived from the message's first meaningful line.
+        self.assertEqual(payload["obj"]["title"], "Key finding")
+
+        personal = Corpus.objects.get(creator=self.owner, is_personal=True)
+        saved = personal._get_active_documents(include_caml=True)
+        self.assertEqual(saved.count(), 1)
+        document = saved.first()
+        document.txt_extract_file.open("rb")
+        try:
+            body = document.txt_extract_file.read().decode("utf-8")
+        finally:
+            document.txt_extract_file.close()
+        self.assertIn("**Corpus:** Workspace Corpus", body)
+        self.assertIn("The July 11 process replaces the legacy one.", body)
+
+    def test_explicit_title_wins_over_the_derived_one(self):
+        result = _execute(
+            SAVE_MESSAGE_TO_WORKSPACE_MUTATION,
+            self.owner,
+            {"messageId": self._gid(), "title": "ERCOT transition note"},
+        )
+        payload = result["data"]["saveMessageToWorkspace"]
+        self.assertTrue(payload["ok"], payload["message"])
+        self.assertEqual(payload["obj"]["title"], "ERCOT transition note")
+
+    def test_a_stranger_cannot_save_someone_elses_message(self):
+        """Invisible and nonexistent must be indistinguishable (IDOR)."""
+        stranger = User.objects.create_user(username="smw_stranger", password="pw")
+        result = _execute(
+            SAVE_MESSAGE_TO_WORKSPACE_MUTATION,
+            stranger,
+            {"messageId": self._gid()},
+        )
+        self.assertIsNone(result.get("errors"))
+        payload = result["data"]["saveMessageToWorkspace"]
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["message"], "Message not found")
+        self.assertFalse(
+            Corpus.objects.filter(creator=stranger, is_personal=True)
+            .first()
+            ._get_active_documents(include_caml=True)
+            .exists()
+        )
+
+    def test_reader_of_a_shared_thread_may_save_a_message_they_did_not_write(self):
+        """Visibility-based, per the discussion-permissions model.
+
+        ``docs/permissioning/consolidated_permissioning_guide.md`` documents
+        discussions as "if you can READ a resource, you can participate".
+        Saving a copy of a message you are allowed to read is strictly weaker
+        than editing it (creator-or-moderator), so corpus READ is the correct
+        gate — a collaborator must not be blocked from keeping an answer they
+        can already see on screen.
+        """
+        reader = User.objects.create_user(username="smw_reader", password="pw")
+        set_permissions_for_obj_to_user(reader, self.corpus, [PermissionTypes.READ])
+
+        result = _execute(
+            SAVE_MESSAGE_TO_WORKSPACE_MUTATION,
+            reader,
+            {"messageId": self._gid()},
+        )
+        self.assertIsNone(result.get("errors"))
+        payload = result["data"]["saveMessageToWorkspace"]
+        self.assertTrue(payload["ok"], payload["message"])
+
+    def test_the_copy_lands_in_the_savers_workspace_not_the_authors(self):
+        """A saved copy must never be written into someone else's corpus."""
+        reader = User.objects.create_user(username="smw_reader2", password="pw")
+        set_permissions_for_obj_to_user(reader, self.corpus, [PermissionTypes.READ])
+
+        _execute(
+            SAVE_MESSAGE_TO_WORKSPACE_MUTATION,
+            reader,
+            {"messageId": self._gid()},
+        )
+
+        reader_corpus = Corpus.objects.get(creator=reader, is_personal=True)
+        author_corpus = Corpus.objects.get(creator=self.owner, is_personal=True)
+        self.assertEqual(
+            reader_corpus._get_active_documents(include_caml=True).count(), 1
+        )
+        self.assertEqual(
+            author_corpus._get_active_documents(include_caml=True).count(), 0
+        )
+        saved = reader_corpus._get_active_documents(include_caml=True).first()
+        self.assertEqual(saved.creator_id, reader.pk)
+        # And the author cannot see the reader's private copy.
+        self.assertFalse(
+            Document.objects.visible_to_user(self.owner).filter(pk=saved.pk).exists()
+        )
+
+    def test_accepts_the_raw_pk_a_streamed_message_carries(self):
+        """A freshly streamed answer is the most likely thing to be saved.
+
+        ``messageId`` carries two formats: history loaded over GraphQL is a
+        relay global ID, but a message streamed over the agent WebSocket is the
+        raw integer pk. Decoding blindly turned the raw form into ``''`` and
+        raised deep in the ORM, so saving a just-received answer 500-ed.
+        """
+        result = _execute(
+            SAVE_MESSAGE_TO_WORKSPACE_MUTATION,
+            self.owner,
+            {"messageId": str(self.message.id), "title": "From the stream"},
+        )
+        self.assertIsNone(result.get("errors"))
+        payload = result["data"]["saveMessageToWorkspace"]
+        self.assertTrue(payload["ok"], payload["message"])
+        self.assertEqual(payload["obj"]["title"], "From the stream")
+
+    def test_unusable_message_id_is_not_found_rather_than_a_server_error(self):
+        result = _execute(
+            SAVE_MESSAGE_TO_WORKSPACE_MUTATION,
+            self.owner,
+            {"messageId": "not-an-id-at-all"},
+        )
+        self.assertIsNone(result.get("errors"))
+        payload = result["data"]["saveMessageToWorkspace"]
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["message"], "Message not found")
+
+    def test_empty_message_is_refused_rather_than_filed(self):
+        blank = ChatMessage.objects.create(
+            conversation=self.conversation,
+            msg_type="LLM",
+            content="   ",
+            creator=self.owner,
+        )
+        result = _execute(
+            SAVE_MESSAGE_TO_WORKSPACE_MUTATION,
+            self.owner,
+            {"messageId": to_global_id("MessageType", blank.id)},
+        )
+        payload = result["data"]["saveMessageToWorkspace"]
+        self.assertFalse(payload["ok"])
+        self.assertIn("no content", payload["message"])
+
+    def test_saving_twice_versions_rather_than_duplicating(self):
+        variables = {"messageId": self._gid(), "title": "Pinned answer"}
+        first = _execute(SAVE_MESSAGE_TO_WORKSPACE_MUTATION, self.owner, variables)
+        second = _execute(SAVE_MESSAGE_TO_WORKSPACE_MUTATION, self.owner, variables)
+        self.assertTrue(first["data"]["saveMessageToWorkspace"]["ok"])
+        self.assertTrue(second["data"]["saveMessageToWorkspace"]["ok"])
+
+        personal = Corpus.objects.get(creator=self.owner, is_personal=True)
+        self.assertEqual(personal._get_active_documents(include_caml=True).count(), 1)

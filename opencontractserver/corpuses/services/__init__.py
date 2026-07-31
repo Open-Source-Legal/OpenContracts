@@ -55,6 +55,7 @@ from opencontractserver.corpuses.services.intelligence_setup import (
 from opencontractserver.corpuses.services.lifecycle import DocumentLifecycleService
 from opencontractserver.corpuses.services.paths import CorpusPathService
 from opencontractserver.corpuses.services.votes import CorpusVoteService
+from opencontractserver.corpuses.services.workspace import WorkspaceService
 
 __all__ = [
     "BatchRunSummary",
@@ -71,4 +72,5 @@ __all__ = [
     "DocumentLifecycleService",
     "CorpusPathService",
     "CorpusVoteService",
+    "WorkspaceService",
 ]

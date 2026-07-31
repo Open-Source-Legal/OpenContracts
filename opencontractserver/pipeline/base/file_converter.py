@@ -14,6 +14,7 @@ formats.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 from abc import ABC, abstractmethod
@@ -47,7 +48,11 @@ def extension_for_filename(filename: str) -> str:
 
 
 def source_mime_type_for_conversion(
-    filename: str, stored_file_type: str, source_bytes: bytes
+    filename: str,
+    stored_file_type: str,
+    source_bytes: bytes,
+    *,
+    verified_source_mime_type: str | None = None,
 ) -> str:
     """Return safe provenance MIME for a successfully converted source file.
 
@@ -59,6 +64,12 @@ def source_mime_type_for_conversion(
     """
     if stored_file_type != OCTET_STREAM_MIME_TYPE:
         return stored_file_type
+    if (
+        isinstance(verified_source_mime_type, str)
+        and "/" in verified_source_mime_type
+        and verified_source_mime_type.strip()
+    ):
+        return verified_source_mime_type.strip().casefold()
 
     if extension_for_filename(
         filename
@@ -229,9 +240,25 @@ class BaseFileConverter(PipelineComponentBase, ABC):
         # pdf_file currently references (no storage copy), then write the
         # converted PDF as a NEW blob. The source blob stays referenced, so
         # delete-time blob GC (Document.blob_field_names) still covers it.
+        verified_source_mime_type = None
+        custom_meta = document.custom_meta or {}
+        expected_hash = custom_meta.get("publisher_source_content_hash")
+        declared_mime = custom_meta.get("publisher_source_mime_type")
+        packaging = custom_meta.get("publisher_source_packaging")
+        if (
+            packaging == "document"
+            and isinstance(expected_hash, str)
+            and expected_hash == hashlib.sha256(file_bytes).hexdigest()
+            and isinstance(declared_mime, str)
+        ):
+            verified_source_mime_type = declared_mime
+
         document.original_file.name = document.pdf_file.name
         document.original_file_type = source_mime_type_for_conversion(
-            original_name, document.file_type, file_bytes
+            original_name,
+            document.file_type,
+            file_bytes,
+            verified_source_mime_type=verified_source_mime_type,
         )
 
         stem = os.path.splitext(original_name)[0] or f"doc_{doc_id}"

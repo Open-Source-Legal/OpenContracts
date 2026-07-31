@@ -100,6 +100,11 @@ export interface ImportZipToCorpusRestInput {
 
 export interface ImportCorpusExportRestInput {
   file: File;
+  /**
+   * Optional existing corpus to hydrate from the export. When omitted the
+   * server preserves the long-standing "create a new corpus" behaviour.
+   */
+  corpusId?: string | null;
   /** Optional progress callback (fraction in ``[0, 1]``) for large uploads. */
   onProgress?: UploadProgressCallback;
 }
@@ -641,7 +646,7 @@ export async function importCorpusExportMultipart(
       kind: "corpus_export",
       file: input.file,
       filename: input.file.name,
-      metadata: {},
+      metadata: input.corpusId ? { corpus_id: input.corpusId } : {},
       onProgress: input.onProgress,
     });
     if (!r.ok) {
@@ -656,6 +661,7 @@ export async function importCorpusExportMultipart(
 
   const fd = new FormData();
   fd.append("file", input.file);
+  appendIfDefined(fd, "corpus_id", input.corpusId);
 
   const response = await fetch(`${getApiRoot()}/api/imports/corpus/`, {
     method: "POST",

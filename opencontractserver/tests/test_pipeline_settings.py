@@ -27,6 +27,17 @@ class TestContext:
 class PipelineSettingsModelTestCase(TestCase):
     """Tests for the PipelineSettings model."""
 
+    def test_default_docx_parser_uses_docxodus_service(self):
+        """Native DOCX files must not be sent to the PDF parser."""
+        from django.conf import settings as django_settings
+
+        self.assertEqual(
+            django_settings.PREFERRED_PARSERS[
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            ],
+            "opencontractserver.pipeline.parsers.docxodus_parser.DocxodusServiceParser",
+        )
+
     def setUp(self):
         from django.core.cache import cache
 

@@ -892,3 +892,181 @@ class TestMigrationBackfill(TestCase):
         self.assertIsNotNone(corpus.preferred_embedder)
         self.assertIsNotNone(corpus.created_with_embedder)
         self.assertEqual(corpus.preferred_embedder, corpus.created_with_embedder)
+
+
+# ---------------------------------------------------------------------------
+# Resuming a capped re-embed
+# ---------------------------------------------------------------------------
+
+
+class TestReEmbedCorpusResume(TestCase):
+    """``reEmbedCorpus`` must be able to finish what a capped run started.
+
+    ``reembed_corpus`` writes ``preferred_embedder`` *before* queueing work and
+    caps each dispatch at ``MAX_REEMBED_TASKS_PER_RUN``. A corpus larger than
+    that cap therefore ends its first run already labelled with the new
+    embedder while most of its annotations still carry the old one. A no-op
+    guard that compares only the embedder path then refuses every retry --
+    answering ``ok: true`` -- and the corpus stays half-migrated permanently,
+    with the unembedded tail invisible to vector search and nothing surfacing
+    the problem.
+    """
+
+    MUTATION = """
+        mutation ReEmbed($corpusId: String!, $newEmbedder: String!) {
+            reEmbedCorpus(corpusId: $corpusId, newEmbedder: $newEmbedder) {
+                ok
+                message
+            }
+        }
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="reembedresume", password="testpass"
+        )
+        self.corpus = Corpus.objects.create(
+            title="Half Migrated",
+            creator=self.user,
+            preferred_embedder="new.Embedder",
+        )
+        self.factory = RequestFactory()
+
+    def _execute(self, variables):
+        """Run the mutation and actually fire its ``on_commit`` callbacks.
+
+        The dispatch is registered with ``transaction.on_commit``, and
+        ``TestCase`` wraps each test in a transaction it rolls back — so
+        without ``captureOnCommitCallbacks`` the task is never called and a
+        test asserting the dispatch fails against perfectly correct code.
+        """
+        from config.graphql.schema import schema
+        from config.graphql.testing import Client as GrapheneClient
+
+        request = self.factory.post("/graphql")
+        request.user = self.user
+        client = GrapheneClient(schema)
+        with self.captureOnCommitCallbacks(execute=True):
+            result = client.execute(
+                self.MUTATION, variables=variables, context_value=request
+            )
+        return result
+
+    def _add_unembedded_annotation(self):
+        """Put one annotation in the corpus with no embedding of any kind."""
+        from opencontractserver.annotations.models import Annotation
+        from opencontractserver.documents.models import Document, DocumentPath
+
+        document = Document.objects.create(
+            title="Doc", description="d", creator=self.user
+        )
+        DocumentPath.objects.create(
+            corpus=self.corpus,
+            document=document,
+            path="/documents/doc.txt",
+            version_number=1,
+            is_current=True,
+            creator=self.user,
+        )
+        Annotation.objects.create(
+            document=document,
+            raw_text="unembedded text",
+            creator=self.user,
+        )
+
+    @patch("opencontractserver.tasks.corpus_tasks.reembed_corpus.delay")
+    @patch("opencontractserver.pipeline.utils.get_component_by_name")
+    def test_resumes_when_annotations_still_lack_the_embedder(
+        self, mock_get_component, mock_delay
+    ):
+        from graphql_relay import to_global_id
+
+        mock_get_component.return_value = type(
+            "FakeEmbedder", (BaseEmbedder,), {"vector_size": 384}
+        )
+        self._add_unembedded_annotation()
+
+        data = self._execute(
+            {
+                "corpusId": to_global_id("CorpusType", self.corpus.pk),
+                "newEmbedder": "new.Embedder",
+            }
+        )["data"]["reEmbedCorpus"]
+
+        self.assertTrue(data["ok"], data)
+        self.assertIn("Resuming", data["message"])
+        # The dispatch is the assertion that matters: without it the remaining
+        # annotations are never embedded, whatever the message says.
+        mock_delay.assert_called_once()
+
+    @patch("opencontractserver.tasks.corpus_tasks.reembed_corpus.delay")
+    @patch("opencontractserver.pipeline.utils.get_component_by_name")
+    def test_blank_text_annotations_do_not_block_completion(
+        self, mock_get_component, mock_delay
+    ):
+        """An un-embeddable annotation must not make the corpus look unfinished.
+
+        Real corpora carry a tail of blank ``raw_text`` rows (layout fragments)
+        that the embedding pipeline skips and therefore can never embed. If the
+        outstanding count included them, a fully-migrated corpus would report
+        work remaining forever and re-dispatch on every call.
+        """
+        from graphql_relay import to_global_id
+
+        from opencontractserver.annotations.models import Annotation
+        from opencontractserver.documents.models import Document, DocumentPath
+
+        mock_get_component.return_value = type(
+            "FakeEmbedder", (BaseEmbedder,), {"vector_size": 384}
+        )
+        document = Document.objects.create(
+            title="Doc", description="d", creator=self.user
+        )
+        DocumentPath.objects.create(
+            corpus=self.corpus,
+            document=document,
+            path="/documents/blank.txt",
+            version_number=1,
+            is_current=True,
+            creator=self.user,
+        )
+        # A lone space and a form feed: real parser artefacts, and both blank
+        # once stripped. SQL TRIM would miss the form feed, so this pins the
+        # whitespace match rather than just the empty string.
+        for blank in ("", " ", "\x0c"):
+            Annotation.objects.create(
+                document=document, raw_text=blank, creator=self.user
+            )
+
+        data = self._execute(
+            {
+                "corpusId": to_global_id("CorpusType", self.corpus.pk),
+                "newEmbedder": "new.Embedder",
+            }
+        )["data"]["reEmbedCorpus"]
+
+        self.assertIn("No re-embedding needed", data["message"])
+        mock_delay.assert_not_called()
+
+    @patch("opencontractserver.tasks.corpus_tasks.reembed_corpus.delay")
+    @patch("opencontractserver.pipeline.utils.get_component_by_name")
+    def test_still_a_noop_when_nothing_is_outstanding(
+        self, mock_get_component, mock_delay
+    ):
+        """The original no-op behaviour survives for a fully-migrated corpus."""
+        from graphql_relay import to_global_id
+
+        mock_get_component.return_value = type(
+            "FakeEmbedder", (BaseEmbedder,), {"vector_size": 384}
+        )
+
+        data = self._execute(
+            {
+                "corpusId": to_global_id("CorpusType", self.corpus.pk),
+                "newEmbedder": "new.Embedder",
+            }
+        )["data"]["reEmbedCorpus"]
+
+        self.assertTrue(data["ok"], data)
+        self.assertIn("No re-embedding needed", data["message"])
+        mock_delay.assert_not_called()

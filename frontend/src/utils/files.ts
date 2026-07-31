@@ -1,5 +1,6 @@
 import Axios from "axios";
 import {
+  MARKDOWN_MIME_TYPE,
   LEGACY_TEXT_MIME_TYPE,
   DOCX_MIME_TYPE,
 } from "../assets/configurations/constants";
@@ -11,6 +12,17 @@ import {
  */
 export const isTextFileType = (fileType: string | null | undefined): boolean =>
   fileType?.startsWith("text/") === true || fileType === LEGACY_TEXT_MIME_TYPE;
+
+/**
+ * Check if a file type string represents a Markdown document.
+ *
+ * Markdown is a *subset* of ``isTextFileType`` (it starts with ``text/``), so
+ * order matters wherever both are tested: check markdown first, or every
+ * markdown document falls into the plain-text branch and renders as source.
+ */
+export const isMarkdownFileType = (
+  fileType: string | null | undefined
+): boolean => fileType === MARKDOWN_MIME_TYPE;
 
 /**
  * Check if a file type string represents a PDF document.

@@ -352,8 +352,9 @@ class CorpusExportImportView(APIView):
     OpenContracts corpus-export zip import. Replaces the legacy
     ``UploadCorpusImportZip`` GraphQL mutation.
 
-    Creates a new placeholder corpus owned by the requester and queues
-    ``import_corpus`` to hydrate it from the uploaded export.
+    Queues ``import_corpus`` to hydrate either an authorized existing corpus
+    selected by ``corpus_id`` or, when omitted, a new placeholder corpus owned
+    by the requester.
     """
 
     authentication_classes = [GraphQLJWTAuthentication]
@@ -375,6 +376,7 @@ class CorpusExportImportView(APIView):
             result = import_corpus_export_for_user(
                 user=request.user,
                 zip_source=uploaded,
+                corpus_id=normalise_optional(data.get("corpus_id")),
             )
         except DocumentImportPermissionError as e:
             logger.info("Corpus-export import denied", extra={"code": e.code})

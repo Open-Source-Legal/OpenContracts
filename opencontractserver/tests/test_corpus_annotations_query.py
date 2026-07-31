@@ -605,6 +605,44 @@ class TestSearchCorpusAnnotationText(TestCase):
         )
         self.assertEqual([h.pk for h in hits], [self.tight.pk])
 
+    def test_scoping_finds_structural_annotations_of_that_document(self):
+        """A structural annotation has ``document_id=None``.
+
+        It reaches its document through the shared ``structural_set``, so
+        filtering the column alone matches nothing in a structurally-annotated
+        corpus — which is every authority corpus. The failure is silent: the
+        lookup just reports no passage found, and a research agent burns its
+        whole token budget retrying with shorter phrases.
+        """
+        from opencontractserver.annotations.models import (
+            Annotation,
+            StructuralAnnotationSet,
+        )
+
+        structural_set = StructuralAnnotationSet.objects.create(creator=self.owner)
+        self.doc.structural_annotation_set = structural_set
+        self.doc.save(update_fields=["structural_annotation_set"])
+        structural = Annotation.objects.create(
+            document=None,
+            structural_set=structural_set,
+            # The DB enforces ``structural_set_requires_structural_flag``: a
+            # set-owned annotation must declare itself structural.
+            structural=True,
+            raw_text="the notarized attestation must be filed",
+            creator=self.owner,
+        )
+
+        hits = list(
+            AnnotationService.search_corpus_annotation_text(
+                corpus_id=self.corpus.id,
+                user=self.owner,
+                phrase="notarized attestation",
+                document_id=self.doc.id,
+                limit=5,
+            )
+        )
+        self.assertIn(structural.pk, [h.pk for h in hits])
+
     def test_limit_is_an_ordinary_cap(self):
         # ``limit`` means "at most N" for every N, including 0 — a shared
         # service method that quietly turned 0 into 1 is a footgun for the next

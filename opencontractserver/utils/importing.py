@@ -515,6 +515,10 @@ def create_document_from_export_data(
     """
     from opencontractserver.documents.models import Document
 
+    custom_meta = doc_data.get("custom_meta")
+    if custom_meta is not None and not isinstance(custom_meta, dict):
+        raise ValueError("document custom_meta must be a JSON object")
+
     pdf_file = File(pdf_file_handle, doc_filename)
 
     pawls_parse_file = ContentFile(
@@ -530,6 +534,7 @@ def create_document_from_export_data(
     doc_obj = Document.objects.create(
         title=doc_data["title"],
         description=doc_data.get("description", ""),
+        custom_meta=custom_meta or {},
         pdf_file=pdf_file,
         # Preserve the source-file hash from the export when present.
         # Required so the corpus-isolated copy created by ``add_document``

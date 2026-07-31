@@ -12,16 +12,20 @@ Spec: Canonical-CAML Corpus Description Refactor §4.8.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import zipfile
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.core.files.base import ContentFile
 from django.test import TestCase
+from django.utils import timezone
 
 from opencontractserver.annotations.models import LabelSet
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.corpuses.services.corpus_service import CorpusService
+from opencontractserver.documents.models import Document, DocumentPath
 
 User = get_user_model()
 
@@ -54,6 +58,40 @@ class ExportV3SchemaTest(TestCase):
             with zipfile.ZipFile(buf, "r") as zf:
                 with zf.open("data.json") as f:
                     return json.load(f)
+
+    def _publisher_source_document(self, *, source_hash: str | None = None) -> Document:
+        portable = b"portable extracted text"
+        publisher_source = b"<html><body>publisher source</body></html>"
+        content_hash = source_hash or hashlib.sha256(publisher_source).hexdigest()
+        source_member = "publisher-source-rule.html"
+        document = Document.objects.create(
+            title="Publisher Rule",
+            creator=self.user,
+            file_type="text/plain",
+            pdf_file=ContentFile(portable, name="publisher-rule.txt"),
+            pdf_file_hash=hashlib.sha256(portable).hexdigest(),
+            txt_extract_file=ContentFile(portable, name="extracted.txt"),
+            pawls_parse_file=ContentFile(b"[]", name="pawls.json"),
+            original_file=ContentFile(publisher_source, name=source_member),
+            original_file_type="text/html",
+            custom_meta={
+                "publisher_source_member": source_member,
+                "publisher_source_content_hash": content_hash,
+                "publisher_source_mime_type": "text/html",
+                "publisher_source_packaging": "sidecar",
+            },
+            processing_started=timezone.now(),
+        )
+        DocumentPath.objects.create(
+            document=document,
+            corpus=self.corpus,
+            path="/documents/publisher-rule.txt",
+            version_number=1,
+            is_current=True,
+            is_deleted=False,
+            creator=self.user,
+        )
+        return document
 
     def test_export_emits_version_3_0(self):
         data = self._build_export_json()
@@ -96,6 +134,40 @@ class ExportV3SchemaTest(TestCase):
             "post_processors",
         ):
             self.assertIn(f, data, f"V3 export missing expected field {f!r}")
+
+    def test_export_reemits_verified_publisher_original_file(self):
+        self._publisher_source_document()
+        from opencontractserver.tasks.export_tasks_v2 import build_corpus_v2_zip
+
+        with build_corpus_v2_zip(
+            corpus_pk=self.corpus.id,
+            user_for_visibility=self.user,
+        ) as buf:
+            with zipfile.ZipFile(buf) as archive:
+                data = json.loads(archive.read("data.json"))
+                _filename, exported = next(iter(data["annotated_docs"].items()))
+                source_member = exported["custom_meta"]["publisher_source_member"]
+                self.assertEqual(
+                    archive.read(source_member),
+                    b"<html><body>publisher source</body></html>",
+                )
+                self.assertEqual(
+                    exported["custom_meta"]["publisher_source_packaging"],
+                    "sidecar",
+                )
+
+    def test_export_rejects_publisher_original_file_hash_mismatch(self):
+        self._publisher_source_document(source_hash="0" * 64)
+        from opencontractserver.tasks.export_tasks_v2 import build_corpus_v2_zip
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "does not match Document.original_file",
+        ):
+            build_corpus_v2_zip(
+                corpus_pk=self.corpus.id,
+                user_for_visibility=self.user,
+            )
 
 
 class ValidatorVersionGatingTest(TestCase):
@@ -160,8 +232,7 @@ class ValidatorVersionGatingTest(TestCase):
         result = validate_data_json(payload)
         self.assertTrue(
             any("md_description_revisions" in e for e in result.errors),
-            f"expected md_description_revisions rejection in V3, "
-            f"got: {result.errors}",
+            f"expected md_description_revisions rejection in V3, got: {result.errors}",
         )
 
     def test_v2_payload_still_requires_md_description(self):

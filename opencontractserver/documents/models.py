@@ -2275,21 +2275,23 @@ class PendingDocumentAnnotations(django.db.models.Model):
 
 
 class PendingCorpusImport(django.db.models.Model):
-    """Coordination row for the relationship fan-in of a reingest-mode import.
+    """Observable coordination row for every reingest-mode corpus import.
 
     In "reingest & remap" mode a V2 corpus import creates each document's
     annotations *asynchronously* (one post-save remap chain per document), so
     the importer cannot wire corpus-level relationships inline — the
     annotation pks do not exist yet when ``_import_corpus`` returns. This row
-    holds the run's relationships payload and gates the fan-in: once every
+    holds the run's relationships payload (possibly empty) and gates the
+    fan-in: once every
     document's ``PendingDocumentAnnotations`` row for the run has left PENDING,
     exactly one observer flips this row to ``FINALIZING`` and dispatches
     ``finalize_corpus_import_relationships``, which aggregates the per-document
     ``id_map``s and wires the relationships.
 
-    One row per import run *that has corpus-level relationships to wire* — a
-    relationship-free run mints a run id but creates no row (nothing to
-    finalize). See ``docs/development/2026-06-06-v2-import-reingest-remap.md``.
+    One row is created per import run, including relationship-free and
+    byte-identical runs.  This gives the importer and operator surfaces one
+    durable terminal status for every reingest request. See
+    ``docs/development/2026-06-06-v2-import-reingest-remap.md``.
     """
 
     class Status(django.db.models.TextChoices):

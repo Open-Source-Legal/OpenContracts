@@ -62,6 +62,7 @@ def _create_content_file(
     content_hash: str,
     path: str,
     file_type: str = "application/pdf",
+    filename: str | None = None,
 ) -> ContentFile:
     """
     Create a Django ContentFile from raw content bytes.
@@ -103,11 +104,27 @@ def _create_content_file(
         # Fallback to mimetypes library
         extension = mimetypes.guess_extension(file_type) or ".bin"
 
+    # Derive filename from the original upload name when the path is a
+    # canonical identity path without a suffix (versioned authority imports
+    # intentionally use extensionless paths).  The suffix is what the
+    # converter uses to select LibreOffice's import filter.
+    source_name = (filename or "").rsplit("/", 1)[-1]
+    source_extension = source_name.rsplit(".", 1)[-1] if "." in source_name else ""
+
     # Derive filename from path or use hash
     if path:
         # Extract filename from path, e.g., "/documents/my_file.pdf" -> "my_file"
         base_name = path.split("/")[-1]
-        if "." in base_name:
+        if source_extension:
+            # Canonical identity paths may contain dots that are part of an
+            # authority key (for example ``tac:25.214``), not a file suffix.
+            # The incoming upload name is the authoritative source for the
+            # physical file extension used by downstream converters.
+            suffix = f".{source_extension}"
+            if base_name.lower().endswith(suffix.lower()):
+                base_name = base_name[: -len(suffix)]
+            extension = f".{source_extension}"
+        elif "." in base_name:
             # The path carries the upload's own extension — keep it. It is
             # more faithful than the MIME-derived one and the pre-parse
             # file-converter step keys conversion eligibility off the stored
@@ -166,6 +183,36 @@ def compute_sha256_for_file(file_obj: "File") -> str:
     return hasher.hexdigest()
 
 
+def _matches_stored_or_original_content(document: Document, content_hash: str) -> bool:
+    """Return whether ``content_hash`` matches the active source for a document.
+
+    The conversion lane replaces ``pdf_file`` with a PDF and refreshes
+    ``pdf_file_hash``.  Its source upload remains available through
+    ``original_file`` though, so a source-synchronisation re-import of an
+    unchanged PPTX/XLSX/etc. must compare against that retained file as well.
+    This keeps ``skip_if_unchanged`` useful across any converter without
+    inventing converter-specific versioning state.
+
+    A missing or unreadable original deliberately falls back to normal
+    versioning.  Avoid turning an unavailable provenance blob into a false
+    unchanged result.
+    """
+
+    if document.pdf_file_hash == content_hash:
+        return True
+    if not document.original_file:
+        return False
+    try:
+        return compute_sha256_for_file(document.original_file) == content_hash
+    except (OSError, ValueError):
+        logger.warning(
+            "Could not read retained original file for document %s while "
+            "checking unchanged source content; creating a new version if needed.",
+            document.pk,
+        )
+        return False
+
+
 def calculate_content_version(document: Document) -> int:
     """
     Calculate the version number of a document by counting
@@ -190,6 +237,8 @@ def import_document(
     pdf_file=None,
     txt_file=None,
     content_file: "File | None" = None,
+    skip_if_unchanged: bool = False,
+    record_metadata_event: bool = False,
     **doc_kwargs,
 ) -> tuple[Document, str, DocumentPath]:
     """
@@ -228,20 +277,29 @@ def import_document(
               DocumentPath)
             - ingestion_metadata (dict | None): Arbitrary source metadata such
               as URL, crawl job ID, etc. (stored on DocumentPath)
+        skip_if_unchanged: Compare the incoming source-byte hash under the
+            active-path lock with either the stored file or, after conversion,
+            its retained original upload. Avoid a new Document version when it
+            matches. Opt-in so the historical upload behavior remains unchanged.
+        record_metadata_event: When matching content has changed document/path
+            metadata, append a same-version ``DocumentPath`` lifecycle node.
 
     Returns:
         Tuple of (document, status, path_record) where status is one of:
         - 'created': New document at new path
         - 'updated': New version at existing path
+        - 'metadata_updated': Existing content with changed metadata
+        - 'unchanged': Existing content and metadata are identical
 
-    Note: No content-based deduplication is performed. Each upload creates
-    a new document regardless of content hash.
+    Note: Content deduplication is opt-in via ``skip_if_unchanged``. User
+    uploads retain their long-standing "every upload is a version" contract.
     """
     # Extract path-level lineage kwargs before they hit Document.objects.create()
     path_kwargs = {}
     for key in ("ingestion_source", "external_id", "ingestion_metadata"):
         if key in doc_kwargs:
             path_kwargs[key] = doc_kwargs.pop(key)
+    source_filename = doc_kwargs.pop("_source_filename", None)
 
     # Handle file_type - use default if None or missing
     file_type = doc_kwargs.get("file_type") or "application/pdf"
@@ -301,6 +359,82 @@ def import_document(
             # Path exists - always create new version (no content-based deduplication)
             old_doc = current_path.document
 
+            if skip_if_unchanged and _matches_stored_or_original_content(
+                old_doc, content_hash
+            ):
+                # Source syncs should converge metadata without fabricating a
+                # content version. This remains inside the same SELECT FOR UPDATE
+                # transaction as normal versioning, so concurrent imports cannot
+                # both decide that they own the current path.
+                document_updates: list[str] = []
+                for field_name in (
+                    "title",
+                    "description",
+                    "custom_meta",
+                    "is_public",
+                ):
+                    if field_name not in doc_kwargs:
+                        continue
+                    incoming = doc_kwargs[field_name]
+                    if field_name == "is_public":
+                        # Match the normal create/version-up visibility
+                        # invariant: importing metadata must never make a
+                        # document in a public corpus private, nor silently
+                        # downgrade an already-public document. Unpublishing
+                        # is an explicit permission operation, not an ingest
+                        # side effect.
+                        incoming = corpus.is_public or old_doc.is_public or incoming
+                    if getattr(old_doc, field_name) != incoming:
+                        setattr(old_doc, field_name, incoming)
+                        document_updates.append(field_name)
+                if document_updates:
+                    old_doc.save(update_fields=[*document_updates, "modified"])
+
+                effective_path_values = {
+                    "ingestion_source": current_path.ingestion_source,
+                    "external_id": current_path.external_id,
+                    "ingestion_metadata": current_path.ingestion_metadata,
+                    **path_kwargs,
+                }
+                path_metadata_changed = any(
+                    getattr(current_path, field_name) != value
+                    for field_name, value in effective_path_values.items()
+                )
+                metadata_changed = bool(document_updates or path_metadata_changed)
+                if not metadata_changed:
+                    return old_doc, "unchanged", current_path
+
+                if not record_metadata_event:
+                    if path_metadata_changed:
+                        for field_name, value in effective_path_values.items():
+                            setattr(current_path, field_name, value)
+                        current_path.save(
+                            update_fields=[*effective_path_values, "modified"]
+                        )
+                    return old_doc, "metadata_updated", current_path
+
+                current_path.is_current = False
+                current_path.save(update_fields=["is_current"])
+                metadata_path = DocumentPath.objects.create(
+                    document=old_doc,
+                    corpus=corpus,
+                    folder=folder or current_path.folder,
+                    path=path,
+                    version_number=current_path.version_number,
+                    parent=current_path,
+                    is_current=True,
+                    is_deleted=False,
+                    creator=user,
+                    **effective_path_values,
+                )
+                logger.info(
+                    "Recorded metadata-only event for doc %s at %s in corpus %s",
+                    old_doc.id,
+                    path,
+                    corpus.id,
+                )
+                return old_doc, "metadata_updated", metadata_path
+
             logger.info(
                 f"Creating new version of doc {old_doc.id} for {path} "
                 f"in corpus {corpus.id}"
@@ -326,6 +460,7 @@ def import_document(
                         content_hash=content_hash,
                         path=path,
                         file_type=file_type,
+                        filename=source_filename,
                     )
                 effective_pdf_file = None
             else:
@@ -336,6 +471,7 @@ def import_document(
                         content_hash=content_hash,
                         path=path,
                         file_type=file_type,
+                        filename=source_filename,
                     )
                 effective_txt_file = None
 
@@ -444,6 +580,7 @@ def import_document(
                         content_hash=content_hash,
                         path=path,
                         file_type=file_type,
+                        filename=source_filename,
                     )
                 effective_pdf_file = None
             else:
@@ -454,6 +591,7 @@ def import_document(
                         content_hash=content_hash,
                         path=path,
                         file_type=file_type,
+                        filename=source_filename,
                     )
                 effective_txt_file = None
 

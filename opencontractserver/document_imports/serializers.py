@@ -95,11 +95,16 @@ class ZipToCorpusImportSerializer(serializers.Serializer):
 class CorpusExportImportSerializer(serializers.Serializer):
     """
     Validates an OpenContracts corpus-export zip import. The export ZIP
-    produced by ``StartCorpusExport`` is the only supported input —
-    permission gating + corpus creation happens in the service layer.
+    produced by ``StartCorpusExport`` is the only supported input.
+
+    When ``corpus_id`` is omitted the service creates a new placeholder
+    corpus, preserving the historical import behavior. Supplying a corpus
+    id sideloads the export into that existing corpus after the shared corpus
+    EDIT gate succeeds.
     """
 
     file = serializers.FileField(required=True)
+    corpus_id = serializers.CharField(required=False, allow_blank=True, allow_null=True)
 
 
 class ChunkedUploadStartSerializer(serializers.Serializer):
