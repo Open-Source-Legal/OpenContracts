@@ -287,7 +287,8 @@ Browse the full documentation at [jsv4.github.io/OpenContracts](https://jsv4.git
 | [PDF Data Format](docs/architecture/PDF-data-layer.md)                      | How text maps to PDF coordinates     |
 | [LLM Framework](docs/architecture/llms/README.md)                           | PydanticAI integration and agents    |
 | [Vector Stores](docs/extract_and_retrieval/vector_stores.md)                | Semantic search architecture         |
-| [Pipeline Overview](docs/pipelines/pipeline_overview.md)                    | Parser and embedder system           |
+| [Pipeline Overview](docs/pipelines/pipeline_overview.md)                    | Parser, embedder, and file-converter system |
+| [Supported File Formats](docs/upload_methods/supported_formats.md)          | Core parsers plus Gotenberg-convertible formats |
 | [Custom Extractors](docs/walkthrough/advanced/write-your-own-extractors.md) | Build your own data extraction tasks |
 | [v3.0.0.b3 Release Notes](docs/releases/v3.0.0.b3.md)                       | Latest features and migration guide  |
 
@@ -335,7 +336,13 @@ OpenContracts collects anonymous usage data to guide development priorities: ins
 - DOCX (Word documents, via the [Docxodus](https://github.com/JSv4/Docxodus) microservice — character-offset annotations aligned with WASM rendering)
 - Plain text (`.txt`, split into sentence annotations via spaCy)
 
-See [Supported File Formats](docs/upload_methods/supported_formats.md) for parser details and the `supportedMimeTypes` GraphQL query that exposes the live list to the frontend.
+Plus **126 additional formats** — legacy Microsoft Office, OpenDocument, Apple
+iWork, WordPerfect, images, HTML, and more — convertible to PDF by an optional
+[Gotenberg](https://github.com/gotenberg/gotenberg)-powered file converter
+(off by default; enable it in Admin → Pipeline Configuration, no
+docker-compose changes needed).
+
+See [Supported File Formats](docs/upload_methods/supported_formats.md) for parser and conversion details, and the `supportedMimeTypes` / `convertibleExtensions` GraphQL queries that expose the live lists to the frontend.
 
 ---
 

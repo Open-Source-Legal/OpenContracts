@@ -172,6 +172,111 @@ Sensitive configuration (API keys, credentials) is stored encrypted in the datab
 > 1. Export secrets via Django shell: `PipelineSettings.get_instance().get_secrets()`
 > 2. After rotation, re-import: `instance.set_secrets(exported_secrets); instance.save()`
 
+## File Converters (Gotenberg)
+
+File converters are an **optional pre-parse step** that turns an upload with
+no native parser (`.doc`, `.rtf`, `.odt`, `.pptx`, `.xlsx`, `.png`, and ~120
+other extensions — see [Supported File Formats](../upload_methods/supported_formats.md#convertible-formats-via-gotenberg))
+into a PDF before the normal parser/thumbnailer/embedder stages run. This is
+a single install-wide setting (`PipelineSettings.default_file_converter`),
+**not** file-type-scoped like the Parser/Thumbnailer columns above — there is
+one converter selection for the whole install.
+
+**Disabled by default.** A fresh install accepts only the three core formats
+(PDF, TXT, DOCX) until you configure a converter. OpenContracts ships one
+implementation out of the box, `GotenbergFileConverter`, which delegates to a
+[Gotenberg](https://github.com/gotenberg/gotenberg) service's LibreOffice
+route. See [File Converters](pipeline_overview.md#file-converters) in the
+Pipeline Architecture doc for the full extension-eligibility and security
+model (stored-MIME-type hardening, conversion-service egress/SSRF posture).
+
+### The `gotenberg` service already runs in your stack
+
+`local.yml` and `production.yml` both define a `gotenberg` service
+(`gotenberg/gotenberg:8`) with no compose profile gate, so it starts
+automatically with the rest of the stack (`docker compose -f local.yml up`,
+etc.) alongside `django` and `celeryworker` — you don't need to add or start
+anything at the compose level. It has no published host port (it's reachable
+only on the docker bridge at `http://gotenberg:3000`, avoiding a collision
+with the frontend dev server's own port 3000) and `django`/`celeryworker`
+declare it as an optional dependency (`required: false`), so the stack still
+starts normally if the container is ever removed. Until a converter is
+selected in `PipelineSettings`, the container simply sits idle — no requests
+are ever sent to it.
+
+**Enabling conversion is therefore purely a `PipelineSettings` change**, made
+either through the admin UI at runtime or via an environment variable at
+first boot.
+
+### Enabling via the Admin UI (runtime, no restart)
+
+1. Log in as a superuser and navigate to **Admin → Pipeline Configuration**.
+   The **File Converter** row lives in the Filetype Defaults panel, below
+   **Default Embedder**. A fresh install shows it disabled:
+
+   ![File Converter row — disabled](../assets/images/screenshots/auto/admin--pipeline-settings--file-converter-disabled.png)
+
+2. Click **Edit** on the File Converter row to open the picker. Choose the
+   **Gotenberg PDF Converter** card (or type a custom converter class path
+   directly into the input, if you've registered your own `BaseFileConverter`
+   subclass):
+
+   ![File Converter picker — Gotenberg selected](../assets/images/screenshots/auto/admin--pipeline-settings--file-converter-picker.png)
+
+3. Click **Save**. The row now shows the configured converter's class path,
+   and every subsequent upload whose extension is in Gotenberg's supported
+   set is converted to PDF before parsing:
+
+   ![File Converter row — enabled](../assets/images/screenshots/auto/admin--pipeline-settings--file-converter-enabled.png)
+
+Changes take effect immediately for new uploads; documents already ingested
+are not reprocessed.
+
+### Disabling via the Admin UI
+
+Repeat the same flow and pick **None (conversion disabled)** in the picker,
+then **Save**. This writes an empty string to `default_file_converter`,
+which the backend treats as "conversion off" — uploads outside the three
+core formats are rejected again, exactly like a fresh install.
+
+### Enabling/disabling via environment variable
+
+For first-boot / infrastructure-as-code setups, set `DEFAULT_FILE_CONVERTER`
+in your `.django` env file before running migrations — it seeds
+`PipelineSettings.default_file_converter` the same way `PDF_PARSER` seeds the
+preferred parser (see [First-Time Setup](#first-time-setup-fresh-install)
+above):
+
+```bash
+# .envs/.local/.django or .envs/.production/.django
+
+# Enable Gotenberg-powered conversion for non-core formats:
+DEFAULT_FILE_CONVERTER=opencontractserver.pipeline.file_converters.gotenberg_converter.GotenbergFileConverter
+
+# Leave unset (or empty) to keep conversion disabled — the default.
+# DEFAULT_FILE_CONVERTER=
+```
+
+This only takes effect on first migration of a fresh `PipelineSettings`
+singleton, or after `migrate_pipeline_settings --sync-preferences`, per the
+[Configuration Priority](#configuration-priority) rules above — an existing
+install should use the Admin UI instead, since the database is the runtime
+source of truth.
+
+Two related settings tune the Gotenberg connection itself (also configurable
+as `GotenbergFileConverter` component settings in the Admin UI's Component
+Library):
+
+| Env var | Default | Purpose |
+|---|---|---|
+| `GOTENBERG_SERVICE_URL` | `http://gotenberg:3000` | Base URL of the Gotenberg service |
+| `GOTENBERG_CONVERTER_TIMEOUT` | `300` | Conversion request timeout, in seconds |
+
+To narrow the converter to a subset of extensions (e.g. only spreadsheets),
+set its `convert_extensions` component setting to a comma-separated list —
+see the **Component Library** panel or `GotenbergFileConverter.Settings` in
+[`gotenberg_converter.py`](../../opencontractserver/pipeline/file_converters/gotenberg_converter.py).
+
 ## Management Command Reference
 
 ### `migrate_pipeline_settings`
@@ -290,6 +395,7 @@ separately via their own delete mutations if desired.
 ## See Also
 
 - [Pipeline Architecture Overview](pipeline_overview.md)
+- [Supported File Formats](../upload_methods/supported_formats.md)
 - [Docling Parser](docling_parser.md)
 - [LlamaParse Parser](llamaparse_parser.md)
 - [Multimodal Embedder](multimodal_embedder.md)

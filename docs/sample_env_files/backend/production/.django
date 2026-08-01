@@ -81,3 +81,14 @@ WARP_INGEST_PARSER_SERVICE_URL=http://warp-ingest:5001/api/parse
 # Must match the WARP_API_KEY set on the warp-ingest container. Warp-Ingest always
 # requires a key (its own default is "abc123"), so a blank value yields a 401.
 WARP_INGEST_API_KEY=
+
+# Gotenberg file converter (optional pre-parse conversion of non-core formats
+# -- .doc, .odt, .pptx, images, etc. -- to PDF). The `gotenberg` compose
+# service already runs by default; it sits idle until a converter is
+# selected. See docs/pipelines/pipeline_configuration.md#file-converters-gotenberg.
+# ------------------------------------------------------------------------------
+# Uncomment to enable conversion for non-core formats on first boot (or set
+# it later at runtime via the Admin -> Pipeline Configuration UI):
+# DEFAULT_FILE_CONVERTER=opencontractserver.pipeline.file_converters.gotenberg_converter.GotenbergFileConverter
+GOTENBERG_SERVICE_URL=http://gotenberg:3000
+GOTENBERG_CONVERTER_TIMEOUT=300
