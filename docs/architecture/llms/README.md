@@ -2857,12 +2857,13 @@ When passing tools by name to `agents.for_document()`, the [`_resolve_tools()`](
 
 ## Runtime LLM configuration
 
-OpenContracts lets you pick the LLM that powers an agent at three layers:
+OpenContracts lets you pick the LLM that powers an agent at five layers:
 
 1. **Per-call override** — `agents.for_corpus(corpus=X, model="anthropic:claude-opus-4-6")`.
 2. **Per-agent override** — `AgentConfiguration.preferred_llm`. Wins whenever the @-mention task or delegation sub-agent path runs this agent.
 3. **Per-corpus default** — `Corpus.preferred_llm`. Wins when no explicit/per-agent override is set.
-4. **Settings default** — `settings.DEFAULT_LLM` (preferred) → legacy `settings.OPENAI_MODEL` (back-compat) → hard fallback `"gpt-4o"`.
+4. **Install-wide runtime default** — `PipelineSettings.default_llm`, set live by superusers in System Settings. Threaded into the resolver as `settings_default` (via `opencontractserver.pipeline.utils.get_default_llm_spec`, an ORM read).
+5. **Settings default** — `settings.DEFAULT_LLM` (preferred) → legacy `settings.OPENAI_MODEL` (back-compat) → hard fallback `"gpt-4o"`.
 
 The resolver lives in [`opencontractserver/llms/llm_registry.py`](../../../opencontractserver/llms/llm_registry.py):
 
@@ -2881,6 +2882,43 @@ The [agent factory](../../../opencontractserver/llms/agents/agent_factory.py) ca
 
 - `agents.for_*(model="anthropic:claude-opus-4-6")` — per-call override. Wins over every persisted default.
 - `agents.for_*(agent_preferred_llm=agent_config.preferred_llm)` — per-agent override. Wins over the corpus default but yields to a per-call `model=`. The @-mention task ([`agent_tasks.py`](../../../opencontractserver/tasks/agent_tasks.py)) and the delegation sub-agent path ([`delegation_tools.py`](../../../opencontractserver/llms/tools/delegation_tools.py)) use this slot.
+
+### Workflow coverage — retargeting without a restart (issue #2078)
+
+Every production workflow that talks to a remote LLM walks the chain above, so
+retargeting the install (or a single corpus) to a new model — or a whole new
+model family — takes effect **without restarting Django or the Celery
+workers**. The workflows and their model-resolution seams:
+
+| Workflow | Resolution seam |
+| --- | --- |
+| Chat / WebSocket agents, corpus & thread actions, deep research, branding README | `UnifiedAgentFactory.create_*` (`agent_factory.py`) |
+| Structured extraction (datacells) | `data_extract_tasks._aresolve_extract_model` |
+| Memory curation | `memory_tasks._curate_corpus_memory_async` (resolver call inline) |
+| Enrichment citation extraction | `llm_citation_extractor.LLMCitationExtractor._abuild_model` |
+| Authority web locator | `agentic_web_locator_provider.AgenticWebLocatorProvider._run_agent` |
+| One-shot completions (titles, …) | `llms.completions.agenerate_text` |
+
+Two deliberate exceptions are provider-pinned and only model-retargetable
+*within* their family: the Claude-citation analyzer tasks
+(`doc_analysis_tasks.agentic_highlighter_claude` / `pii_highlighter_claude`,
+Claude citations API; model set via `ANALYZER_KWARGS` `ANTHROPIC_MODEL`) and
+corpus logo generation (`utils/image_generation.py`, OpenAI Images API; model
+in `constants/corpus_branding.py`). Both still honour live DB credentials.
+
+`opencontractserver/tests/test_llm_runtime_retargeting.py` pins all of this —
+each workflow is asserted to resolve the spec configured in the live
+`PipelineSettings` singleton, plus hot-swap semantics (two successive
+retargets, credential rotation) and context-window coverage for every model
+the provider registry offers.
+
+One scoping note: the WebSocket consumer
+(`config/websocket/consumers/unified_agent_conversation.py`) builds its agent
+on the first turn and reuses it for the life of the connection, so an
+*already-open* chat session keeps its model until the next (re)connect or
+delegation-tool rebuild. Every new connection — and every Celery-side workflow
+run — resolves fresh. Credentials are always live either way:
+`abuild_agent_model` re-reads the singleton per agent build.
 
 ### Model spec format
 

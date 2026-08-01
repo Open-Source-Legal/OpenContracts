@@ -315,6 +315,16 @@ def agentic_highlighter_claude(
         logger.info("Anthropic API key not found in settings or environment")
         return [], [], [{"data": {"error": "Anthropic API key not found"}}], False
 
+    # This task is deliberately Anthropic-pinned (it uses Claude's citations
+    # API), so it doesn't walk the resolve_model_spec chain — but the model
+    # WITHIN the family is retargetable via the same ANALYZER_KWARGS entry as
+    # the API key (issue #2078).
+    from opencontractserver.constants.llm import CLAUDE_ANALYZER_DEFAULT_MODEL
+
+    anthropic_model = (
+        analyzer_kwargs.get("ANTHROPIC_MODEL") or CLAUDE_ANALYZER_DEFAULT_MODEL
+    )
+
     logger.info("Successfully configured Anthropic API key")
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
@@ -397,7 +407,7 @@ def agentic_highlighter_claude(
 
             logger.info(f"Sending request to Claude for chunk {chunk_index + 1}")
             response = client.messages.create(
-                model="claude-3-5-sonnet-latest",
+                model=anthropic_model,
                 temperature=0.0,
                 max_tokens=1024,
                 system=system_directive,
@@ -568,6 +578,12 @@ def pii_highlighter_claude(
         logger.error("Anthropic API key not found in settings or environment.")
         return ([], [], [{"data": {"error": "Anthropic API key not found"}}], False)
 
+    # Anthropic-pinned by design; the model within the family is retargetable
+    # via ANALYZER_KWARGS (issue #2078) — see agentic_highlighter_claude above.
+    from opencontractserver.constants.llm import CLAUDE_ANALYZER_DEFAULT_MODEL
+
+    anthropic_model = pii_config.get("ANTHROPIC_MODEL") or CLAUDE_ANALYZER_DEFAULT_MODEL
+
     # Construct the prompt for Claude
     prompt_text = (
         "You are an expert at interpreting contracts and, more importantly, inferring "
@@ -590,7 +606,7 @@ def pii_highlighter_claude(
     try:
         # Create the messages request
         response = client.messages.create(
-            model="claude-3-5-sonnet-latest",
+            model=anthropic_model,
             max_tokens=8192,
             temperature=0,
             messages=[

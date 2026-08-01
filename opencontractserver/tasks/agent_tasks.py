@@ -528,6 +528,19 @@ def run_agent_corpus_action(
         raise self.retry(exc=exc)
 
 
+def _agent_model_for_metadata(agent: Any) -> str:
+    """The resolved model spec an agent ran on, for execution_metadata records.
+
+    Reads ``agent.config.model_name`` — the spec the factory resolved through
+    the canonical chain (per-agent → corpus → PipelineSettings singleton →
+    settings). Returns ``"unknown"`` for anything that is not a plain string
+    so ``execution_metadata`` stays JSON-serializable even when the agent is
+    a test double whose ``config.model_name`` is a Mock (issue #2078).
+    """
+    model_name = getattr(getattr(agent, "config", None), "model_name", None)
+    return model_name if isinstance(model_name, str) else "unknown"
+
+
 def _resolve_action_tools(action: CorpusAction, trigger: str) -> list[str]:
     """Resolve the tool list for an agent corpus action.
 
@@ -795,7 +808,6 @@ async def _run_agent_corpus_action_async(
 ) -> dict:
     """Async implementation of agent corpus action execution."""
     from channels.db import database_sync_to_async
-    from django.conf import settings
     from django.utils import timezone
 
     from opencontractserver.agents.models import AgentActionResult
@@ -900,7 +912,12 @@ async def _run_agent_corpus_action_async(
 
         # Build execution metadata
         execution_metadata = {
-            "model": getattr(settings, "LLMS_DEFAULT_MODEL", "unknown"),
+            # The model the agent actually resolved to (per-agent → corpus →
+            # PipelineSettings singleton → settings). Previously this read a
+            # ``LLMS_DEFAULT_MODEL`` setting that does not exist anywhere in
+            # the project, so every recorded action logged "unknown" and an
+            # operator could not tell which model ran (issue #2078).
+            "model": _agent_model_for_metadata(agent),
             "tools_available": tools,
             "sources_count": len(response.sources) if response.sources else 0,
             "agent_config_id": action.agent_config_id,
@@ -1057,7 +1074,6 @@ async def _run_agent_thread_action_async(
 ) -> dict:
     """Async implementation of agent thread action execution."""
     from channels.db import database_sync_to_async
-    from django.conf import settings
     from django.utils import timezone
 
     from opencontractserver.agents.models import AgentActionResult
@@ -1196,7 +1212,12 @@ async def _run_agent_thread_action_async(
 
         # Build execution metadata
         execution_metadata = {
-            "model": getattr(settings, "LLMS_DEFAULT_MODEL", "unknown"),
+            # The model the agent actually resolved to (per-agent → corpus →
+            # PipelineSettings singleton → settings). Previously this read a
+            # ``LLMS_DEFAULT_MODEL`` setting that does not exist anywhere in
+            # the project, so every recorded action logged "unknown" and an
+            # operator could not tell which model ran (issue #2078).
+            "model": _agent_model_for_metadata(agent),
             "tools_available": tools,
             "agent_config_id": action.agent_config_id,
             "agent_config_name": (

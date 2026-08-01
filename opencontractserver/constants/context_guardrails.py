@@ -30,17 +30,31 @@ MODEL_CONTEXT_WINDOWS: dict[str, int] = {
     "claude-3-opus": 200_000,
     "claude-3-sonnet": 200_000,
     "claude-3-haiku": 200_000,
+    "claude-3-7-sonnet": 200_000,
     "claude-sonnet-4": 200_000,
     "claude-opus-4": 200_000,
+    "claude-haiku-4": 200_000,
     # Google
     "gemini-1.5-pro": 1_000_000,
     "gemini-1.5-flash": 1_000_000,
     "gemini-2.0-flash": 1_000_000,
     "gemini-2.5-pro": 1_000_000,
     "gemini-2.5-flash": 1_000_000,
+    # Ollama (local).  These matter more than the hosted entries: an unknown
+    # local model falls back to DEFAULT_CONTEXT_WINDOW (128K), which for a
+    # 32K-window model is an *over*-estimate — compaction never fires and the
+    # run dies on a hard context overflow instead.  Keep an entry for every
+    # model offered in ``OllamaProvider.supported_models`` (issue #2078).
+    "llama3.3": 128_000,
+    "llama3.2": 128_000,
+    "qwen2.5": 32_768,
+    "mistral": 32_768,
 }
 
-# Fallback context window when the model is unknown.
+# Fallback context window when the model is unknown.  Deliberately generous:
+# under-estimating a large window only costs premature compaction, whereas the
+# reverse (a small local model assumed to hold 128K) is a hard failure.  Add an
+# explicit entry above for any small-window model an install actually targets.
 DEFAULT_CONTEXT_WINDOW: int = 128_000
 
 # ---------------------------------------------------------------------------

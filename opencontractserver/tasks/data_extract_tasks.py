@@ -165,6 +165,61 @@ def _resolve_extract_temperature(model_name: Optional[str]) -> Optional[float]:
     return EXTRACT_DEFAULT_TEMPERATURE
 
 
+async def _aresolve_extract_model(
+    model_override: Optional[str], corpus_id: Optional[int]
+) -> str:
+    """Resolve the model spec a single extraction cell will run on.
+
+    Walks the canonical priority chain so extraction honours a live LLM
+    retarget instead of being pinned to a compile-time constant (issue #2078):
+
+        ``model_override`` (operator-only per-call pin)
+        → the corpus's ``preferred_llm``
+        → the install-wide ``PipelineSettings.default_llm`` (System Settings)
+        → ``settings.DEFAULT_LLM``
+        → :data:`DEFAULT_EXTRACT_MODEL`
+
+    ``DEFAULT_EXTRACT_MODEL`` stays the *terminal* fallback rather than the
+    top of the chain, so a stock install with nothing configured resolves to
+    exactly the same model as before, while an install that has expressed a
+    preference at any tier now retargets extraction without a worker restart.
+    Deliberate asymmetry vs. the general resolver: because the composed
+    ``settings_default`` here is always truthy, ``resolve_model_spec``'s own
+    legacy ``settings.OPENAI_MODEL`` fallback never engages for extraction —
+    matching the pre-#2078 behaviour, which never consulted it either.
+
+    ORM reads (the corpus row and the ``PipelineSettings`` singleton) are
+    threaded through ``sync_to_async``; ``resolve_model_spec`` stays ORM-free.
+    """
+    from django.conf import settings as django_settings
+
+    from opencontractserver.llms.llm_registry import resolve_model_spec
+    from opencontractserver.pipeline.utils import get_default_llm_spec
+
+    @sync_to_async
+    def _corpus_preferred_llm() -> Optional[str]:
+        if not corpus_id:
+            return None
+        from opencontractserver.corpuses.models import Corpus
+
+        return (
+            Corpus.objects.filter(pk=corpus_id)
+            .values_list("preferred_llm", flat=True)
+            .first()
+        )
+
+    settings_default = (
+        await sync_to_async(get_default_llm_spec)()
+        or getattr(django_settings, "DEFAULT_LLM", "")
+        or DEFAULT_EXTRACT_MODEL
+    )
+    return resolve_model_spec(
+        explicit=model_override,
+        corpus_preferred=await _corpus_preferred_llm(),
+        settings_default=settings_default,
+    )
+
+
 def _failure_message_for_classification(
     classification: str,
     request_limit: int = EXTRACT_AGENT_REQUEST_LIMIT,
@@ -621,7 +676,14 @@ async def doc_extract_query_task(
         # ``temperature=None``; ``_resolve_extract_temperature`` returns
         # ``None`` for Claude models and ``EXTRACT_DEFAULT_TEMPERATURE``
         # otherwise. (issue #1381)
-        extract_model = model_override or DEFAULT_EXTRACT_MODEL
+        #
+        # ``_aresolve_extract_model`` walks the canonical chain (override →
+        # corpus → PipelineSettings singleton → settings → the
+        # ``DEFAULT_EXTRACT_MODEL`` terminal fallback), so a live retarget
+        # reaches extraction without a worker restart (issue #2078). Resolving
+        # here — rather than passing ``model=None`` and letting the factory do
+        # it — keeps the resolved family visible to the temperature guard.
+        extract_model = await _aresolve_extract_model(model_override, corpus_id)
         extract_temperature = _resolve_extract_temperature(extract_model)
 
         try:

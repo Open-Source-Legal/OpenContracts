@@ -72,11 +72,26 @@ class TestCoreAgentComponentsSetup(TestCase):
 
 class TestAgentConfig(TestCoreAgentComponentsSetup):
     def test_get_default_config(self):
+        """The default model now flows through ``resolve_model_spec``.
+
+        Behaviour change (issue #2078): ``get_default_config`` used to read
+        ``settings.OPENAI_MODEL`` directly, which skipped ``DEFAULT_LLM`` — a
+        bare caller ran on the legacy OpenAI model even on an install
+        retargeted to another provider. It now resolves through the registry,
+        so the value is the same model in the canonical provider-prefixed
+        form (``"gpt-4o"`` → ``"openai:gpt-4o"``), which pydantic-ai treats
+        identically.
+        """
         config = get_default_config()
-        self.assertEqual(config.model_name, "gpt-4o")  # Default model
+        self.assertEqual(config.model_name, "openai:gpt-4o")
         # Handle gracefully - API key might be None or present from environment
         self.assertIsNotNone(config)  # Just check config exists
         self.assertTrue(config.streaming)
+
+    @override_settings(DEFAULT_LLM="anthropic:claude-haiku-4-5")
+    def test_get_default_config_honours_default_llm_setting(self):
+        """``DEFAULT_LLM`` outranks the legacy ``OPENAI_MODEL`` (issue #2078)."""
+        self.assertEqual(get_default_config().model_name, "anthropic:claude-haiku-4-5")
 
     @override_settings(OPENAI_API_KEY="test_key_from_settings")
     def test_get_default_config_with_settings_override(self):

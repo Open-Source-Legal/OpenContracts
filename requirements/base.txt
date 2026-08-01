@@ -40,7 +40,7 @@ drf-extra-fields==3.7.0  # https://github.com/Hipo/drf-extra-fields
 pypdf>=6.14.2,<7  # https://github.com/py-pdf/pypdf
 plasmapdf==0.1.3  # https://github.com/Jsv4/plasmapdf
 pdf2image>=1.17.0
-openai>=2.46.0,<3  # https://github.com/openai/openai-python (pydantic-ai 1.x requires >=2.11.0)
+openai>=2.50.0,<3  # https://github.com/openai/openai-python (pydantic-ai 1.x requires >=2.11.0)
 # Bumping pydantic-ai is a deliberate decision: this codebase relies on the
 # precedence rule that ``instructions=`` (not ``system_prompt=``) is the only
 # way to deliver a system instruction when ``message_history`` is non-empty
@@ -72,13 +72,13 @@ django-guardian
 
 # GraphQL
 # ------------------------------------------------------------------------------
-strawberry-graphql==0.323.0  # code-first GraphQL; replaced graphene-django (schema parity pinned by config/graphql/schema.graphql)
+strawberry-graphql==0.323.2  # code-first GraphQL; replaced graphene-django (schema parity pinned by config/graphql/schema.graphql)
 graphql-relay==3.2.0  # relay global-id / connection helpers imported directly by config/graphql/* (to_global_id, from_global_id, connection_from_array_slice); pinned explicitly rather than relying on the transitive pull via django-graphql-jwt
 django-graphql-jwt==0.4.0  # JWT signing/backends + refresh-token utilities only — its graphene middleware/mutations are replaced by strawberry ports (config/graphql/views.py, jwt_auth.py, user_mutations.py)
 
 # Telemetry
 # ------------------------------------------------------------------------------
-posthog==7.27.0  # https://github.com/posthog/posthog-python
+posthog==7.33.0  # https://github.com/posthog/posthog-python
 
 # Model Context Protocol
 # ------------------------------------------------------------------------------

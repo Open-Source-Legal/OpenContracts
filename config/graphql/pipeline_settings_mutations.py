@@ -1286,10 +1286,10 @@ def _mutate_UpdateComponentSecretsMutation(
         components_with_secrets = settings_instance.get_components_with_secrets()
 
         logger.info(
-            "Secrets updated for component '%s' by %s (keys=%s, merge=%s)",
+            "Secrets updated for component '%s' by %s (%d key(s), merge=%s)",
             component_path,
             user.username,
-            ", ".join(secrets.keys()),
+            len(secrets),
             merge,
         )
 

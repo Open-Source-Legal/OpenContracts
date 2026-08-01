@@ -5,7 +5,7 @@
 #
 # Kept in sync with compose/local/django/Dockerfile. 3.12 is required for the
 # ``sys.monitoring``-backed coverage path used in CI; see that file's header.
-ARG PYTHON_VERSION=3.12.7-slim-bookworm
+ARG PYTHON_VERSION=3.12.13-slim-bookworm
 
 # ---------------------------------------------------------------------------- #
 # Build stage: full toolchain for compiling wheels (psycopg2, opencv, etc.)    #

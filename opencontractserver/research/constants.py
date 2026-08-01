@@ -7,6 +7,8 @@ runner) and the kickoff tool / tests.
 
 from __future__ import annotations
 
+import re
+
 from opencontractserver.constants.annotations import OC_SECTION_LABEL
 from opencontractserver.utils.prompt_sanitization import (
     UNTRUSTED_CONTENT_NOTICE,
@@ -24,9 +26,16 @@ from opencontractserver.utils.prompt_sanitization import (
 # ``restrict_tool_names``; the list below is intersected with the agent's
 # default tool set so any tool that isn't a recognised registry name is
 # silently dropped.
+# ``search_exact_text_as_sources`` is deliberately NOT here (issue #2201): it
+# returns ad-hoc matches with SYNTHETIC NEGATIVE annotation ids, which
+# ``record_finding`` rejects and ``finalize`` drops. Steering the agent at it
+# for "pinpoint anchors" (the #2180 prompt rule) therefore sent it hunting for
+# an id it could never obtain — a 3M-token run that never finalized. The
+# ``find_citable_passages`` closure (research_tasks) replaces it: same
+# exact-phrase lookup, but over real Annotation rows, so every hit carries a
+# ready-to-paste cite handle.
 DEEP_RESEARCH_READ_ONLY_TOOLS: list[str] = [
     "similarity_search",
-    "search_exact_text_as_sources",
     "load_document_md_summary",
     "get_md_summary_token_length",
     "load_document_text",
@@ -133,6 +142,187 @@ RESEARCH_HEADER_ANCHOR_LABELS: frozenset[str] = frozenset(
 )
 
 
+def _separator_variants(label: str) -> set[str]:
+    """``"Section Header"`` -> the space, underscore and hyphen spellings."""
+    canonical = re.sub(r"[\s_\-]+", " ", label.strip())
+    return {canonical.replace(" ", sep) for sep in (" ", "_", "-")}
+
+
+# The same labels, spelled every way a parser might separate their words.
+#
+# Two consumers ask "is this a header label" and normalise differently: the
+# warning path (``_is_header_anchor`` -> ``_normalize_label``) folds separators,
+# while the retrieval filter (``search_corpus_annotation_text`` ->
+# ``iexact``) folds only case, because it compares in SQL. So a stored label
+# spelled ``Section_Header`` against a constant spelled ``Section Header`` is
+# warned about but still offered as a citable passage — silently reintroducing
+# #2180, and only for whichever parser drifts.
+#
+# Expanding the spellings for the SQL side costs one OR term per variant and
+# makes the two agree by construction, which beats a comment telling the next
+# editor to keep them in step by hand. Runs of separators are not expanded;
+# the parsers emit single ones.
+RESEARCH_HEADER_ANCHOR_LABEL_VARIANTS: frozenset[str] = frozenset(
+    variant
+    for label in RESEARCH_HEADER_ANCHOR_LABELS
+    for variant in _separator_variants(label)
+)
+
+
+# ---------------------------------------------------------------------------
+# Quotation verification (issue #2189)
+# ---------------------------------------------------------------------------
+# Steered to quote the passages it cites, the deep-research agent was observed
+# fabricating quotation-marked strings that occur nowhere in the corpus yet are
+# attached to real annotation anchors — a report that *looks* rigorously cited
+# but isn't. At finalize every quoted passage inside a ``<cite>`` span is checked
+# against the ``raw_text`` of that span's cited annotation(s); a quote that does
+# not match is demoted to plain paraphrase (its quotation marks are stripped) and
+# the report is flagged. See ``research_reports._verify_cite_spans``, which runs
+# this check alongside the #2200/#2201 guards in one pass over the cite spans.
+#
+# Only quotes of at least this many words are verified. Shorter quoted strings
+# (defined terms like "Confidential Information", scare-quotes, single words) are
+# left untouched: they are rarely fabricated passages and are the main source of
+# false positives. The quotes fabricated in #2189 were all long passages (8+
+# words).
+RESEARCH_QUOTE_MIN_WORDS = 5
+
+# A quote counts as grounded when it is a whitespace-/case-normalized substring
+# of a cited annotation's text, OR its longest contiguous run that appears
+# verbatim in that text covers at least this fraction of the quote. The high bar
+# tolerates a trailing-punctuation / whitespace / single-character drift while
+# still stripping a quote whose wording diverges (an invented tail, a reworded
+# clause). Built on ``difflib.SequenceMatcher`` like the annotation-anchor fuzzy
+# match in ``opencontractserver/utils/annotation_anchoring.py`` — but that path
+# aggregates with ``.ratio()`` (overall similarity), whereas this uses
+# longest-contiguous-block coverage (``find_longest_match().size / len(quote)``),
+# a stricter test that a real run of the quote appears verbatim.
+RESEARCH_QUOTE_MATCH_THRESHOLD = 0.92
+
+# Upper bound on the length of a single quoted passage the verifier will inspect.
+# The extraction regex is linear (a negated character class, no backtracking), so
+# this is not a ReDoS guard — it bounds a pathological match when a lone opening
+# quote has no nearby close, and keeps the fuzzy comparison cheap. Set generously
+# so realistic block quotes are still verified; a quote longer than this is left
+# untouched (a >2000-char fabricated verbatim quote is implausible).
+RESEARCH_QUOTE_MAX_CHARS = 2000
+
+
+# ---------------------------------------------------------------------------
+# Report composition + claim-support verification (issues #2200, #2201)
+# ---------------------------------------------------------------------------
+# ``finalize`` composes ONE document (executive summary + body) and runs the
+# citation post-processors over it exactly once. Three deterministic guards run
+# in that pass; the constants they key on live here.
+
+# 1. Duplicate-summary suppression (#2200). The agent was observed passing the
+#    WHOLE report as ``executive_summary`` as well as ``markdown_body``, so the
+#    report rendered twice. The summary is dropped when it merely restates the
+#    body: a normalized-substring hit, or a contiguous run of the summary's
+#    first ``…PROBE_CHARS`` characters covering ``…THRESHOLD`` of that probe
+#    inside the body. Probing the head (rather than diffing two multi-KB
+#    strings) keeps this linear-ish — a genuine copy always matches from its
+#    first sentence.
+RESEARCH_SUMMARY_DUPLICATE_THRESHOLD = 0.8
+RESEARCH_SUMMARY_DUPLICATE_PROBE_CHARS = 400
+
+# 2. Echoed-cite collapse (#2200). The successor of #2183's sentence-doubling:
+#    the agent writes the claim as prose and then repeats it verbatim inside the
+#    `<cite>` tag, so every bullet reads twice. When a span's inner text merely
+#    echoes the prose immediately before it, the span collapses to the
+#    self-closing marker form (`<cite ids="…"/>`), which renders as a bare
+#    footnote on the existing sentence. The threshold is the contiguous-run
+#    coverage of the span text within the preceding prose.
+RESEARCH_CITE_ECHO_THRESHOLD = 0.9
+
+# How far back a self-closing `<cite ids="…"/>` marker looks for the sentence it
+# decorates (also the echo-comparison window). Generous for a long legal
+# sentence, bounded so the lookback stays O(1) per marker rather than O(document).
+RESEARCH_SENTENCE_LOOKBACK_CHARS = 1200
+
+# 3. Claim-support check (#2201). Generalizes the #2189 quote verifier from "is
+#    this quote verbatim" to "does the cited passage say this at all". A cited
+#    sentence must share at least ``…MIN_COVERAGE`` of its content words with
+#    the text of the annotation(s) it cites; below that the citation is stripped
+#    (the prose survives as uncited analysis) and the report is flagged.
+#
+#    This is a deliberately cheap, deterministic lexical floor — no LLM call, no
+#    embedding round-trip at finalize. It decisively kills the two anchoring
+#    failures from #2201: a one-word mention span cited for a full sentence, and
+#    prompt-derived background decorated with a loosely-related entity anchor —
+#    both score near zero. What it does NOT catch, so the prompt rules still
+#    matter: a well-anchored sentence carrying an invented tail (#2201's
+#    over-attributed paraphrase — "don't extend a cited sentence" is the guard
+#    there), and a fabricated figure, since one differing number moves the ratio
+#    by only 1/N (see ...MIN_TOKEN_CHARS for why numeric parity is not enforced).
+#    Meaning inversion IS caught, by the polarity guard below. Swapping
+#    ``_claim_is_supported`` for an entailment call is the drop-in upgrade that
+#    would close the remaining two.
+#
+#    Only claims of at least ``…MIN_WORDS`` words are checked: short spans
+#    (fragments, defined terms, a cited clause name) have too few content words
+#    for a coverage ratio to mean anything and are the main false-positive
+#    source. The floor is set low because stripping a CORRECT citation is worse
+#    than keeping a weak one — a genuine paraphrase of its anchor clears 0.25
+#    comfortably, while the failure modes above land under 0.15.
+RESEARCH_CLAIM_SUPPORT_MIN_WORDS = 12
+RESEARCH_CLAIM_SUPPORT_MIN_COVERAGE = 0.25
+
+#    Polarity guard. Bag-of-words coverage is blind to negation: "the tenant is
+#    NOT liable for repairs" and "the tenant is liable for repairs" differ by one
+#    token and score the same against the same anchor — an inversion of the
+#    source's meaning, presented with a footnote. In legal text this is the
+#    highest-stakes misattribution there is (liable/not liable, permitted/
+#    prohibited, terminable/non-terminable). Note that merely dropping "not"
+#    from the stopword list does NOT close it: the ratio moves from ~1.0 to
+#    ~0.86, still far above the floor. Parity is what catches it.
+#
+#    So: when a claim otherwise reads as a near-verbatim restatement of its
+#    anchor (coverage at or above ...INVERSION_COVERAGE) but the two disagree on
+#    whether a negation marker is present, treat it as unsupported. The high
+#    coverage gate is what keeps this from firing on honest paraphrase — legal
+#    text often negates lexically ("prohibited", "except", "unless") rather than
+#    with a marker, but such a paraphrase shares far fewer words with the anchor
+#    and never reaches the gate. Checked on the normalized text, not on
+#    ``_content_words``, so the stopword list cannot hide a marker.
+RESEARCH_CLAIM_INVERSION_COVERAGE = 0.8
+RESEARCH_SUPPORT_NEGATION_TOKENS: frozenset[str] = frozenset(
+    {"not", "no", "never", "cannot", "neither", "nor", "without", "non"}
+)
+
+# Contracts negate by prefix at least as often as by particle — "non-cancelable",
+# "non-transferable", "non-exclusive" — and a token-exact match misses all of
+# them, leaving exactly the inversion the polarity guard exists to catch
+# ("non-cancelable" against an anchor reading "cancelable"). Matched as a token
+# prefix. Deliberately hyphenated and limited to "non-": bare "un"/"in" prefixes
+# would fire on "under", "until", "interest" and similar, and an unhyphenated
+# "non" would catch "none"/"nonetheless".
+RESEARCH_SUPPORT_NEGATION_PREFIXES: tuple[str, ...] = ("non-",)
+
+# Content-word extraction for the support check: tokens shorter than this are
+# dropped along with the stopword list, so the ratio is computed over the terms
+# that actually carry meaning (parties, amounts, defined terms, verbs).
+# Digit-bearing tokens are EXEMPT from the floor — "10", "5%" and "$5" are two
+# characters but are exactly the figures a report must not fabricate, and the
+# floor was silently dropping them from both sides of the ratio so a swapped
+# amount produced no signal at all. Note the exemption only restores signal; it
+# does not by itself catch a fabricated figure (one differing number moves the
+# ratio by 1/N). Numeric *parity*, the analogue of the polarity guard, is
+# deliberately NOT applied: legal text writes the same amount as "30", "thirty
+# (30)", "$5" and "$5,000,000", so parity would strip correct citations far more
+# often than it caught invented ones.
+RESEARCH_SUPPORT_MIN_TOKEN_CHARS = 3
+RESEARCH_SUPPORT_STOPWORDS: frozenset[str] = frozenset("""
+    the and for that this with from are was were will would can could may might
+    shall should must have has had been being not but our its their there these
+    those they them then than when where which who whom what while into onto
+    over under about above below after before during such any all each other
+    some more most both same own very just also only per via upon within
+    without because however therefore thus does did doing done here out off
+    """.split())
+
+
 # Plan + memory tool names. Unioned into the deep-research agent's
 # ``restrict_tool_names`` set alongside the scratchpad tools. The closures
 # themselves are appended as caller-supplied tools (never filtered), so this
@@ -146,6 +336,18 @@ DEEP_RESEARCH_MEMORY_TOOL_NAMES: set[str] = {
     "search_memory",
     "delete_memory",
 }
+
+
+# Retrieval closures the deep-research loop binds itself (rather than pulling
+# from the shared tool registry) because they need the run's citation
+# accumulator. Same documentary/defensive role as the memory set above.
+DEEP_RESEARCH_RETRIEVAL_CLOSURE_TOOLS: set[str] = {"find_citable_passages"}
+
+# Max rows ``find_citable_passages`` returns per call, and how much of each
+# anchor's text to show. Bounded so a common phrase cannot dump a corpus-worth
+# of annotations back into the context window.
+RESEARCH_CITABLE_PASSAGE_MAX_HITS = 10
+RESEARCH_CITABLE_PASSAGE_PREVIEW_CHARS = 600
 
 
 def build_deep_research_system_prompt(
@@ -213,10 +415,11 @@ def build_deep_research_system_prompt(
             + "`record_finding` with the claim text, the citing section, and the "
             + "annotation IDs returned by your retrieval tools.",
             "3. When you have enough evidence to answer the task, call "
-            + "`finalize_report` with an executive summary and the final markdown "
-            + 'body. The body MUST use `<cite ids="a,b">claim text</cite>` '
-            + "placeholder tags for every cited claim — the system converts these "
-            + "to footnote markers and a Sources section.",
+            + "`finalize_report`. `executive_summary` is 2–4 sentences of "
+            + "top-line answer; `markdown_body` is the full report. They are "
+            + "DIFFERENT texts — never pass the report as both, and never write "
+            + "your own `## Executive Summary` or `## Sources` headings: the "
+            + "system adds them and renders the footnote table.",
             "4. `finalize_report` is the terminal action. Once you call it, the "
             + "run ends.",
             "",
@@ -264,12 +467,23 @@ def build_deep_research_system_prompt(
             + "footnote must land on the exact words that prove the sentence. "
             + "Apply these rules to every `<cite>` tag and every `record_finding` "
             + "call:",
+            "- Citing is cheap — cite what you retrieved. Every retrieval result "
+            + "carries an `annotation_id`; that number IS the cite handle. Write "
+            + 'the sentence, then attach `<cite ids="123,456"/>` (self-closing, '
+            + "no inner text) right after it. Use the wrapping form "
+            + '`<cite ids="123">…</cite>` ONLY to scope part of a sentence, and '
+            + "never put a copy of the sentence inside the tag — a tag that "
+            + "echoes its own sentence is collapsed to a bare marker at "
+            + "finalize.",
             "- Anchor the passage whose OWN words support the claim — never a "
             + "bare section header. An annotation whose text is only a heading "
             + "(e.g. `ITEM 1A. RISK FACTORS`) marks the top of a section, not the "
-            + "evidence. Once you know the language you want, call "
-            + "`search_exact_text_as_sources` to pull the pinpoint passage and "
-            + "cite THAT annotation.",
+            + "evidence, and neither does a bare entity mention. When you know "
+            + "the language you want but not its annotation, call "
+            + "`find_citable_passages(phrase)` — it returns the real annotations "
+            + "containing that phrase, tightest first, each with its cite handle. "
+            + "Do not go hunting with repeated broad searches for something to "
+            + "cite.",
             "- Cite the document that actually CONTAINS the language. If you "
             + "reached a passage through a cross-reference or an "
             + "incorporated-by-reference pointer (common in SEC filings — a 10-Q "
@@ -281,11 +495,28 @@ def build_deep_research_system_prompt(
             + "handed carries NO citation — leave it uncited rather than forcing "
             + "on a corpus anchor that cannot support it. Uncited background is "
             + "honest; a miscited anchor is not.",
-            "- State each claim once. Wrap the claim sentence itself in "
-            + '`<cite ids="...">...</cite>` — do NOT write the claim as plain '
-            + "prose and then repeat it as a cited restatement. Keep normal "
-            + "spacing and punctuation around the tags so the sentence reads "
-            + "cleanly.",
+            "- One anchor must carry the WHOLE sentence it is attached to. Do "
+            + "not extend a cited sentence with detail the passage does not "
+            + "contain — split it into a cited sentence and a separate, uncited "
+            + "analysis sentence. And do not reuse a convenient nearby anchor "
+            + "for a second, different claim it cannot support. At finalize "
+            + "every cited sentence is checked against the words of its cited "
+            + "annotation(s); a sentence its anchor does not support LOSES its "
+            + "footnote and the report is flagged.",
+            "- Quote only what you can copy verbatim. Put a passage in quotation "
+            + "marks ONLY when it is copied exactly, word for word, from the "
+            + "retrieved passage cited on that same sentence. If you are "
+            + "paraphrasing or summarising, do NOT use quotation marks. At "
+            + "finalize every quoted passage is checked against the text of its "
+            + "cited annotation; a quote that does not match is stripped of its "
+            + "quotation marks (demoted to paraphrase) and the report is flagged. "
+            + "When you need the exact words, call `find_citable_passages` to "
+            + "pull the passage and cite the annotation it returns — never "
+            + "reconstruct a quote from memory.",
+            "- State each claim once. Write the sentence, then attach the "
+            + "citation — do NOT write the claim as plain prose and then repeat "
+            + "it as a cited restatement. Keep normal spacing and punctuation "
+            + "around the tags so the sentence reads cleanly.",
             "",
             "## Budget",
             f"- You have approximately {max_steps} tool calls. Plan accordingly.",

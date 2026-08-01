@@ -180,13 +180,25 @@ async def _curate_corpus_memory_async(conversation_id: int) -> dict:
         return {"status": "error", "reason": "text_build_failed"}
 
     # 4. Stage 1: Summarise conversation (privacy firewall)
-    from opencontractserver.llms.agents.core_agents import get_default_config
+    #
+    # Resolve the model through the canonical chain (per-corpus
+    # ``preferred_llm`` → install-wide ``PipelineSettings.default_llm`` →
+    # Django settings) rather than reading a bare default. Curation is
+    # incidental infra, not a deliberate model override, so it must follow
+    # whatever the install is currently retargeted to — otherwise an admin
+    # who switches the install to Anthropic keeps paying for (and requiring
+    # credentials for) the legacy ``OPENAI_MODEL``. See issue #2078.
+    from opencontractserver.llms.llm_registry import resolve_model_spec
+    from opencontractserver.pipeline.utils import get_default_llm_spec
 
     try:
-        model_name = get_default_config().model_name
+        model_name = resolve_model_spec(
+            corpus_preferred=getattr(corpus, "preferred_llm", None),
+            settings_default=await database_sync_to_async(get_default_llm_spec)(),
+        )
     except Exception:
         logger.warning(
-            "Failed to get default agent config for curation of conversation %s",
+            "Failed to resolve the curation model for conversation %s",
             conversation_id,
             exc_info=True,
         )

@@ -401,6 +401,17 @@ class DeepResearchSystemPromptTestCase(TestCase):
         self.assertIn("search_memory", prompt)
         self.assertIn("Managing your context window", prompt)
 
+    def test_prompt_documents_quote_discipline(self):
+        # The citation-discipline section must warn the agent that quotation
+        # marks are for verbatim copies only (issue #2189).
+        prompt = build_deep_research_system_prompt(
+            task_description="Investigate X.",
+            corpus_title="Cases",
+            corpus_description=None,
+            max_steps=60,
+        )
+        self.assertIn("Quote only what you can copy verbatim", prompt)
+
     def test_prompt_injects_recovery_surface_and_resume_preamble(self):
         prompt = build_deep_research_system_prompt(
             task_description="Investigate X.",
@@ -446,7 +457,11 @@ class DeepResearchSystemPromptTestCase(TestCase):
         self.assertIn("Citation discipline", prompt)
         # #2180 — never cite a bare section header; prefer pinpoint anchors.
         self.assertIn("section header", prompt)
-        self.assertIn("search_exact_text_as_sources", prompt)
+        # #2201 — the pinpoint-anchor tool must be the CITEABLE one; the old
+        # advice pointed at search_exact_text_as_sources, whose synthetic
+        # negative ids can never be cited.
+        self.assertIn("find_citable_passages", prompt)
+        self.assertNotIn("search_exact_text_as_sources", prompt)
         # #2181 — follow incorporation-by-reference to the source document.
         self.assertIn("incorporated-by-reference", prompt)
         # #2182 — task/prompt/background restatements carry no citation.

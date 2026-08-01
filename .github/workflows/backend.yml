@@ -142,7 +142,7 @@ jobs:
       # so no auth is required to *pull* on first publish — confirm in
       # GitHub Packages settings if the package was created private).
       - name: Login to ghcr.io
-        uses: docker/login-action@v4
+        uses: docker/login-action@v4.5.2
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -251,16 +251,17 @@ jobs:
           #
           # pytest-cov + pytest-xdist handle per-worker coverage merging.
           #
-          # ``--timeout=600 --timeout-method=thread``: a per-test hang guard.
+          # ``--timeout=600 --timeout-method=signal``: a per-test hang guard.
           # Without it a single test that blocks on a starved service (the
           # 2-core runner runs ``-n auto`` workers alongside the docling/embedder
           # ML containers) hangs its worker until the 100-min step ceiling, with
           # no traceback. 600s is ~10x the slowest legitimate test (~57s) so it
-          # never false-positives, while turning an 83-min silent hang into a
-          # fast failure that dumps the offending test's stack. The ``thread``
-          # method is required: it interrupts blocking C calls (sockets) that the
-          # default ``signal`` method cannot, and works inside xdist workers.
-          docker compose -f test.yml run django pytest --cov --cov-report=xml -n auto --dist loadscope --timeout=600 --timeout-method=thread
+          # never false-positives, while turning a silent hang into a failure
+          # that identifies the offending test. On Linux xdist workers the
+          # signal method raises a pytest failure in the worker's main thread.
+          # The thread method hard-exits the worker, which can leave the xdist
+          # controller waiting until the outer 100-minute timeout.
+          docker compose -f test.yml run django pytest --cov --cov-report=xml -n auto --dist loadscope --timeout=600 --timeout-method=signal
 
       - name: Verify Coverage File Exists
         run: |
