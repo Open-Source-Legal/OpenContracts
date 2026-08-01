@@ -231,15 +231,33 @@ class TestNestedApprovalGates(TransactionTestCase):
         self.assertIsNotNone(fn, "ask_document tool not found in effective_tools")
         return fn
 
-    def _make_ctx(self, *, skip_approval_gate: bool = False):
-        """Build a lightweight tool-call context stub for ask_document tests."""
+    _CTX_DOCUMENT_ID_DEFAULT = object()
+
+    def _make_ctx(
+        self, *, skip_approval_gate: bool = False, document_id=_CTX_DOCUMENT_ID_DEFAULT
+    ):
+        """Build a lightweight tool-call context stub for ask_document tests.
+
+        ``document_id`` defaults to ``self.document`` (a document-scoped
+        agent). Pass ``document_id=None`` explicitly for a corpus-level agent
+        context not bound to a single document — the shape a real corpus
+        agent has when resolving ``ask_document`` calls dynamically, and the
+        only shape ``_validate_resource_id_params`` lets a foreign
+        ``document_id`` argument through without tripping its context-mismatch
+        guard.
+        """
+        resolved_document_id = (
+            self.document.id
+            if document_id is self._CTX_DOCUMENT_ID_DEFAULT
+            else document_id
+        )
 
         class _Ctx:
             tool_call_id = "test-call"
             deps = types.SimpleNamespace(
                 skip_approval_gate=skip_approval_gate,
                 user_id=self.user.id,
-                document_id=self.document.id,
+                document_id=resolved_document_id,
                 corpus_id=self.corpus.id,
             )
 
@@ -347,8 +365,11 @@ class TestNestedApprovalGates(TransactionTestCase):
             new_callable=AsyncMock,
             return_value=agent._mock_sub_agent,
         ) as for_document:
+            # A corpus-level agent isn't bound to a single document, unlike
+            # every other test in this class — that's the shape being tested
+            # here, so the context must not be either (see _make_ctx).
             result = await ask_doc_fn(
-                self._make_ctx(),
+                self._make_ctx(document_id=None),
                 document_id=foreign_document.id,
                 question="What does this group document say?",
                 corpus_group=group.slug,
