@@ -106,6 +106,13 @@ class TexasGridAuthorityGrammarTests(SimpleTestCase):
         assert candidate.jurisdiction == "us-tx-ercot"
         assert "ercot-planning:9" in self._keys("ERCOT Planning Guide Section 9")
 
+    def test_guide_section_matches_regardless_of_case(self):
+        # Sibling shapes (16 TAC, PGRR/NPRR) are already case-insensitive;
+        # the guide pattern was missing that flag and silently under-extracted
+        # a lowercase/mixed-case header like a scanned document's running text.
+        assert "ercot-planning:9" in self._keys("planning guide section 9")
+        assert "ercot-protocol:4.2" in self._keys("PROTOCOLS SECTION 4.2")
+
     def test_market_notice_identifier(self):
         keys = self._keys(
             "Implementation followed Market Notices M-B062326-01 and M-A301326-01."
@@ -116,9 +123,14 @@ class TexasGridAuthorityGrammarTests(SimpleTestCase):
         assert "ercot-notice:M-A301326-01" in keys
 
     def test_grid_shapes_reject_nearby_ordinary_numbers(self):
-        assert not self._keys(
+        # "Planning guide section 9" IS a valid citation on its own (see
+        # test_guide_section_matches_regardless_of_case) — the nearby
+        # "project 1325" and the date must not also be swept in as extra
+        # matches or as part of the citation's span.
+        keys = self._keys(
             "Planning guide section 9 is discussed in project 1325 on 06/23/26."
         )
+        assert set(keys) == {"ercot-planning:9"}
         assert not self._keys("The ERCOT Planning Guide 2026 edition is current.")
         assert not self._keys("The ERCOT Protocols 2026 edition is current.")
         assert not self._keys("The 16 TAC 2026 edition is current.")

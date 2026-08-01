@@ -137,6 +137,17 @@ class TestHostOnAllowlist:
     def test_trailing_dot_stripped(self):
         assert host_on_allowlist("uscode.house.gov.")
 
+    def test_suffix_match_requires_a_dot_boundary(self):
+        # The subdomain check is "host is a DOTTED CHILD of an allowlisted
+        # domain", not "host ends with the allowlist string" — a naive
+        # ``endswith`` would let "notercot.com" satisfy an "ercot.com" entry
+        # because the substring matches without a "." between them.
+        allowlist = frozenset({"ercot.com"})
+        assert host_on_allowlist("ercot.com", allowlist=allowlist)
+        assert host_on_allowlist("www.ercot.com", allowlist=allowlist)
+        assert not host_on_allowlist("notercot.com", allowlist=allowlist)
+        assert not host_on_allowlist("fakeercot.com", allowlist=allowlist)
+
 
 class TestAdditiveCACertificates:
     def test_builds_system_context_and_loads_each_pem(self):

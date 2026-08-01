@@ -595,6 +595,16 @@ class AuthorityCorpusBootstrapper:
         # materialized. Grouping prevents two records for the same key from
         # replacing each other's relationships, and calling through for an
         # empty tuple lets a provider retract every edge it previously owned.
+        #
+        # When ``relationships_are_baseline`` is True, ``_sync_relationships``
+        # passes ``replace=False`` and performs no stale-edge cleanup on its
+        # own — bootstrap() alone is not a complete convergence for baseline
+        # relationships. The current sole caller (a full-pack install) follows
+        # this with ``AuthorityRelationshipService.load_declarations()``, which
+        # does the replace-with-cleanup pass; the two upsert the same edges
+        # twice, which is harmless, but a future direct caller of
+        # ``bootstrap()`` for baseline relationships without a subsequent
+        # ``load_declarations()`` call would silently accumulate stale edges.
         for source_key, relationships in relationship_batches.items():
             self._sync_relationships(
                 source_key=source_key,

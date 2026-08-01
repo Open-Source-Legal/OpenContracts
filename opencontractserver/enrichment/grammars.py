@@ -93,7 +93,8 @@ _ERCOT_GUIDE_RE = re.compile(
     r"(?:§+\s*|[Ss]ection\s+)"
     r"(?P<section_marked>\d+(?:\.\d+){0,5}(?:\([0-9A-Za-z]+\))*)"
     r"|(?P<section_bare>\d+(?:\.\d+){1,5}(?:\([0-9A-Za-z]+\))*)"
-    r")"
+    r")",
+    re.IGNORECASE,
 )
 _ERCOT_MARKET_NOTICE_RE = re.compile(
     r"(?<![A-Za-z0-9])(?P<notice>[A-Z]-[A-Z]\d{6}-\d+)(?![A-Za-z0-9])",

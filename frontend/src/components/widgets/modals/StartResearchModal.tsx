@@ -23,6 +23,7 @@ import {
   GET_CORPUS_GROUP_OPTIONS,
   CorpusGroupOptionsResult,
 } from "../../corpus_groups/graphql";
+import { ErrorMessage } from "../feedback";
 import {
   MAX_RESEARCH_PROMPT_CHARS,
   MAX_RESEARCH_TITLE_CHARS,
@@ -59,10 +60,11 @@ export const StartResearchModal: React.FC<StartResearchModalProps> = ({
 
   // Only fetched while the modal is open — the picker is optional and most
   // runs never widen past the anchor corpus.
-  const { data: groupData } = useQuery<CorpusGroupOptionsResult>(
-    GET_CORPUS_GROUP_OPTIONS,
-    { skip: !open, fetchPolicy: "cache-and-network" }
-  );
+  const { data: groupData, error: groupError } =
+    useQuery<CorpusGroupOptionsResult>(GET_CORPUS_GROUP_OPTIONS, {
+      skip: !open,
+      fetchPolicy: "cache-and-network",
+    });
   const groupOptions = (groupData?.corpusGroups?.edges ?? []).map(
     ({ node }) => ({
       value: node.id,
@@ -160,6 +162,12 @@ export const StartResearchModal: React.FC<StartResearchModalProps> = ({
               helperText="The agent can reach every corpus in the group you may read — use this when the answer spans authorities (a statute in one corpus, the rule it authorises in another)."
             />
           </div>
+        )}
+        {groupError && (
+          <ErrorMessage style={{ marginTop: 16 }}>
+            Couldn't load corpus groups ({groupError.message}). You can still
+            start research against this corpus alone.
+          </ErrorMessage>
         )}
       </ModalBody>
       <ModalFooter>

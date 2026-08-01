@@ -64,6 +64,18 @@ class StepBudgetNoticeTests(SimpleTestCase):
     def test_a_zero_budget_cannot_divide_by_zero(self):
         self.assertIsNone(build_step_budget_notice(3, 0))
 
+    def test_known_gap_a_reasoning_only_run_gets_no_notice_at_all(self):
+        # The notice is keyed on TOOL CALLS (what tool_call_log records), but
+        # the hard cutoff (UsageLimits.request_limit) counts MODEL REQUESTS. A
+        # request that only reasons makes no tool call, so a run that walks
+        # straight into request_limit via reasoning-only requests never
+        # crosses either ratio — it sees no warning at any point, including
+        # the step immediately before the cutoff. This is a known, accepted
+        # gap (see the DEEP_RESEARCH_STEP_BUDGET_* comment): pinned here so a
+        # future change to the notice's counting basis is a deliberate one,
+        # not a silent regression discovered in production.
+        self.assertIsNone(build_step_budget_notice(0, 60))
+
 
 class TerminalReasonTests(SimpleTestCase):
     def test_a_step_limit_is_named_as_a_step_limit(self):

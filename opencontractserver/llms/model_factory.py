@@ -362,10 +362,10 @@ def build_agent_model(spec: str) -> Any:
             provider_key,
             exc_info=True,
         )
-        return spec
+        return f"openai-responses:{model_name}" if responses_api else spec
 
     if model is None:
-        return spec
+        return f"openai-responses:{model_name}" if responses_api else spec
 
     # debug, not info: once DB credentials are configured this runs on every
     # single agent build (every chat message, structured call, memory task).

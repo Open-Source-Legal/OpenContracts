@@ -169,6 +169,36 @@ class TestBuildAgentModelDbWins(TestCase):
             result = build_agent_model("openai:gpt-4o")
         self.assertEqual(result, "openai:gpt-4o")
 
+    def test_construct_failure_for_responses_api_model_keeps_the_redirect(self):
+        """A DB-creds construction error must not drop the Responses-API prefix.
+
+        Regression: both DB-creds fallback branches used to return the bare
+        ``spec`` unconditionally, silently undoing the env-credential path's
+        ``openai-responses:`` rewrite the moment a DB-configured install hit a
+        recoverable construction error (e.g. a bad ``base_url``) — the exact
+        400 this redirect exists to prevent, specifically for the System
+        Settings model picker.
+        """
+        self._configure_openai_creds(api_key="sk-db-key")
+        with mock.patch(
+            "opencontractserver.llms.model_factory._construct_model",
+            side_effect=RuntimeError("boom"),
+        ):
+            result = build_agent_model("openai:gpt-5.6-luna")
+        self.assertEqual(result, "openai-responses:gpt-5.6-luna")
+
+    def test_construct_returning_none_for_responses_api_model_keeps_the_redirect(
+        self,
+    ):
+        """The ``model is None`` fallback must also preserve the redirect."""
+        self._configure_openai_creds(api_key="sk-db-key")
+        with mock.patch(
+            "opencontractserver.llms.model_factory._construct_model",
+            return_value=None,
+        ):
+            result = build_agent_model("openai:gpt-5.6-luna")
+        self.assertEqual(result, "openai-responses:gpt-5.6-luna")
+
     def test_db_creds_build_real_pydantic_ai_model(self):
         """End-to-end: a non-string credentialed pydantic-ai model is returned."""
         self._configure_openai_creds(
