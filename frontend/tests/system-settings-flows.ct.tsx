@@ -139,7 +139,18 @@ const mockComponents = {
       description: "Converts office/legacy formats to PDF via Gotenberg",
       className:
         "opencontractserver.pipeline.file_converters.gotenberg_converter.GotenbergFileConverter",
-      supportedExtensions: ["doc", "rtf", "odt", "ppt"],
+      supportedExtensions: [
+        "doc",
+        "rtf",
+        "odt",
+        "ppt",
+        "pptx",
+        "xls",
+        "xlsx",
+        "html",
+        "png",
+        "tiff",
+      ],
       requiresApiKey: false,
       enabled: true,
       settingsSchema: [],
@@ -422,6 +433,12 @@ test.describe("SystemSettings — file converter on/off", () => {
       page.locator("text=Disabled (no pre-parse conversion)")
     ).toBeVisible();
 
+    await docScreenshot(
+      page,
+      "admin--pipeline-settings--file-converter-disabled",
+      { element: page.locator('[data-testid="file-converter-row"]') }
+    );
+
     await page.locator('[data-testid="edit-default-file-converter"]').click();
     await expect(page.locator("text=Edit File Converter")).toBeVisible();
 
@@ -433,6 +450,14 @@ test.describe("SystemSettings — file converter on/off", () => {
       .click();
     await expect(page.locator("#default-file-converter")).toHaveValue(
       GOTENBERG
+    );
+
+    await docScreenshot(
+      page,
+      "admin--pipeline-settings--file-converter-picker",
+      {
+        element: page.locator(".oc-modal"),
+      }
     );
 
     await page
@@ -510,6 +535,12 @@ test.describe("SystemSettings — file converter on/off", () => {
 
     // The row starts enabled (shows the configured class path).
     await expect(page.locator(`text=${GOTENBERG}`).first()).toBeVisible();
+
+    await docScreenshot(
+      page,
+      "admin--pipeline-settings--file-converter-enabled",
+      { element: page.locator('[data-testid="file-converter-row"]') }
+    );
 
     await page.locator('[data-testid="edit-default-file-converter"]').click();
     await expect(page.locator("text=Edit File Converter")).toBeVisible();
