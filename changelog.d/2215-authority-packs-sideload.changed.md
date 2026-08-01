@@ -9,7 +9,10 @@
   legal-review state, refresh cadence and publisher relationships; shipping one
   in the product meant every install carried — and every worker imported the
   providers of — one deployment's regulatory topology. `bolivia` remains as the
-  worked example the format needs, and the pack machinery is unchanged.
+  worked example the format needs, and the pack machinery is unchanged. The
+  corpus-group manifests that composed these ten corpora, and the evaluation
+  commands that graded runs over them, went to their own repositories earlier on
+  this branch for the same reason; none of them ever appeared in a release.
 - **Added `AUTHORITY_PACK_ROOTS`** (env var, comma-separated, empty by default):
   directories *of* packs, the same shape as the in-tree root, so a pack
   repository mounts with one variable instead of one entry per pack.
@@ -34,3 +37,11 @@
   and a swapped pack directory stay correct). The now-redundant `module_ns`
   parameter of `_discover_pack_component_classes` is gone — the component
   subdirectory name already disambiguates the two families.
+- **Fixed: re-mounting a pack name from a new directory served the old pack's
+  helper.** The synthetic parent package is keyed by pack name, and an import
+  resolves against `sys.modules` before consulting that package's `__path__`, so
+  re-pointing the path alone left cached submodules from the previous directory
+  in place. Cached submodules are now dropped when the path actually changes.
+  Covered by
+  `PackSiblingImportTests::test_same_pack_name_from_a_new_directory_reloads_its_helper`,
+  which fails against the un-purged version.

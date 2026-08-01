@@ -338,6 +338,43 @@ class PackSiblingImportTests(SimpleTestCase):
                     "sibling-resolved",
                 )
 
+    def test_same_pack_name_from_a_new_directory_reloads_its_helper(self):
+        """A re-mounted pack name must run the NEW directory's code.
+
+        The synthetic parent package is keyed by pack name, and an import
+        resolves against ``sys.modules`` before it consults that package's
+        ``__path__`` — so without dropping the cached submodules, remounting the
+        same pack name from a different directory hands back the previous
+        directory's helper and the pack silently runs code it does not contain.
+        """
+        self.addCleanup(reset_registry)
+        for value in ("first", "second"):
+            with tempfile.TemporaryDirectory() as tmp:
+                pack = Path(tmp) / "remounted-pack"
+                (pack / "providers").mkdir(parents=True)
+                (pack / "pack.yaml").write_text(
+                    "name: remounted_pack\n", encoding="utf-8"
+                )
+                (pack / "pack_helper.py").write_text(
+                    f'CLASSIFICATION = "{value}"\n', encoding="utf-8"
+                )
+                (pack / "providers" / "sibling_provider.py").write_text(
+                    _SIBLING_PROVIDER_SRC, encoding="utf-8"
+                )
+                with override_settings(AUTHORITY_PACK_PATHS=[str(pack)]):
+                    reset_registry()
+                    by_name = {
+                        definition.name: definition
+                        for definition in (get_all_authority_source_providers_cached())
+                    }
+                    provider_cls = by_name["SiblingImportProvider"].component_class
+                    assert provider_cls is not None
+                    self.assertEqual(
+                        getattr(provider_cls, "classification"),
+                        value,
+                        "a remounted pack name served a stale helper module",
+                    )
+
     def test_both_component_families_share_one_helper_module_object(self):
         """One pack, one helper module — not one copy per component family.
 

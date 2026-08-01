@@ -85,12 +85,21 @@ def _ensure_synthetic_package(name: str, paths: list[str]) -> None:
     ``__path__`` is re-pointed on every call rather than skipped when the module
     already exists: ``reset_registry()`` re-runs discovery, and a test (or an
     operator) may have swapped which directory a given pack name resolves to.
+    Re-pointing alone is not enough — an import resolves against
+    ``sys.modules[<pkg>.<sub>]`` before it ever consults the parent's
+    ``__path__``, so a helper cached from the previous directory would be handed
+    back and the new pack would silently run the old pack's code. Cached
+    submodules are therefore dropped whenever the path actually changes.
     """
     module = sys.modules.get(name)
     if module is None:
         spec = importlib.machinery.ModuleSpec(name, None, is_package=True)
         module = importlib.util.module_from_spec(spec)
         sys.modules[name] = module
+    elif list(getattr(module, "__path__", [])) != paths:
+        prefix = name + "."
+        for cached in [n for n in sys.modules if n.startswith(prefix)]:
+            del sys.modules[cached]
     module.__path__ = paths
 
 
@@ -101,10 +110,18 @@ def _packs_under(root: Path) -> list[Path]:
     ``pack.yaml`` is an artifact of scanning rather than something anyone named
     — most often a root pointed one level too deep, at a pack, whose own
     ``charters/``/``specs/``/``personas/`` would otherwise each surface as a
-    broken pack in the Authority Console. Explicit ``AUTHORITY_PACK_PATHS``
-    entries are deliberately NOT filtered this way: the operator named that
-    directory, so a missing manifest must surface as an invalid pack they can
-    repair, not vanish.
+    broken pack in the Authority Console.
+
+    This applies to the in-tree root as well. The trade-off there is that a
+    committed pack with a missing or unreadable ``pack.yaml`` disappears from
+    the catalog instead of appearing as repairable — acceptable because an
+    in-tree pack is a reviewed commit in this repository, where a malformed
+    manifest is caught by the test suite rather than by an operator reading the
+    Console.
+
+    Explicit ``AUTHORITY_PACK_PATHS`` entries are deliberately NOT filtered this
+    way: the operator named that directory, so a missing manifest must surface
+    as an invalid pack they can repair, not vanish.
     """
     return [
         p for p in sorted(root.iterdir()) if p.is_dir() and (p / "pack.yaml").is_file()

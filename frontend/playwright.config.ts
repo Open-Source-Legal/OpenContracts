@@ -7,6 +7,12 @@ const djangoUrl =
   process.env.E2E_DJANGO_URL ||
   process.env.REACT_APP_API_ROOT_URL ||
   "http://127.0.0.1:8000";
+// Set by a deployment running its own authority-pack import acceptance spec
+// against this frontend (the packs, their prepared corpus exports, and the spec
+// live in the deployment's repository -- see
+// docs/guides/authoring-authority-packs.md). Such a run installs packs and
+// imports large corpora on a real stack, so it needs a far longer ceiling than
+// the in-tree E2E suite. No in-tree spec sets it.
 const authorityImportRun = process.env.E2E_RUN_AUTHORITY_IMPORTS === "true";
 
 /**
