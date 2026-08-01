@@ -7,7 +7,7 @@ baseline prefix another writer origin owns. Use after editing
 ``opencontractserver/enrichment/data/authority_mappings.yaml``.
 
 ``--include-packs`` additionally merge-loads every installed authority pack's
-mappings YAML (in-tree ``authority_packs/`` + ``AUTHORITY_PACK_PATHS``), each
+mappings YAML (every pack ``pipeline.registry.authority_pack_dirs`` finds), each
 stamped with the pack's name as its baseline origin — one command converges the
 whole installed taxonomy.
 """
@@ -33,7 +33,7 @@ class Command(BaseCommand):
             action="store_true",
             help=(
                 "Also load every installed authority pack's mappings YAML "
-                "(in-tree authority_packs/ + AUTHORITY_PACK_PATHS), each "
+                "(in-tree authority_packs/ + sideloaded pack roots/paths), each "
                 "stamped with its pack name as baseline origin."
             ),
         )

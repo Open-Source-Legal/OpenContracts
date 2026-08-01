@@ -4,11 +4,12 @@ A self-contained authority pack that scrapes a live source declares the hosts it
 fetches from in its ``pack.yaml`` (``source_hosts: [...]``). Those hosts are
 read from every *discoverable* pack directory (the same set the pipeline registry
 scans for in-pack providers: in-tree ``authority_packs/`` + the
-``AUTHORITY_PACK_PATHS`` setting) and unioned with the hardcoded baseline
+sideload settings; see ``pipeline.registry.authority_pack_dirs``) and unioned
+with the hardcoded baseline
 ``PUBLIC_DOMAIN_SOURCE_HOSTS``.
 
 Trust model: a pack's hosts become allowed exactly when the operator *installs*
-the pack (commits it in-tree or lists its directory in ``AUTHORITY_PACK_PATHS``)
+the pack (commits it in-tree or sideloads its directory)
 — installing the pack IS the trust decision. The union is computed identically in
 every process (web + Celery workers) from the same pack directories, so a worker
 running discovery sees the same allowlist as the loader. Every pack-added host is

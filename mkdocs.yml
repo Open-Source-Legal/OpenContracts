@@ -89,7 +89,6 @@ nav:
       - Building Document Imports with CAML: guides/building-document-imports-with-caml.md
       - Ingesting Authorities & Adding Providers: guides/ingesting-authorities.md
       - Authoring an Authority Pack: guides/authoring-authority-packs.md
-      - Deploying GridDossier Authorities: guides/deploying-grid-dossier-authorities.md
   - Architecture:
       - System Data Flow: architecture/components/Data-flow-diagram.md
       - PDF Data Layer (PAWLs): architecture/PDF-data-layer.md

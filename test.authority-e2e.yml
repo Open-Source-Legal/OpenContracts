@@ -1,8 +1,14 @@
-# Isolated full-stack runtime for the authority-pack Playwright workflow.
+# Isolated full-stack runtime for an authority-pack acceptance workflow.
+#
+# This profile is deliberately generic: it stands up a REAL stack (real
+# embedder, real parser, real converter, real worker queues) that a deployment
+# can point its own pack-import acceptance run at. The packs, their prepared
+# corpus exports, and the Playwright spec that drives them live in the
+# deployment's own repository -- see docs/guides/authoring-authority-packs.md.
 #
 # Run this as an override on top of test.yml with a unique Compose project:
 #
-#   docker compose -p grid_dossier_authority_e2e \
+#   docker compose -p authority_pack_e2e \
 #     -f test.yml -f test.authority-e2e.yml up ...
 #
 # `test.yml` bind-mounts the checkout that invokes Compose at /app. The
@@ -12,7 +18,7 @@
 
 services:
   django:
-    container_name: grid-dossier-authority-e2e-django
+    container_name: authority-pack-e2e-django
     depends_on:
       gotenberg:
         condition: service_started
@@ -27,8 +33,9 @@ services:
       # an MD5 hash of the text: deterministic and fast, but semantically
       # meaningless — two paraphrases of the same sentence land in unrelated
       # directions. Hybrid search then degrades to its BM25 half alone, and the
-      # vector half contributes pure noise (a query for the large-load
-      # transition returns "Texas Veterans" and PUCT copyright footers).
+      # vector half contributes pure noise (observed: a query about a
+      # regulatory transition returned an unrelated statute and a publisher's
+      # copyright footer).
       # ``BENCHMARK_MODE`` is the sanctioned escape hatch for that pin (see the
       # issue #1410 footgun guard in config/settings/test.py) — it exists so a
       # stack like this one can swap in the real microservice deliberately.
@@ -64,7 +71,7 @@ services:
       - authority_e2e_media:/app/opencontractserver/media
 
   celeryworker:
-    container_name: grid-dossier-authority-e2e-celeryworker
+    container_name: authority-pack-e2e-celeryworker
     depends_on:
       gotenberg:
         condition: service_started
@@ -116,13 +123,13 @@ services:
       - authority_e2e_media:/app/opencontractserver/media
 
   postgres:
-    container_name: grid-dossier-authority-e2e-postgres
+    container_name: authority-pack-e2e-postgres
 
   redis:
-    container_name: grid-dossier-authority-e2e-redis
+    container_name: authority-pack-e2e-redis
 
   vector-embedder:
-    container_name: grid-dossier-authority-e2e-vector-embedder
+    container_name: authority-pack-e2e-vector-embedder
     # The published image serves 2 gunicorn workers, which caps the whole stack
     # at ~3 embeddings/sec — a one-off backfill of this archive's ~119k
     # annotations would take ~11 hours. The service is CPU-bound and holds no
@@ -142,21 +149,21 @@ services:
       VECTOR_EMBEDDER_API_KEY: ${VECTOR_EMBEDDER_API_KEY:-abc123}
 
   multimodal-embedder:
-    container_name: grid-dossier-authority-e2e-multimodal-embedder
+    container_name: authority-pack-e2e-multimodal-embedder
 
   docling-parser:
-    container_name: grid-dossier-authority-e2e-docling-parser
+    container_name: authority-pack-e2e-docling-parser
 
   docxodus-parser:
-    container_name: grid-dossier-authority-e2e-docxodus-parser
+    container_name: authority-pack-e2e-docxodus-parser
 
   gotenberg:
     image: gotenberg/gotenberg:8
-    container_name: grid-dossier-authority-e2e-gotenberg
+    container_name: authority-pack-e2e-gotenberg
 
   warp-ingest:
     image: ghcr.io/open-source-legal/warp-ingest:1.0.0
-    container_name: grid-dossier-authority-e2e-warp-ingest
+    container_name: authority-pack-e2e-warp-ingest
     environment:
       WARP_API_KEY: "abc123"
 

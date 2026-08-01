@@ -1,0 +1,17 @@
+{
+  "aliases": ["ex-code"],
+  "sections": [
+    {
+      "key": "ex-code:12.001",
+      "heading": "Example Utilities Code § 12.001",
+      "text": "Curated seed locator for Example Utilities Code section 12.001.",
+      "source_url": "https://publisher.example/code/12.001"
+    },
+    {
+      "key": "ex-code:12.002",
+      "heading": "Example Utilities Code § 12.002",
+      "text": "Curated seed locator for Example Utilities Code section 12.002.",
+      "source_url": "https://publisher.example/code/12.002"
+    }
+  ]
+}

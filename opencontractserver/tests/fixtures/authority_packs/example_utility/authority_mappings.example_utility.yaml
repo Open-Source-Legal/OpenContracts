@@ -1,0 +1,31 @@
+prefixes:
+  ex-code:
+    display_name: "Example Utilities Code"
+    jurisdiction: "zz"
+    authority_type: "statute"
+    aliases:
+      - "example utilities code"
+      - "ex. util. code"
+  ex-rule:
+    display_name: "Example Commission Rules"
+    jurisdiction: "zz"
+    authority_type: "regulation"
+    aliases:
+      - "example commission rule"
+
+equivalences: []
+rewrite_rules: []
+
+shape_rules:
+  - pattern: '^ex-code$'
+    jurisdiction: "zz"
+    authority_type: "statute"
+
+abbreviations:
+  state:
+    "Ex. Util. Code":
+      prefix: "ex-code"
+      jurisdiction: "zz"
+      authority_type: "statute"
+      requires_section_marker: true
+  municipal: {}

@@ -44,12 +44,24 @@ class Command(AuthorityPackService, BaseCommand):
             action="store_true",
             help="Skip the reactive re-link of corpora citing the seeded keys.",
         )
+        parser.add_argument(
+            "--check",
+            action="store_true",
+            help=(
+                "Validate the pack and print the install plan without writing "
+                "anything. Use this to verify a sideloaded pack before install."
+            ),
+        )
 
     def handle(self, *args: Any, **options: Any) -> None:
         try:
             creator = User.objects.get(username=options["creator"])
         except User.DoesNotExist as exc:
             raise CommandError(f"No user named {options['creator']!r}") from exc
+
+        if options["check"]:
+            self._report_preflight(Path(options["path"]), creator=creator)
+            return
 
         result = AuthorityPackService.install_path(
             Path(options["path"]),
@@ -115,3 +127,36 @@ class Command(AuthorityPackService, BaseCommand):
                     f"{relink['corpora_failed']} failures."
                 )
             )
+
+    def _report_preflight(self, pack_dir: Path, *, creator: Any) -> None:
+        """Print the same validation the GUI preflight runs, and write nothing.
+
+        The Authority Console exposes this to an authority admin with a browser
+        session; a headless deployment installing a sideloaded pack has no such
+        session, so the check has to be reachable from the command line too.
+        """
+        plan = AuthorityPackService.preflight_path(pack_dir, creator=creator)
+        self.stdout.write(
+            f"pack {plan.pack_id} (schema v{plan.schema_version}) — "
+            f"{plan.display_name}"
+        )
+        self.stdout.write(f"  fingerprint:    {plan.fingerprint}")
+        self.stdout.write(f"  jurisdiction:   {plan.jurisdiction or '(unset)'}")
+        self.stdout.write(
+            f"  source hosts:   {', '.join(plan.source_hosts) or '(none)'}"
+        )
+        self.stdout.write(f"  approval:       {plan.approval_status}")
+        for corpus in plan.corpora:
+            self.stdout.write(
+                f"  corpus {corpus.slug}: {corpus.action} "
+                f"({corpus.section_count} seed section(s), "
+                f"approval {corpus.approval_status})"
+            )
+        if not plan.valid:
+            raise CommandError(plan.validation_error or "Pack failed validation.")
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"pack is valid; {plan.total_corpora} corpus/corpora would converge. "
+                "No changes were written."
+            )
+        )

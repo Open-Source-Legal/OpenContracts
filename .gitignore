@@ -215,9 +215,9 @@ docs/superpowers/
 # Demo corpus-import zips (large binaries, staged locally from ~/Code/EDGARx2)
 demo/import_zips/
 
-# Standalone authority scraper outputs (plans remain tracked in pack roots)
+# Standalone authority scraper outputs (plans remain tracked in pack roots,
+# which for real packs live outside this tree -- see AUTHORITY_PACK_ROOTS)
 /imports/
-/opencontractserver/enrichment/data/authority_packs/*/imports/
 
 # Local-only governance-graph demo (kept on disk, excluded from PRs)
 /demo/

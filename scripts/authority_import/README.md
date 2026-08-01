@@ -58,18 +58,17 @@ never calls the source provider's network fetch. `full_content` runs the
 existing authority gate; records requiring rights approval are refused unless
 the operator deliberately supplies `--rights-approved`.
 
-The shipped GridDossier plans use `full_content` for every source. A complete
-GridDossier build therefore requires a legal owner to approve acquisition of
-the `REVIEW_REQUIRED` records and the operator to record that decision
-explicitly:
+A plan whose sources are all `full_content` requires a legal owner to approve
+acquisition of the `REVIEW_REQUIRED` records and the operator to record that
+decision explicitly. Pass the pack directories to build — sideloaded packs live
+outside this tree (see `docs/guides/authoring-authority-packs.md`), so these are
+ordinary paths, not repository-relative ones:
 
 ```bash
 python scripts/authority_import/build_authority_imports.py \
   --rights-approved \
-  opencontractserver/enrichment/data/authority_packs/texas_electric_law \
-  opencontractserver/enrichment/data/authority_packs/puct_electric \
-  opencontractserver/enrichment/data/authority_packs/ercot_large_load \
-  opencontractserver/enrichment/data/authority_packs/oncor_delivery
+  /srv/authorities/<repo>/packs/<pack_a> \
+  /srv/authorities/<repo>/packs/<pack_b>
 ```
 
 Omitting `--rights-approved` is expected to fail those records closed. The flag
@@ -111,37 +110,27 @@ marks it `pending_legal_review` and records the source-plan ID, candidate URL
 when available, and `source_plan_parent_key` provenance. This prevents an
 incidental publisher hierarchy from becoming a trusted graph edge.
 
-Full-content providers emit their own typed relationships. For example, each
-PUCT Project 59142 attachment carries a provider-authored `FILED_IN`
-relationship to `puct-project:59142`; source plans do not manufacture that
-edge.
+Full-content providers emit their own typed relationships — an attachment
+fetched from a proceeding carries the provider-authored `FILED_IN` edge to that
+proceeding, for instance. Source plans never manufacture such an edge.
 
-## PUCT Interchange collection
+## Publishers with an incomplete TLS chain
 
-Project 59142 is an active publisher listing, not a fixed candidate list. Its
-plan has one explicit full-content project-root record and a separate
-`PUCTProjectDiscoveryProvider` source that:
+Some publishers serve a certificate chain missing its public intermediates.
+A pack may ship those intermediates as a PEM file and reference it, pack-
+relative, from `discovery_kwargs.extra_ca_certificates` and
+`fetch_kwargs.extra_ca_certificates`. The builder validates the path and the
+PEM contents, adds the certificates to the platform trust store, and keeps
+hostname verification, DNS pinning, redirect rules, host allowlists, and size
+limits enabled. It never disables TLS verification, and the PEM must contain
+public CA certificates only.
 
-- enumerates every filing row from the project listing;
-- opens every bounded filing-detail page;
-- preserves every PDF and native ZIP under its publisher document identity;
-- retains each exact ZIP package and emits every safely bounded native member
-  as its own hash-bound source record, rather than treating the publisher's
-  consolidated PDF rendition as a substitute for omitted originals; and
-- sends every discovered attachment through the normal PUCT source provider
-  and authority gate.
+## Active listings are not fixed candidate lists
 
-The Interchange server currently omits part of its public TLS chain. The pack's
-`certificates/interchange-missing-intermediates.pem` contains only public CA
-certificates. `discovery_kwargs.extra_ca_certificates` and
-`fetch_kwargs.extra_ca_certificates` reference that pack-relative file. The
-builder validates the path and PEM contents, adds the certificates to the
-platform trust store, and keeps hostname verification, DNS pinning, redirects,
-host allowlists, and size limits enabled. It never disables TLS verification.
-
-Because the proceeding is active, the number of PUCT rows and attachments can
-change. Treat `scrape-report.json` and the generated archive manifests as the
-authority for each run; do not assert a historical fixed document total.
+When a plan's discovery source enumerates a listing that is still being added
+to, its row and attachment counts change between runs. Treat
+`scrape-report.json` and the generated archive manifests as the authority for
+each run; do not assert a historical fixed document total.
 
 ## Output and acceptance
 

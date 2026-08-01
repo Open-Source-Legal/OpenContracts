@@ -63,7 +63,8 @@ corresponding tab so existing bookmarks keep working for one release.
 ### Authority Packs tab
 
 The trusted server catalog is discovered from the shipped pack directory and
-`AUTHORITY_PACK_PATHS`. The browser sends an opaque pack ID, never a filesystem
+`AUTHORITY_PACK_ROOTS` / `AUTHORITY_PACK_PATHS`. The browser sends an opaque
+pack ID, never a filesystem
 path, URL, archive, or manifest. Opening a pack runs a fresh side-effect-free
 preflight and displays its fingerprint, corpus identities, current installation
 state, source-host lineage, and publication approval.

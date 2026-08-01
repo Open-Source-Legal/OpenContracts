@@ -1,0 +1,11 @@
+{
+  "aliases": ["ex-rule"],
+  "sections": [
+    {
+      "key": "ex-rule:2026-14",
+      "heading": "Example Commission Order 2026-14",
+      "text": "Curated seed locator for Example Commission order 2026-14.",
+      "source_url": "https://publisher.example/orders/2026-14"
+    }
+  ]
+}

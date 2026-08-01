@@ -1,9 +1,0 @@
-schema_version: 1
-review_status: "pending_legal_review"
-expected:
-  - source_key: "tx-sb:89r-6:enrolled"
-    relationship_type: "AMENDS"
-    target_key: "tx-util:37.0561"
-    verified: false
-    metadata:
-      review_status: "pending_legal_review"

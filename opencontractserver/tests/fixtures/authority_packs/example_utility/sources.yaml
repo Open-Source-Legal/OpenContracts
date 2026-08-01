@@ -1,0 +1,25 @@
+schema_version: 1
+sources:
+  - id: "example-code-seeds"
+    ingestion_mode: "full_content"
+    corpus_slug: "example-utility-statutes"
+    source_provider: "ExampleStatuteAuthoritySourceProvider"
+    candidates:
+      - canonical_key: "ex-code:12.001"
+        url: "https://publisher.example/code/12.001"
+        publisher_title: "Example Utilities Code § 12.001"
+      - canonical_key: "ex-code:12.002"
+        url: "https://publisher.example/code/12.002"
+        publisher_title: "Example Utilities Code § 12.002"
+
+  - id: "example-orders"
+    ingestion_mode: "full_content"
+    corpus_slug: "example-utility-proceedings"
+    discovery_provider: "ExampleOrderIndexDiscoveryProvider"
+    source_provider: "ExampleOrderAuthoritySourceProvider"
+    index_urls:
+      - "https://publisher.example/orders"
+    discovery_kwargs:
+      max_candidates: 25
+    candidate_filters:
+      exclude_title: ["(?i)draft"]

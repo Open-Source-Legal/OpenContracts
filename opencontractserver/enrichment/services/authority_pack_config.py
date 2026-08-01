@@ -20,7 +20,7 @@ its OWN additions *inside the pack*, declared in the pack's authority-mappings Y
         ...
 
 These are read from every *installed* pack (the same directories the pipeline
-registry scans for providers: in-tree ``authority_packs/`` + ``AUTHORITY_PACK_PATHS``)
+registry scans for providers -- see ``pipeline.registry.authority_pack_dirs``)
 and merged with the Python baseline at runtime, so a pack's citation vocabulary
 travels WITH the pack — copy the directory, get the classification. Installing the
 pack is the decision; the baseline always wins a key collision (a pack extends, it

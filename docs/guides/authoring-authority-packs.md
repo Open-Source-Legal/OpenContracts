@@ -12,9 +12,16 @@ This is the operator/author how-to. For the management UI see
 detection→discovery→crawl engine see
 [Reference-Web Enrichment](../architecture/reference-web-enrichment.md); for the
 original design rationale and the gap/phasing analysis see the proposal,
-[0002 — Authority Packs](../architecture/proposals/0002-authority-packs.md). For
-the shipped Texas, PUCT, ERCOT, and Oncor packs, use the
-[GridDossier deployment runbook](deploying-grid-dossier-authorities.md).
+[0002 — Authority Packs](../architecture/proposals/0002-authority-packs.md).
+
+**Packs are deployment data, not product code.** The tree ships one worked
+example (`bolivia`) so the format has a reference implementation and the
+machinery has something to exercise. A real body of regulation — the corpora an
+install actually curates, with its own legal-review state, refresh cadence, and
+publisher relationships — belongs in its own repository and is **sideloaded**
+(see [Installing a sideloaded pack](#installing-a-sideloaded-pack)). Nothing
+about a pack needs to be in this tree to work: taxonomy, scraper, SSRF
+allowlist entries, and corpus definitions all travel inside the directory.
 
 ## Anatomy of a pack
 
@@ -118,7 +125,8 @@ successfully, keeps each provider-authored edge in
 `custom_meta["relationships"]`, and creates no `AuthorityRelationship` row at
 all — no error, no warning, no failing import. The only visible symptom is an
 authority graph that is quietly missing edges. (This stranded 154 of 396
-declared edges across the GridDossier packs before every prefix was bound;
+declared edges across one deployment's four packs before every prefix was
+bound;
 `test_grid_dossier_authority_pack_data.py::
 test_every_declared_prefix_is_bound_to_exactly_one_pack_corpus` now fails a
 pack that leaves one unbound.)
@@ -128,9 +136,10 @@ into a corpus of this pack — for example a prefix declared purely so citations
 to an external authority resolve. When one canonical namespace genuinely spans
 two corpora, bind it to the corpus that owns the authority's *current* records
 and declare the other corpus's edges in `relationships.yaml`, which is not
-gated by the binding. `oncor_delivery` does exactly that: `oncor-tariff` binds
-to the current-tariff corpus, and the tariff-history corpus's
-`EFFECTIVE_VERSION_OF` / `SUPERSEDED_BY` edges are declared instead.
+gated by the binding. A pack with a current-tariff corpus and a tariff-history
+corpus does exactly that: the tariff prefix binds to the current-tariff corpus,
+and the history corpus's `EFFECTIVE_VERSION_OF` / `SUPERSEDED_BY` edges are
+declared instead.
 
 `default_authority_weight` must come from the shared `AuthorityWeight`
 vocabulary. The loader stamps it as a soft default on inline seed sections that
@@ -234,7 +243,7 @@ Existing providers may continue to return the compact
 `AuthoritySection(key, heading, text, source_url)` shape. New pack providers
 should return `AuthoritySourceRecord` from
 `opencontractserver/enrichment/authority_sources.py`. It is the shared record
-contract for every authority pipeline, not a GridDossier-specific importer. It
+contract for every authority pipeline, not a per-deployment importer. It
 carries:
 
 - stable identity and routing: `canonical_key`, `source_identifier`,
@@ -338,11 +347,62 @@ index. A publisher moving the same canonical key to a different URL—or changin
 its current/historical or document-type metadata—produces a new reviewable
 candidate instead of being hidden by key-only deduplication.
 
+## Installing a sideloaded pack
+
+This is the normal path. The pack lives in its own repository; the install
+points at it and restarts.
+
+**One repository of packs → one variable.** `AUTHORITY_PACK_ROOTS` takes
+directories *of* packs, the same shape as the in-tree root, so a pack repo
+mounts whole:
+
+```bash
+# packs live at /srv/authorities/<repo>/packs/{pack_a,pack_b,...}
+AUTHORITY_PACK_ROOTS=/srv/authorities/<repo>/packs
+```
+
+**One pack → one entry.** `AUTHORITY_PACK_PATHS` takes individual pack
+directories, for a single pack or one mounted from an unusual location:
+
+```bash
+AUTHORITY_PACK_PATHS=/srv/authorities/pack_a,/srv/authorities/pack_b
+```
+
+Both are comma-separated and empty by default; a pack reachable through both is
+registered once. A path that is not a directory is logged and skipped rather
+than failing worker boot. Under Docker the directory has to be **mounted into
+the container** — the path is resolved inside it, not on the host.
+
+**Verify before installing.** A sideloaded pack is code and data you did not
+necessarily write. `--check` runs the same validation as the Authority Console
+preflight and writes nothing:
+
+```bash
+docker compose -f local.yml run --rm django python manage.py load_authority_pack \
+  --path /srv/authorities/<repo>/packs/<pack> \
+  --creator <username> --check
+```
+
+It prints the manifest fingerprint, declared source hosts, approval state, and
+per-corpus plan, and exits non-zero if the pack is invalid.
+
+**Install.** Drop `--check` to converge taxonomy, corpora, seed content,
+personas, metadata schemas, and relationships in one transaction. Then restart
+so the registry and SSRF allowlist pick up the pack's `providers/` module and
+`source_hosts` — discovery happens at registry build.
+
+An administrator can do the same thing without a shell: **Admin Settings →
+Authority Console → Authority Packs** lists every configured pack, shows its
+preflight, and installs it.
+
 ## Add / remove / copy
 
-**Add (in-tree).** Commit the pack directory under
-`opencontractserver/enrichment/data/authority_packs/`. Load its DB-side
-(taxonomy + content + personas):
+**Add (in-tree).** Reserved for the shipped example pack. Committing a pack
+under `opencontractserver/enrichment/data/authority_packs/` installs it on
+*every* deployment, offers it in every Authority Console catalog, and has its
+providers imported by every worker — a deliberate, reviewable decision rather
+than the default place to put a pack. Load its DB-side (taxonomy + content +
+personas):
 
 ```bash
 docker compose -f local.yml run --rm django python manage.py load_authority_pack \
@@ -366,15 +426,12 @@ ordinary user uploads retain their existing every-upload-is-a-version behavior.
 Curator-owned namespace rows, relationship edges, and metadata overrides are
 not silently clobbered.
 
-**Add (out-of-tree / copy to another install).** Place the pack directory
-anywhere and point the install at it with the `AUTHORITY_PACK_PATHS` setting (a
-list of pack directories; env var `AUTHORITY_PACK_PATHS`, comma-separated), then
-run `load_authority_pack --path <dir> ...` and restart. The pack's provider and
-hosts travel with the directory — nothing in core needs editing. This is how a
-pack ports to another system.
+**Add (out-of-tree / copy to another install).** See
+[Installing a sideloaded pack](#installing-a-sideloaded-pack) above. The pack's
+provider and hosts travel with the directory — nothing in core needs editing.
 
-**Remove.** Delete the pack directory (or drop it from `AUTHORITY_PACK_PATHS`) and
-restart — its provider and `source_hosts` stop being discovered immediately. The
+**Remove.** Delete the pack directory (or drop it from `AUTHORITY_PACK_ROOTS` /
+`AUTHORITY_PACK_PATHS`) and restart — its provider and `source_hosts` stop being discovered immediately. The
 already-loaded taxonomy/content rows persist (the loader upserts, it does not
 delete prefixes dropped from a YAML); remove them deliberately via the Authority
 Console if you want them gone.
@@ -396,7 +453,7 @@ another (issue #2057):
   a genuine collision by dropping the prefix from one YAML, or by curating the
   row through the console (making it manual-owned). The pack name `core` is
   reserved for the shipped baseline, and a pack's `name:` must be **unique
-  across every installed pack directory** (in-tree + `AUTHORITY_PACK_PATHS`):
+  across every installed pack directory** (in-tree + sideloaded):
   two directories declaring the same name are treated as the same pack — they
   co-own their prefixes with no collision guard between them.
 
@@ -442,7 +499,7 @@ abbreviations:                     # Bluebook-style abbreviations the Tier-2a ex
       authority_type: municipal-ordinance
 ```
 
-These are read from every installed pack (in-tree + `AUTHORITY_PACK_PATHS`) and
+These are read from every installed pack (in-tree + sideloaded) and
 validated fail-fast by `load_authority_pack`. Tests:
 `test_authority_pack_taxonomy.py`.
 

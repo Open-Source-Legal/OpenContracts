@@ -50,32 +50,64 @@ from opencontractserver.types.enums import ContentModality
 logger = logging.getLogger(__name__)
 
 
-# In-tree authority packs live here; each immediate subdirectory is a
-# self-contained pack (``pack.yaml`` + optional ``providers/``). Out-of-tree packs
-# are pointed at via the ``AUTHORITY_PACK_PATHS`` setting (a list of pack
-# directories), so a pack copied to another OpenContracts install brings its
-# provider module(s) with it — the provider lives WITH its authority instead of
-# in the shared ``pipeline/authority_source_providers/`` package.
+# The in-tree authority-pack root; each immediate subdirectory is a
+# self-contained pack (``pack.yaml`` + optional ``providers/``). It ships the
+# worked *example* pack only — a real body of regulation is deployment data, not
+# product code, and is sideloaded. Out-of-tree packs come in two shapes:
+# ``AUTHORITY_PACK_PATHS`` (individual pack directories) and
+# ``AUTHORITY_PACK_ROOTS`` (directories *of* packs, for mounting a whole pack
+# repository with one variable). Either way a pack brings its provider module(s)
+# with it — the provider lives WITH its authority instead of in the shared
+# ``pipeline/authority_source_providers/`` package.
 _AUTHORITY_PACKS_ROOT = (
     Path(__file__).resolve().parents[1] / "enrichment" / "data" / "authority_packs"
 )
+
+
+def _packs_under(root: Path) -> list[Path]:
+    """Immediate subdirectories of a pack root that are packs, sorted.
+
+    A root is scanned, not enumerated by an operator, so a subdirectory with no
+    ``pack.yaml`` is an artifact of scanning rather than something anyone named
+    — most often a root pointed one level too deep, at a pack, whose own
+    ``charters/``/``specs/``/``personas/`` would otherwise each surface as a
+    broken pack in the Authority Console. Explicit ``AUTHORITY_PACK_PATHS``
+    entries are deliberately NOT filtered this way: the operator named that
+    directory, so a missing manifest must surface as an invalid pack they can
+    repair, not vanish.
+    """
+    return [
+        p for p in sorted(root.iterdir()) if p.is_dir() and (p / "pack.yaml").is_file()
+    ]
 
 
 def authority_pack_dirs() -> list[Path]:
     """Return every authority-pack directory to scan for in-pack providers.
 
     Union of (a) every immediate subdirectory of the in-tree
-    ``enrichment/data/authority_packs/`` root and (b) each path listed in the
-    ``AUTHORITY_PACK_PATHS`` setting (out-of-tree pack directories). Order is
-    deterministic (sorted in-tree packs first) so duplicate-prefix warnings are
-    reproducible. Never raises — a misconfigured setting is logged and skipped.
+    ``enrichment/data/authority_packs/`` root, (b) every immediate subdirectory
+    of each ``AUTHORITY_PACK_ROOTS`` entry (a mounted pack *bundle*), and (c)
+    each path in ``AUTHORITY_PACK_PATHS`` (an individual out-of-tree pack).
+
+    Order is deterministic (in-tree first, then roots, then explicit paths, each
+    sorted) so duplicate-prefix warnings are reproducible, and the result is
+    de-duplicated by resolved path: a pack reachable both through a root and
+    through an explicit path would otherwise register its providers twice under
+    the same generated module name. Never raises — a misconfigured setting is
+    logged and skipped.
     """
     dirs: list[Path] = []
     if _AUTHORITY_PACKS_ROOT.is_dir():
-        dirs.extend(p for p in sorted(_AUTHORITY_PACKS_ROOT.iterdir()) if p.is_dir())
+        dirs.extend(_packs_under(_AUTHORITY_PACKS_ROOT))
     try:
         from django.conf import settings
 
+        for raw in getattr(settings, "AUTHORITY_PACK_ROOTS", []) or []:
+            root = Path(raw).expanduser()
+            if root.is_dir():
+                dirs.extend(p.resolve() for p in _packs_under(root))
+            else:
+                logger.warning("AUTHORITY_PACK_ROOTS entry is not a directory: %s", raw)
         for raw in getattr(settings, "AUTHORITY_PACK_PATHS", []) or []:
             p = Path(raw).expanduser()
             if p.is_dir():
@@ -83,8 +115,17 @@ def authority_pack_dirs() -> list[Path]:
             else:
                 logger.warning("AUTHORITY_PACK_PATHS entry is not a directory: %s", raw)
     except Exception as e:  # pragma: no cover - settings always importable in app
-        logger.warning("Could not read AUTHORITY_PACK_PATHS: %s", e)
-    return dirs
+        logger.warning("Could not read authority-pack settings: %s", e)
+
+    seen: set[Path] = set()
+    unique: list[Path] = []
+    for path in dirs:
+        resolved = path.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        unique.append(path)
+    return unique
 
 
 class ComponentType(str, Enum):

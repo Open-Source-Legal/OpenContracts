@@ -1,0 +1,18 @@
+title: "Example Utility Statutes"
+slug: "example-utility-statutes"
+purpose: >
+  Provide currently effective statutory provisions of the fictional Example
+  jurisdiction.
+include:
+  - "currently effective Example Utilities Code provisions"
+  - "cross-referenced provisions needed to interpret those requirements"
+exclude:
+  - "superseded statutory text except as version history"
+  - "unofficial commentary"
+authority_tiers:
+  default: "CONTROLLING"
+update_expectation: "event_driven"
+current_as_of: "2026-07-31"
+approval_status: "pending_legal_review"
+legal_owner: null
+technical_owner: null

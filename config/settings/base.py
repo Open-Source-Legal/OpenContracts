@@ -1773,6 +1773,17 @@ ENRICHMENT_DOC_MAX_CONCURRENCY = env.int("ENRICHMENT_DOC_MAX_CONCURRENCY", defau
 # in-tree provider.)
 AUTHORITY_PACK_PATHS = env.list("AUTHORITY_PACK_PATHS", default=[])
 
+# Out-of-tree authority-pack *bundle roots*. Each entry is a directory whose
+# immediate subdirectories are packs — the same shape as the in-tree root — so a
+# whole pack repository mounts with one variable instead of one entry per pack.
+# This is the ordinary way a deployment installs a body of regulation: the
+# product tree ships only the worked example pack, and the packs a given install
+# actually curates live in their own repo, versioned and reviewed on their own
+# cadence. Comma-separated absolute paths in AUTHORITY_PACK_ROOTS; empty by
+# default. Packs reachable through both settings are de-duplicated by resolved
+# path. Same restart requirement as AUTHORITY_PACK_PATHS.
+AUTHORITY_PACK_ROOTS = env.list("AUTHORITY_PACK_ROOTS", default=[])
+
 # Rate Limiting Configuration
 # ------------------------------------------------------------------------------
 # Import rate limiting settings

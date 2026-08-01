@@ -63,6 +63,16 @@ class StateGrammarTests(SimpleTestCase):
 
 
 class TexasGridAuthorityGrammarTests(SimpleTestCase):
+    """Baseline grid-authority shapes that live in the engine, not in a pack.
+
+    PUCT Texas Administrative Code sections, ERCOT revision requests, guide
+    sections, and market notices are structurally precise identifiers matched
+    by regex in ``grammars.py``. They stay in the shared Tier-2 grammar because
+    a pack's declarative vocabulary (``shape_rules`` / ``abbreviations``) cannot
+    express a bespoke pattern — see ``test_authority_pack_taxonomy.py`` for what
+    a pack *can* declare, which is where a pack's own abbreviations are tested.
+    """
+
     def setUp(self):
         self.ex = GenericCitationExtractor()
 
@@ -79,13 +89,6 @@ class TexasGridAuthorityGrammarTests(SimpleTestCase):
         assert tac.jurisdiction == "us-tx"
         assert tac.authority_type == C.AUTHORITY_TYPE_REGULATION
         assert "tx-admin-puct:25.361" in self._keys("See 16 Tex. Admin. Code § 25.361.")
-
-    def test_pack_names_with_required_markers_preserve_real_citations(self):
-        assert "tx-util:37.0561" in self._keys(
-            "Texas Utilities Code section 37.0561 applies."
-        )
-        assert "tx-util:37.0561" in self._keys("PURA § 37.0561 applies.")
-        assert "oncor-tariff:6.1.2" in self._keys("See Oncor Tariff § 6.1.2.")
 
     def test_revision_request_identifiers(self):
         keys = self._keys("PGRR145 was coordinated with NPRR 1325.")
@@ -118,11 +121,6 @@ class TexasGridAuthorityGrammarTests(SimpleTestCase):
         )
         assert not self._keys("The ERCOT Planning Guide 2026 edition is current.")
         assert not self._keys("The ERCOT Protocols 2026 edition is current.")
-        assert not self._keys("The Texas Utilities Code 2026 edition is current.")
-        assert not self._keys("The Oncor Tariff 2026 edition is current.")
-        assert not self._keys(
-            "The Oncor Electric Service Guidelines 2026 edition is current."
-        )
         assert not self._keys("The 16 TAC 2026 edition is current.")
         assert not self._keys("The labels PGRR and NPRR are incomplete identifiers.")
         assert not self._keys("Inventory item B062326-01 is not a market notice.")
