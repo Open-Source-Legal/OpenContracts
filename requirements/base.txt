@@ -82,7 +82,14 @@ posthog==7.33.0  # https://github.com/posthog/posthog-python
 
 # Model Context Protocol
 # ------------------------------------------------------------------------------
-mcp>=1.28.1  # https://github.com/anthropics/python-sdk
+mcp>=1.28.1,<2  # https://github.com/modelcontextprotocol/python-sdk
+# ^ pydantic-ai-slim[mcp] -> fastmcp-slim caps mcp<2.0 across its whole
+# published range as of 2026-08; mcp 2.0 is a breaking rewrite (decorator-based
+# handler registration on mcp.server.lowlevel.Server removed in favor of
+# on_*= constructor kwargs) that opencontractserver/mcp/server.py does not yet
+# speak. Bump this pin only alongside a migration of that file, once
+# fastmcp-slim ships v2 support (or fastmcp-slim/mcp is dropped in favor of
+# calling the v2 API directly).
 
 # Not directly required, pinned by Snyk to avoid a vulnerability
 # ------------------------------------------------------------------------------
