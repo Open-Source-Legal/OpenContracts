@@ -41,6 +41,7 @@ from config.graphql.core.relay import (
     register_type,
 )
 from config.graphql.ratelimits import RateLimits, graphql_ratelimit
+from opencontractserver.constants.truncation import MAX_DERIVED_MESSAGE_TITLE_CHARS
 from opencontractserver.conversations.models import (
     ChatMessage,
     Conversation,
@@ -975,11 +976,6 @@ def _resolve_message_pk(message_id) -> int | None:
     if raw.isdigit():
         return int(raw)
     return None
-
-
-# Chat answers have no natural filename, so derive a readable one from the
-# opening line and keep it short enough to be a sane document title.
-MAX_DERIVED_MESSAGE_TITLE_CHARS = 80
 
 
 def _default_saved_message_title(chat_message) -> str:

@@ -710,6 +710,46 @@ class AuthorityAttachmentExtractionTests(SimpleTestCase):
         with self.assertRaisesMessage(ValueError, "malformed XML authority source"):
             extract_authority_text(b"<not valid", "text/xml")
 
+    def test_xml_entity_expansion_bomb_is_rejected_as_malformed(self):
+        """A billion-laughs payload must not expand, on either XML path.
+
+        Both XML entry points use stdlib ``ElementTree``, not ``defusedxml``.
+        That is safe *because of the runtime we ship*: expat >= 2.6 enables its
+        input-amplification limit by default, and the base image
+        (``python:3.12.13-slim-bookworm``) carries expat 2.7.4, so the bomb
+        dies in the parser as a ``ParseError`` — which both call sites already
+        translate into the ordinary "malformed" ``ValueError``. Nothing
+        allocates hundreds of MB.
+
+        This test exists to pin that assumption to the runtime rather than to a
+        comment. If a future base image regresses to expat < 2.6 (or CPython
+        stops enabling the limit) this fails, and the fix is to add
+        ``defusedxml`` — not to delete the test.
+        """
+        nested = "".join(
+            f'<!ENTITY lol{i} "{"&lol%d;" % (i - 1) * 10}">' for i in range(1, 7)
+        )
+        bomb = (
+            '<?xml version="1.0"?><!DOCTYPE lolz ['
+            '<!ENTITY lol0 "AAAAAAAAAA">' + nested + "]><lolz>&lol6;</lolz>"
+        ).encode("utf-8")
+
+        with self.assertRaisesMessage(ValueError, "malformed XML authority source"):
+            extract_authority_text(bomb, "text/xml")
+
+        # Same payload smuggled in as an OOXML member takes the other path.
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            archive.writestr("word/document.xml", bomb)
+        with self.assertRaisesMessage(
+            ValueError, "malformed Office Open XML attachment"
+        ):
+            extract_authority_text(
+                buffer.getvalue(),
+                "application/vnd.openxmlformats-officedocument."
+                "wordprocessingml.document",
+            )
+
     def test_pdf_extraction_wraps_parse_errors(self):
         with self.assertRaisesMessage(
             ValueError, "could not parse PDF authority source"

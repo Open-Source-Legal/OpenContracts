@@ -12,6 +12,7 @@ Performance:
 - Subsequent accesses: ~0ms (cached dict lookup)
 """
 
+import hashlib
 import importlib
 import importlib.machinery
 import importlib.util
@@ -19,6 +20,7 @@ import inspect
 import logging
 import pkgutil
 import sys
+from collections import Counter
 from dataclasses import dataclass, field
 from enum import Enum
 from functools import lru_cache
@@ -69,6 +71,48 @@ _AUTHORITY_PACKS_ROOT = (
 # under. Shared across component families so a pack's own helper module is ONE
 # module object however many families import it.
 _PACK_MODULE_ROOT = "_authority_pack"
+
+
+def _pack_namespaces(pack_dirs: list[Path]) -> dict[Path, str]:
+    """Map each pack directory to a collision-free synthetic module namespace.
+
+    The namespace is normally just the pack directory's basename, which keeps
+    generated module names readable and stable. But ``authority_pack_dirs()``
+    unions three independent sources (the in-tree root, every
+    ``AUTHORITY_PACK_ROOTS`` bundle, every ``AUTHORITY_PACK_PATHS`` entry) and
+    de-duplicates by RESOLVED PATH only — so two genuinely different packs from
+    different roots may share a basename.
+
+    Left alone they land on one namespace and ``_ensure_synthetic_package``
+    re-points the first pack's package at the second pack's directory, purging
+    the first pack's cached submodules. Its provider names then silently
+    resolve to the OTHER pack's code, which also moves the ``__module__``-based
+    host-ownership checks in ``authority_source_hosts`` onto the wrong pack.
+    ``AuthorityPackService.catalog``'s duplicate check keys on the manifest
+    ``name`` field, not the directory, so it does not catch this.
+
+    Colliding directories get a short digest of their resolved path appended.
+    The digest depends on the path alone, so a pack keeps the same namespace
+    across ``reset_registry()`` re-discovery, and a non-colliding pack keeps
+    the plain basename it has always had.
+    """
+    basename_counts = Counter(p.name for p in pack_dirs)
+    namespaces: dict[Path, str] = {}
+    for pack_dir in pack_dirs:
+        if basename_counts[pack_dir.name] == 1:
+            namespaces[pack_dir] = pack_dir.name
+            continue
+        digest = hashlib.sha256(str(pack_dir.resolve()).encode()).hexdigest()[:8]
+        namespaces[pack_dir] = f"{pack_dir.name}-{digest}"
+        logger.warning(
+            "Authority pack directory basename %r is used by more than one pack "
+            "root; importing %s under the disambiguated namespace %r. Rename one "
+            "of the pack directories to silence this.",
+            pack_dir.name,
+            pack_dir,
+            namespaces[pack_dir],
+        )
+    return namespaces
 
 
 def _ensure_synthetic_package(name: str, paths: list[str]) -> None:
@@ -401,13 +445,15 @@ class PipelineComponentRegistry:
         """
         seen: set[type] = set()
         found: list[type] = []
-        for pack_dir in authority_pack_dirs():
+        pack_dirs = authority_pack_dirs()
+        namespaces = _pack_namespaces(pack_dirs)
+        for pack_dir in pack_dirs:
             component_dir = pack_dir / subdir_name
             if not component_dir.is_dir():
                 continue
             # Parents first, so a component module can import its own pack's
             # sibling modules relatively (``from ..helper import x``).
-            pack_ns = f"{_PACK_MODULE_ROOT}.{pack_dir.name}"
+            pack_ns = f"{_PACK_MODULE_ROOT}.{namespaces[pack_dir]}"
             sub_ns = f"{pack_ns}.{subdir_name}"
             _ensure_synthetic_package(_PACK_MODULE_ROOT, [])
             _ensure_synthetic_package(pack_ns, [str(pack_dir)])

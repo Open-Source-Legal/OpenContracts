@@ -38,3 +38,12 @@ MAX_NOTIFICATION_ERROR_LENGTH = 500
 # refactor spec at
 # ``docs/superpowers/specs/2026-05-27-canonical-caml-description-refactor-design.md``.
 MAX_CORPUS_DESCRIPTION_PREVIEW_LENGTH = 280
+
+# Maximum characters of a chat message's first line used as the derived title
+# when a user saves that message to their workspace without naming it.
+MAX_DERIVED_MESSAGE_TITLE_CHARS = 80
+
+# Maximum characters of a generated workspace filename (before extension).
+# Bounds the slug derived from a user-supplied or model-generated title so a
+# pathological title cannot produce an unusable storage key.
+MAX_WORKSPACE_FILENAME_CHARS = 120

@@ -189,4 +189,45 @@ test.describe("SaveMessageToWorkspace", () => {
       page.getByTestId("save-message-to-workspace-popover")
     ).toBeVisible();
   });
+
+  test("surfaces a thrown request failure, not just a server refusal", async ({
+    mount,
+    page,
+  }) => {
+    // Distinct branch from the test above: that one is the server answering
+    // ``ok: false``, this one is the request never completing at all, which
+    // lands in the component's ``catch``. Untested, a regression there shows
+    // the user a popover that silently did nothing.
+    await mount(
+      <ChatMessageTestWrapper
+        mocks={[
+          {
+            request: {
+              query: SAVE_MESSAGE_TO_WORKSPACE,
+              variables: {
+                messageId: MESSAGE_ID,
+                title: undefined,
+                folderName: "Saved Answers",
+              },
+            },
+            error: new Error("Network request failed"),
+          },
+        ]}
+      >
+        <ChatMessage {...baseProps} />
+      </ChatMessageTestWrapper>
+    );
+
+    await page.getByTestId("save-message-to-workspace-trigger").click();
+    await page.getByTestId("save-message-confirm").click();
+
+    // The catch branch appends the underlying reason; the ok:false branch
+    // never does, so this text matches only the branch under test.
+    await expect(
+      page.getByText(/Could not save this message to My Documents: /)
+    ).toBeVisible({ timeout: 20000 });
+    await expect(
+      page.getByTestId("save-message-to-workspace-popover")
+    ).toBeVisible();
+  });
 });

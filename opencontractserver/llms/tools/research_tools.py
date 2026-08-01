@@ -94,6 +94,13 @@ async def astart_deep_research(
     except ConcurrentResearchInProgress as exc:
         return f"Could not start: {exc}"
     except PermissionError as exc:
+        # DELIBERATE departure from the "security exceptions propagate" rule in
+        # CLAUDE.md's Agent Tool Architecture. The check itself is enforced (and
+        # stays enforced) in ``ResearchReportService.start``; this only decides
+        # what the *chat* sees. Propagating kills the whole turn, so a user who
+        # names a corpus group they cannot read gets a dead conversation instead
+        # of an answer. Returning the refusal as text lets the agent say so and
+        # carry on. Nothing is granted here — start() already refused.
         return f"Could not start: {exc}"
 
     return (

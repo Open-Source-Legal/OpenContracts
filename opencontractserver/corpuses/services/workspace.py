@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING, Any
 from django.db import transaction
 
 from opencontractserver.constants.document_processing import MARKDOWN_MIME_TYPE
+from opencontractserver.constants.truncation import MAX_WORKSPACE_FILENAME_CHARS
 from opencontractserver.shared.services.base import BaseService
 
 if TYPE_CHECKING:
@@ -39,8 +40,8 @@ logger = logging.getLogger(__name__)
 _UNSAFE_PATH_CHARS = re.compile(r"[/\\\x00-\x1f]+")
 
 # Bounded so a runaway generated title cannot exceed the ``DocumentPath.path``
-# column or produce an unreadable filename.
-MAX_WORKSPACE_FILENAME_CHARS = 120
+# column or produce an unreadable filename. Re-exported below (see ``__all__``)
+# because callers already import it from here.
 
 
 def _safe_segment(value: str, *, fallback: str) -> str:

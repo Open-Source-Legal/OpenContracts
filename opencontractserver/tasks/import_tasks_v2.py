@@ -537,7 +537,23 @@ def _import_document_with_annotations(
                 identity_target_path=identity_target_path,
             )
             if result[0] is not None:
-                _attach_publisher_original_file(result[0], publisher_source)
+                try:
+                    _attach_publisher_original_file(result[0], publisher_source)
+                except Exception as e:
+                    # This call sits ahead of the ``try`` below, so without its
+                    # own guard it is the ONE per-document step that escapes
+                    # this function's failure isolation: a storage error on a
+                    # single document's publisher sidecar would abort the whole
+                    # pack import instead of skipping that document. Return the
+                    # same ``(None, {})`` the outer handler does so the caller's
+                    # documented "accept partial state on failure" contract
+                    # holds on every path.
+                    logger.error(
+                        "Error attaching publisher source for %s: %s",
+                        doc_filename,
+                        e,
+                    )
+                    return None, {}
             return result
         reingest_fallback = True
         baked_source_bytes = source_bytes

@@ -66,6 +66,13 @@ AUTHORITY_PROVIDER_USER_AGENT: str = (
 # Non-standard per-service headers (``X-Api-Key``, ``X-Auth-Token``, …) are NOT
 # stripped, so a caller that sends such a header for a specific service must not
 # rely on this set to protect it across a cross-host redirect.
+# Size ceiling for a single operator-supplied extra CA certificate PEM loaded
+# by an authority pack. A CA bundle is a handful of KiB; anything approaching
+# this is a misconfiguration (or a pointer at the wrong file), and reading it
+# unbounded would let a pack manifest pull an arbitrarily large file into memory
+# at validation time.
+MAX_EXTRA_CA_CERTIFICATE_BYTES: int = 1024 * 1024
+
 CROSS_HOST_STRIPPED_HEADERS: frozenset[str] = frozenset(
     {"authorization", "cookie", "proxy-authorization"}
 )

@@ -22,6 +22,13 @@ __all__ = ["Command", "_ValidatedCorpus"]
 
 
 class Command(AuthorityPackService, BaseCommand):
+    # The service base is load-bearing, NOT vestigial: this command's own body
+    # calls ``AuthorityPackService.<method>`` explicitly, but the loader tests
+    # resolve ~30 of those validation helpers THROUGH ``Command`` (see
+    # ``test_authority_pack_loader.py``, which imports it as
+    # ``AuthorityPackLoaderCommand``). Dropping the base class to tidy the MRO
+    # breaks every one of them. Reattach the tests to ``AuthorityPackService``
+    # first if this is ever untangled.
     help = (
         "Load an authority pack (taxonomy + per-area content + personas) from a "
         "pack directory containing a pack.yaml manifest. Idempotent and re-runnable."

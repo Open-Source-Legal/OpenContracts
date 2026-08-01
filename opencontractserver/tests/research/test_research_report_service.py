@@ -189,6 +189,49 @@ class ResearchReportServiceTestCase(TestCase):
         self.assertEqual(len(report.tool_call_log), 1)
         self.assertIsNone(report.last_progress_at)
 
+    def test_append_tool_call_does_not_lose_a_concurrent_writer_entry(self):
+        """A stale in-memory instance must not clobber someone else's append.
+
+        Every tool call now routes through ``append_tool_call`` (``_audited``),
+        and two processes can hold the same report — ``reap_stalled_research``
+        re-enqueues a RUNNING report whose progress clock went cold while the
+        original worker may still be writing. Modelled here with two Python
+        instances of the same row: ``stale`` is loaded first, ``other`` writes,
+        then ``stale`` writes. A read-modify-write off the caller's cached
+        instance would drop ``other``'s entry and return a short count, which
+        also undercounts the step budget the notice is derived from.
+        """
+        report = self._make_report()
+        stale = ResearchReport.objects.get(pk=report.pk)
+        other = ResearchReport.objects.get(pk=report.pk)
+
+        ResearchReportService.append_tool_call(other, {"tool": "first"})
+        count = ResearchReportService.append_tool_call(stale, {"tool": "second"})
+
+        report.refresh_from_db()
+        self.assertEqual(
+            [entry["tool"] for entry in report.tool_call_log],
+            ["first", "second"],
+            "neither append may be lost",
+        )
+        self.assertEqual(count, 2, "returned count feeds the step-budget notice")
+
+    def test_append_finding_does_not_lose_a_concurrent_writer_finding(self):
+        """Same lost-update guard for the findings scratchpad."""
+        report = self._make_report()
+        stale = ResearchReport.objects.get(pk=report.pk)
+        other = ResearchReport.objects.get(pk=report.pk)
+
+        ResearchReportService.append_finding(other, {"claim": "first"})
+        ResearchReportService.append_finding(stale, {"claim": "second"})
+
+        report.refresh_from_db()
+        self.assertEqual(
+            [finding["claim"] for finding in report.findings],
+            ["first", "second"],
+        )
+        self.assertEqual(report.step_count, 2)
+
     # ------------------------------------------------------------------
     # Cancel
     # ------------------------------------------------------------------

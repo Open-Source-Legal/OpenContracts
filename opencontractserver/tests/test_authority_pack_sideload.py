@@ -21,7 +21,7 @@ from django.core.management.base import CommandError
 from django.test import TestCase, override_settings
 
 from opencontractserver.corpuses.models import Corpus
-from opencontractserver.pipeline.registry import authority_pack_dirs
+from opencontractserver.pipeline.registry import _pack_namespaces, authority_pack_dirs
 
 User = get_user_model()
 
@@ -83,6 +83,48 @@ class AuthorityPackDiscoveryTests(TestCase):
             sum(path.name == "alpha_pack" for path in found),
             1,
         )
+
+    def test_two_packs_sharing_a_basename_get_distinct_namespaces(self):
+        """Different packs may legitimately share a directory basename.
+
+        ``authority_pack_dirs()`` de-duplicates by RESOLVED PATH, so the same
+        basename under two different roots yields two entries — the sibling of
+        ``test_a_pack_reachable_twice_is_registered_once``, which covers the
+        same path reached twice. The synthetic import namespace is derived from
+        that basename, so without a guard both import under
+        ``_authority_pack.alpha_pack`` and the second re-points the first's
+        package at its own directory, silently swapping which code a provider
+        name resolves to (and with it the ``__module__``-based host-ownership
+        checks). ``AuthorityPackService.catalog`` keys its duplicate check on
+        the manifest ``name`` field, so it does not catch this.
+        """
+        other_bundle = Path(self.tmp.name) / "other_bundle"
+        other_bundle.mkdir()
+        shutil.copytree(FIXTURE_PACK, other_bundle / "alpha_pack")
+
+        with override_settings(
+            AUTHORITY_PACK_ROOTS=[str(self.bundle), str(other_bundle)],
+            AUTHORITY_PACK_PATHS=[],
+        ):
+            found = authority_pack_dirs()
+
+        self.assertEqual(
+            sum(path.name == "alpha_pack" for path in found),
+            2,
+            "both same-named packs must be discovered",
+        )
+        namespaces = _pack_namespaces(found)
+        self.assertEqual(
+            len(set(namespaces.values())),
+            len(found),
+            "every pack directory must map to its own module namespace",
+        )
+        # A pack whose basename is unique keeps the plain, readable name.
+        beta = next(path for path in found if path.name == "beta_pack")
+        self.assertEqual(namespaces[beta], "beta_pack")
+        # Derived from the path alone, so reset_registry() re-discovery keeps a
+        # pack on the same namespace instead of orphaning its cached modules.
+        self.assertEqual(namespaces, _pack_namespaces(found))
 
     def test_a_misconfigured_entry_is_skipped_not_raised(self):
         """A bad path must not take down worker boot or the registry build."""

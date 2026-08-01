@@ -334,23 +334,32 @@ class ResearchReportService(BaseService):
     def append_finding(cls, report: ResearchReport, finding: dict) -> None:
         """Append a structured finding and bump ``last_progress_at``.
 
-        Refreshes the row first to avoid stomping a concurrent
-        ``cancel_requested`` flip.
+        Locks the row for the read-modify-write so a concurrent writer cannot
+        stomp the append (see ``append_tool_call`` for why the lock, not just
+        a refresh, is required), and so a concurrent ``cancel_requested`` flip
+        is observed rather than overwritten.
         """
-        report.refresh_from_db(fields=["findings", "step_count", "cancel_requested"])
-        findings = list(report.findings or [])
-        findings.append(finding)
+        with transaction.atomic():
+            locked = ResearchReport.objects.select_for_update().get(pk=report.pk)
+            findings = list(locked.findings or [])
+            findings.append(finding)
+            locked.findings = findings
+            locked.step_count = (locked.step_count or 0) + 1
+            locked.last_progress_at = timezone.now()
+            locked.save(
+                update_fields=[
+                    "findings",
+                    "step_count",
+                    "last_progress_at",
+                    "modified",
+                ]
+            )
+        # Mirror the committed state onto the caller's instance — callers read
+        # ``cancel_requested`` off it right after this returns.
         report.findings = findings
-        report.step_count = (report.step_count or 0) + 1
-        report.last_progress_at = timezone.now()
-        report.save(
-            update_fields=[
-                "findings",
-                "step_count",
-                "last_progress_at",
-                "modified",
-            ]
-        )
+        report.step_count = locked.step_count
+        report.last_progress_at = locked.last_progress_at
+        report.cancel_requested = locked.cancel_requested
 
     @classmethod
     def append_tool_call(cls, report: ResearchReport, entry: dict) -> int:
@@ -360,12 +369,25 @@ class ResearchReportService(BaseService):
         count of how much of the run's step budget has been spent, so the
         caller that writes it is also the caller that can warn about it — see
         ``build_step_budget_notice``.
+
+        WHY ``select_for_update`` and not a bare ``refresh_from_db``: every
+        tool call now routes through here via ``_audited`` (research_tasks),
+        making this the hottest read-modify-write on the row. Within one
+        worker the ``sync_to_async(thread_sensitive=True)`` call sites already
+        serialise, but two *processes* can hold the same report — that is
+        exactly what ``reap_stalled_research`` does when it re-enqueues a
+        RUNNING report whose progress clock went cold while the original
+        worker is still alive. Unlocked, the later ``save()`` clobbers the
+        earlier append, silently dropping an audit entry and undercounting the
+        ``calls_made`` that feeds the step-budget notice.
         """
-        report.refresh_from_db(fields=["tool_call_log"])
-        log = list(report.tool_call_log or [])
-        log.append(entry)
+        with transaction.atomic():
+            locked = ResearchReport.objects.select_for_update().get(pk=report.pk)
+            log = list(locked.tool_call_log or [])
+            log.append(entry)
+            locked.tool_call_log = log
+            locked.save(update_fields=["tool_call_log", "modified"])
         report.tool_call_log = log
-        report.save(update_fields=["tool_call_log", "modified"])
         return len(log)
 
     # ------------------------------------------------------------------

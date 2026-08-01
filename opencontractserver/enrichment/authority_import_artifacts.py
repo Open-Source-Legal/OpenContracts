@@ -29,7 +29,10 @@ from urllib.parse import unquote, urlsplit
 
 import yaml
 
-from opencontractserver.constants.safe_http import PUBLIC_DOMAIN_SOURCE_HOSTS
+from opencontractserver.constants.safe_http import (
+    MAX_EXTRA_CA_CERTIFICATE_BYTES,
+    PUBLIC_DOMAIN_SOURCE_HOSTS,
+)
 from opencontractserver.enrichment.authorities import AuthoritySection
 from opencontractserver.enrichment.authority_sources import (
     AuthoritySourceRecord,
@@ -420,7 +423,7 @@ def _resolved_provider_kwargs(
         try:
             if not candidate.is_file():
                 raise SourcePlanError(f"{item_label} does not name a readable file")
-            if candidate.stat().st_size > 1024 * 1024:
+            if candidate.stat().st_size > MAX_EXTRA_CA_CERTIFICATE_BYTES:
                 raise SourcePlanError(
                     f"{item_label} exceeds the 1 MiB certificate limit"
                 )
