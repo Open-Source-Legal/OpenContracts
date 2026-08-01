@@ -10,6 +10,7 @@ from unittest import mock
 
 import yaml
 from django.contrib.auth import get_user_model
+from django.core.management.base import CommandError
 from django.test import TestCase
 from graphql_relay import to_global_id
 
@@ -21,6 +22,7 @@ from opencontractserver.annotations.models import (
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
 from opencontractserver.enrichment.services.authority_pack_service import (
+    AuthorityPackCorpusPlan,
     AuthorityPackService,
 )
 from opencontractserver.enrichment.services.authority_permissions import DENIED
@@ -322,3 +324,286 @@ class AuthorityPackAPITests(TestCase):
                 creator=self.admin, slug="portable-test-corpus"
             ).exists()
         )
+
+
+class AuthorityPackPlanValidationTests(TestCase):
+    """Catalog/plan/manifest-level validation and fault-isolation.
+
+    ``catalog()`` and ``preflight()`` must never raise — a broken configured
+    pack becomes an invalid ``AuthorityPackPlan`` entry (so an operator can see
+    and repair it), not a 500. These tests pin exactly that fault-isolation
+    plus the lower-level manifest/fingerprint helpers it depends on.
+    """
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            username="plan-admin",
+            is_superuser=True,
+            is_staff=True,
+            is_usage_capped=False,
+        )
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
+        self.root = Path(self.temp_dir.name)
+
+    def _configured(self, *dirs):
+        return mock.patch(
+            "opencontractserver.enrichment.services.authority_pack_service."
+            "authority_pack_dirs",
+            return_value=list(dirs),
+        )
+
+    def test_catalog_flags_duplicate_pack_ids_as_invalid(self):
+        # Two configured directories whose manifests declare the SAME pack
+        # name are ambiguous — installing "the" pack would be a coin flip.
+        # Both entries must come back invalid, not just one.
+        dirs = []
+        for name in ("first", "second"):
+            pack_dir = self.root / name
+            pack_dir.mkdir()
+            (pack_dir / "pack.yaml").write_text(
+                yaml.safe_dump({"name": "dup_pack", "corpora": []}),
+                encoding="utf-8",
+            )
+            dirs.append(pack_dir)
+
+        with self._configured(*dirs):
+            plans = AuthorityPackService.catalog(self.admin)
+
+        self.assertEqual(len(plans), 2)
+        for plan in plans:
+            self.assertFalse(plan.valid)
+            self.assertEqual(plan.pack_id, "dup_pack")
+            self.assertIn(
+                "declared by more than one configured authority-pack directory",
+                plan.validation_error,
+            )
+
+    def test_catalog_handles_pack_directory_without_a_manifest(self):
+        # No pack.yaml at all: every manifest read fails, so the catalog must
+        # fall back to the directory name for identity and surface the
+        # underlying error rather than raising out of catalog().
+        pack_dir = self.root / "no_manifest_pack"
+        pack_dir.mkdir()
+
+        with self._configured(pack_dir):
+            plans = AuthorityPackService.catalog(self.admin)
+
+        self.assertEqual(len(plans), 1)
+        plan = plans[0]
+        self.assertFalse(plan.valid)
+        self.assertEqual(plan.pack_id, "no_manifest_pack")
+        self.assertIn("No pack.yaml manifest", plan.validation_error)
+        self.assertEqual(plan.fingerprint, "")
+        self.assertEqual(plan.source_hosts, ())
+        self.assertEqual(plan.schema_version, 1)
+
+    def _write_broken_schema_pack(self, name: str) -> Path:
+        # A manifest that parses fine as YAML (so _read_manifest succeeds)
+        # but fails preflight_path's schema_version check, AND declares a
+        # malformed source_hosts entry — so _invalid_plan's own re-parse of
+        # source_hosts also hits its except branch.
+        pack_dir = self.root / name
+        pack_dir.mkdir()
+        (pack_dir / "pack.yaml").write_text(
+            yaml.safe_dump(
+                {
+                    "schema_version": "two",
+                    "name": name,
+                    "source_hosts": ["https://not-a-bare-host.example"],
+                    "corpora": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+        return pack_dir
+
+    def test_catalog_captures_a_preflight_failure_as_an_invalid_plan(self):
+        pack_dir = self._write_broken_schema_pack("broken_schema_pack")
+
+        with self._configured(pack_dir):
+            plans = AuthorityPackService.catalog(self.admin)
+
+        self.assertEqual(len(plans), 1)
+        plan = plans[0]
+        self.assertFalse(plan.valid)
+        self.assertEqual(plan.pack_id, "broken_schema_pack")
+        self.assertIn("Unsupported pack schema_version", plan.validation_error)
+        # _invalid_plan's non-int schema_version fallback.
+        self.assertEqual(plan.schema_version, 1)
+        # _invalid_plan's malformed-source_hosts except branch.
+        self.assertEqual(plan.source_hosts, ())
+        # The manifest itself is well-formed YAML, so the fingerprint hash
+        # over pack.yaml still succeeds.
+        self.assertTrue(plan.fingerprint.startswith("sha256:"))
+
+    def test_preflight_captures_a_failure_as_an_invalid_plan(self):
+        pack_dir = self._write_broken_schema_pack("broken_schema_pack_2")
+
+        with self._configured(pack_dir):
+            plan = AuthorityPackService.preflight(self.admin, "broken_schema_pack_2")
+
+        self.assertIsNotNone(plan)
+        self.assertFalse(plan.valid)
+        self.assertIn("Unsupported pack schema_version", plan.validation_error)
+
+    def test_install_path_rejects_a_stale_fingerprint(self):
+        pack_dir = self.root / "install_path_pack"
+        pack_dir.mkdir()
+        (pack_dir / "pack.yaml").write_text(
+            yaml.safe_dump(
+                {
+                    "name": "install_path_pack",
+                    "corpora": [{"title": "A", "spec": "a.json"}],
+                }
+            ),
+            encoding="utf-8",
+        )
+        (pack_dir / "a.json").write_text(
+            json.dumps(
+                {"sections": [{"key": "ex-code:1", "heading": "H", "text": "T"}]}
+            ),
+            encoding="utf-8",
+        )
+        with self.assertRaisesMessage(CommandError, "validate it again"):
+            AuthorityPackService.install_path(
+                pack_dir,
+                creator=self.admin,
+                expected_fingerprint="sha256:definitely-stale",
+            )
+
+    def test_preflight_path_rejects_unsupported_schema_version(self):
+        pack_dir = self.root / "unsupported_schema"
+        pack_dir.mkdir()
+        (pack_dir / "pack.yaml").write_text(
+            yaml.safe_dump({"schema_version": 3, "name": "p", "corpora": []}),
+            encoding="utf-8",
+        )
+        with self.assertRaisesMessage(CommandError, "Unsupported pack schema_version"):
+            AuthorityPackService.preflight_path(pack_dir, creator=self.admin)
+
+    def test_preflight_path_rejects_authority_prefixes_without_mappings(self):
+        # A corpus entry binds a namespace prefix, but the pack declares no
+        # 'mappings' file at all — there is nothing for that prefix to trace
+        # back to.
+        pack_dir = self.root / "prefix_needs_mappings"
+        pack_dir.mkdir()
+        (pack_dir / "pack.yaml").write_text(
+            yaml.safe_dump(
+                {
+                    "name": "prefix_needs_mappings",
+                    "corpora": [
+                        {
+                            "title": "A",
+                            "spec": "a.json",
+                            "authority_prefixes": ["some-law"],
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        (pack_dir / "a.json").write_text(
+            json.dumps(
+                {"sections": [{"key": "some-law:1", "heading": "H", "text": "T"}]}
+            ),
+            encoding="utf-8",
+        )
+        with self.assertRaisesMessage(
+            CommandError,
+            "requires the pack manifest to declare 'mappings'",
+        ):
+            AuthorityPackService.preflight_path(pack_dir, creator=self.admin)
+
+    def test_read_manifest_rejects_malformed_yaml(self):
+        pack_dir = self.root / "malformed_yaml"
+        pack_dir.mkdir()
+        (pack_dir / "pack.yaml").write_text(
+            "name: p\n  bad_indent: [\n", encoding="utf-8"
+        )
+        with self.assertRaisesMessage(CommandError, "Could not parse"):
+            AuthorityPackService._read_manifest(pack_dir)
+
+    def test_read_manifest_rejects_non_mapping_yaml(self):
+        pack_dir = self.root / "non_mapping_yaml"
+        pack_dir.mkdir()
+        (pack_dir / "pack.yaml").write_text("- a\n- b\n", encoding="utf-8")
+        with self.assertRaisesMessage(CommandError, "must contain a top-level mapping"):
+            AuthorityPackService._read_manifest(pack_dir)
+
+    def test_resolve_catalog_pack_rejects_invalid_pack_id(self):
+        with self.assertRaises(CommandError):
+            AuthorityPackService._resolve_catalog_pack("")
+        with self.assertRaises(CommandError):
+            AuthorityPackService._resolve_catalog_pack(None)
+
+    def test_pack_approval_status_pending_review_and_mixed(self):
+        def _plan(status: str) -> AuthorityPackCorpusPlan:
+            return AuthorityPackCorpusPlan(
+                slug="s",
+                title="T",
+                approval_status=status,
+                installed=False,
+                is_public=False,
+                corpus_id=None,
+                action="CREATE",
+                section_count=1,
+            )
+
+        self.assertEqual(
+            AuthorityPackService._pack_approval_status(
+                [_plan("approved"), _plan("pending_legal_review")]
+            ),
+            "pending_legal_review",
+        )
+        self.assertEqual(
+            AuthorityPackService._pack_approval_status(
+                [_plan("approved"), _plan("deprecated")]
+            ),
+            "mixed",
+        )
+
+    def test_declarative_fingerprint_skips_non_dict_corpora_entries(self):
+        # A manifest whose 'corpora' list holds a non-dict entry cannot pass
+        # full preflight validation, but declarative_fingerprint() is used to
+        # detect drift WITHOUT running that validation, so its inner loop must
+        # tolerate (skip) the malformed entry rather than crashing.
+        pack_dir = self.root / "non_dict_corpora_entry"
+        pack_dir.mkdir()
+        (pack_dir / "pack.yaml").write_text(
+            yaml.safe_dump({"name": "p", "corpora": ["not-a-dict"]}),
+            encoding="utf-8",
+        )
+        fingerprint = AuthorityPackService.declarative_fingerprint(pack_dir)
+        self.assertTrue(fingerprint.startswith("sha256:"))
+
+    def test_hash_files_rejects_a_path_outside_the_pack_directory(self):
+        pack_dir = self.root / "hash_pack"
+        pack_dir.mkdir()
+        outside = self.root / "outside.txt"
+        outside.write_text("x", encoding="utf-8")
+        with self.assertRaisesMessage(CommandError, "escapes its directory"):
+            AuthorityPackService._hash_files(pack_dir, [outside])
+
+    def test_pack_file_rejects_a_non_string_relative_path(self):
+        with self.assertRaisesMessage(
+            CommandError, "must be a non-empty relative path"
+        ):
+            AuthorityPackService._pack_file(self.root, 123, label="Manifest 'mappings'")
+        with self.assertRaisesMessage(
+            CommandError, "must be a non-empty relative path"
+        ):
+            AuthorityPackService._pack_file(
+                self.root, "   ", label="Manifest 'mappings'"
+            )
+
+    def test_pack_file_rejects_a_path_escaping_the_pack_directory(self):
+        pack_dir = self.root / "escape_pack"
+        pack_dir.mkdir()
+        (self.root / "outside.json").write_text("{}", encoding="utf-8")
+        with self.assertRaisesMessage(
+            CommandError, "escapes the authority pack directory"
+        ):
+            AuthorityPackService._pack_file(
+                pack_dir, "../outside.json", label="Corpus 'A' spec"
+            )
