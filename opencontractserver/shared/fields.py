@@ -70,5 +70,14 @@ class NullableJSONField(DbJSONField):
 
     empty_values = [None, "", [], (), {}]
 
-    def formfield(self, **kwargs: Any) -> Any:  # type: ignore[override]
-        return super().formfield(**{"form_class": UTF8JSONFormField, **kwargs})
+    def formfield(
+        self,
+        form_class: Optional[type[Any]] = UTF8JSONFormField,
+        choices_form_class: Optional[type[Any]] = None,
+        **kwargs: Any,
+    ) -> Any:
+        return super().formfield(
+            form_class=form_class,
+            choices_form_class=choices_form_class,
+            **kwargs,
+        )
