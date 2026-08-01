@@ -1,5 +1,5 @@
 from django.apps import AppConfig
-from django.db.models.signals import post_save
+from django.db.models.signals import post_migrate, post_save
 from django.utils.translation import gettext_lazy as _
 
 
@@ -45,6 +45,24 @@ class DocumentsConfig(AppConfig):
             #   instead of corpus.documents.all() or corpus.get_documents()
             # - corpus.document_count() instead of corpus.documents.count()
             # This ensures DocumentPath is the single source of truth for corpus-document relationships.
+
+            # Converge the PipelineSettings singleton on every post_migrate.
+            # The one-shot seed migration (0031) commits its row outside any
+            # test transaction, so a ``TransactionTestCase`` flush truncates it
+            # mid-suite and nothing restores it; the lazy re-creation in
+            # ``get_instance()`` then deadlocks any async test that reaches it
+            # from the asgiref executor thread. This idempotent receiver
+            # re-seeds after each flush (and on reused CI volumes at DB setup).
+            # See ``ensure_pipeline_settings_seeded``.
+            from opencontractserver.documents._pipeline_settings_seed import (
+                ensure_pipeline_settings_seeded,
+            )
+
+            post_migrate.connect(
+                ensure_pipeline_settings_seeded,
+                sender=self,
+                dispatch_uid="documents_seed_pipeline_settings",
+            )
 
             # Register system checks
             from opencontractserver.documents import checks  # noqa F401
