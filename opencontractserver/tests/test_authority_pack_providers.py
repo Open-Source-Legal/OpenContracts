@@ -14,6 +14,7 @@ See ``docs/guides/authoring-authority-packs.md``.
 
 from __future__ import annotations
 
+import sys
 import tempfile
 from pathlib import Path
 
@@ -266,3 +267,105 @@ class AuthorityPackDirsTests(SimpleTestCase):
                 any("is not a directory" in m for m in cm.output), cm.output
             )
             self.assertNotIn(Path("/no/such/authority/pack/dir"), dirs)
+
+
+# A pack whose provider imports a helper module at the pack root. This is the
+# shape that only works when the registry creates the pack's parent packages —
+# an in-tree pack could reach its own helper by absolute dotted path, and a
+# sideloaded copy of that same pack could not.
+_SIBLING_HELPER_SRC = """
+CLASSIFICATION = "sibling-resolved"
+"""
+
+_SIBLING_PROVIDER_SRC = """
+from typing import ClassVar
+
+from opencontractserver.enrichment.authorities import AuthoritySection
+from opencontractserver.pipeline.base.base_authority_source_provider import (
+    AuthorityRequest,
+    BaseAuthoritySourceProvider,
+)
+
+from ..pack_helper import CLASSIFICATION
+
+
+class SiblingImportProvider(BaseAuthoritySourceProvider):
+    title = "Sibling Import Provider"
+    supported_prefixes: ClassVar[tuple[str, ...]] = ("sibling-1",)
+    classification: ClassVar[str] = CLASSIFICATION
+
+    def _locate_impl(self, canonical_key, **kw):
+        return AuthorityRequest(
+            canonical_key=canonical_key, url="https://example.gov/x"
+        )
+
+    def _fetch_impl(self, request, **kw):
+        return [AuthoritySection(key=request.canonical_key, heading="H", text="T")]
+"""
+
+
+class PackSiblingImportTests(SimpleTestCase):
+    """A pack must be able to import its OWN modules, wherever it is mounted."""
+
+    def setUp(self):
+        self.addCleanup(reset_registry)
+
+    def test_provider_can_import_a_helper_at_the_pack_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = Path(tmp) / "sibling-pack"
+            providers = pack / "providers"
+            providers.mkdir(parents=True)
+            (pack / "pack.yaml").write_text("name: sibling_pack\n", encoding="utf-8")
+            (pack / "pack_helper.py").write_text(_SIBLING_HELPER_SRC, encoding="utf-8")
+            (providers / "sibling_provider.py").write_text(
+                _SIBLING_PROVIDER_SRC, encoding="utf-8"
+            )
+            with override_settings(AUTHORITY_PACK_PATHS=[str(pack)]):
+                reset_registry()
+                by_name = {
+                    definition.name: definition
+                    for definition in get_all_authority_source_providers_cached()
+                }
+                self.assertIn(
+                    "SiblingImportProvider",
+                    by_name,
+                    "a pack provider importing a pack-root helper failed to load",
+                )
+                provider_cls = by_name["SiblingImportProvider"].component_class
+                assert provider_cls is not None
+                self.assertEqual(
+                    getattr(provider_cls, "classification"),
+                    "sibling-resolved",
+                )
+
+    def test_both_component_families_share_one_helper_module_object(self):
+        """One pack, one helper module — not one copy per component family.
+
+        The families are discovered in separate passes; if each built its own
+        parent package the helper would be imported twice, and any state or
+        identity it carries would silently diverge between a pack's source and
+        discovery providers.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = Path(tmp) / "shared-helper-pack"
+            (pack / "providers").mkdir(parents=True)
+            (pack / "discovery_providers").mkdir(parents=True)
+            (pack / "pack.yaml").write_text("name: shared_pack\n", encoding="utf-8")
+            (pack / "pack_helper.py").write_text(_SIBLING_HELPER_SRC, encoding="utf-8")
+            (pack / "providers" / "sibling_provider.py").write_text(
+                _SIBLING_PROVIDER_SRC, encoding="utf-8"
+            )
+            with override_settings(AUTHORITY_PACK_PATHS=[str(pack)]):
+                reset_registry()
+                get_all_authority_source_providers_cached()
+                get_all_authority_discovery_providers_cached()
+                helper_modules = [
+                    name
+                    for name in sys.modules
+                    if name.endswith(".pack_helper") and "shared-helper-pack" in name
+                ]
+        self.assertEqual(
+            helper_modules,
+            ["_authority_pack.shared-helper-pack.pack_helper"],
+            "the pack's helper must resolve to exactly one module object",
+        )

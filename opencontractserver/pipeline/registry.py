@@ -13,6 +13,7 @@ Performance:
 """
 
 import importlib
+import importlib.machinery
 import importlib.util
 import inspect
 import logging
@@ -62,6 +63,35 @@ logger = logging.getLogger(__name__)
 _AUTHORITY_PACKS_ROOT = (
     Path(__file__).resolve().parents[1] / "enrichment" / "data" / "authority_packs"
 )
+
+
+# Root of the synthetic module namespace in-pack component modules are imported
+# under. Shared across component families so a pack's own helper module is ONE
+# module object however many families import it.
+_PACK_MODULE_ROOT = "_authority_pack"
+
+
+def _ensure_synthetic_package(name: str, paths: list[str]) -> None:
+    """Register (or re-point) a synthetic package rooted at ``paths``.
+
+    In-pack component modules are imported by file path, so without this their
+    parent packages do not exist and a pack module cannot import a sibling —
+    ``from ..publisher_identity import ...`` has nothing to resolve against.
+    Packs that lived in-tree hid this by being importable as real packages;
+    the moment one is sideloaded, that absolute path stops resolving. Creating
+    the parents makes ordinary relative imports work identically in-tree and
+    out, which is what "a pack is copy-to-port" requires.
+
+    ``__path__`` is re-pointed on every call rather than skipped when the module
+    already exists: ``reset_registry()`` re-runs discovery, and a test (or an
+    operator) may have swapped which directory a given pack name resolves to.
+    """
+    module = sys.modules.get(name)
+    if module is None:
+        spec = importlib.machinery.ModuleSpec(name, None, is_package=True)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module
+    module.__path__ = paths
 
 
 def _packs_under(root: Path) -> list[Path]:
@@ -328,7 +358,7 @@ class PipelineComponentRegistry:
         return subclasses
 
     def _discover_pack_component_classes(
-        self, subdir_name: str, base_class: type, module_ns: str
+        self, subdir_name: str, base_class: type
     ) -> list[type]:
         """Discover ``base_class`` subclasses shipped INSIDE authority packs
         (``<pack>/<subdir_name>/*.py``).
@@ -341,9 +371,9 @@ class PipelineComponentRegistry:
         discovered by the registry, no registration call, no core edit. This is
         what makes a pack self-contained: its scraper(s) live in the pack
         directory rather than in a shared core package, so copying the pack to
-        another install brings them with it. ``module_ns`` disambiguates the
-        synthetic module namespace per component family so a pack shipping BOTH
-        kinds of component cannot collide on the same module name.
+        another install brings them with it. The subdirectory name is part of
+        the synthetic module path, so a pack shipping BOTH kinds of component
+        cannot collide on the same module name.
 
         Each module is imported by file path under a synthetic, collision-free
         module name; an import failure is logged and skipped so a bad pack never
@@ -358,10 +388,17 @@ class PipelineComponentRegistry:
             component_dir = pack_dir / subdir_name
             if not component_dir.is_dir():
                 continue
+            # Parents first, so a component module can import its own pack's
+            # sibling modules relatively (``from ..helper import x``).
+            pack_ns = f"{_PACK_MODULE_ROOT}.{pack_dir.name}"
+            sub_ns = f"{pack_ns}.{subdir_name}"
+            _ensure_synthetic_package(_PACK_MODULE_ROOT, [])
+            _ensure_synthetic_package(pack_ns, [str(pack_dir)])
+            _ensure_synthetic_package(sub_ns, [str(component_dir)])
             for py in sorted(component_dir.glob("*.py")):
                 if py.name.startswith("_"):
                     continue
-                mod_name = f"_authority_pack_{module_ns}.{pack_dir.name}.{py.stem}"
+                mod_name = f"{sub_ns}.{py.stem}"
                 try:
                     spec = importlib.util.spec_from_file_location(mod_name, py)
                     if spec is None or spec.loader is None:
@@ -650,7 +687,7 @@ class PipelineComponentRegistry:
         )
         seen_classes = set(authority_source_provider_classes)
         for cls in self._discover_pack_component_classes(
-            "providers", BaseAuthoritySourceProvider, "providers"
+            "providers", BaseAuthoritySourceProvider
         ):
             if cls not in seen_classes:
                 seen_classes.add(cls)
@@ -696,7 +733,7 @@ class PipelineComponentRegistry:
         )
         seen_discovery_classes = set(authority_discovery_provider_classes)
         for cls in self._discover_pack_component_classes(
-            "discovery_providers", BaseAuthorityDiscoveryProvider, "discovery_providers"
+            "discovery_providers", BaseAuthorityDiscoveryProvider
         ):
             if cls not in seen_discovery_classes:
                 seen_discovery_classes.add(cls)

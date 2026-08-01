@@ -22,3 +22,15 @@
   approval state, per-corpus plan — and writes nothing, exiting non-zero on an
   invalid pack. The Console preflight needs an authority-admin browser session;
   a headless deployment installing a pack it did not author had no equivalent.
+- **Fixed: a sideloaded pack could not import its own modules.** In-pack
+  component modules are imported by file path, so their parent packages did not
+  exist and `from ..helper import x` had nothing to resolve against; a pack in
+  the tree hid this by also being importable as a real Python package, so two of
+  the four packs reached their own pack-root helpers by absolute dotted path and
+  silently failed to register 15 providers the moment they were sideloaded.
+  `pipeline/registry.py` now creates each pack's parent packages (shared across
+  component families, so one pack helper is one module object however many
+  families import it, and re-pointed on every discovery pass so `reset_registry`
+  and a swapped pack directory stay correct). The now-redundant `module_ns`
+  parameter of `_discover_pack_component_classes` is gone — the component
+  subdirectory name already disambiguates the two families.
