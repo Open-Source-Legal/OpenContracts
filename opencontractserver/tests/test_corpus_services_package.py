@@ -97,6 +97,7 @@ class TestServicesPackageStructure(SimpleTestCase):
                     "CorpusActionService",
                     "CorpusCategoryService",
                     "CorpusIntelligenceSetupService",
+                    "WorkspaceService",
                     "IntelligenceSetupStatus",
                     "IntelligenceSetupSummary",
                     "BatchRunSummary",

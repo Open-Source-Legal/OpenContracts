@@ -295,7 +295,7 @@ class TestCredentialCache(TestCase):
         self._configure_openai_creds(api_key="sk-old")
         seen_keys: list[str | None] = []
 
-        def _capture(provider_key, model_name, creds):
+        def _capture(provider_key, model_name, creds, *, responses_api=False):
             seen_keys.append(creds.get("api_key"))
             return object()
 

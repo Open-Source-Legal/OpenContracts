@@ -24,6 +24,7 @@ from typing import Any, Literal
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from asgiref.sync import sync_to_async
 from django.contrib.auth import get_user_model
 from django.test import TransactionTestCase
 
@@ -305,8 +306,8 @@ class TestNestedApprovalGates(TransactionTestCase):
             self.assertIn("answer", result)
             self.assertEqual(result["answer"], "The document is about testing.")
 
-    async def test_ask_document_tool_resolves_cross_corpus_group_member(self):
-        """A group-qualified cross-corpus result keeps the group permission gate."""
+    def _create_cross_corpus_group_fixtures(self):
+        """Sync ORM setup for the cross-corpus-group test (run off-thread)."""
         foreign_corpus = Corpus.objects.create(
             title="Group Member Corpus",
             description="",
@@ -326,6 +327,13 @@ class TestNestedApprovalGates(TransactionTestCase):
             title="Nested Group", creator=self.user, is_public=False
         )
         group.corpora.set([self.corpus, foreign_corpus])
+        return foreign_corpus, foreign_document, group
+
+    async def test_ask_document_tool_resolves_cross_corpus_group_member(self):
+        """A group-qualified cross-corpus result keeps the group permission gate."""
+        foreign_corpus, foreign_document, group = await sync_to_async(
+            self._create_cross_corpus_group_fixtures
+        )()
 
         normal_events = [
             _FakeContentEvent(content="Cross-corpus document answer."),
