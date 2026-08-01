@@ -91,7 +91,17 @@ class WorkerDocumentUploadView(APIView):
         # Enforce metadata size limit
         max_metadata_size = settings.MAX_WORKER_METADATA_SIZE_BYTES
         if max_metadata_size:
-            raw_metadata = request.data.get("metadata", "")
+            # request.data is dict-like here in practice: this view only
+            # accepts MultiPartParser (see parser_classes above), never
+            # JSONParser, so DRF's request.data | list[Any] union (list is
+            # DRF's shape for a bulk JSON array body) never actually resolves
+            # to a list on this endpoint.
+            request_data = request.data
+            raw_metadata = (
+                request_data.get("metadata", "")
+                if isinstance(request_data, dict)
+                else ""
+            )
             if isinstance(raw_metadata, dict):
                 metadata_size = len(json.dumps(raw_metadata).encode())
             else:

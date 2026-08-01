@@ -9,7 +9,7 @@ effects that certain annotation types trigger on import.
 
 | Page | Description |
 |------|-------------|
-| [Supported File Formats](supported_formats.md) | File types accepted for upload and which parsers handle them |
+| [Supported File Formats](supported_formats.md) | File types accepted for upload, which parsers handle them, and the optional Gotenberg conversion step for everything else |
 | [Single Document Upload](single_upload.md) | Uploading individual documents through the UI or API |
 | [Bulk ZIP Import](bulk_zip_import.md) | Importing many documents at once with folder structure, metadata, and relationships |
 | [Corpus Export/Import](corpus_export_import.md) | Exporting and re-importing full corpuses with annotations, labels, and configuration |

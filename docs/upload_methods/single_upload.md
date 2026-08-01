@@ -49,9 +49,14 @@ pipeline (parsing, thumbnailing, embedding).
 
 ## What Happens After Upload
 
-1. The file is stored and a `Document` record is created
+1. The file is stored and a `Document` record is created. If the filename
+   extension is a [convertible format](supported_formats.md#convertible-formats-via-gotenberg)
+   rather than a core format, it's stored as inert `application/octet-stream`
+   until conversion succeeds.
 2. The file's MIME type is detected and matched to a registered parser
 3. A Celery task is queued to run the processing pipeline:
+   - **Converter** (convertible formats only, and only if an admin has
+     configured one) converts the file to PDF before the stages below run
    - **Parser** extracts text, tokens/bounding boxes, and structural annotations
    - **Thumbnailer** generates a preview image
    - **Embedder** creates vector embeddings for semantic search

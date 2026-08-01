@@ -272,7 +272,7 @@ export const FiletypeDefaults = memo<FiletypeDefaultsProps>(
               keyed by source-file EXTENSION (configured on the component's
               convert_extensions setting) and there is one install-wide
               converter selection. Empty = conversion disabled. */}
-          <FiletypeRow>
+          <FiletypeRow data-testid="file-converter-row">
             <FiletypeLabel>
               <FileOutput />
               File Converter

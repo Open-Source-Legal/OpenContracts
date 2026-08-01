@@ -170,6 +170,47 @@ docker compose -f production.yml up
 
 You should now be able to access the OpenContracts frontend by visiting your configured domain (served through Traefik on port 80/443).
 
+## Optional Services
+
+Both `local.yml` and `production.yml` ship a handful of services that start
+alongside the core stack but sit idle, doing no work and costing negligible
+resources, until you opt into the feature they power. None require a
+compose-file edit to "turn on" — you don't need to add or remove services;
+enabling the feature is a Django/`PipelineSettings` configuration change,
+and the container is already there to receive requests once you do.
+
+| Service | Powers | Enable via |
+|---|---|---|
+| `gotenberg` | Pre-parse file-to-PDF conversion for non-core formats (`.doc`, `.odt`, `.pptx`, images, ...) | `PipelineSettings.default_file_converter` (Admin UI or `DEFAULT_FILE_CONVERTER` env var) |
+| `warp-ingest` | Alternative deterministic PDF parser | `warp-ingest` compose profile + `PDF_PARSER` |
+| `privacy_filter` | PII redaction pass | `PRIVACY_FILTER_API_KEY` env var |
+
+### Gotenberg (file conversion for non-core formats)
+
+The `gotenberg` service (`gotenberg/gotenberg:8`) is defined in both
+`local.yml` and `production.yml` with no compose profile gate, so it starts
+automatically with `docker compose -f local.yml up` / `docker compose -f
+production.yml up` — there's nothing to add here. It has no published host
+port; `django` and `celeryworker` reach it internally at
+`http://gotenberg:3000` on the docker bridge network, and both declare it as
+an optional dependency (`required: false`) so the stack still starts if the
+container is ever removed from your override.
+
+By default no file converter is selected, so uploads outside PDF/TXT/DOCX
+are rejected and the `gotenberg` container never receives a request. To
+accept the ~120 additional formats it can convert (legacy Office,
+OpenDocument, iWork, images, and more), configure it as the default file
+converter — see the step-by-step walkthrough with screenshots in
+[File Converters (Gotenberg)](../pipelines/pipeline_configuration.md#file-converters-gotenberg),
+and the capability/security overview in
+[Supported File Formats](../upload_methods/supported_formats.md#convertible-formats-via-gotenberg).
+
+If you want to remove the service entirely (e.g. a minimal-footprint
+deployment that will never need conversion), delete or comment out the
+`gotenberg` block in your compose override — just make sure
+`default_file_converter` stays unset, or ingest will fail for any upload
+routed through it.
+
 ## ENV File Configurations
 
 OpenContracts is configured via .env files. For a local deployment, these should go in `.envs/.local`. For production,
