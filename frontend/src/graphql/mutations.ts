@@ -826,7 +826,11 @@ export interface InstallAuthorityPackOutputs {
   installAuthorityPack: {
     ok: boolean;
     message?: string | null;
-    result?: unknown;
+    // GenericScalar install summary. Only the keys the client reads are
+    // declared: `warnings` holds post-commit failures (a relink or the response
+    // refresh blowing up AFTER the pack committed), which keep `ok: true` but
+    // must not be presented as an unqualified success.
+    result?: { warnings?: string[] | null } | null;
     pack?: AuthorityPack | null;
   };
 }

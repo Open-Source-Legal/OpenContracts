@@ -253,12 +253,22 @@ export const PackPreflightModal: React.FC<PackPreflightModalProps> = ({
         return;
       }
 
-      toast.success(
+      // A post-commit step (the reactive relink, the response refresh) can fail
+      // after the pack is already written. The server keeps ok=true — the
+      // install happened — and appends the detail to `message`, so a green
+      // success toast would read as "all clear" for a run that half-worked.
+      // Branch on the structured `warnings` the payload also carries.
+      const warnings = result.result?.warnings ?? [];
+      const successMessage =
         result.message ??
-          (publish
-            ? "Authority pack installed and published."
-            : "Authority pack installed privately.")
-      );
+        (publish
+          ? "Authority pack installed and published."
+          : "Authority pack installed privately.");
+      if (warnings.length > 0) {
+        toast.warning(successMessage);
+      } else {
+        toast.success(successMessage);
+      }
       await onInstalled();
       onClose();
     } catch (installFailure) {

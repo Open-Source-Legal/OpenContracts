@@ -632,6 +632,62 @@ test.describe("Authority pack install outcomes", () => {
     await component.unmount();
   });
 
+  test("warns instead of celebrating when the install returns post-commit warnings", async ({
+    mount,
+    page,
+  }) => {
+    // The server keeps ok:true when a POST-COMMIT step fails (the reactive
+    // relink, the response refresh) — the pack really is installed. A green
+    // success toast would read as "all clear" for a run that half-worked, so
+    // the modal branches on the structured `warnings` the payload carries.
+    const target = pack({ id: "half-landed-pack" });
+    const warningMessage =
+      "The pack is installed, but re-linking existing corpora to its " +
+      "authorities failed (relink exploded).";
+    const warnInstallMock = {
+      request: {
+        query: INSTALL_AUTHORITY_PACK,
+        variables: {
+          packId: target.id,
+          expectedFingerprint: target.fingerprint,
+          publish: false,
+        },
+      },
+      result: {
+        data: {
+          installAuthorityPack: {
+            ok: true,
+            message: `Authority pack installed privately. ${warningMessage}`,
+            result: { created: 2, warnings: [warningMessage] },
+            pack: { ...target, installed: true },
+          },
+        },
+      },
+    };
+    const component = await mount(
+      <PacksTabTestWrapper
+        mocks={[packsMock([target]), preflightMock(target), warnInstallMock]}
+      />
+    );
+
+    await page.locator(`[data-testid="pack-review-${target.id}"]`).click();
+    await expect(
+      page.locator('[data-testid="pack-install-submit"]')
+    ).toBeVisible({ timeout: 15000 });
+    await page.locator('[data-testid="pack-install-submit"]').click();
+
+    const warningToast = page.locator(".Toastify__toast--warning");
+    await expect(warningToast).toBeVisible({ timeout: 15000 });
+    await expect(warningToast).toContainText("relink exploded");
+    await expect(page.locator(".Toastify__toast--success")).toHaveCount(0);
+
+    await docScreenshot(
+      page,
+      "admin--pack-preflight-modal--install-post-commit-warning"
+    );
+    await component.unmount();
+  });
+
   test("falls back to a generic message when install fails without a server message", async ({
     mount,
     page,

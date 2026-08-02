@@ -46,3 +46,10 @@
   were still empty. Construction and `reset_registry()` now hold a class-level
   `threading.RLock`; re-entrant same-thread access from a pack module's import
   behaves exactly as before.
+- **Authority Console no longer presents a half-landed pack install as an
+  unqualified success.** `PackPreflightModal.tsx` toasted `result.message` with
+  `toast.success` whenever `ok` was true — which is exactly the case for a
+  post-commit warning. It now branches on `result.warnings` and uses
+  `toast.warning`, so a relink that died after the pack committed reads as a
+  warning rather than green. `InstallAuthorityPackOutputs.result` is typed for
+  the keys the client reads instead of `unknown`.
