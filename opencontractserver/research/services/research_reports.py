@@ -706,6 +706,48 @@ class ResearchReportService(BaseService):
     # Finalize (terminal write from inside the loop)
     # ------------------------------------------------------------------
     @classmethod
+    def finalize_once(
+        cls,
+        report: ResearchReport,
+        *,
+        executive_summary: str,
+        markdown_body: str,
+        retrieved_annotation_ids: list[int],
+        warnings: list[str] | None = None,
+    ) -> bool:
+        """Finalize exactly once, returning False if the run already ended.
+
+        ``finalize`` is deliberately NOT idempotent — a second call re-runs
+        composition, so the stored report becomes the later body while both
+        passes' warnings accumulate (pinned by
+        ``test_finalizing_twice_appends_its_warnings_twice``). The caller
+        therefore has to refuse the second call, and a plain
+        ``refresh_from_db`` + status check is check-then-act: pydantic-ai can
+        dispatch parallel tool calls, so two ``finalize_report`` invocations
+        can both read RUNNING before either commits COMPLETED and both
+        compose.
+
+        Holding the row lock across the whole composition closes that window —
+        the loser blocks, then re-reads COMPLETED and is turned away. Same
+        treatment ``append_finding`` / ``append_tool_call`` already get, and
+        for the same reason (one report, concurrent writers). Locking for the
+        duration is acceptable precisely because this is the run's terminal
+        step: serialising it is the point, not a cost.
+        """
+        with transaction.atomic():
+            locked = ResearchReport.objects.select_for_update().get(pk=report.pk)
+            if locked.status == JobStatus.COMPLETED.value:
+                return False
+            cls.finalize(
+                report,
+                executive_summary=executive_summary,
+                markdown_body=markdown_body,
+                retrieved_annotation_ids=retrieved_annotation_ids,
+                warnings=warnings,
+            )
+        return True
+
+    @classmethod
     def finalize(
         cls,
         report: ResearchReport,

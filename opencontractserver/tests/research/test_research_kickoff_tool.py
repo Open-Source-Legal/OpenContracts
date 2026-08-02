@@ -62,6 +62,52 @@ class AstartDeepResearchTestCase(TransactionTestCase):
         self.assertTrue(result.startswith("Error"))
         self.assertEqual(ResearchReport.objects.count(), 0)
 
+    def test_invisible_group_is_indistinguishable_from_a_missing_one(self):
+        """No slug-enumeration oracle through the kickoff tool.
+
+        ``_load_group`` used an unfiltered ``CorpusGroup.objects.filter(
+        slug=...)``. That was never an access hole — ``ResearchReportService.
+        start`` still refused the run — but it made the two cases *reply
+        differently*: a nonexistent slug returned this tool's not-found string,
+        while a real-but-invisible one fell through to start()'s
+        ``PermissionError`` text. The difference let a caller enumerate every
+        group slug in the install. Both cases must now return the same refusal.
+        """
+        import asyncio
+
+        from opencontractserver.corpuses.models import CorpusGroup
+
+        other = User.objects.create_user(username="mallory", password="x")
+        CorpusGroup.objects.create(
+            title="Private Group", slug="private-group", creator=other
+        )
+
+        with patch("opencontractserver.tasks.research_tasks.run_deep_research.delay"):
+            invisible = asyncio.run(
+                astart_deep_research(
+                    task_description="x",
+                    corpus_id=self.corpus.pk,
+                    user_id=self.user.pk,
+                    corpus_group_slug="private-group",
+                )
+            )
+            missing = asyncio.run(
+                astart_deep_research(
+                    task_description="x",
+                    corpus_id=self.corpus.pk,
+                    user_id=self.user.pk,
+                    corpus_group_slug="no-such-group-at-all",
+                )
+            )
+
+        # Same refusal for "exists but not yours" and "does not exist".
+        self.assertEqual(
+            invisible.replace("private-group", "SLUG"),
+            missing.replace("no-such-group-at-all", "SLUG"),
+        )
+        self.assertTrue(invisible.startswith("Error"))
+        self.assertEqual(ResearchReport.objects.count(), 0)
+
     def test_concurrency_guard_returns_friendly_message(self):
         import asyncio
 

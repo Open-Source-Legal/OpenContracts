@@ -1130,22 +1130,26 @@ async def _run_deep_research_async(
         # about how many sentences lost their citations (5, then 3). A reader
         # cannot tell that is one report composed twice rather than two
         # distinct problems.
-        await sync_to_async(report.refresh_from_db)(fields=["status"])
-        if report.status == JobStatus.COMPLETED.value:
-            return (
-                "Error: this report is already finalized and the run is over. "
-                "Do not call finalize_report again — a second call would "
-                "replace the report you just wrote."
-            )
-
+        # The check and the composition run as ONE critical section
+        # (``finalize_once`` holds the row lock across both). A plain
+        # refresh-then-check was check-then-act: pydantic-ai can dispatch
+        # parallel tool calls, so two finalize_report invocations could both
+        # read RUNNING before either committed COMPLETED, and both compose —
+        # reproducing the very double-composition this guard exists to stop.
         deps = deps_ref["deps"]
         retrieved = list(deps.retrieved_annotation_ids) if deps is not None else []
-        await sync_to_async(ResearchReportService.finalize)(
+        finalized = await sync_to_async(ResearchReportService.finalize_once)(
             report,
             executive_summary=executive_summary,
             markdown_body=markdown_body,
             retrieved_annotation_ids=retrieved,
         )
+        if not finalized:
+            return (
+                "Error: this report is already finalized and the run is over. "
+                "Do not call finalize_report again — a second call would "
+                "replace the report you just wrote."
+            )
         return "Report finalized."
 
     # ------------------------------------------------------------------
@@ -1400,7 +1404,15 @@ async def _run_deep_research_async(
         )
         reason = _terminal_reason(response)
         salvage_body = _compose_salvage_body(report, response_text=response.content)
-        await sync_to_async(ResearchReportService.finalize)(
+        # ``finalize_once``, not ``finalize``: the status check above is a
+        # cheap early-out, not a guard. ``reap_stalled_research`` can have a
+        # second worker on this same report, and it could commit a real
+        # finalize between that check and this write — at which point a
+        # salvage composition would overwrite the genuine report with a
+        # "the run ended before the agent produced a final report" note.
+        # A refusal here means someone else already finalized, which is
+        # exactly the outcome we want; the salvage is simply dropped.
+        await sync_to_async(ResearchReportService.finalize_once)(
             report,
             executive_summary=(
                 "**Note:** the run ended before the agent produced a final "

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import uuid
 import zipfile
 
 from django.contrib.auth import get_user_model
@@ -21,6 +22,7 @@ from opencontractserver.documents.models import (
 )
 from opencontractserver.extracts.models import Datacell
 from opencontractserver.tasks.import_tasks_v2 import (
+    _NUL_SOURCE_PLACEHOLDER,
     _canonical_identity_target_path,
     _import_document_with_annotations,
     _reconcile_imported_authority_metadata,
@@ -196,6 +198,95 @@ class AuthorityTargetedImportTests(TestCase):
                 PendingDocumentAnnotations.objects.filter(document=imported).count(),
                 0,
             )
+
+    def test_converged_rerun_records_a_terminal_row_when_given_a_run_id(self):
+        """Every enumerated document must reach a terminal row, converged or not.
+
+        The sibling assertion above pins that no row is written when this
+        low-level helper is called WITHOUT a run id. With one, the run needs an
+        observable terminal row per document — ``_reingest_document_with_
+        deferred_remap`` already creates a DONE row for the documents it
+        converges, but this fallback branch (reingest requested, source not
+        reingestable, matched to an existing document by ``canonical_key``)
+        returned early without one.
+
+        The consequence was silent: the document never appeared in the run's
+        aggregated id_map, so ``finalize_corpus_import_relationships`` could not
+        count it (``expected_doc_count`` undercounts) and the corpus-level
+        coordination row could not reach DONE on its account. Re-shipping a pack
+        containing an unchanged text/markdown member is the ordinary case that
+        hits this, not an exotic one.
+        """
+        user = User.objects.create_user(username="terminal-row", password="test")
+        corpus = Corpus.objects.create(title="Terminal Row", creator=user)
+        set_permissions_for_obj_to_user(user, corpus, [PermissionTypes.ALL])
+
+        # A source-less member: the V2 exporter writes a single NUL byte for any
+        # document with no real ``pdf_file`` (text/markdown), and
+        # ``_source_is_reingestable`` rejects it — which is what drops this
+        # import into the baked FALLBACK rather than the deferred-remap path
+        # that already records its own terminal row.
+        doc_data = self._doc_data()
+        doc_data["content"] = _NUL_SOURCE_PLACEHOLDER.decode("utf-8")
+
+        _seed_doc, status, _seed_path = corpus.import_content(
+            content=_NUL_SOURCE_PLACEHOLDER,
+            user=user,
+            path=self.seed_path,
+            file_type="text/plain",
+            title="[LEGAL REVIEW REQUIRED] Example Rule",
+            custom_meta={
+                "canonical_key": self.canonical_key,
+                "current_version": True,
+                "status": "CURRENT",
+            },
+            processing_started=timezone.now(),
+        )
+        self.assertEqual(status, "created")
+
+        payload = io.BytesIO()
+        with zipfile.ZipFile(payload, "w") as writer:
+            writer.writestr(self.member_name, _NUL_SOURCE_PLACEHOLDER)
+        payload.seek(0)
+        archive = zipfile.ZipFile(payload)
+        self.addCleanup(archive.close)
+        self.addCleanup(payload.close)
+
+        # Byte-identical to what is already stored, so ``import_content``
+        # reports neither "created" nor "updated" and the branch under test
+        # returns early.
+        rerun_id = uuid.uuid4()
+        rerun_target = _canonical_identity_target_path(
+            corpus=corpus, doc_data=doc_data, targeted_import=True
+        )
+        self.assertIsNotNone(rerun_target)
+        rerun_document, _ = _import_document_with_annotations(
+            doc_filename=self.member_name,
+            doc_data=doc_data,
+            import_zip=archive,
+            user_obj=user,
+            corpus_obj=corpus,
+            label_lookup={},
+            doc_label_lookup={},
+            reingest_and_remap=True,
+            import_run_id=rerun_id,
+            identity_target_path=rerun_target,
+        )
+
+        self.assertIsNotNone(rerun_document)
+        rerun_rows = PendingDocumentAnnotations.objects.filter(
+            ingestion_run_id=rerun_id
+        )
+        self.assertEqual(
+            rerun_rows.count(),
+            1,
+            "the converged rerun must contribute exactly one terminal row",
+        )
+        self.assertEqual(
+            rerun_rows.first().status,
+            PendingDocumentAnnotations.Status.DONE,
+            "an unchanged document is terminal immediately — nothing to parse",
+        )
 
     def test_baked_targeted_import_uses_canonical_identity_and_converges(self):
         self._exercise_targeted_path(reingest_and_remap=False)

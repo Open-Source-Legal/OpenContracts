@@ -67,11 +67,13 @@ async def astart_deep_research(
 
     corpus_group = None
     if corpus_group_slug:
-        corpus_group = await sync_to_async(_load_group)(corpus_group_slug)
+        corpus_group = await sync_to_async(_load_group)(corpus_group_slug, user)
         if corpus_group is None:
+            # Deliberately the SAME message for "does not exist" and "exists
+            # but is not visible to this user" — see ``_load_group``.
             return (
-                f"Error: no corpus group named {corpus_group_slug!r}. Start "
-                "without it, or check the group's slug."
+                f"Error: no corpus group named {corpus_group_slug!r} is "
+                "accessible. Start without it, or check the group's slug."
             )
 
     conversation = None
@@ -111,11 +113,25 @@ async def astart_deep_research(
     )
 
 
-def _load_group(slug: str):
-    """Resolve a group by slug. Visibility is enforced by the service."""
-    from opencontractserver.corpuses.models import CorpusGroup
+def _load_group(slug: str, user):
+    """Resolve a group by slug, IDOR-uniformly.
 
-    return CorpusGroup.objects.filter(slug=slug).first()
+    Routed through ``CorpusGroupService.get_group_by_ref`` — the same entry
+    point the sibling ``core_tools/multi_corpus.py::_resolve_group_corpora``
+    uses — rather than an unfiltered ``CorpusGroup.objects.filter(slug=...)``.
+
+    The unfiltered lookup was not an access hole (``ResearchReportService.start``
+    still refused the run), but it made "no such group" and "a group you cannot
+    see" distinguishable to the caller: the former returned this tool's
+    not-found string, the latter fell through to start()'s ``PermissionError``
+    text. That difference is a slug-enumeration oracle over every group in the
+    install, which is precisely what the service method exists to close — and
+    reaching the model inline also broke CLAUDE.md's services-layer rule.
+    ``get_group_by_ref`` returns ``None`` uniformly for both cases.
+    """
+    from opencontractserver.corpuses.services import CorpusGroupService
+
+    return CorpusGroupService.get_group_by_ref(user, slug)
 
 
 def _load_user_and_corpus(user_id: int, corpus_id: int):

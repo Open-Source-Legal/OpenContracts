@@ -668,6 +668,29 @@ def _import_document_with_annotations(
                     # annotations on the same Document.
                     corpus_doc.backend_lock = False
                     corpus_doc.save(update_fields=["backend_lock", "modified"])
+                    # Still record the run's terminal row before returning.
+                    # ``_reingest_document_with_deferred_remap`` does this for
+                    # the converged documents it handles; this sibling branch —
+                    # reached when reingest was requested but the source is not
+                    # reingestable (e.g. a markdown/text pack member) and the
+                    # document matched an existing one by canonical_key — used
+                    # to return early without one. That left the document
+                    # invisible to ``finalize_corpus_import_relationships``:
+                    # the corpus-level coordination row could not reach DONE on
+                    # its account and ``expected_doc_count`` undercounted.
+                    # (The id_map is empty here for the same reason it is in
+                    # the converged path — see issue #2220, which tracks
+                    # relationship endpoints landing on unchanged documents.)
+                    if import_run_id is not None:
+                        PendingDocumentAnnotations.objects.create(
+                            document=corpus_doc,
+                            corpus=corpus_obj,
+                            creator=user_obj,
+                            ingestion_run_id=import_run_id,
+                            payload={},
+                            id_map={},
+                            status=PendingDocumentAnnotations.Status.DONE,
+                        )
                     return corpus_doc, {}
                 doc_obj = corpus_doc
             else:

@@ -409,6 +409,45 @@ class ResearchReportServiceTestCase(TestCase):
         # tool-level guard is what keeps a run from reaching this state.
         self.assertEqual(len(report.warnings), 2 * len(set(report.warnings)))
 
+    def test_finalize_once_refuses_the_second_call(self):
+        """``finalize_once`` is the guarded entry point both callers use.
+
+        The sibling test above pins that raw ``finalize`` composes twice. This
+        pins that the guarded wrapper does not — it re-reads the row under
+        ``select_for_update`` and turns the loser away, so the check and the
+        composition are one critical section rather than check-then-act. A
+        plain refresh-then-check could let two parallel pydantic-ai tool calls
+        (or a second worker from ``reap_stalled_research``) both observe
+        RUNNING before either committed COMPLETED.
+        """
+        report = self._make_report()
+
+        first = ResearchReportService.finalize_once(
+            report,
+            executive_summary="Concise summary.",
+            markdown_body="Some findings.",
+            retrieved_annotation_ids=[],
+        )
+        warnings_after_first = list(report.warnings or [])
+
+        second = ResearchReportService.finalize_once(
+            report,
+            executive_summary="A DIFFERENT summary.",
+            markdown_body="Different findings.",
+            retrieved_annotation_ids=[],
+        )
+
+        self.assertTrue(first, "the first call must finalize")
+        self.assertFalse(second, "the second call must be refused")
+
+        report.refresh_from_db()
+        self.assertEqual(report.status, JobStatus.COMPLETED.value)
+        # No second composition: warnings did not accumulate, and the stored
+        # body is still the FIRST one rather than the later overwrite.
+        self.assertEqual(list(report.warnings or []), warnings_after_first)
+        self.assertNotIn("A DIFFERENT summary.", report.content or "")
+        self.assertNotIn("Different findings.", report.content or "")
+
     # ------------------------------------------------------------------
     # finalize() -> workspace copy
     # ------------------------------------------------------------------
