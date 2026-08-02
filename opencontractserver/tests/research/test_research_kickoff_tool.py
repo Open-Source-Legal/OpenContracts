@@ -107,6 +107,11 @@ class AstartDeepResearchTestCase(TransactionTestCase):
         )
         self.assertTrue(invisible.startswith("Error"))
         self.assertEqual(ResearchReport.objects.count(), 0)
+        # Symmetry alone would also be satisfied if BOTH paths started leaking
+        # in some new way, so pin the direction too: nothing that exists only
+        # when the row was actually found may reach the caller.
+        self.assertNotIn("Private Group", invisible)
+        self.assertNotIn("permission", invisible.lower())
 
     def test_concurrency_guard_returns_friendly_message(self):
         import asyncio
