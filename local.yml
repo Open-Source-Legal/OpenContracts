@@ -150,6 +150,25 @@ services:
     mem_limit: 1g
     restart: unless-stopped
 
+  # California foreclosure compliance ruleset (Civ. Code § 2924 et seq.), used
+  # by the `california_foreclosure_compliance` corpus analyzer. Built from
+  # legalis-parser: crates/legalis-ca-foreclosure-api/Dockerfile.
+  #
+  # Opt-in via the "foreclosure" compose profile:
+  #   docker compose -f local.yml --profile foreclosure up
+  #
+  # Stateless and dependency-free — no database, no models, no outbound calls.
+  # It takes a matter in and returns findings, so it needs almost nothing.
+  foreclosure-api:
+    profiles: ["foreclosure"]
+    image: ghcr.io/quantum-general-intelligence/legalis-ca-foreclosure-api:0.1.0
+    container_name: foreclosure-api
+    environment:
+      FORECLOSURE_API_BIND: 0.0.0.0:8090
+    # Deadline arithmetic over a handful of dates; it does not need more.
+    mem_limit: 256m
+    restart: unless-stopped
+
   # Optional alternative PDF parser (deterministic, rule-based; renders straight
   # to the OpenContracts format). Opt-in via the "warp-ingest" compose profile:
   #   docker compose -f local.yml --profile warp-ingest up
