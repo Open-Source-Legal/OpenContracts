@@ -7,6 +7,7 @@ frontier via AuthorityFrontierService.mark(candidate_record=...).
 
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -17,6 +18,8 @@ from opencontractserver.enrichment import constants as C
 from opencontractserver.enrichment.authorities import AuthoritySection
 from opencontractserver.enrichment.authority_sources import AuthoritySourceRecord
 from opencontractserver.utils.safe_http import host_on_allowlist
+
+logger = logging.getLogger(__name__)
 
 PublisherEvidenceVerifier = Callable[[str, AuthoritySourceRecord], bool]
 
@@ -246,7 +249,23 @@ class AuthorityGateService:
             # Separately prove that one publisher signal derives the key that
             # was actually requested, rather than trusting record.key equality.
             return any(verifier(canonical_key, record) for record in rich_records)
-        except (KeyError, TypeError, ValueError):
+        except Exception:
+            # ``verifier`` is a provider-supplied override
+            # (``BaseAuthoritySourceProvider.verify_publisher_evidence``), so
+            # the exception vocabulary is open-ended: an in-pack provider is
+            # free to raise AttributeError/IndexError off a malformed evidence
+            # payload.  Enumerating types here made an unlisted one escape the
+            # gate entirely and strand the frontier row that triggered it.
+            #
+            # Catching broadly is FAIL-CLOSED, not a weakening: the return is
+            # ``False``, so verification fails and the caller's gate blocks the
+            # record.  A buggy verifier can only ever refuse ingestion, never
+            # admit an unverified one.
+            logger.exception(
+                "Publisher-evidence verifier raised for %s; treating the "
+                "evidence as unverified",
+                canonical_key,
+            )
             return False
 
     @staticmethod

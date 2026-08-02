@@ -128,13 +128,20 @@ def m_install_authority_pack(
             result=None,
             pack=None,
         )
+    message = (
+        "Authority pack installed and published."
+        if publish
+        else "Authority pack installed privately."
+    )
+    # Post-commit steps (reactive relink, response refresh) can fail after the
+    # pack is already written.  ``ok`` stays true — the install happened — but
+    # the operator has to be told, so the warnings ride the same message field
+    # the Console already renders rather than needing a new one.
+    if result.value.post_commit_warnings:
+        message = " ".join((message, *result.value.post_commit_warnings))
     return InstallAuthorityPackMutation(
         ok=True,
-        message=(
-            "Authority pack installed and published."
-            if publish
-            else "Authority pack installed privately."
-        ),
+        message=message,
         result=result.value.as_dict(),
         pack=_to_graphql(result.value.pack),
     )

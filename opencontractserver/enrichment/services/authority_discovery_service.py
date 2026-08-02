@@ -522,41 +522,81 @@ class AuthorityDiscoveryService(BaseService):
             )
         else:
             rights_status = None
-        approval_fingerprint = cls._response_approval_fingerprint(
-            provider_name=name,
-            fetch_key=fetch_key,
-            request=request,
-            sections=sections,
-        )
-        rights_approved = cls._has_durable_approval(
-            frontier_row,
-            provider_name=name,
-            approval_fingerprint=approval_fingerprint,
-        )
-        decision: GateDecision = AuthorityGateService.evaluate(
-            canonical_key=fetch_key,
-            sections=sections,
-            provider_license=provider.license,
-            require_approval_for_agentic=getattr(provider, "requires_approval", False),
-            rights_status=rights_status,
-            rights_approved=rights_approved,
-            publisher_evidence_verifier=provider.verify_publisher_evidence,
-        )
-        candidate_record = cls._audit_record(
-            provider_name=name,
-            provider_license=provider.license,
-            source_domain=decision.source_domain,
-            verify=decision.verify,
-            outcome=(
-                decision.verdict
-                if decision.verdict != GATE_OK
-                else C.DISCOVERY_STATE_INGESTED
-            ),
-            error=None if decision.verdict == GATE_OK else decision.reason,
-            rights_status=rights_status,
-            discovery_mode=discovery_mode,
-            approval_fingerprint=approval_fingerprint,
-        )
+        # The row is already "in_progress" here, so — exactly like the fetch
+        # above and the bootstrap below — this stretch needs its own fault
+        # handler or an unexpected exception strands it there forever
+        # (dequeue_queued only returns "queued" rows, so a stranded row is
+        # invisible to every later crawl until an admin resets it by hand) and
+        # aborts the whole crawl batch on its way out.  The gate calls a
+        # provider-supplied ``verify_publisher_evidence`` override, which is
+        # precisely where an unlisted exception type comes from.
+        #
+        # Deliberately NOT merged with the bootstrap handler below: that one
+        # builds its audit record from ``decision``, which is not yet bound
+        # here, so sharing it would raise UnboundLocalError inside the handler
+        # and re-strand the row.
+        try:
+            approval_fingerprint = cls._response_approval_fingerprint(
+                provider_name=name,
+                fetch_key=fetch_key,
+                request=request,
+                sections=sections,
+            )
+            rights_approved = cls._has_durable_approval(
+                frontier_row,
+                provider_name=name,
+                approval_fingerprint=approval_fingerprint,
+            )
+            decision: GateDecision = AuthorityGateService.evaluate(
+                canonical_key=fetch_key,
+                sections=sections,
+                provider_license=provider.license,
+                require_approval_for_agentic=getattr(
+                    provider, "requires_approval", False
+                ),
+                rights_status=rights_status,
+                rights_approved=rights_approved,
+                publisher_evidence_verifier=provider.verify_publisher_evidence,
+            )
+            candidate_record = cls._audit_record(
+                provider_name=name,
+                provider_license=provider.license,
+                source_domain=decision.source_domain,
+                verify=decision.verify,
+                outcome=(
+                    decision.verdict
+                    if decision.verdict != GATE_OK
+                    else C.DISCOVERY_STATE_INGESTED
+                ),
+                error=None if decision.verdict == GATE_OK else decision.reason,
+                rights_status=rights_status,
+                discovery_mode=discovery_mode,
+                approval_fingerprint=approval_fingerprint,
+            )
+        except Exception as exc:
+            logger.exception(
+                "AuthorityDiscoveryService: gate evaluation failed for %s",
+                canonical_key,
+            )
+            AuthorityFrontierService.mark(
+                frontier_row,
+                C.DISCOVERY_STATE_FAILED,
+                error=str(exc),
+                # Only names bound before the guarded block appear here.
+                candidate_record=cls._audit_record(
+                    provider_name=name,
+                    provider_license=provider.license,
+                    outcome=C.DISCOVERY_STATE_FAILED,
+                    error=str(exc),
+                    rights_status=rights_status,
+                    discovery_mode=discovery_mode,
+                ),
+            )
+            return {
+                "status": C.DISCOVERY_STATE_FAILED,
+                "error": str(exc),
+                "canonical_key": canonical_key,
+            }
         if decision.verdict != GATE_OK:
             AuthorityFrontierService.mark(
                 frontier_row,

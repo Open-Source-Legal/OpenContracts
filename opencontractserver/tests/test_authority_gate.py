@@ -261,6 +261,37 @@ class GateRichPublisherEvidenceTests(TestCase):
         )
         self.assertEqual(decision.verdict, GATE_UNLOCATED)
 
+    def test_a_verifier_that_raises_blocks_instead_of_escaping_the_gate(self):
+        """``verify_publisher_evidence`` is a provider override — open-ended.
+
+        Enumerating its exception types let an unlisted one (AttributeError off
+        a malformed evidence payload, say) escape ``evaluate`` entirely, which
+        strands the caller's frontier row in ``in_progress``. The gate must
+        absorb it and FAIL CLOSED: a broken verifier can only refuse a record,
+        never admit an unverified one.
+        """
+        record = _rich_record(
+            evidence=(
+                AuthorityPublisherEvidence(
+                    source=PublisherEvidenceSource.PARSED_CONTENT,
+                    value="Sec. 37.056",
+                ),
+            )
+        )
+
+        def exploding_verifier(key, value):
+            raise AttributeError("provider verifier touched a missing attribute")
+
+        decision = AuthorityGateService.evaluate(
+            canonical_key=record.canonical_key,
+            sections=[record],
+            provider_license="public-domain",
+            rights_status=RightsStatus.PUBLIC_DOMAIN,
+            publisher_evidence_verifier=exploding_verifier,
+        )
+        self.assertEqual(decision.verdict, GATE_UNLOCATED)
+        self.assertEqual(decision.verify, "mismatch")
+
 
 class GatePendingApprovalTests(TestCase):
     """Check 6: require_approval_for_agentic=True on otherwise-OK → PENDING_APPROVAL."""

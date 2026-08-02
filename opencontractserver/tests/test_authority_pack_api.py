@@ -11,6 +11,7 @@ from unittest import mock
 import yaml
 from django.contrib.auth import get_user_model
 from django.core.management.base import CommandError
+from django.db import IntegrityError
 from django.test import TestCase
 from graphql_relay import to_global_id
 
@@ -22,6 +23,7 @@ from opencontractserver.annotations.models import (
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
 from opencontractserver.enrichment.services.authority_pack_service import (
+    CONCURRENT_INSTALL_MESSAGE,
     AuthorityPackCorpusPlan,
     AuthorityPackService,
 )
@@ -304,6 +306,117 @@ class AuthorityPackAPITests(TestCase):
         corpus = Corpus.objects.get(creator=self.admin, slug="portable-test-corpus")
         self.assertTrue(corpus.is_public)
         self.assertTrue(corpus._get_active_documents().get().is_public)
+
+    def test_post_commit_relink_failure_is_a_warning_not_an_install_failure(self):
+        """A relink blowing up must not report a committed install as failed.
+
+        ``_install_plan`` commits taxonomy/corpora/relationships, THEN runs the
+        reactive relink.  Letting that raise told the operator "install failed"
+        about a pack that is in the database, and the retry — idempotent —
+        silently converges to a no-op, so the two never reconcile.
+        """
+        with self._configured_catalog():
+            preflight = AuthorityPackService.preflight(self.admin, "portable_test_pack")
+            with mock.patch(
+                "opencontractserver.enrichment.services.EnrichmentService."
+                "relink_corpora_for_keys",
+                side_effect=RuntimeError("relink exploded"),
+            ):
+                result = AuthorityPackService.install(
+                    self.admin,
+                    pack_id="portable_test_pack",
+                    expected_fingerprint=preflight.fingerprint,
+                    relink=True,
+                )
+
+        self.assertTrue(result.ok, result.error)
+        # The install really happened...
+        corpus = Corpus.objects.get(creator=self.admin, slug="portable-test-corpus")
+        self.assertEqual(corpus._get_active_documents().count(), 1)
+        # ...and the failure is still surfaced rather than swallowed.
+        self.assertEqual(len(result.value.post_commit_warnings), 1)
+        self.assertIn("relink exploded", result.value.post_commit_warnings[0])
+        self.assertIn("relink exploded", result.value.as_dict()["warnings"][0])
+        self.assertIsNone(result.value.relink_summary)
+
+    def test_post_install_refresh_failure_falls_back_to_the_preflight_plan(self):
+        """The response re-read is post-commit too, and was in the caught tuple.
+
+        ``install`` re-runs ``preflight_path`` after the write purely to report
+        fresh state.  A CommandError there used to be indistinguishable from a
+        validation failure and turned a committed install into ``ok=False``.
+        """
+        real_preflight = AuthorityPackService.preflight_path.__func__
+        calls: list[int] = []
+
+        def flaky_preflight(cls, pack_dir, *, creator):
+            # ``install`` preflights twice: once to build the plan it validates
+            # the fingerprint against, once afterwards to re-read the installed
+            # state. Only the second — the post-commit one — fails here.
+            calls.append(1)
+            if len(calls) > 1:
+                raise CommandError("pack vanished mid-install")
+            return real_preflight(cls, pack_dir, creator=creator)
+
+        with self._configured_catalog():
+            preflight = AuthorityPackService.preflight(self.admin, "portable_test_pack")
+            calls.clear()
+            with mock.patch.object(
+                AuthorityPackService,
+                "preflight_path",
+                classmethod(flaky_preflight),
+            ):
+                result = AuthorityPackService.install(
+                    self.admin,
+                    pack_id="portable_test_pack",
+                    expected_fingerprint=preflight.fingerprint,
+                    relink=False,
+                )
+
+        self.assertTrue(result.ok, result.error)
+        self.assertTrue(
+            Corpus.objects.filter(
+                creator=self.admin, slug="portable-test-corpus"
+            ).exists()
+        )
+        self.assertIn("pack vanished mid-install", result.value.post_commit_warnings[0])
+        # Falls back to the approved pre-install plan instead of returning None.
+        self.assertEqual(result.value.pack.fingerprint, preflight.fingerprint)
+
+    def test_concurrent_install_race_returns_a_clean_failure_and_writes_nothing(self):
+        """Two first-installs of the same pack race on the slug constraint.
+
+        ``_preflight_corpus_identities`` reads without a lock, so both callers
+        can see "no such corpus" and then collide inside
+        ``get_or_create(slug=…, creator=…)``.  The loser must get a curated
+        retry message, not a raw constraint dump — and nothing of its attempt
+        may survive.
+        """
+        with self._configured_catalog():
+            preflight = AuthorityPackService.preflight(self.admin, "portable_test_pack")
+            with mock.patch(
+                "opencontractserver.enrichment.services.authority_pack_service."
+                "bootstrap_authority_corpus",
+                side_effect=IntegrityError(
+                    "duplicate key value violates unique constraint "
+                    '"uniq_corpus_slug_per_creator_cs"'
+                ),
+            ):
+                result = AuthorityPackService.install(
+                    self.admin,
+                    pack_id="portable_test_pack",
+                    expected_fingerprint=preflight.fingerprint,
+                    relink=False,
+                )
+
+        self.assertFalse(result.ok)
+        self.assertEqual(result.error, CONCURRENT_INSTALL_MESSAGE)
+        self.assertNotIn("uniq_corpus_slug_per_creator_cs", result.error)
+        self.assertFalse(
+            Corpus.objects.filter(
+                creator=self.admin, slug="portable-test-corpus"
+            ).exists()
+        )
 
     def test_catalog_identifier_cannot_be_used_as_a_filesystem_path(self):
         with self._configured_catalog():

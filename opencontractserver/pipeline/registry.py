@@ -20,6 +20,7 @@ import inspect
 import logging
 import pkgutil
 import sys
+import threading
 from collections import Counter
 from dataclasses import dataclass, field
 from enum import Enum
@@ -331,17 +332,37 @@ class PipelineComponentRegistry:
 
     _instance: Optional["PipelineComponentRegistry"] = None
     _initialized: bool = False
+    # Serialises construction across threads. Discovery walks the filesystem and
+    # ``exec_module``s every in-pack provider, and ``_ensure_synthetic_package``
+    # mutates the process-global ``sys.modules`` while it does — none of which is
+    # safe to run twice concurrently. Without the lock, a second thread arriving
+    # during discovery (plausible under threaded WSGI/ASGI, where ``get_registry``
+    # is first touched by whichever request lands first) sails past the
+    # ``_initialized`` check below and reads a registry whose component tuples
+    # are still empty or not yet assigned.
+    #
+    # Re-entrant by design: it is an RLock, and ``_initialized`` is still set
+    # BEFORE discovery, so a pack module that reaches back into ``get_registry()``
+    # at import time behaves exactly as it did before (returns early rather than
+    # recursing). Only cross-thread callers block.
+    _lock = threading.RLock()
 
     def __new__(cls) -> "PipelineComponentRegistry":
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-        return cls._instance
+        with cls._lock:
+            if cls._instance is None:
+                cls._instance = super().__new__(cls)
+            return cls._instance
 
     def __init__(self):
-        # Only initialize once (singleton pattern)
-        if PipelineComponentRegistry._initialized:
-            return
-        PipelineComponentRegistry._initialized = True
+        with PipelineComponentRegistry._lock:
+            # Only initialize once (singleton pattern)
+            if PipelineComponentRegistry._initialized:
+                return
+            PipelineComponentRegistry._initialized = True
+            self._initialize()
+
+    def _initialize(self) -> None:
+        """Build every lookup table. Called once, under ``_lock``."""
 
         # Initialize storage
         self._parsers: tuple[PipelineComponentDefinition, ...] = ()
@@ -1186,11 +1207,15 @@ def reset_registry() -> None:
 
     Useful for testing or if components are dynamically added.
     """
-    PipelineComponentRegistry._instance = None
-    PipelineComponentRegistry._initialized = False
-    get_registry.cache_clear()
-    get_supported_mime_types.cache_clear()
-    get_allowed_mime_types.cache_clear()
+    # Same lock construction takes: tearing the singleton down while another
+    # thread is mid-discovery would leave that thread publishing a registry the
+    # reset was meant to discard.
+    with PipelineComponentRegistry._lock:
+        PipelineComponentRegistry._instance = None
+        PipelineComponentRegistry._initialized = False
+        get_registry.cache_clear()
+        get_supported_mime_types.cache_clear()
+        get_allowed_mime_types.cache_clear()
     # Installed pack paths determine both component discovery and each in-pack
     # provider's narrow manifest host ownership.
     from opencontractserver.enrichment.services.authority_source_hosts import (

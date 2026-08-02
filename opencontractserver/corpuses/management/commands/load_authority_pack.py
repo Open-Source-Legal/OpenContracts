@@ -134,6 +134,11 @@ class Command(AuthorityPackService, BaseCommand):
                     f"{relink['corpora_failed']} failures."
                 )
             )
+        # Post-commit failures no longer abort the install (the pack is already
+        # written when they happen), so the operator only learns about them if
+        # they are printed here.
+        for warning in result.post_commit_warnings:
+            self.stdout.write(self.style.WARNING(warning))
 
     def _report_preflight(self, pack_dir: Path, *, creator: Any) -> None:
         """Print the same validation the GUI preflight runs, and write nothing.

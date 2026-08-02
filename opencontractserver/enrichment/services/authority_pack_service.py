@@ -10,6 +10,7 @@ It deliberately does not fetch or scrape corpus content.
 from __future__ import annotations
 
 import hashlib
+import logging
 import re
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -17,7 +18,7 @@ from typing import Any
 
 import yaml
 from django.core.management.base import CommandError
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils.text import slugify
 
 from opencontractserver.enrichment.authorities import (
@@ -45,8 +46,20 @@ from opencontractserver.enrichment.services.authority_source_hosts import (
 from opencontractserver.pipeline.registry import authority_pack_dirs
 from opencontractserver.shared.services.conventions import ServiceResult
 
+logger = logging.getLogger(__name__)
+
 _PACK_CORPUS_SLUG_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,126}[a-z0-9])?$")
 _CANONICAL_KEY_RE = re.compile(r"^[a-z0-9][a-z0-9-]*:.+$")
+
+# A concurrent first install of the same new pack loses the ``get_or_create``
+# race on ``uniq_corpus_slug_per_creator_cs``.  The whole write is one atomic
+# block, so the loser committed nothing and a retry converges (the winner's
+# corpus is then found by slug) — say that instead of leaking the constraint
+# name into the Authority Console.
+CONCURRENT_INSTALL_MESSAGE = (
+    "Another installation of this authority pack is already in flight; "
+    "nothing was written by this attempt. Refresh the preflight and retry."
+)
 
 
 @dataclass(frozen=True)
@@ -137,6 +150,13 @@ class AuthorityPackInstallResult:
     corpus_summaries: tuple[dict, ...]
     relationship_summary: dict
     relink_summary: dict | None
+    # Everything the pack declares is committed by one atomic block; the
+    # reactive relink and the post-install preflight refresh run AFTER it.
+    # A failure there is not an install failure — the pack is installed — so it
+    # degrades to a warning the operator can act on instead of a "failed"
+    # verdict that contradicts the database.  ``relink_summary is None`` alone
+    # cannot carry this: it already means "relink was not requested".
+    post_commit_warnings: tuple[str, ...] = ()
 
     def as_dict(self) -> dict:
         created = sum(
@@ -155,6 +175,7 @@ class AuthorityPackInstallResult:
             "documents_updated": updated,
             "relationships": dict(self.relationship_summary),
             "relink": self.relink_summary,
+            "warnings": list(self.post_commit_warnings),
         }
 
 
@@ -240,10 +261,43 @@ class AuthorityPackService:
             installed = cls._install_plan(
                 plan, creator=user, make_public=publish, relink=relink
             )
-            refreshed = cls.preflight_path(pack_dir, creator=user)
-            return ServiceResult.success(replace(installed, pack=refreshed))
+        except IntegrityError:
+            # Lost a check-then-act race with a concurrent install of the same
+            # new pack: ``_preflight_corpus_identities`` saw no corpus, both
+            # callers reached ``get_or_create(slug=…, creator=…)``, and this one
+            # hit the unique constraint.  ``_install_plan`` is one atomic block,
+            # so nothing of this attempt survives; a retry converges.
+            logger.warning(
+                "Concurrent install race on authority pack %r for creator %s",
+                pack_id,
+                getattr(user, "id", None),
+            )
+            return ServiceResult.failure(CONCURRENT_INSTALL_MESSAGE)
         except (CommandError, OSError, UnicodeError) as exc:
             return ServiceResult.failure(str(exc))
+
+        # Post-commit, exactly like the relink inside ``_install_plan``: the
+        # pack is installed, so a failure to re-read it for the response must
+        # not be reported as an install failure.  Fall back to the pre-install
+        # plan (its fingerprint is the one the operator approved) and say so.
+        try:
+            installed = replace(
+                installed, pack=cls.preflight_path(pack_dir, creator=user)
+            )
+        except (CommandError, OSError, UnicodeError) as exc:
+            logger.exception(
+                "Authority pack %r installed, but re-reading it for the response failed",
+                pack_id,
+            )
+            installed = replace(
+                installed,
+                post_commit_warnings=installed.post_commit_warnings
+                + (
+                    "The pack is installed, but re-validating it afterwards failed "
+                    f"({exc}); the details below are from the pre-install preflight.",
+                ),
+            )
+        return ServiceResult.success(installed)
 
     @classmethod
     def install_path(
@@ -436,17 +490,37 @@ class AuthorityPackService:
                 list(plan.relationships), origin=plan.origin
             )
 
+        # --- post-commit ----------------------------------------------------
+        # The transaction above has committed: the pack IS installed.  The
+        # reactive relink is a convergence pass over OTHER corpora, so letting
+        # it raise would report "install failed" for a pack that is in the
+        # database — and the retry, being idempotent, would then quietly
+        # no-op, leaving the operator's view permanently at odds with reality.
+        # Downgrade to a warning carried on the result instead.
         relink_summary = None
+        warnings: list[str] = []
         if all_keys and relink:
             from opencontractserver.enrichment.services import EnrichmentService
 
-            relink_summary = EnrichmentService().relink_corpora_for_keys(all_keys)
+            try:
+                relink_summary = EnrichmentService().relink_corpora_for_keys(all_keys)
+            except Exception as exc:
+                logger.exception(
+                    "Authority pack %r installed, but the post-install relink failed",
+                    plan.origin,
+                )
+                warnings.append(
+                    "The pack is installed, but re-linking existing corpora to its "
+                    f"authorities failed ({exc}). Re-run the install (it is "
+                    "idempotent) or relink from the Enrichment runner."
+                )
         return AuthorityPackInstallResult(
             pack=plan,
             taxonomy_summary=taxonomy_summary,
             corpus_summaries=tuple(corpus_summaries),
             relationship_summary=relationship_summary,
             relink_summary=relink_summary,
+            post_commit_warnings=tuple(warnings),
         )
 
     @staticmethod
