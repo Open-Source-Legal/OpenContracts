@@ -112,7 +112,11 @@ opt-in checkbox that stays disabled while a declared charter is unapproved or
 `pending_legal_review` (the *Publication unavailable* notice above). The modal
 refuses to close while an install is in flight, so a half-applied transaction is
 never left unattended. A server-side rejection is surfaced in place as
-*Installation failed* rather than as a toast that scrolls away.
+*Installation failed* rather than as a toast that scrolls away — a slug already
+owned by another creator is the common one, and it is refused here rather than
+producing a second corpus:
+
+![Pack preflight — install rejected by the server](../assets/images/screenshots/auto/admin--pack-preflight-modal--install-rejected.png)
 
 The same validation is reachable headlessly — `load_authority_pack --check`
 prints the fingerprint, source hosts, approval state, and per-corpus plan and

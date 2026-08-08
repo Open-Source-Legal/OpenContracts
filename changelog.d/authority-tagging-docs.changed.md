@@ -2,10 +2,13 @@
   #2215 actually shipped**, and wired the pack screenshots the component tests
   have been capturing into the docs that describe them.
   - `docs/architecture/authority-console.md` — the **Authority Packs tab**
-    section was four paragraphs with no visuals despite nine
+    section was four paragraphs with no visuals, while thirteen
     `admin--authority-packs-tab--*` / `admin--pack-preflight-modal--*`
-    screenshots being captured on every screenshot run and referenced by no
-    doc. It now shows the catalog, the derived status-badge vocabulary
+    screenshots sat in the auto directory referenced by no doc. It links the
+    five that teach something; the rest are loading spinners, error banners and
+    near-duplicates that `AuthorityPackPreflightCoverage.ct.tsx` captures for
+    coverage, which is not the same job as documentation. It now shows the
+    catalog, the derived status-badge vocabulary
     (`Invalid` / `Available` / `Partially installed` / `Installed privately` /
     `Partially public` / `Fully public`, per `PacksTab.tsx::packStatus`), the
     empty catalog as the symptom of an unmounted pack directory, and the
