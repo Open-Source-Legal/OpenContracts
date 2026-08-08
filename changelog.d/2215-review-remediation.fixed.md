@@ -34,3 +34,8 @@
   (`opencontractserver/llms/model_factory.py`), so a hypothetical `gpt-5.60-…`
   would have been routed to the Responses API on the strength of the `gpt-5.6`
   prefix. The match is now anchored on `-` / `.` or whole-name equality.
+- `_compose_salvage_body`'s zero-findings fallback still read "before the
+  research budget was exhausted" — the same mislabel removed from the warnings
+  above, one layer down, on a body composed for *every* non-finalize ending.
+  Now names the ending generically and leaves the specific cause to the
+  `terminal_reason` in the executive summary it sits beside.

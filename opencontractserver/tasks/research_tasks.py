@@ -1621,7 +1621,13 @@ def _compose_salvage_body(report: ResearchReport, *, response_text: str) -> str:
     if not findings:
         if response_text:
             return response_text
-        return "_No findings recorded before the research budget was exhausted._"
+        # Names the ending generically, because this body is composed for every
+        # non-finalize ending — not only a budget overrun. The executive summary
+        # written alongside it carries the specific ``terminal_reason``; saying
+        # "the budget was exhausted" here would contradict it for a run that
+        # simply stopped, which is the ambiguity ``terminal_reason`` exists to
+        # end.
+        return "_The run ended before any findings were recorded._"
 
     by_section: dict[str, list[dict]] = {}
     for f in findings:

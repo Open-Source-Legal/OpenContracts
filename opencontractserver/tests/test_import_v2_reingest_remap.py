@@ -220,6 +220,36 @@ class TestSourceReingestability(TestCase):
                     },
                 )
 
+    def test_publisher_source_sidecar_rejects_a_repeated_member_name(self):
+        """A name appearing twice in the central directory is refused.
+
+        This is the branch that forces the member census to exist.
+        ``ZipFile.NameToInfo`` keeps only the LAST entry for a repeated name,
+        so it can neither detect nor disambiguate this: a ZIP carrying two
+        ``publisher-source-rule.html`` entries would silently hash one and let
+        an extractor take the other. The sibling case above covers count 0
+        (missing); this covers count > 1, and together they pin both sides of
+        ``occurrences != 1`` across the memoised-``Counter`` refactor.
+        """
+        source_bytes = b"<html>publisher source</html>"
+        meta = {
+            "publisher_source_member": "publisher-source-rule.html",
+            "publisher_source_content_hash": hashlib.sha256(source_bytes).hexdigest(),
+            "publisher_source_mime_type": "text/html",
+            "publisher_source_packaging": "sidecar",
+        }
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("rule.txt", b"portable text")
+            zf.writestr("publisher-source-rule.html", source_bytes)
+            # Same name, different bytes — the shadowing case.
+            zf.writestr("publisher-source-rule.html", b"<html>decoy</html>")
+        buf.seek(0)
+
+        with zipfile.ZipFile(buf) as zf:
+            with self.assertRaisesRegex(ValueError, "occurs 2 times"):
+                _read_publisher_source_payload(zf, "rule.txt", {"custom_meta": meta})
+
     def test_baked_import_persists_publisher_sidecar_as_original_file(self):
         user = User.objects.create_user(username="source_sidecar_user", password="pw")
         labelset = LabelSet.objects.create(title="LS", creator=user)

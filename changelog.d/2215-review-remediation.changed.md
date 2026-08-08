@@ -13,3 +13,12 @@
 - The 1 MB blob-hashing chunk size is now `BLOB_HASH_CHUNK_BYTES` in
   `opencontractserver/constants/document_processing.py` rather than a literal
   at each of its two call sites (`import_tasks_v2.py`, `validate_export.py`).
+- New tests, no behaviour change: a DB-credentialed `build_agent_model` now has
+  an end-to-end assertion that a Responses-only model really is constructed as
+  `OpenAIResponsesModel` (and an ordinary model is not) — the existing coverage
+  mocked `_construct_model` or asserted only the env-credential string
+  redirect, so nothing reached the branch that picks the class, and the class
+  IS the endpoint. Anchoring of `requires_responses_api` is pinned directly.
+  The publisher-source duplicate-member rejection (`occurrences > 1`) is now
+  tested alongside the existing missing-member case, so both sides of the guard
+  the memoised census serves are covered.

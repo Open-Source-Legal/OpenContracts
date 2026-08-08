@@ -25,6 +25,7 @@ from opencontractserver.llms.model_factory import (
     abuild_agent_model,
     build_agent_model,
     invalidate_credential_cache,
+    requires_responses_api,
 )
 from opencontractserver.pipeline.base.settings_schema import (
     get_secret_settings,
@@ -214,6 +215,63 @@ class TestBuildAgentModelDbWins(TestCase):
         self._configure_openai_creds(api_key="sk-db-key")
         result = async_to_sync(abuild_agent_model)("openai:gpt-4o")
         self.assertNotIsInstance(result, str)
+
+    def test_db_creds_build_a_real_responses_api_model(self):
+        """End-to-end twin of the Chat-Completions test above, for /v1/responses.
+
+        The sibling tests either mock ``_construct_model`` or assert the
+        env-credential STRING redirect. Neither reaches the branch that decides
+        which pydantic-ai class a DB-credentialed install actually gets — and
+        that branch is the whole point of the routing: a
+        ``gpt-5.6`` model built as an ``OpenAIChatModel`` 400s on every agent in
+        the install ("Function tools with reasoning_effort are not supported …
+        in /v1/chat/completions"), with the reason visible only in a worker log.
+        Assert the concrete class here, since the class IS the endpoint.
+        """
+        from pydantic_ai.models.openai import OpenAIResponsesModel
+
+        self._configure_openai_creds(
+            api_key="sk-db-key", base_url="http://gateway.local/v1"
+        )
+        result = build_agent_model("openai:gpt-5.6-luna")
+        self.assertIsInstance(result, OpenAIResponsesModel)
+
+    def test_db_creds_build_a_chat_model_for_an_ordinary_openai_model(self):
+        # The negative half: the redirect must not capture models that belong
+        # on Chat Completions, or every ordinary agent moves endpoint too.
+        from pydantic_ai.models.openai import OpenAIResponsesModel
+
+        self._configure_openai_creds(api_key="sk-db-key")
+        result = build_agent_model("openai:gpt-4o")
+        self.assertNotIsInstance(result, OpenAIResponsesModel)
+
+
+class TestRequiresResponsesApiAnchoring(TestCase):
+    """The prefix match is anchored, so a longer version number cannot match.
+
+    ``gpt-5.6`` is a string prefix of ``gpt-5.60-…``, which would be a DIFFERENT
+    model. A bare ``startswith`` would route it to an endpoint it may not
+    support, and the failure surfaces as a 400 in a worker log.
+    """
+
+    def test_the_exact_family_name_matches(self):
+        self.assertTrue(requires_responses_api("openai", "gpt-5.6"))
+
+    def test_a_dash_suffixed_variant_matches(self):
+        for name in ("gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra"):
+            self.assertTrue(requires_responses_api("openai", name), name)
+
+    def test_a_dot_suffixed_point_release_matches(self):
+        self.assertTrue(requires_responses_api("openai", "gpt-5.6.1"))
+
+    def test_a_longer_version_number_does_not_match(self):
+        self.assertFalse(requires_responses_api("openai", "gpt-5.60"))
+        self.assertFalse(requires_responses_api("openai", "gpt-5.60-turbo"))
+
+    def test_another_provider_is_never_redirected(self):
+        # The Responses API is OpenAI's; an identically-named model on another
+        # provider must not be rewritten to an OpenAI-only prefix.
+        self.assertFalse(requires_responses_api("anthropic", "gpt-5.6-luna"))
 
 
 class TestProviderSecretStatusSurface(TestCase):
