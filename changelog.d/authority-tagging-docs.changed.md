@@ -22,8 +22,9 @@
     imports resolve wherever a pack is mounted, an absolute in-tree dotted path
     silently fails to register the module's providers once sideloaded — the
     defect that stranded 15 providers); points at the schema-v2 fixture pack
-    `tests/fixtures/authority_packs/example_utility` as the complete worked
-    example alongside v1 `bolivia`; explains the `pack.yaml`-required root scan
+    `opencontractserver/tests/fixtures/authority_packs/example_utility` as the
+    complete worked example alongside v1 `bolivia`; explains the
+    `pack.yaml`-required root scan
     and `E2E_RUN_AUTHORITY_IMPORTS`; and replaces two dead
     `test_grid_dossier_*` test references (those modules moved out of the tree
     with the packs) with the modules that exist.

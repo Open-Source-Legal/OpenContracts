@@ -79,7 +79,7 @@ not stored:
 
 | Badge | Meaning |
 |---|---|
-| `Invalid` | The manifest failed server validation; the card shows the error and cannot be installed. |
+| `Invalid` | The manifest failed server validation. The card shows the error, and its button reads **Review pack** and is *disabled* ("Repair this server-deployed pack before installing it") — an invalid pack cannot even be opened, since `can_install` tracks `valid` exactly. |
 | `Available` | Valid, nothing installed yet. |
 | `Partially installed` | Some but not all of the pack's corpora exist. |
 | `Installed privately` | Every corpus installed, none public. |
@@ -93,7 +93,8 @@ that was never bind-mounted yields exactly this:
 
 #### Preflight
 
-**Review & install** runs a fresh, side-effect-free preflight
+**Review & install** (the button on any valid pack) runs a fresh,
+side-effect-free preflight
 (`AuthorityPackService.preflight`) and shows what an install *would* do before
 anything is written:
 

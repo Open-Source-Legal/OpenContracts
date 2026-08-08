@@ -484,8 +484,9 @@ so the registry and SSRF allowlist pick up the pack's `providers/` module and
 `source_hosts` — discovery happens at registry build.
 
 An administrator can do the same thing without a shell. **Review & install** on
-a catalog card runs the identical validation and shows what the install would
-do before anything is written:
+a catalog card runs the identical validation and shows what the install would do
+before anything is written (a pack that failed validation instead shows a
+disabled **Review pack** button — repair it on disk first):
 
 ![Pack preflight modal](../assets/images/screenshots/auto/admin--pack-preflight-modal--summary-badges.png)
 
