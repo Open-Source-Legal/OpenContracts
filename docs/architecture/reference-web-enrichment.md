@@ -50,6 +50,16 @@ span overlap**, and grammar/LLM candidates add only the non-overlapping tail. So
 citation the grammar already catches is never *also* stored as a (lower-trust) LLM
 row.
 
+**Where a jurisdiction's vocabulary comes from.** The registry tier reads
+`AuthorityNamespace` prefixes and aliases, which are curated through the
+[Authority Console](authority-console.md) Registry tab and loaded in bulk from
+the shipped `authority_mappings.yaml` baseline plus every installed **authority
+pack**. A pack also carries optional `shape_rules` (classify a numbered prefix
+family) and `abbreviations` (Bluebook-style forms the Tier-2a extractor matches),
+merged onto the shipped baseline at runtime — so standing up detection for a new
+body of law is a data change, not a code change. See
+[Authoring an Authority Pack](../guides/authoring-authority-packs.md).
+
 ### Customs / trade grammar family (CBP CROSS-style corpora)
 
 The grammar tier also ships two deterministic customs families
