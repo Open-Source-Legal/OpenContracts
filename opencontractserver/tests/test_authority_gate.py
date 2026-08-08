@@ -5,6 +5,15 @@ from __future__ import annotations
 from unittest import TestCase
 
 from opencontractserver.enrichment.authorities import AuthoritySection
+from opencontractserver.enrichment.authority_sources import (
+    AuthorityPublisherEvidence,
+    AuthoritySourceRecord,
+    AuthorityWeight,
+    InstrumentType,
+    PublisherEvidenceSource,
+    RightsStatus,
+    SourceStatus,
+)
 from opencontractserver.enrichment.services.authority_gate_service import (
     GATE_BLOCKED_DOMAIN,
     GATE_BLOCKED_LICENSE,
@@ -22,6 +31,37 @@ def _section(
     source_url: str | None = "https://uscode.house.gov/download/t15.zip",
 ) -> AuthoritySection:
     return AuthoritySection(key=key, heading=heading, text=text, source_url=source_url)
+
+
+def _rich_record(
+    *,
+    key: str = "tx-util:37.056",
+    source_url: str = "https://uscode.house.gov/test.txt",
+    evidence: tuple[AuthorityPublisherEvidence, ...] = (),
+) -> AuthoritySourceRecord:
+    return AuthoritySourceRecord(
+        canonical_key=key,
+        title="Texas Utilities Code § 37.056",
+        source_url=source_url,
+        source_identifier="UT-37.056",
+        publisher="Texas Legislature",
+        jurisdiction="us-tx",
+        authority_type="statute",
+        instrument_type=InstrumentType.STATUTE,
+        issued_date=None,
+        effective_from=None,
+        effective_until=None,
+        status=SourceStatus.CURRENT,
+        authority_weight=AuthorityWeight.CONTROLLING,
+        parent_key=None,
+        version_label=None,
+        content=b"Sec. 37.056. Publisher text.",
+        mime_type="text/plain",
+        corpus_slug="texas-electric-statutes",
+        rights_status=RightsStatus.PUBLIC_DOMAIN,
+        extracted_text="Sec. 37.056. Publisher text.",
+        publisher_evidence=evidence,
+    )
 
 
 class GateLicenseBlockTests(TestCase):
@@ -93,6 +133,22 @@ class GateDomainAllowlistTests(TestCase):
         self.assertEqual(decision.verdict, GATE_UNLOCATED)
         self.assertIsNone(decision.source_domain)
 
+    def test_every_returned_section_domain_is_checked(self):
+        decision = AuthorityGateService.evaluate(
+            canonical_key="usc-15:78j",
+            sections=[
+                _section(),
+                _section(
+                    key="usc-15:78k",
+                    heading="Related section",
+                    source_url="https://evil.com/related",
+                ),
+            ],
+            provider_license="public-domain",
+        )
+        self.assertEqual(decision.verdict, GATE_BLOCKED_DOMAIN)
+        self.assertIn("evil.com", decision.reason)
+
 
 class GateVerifyMismatchTests(TestCase):
     """Check 4: key/heading mismatch → UNLOCATED with verify="mismatch"."""
@@ -130,6 +186,111 @@ class GateVerifyMatchTests(TestCase):
         self.assertEqual(decision.verdict, GATE_OK)
         self.assertEqual(decision.verify, "match")
         self.assertEqual(decision.reason, "verified")
+
+
+class GateRichPublisherEvidenceTests(TestCase):
+    def test_echoed_rich_record_key_cannot_verify_itself(self):
+        record = _rich_record()
+        decision = AuthorityGateService.evaluate(
+            canonical_key=record.canonical_key,
+            sections=[record],
+            provider_license="public-domain",
+            rights_status=RightsStatus.PUBLIC_DOMAIN,
+            # Even an unsafe callback cannot rescue missing raw evidence.
+            publisher_evidence_verifier=lambda key, value: key == value.canonical_key,
+        )
+        self.assertEqual(decision.verdict, GATE_UNLOCATED)
+        self.assertEqual(decision.verify, "mismatch")
+
+    def test_rich_record_requires_provider_positive_evidence_verifier(self):
+        evidence = AuthorityPublisherEvidence(
+            source=PublisherEvidenceSource.PARSED_CONTENT,
+            value="Sec. 37.056",
+        )
+        record = _rich_record(evidence=(evidence,))
+        without_verifier = AuthorityGateService.evaluate(
+            canonical_key=record.canonical_key,
+            sections=[record],
+            provider_license="public-domain",
+            rights_status=RightsStatus.PUBLIC_DOMAIN,
+        )
+        self.assertEqual(without_verifier.verdict, GATE_UNLOCATED)
+
+        verified = AuthorityGateService.evaluate(
+            canonical_key=record.canonical_key,
+            sections=[record],
+            provider_license="public-domain",
+            rights_status=RightsStatus.PUBLIC_DOMAIN,
+            publisher_evidence_verifier=lambda key, value: (
+                key == "tx-util:37.056"
+                and value.publisher_evidence[0].value == "Sec. 37.056"
+            ),
+        )
+        self.assertEqual(verified.verdict, GATE_OK)
+
+    def test_every_rich_sibling_needs_positive_evidence(self):
+        first = _rich_record(
+            evidence=(
+                AuthorityPublisherEvidence(
+                    source=PublisherEvidenceSource.PARSED_CONTENT,
+                    value="Sec. 37.056",
+                ),
+            )
+        )
+        second = _rich_record(
+            key="tx-util:37.057",
+            evidence=(
+                AuthorityPublisherEvidence(
+                    source=PublisherEvidenceSource.PARSED_CONTENT,
+                    value="unrelated",
+                ),
+            ),
+        )
+
+        def verifier(key, record):
+            return record.publisher_evidence[0].value == (
+                f"Sec. {key.split(':', 1)[1]}"
+            )
+
+        decision = AuthorityGateService.evaluate(
+            canonical_key=first.canonical_key,
+            sections=[first, second],
+            provider_license="public-domain",
+            rights_status=RightsStatus.PUBLIC_DOMAIN,
+            publisher_evidence_verifier=verifier,
+        )
+        self.assertEqual(decision.verdict, GATE_UNLOCATED)
+
+    def test_a_verifier_that_raises_blocks_instead_of_escaping_the_gate(self):
+        """``verify_publisher_evidence`` is a provider override — open-ended.
+
+        Enumerating its exception types let an unlisted one (AttributeError off
+        a malformed evidence payload, say) escape ``evaluate`` entirely, which
+        strands the caller's frontier row in ``in_progress``. The gate must
+        absorb it and FAIL CLOSED: a broken verifier can only refuse a record,
+        never admit an unverified one.
+        """
+        record = _rich_record(
+            evidence=(
+                AuthorityPublisherEvidence(
+                    source=PublisherEvidenceSource.PARSED_CONTENT,
+                    value="Sec. 37.056",
+                ),
+            )
+        )
+
+        def exploding_verifier(key, value):
+            raise AttributeError("provider verifier touched a missing attribute")
+
+        decision = AuthorityGateService.evaluate(
+            canonical_key=record.canonical_key,
+            sections=[record],
+            provider_license="public-domain",
+            rights_status=RightsStatus.PUBLIC_DOMAIN,
+            publisher_evidence_verifier=exploding_verifier,
+        )
+        self.assertEqual(decision.verdict, GATE_UNLOCATED)
+        self.assertEqual(decision.verify, "mismatch")
 
 
 class GatePendingApprovalTests(TestCase):

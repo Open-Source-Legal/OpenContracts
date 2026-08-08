@@ -63,6 +63,45 @@ CAML_INTELLIGENCE_BLOCK = """\
 :::"""
 
 
+#: ``[component:name key=value key2=value2]`` — the prop syntax the frontend
+#: registry already uses. Values are unquoted and whitespace-delimited, which
+#: is what an author writing a marker by hand will produce.
+#: Named-group variant used to READ a marker's props. Deliberately a separate
+#: pattern from ``_COMPONENT_MARKER_RE`` below, which strips markers out of
+#: user-controlled metadata — that one must stay a blunt "remove any marker"
+#: and must not grow groups or an author-supplied prop could survive stripping.
+_COMPONENT_PROPS_RE = re.compile(
+    r"\[component:(?P<name>[a-z0-9-]+)(?P<props>[^\]]*)\]", re.IGNORECASE
+)
+_PROP_RE = re.compile(r"(?P<key>[A-Za-z_][\w-]*)=(?P<value>\S+)")
+
+
+def parse_component_props(
+    caml_source: str | None, component: str
+) -> dict[str, str] | None:
+    """Props of the first ``[component:<component> ...]`` marker, or ``None``.
+
+    A corpus's CAML article is where its author already describes what the
+    corpus IS, which makes it the natural place to configure how the corpus is
+    read — the alternative is a settings column nobody discovers. This reads
+    the same marker syntax the frontend registry renders, so one marker can
+    both configure the backend and display something to a reader.
+
+    Returns ``None`` when the marker is absent and ``{}`` when it is present
+    with no props; callers can tell "not configured" from "configured empty".
+    """
+    if not caml_source:
+        return None
+    for match in _COMPONENT_PROPS_RE.finditer(caml_source):
+        if match.group("name").lower() != component.lower():
+            continue
+        return {
+            m.group("key"): m.group("value")
+            for m in _PROP_RE.finditer(match.group("props"))
+        }
+    return None
+
+
 def has_intelligence_block(caml_source: str | None) -> bool:
     """Return ``True`` iff *any* of the three intelligence markers is present.
 

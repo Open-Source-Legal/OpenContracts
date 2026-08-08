@@ -1586,6 +1586,95 @@ class PdfFileCreationTestCase(TestCase):
             f"Expected .docx extension, got: {doc.pdf_file.name}",
         )
 
+    def test_import_content_preserves_filename_suffix_for_extensionless_version_path(
+        self,
+    ):
+        """Converters must see the source suffix on canonical identity paths."""
+        doc, status, _ = self.corpus.import_content(
+            content=b"PK fake xlsx content for testing",
+            user=self.user,
+            path="/documents/batch-zero-form",
+            filename="batch-zero-form.xlsx",
+            file_type="application/octet-stream",
+            title="Batch zero form",
+        )
+
+        self.assertEqual(status, "created")
+        self.assertTrue(doc.pdf_file)
+        assert doc.pdf_file.name is not None
+        self.assertTrue(doc.pdf_file.name.endswith(".xlsx"))
+
+    def test_import_content_source_suffix_beats_numeric_canonical_path_tail(self):
+        """A citation dot such as ``25.214`` is not a file extension."""
+        doc, status, _ = self.corpus.import_content(
+            content=b"<html><body>rule</body></html>",
+            user=self.user,
+            path="/documents/16-tac-25.214",
+            filename="16-tac-25.214.html",
+            file_type="application/octet-stream",
+            title="16 TAC 25.214",
+        )
+
+        self.assertEqual(status, "created")
+        assert doc.pdf_file.name is not None
+        self.assertTrue(doc.pdf_file.name.endswith(".html"))
+
+    def test_skip_if_unchanged_matches_retained_original_after_conversion(self):
+        """A converter's PDF output must not make an unchanged source version."""
+        source_bytes = b"PK fake spreadsheet source"
+        converted_pdf = b"%PDF-1.4 converted spreadsheet"
+        path = "/documents/batch-zero-form"
+        document, status, _ = import_document(
+            corpus=self.corpus,
+            path=path,
+            content=source_bytes,
+            user=self.user,
+            file_type="application/octet-stream",
+            title="Batch zero form",
+        )
+        self.assertEqual(status, "created")
+
+        # Match the converter contract: retain the source blob and replace the
+        # working file/hash with the generated PDF bytes.
+        document.original_file.name = document.pdf_file.name
+        document.original_file_type = "application/vnd.ms-excel"
+        document.pdf_file.save(
+            "batch-zero-form.pdf", ContentFile(converted_pdf), save=False
+        )
+        document.file_type = "application/pdf"
+        document.save(
+            update_fields=[
+                "original_file",
+                "original_file_type",
+                "pdf_file",
+                "file_type",
+            ]
+        )
+        document.update_pdf_hash()
+        self.assertNotEqual(document.pdf_file_hash, compute_sha256(source_bytes))
+
+        reimported, reimport_status, _ = import_document(
+            corpus=self.corpus,
+            path=path,
+            content=source_bytes,
+            user=self.user,
+            file_type="application/octet-stream",
+            skip_if_unchanged=True,
+            title="Batch zero form",
+        )
+
+        self.assertEqual(reimport_status, "unchanged")
+        self.assertEqual(reimported.pk, document.pk)
+        self.assertEqual(
+            DocumentPath.objects.filter(
+                corpus=self.corpus,
+                path=path,
+                is_current=True,
+                is_deleted=False,
+            ).count(),
+            1,
+        )
+
     def test_import_document_version_update_creates_pdf_file_if_missing(self):
         """
         When updating content at an existing path, if the old document

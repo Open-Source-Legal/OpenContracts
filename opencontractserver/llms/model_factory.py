@@ -185,7 +185,11 @@ async def aget_provider_credentials(provider_key: str) -> dict[str, str]:
 
 
 def _construct_model(
-    provider_key: str, model_name: str, creds: dict[str, str]
+    provider_key: str,
+    model_name: str,
+    creds: dict[str, str],
+    *,
+    responses_api: bool = False,
 ) -> Any | None:
     """Build a ``pydantic-ai`` model carrying explicit provider credentials.
 
@@ -232,10 +236,20 @@ def _construct_model(
     if provider_key in ("openai", "ollama"):
         from pydantic_ai.providers.openai import OpenAIProvider
 
-        try:
-            from pydantic_ai.models.openai import OpenAIChatModel as _Model
-        except ImportError:  # pragma: no cover - older pydantic-ai alias
-            from pydantic_ai.models.openai import OpenAIModel as _Model
+        _Model: Any
+        if responses_api:
+            from pydantic_ai.models.openai import OpenAIResponsesModel
+
+            _Model = OpenAIResponsesModel
+        else:
+            try:
+                from pydantic_ai.models.openai import OpenAIChatModel
+
+                _Model = OpenAIChatModel
+            except ImportError:  # pragma: no cover - older pydantic-ai alias
+                from pydantic_ai.models.openai import OpenAIModel
+
+                _Model = OpenAIModel
 
         # Ollama (and other OpenAI-compatible local servers) require *some*
         # api_key for the underlying OpenAI client even when the server
@@ -284,6 +298,41 @@ def _construct_model(
     return None
 
 
+#: OpenAI model families that reject function tools on ``/v1/chat/completions``
+#: whenever ``reasoning_effort`` is set, and must go through ``/v1/responses``
+#: instead. The GPT-5.6 family (Sol / Terra / Luna) is the first: the API
+#: answers a tool-carrying chat request with
+#:
+#:     Function tools with reasoning_effort are not supported for
+#:     gpt-5.6-luna in /v1/chat/completions. To use function tools, use
+#:     /v1/responses or set reasoning_effort to 'none'.
+#:
+#: Every OpenContracts agent carries function tools, and turning reasoning off
+#: to keep the old endpoint would discard the capability these models are
+#: chosen for — so the endpoint moves, not the reasoning. Routed automatically
+#: rather than left to the operator: these names are selectable in the System
+#: Settings LLM picker, and picking one would otherwise 400 every agent in the
+#: install with an error only visible in a worker log.
+OPENAI_RESPONSES_ONLY_PREFIXES: tuple[str, ...] = ("gpt-5.6",)
+
+
+def requires_responses_api(provider_key: str, model_name: str) -> bool:
+    """Whether ``model_name`` must be driven through the Responses API.
+
+    The prefix match is anchored on a delimiter, not a bare ``startswith``: the
+    family names are dotted, so ``gpt-5.6`` is a prefix of a hypothetical
+    ``gpt-5.60-…`` — a DIFFERENT model, which would then be silently routed to
+    an endpoint it may not support. A prefix matches the whole name or the name
+    up to the next ``-`` / ``.``.
+    """
+    if provider_key != "openai":
+        return False
+    return any(
+        model_name == prefix or model_name.startswith((f"{prefix}-", f"{prefix}."))
+        for prefix in OPENAI_RESPONSES_ONLY_PREFIXES
+    )
+
+
 def build_agent_model(spec: str) -> Any:
     """Resolve a model spec into a bare string or a credentialed ``Model``.
 
@@ -303,12 +352,22 @@ def build_agent_model(spec: str) -> Any:
         # Malformed spec — let pydantic-ai raise its own clear error later.
         return spec
 
+    # Redirect before the credentials branch so BOTH paths are covered: the
+    # env-credential fallback returns this string for pydantic-ai to resolve,
+    # and the DB-credential path below builds the matching Model class.
+    responses_api = requires_responses_api(provider_key, model_name)
+    # Every env-credential exit below returns the same thing; naming it once
+    # keeps the three of them from drifting apart.
+    env_spec = f"openai-responses:{model_name}" if responses_api else spec
+
     creds = _get_db_credentials(provider_key)
     if not creds:
-        return spec
+        return env_spec
 
     try:
-        model = _construct_model(provider_key, model_name, creds)
+        model = _construct_model(
+            provider_key, model_name, creds, responses_api=responses_api
+        )
     except _MODEL_BUILD_RECOVERABLE_ERRORS:
         logger.warning(
             "Failed to build a credentialed model for provider %r; falling "
@@ -316,10 +375,10 @@ def build_agent_model(spec: str) -> Any:
             provider_key,
             exc_info=True,
         )
-        return spec
+        return env_spec
 
     if model is None:
-        return spec
+        return env_spec
 
     # debug, not info: once DB credentials are configured this runs on every
     # single agent build (every chat message, structured call, memory task).

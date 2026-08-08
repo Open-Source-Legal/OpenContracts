@@ -425,10 +425,10 @@ export const App = () => {
           <Route path="/admin/ingestion" element={<IngestionMonitor />} />
           {/*
             Unified Authority Console — the single front door for managing legal
-            authorities. All five concerns (authorities, aliases & relationships,
-            discovery queue, scrapers, runs) are absorbed as tabs; the three
-            former standalone panels (/admin/authorities, /admin/authority-mappings,
-            /admin/enrichment) have been deleted.
+            authorities. Authority packs, authorities, aliases & relationships,
+            discovery queue, scrapers, and runs are absorbed as tabs; the three
+            former standalone panels (/admin/authorities,
+            /admin/authority-mappings, /admin/enrichment) have been deleted.
           */}
           <Route path="/admin/authority/*" element={<AuthorityConsole />} />
           {/*

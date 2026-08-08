@@ -1,0 +1,29 @@
+version: 1
+fields:
+  - name: "authority_family"
+    data_type: "STRING"
+    help_text: "Publisher-specific authority family used for research ranking."
+    validation_config: {required: true}
+  - name: "instrument_type"
+    data_type: "CHOICE"
+    help_text: "Domain-specific document type; does not expand core authority_type."
+    validation_config:
+      required: true
+      choices: ["STATUTE", "REGULATION", "FINAL_ORDER", "FILING"]
+  - {name: "publisher", data_type: "STRING", validation_config: {required: true}}
+  - {name: "jurisdiction", data_type: "STRING", validation_config: {required: true}}
+  - {name: "canonical_key", data_type: "STRING", validation_config: {required: true}}
+  - {name: "source_url", data_type: "URL", validation_config: {required: true}}
+  - {name: "effective_from", data_type: "DATE", validation_config: {required: false}}
+  - name: "status"
+    data_type: "STRING"
+    help_text: "Lifecycle status from the shared SourceStatus vocabulary."
+    validation_config: {required: true}
+  - name: "authority_weight"
+    data_type: "CHOICE"
+    validation_config:
+      required: true
+      choices: ["CONTROLLING", "IMPLEMENTING", "INTERPRETIVE", "EVIDENTIARY", "ADVOCACY", "INFORMAL"]
+  - {name: "current_version", data_type: "BOOLEAN", validation_config: {required: false}}
+  - {name: "retrieved_at", data_type: "DATETIME", validation_config: {required: true}}
+  - {name: "content_hash", data_type: "STRING", validation_config: {required: true}}

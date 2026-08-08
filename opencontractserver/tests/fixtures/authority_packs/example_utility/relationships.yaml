@@ -1,0 +1,11 @@
+schema_version: 1
+relationships:
+  - source_key: "ex-rule:2026-14"
+    relationship_type: "IMPLEMENTS"
+    target_key: "ex-code:12.001"
+    verified: false
+    metadata:
+      review_status: "pending_legal_review"
+      provenance:
+        kind: "curated_seed"
+        source_url: "https://publisher.example/orders/2026-14"

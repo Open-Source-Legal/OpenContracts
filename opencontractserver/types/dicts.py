@@ -385,6 +385,11 @@ class OpenContractDocExport(OpenContractsDocAnnotations):
     # Document description
     description: Optional[str]
 
+    # Arbitrary structured document metadata. Optional for backward
+    # compatibility; authority imports use it for stable canonical identity and
+    # provenance, while ordinary corpus exports now round-trip it as well.
+    custom_meta: NotRequired[Optional[dict]]
+
     # Documents PAWLS parse file contents (serialized)
     pawls_file_content: list[PawlsPagePythonType]
 

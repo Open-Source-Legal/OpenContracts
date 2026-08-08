@@ -37,6 +37,7 @@ abbreviations:
       prefix: bo-civ
       jurisdiction: bo
       authority_type: statute
+      requires_section_marker: true
 """
 
 
@@ -81,6 +82,23 @@ class PackTaxonomyExtensionTests(SimpleTestCase):
                 self.assertTrue(hit, f"pack abbreviation not matched; got {cands}")
                 self.assertEqual(hit[0].jurisdiction, "bo")
                 self.assertEqual(hit[0].authority_type, "statute")
+
+    def test_pack_abbreviation_can_require_a_locator_marker(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = self._write_pack(Path(tmp))
+            with override_settings(AUTHORITY_PACK_PATHS=[str(pack)]):
+                reset_pack_config_cache()
+                extractor = GenericCitationExtractor()
+                section_hit = extractor.extract("Bol. Civ. Code Section 42 applies")
+                self.assertTrue(
+                    any(
+                        candidate.canonical_key == "bo-civ:42"
+                        for candidate in section_hit
+                    )
+                )
+                self.assertFalse(
+                    extractor.extract("The Bol. Civ. Code 2026 edition is current")
+                )
 
     def test_baseline_abbreviation_still_matched(self):
         # A pack must not displace the shipped baseline tables.

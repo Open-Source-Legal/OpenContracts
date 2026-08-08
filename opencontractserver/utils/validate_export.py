@@ -13,17 +13,21 @@ All warnings and errors are printed to stderr.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import re
 import sys
 import zipfile
 from dataclasses import dataclass, field
+from pathlib import PurePosixPath
 
 from opencontractserver.annotations.compact_json import (
     is_compact_format,
     is_span_format,
     iter_page_annotations,
 )
+from opencontractserver.constants.document_processing import BLOB_HASH_CHUNK_BYTES
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -77,6 +81,16 @@ V3_REQUIRED_FIELDS = {
 }
 
 V3_FORBIDDEN_FIELDS = {"md_description", "md_description_revisions"}
+
+PUBLISHER_SOURCE_FIELDS = {
+    "publisher_source_member",
+    "publisher_source_content_hash",
+    "publisher_source_mime_type",
+    "publisher_source_packaging",
+}
+PUBLISHER_SOURCE_PACKAGING = {"document", "sidecar"}
+SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+MIME_RE = re.compile(r"^[^/\s]+/[^/\s]+$")
 
 __all__ = [
     "validate_export",
@@ -135,7 +149,8 @@ def _check_zip_structure(
     zip_file: zipfile.ZipFile, data: dict, result: ValidationResult
 ) -> None:
     """Verify every annotated_docs key has a matching file in the ZIP."""
-    zip_names = set(zip_file.namelist())
+    zip_name_list = zip_file.namelist()
+    zip_names = set(zip_name_list)
 
     annotated_docs = data.get("annotated_docs", {})
     for filename in annotated_docs:
@@ -144,11 +159,100 @@ def _check_zip_structure(
                 f"annotated_docs references '{filename}' but it is not in the ZIP"
             )
 
+    publisher_source_members: set[str] = set()
+    for filename, doc in annotated_docs.items():
+        if not isinstance(doc, dict):
+            continue
+        custom_meta = doc.get("custom_meta")
+        if not isinstance(custom_meta, dict):
+            continue
+        present = PUBLISHER_SOURCE_FIELDS.intersection(custom_meta)
+        if not present:
+            continue
+        prefix = f"annotated_docs['{filename}'].custom_meta"
+        missing = PUBLISHER_SOURCE_FIELDS - present
+        if missing:
+            result.error(
+                f"{prefix}: publisher source metadata is incomplete; missing "
+                f"{sorted(missing)}"
+            )
+            continue
+
+        member = custom_meta["publisher_source_member"]
+        expected_hash = custom_meta["publisher_source_content_hash"]
+        source_mime = custom_meta["publisher_source_mime_type"]
+        packaging = custom_meta["publisher_source_packaging"]
+        if not isinstance(member, str) or not _is_safe_zip_member_reference(member):
+            result.error(f"{prefix}.publisher_source_member is not a safe ZIP member")
+            continue
+        publisher_source_members.add(member)
+        if packaging not in PUBLISHER_SOURCE_PACKAGING:
+            result.error(
+                f"{prefix}.publisher_source_packaging must be one of "
+                f"{sorted(PUBLISHER_SOURCE_PACKAGING)}"
+            )
+        elif packaging == "document" and member != filename:
+            result.error(
+                f"{prefix}: document packaging must reference its own member "
+                f"{filename!r}"
+            )
+        elif packaging == "sidecar" and member in annotated_docs:
+            result.error(
+                f"{prefix}: sidecar packaging must not reference an annotated "
+                "document member"
+            )
+        if not isinstance(expected_hash, str) or not SHA256_RE.fullmatch(expected_hash):
+            result.error(
+                f"{prefix}.publisher_source_content_hash must be lowercase SHA-256"
+            )
+        if not isinstance(source_mime, str) or not MIME_RE.fullmatch(source_mime):
+            result.error(
+                f"{prefix}.publisher_source_mime_type must be a valid MIME type"
+            )
+        occurrences = zip_name_list.count(member)
+        if occurrences != 1:
+            result.error(
+                f"{prefix}.publisher_source_member {member!r} occurs "
+                f"{occurrences} times in the ZIP"
+            )
+            continue
+        if isinstance(expected_hash, str) and SHA256_RE.fullmatch(expected_hash):
+            try:
+                digest = hashlib.sha256()
+                with zip_file.open(member) as source_file:
+                    for chunk in iter(
+                        lambda: source_file.read(BLOB_HASH_CHUNK_BYTES), b""
+                    ):
+                        digest.update(chunk)
+            except (KeyError, OSError, RuntimeError, zipfile.BadZipFile) as exc:
+                result.error(
+                    f"{prefix}.publisher_source_member {member!r} could not be "
+                    f"read: {exc}"
+                )
+            else:
+                if digest.hexdigest() != expected_hash:
+                    result.error(
+                        f"{prefix}.publisher_source_content_hash does not match "
+                        f"ZIP member {member!r}"
+                    )
+
     # Warn about extra files that aren't referenced (skip directory entries)
-    known_files = set(annotated_docs.keys()) | {"data.json"}
+    known_files = set(annotated_docs.keys()) | publisher_source_members | {"data.json"}
     for name in zip_names:
         if name not in known_files and not name.endswith("/"):
             result.warn(f"ZIP contains unreferenced file: '{name}'")
+
+
+def _is_safe_zip_member_reference(value: str) -> bool:
+    if not value or "\x00" in value or "\\" in value:
+        return False
+    path = PurePosixPath(value)
+    return (
+        not path.is_absolute()
+        and value == path.as_posix()
+        and all(part not in {"", ".", ".."} for part in path.parts)
+        and value != "data.json"
+    )
 
 
 def _check_label_definitions(data: dict, result: ValidationResult) -> None:
@@ -233,6 +337,10 @@ def _check_documents(data: dict, result: ValidationResult) -> set[str]:
         ):
             if f not in doc:
                 result.error(f"{prefix}: missing required field '{f}'")
+
+        custom_meta = doc.get("custom_meta")
+        if custom_meta is not None and not isinstance(custom_meta, dict):
+            result.error(f"{prefix}: custom_meta must be an object or null")
 
         # Validate page count vs PAWLs length
         pawls = doc.get("pawls_file_content", [])
@@ -339,8 +447,7 @@ def _check_pawls_pages(pawls: list, prefix: str, result: ValidationResult) -> No
                 val = token.get(coord)
                 if val is not None and isinstance(val, (int, float)) and val < 0:
                     result.error(
-                        f"{page_prefix}.tokens[{j}]: token {coord} is "
-                        f"negative ({val})"
+                        f"{page_prefix}.tokens[{j}]: token {coord} is negative ({val})"
                     )
 
 
@@ -645,7 +752,7 @@ def _check_folders(data: dict, result: ValidationResult) -> set[str]:
                 cycle_start = walk.index(current)
                 cycle = walk[cycle_start:]
                 result.error(
-                    f"folders: circular parent reference involving " f"'{min(cycle)}'"
+                    f"folders: circular parent reference involving '{min(cycle)}'"
                 )
                 # Mark cycle members as resolved (cycle already reported)
                 resolved.update(cycle)
@@ -750,15 +857,14 @@ def _check_conversations(data: dict, result: ValidationResult) -> None:
         parent = msg.get("parent_message_id")
         if parent and parent not in msg_ids:
             result.error(
-                f"messages['{mid}']: parent_message_id '{parent}' "
-                f"not found in messages"
+                f"messages['{mid}']: parent_message_id '{parent}' not found in messages"
             )
 
     for i, vote in enumerate(votes):
         msg_ref = vote.get("message_id")
         if msg_ref and msg_ref not in msg_ids:
             result.error(
-                f"message_votes[{i}]: message_id '{msg_ref}' " f"not found in messages"
+                f"message_votes[{i}]: message_id '{msg_ref}' not found in messages"
             )
 
 

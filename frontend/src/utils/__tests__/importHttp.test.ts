@@ -506,6 +506,29 @@ describe("importHttp.importCorpusExportMultipart", () => {
     expect(fd.get("file")).toBeInstanceOf(File);
   });
 
+  it("targets an existing corpus when corpusId is supplied", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        makeJsonResponse(
+          { ok: true, corpus_id: 17, message: "Import started." },
+          { status: 202 }
+        )
+      );
+    setMockFetch(fetchMock);
+
+    const file = new File([new Uint8Array([1, 2])], "pack-corpus.zip", {
+      type: "application/zip",
+    });
+    await importCorpusExportMultipart({
+      file,
+      corpusId: "Q29ycHVzVHlwZToxNw==",
+    });
+
+    const fd = fetchMock.mock.calls[0][1].body as FormData;
+    expect(fd.get("corpus_id")).toBe("Q29ycHVzVHlwZToxNw==");
+  });
+
   it("returns a structured error on HTTP failure", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       makeJsonResponse(
@@ -716,6 +739,35 @@ describe("importHttp chunked transport", () => {
     const startPayload = JSON.parse(fetchMock.mock.calls[0][1].body as string);
     expect(startPayload.kind).toBe("documents_zip");
     expect(startPayload.metadata.add_to_corpus_id).toBe("5");
+  });
+
+  it("threads a target corpus through chunked corpus-export metadata", async () => {
+    const fetchMock = makeRoutedFetch({
+      start: () =>
+        makeJsonResponse({ ok: true, upload_id: "c-1" }, { status: 201 }),
+      part: () => makeJsonResponse({ ok: true }),
+      complete: () =>
+        makeJsonResponse(
+          { ok: true, corpus_id: 17, message: "Import started." },
+          { status: 202 }
+        ),
+    });
+    setMockFetch(fetchMock);
+
+    const file = makeLargeFile(
+      "pack-corpus.zip",
+      UPLOAD.CHUNK_THRESHOLD_BYTES + 1,
+      "application/zip"
+    );
+    const result = await importCorpusExportMultipart({
+      file,
+      corpusId: "Q29ycHVzVHlwZToxNw==",
+    });
+
+    expect(result.ok).toBe(true);
+    const startPayload = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(startPayload.kind).toBe("corpus_export");
+    expect(startPayload.metadata.corpus_id).toBe("Q29ycHVzVHlwZToxNw==");
   });
 
   it("retries a transiently-failing part and then completes", async () => {

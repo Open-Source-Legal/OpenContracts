@@ -27,3 +27,16 @@ export const ImportCorpusModalHiddenWrapper: React.FC = () => {
     </MockedProvider>
   );
 };
+
+export const TargetedImportCorpusModalWrapper: React.FC = () => (
+  <MockedProvider mocks={[]} addTypename={false}>
+    <ImportCorpusModal
+      visible
+      targetCorpus={{
+        id: "Q29ycHVzVHlwZToxNw==",
+        title: "ERCOT Current Large Load Rules",
+      }}
+      onClose={() => undefined}
+    />
+  </MockedProvider>
+);

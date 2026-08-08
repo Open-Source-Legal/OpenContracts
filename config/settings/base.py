@@ -861,6 +861,12 @@ CELERY_TASK_ROUTES = {
         "queue": "doc_parse"
     },
     "opencontractserver.tasks.doc_tasks.set_doc_lock_state": {"queue": "doc_parse"},
+    # Corpus-level relationship fan-in is triggered by the final remap. Keep
+    # it on that same lane so a bulk default-queue flood cannot strand an
+    # import indefinitely in FINALIZING.
+    "opencontractserver.tasks.doc_tasks.finalize_corpus_import_relationships": {
+        "queue": "doc_parse"
+    },
 }
 
 # Celery Beat schedule (settings-based)
@@ -1350,13 +1356,14 @@ DEFAULT_IMAGE = """data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAgAAAAIACAYAAAD
 DOCLING_MODELS_PATH = env.str("DOCLING_MODELS_PATH", default="/models/docling")
 
 # Parser selection via environment variable
-# Options: "docling" (default), "llamaparse"
+# Options: "docling" (default), "llamaparse", "warp_ingest"
 PDF_PARSER = env.str("PDF_PARSER", default="docling")
 
 # Map parser names to their full paths
 _PDF_PARSER_MAP = {
     "docling": "opencontractserver.pipeline.parsers.docling_parser_rest.DoclingParser",
     "llamaparse": "opencontractserver.pipeline.parsers.llamaparse_parser.LlamaParseParser",
+    "warp_ingest": "opencontractserver.pipeline.parsers.warp_ingest_parser.WarpIngestParser",
 }
 
 # Get the selected PDF parser (with fallback to docling)
@@ -1369,7 +1376,10 @@ PREFERRED_PARSERS = {
     "application/pdf": _SELECTED_PDF_PARSER,
     "text/plain": "opencontractserver.pipeline.parsers.oc_text_parser.TxtParser",
     "application/txt": "opencontractserver.pipeline.parsers.oc_text_parser.TxtParser",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": _SELECTED_PDF_PARSER,  # noqa
+    # DOCX is already a native parser input.  Keep it on the existing
+    # Docxodus service; Gotenberg handles the other office formats before
+    # parsing (PPTX/XLSX/etc.).
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "opencontractserver.pipeline.parsers.docxodus_parser.DocxodusServiceParser",  # noqa
     "application/vnd.openxmlformats-officedocument.presentationml.presentation": _SELECTED_PDF_PARSER,  # noqa
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "opencontractserver.pipeline.parsers.docling_parser_rest.DoclingParser",  # noqa
 }
@@ -1762,6 +1772,17 @@ ENRICHMENT_DOC_MAX_CONCURRENCY = env.int("ENRICHMENT_DOC_MAX_CONCURRENCY", defau
 # registry build, so adding a path needs a worker/web restart — same as any new
 # in-tree provider.)
 AUTHORITY_PACK_PATHS = env.list("AUTHORITY_PACK_PATHS", default=[])
+
+# Out-of-tree authority-pack *bundle roots*. Each entry is a directory whose
+# immediate subdirectories are packs — the same shape as the in-tree root — so a
+# whole pack repository mounts with one variable instead of one entry per pack.
+# This is the ordinary way a deployment installs a body of regulation: the
+# product tree ships only the worked example pack, and the packs a given install
+# actually curates live in their own repo, versioned and reviewed on their own
+# cadence. Comma-separated absolute paths in AUTHORITY_PACK_ROOTS; empty by
+# default. Packs reachable through both settings are de-duplicated by resolved
+# path. Same restart requirement as AUTHORITY_PACK_PATHS.
+AUTHORITY_PACK_ROOTS = env.list("AUTHORITY_PACK_ROOTS", default=[])
 
 # Rate Limiting Configuration
 # ------------------------------------------------------------------------------

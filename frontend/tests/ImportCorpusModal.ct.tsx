@@ -5,6 +5,7 @@ import React from "react";
 import {
   ImportCorpusModalHiddenWrapper,
   ImportCorpusModalVisibleWrapper,
+  TargetedImportCorpusModalWrapper,
 } from "./ImportCorpusModalTestWrapper";
 import { test, expect } from "./utils/coverage";
 import { docScreenshot } from "./utils/docScreenshot";
@@ -37,6 +38,23 @@ test.describe("ImportCorpusModal", () => {
     const component = await mount(<ImportCorpusModalHiddenWrapper />);
 
     await expect(page.getByText("Import Corpus")).not.toBeVisible();
+
+    await component.unmount();
+  });
+
+  test("explains canonical convergence for an installed pack corpus", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(<TargetedImportCorpusModalWrapper />);
+
+    await expect(page.getByText("Sideload Corpus")).toBeVisible();
+    await expect(
+      page.getByText("Import into ERCOT Current Large Load Rules")
+    ).toBeVisible();
+    await expect(
+      page.getByText(/canonical_key metadata converge/)
+    ).toBeVisible();
 
     await component.unmount();
   });

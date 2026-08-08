@@ -8,6 +8,7 @@ All tests are pure — no network calls, no DB.  HTTP is replaced by patching
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 from unittest.mock import patch
 
 from django.test import SimpleTestCase
@@ -145,7 +146,7 @@ class TestUSCodeFetch(SimpleTestCase):
         with patch.object(
             self.provider, "_load_title_xml", return_value=self.fixture_bytes
         ):
-            return self.provider.fetch(request)
+            return cast(list[AuthoritySection], self.provider.fetch(request))
 
     # ---- basic shape --------------------------------------------------------
 

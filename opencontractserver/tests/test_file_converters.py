@@ -13,6 +13,7 @@ Tests for the pre-parse file converter pipeline component family:
   mutation validation)
 """
 
+import hashlib
 from typing import ClassVar
 from unittest.mock import MagicMock, patch
 
@@ -224,8 +225,6 @@ class BaseFileConverterTestCase(TestCase):
         with doc.pdf_file.open("rb") as fh:
             self.assertEqual(fh.read(), FAKE_PDF_BYTES)
         # Hash refreshed for the converted PDF
-        import hashlib
-
         self.assertEqual(doc.pdf_file_hash, hashlib.sha256(FAKE_PDF_BYTES).hexdigest())
         # Original bytes still readable through the preserved reference
         with doc.original_file.open("rb") as fh:
@@ -243,6 +242,31 @@ class GotenbergFileConverterTestCase(TestCase):
 
     def setUp(self):
         PipelineSettings.clear_cache()
+        self.user = User.objects.create_user(
+            username="gotenberg_provenance_user",
+            password="test",
+        )
+
+    def _make_publisher_document(
+        self,
+        *,
+        source_bytes: bytes,
+        expected_hash: str,
+        declared_mime: str,
+    ) -> Document:
+        return Document.objects.create(
+            creator=self.user,
+            title="Publisher spreadsheet",
+            file_type=OCTET_STREAM_MIME_TYPE,
+            pdf_file=ContentFile(source_bytes, name="publisher-source.xls"),
+            custom_meta={
+                "publisher_source_content_hash": expected_hash,
+                "publisher_source_mime_type": declared_mime,
+                "publisher_source_packaging": "document",
+            },
+            backend_lock=True,
+            processing_started="2024-01-01T00:00:00Z",
+        )
 
     def test_supported_extensions_exclude_native_formats(self):
         for native in ("pdf", "txt", "docx", "md"):
@@ -276,6 +300,55 @@ class GotenbergFileConverterTestCase(TestCase):
         self.assertTrue(args[0].endswith("/forms/libreoffice/convert"))
         self.assertEqual(kwargs["files"], {"files": ("contract.doc", b"doc bytes")})
         self.assertEqual(kwargs["timeout"], converter.request_timeout)
+
+    @patch(GOTENBERG_REQUESTS_POST)
+    def test_conversion_preserves_hash_verified_publisher_source_mime(self, mock_post):
+        source_bytes = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1publisher spreadsheet bytes"
+        document = self._make_publisher_document(
+            source_bytes=source_bytes,
+            expected_hash=hashlib.sha256(source_bytes).hexdigest(),
+            declared_mime="application/vnd.ms-excel",
+        )
+        mock_response = MagicMock()
+        mock_response.content = FAKE_PDF_BYTES
+        mock_post.return_value = mock_response
+
+        self.assertTrue(
+            GotenbergFileConverter().convert_document(self.user.id, document.id)
+        )
+
+        document.refresh_from_db()
+        self.assertEqual(document.file_type, PDF_MIME_TYPE)
+        self.assertEqual(document.original_file_type, "application/vnd.ms-excel")
+        with document.original_file.open("rb") as original_file:
+            self.assertEqual(original_file.read(), source_bytes)
+
+    @patch(GOTENBERG_REQUESTS_POST)
+    def test_conversion_ignores_publisher_mime_when_hash_does_not_match(
+        self,
+        mock_post,
+    ):
+        source_bytes = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1publisher spreadsheet bytes"
+        declared_mime = "application/x-untrusted-spoof"
+        document = self._make_publisher_document(
+            source_bytes=source_bytes,
+            expected_hash=hashlib.sha256(b"different bytes").hexdigest(),
+            declared_mime=declared_mime,
+        )
+        mock_response = MagicMock()
+        mock_response.content = FAKE_PDF_BYTES
+        mock_post.return_value = mock_response
+
+        self.assertTrue(
+            GotenbergFileConverter().convert_document(self.user.id, document.id)
+        )
+
+        document.refresh_from_db()
+        self.assertEqual(document.file_type, PDF_MIME_TYPE)
+        self.assertEqual(document.original_file_type, OCTET_STREAM_MIME_TYPE)
+        self.assertNotEqual(document.original_file_type, declared_mime)
+        with document.original_file.open("rb") as original_file:
+            self.assertEqual(original_file.read(), source_bytes)
 
     @patch(GOTENBERG_REQUESTS_POST)
     def test_service_url_setting_honored(self, mock_post):

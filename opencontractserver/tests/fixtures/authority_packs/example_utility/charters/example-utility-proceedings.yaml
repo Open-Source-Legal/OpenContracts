@@ -1,0 +1,17 @@
+title: "Example Utility Proceedings"
+slug: "example-utility-proceedings"
+purpose: >
+  Provide orders, filings, and proceeding materials interpreting the Example
+  Utilities Code.
+include:
+  - "final orders and the filings they resolve"
+exclude:
+  - "draft orders"
+  - "unofficial commentary"
+authority_tiers:
+  default: "EVIDENTIARY"
+update_expectation: "event_driven"
+current_as_of: "2026-07-31"
+approval_status: "pending_legal_review"
+legal_owner: null
+technical_owner: null

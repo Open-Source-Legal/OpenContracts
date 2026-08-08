@@ -1,0 +1,38 @@
+schema_version: 2
+name: "example_utility"
+display_name: "Example Utility Authorities"
+description: >
+  A fictional two-corpus regulatory body used to exercise the authority-pack
+  loader end to end. Every identifier here is invented; the pack exists so the
+  machinery has a realistic subject that ships no jurisdiction's data.
+jurisdiction: "zz"
+mappings: "authority_mappings.example_utility.yaml"
+metadata_schema: "metadata/authority_source_record.yaml"
+relationships: "relationships.yaml"
+sources: "sources.yaml"
+source_hosts:
+  - "publisher.example"
+corpora:
+  - slug: "example-utility-statutes"
+    title: "Example Utility Statutes"
+    # A prefix listed here binds to this corpus. A prefix shared by more than
+    # one corpus in the pack must be left unbound (see ex-rule below).
+    authority_prefixes:
+      - "ex-code"
+    description: >
+      Currently effective statutory provisions of the fictional Example
+      jurisdiction.
+    charter: "charters/example-utility-statutes.yaml"
+    spec: "specs/example-utility-statutes.json"
+    persona: "personas/example-utility-statutes.txt"
+    metadata_schema: "metadata/authority_source_record.yaml"
+    default_authority_weight: "CONTROLLING"
+  - slug: "example-utility-proceedings"
+    title: "Example Utility Proceedings"
+    description: >
+      Orders, filings, and proceeding materials interpreting the statutes.
+    charter: "charters/example-utility-proceedings.yaml"
+    spec: "specs/example-utility-proceedings.json"
+    persona: "personas/example-utility-proceedings.txt"
+    metadata_schema: "metadata/authority_source_record.yaml"
+    default_authority_weight: "EVIDENTIARY"

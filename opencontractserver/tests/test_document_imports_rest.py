@@ -31,7 +31,11 @@ from rest_framework.test import APIClient
 from opencontractserver.constants.zip_import import (
     BULK_UPLOAD_OWNER_CACHE_PREFIX,
 )
-from opencontractserver.corpuses.models import Corpus, CorpusFolder
+from opencontractserver.corpuses.models import (
+    Corpus,
+    CorpusFolder,
+    TemporaryFileHandle,
+)
 from opencontractserver.documents.models import Document
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
@@ -1245,10 +1249,11 @@ class CorpusExportImportViewTests(TestCase):
     Multipart OpenContracts corpus-export upload
     (``POST /api/imports/corpus/``).
 
-    Wraps the ``import_corpus`` celery task that previously sat behind
-    the ``UploadCorpusImportZip`` GraphQL mutation. The placeholder
-    corpus is created synchronously so the response can return its id;
-    hydration runs asynchronously.
+    Wraps the ``import_corpus`` celery task that previously sat behind the
+    ``UploadCorpusImportZip`` GraphQL mutation. With no target, a placeholder
+    corpus is created synchronously so the response can return its id. With a
+    target, the authorized existing corpus is returned instead; hydration runs
+    asynchronously in both cases.
     """
 
     client: APIClient
@@ -1292,6 +1297,67 @@ class CorpusExportImportViewTests(TestCase):
         # that contract so any frontend code keying off it still works
         # until the celery task rewrites the title from the export.
         self.assertEqual(corpus.title, "New Import")
+
+    def test_targeted_import_reuses_existing_corpus(self):
+        target = Corpus.objects.create(
+            title="Existing target", creator=self.user, backend_lock=False
+        )
+        set_permissions_for_obj_to_user(self.user, target, [PermissionTypes.CRUD])
+        before_ids = set(
+            Corpus.objects.filter(creator=self.user, is_personal=False).values_list(
+                "id", flat=True
+            )
+        )
+
+        self._login()
+        response = self._upload(corpus_id=str(target.id))
+
+        self.assertEqual(response.status_code, 202, response.content)
+        self.assertEqual(response.json()["corpus_id"], target.id)
+        self.assertEqual(
+            set(
+                Corpus.objects.filter(creator=self.user, is_personal=False).values_list(
+                    "id", flat=True
+                )
+            ),
+            before_ids,
+        )
+        target.refresh_from_db()
+        self.assertEqual(target.title, "Existing target")
+
+    def test_targeted_import_accepts_relay_global_id(self):
+        target = Corpus.objects.create(
+            title="Relay target", creator=self.user, backend_lock=False
+        )
+        set_permissions_for_obj_to_user(self.user, target, [PermissionTypes.CRUD])
+
+        self._login()
+        response = self._upload(corpus_id=to_global_id("CorpusType", str(target.id)))
+
+        self.assertEqual(response.status_code, 202, response.content)
+        self.assertEqual(response.json()["corpus_id"], target.id)
+
+    def test_targeted_import_collapses_missing_and_inaccessible_corpora(self):
+        other = User.objects.create_user(
+            username="bob_cex", password="pw", is_usage_capped=False
+        )
+        foreign = Corpus.objects.create(
+            title="Foreign target", creator=other, backend_lock=False
+        )
+        handles_before = TemporaryFileHandle.objects.count()
+
+        self._login()
+        denied = self._upload(corpus_id=str(foreign.id))
+        missing = self._upload(corpus_id="999999999")
+
+        self.assertEqual(denied.status_code, 400, denied.content)
+        self.assertEqual(missing.status_code, 400, missing.content)
+        self.assertEqual(denied.json()["error"], missing.json()["error"])
+        self.assertEqual(
+            denied.json()["error"],
+            "Corpus not found or you do not have permission to add documents to it",
+        )
+        self.assertEqual(TemporaryFileHandle.objects.count(), handles_before)
 
     def test_non_zip_payload_is_rejected(self):
         self._login()
@@ -1337,3 +1403,80 @@ class CorpusExportImportViewTests(TestCase):
         self.assertFalse(
             Corpus.objects.filter(creator=capped, is_personal=False).exists()
         )
+
+
+@override_settings(CELERY_TASK_ALWAYS_EAGER=False)
+class CorpusExportImportServiceTests(TestCase):
+    """Focused service contract for optional existing-corpus destinations."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="corpus_export_service_user",
+            password="pw",
+            is_usage_capped=False,
+        )
+        self.target = Corpus.objects.create(
+            title="Service target", creator=self.user, backend_lock=False
+        )
+        set_permissions_for_obj_to_user(self.user, self.target, [PermissionTypes.CRUD])
+        self.zip_bytes = _make_zip({"data.json": b"{}"})
+
+    def test_existing_destination_is_passed_to_existing_import_task(self):
+        from unittest.mock import patch
+
+        from opencontractserver.document_imports import services
+
+        non_personal_before = Corpus.objects.filter(
+            creator=self.user, is_personal=False
+        ).count()
+        with patch.object(services, "import_corpus") as import_task:
+            result = services.import_corpus_export_for_user(
+                user=self.user,
+                zip_source=self.zip_bytes,
+                corpus_id=str(self.target.id),
+            )
+
+        self.assertIsNone(result.error)
+        self.assertEqual(result.corpus, self.target)
+        self.assertEqual(
+            Corpus.objects.filter(creator=self.user, is_personal=False).count(),
+            non_personal_before,
+        )
+        temporary_file = TemporaryFileHandle.objects.get()
+        import_task.s.assert_called_once_with(
+            temporary_file.id,
+            self.user.id,
+            self.target.id,
+            reingest_and_remap=True,
+        )
+
+    def test_inaccessible_destination_is_rejected_before_staging(self):
+        from unittest.mock import patch
+
+        from opencontractserver.document_imports import services
+
+        other = User.objects.create_user(
+            username="corpus_export_service_other",
+            password="pw",
+            is_usage_capped=False,
+        )
+        foreign = Corpus.objects.create(
+            title="Foreign service target",
+            creator=other,
+            backend_lock=False,
+        )
+
+        with patch.object(services, "import_corpus") as import_task:
+            result = services.import_corpus_export_for_user(
+                user=self.user,
+                zip_source=self.zip_bytes,
+                corpus_id=str(foreign.id),
+            )
+
+        self.assertIsNone(result.corpus)
+        self.assertEqual(
+            result.error,
+            "Corpus not found or you do not have permission to add documents to it",
+        )
+        self.assertFalse(TemporaryFileHandle.objects.exists())
+        import_task.s.assert_not_called()

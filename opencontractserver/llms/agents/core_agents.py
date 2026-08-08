@@ -803,13 +803,18 @@ class CoreAgentBase(ABC):
         except Exception as exc:
             if llm_msg_id:
                 await self.conversation_manager.mark_message_error(llm_msg_id, str(exc))
-            # Return an error response so callers can surface the failure gracefully
+            # Return an error response so callers can surface the failure
+            # gracefully. ``error_type`` matches what the streaming wrapper
+            # already puts in its ErrorEvent metadata: this path swallows the
+            # exception entirely, so the class name is the only thing left for a
+            # caller to branch on, and a message alone cannot tell a usage limit
+            # from a provider outage.
             return UnifiedChatResponse(
                 content="Error: " + str(exc),
                 sources=[],
                 user_message_id=user_msg_id,
                 llm_message_id=llm_msg_id,
-                metadata={"error": str(exc)},
+                metadata={"error": str(exc), "error_type": type(exc).__name__},
             )
 
     # NOTE: Streaming wrapper is more involved but follows same pattern
@@ -852,14 +857,26 @@ class CoreAgentBase(ABC):
                     if getattr(evt, "llm_message_id", None) is None:
                         evt.llm_message_id = llm_msg_id
 
-                # Merge sources for later finalisation
-                if hasattr(evt, "sources") and evt.sources:
-                    accumulated_sources.extend(evt.sources)
+                # A FinalEvent is an authoritative snapshot, not another text
+                # delta.  Adapters stream ContentEvents and then emit that same
+                # complete answer in FinalEvent.content / accumulated_content;
+                # appending it here would persist every completed answer twice.
+                # Its sources are likewise the authoritative terminal set,
+                # rather than a new batch to append to intermediate sources.
+                if isinstance(evt, FinalEvent):
+                    if evt.accumulated_content or evt.content:
+                        accumulated_content = evt.accumulated_content or evt.content
+                    if evt.sources:
+                        accumulated_sources = list(evt.sources)
+                else:
+                    # Merge intermediate sources for later finalisation.
+                    if hasattr(evt, "sources") and evt.sources:
+                        accumulated_sources.extend(evt.sources)
 
-                # Track accumulating content for incremental updates
-                if hasattr(evt, "content") and evt.content:
-                    accumulated_content += evt.content
-                    token_counter += 1
+                    # Track content deltas for incremental updates.
+                    if hasattr(evt, "content") and evt.content:
+                        accumulated_content += evt.content
+                        token_counter += 1
 
                 # Periodic DB update
                 if (
@@ -1647,7 +1664,43 @@ class CoreConversationManager:
             },
             state=MessageStateChoices.COMPLETED,
         )
+        await self._link_mentioned_resources(message)
         return message.id
+
+    @staticmethod
+    async def _link_mentioned_resources(message: "ChatMessage") -> None:
+        """Persist @-mentions on a live-chat message.
+
+        The GraphQL and MCP message paths both call
+        ``link_message_to_resources``; the WebSocket path never did, so a
+        mention typed in the live chat produced a message with empty
+        ``mentioned_agents`` / ``mentioned_users`` / mentioned-corpus and
+        -document relations. Per-turn delegation still worked (the consumer
+        re-parses the raw text itself), which is why the omission stayed
+        invisible — but everything reading the stored relations, and anyone
+        auditing which agent a turn addressed, saw nothing.
+
+        Best-effort by design: a mention that cannot be resolved must never
+        cost the user their message. ``link_message_to_resources`` already
+        permission-filters every target via ``visible_to_user``.
+        """
+        from opencontractserver.utils.mention_parser import (
+            link_message_to_resources,
+            parse_mentions_from_content,
+        )
+
+        try:
+            mentioned_ids = parse_mentions_from_content(message.content or "")
+            if not any(mentioned_ids.values()):
+                return
+            await sync_to_async(link_message_to_resources, thread_sensitive=True)(
+                message, mentioned_ids
+            )
+        except Exception:  # pragma: no cover - defensive
+            logger.exception(
+                "Failed to link mentioned resources for chat message %s",
+                message.pk,
+            )
 
     async def store_llm_message(
         self,

@@ -345,6 +345,28 @@ ALL_AUTHORITY_TYPES = (
     AUTHORITY_TYPE_TREATY,
 )
 
+# Stable canonical-key relationship vocabulary used by authority packs. These
+# are deliberately separate from ``ALL_AUTHORITY_TYPES``: the latter classifies
+# a source, while these values describe edges between sources across corpora.
+AUTHORITY_RELATIONSHIP_TYPES = (
+    "CITES",
+    "AMENDS",
+    "SUPERSEDES",
+    "SUPERSEDED_BY",
+    "ADOPTS",
+    "PARTIALLY_ADOPTS",
+    "REJECTS",
+    "IMPLEMENTS",
+    "INTERPRETS",
+    "FILED_IN",
+    "RESPONDS_TO",
+    "REVISES",
+    "INCORPORATES",
+    "REQUIRES_FORM",
+    "EXCEPTION_TO",
+    "EFFECTIVE_VERSION_OF",
+)
+
 # Classification for every prefix the engine ships (drives the namespace seed
 # and the CorpusReference backfill). prefix -> (jurisdiction, authority_type).
 # Derived from authority_mappings.yaml ``prefixes:`` — the completeness test

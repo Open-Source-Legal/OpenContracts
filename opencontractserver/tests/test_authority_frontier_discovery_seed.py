@@ -38,6 +38,7 @@ class SeedFromDiscoveryTests(TestCase):
             candidates, discovery_provider="ListingIndexDiscoveryProvider"
         )
         self.assertEqual(result["discovery_created"], 2)
+        self.assertEqual(result["discovery_appended"], 0)
         self.assertEqual(result["discovery_skipped"], 0)
         self.assertEqual(
             set(result["queued_keys"]),
@@ -68,6 +69,24 @@ class SeedFromDiscoveryTests(TestCase):
         )
         self.assertEqual(row.candidate_sources[0]["url"], "https://x/1234")
         self.assertEqual(row.candidate_sources[0]["title"], "Ley 1234")
+        self.assertEqual(len(row.candidate_sources[0]["discovery_id"]), 64)
+
+    def test_candidate_extra_is_durable_for_source_provider_handoff(self):
+        candidate = DiscoveryCandidate(
+            canonical_key="puct-project:58211:item:4:document:99",
+            url="https://interchange.puc.texas.gov/document/99",
+            title="Attachment 99",
+            extra={
+                "document_id": "99",
+                "discovery_mode": "link-only",
+                "rights_status": "REVIEW_REQUIRED",
+            },
+        )
+        AuthorityFrontierService.seed_from_discovery(
+            [candidate], discovery_provider="PUCTProjectDiscoveryProvider"
+        )
+        row = AuthorityFrontier.objects.get(canonical_key=candidate.canonical_key)
+        self.assertEqual(row.candidate_sources[0]["extra"], candidate.extra)
 
     def test_idempotent_no_duplicates_on_rerun(self):
         candidates = [
@@ -80,6 +99,7 @@ class SeedFromDiscoveryTests(TestCase):
             candidates, discovery_provider="P"
         )
         self.assertEqual(result2["discovery_created"], 0)
+        self.assertEqual(result2["discovery_appended"], 0)
         self.assertEqual(result2["discovery_skipped"], 1)
         self.assertEqual(
             AuthorityFrontier.objects.filter(
@@ -88,11 +108,8 @@ class SeedFromDiscoveryTests(TestCase):
             1,
         )
 
-    def test_rerun_does_not_overwrite_candidate_sources(self):
-        """A second discovery pass over an already-seeded key must not append a
-        second candidate_sources entry -- seed_from_discovery only ever writes
-        via get_or_create's ``defaults`` (create-time only), mirroring
-        seed_child_keys' "skip, don't update" contract."""
+    def test_new_candidate_for_existing_key_appends_without_overwrite(self):
+        """A changed listing candidate augments the append-only source trail."""
         first = [
             DiscoveryCandidate(
                 canonical_key="bo-gaceta:2024-4242", url="https://x/first"
@@ -104,10 +121,58 @@ class SeedFromDiscoveryTests(TestCase):
             )
         ]
         AuthorityFrontierService.seed_from_discovery(first, discovery_provider="P")
-        AuthorityFrontierService.seed_from_discovery(second, discovery_provider="P")
+        result = AuthorityFrontierService.seed_from_discovery(
+            second, discovery_provider="P"
+        )
         row = AuthorityFrontier.objects.get(canonical_key="bo-gaceta:2024-4242")
-        self.assertEqual(len(row.candidate_sources), 1)
+        self.assertEqual(result["discovery_appended"], 1)
+        self.assertEqual(result["discovery_skipped"], 0)
+        self.assertEqual(len(row.candidate_sources), 2)
         self.assertEqual(row.candidate_sources[0]["url"], "https://x/first")
+        self.assertEqual(row.candidate_sources[1]["url"], "https://x/second")
+        self.assertNotEqual(
+            row.candidate_sources[0]["discovery_id"],
+            row.candidate_sources[1]["discovery_id"],
+        )
+
+    def test_changed_metadata_at_same_url_appends_new_observation(self):
+        first = DiscoveryCandidate(
+            canonical_key="ercot-planning:9",
+            url="https://x/planning-guide-9",
+            title="Planning Guide Section 9",
+            extra={
+                "source_identifier": "planning-guide-9",
+                "current_version": True,
+            },
+        )
+        changed = DiscoveryCandidate(
+            canonical_key=first.canonical_key,
+            url=first.url,
+            title=first.title,
+            extra={
+                "source_identifier": "planning-guide-9",
+                "current_version": False,
+            },
+        )
+        AuthorityFrontierService.seed_from_discovery(
+            [first],
+            discovery_provider="P",
+        )
+        result = AuthorityFrontierService.seed_from_discovery(
+            [changed],
+            discovery_provider="P",
+        )
+        row = AuthorityFrontier.objects.get(canonical_key=first.canonical_key)
+        self.assertEqual(result["discovery_appended"], 1)
+        self.assertEqual(len(row.candidate_sources), 2)
+        self.assertNotEqual(
+            row.candidate_sources[0]["discovery_id"],
+            row.candidate_sources[1]["discovery_id"],
+        )
+        self.assertEqual(
+            row.candidate_sources[1]["extra"]["current_version"],
+            False,
+        )
 
     def test_never_resets_in_flight_row(self):
         row = AuthorityFrontier.objects.create(
@@ -125,9 +190,10 @@ class SeedFromDiscoveryTests(TestCase):
         )
         row.refresh_from_db()
         self.assertEqual(result["discovery_created"], 0)
-        self.assertEqual(result["discovery_skipped"], 1)
+        self.assertEqual(result["discovery_appended"], 1)
+        self.assertEqual(result["discovery_skipped"], 0)
         self.assertEqual(row.discovery_state, C.DISCOVERY_STATE_IN_PROGRESS)
-        self.assertEqual(row.candidate_sources, [])
+        self.assertEqual(row.candidate_sources[0]["url"], "https://x/5555")
 
     def test_never_resets_ingested_row(self):
         row = AuthorityFrontier.objects.create(
@@ -143,6 +209,7 @@ class SeedFromDiscoveryTests(TestCase):
         AuthorityFrontierService.seed_from_discovery(candidates, discovery_provider="P")
         row.refresh_from_db()
         self.assertEqual(row.discovery_state, C.DISCOVERY_STATE_INGESTED)
+        self.assertEqual(row.candidate_sources[0]["url"], "https://x/6666")
 
     def test_jurisdiction_and_authority_type_classified_when_known(self):
         candidates = [
@@ -169,5 +236,6 @@ class SeedFromDiscoveryTests(TestCase):
             [], discovery_provider="P"
         )
         self.assertEqual(result["discovery_created"], 0)
+        self.assertEqual(result["discovery_appended"], 0)
         self.assertEqual(result["discovery_skipped"], 0)
         self.assertEqual(result["queued_keys"], [])

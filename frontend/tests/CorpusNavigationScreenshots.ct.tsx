@@ -573,6 +573,7 @@ const corpusHomeMocks: MockedResponse[] = [
       variables: {
         corpusId: navCorpus.id,
         first: CORPUS_DOCUMENTS_TOC_LIMIT,
+        includeCaml: true,
       },
     },
     result: {

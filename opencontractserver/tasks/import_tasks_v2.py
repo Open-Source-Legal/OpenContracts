@@ -8,15 +8,22 @@ creation, and corpus.add_document() for proper corpus isolation.
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import logging
+import re
 import uuid
 import zipfile
+from collections import Counter
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from pathlib import PurePosixPath
 from typing import IO, TYPE_CHECKING, Any, cast
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.core.files.base import ContentFile
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
@@ -29,9 +36,11 @@ from opencontractserver.annotations.models import (
     Relationship,
     StructuralAnnotationSet,
 )
+from opencontractserver.constants.document_processing import BLOB_HASH_CHUNK_BYTES
 from opencontractserver.corpuses.models import Corpus, TemporaryFileHandle
 from opencontractserver.documents.models import (
     Document,
+    DocumentPath,
     IngestionSource,
     IngestionSourceCategory,
     PendingCorpusImport,
@@ -46,6 +55,7 @@ from opencontractserver.types.dicts import (
     OpenContractsRelationshipPythonType,
 )
 from opencontractserver.types.enums import PermissionTypes
+from opencontractserver.utils.compact_pawls import compact_pawls_pages
 from opencontractserver.utils.import_v2 import (
     import_agent_config,
     import_conversations,
@@ -85,6 +95,26 @@ _UNRESOLVED_FOLDER_KEY_SAMPLE_SIZE = 20
 # byte. Reingest cannot re-parse it, so such docs fall back to the baked import.
 # Kept as a named constant so it cross-references the exporter side.
 _NUL_SOURCE_PLACEHOLDER = b"\x00"
+_PUBLISHER_SOURCE_FIELDS = frozenset(
+    {
+        "publisher_source_member",
+        "publisher_source_content_hash",
+        "publisher_source_mime_type",
+        "publisher_source_packaging",
+    }
+)
+_PUBLISHER_SOURCE_PACKAGING = frozenset({"document", "sidecar"})
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_MIME_RE = re.compile(r"^[^/\s]+/[^/\s]+$")
+
+
+@dataclass(frozen=True)
+class _PublisherSourcePayload:
+    member: str
+    content_hash: str
+    mime_type: str
+    packaging: str
+    content: bytes
 
 
 def _read_guarded_source_bytes(
@@ -112,6 +142,151 @@ def _read_guarded_source_bytes(
     return read_zip_member_bounded(
         import_zip, doc_filename, settings.MAX_CORPUS_REINGEST_SOURCE_BYTES
     )
+
+
+#: Attribute the per-ZIP member-name census is memoised under.
+_MEMBER_NAME_COUNTS_ATTR = "_oc_member_name_counts"
+
+
+def _member_name_counts(import_zip: zipfile.ZipFile) -> Counter:
+    """Member filename -> occurrence count for one open ZIP, computed once.
+
+    ``ZipFile.NameToInfo`` cannot answer this: it keeps only the LAST entry for
+    a repeated name, and spotting a repeat is the entire point of the caller's
+    check. The direct form rescanned ``infolist()`` once per tagged document,
+    which is O(entries x tagged documents) over attacker-supplied input — a ZIP
+    carrying many entries and many publisher-source-tagged documents turns a
+    linear import into a quadratic one for no gain.
+
+    Memoised on the ``ZipFile`` instance because that object is opened once per
+    import and its central directory does not change while we read from it.
+    """
+    counts = getattr(import_zip, _MEMBER_NAME_COUNTS_ATTR, None)
+    if counts is None:
+        counts = Counter(info.filename for info in import_zip.infolist())
+        setattr(import_zip, _MEMBER_NAME_COUNTS_ATTR, counts)
+    return counts
+
+
+def _read_publisher_source_payload(
+    import_zip: zipfile.ZipFile,
+    doc_filename: str,
+    doc_data: Mapping[str, Any],
+) -> _PublisherSourcePayload | None:
+    """Read and integrity-check an optional V2 publisher-source member.
+
+    Old V1/V2/V3 exports have none of these custom metadata fields and retain
+    their existing behavior.  Once any field is present, however, the complete
+    contract is mandatory: partial metadata, unsafe paths, duplicate/missing
+    members, empty content, or a hash mismatch abort that document import.
+    """
+
+    custom_meta = doc_data.get("custom_meta")
+    if custom_meta is None:
+        return None
+    if not isinstance(custom_meta, Mapping):
+        raise ValueError("document custom_meta must be a JSON object")
+    present = _PUBLISHER_SOURCE_FIELDS.intersection(custom_meta)
+    if not present:
+        return None
+    missing = _PUBLISHER_SOURCE_FIELDS - present
+    if missing:
+        raise ValueError(
+            f"publisher source metadata is incomplete; missing {sorted(missing)}"
+        )
+
+    member = custom_meta["publisher_source_member"]
+    content_hash = custom_meta["publisher_source_content_hash"]
+    mime_type = custom_meta["publisher_source_mime_type"]
+    packaging = custom_meta["publisher_source_packaging"]
+    if not isinstance(member, str) or not _safe_publisher_source_member(member):
+        raise ValueError("publisher_source_member is not a safe ZIP member")
+    if not isinstance(content_hash, str) or _SHA256_RE.fullmatch(content_hash) is None:
+        raise ValueError(
+            "publisher_source_content_hash must be a lowercase SHA-256 digest"
+        )
+    if not isinstance(mime_type, str) or _MIME_RE.fullmatch(mime_type) is None:
+        raise ValueError("publisher_source_mime_type must be a valid MIME type")
+    if packaging not in _PUBLISHER_SOURCE_PACKAGING:
+        raise ValueError("publisher_source_packaging must be 'document' or 'sidecar'")
+    if packaging == "document" and member != doc_filename:
+        raise ValueError(
+            "document publisher-source packaging must reference its own ZIP member"
+        )
+    if packaging == "sidecar" and member == doc_filename:
+        raise ValueError(
+            "sidecar publisher-source packaging must reference a distinct ZIP member"
+        )
+    occurrences = _member_name_counts(import_zip)[member]
+    if occurrences != 1:
+        raise ValueError(
+            f"publisher_source_member {member!r} occurs {occurrences} times in ZIP"
+        )
+    content = _read_guarded_source_bytes(import_zip, member)
+    if not content:
+        raise ValueError(
+            f"publisher_source_member {member!r} is missing, empty, or exceeds "
+            "MAX_CORPUS_REINGEST_SOURCE_BYTES"
+        )
+    observed_hash = hashlib.sha256(content).hexdigest()
+    if observed_hash != content_hash:
+        raise ValueError(
+            f"publisher_source_content_hash mismatch for {member!r}: "
+            f"expected {content_hash}, observed {observed_hash}"
+        )
+    return _PublisherSourcePayload(
+        member=member,
+        content_hash=content_hash,
+        mime_type=mime_type,
+        packaging=packaging,
+        content=content,
+    )
+
+
+def _safe_publisher_source_member(value: str) -> bool:
+    if not value or "\x00" in value or "\\" in value:
+        return False
+    path = PurePosixPath(value)
+    return (
+        not path.is_absolute()
+        and value == path.as_posix()
+        and all(part not in {"", ".", ".."} for part in path.parts)
+        and value != "data.json"
+    )
+
+
+def _attach_publisher_original_file(
+    document: Document,
+    payload: _PublisherSourcePayload | None,
+) -> None:
+    """Persist a non-native publisher member on the existing Document rail."""
+
+    if payload is None or payload.packaging != "sidecar":
+        return
+    if document.original_file:
+        try:
+            digest = hashlib.sha256()
+            with document.original_file.open("rb") as existing:
+                for chunk in iter(lambda: existing.read(BLOB_HASH_CHUNK_BYTES), b""):
+                    digest.update(chunk)
+            if digest.hexdigest() == payload.content_hash:
+                if document.original_file_type != payload.mime_type:
+                    document.original_file_type = payload.mime_type
+                    document.save(update_fields=["original_file_type", "modified"])
+                return
+        except (OSError, ValueError):
+            # A missing/corrupt prior blob is replaced from the verified ZIP
+            # member. Do not weaken the incoming integrity check above.
+            pass
+
+    filename = PurePosixPath(payload.member).name
+    document.original_file.save(
+        filename,
+        ContentFile(payload.content),
+        save=False,
+    )
+    document.original_file_type = payload.mime_type
+    document.save(update_fields=["original_file", "original_file_type", "modified"])
 
 
 def import_corpus_v2_from_bytes(
@@ -312,6 +487,7 @@ def _import_document_with_annotations(
     structural_sets: dict[str, StructuralAnnotationSet] | None = None,
     reingest_and_remap: bool = False,
     import_run_id: uuid.UUID | None = None,
+    identity_target_path: DocumentPath | None = None,
 ) -> tuple[Document | None, dict[str | int, int]]:
     """
     Import a single document into a corpus, handling:
@@ -344,6 +520,11 @@ def _import_document_with_annotations(
         to new PKs. In reingest mode annotations are created asynchronously, so
         the returned map is always empty. Returns (None, {}) on failure.
     """
+    publisher_source = _read_publisher_source_payload(
+        import_zip,
+        doc_filename,
+        doc_data,
+    )
     # Reingest mode is only meaningful for documents whose *original source
     # file* the export preserved — i.e. PDFs (and other binaries with a real
     # ``pdf_file``). For text/markdown/source-less documents the V2 exporter
@@ -364,10 +545,14 @@ def _import_document_with_annotations(
     baked_source_bytes: bytes | None = None
     source_read_attempted = False
     if reingest_and_remap:
-        source_bytes = _read_guarded_source_bytes(import_zip, doc_filename)
+        source_bytes = (
+            publisher_source.content
+            if publisher_source is not None and publisher_source.packaging == "document"
+            else _read_guarded_source_bytes(import_zip, doc_filename)
+        )
         source_read_attempted = True
         if source_bytes is not None and _source_is_reingestable(source_bytes):
-            return _reingest_document_with_deferred_remap(
+            result = _reingest_document_with_deferred_remap(
                 doc_filename,
                 doc_data,
                 source_bytes,
@@ -375,7 +560,27 @@ def _import_document_with_annotations(
                 corpus_obj,
                 import_run_id,
                 label_lookup,
+                identity_target_path=identity_target_path,
             )
+            if result[0] is not None:
+                try:
+                    _attach_publisher_original_file(result[0], publisher_source)
+                except Exception as e:
+                    # This call sits ahead of the ``try`` below, so without its
+                    # own guard it is the ONE per-document step that escapes
+                    # this function's failure isolation: a storage error on a
+                    # single document's publisher sidecar would abort the whole
+                    # pack import instead of skipping that document. Return the
+                    # same ``(None, {})`` the outer handler does so the caller's
+                    # documented "accept partial state on failure" contract
+                    # holds on every path.
+                    logger.error(
+                        "Error attaching publisher source for %s: %s",
+                        doc_filename,
+                        e,
+                    )
+                    return None, {}
+            return result
         reingest_fallback = True
         baked_source_bytes = source_bytes
         # Distinguish a size-guarded / unreadable source (source_bytes is None)
@@ -404,7 +609,12 @@ def _import_document_with_annotations(
             # Read through the SAME size guard so the baked path can never stream
             # an unbounded member into storage — the reingest guard must not be
             # bypassable by falling through to baked.
-            baked_source_bytes = _read_guarded_source_bytes(import_zip, doc_filename)
+            baked_source_bytes = (
+                publisher_source.content
+                if publisher_source is not None
+                and publisher_source.packaging == "document"
+                else _read_guarded_source_bytes(import_zip, doc_filename)
+            )
         if baked_source_bytes is None:
             logger.warning(
                 "Skipping import of %s: source member exceeds "
@@ -419,23 +629,115 @@ def _import_document_with_annotations(
             if structural_sets and struct_hash and struct_hash in structural_sets:
                 structural_set = structural_sets[struct_hash]
 
-            # Create standalone document using shared helper
-            doc_obj = create_document_from_export_data(
-                doc_data=doc_data,
-                pdf_file_handle=pdf_file_handle,
-                doc_filename=doc_filename,
-                user_obj=user_obj,
-            )
+            if identity_target_path is not None:
+                incoming_meta = doc_data.get("custom_meta")
+                if incoming_meta is not None and not isinstance(incoming_meta, dict):
+                    raise ValueError("document custom_meta must be a JSON object")
+                merged_meta = dict(identity_target_path.document.custom_meta or {})
+                merged_meta.update(incoming_meta or {})
+                corpus_doc, status, _doc_path = corpus_obj.import_content(
+                    content=baked_source_bytes,
+                    user=user_obj,
+                    filename=doc_filename,
+                    path=identity_target_path.path,
+                    folder=identity_target_path.folder,
+                    title=doc_data["title"],
+                    description=doc_data.get("description", ""),
+                    file_type=doc_data.get("file_type"),
+                    custom_meta=merged_meta,
+                    backend_lock=True,
+                    processing_started=timezone.now(),
+                    skip_if_unchanged=True,
+                    record_metadata_event=True,
+                )
+                set_permissions_for_obj_to_user(
+                    user_obj,
+                    corpus_doc,
+                    [PermissionTypes.ALL],
+                    is_new=status == "created",
+                )
+                _attach_publisher_original_file(corpus_doc, publisher_source)
+                _retire_prior_authority_versions_if_current(
+                    corpus=corpus_obj,
+                    document=corpus_doc,
+                    user_obj=user_obj,
+                    identity_target_path=identity_target_path,
+                    incoming_meta=incoming_meta,
+                )
+                if status in {"created", "updated"}:
+                    corpus_doc.pawls_parse_file = ContentFile(
+                        json.dumps(
+                            compact_pawls_pages(doc_data["pawls_file_content"])
+                        ).encode("utf-8"),
+                        name="pawls_tokens.json",
+                    )
+                    corpus_doc.txt_extract_file = ContentFile(
+                        doc_data["content"].encode("utf-8"),
+                        name="extracted_text.txt",
+                    )
+                    corpus_doc.page_count = doc_data.get("page_count") or len(
+                        doc_data["pawls_file_content"]
+                    )
+                    corpus_doc.structural_annotation_set = structural_set
+                    corpus_doc.save(
+                        update_fields=[
+                            "pawls_parse_file",
+                            "txt_extract_file",
+                            "page_count",
+                            "structural_annotation_set",
+                            "modified",
+                        ]
+                    )
+                else:
+                    # An unchanged/metadata-only reimport already carries its
+                    # baked annotation layer; importing it again would duplicate
+                    # annotations on the same Document.
+                    corpus_doc.backend_lock = False
+                    corpus_doc.save(update_fields=["backend_lock", "modified"])
+                    # Still record the run's terminal row before returning.
+                    # ``_reingest_document_with_deferred_remap`` does this for
+                    # the converged documents it handles; this sibling branch —
+                    # reached when reingest was requested but the source is not
+                    # reingestable (e.g. a markdown/text pack member) and the
+                    # document matched an existing one by canonical_key — used
+                    # to return early without one. That left the document
+                    # invisible to ``finalize_corpus_import_relationships``:
+                    # the corpus-level coordination row could not reach DONE on
+                    # its account and ``expected_doc_count`` undercounted.
+                    # (The id_map is empty here for the same reason it is in
+                    # the converged path — see issue #2220, which tracks
+                    # relationship endpoints landing on unchanged documents.)
+                    if import_run_id is not None:
+                        PendingDocumentAnnotations.objects.create(
+                            document=corpus_doc,
+                            corpus=corpus_obj,
+                            creator=user_obj,
+                            ingestion_run_id=import_run_id,
+                            payload={},
+                            id_map={},
+                            status=PendingDocumentAnnotations.Status.DONE,
+                        )
+                    return corpus_doc, {}
+                doc_obj = corpus_doc
+            else:
+                # Create standalone document using shared helper
+                doc_obj = create_document_from_export_data(
+                    doc_data=doc_data,
+                    pdf_file_handle=pdf_file_handle,
+                    doc_filename=doc_filename,
+                    user_obj=user_obj,
+                )
+                _attach_publisher_original_file(doc_obj, publisher_source)
 
-            # Attach structural annotation set if present
-            if structural_set:
-                doc_obj.structural_annotation_set = structural_set
-                doc_obj.save(update_fields=["structural_annotation_set"])
+                # Attach structural annotation set if present
+                if structural_set:
+                    doc_obj.structural_annotation_set = structural_set
+                    doc_obj.save(update_fields=["structural_annotation_set"])
 
-            # Add to corpus - creates corpus-isolated copy with DocumentPath
-            corpus_doc, _status, _doc_path = corpus_obj.add_document(
-                document=doc_obj, user=user_obj
-            )
+                # Add to corpus - creates corpus-isolated copy with DocumentPath
+                corpus_doc, _status, _doc_path = corpus_obj.add_document(
+                    document=doc_obj, user=user_obj
+                )
 
             # Import annotations onto the corpus copy using shared helper
             annot_id_map, _doc_labels_count = import_doc_annotations(
@@ -494,6 +796,8 @@ def _reingest_document_with_deferred_remap(
     corpus_obj: Corpus,
     import_run_id: uuid.UUID | None,
     label_lookup: dict[str, AnnotationLabel],
+    *,
+    identity_target_path: DocumentPath | None = None,
 ) -> tuple[Document | None, dict[str | int, int]]:
     """Reingest one document and defer its annotations for post-ingest remap.
 
@@ -526,7 +830,29 @@ def _reingest_document_with_deferred_remap(
     }
     try:
         with transaction.atomic():
-            corpus_doc, _status, _path = corpus_obj.import_content(
+            incoming_meta = doc_data.get("custom_meta")
+            if incoming_meta is not None and not isinstance(incoming_meta, dict):
+                raise ValueError("document custom_meta must be a JSON object")
+            merged_meta = dict(
+                identity_target_path.document.custom_meta or {}
+                if identity_target_path is not None
+                else {}
+            )
+            merged_meta.update(incoming_meta or {})
+            import_kwargs: dict[str, Any] = {}
+            if incoming_meta is not None or identity_target_path is not None:
+                import_kwargs["custom_meta"] = merged_meta
+            if identity_target_path is not None:
+                import_kwargs.update(
+                    {
+                        "path": identity_target_path.path,
+                        "folder": identity_target_path.folder,
+                        "skip_if_unchanged": True,
+                        "record_metadata_event": True,
+                    }
+                )
+
+            corpus_doc, status, _path = corpus_obj.import_content(
                 content=source_bytes,
                 user=user_obj,
                 filename=doc_filename,
@@ -534,9 +860,20 @@ def _reingest_document_with_deferred_remap(
                 description=doc_data.get("description", ""),
                 file_type=doc_data.get("file_type"),
                 backend_lock=True,
+                **import_kwargs,
             )
             set_permissions_for_obj_to_user(
-                user_obj, corpus_doc, [PermissionTypes.ALL], is_new=True
+                user_obj,
+                corpus_doc,
+                [PermissionTypes.ALL],
+                is_new=status == "created",
+            )
+            _retire_prior_authority_versions_if_current(
+                corpus=corpus_obj,
+                document=corpus_doc,
+                user_obj=user_obj,
+                identity_target_path=identity_target_path,
+                incoming_meta=incoming_meta,
             )
 
             # Defer surviving non-structural annotations for remap. Filtering
@@ -555,7 +892,9 @@ def _reingest_document_with_deferred_remap(
                 if not a.get("structural")
             ]
             doc_labels = doc_data.get("doc_labels", [])
-            if non_structural or doc_labels:
+            if status in {"created", "updated"} and (
+                import_run_id is not None or non_structural or doc_labels
+            ):
                 PendingDocumentAnnotations.objects.create(
                     document=corpus_doc,
                     corpus=corpus_obj,
@@ -567,6 +906,21 @@ def _reingest_document_with_deferred_remap(
                     },
                     status=PendingDocumentAnnotations.Status.PENDING,
                 )
+            elif import_run_id is not None:
+                # A converged targeted import does not dispatch a parser chain,
+                # but the run still needs one observable terminal row per
+                # enumerated document.  Recording DONE here lets the corpus-level
+                # coordination row reach DONE even when every source byte and
+                # every annotation payload is unchanged.
+                PendingDocumentAnnotations.objects.create(
+                    document=corpus_doc,
+                    corpus=corpus_obj,
+                    creator=user_obj,
+                    ingestion_run_id=import_run_id,
+                    payload={},
+                    id_map={},
+                    status=PendingDocumentAnnotations.Status.DONE,
+                )
 
         # Synchronous id_map is empty in this mode — annotations land async.
         return corpus_doc, {}
@@ -574,6 +928,173 @@ def _reingest_document_with_deferred_remap(
     except Exception as e:
         logger.error("Error reingesting document %s: %s", doc_filename, e)
         return None, {}
+
+
+def _canonical_identity_target_path(
+    *,
+    corpus: Corpus,
+    doc_data: dict[str, Any],
+    targeted_import: bool,
+) -> DocumentPath | None:
+    """Resolve an installed authority seed by stable canonical identity.
+
+    A pack's legally-reviewed display title can intentionally differ from the
+    publisher title in a later sideloaded artifact.  Title-derived paths are
+    therefore only a fallback.  This lookup is enabled only for a targeted
+    import and fails closed on ambiguity rather than versioning an arbitrary
+    duplicate.
+    """
+
+    if not targeted_import:
+        return None
+    custom_meta = doc_data.get("custom_meta")
+    if custom_meta is None:
+        return None
+    if not isinstance(custom_meta, dict):
+        raise ValueError("document custom_meta must be a JSON object")
+    canonical_key = custom_meta.get("canonical_key")
+    if not isinstance(canonical_key, str) or not canonical_key.strip():
+        return None
+
+    matches = list(
+        DocumentPath.objects.select_related("document", "folder")
+        .filter(
+            corpus=corpus,
+            is_current=True,
+            is_deleted=False,
+            document__custom_meta__canonical_key=canonical_key.strip(),
+        )
+        .order_by("pk")[:2]
+    )
+    if len(matches) > 1:
+        raise ValueError(
+            f"target corpus has multiple current documents for canonical_key "
+            f"{canonical_key!r}"
+        )
+    return matches[0] if matches else None
+
+
+def _retire_prior_authority_versions_if_current(
+    *,
+    corpus: Corpus,
+    document: Document,
+    user_obj: UserModel,
+    identity_target_path: DocumentPath | None,
+    incoming_meta: Mapping[str, Any] | None,
+) -> None:
+    """Keep provider ``current_version`` metadata aligned with path versioning."""
+
+    if (
+        identity_target_path is None
+        or incoming_meta is None
+        or incoming_meta.get("current_version") is not True
+    ):
+        return
+
+    from opencontractserver.enrichment.authorities import AuthorityCorpusBootstrapper
+
+    AuthorityCorpusBootstrapper._retire_prior_source_versions(
+        corpus=corpus,
+        document=document,
+        user=user_obj,
+    )
+
+
+def _reconcile_imported_authority_metadata(
+    *,
+    corpus: Corpus,
+    documents: Sequence[Document],
+    user_obj: UserModel,
+) -> None:
+    """Restore typed metadata and provider edges for pack-bound authority docs.
+
+    The guard is the existing corpus-linked ``AuthorityNamespace`` registry:
+    arbitrary corpus imports cannot create global authority relationships merely
+    by placing a ``canonical_key`` in custom metadata.  A trusted pack install
+    must first bind that prefix to this exact target corpus.
+    """
+
+    from opencontractserver.annotations.models import AuthorityNamespace
+    from opencontractserver.enrichment.authorities import AuthorityCorpusBootstrapper
+    from opencontractserver.enrichment.authority_sources import SourceRelationship
+    from opencontractserver.enrichment.services.authority_permissions import (
+        is_authority_admin,
+    )
+    from opencontractserver.enrichment.services.authority_relationship_service import (
+        AuthorityRelationshipService,
+    )
+
+    if not is_authority_admin(user_obj):
+        logger.warning(
+            "Skipping archive-driven authority metadata reconciliation for "
+            "non-authority-admin user %s in corpus %s",
+            user_obj.pk,
+            corpus.pk,
+        )
+        return
+
+    allowed_prefixes = set(
+        AuthorityNamespace.objects.filter(authority_corpus=corpus).values_list(
+            "prefix", flat=True
+        )
+    )
+    if not allowed_prefixes:
+        return
+
+    seen_documents: set[int] = set()
+    for document in documents:
+        if document.pk in seen_documents:
+            continue
+        seen_documents.add(document.pk)
+        metadata = document.custom_meta
+        if not isinstance(metadata, dict):
+            continue
+        canonical_key = metadata.get("canonical_key")
+        if not isinstance(canonical_key, str) or ":" not in canonical_key:
+            continue
+        if canonical_key.split(":", 1)[0] not in allowed_prefixes:
+            continue
+
+        AuthorityCorpusBootstrapper._sync_typed_metadata(
+            corpus=corpus,
+            document=document,
+            user=user_obj,
+            metadata=metadata,
+        )
+        raw_relationships = metadata.get("relationships", [])
+        if raw_relationships is None:
+            raw_relationships = []
+        if not isinstance(raw_relationships, list):
+            raise ValueError(
+                f"authority metadata relationships for {canonical_key!r} must be a list"
+            )
+        relationships = []
+        for raw in raw_relationships:
+            if not isinstance(raw, dict):
+                raise ValueError(
+                    f"authority relationship for {canonical_key!r} must be an object"
+                )
+            relationships.append(
+                SourceRelationship(
+                    target_key=raw["target_key"],
+                    relationship_type=raw["relationship_type"],
+                    verified=raw.get("verified", False),
+                    metadata=raw.get("metadata", {}),
+                )
+            )
+        origin_value = metadata.get("pack_origin")
+        origin = (
+            str(origin_value)[:64]
+            if isinstance(origin_value, str) and origin_value.strip()
+            else "corpus-import"
+        )
+        AuthorityRelationshipService.upsert_for_source(
+            source_key=canonical_key,
+            relationships=relationships,
+            origin=origin,
+            baseline=False,
+            replace=True,
+        )
 
 
 def _import_corpus(
@@ -663,15 +1184,14 @@ def _import_corpus(
                     )
                     or []
                 )
-            if reingest_relationships:
-                PendingCorpusImport.objects.create(
-                    import_run_id=import_run_id,
-                    corpus=corpus_obj,
-                    creator=user_obj,
-                    relationships_payload=reingest_relationships,
-                    expected_doc_count=None,
-                    status=PendingCorpusImport.Status.ENUMERATING,
-                )
+            PendingCorpusImport.objects.create(
+                import_run_id=import_run_id,
+                corpus=corpus_obj,
+                creator=user_obj,
+                relationships_payload=reingest_relationships,
+                expected_doc_count=None,
+                status=PendingCorpusImport.Status.ENUMERATING,
+            )
 
         # ===== V2 only: Import structural annotation sets =====
         # Skipped entirely in reingest mode — the parser regenerates structural
@@ -705,9 +1225,16 @@ def _import_corpus(
         # by CAML README rewriting where mixing in hash keys would risk a
         # filename / hash string collision silently mapping to the wrong doc.
         doc_filename_to_corpus_doc: dict[str, Document] = {}
+        imported_corpus_docs: list[Document] = []
+        preserve_path_doc_ids: set[int] = set()
 
         for doc_filename, doc_data in data_json["annotated_docs"].items():
             logger.info("Importing document: %s", doc_filename)
+            identity_target_path = _canonical_identity_target_path(
+                corpus=corpus_obj,
+                doc_data=cast("dict[str, Any]", doc_data),
+                targeted_import=seed_corpus_id is not None,
+            )
             corpus_doc, annot_id_map = _import_document_with_annotations(
                 doc_filename=doc_filename,
                 doc_data=cast("dict[str, Any]", doc_data),
@@ -719,9 +1246,13 @@ def _import_corpus(
                 structural_sets=structural_sets if is_v2 else None,
                 reingest_and_remap=reingest_and_remap,
                 import_run_id=import_run_id,
+                identity_target_path=identity_target_path,
             )
 
             if corpus_doc:
+                imported_corpus_docs.append(corpus_doc)
+                if identity_target_path is not None:
+                    preserve_path_doc_ids.add(corpus_doc.pk)
                 all_annot_id_maps.update(annot_id_map)
                 # Build hash mapping for DocumentPath reconstruction
                 if corpus_doc.pdf_file_hash:
@@ -732,30 +1263,36 @@ def _import_corpus(
                 doc_hash_to_corpus_doc[doc_filename] = corpus_doc
                 doc_filename_to_corpus_doc[doc_filename] = corpus_doc
 
+        _reconcile_imported_authority_metadata(
+            corpus=corpus_obj,
+            documents=imported_corpus_docs,
+            user_obj=user_obj,
+        )
+
         # ===== Reingest mode: arm the relationship fan-in =====
         # All docs are enumerated; flip the coordination row to READY (recording
         # the run's actual pending-row count for observability) and attempt
         # finalization. This covers the case where every doc's async remap
-        # already completed before READY was set (including a relationship-free
-        # run, which has no coordination row — ``_maybe_finalize_corpus_import``
-        # is then a clean no-op). The last remap to finish wins the race
+        # already completed before READY was set, including a
+        # relationship-free or fully-converged run. The last remap to finish wins
+        # the race
         # otherwise; the exactly-once claim guarantees a single finalize.
-        if reingest_and_remap and reingest_relationships:
+        if reingest_and_remap:
             # Deferred import: ``doc_tasks`` imports from this module, so a
             # top-level import here would form a circular import at module load.
             from opencontractserver.tasks.doc_tasks import (
                 _maybe_finalize_corpus_import,
             )
 
-            # ``import_run_id`` is always set when reingest mode created a
-            # coordination row (which only happens when relationships exist).
+            # ``import_run_id`` is always set when reingest mode created its
+            # coordination row.
             # Use an explicit guard, not ``assert``: assertions are stripped
             # under ``python -O`` / a ``-O`` Celery worker, which would let a
             # ``filter(import_run_id=None)`` silently mis-target rows.
             if import_run_id is None:
                 raise RuntimeError(
                     "_import_corpus: import_run_id must be set in reingest mode "
-                    "when relationships exist — this is a bug."
+                    "— this is a bug."
                 )
             expected = PendingDocumentAnnotations.objects.filter(
                 ingestion_run_id=import_run_id
@@ -798,6 +1335,7 @@ def _import_corpus(
                     folders_data,
                     folder_export_id_to_obj,
                     source_name_map,
+                    preserve_path_doc_ids=preserve_path_doc_ids,
                 )
 
             # Import relationships (corpus-level, non-structural).
@@ -1098,6 +1636,7 @@ def _reconstruct_document_paths(
     folders_data: list[CorpusFolderExport],
     folder_export_id_to_obj: dict[str, CorpusFolder],
     source_name_map: dict[str, IngestionSource] | None = None,
+    preserve_path_doc_ids: set[int] | None = None,
 ) -> None:
     """
     Update DocumentPaths created by corpus.add_document() to match the exported
@@ -1119,11 +1658,15 @@ def _reconstruct_document_paths(
             ``CorpusFolder`` (the return value of ``import_corpus_folders``).
         source_name_map: Mapping of source name -> IngestionSource instance
             (from _import_ingestion_sources).
+        preserve_path_doc_ids: Documents matched to an existing target path by
+            canonical identity. Their path, folder, and version come from the
+            target version tree; only lineage fields are restored from export.
     """
     from opencontractserver.documents.models import DocumentPath
 
     if source_name_map is None:
         source_name_map = {}
+    preserve_path_doc_ids = preserve_path_doc_ids or set()
 
     folder_path_map = _build_folder_path_lookup(folders_data, folder_export_id_to_obj)
 
@@ -1131,7 +1674,10 @@ def _reconstruct_document_paths(
     path_by_doc_id = {
         p.document_id: p
         for p in DocumentPath.objects.filter(
-            corpus=corpus_obj, document__in=doc_hash_to_corpus_doc.values()
+            corpus=corpus_obj,
+            document__in=doc_hash_to_corpus_doc.values(),
+            is_current=True,
+            is_deleted=False,
         )
     }
 
@@ -1155,43 +1701,52 @@ def _reconstruct_document_paths(
 
         # Update path and version_number to match export
         updates: dict[str, Any] = {}
-        exported_path = path_data.get("path")
-        if exported_path and exported_path != existing_path.path:
-            updates["path"] = exported_path
+        if corpus_doc.pk not in preserve_path_doc_ids:
+            exported_path = path_data.get("path")
+            if exported_path and exported_path != existing_path.path:
+                updates["path"] = exported_path
 
-        exported_version = path_data.get("version_number")
-        if exported_version and exported_version != existing_path.version_number:
-            updates["version_number"] = exported_version
+            exported_version = path_data.get("version_number")
+            if exported_version and exported_version != existing_path.version_number:
+                updates["version_number"] = exported_version
 
-        # Update folder assignment if folder_path is specified
-        folder_path = path_data.get("folder_path")
-        if folder_path:
-            folder = folder_path_map.get(folder_path)
-            if folder:
-                updates["folder"] = folder
-            else:
-                # Loud failure mode: the exporter pointed this document at a
-                # folder we couldn't resolve, so it would silently land at the
-                # corpus root.  This typically means folder.path and
-                # document_paths.folder_path were written with different
-                # conventions, or the referenced folder failed to import.
-                # Cap the displayed key list — log aggregators truncate long
-                # lines, which would hide the very keys we want to compare
-                # against.
-                known_keys = sorted(folder_path_map.keys())
-                key_sample = known_keys[:_UNRESOLVED_FOLDER_KEY_SAMPLE_SIZE]
-                logger.warning(
-                    "DocumentPath reconstruction: folder_path %r did not "
-                    "resolve to any imported folder in corpus %s (doc %s). "
-                    "Document will remain at corpus root. Known folder paths "
-                    "(%d total, showing first %d): %s",
-                    folder_path,
-                    corpus_obj.id,
-                    corpus_doc.id,
-                    len(known_keys),
-                    len(key_sample),
-                    key_sample,
-                )
+            # Update folder assignment if folder_path is specified
+            folder_path = path_data.get("folder_path")
+            if folder_path:
+                folder = folder_path_map.get(folder_path)
+                if folder:
+                    updates["folder"] = folder
+                else:
+                    # Loud failure mode: the exporter pointed this document at a
+                    # folder we couldn't resolve, so it would silently land at the
+                    # corpus root.  This typically means folder.path and
+                    # document_paths.folder_path were written with different
+                    # conventions, or the referenced folder failed to import.
+                    # Cap the displayed key list — log aggregators truncate long
+                    # lines, which would hide the very keys we want to compare
+                    # against.
+                    known_keys = sorted(folder_path_map.keys())
+                    key_sample = known_keys[:_UNRESOLVED_FOLDER_KEY_SAMPLE_SIZE]
+                    logger.warning(
+                        "DocumentPath reconstruction: folder_path %r did not "
+                        "resolve to any imported folder in corpus %s (doc %s). "
+                        "Document will remain at corpus root. Known folder paths "
+                        "(%d total, showing first %d): %s",
+                        folder_path,
+                        corpus_obj.id,
+                        corpus_doc.id,
+                        len(known_keys),
+                        len(key_sample),
+                        key_sample,
+                    )
+        else:
+            logger.debug(
+                "Preserving canonical-identity target path %s at version %s "
+                "for document %s",
+                existing_path.path,
+                existing_path.version_number,
+                corpus_doc.pk,
+            )
 
         # Restore ingestion lineage fields
         source_name = path_data.get("ingestion_source_name")

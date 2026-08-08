@@ -32,6 +32,7 @@ from pydantic_ai.messages import (
     ModelRequest,
     ModelResponse,
     ThinkingPart,
+    ToolCallPart,
     ToolReturnPart,
 )
 from pydantic_ai.tools import RunContext
@@ -234,6 +235,23 @@ def _shrink_message(
 
     if isinstance(msg, ModelResponse):
         if not drop_thinking:
+            return msg, 0, 0
+        # A response that CALLED A TOOL keeps its reasoning, always. OpenAI's
+        # Responses API treats the two as one unit and rejects the request
+        # outright when they are separated:
+        #
+        #   Item 'fc_…' of type 'function_call' was provided without its
+        #   required 'reasoning' item: 'rs_…'.
+        #
+        # Chat Completions tolerates the split, so this only surfaced when a
+        # GPT-5.6 model moved the run onto /v1/responses — as a 400 that killed
+        # the run after 38 tool calls with nothing recorded. Expressed as an
+        # invariant rather than a per-provider switch because it is one either
+        # way: reasoning that produced a tool call is part of that call's
+        # record, and dropping half of a pair is not a saving. Responses with
+        # no tool call still shed their thinking, which is where the bulk of
+        # the context saving was anyway.
+        if any(isinstance(p, ToolCallPart) for p in msg.parts):
             return msg, 0, 0
         resp_parts: list[Any] = []
         changed = False

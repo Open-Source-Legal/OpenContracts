@@ -8,7 +8,19 @@ repos:
     hooks:
       - id: trailing-whitespace
       - id: end-of-file-fixer
+      # Compose files carry Docker's own YAML tags (``!override``, ``!reset``),
+      # which ``safe_load`` cannot construct -- so the default hook fails on a
+      # perfectly valid compose file. Rather than weaken the check everywhere
+      # with ``--unsafe``, compose files get a syntax-only pass (which still
+      # catches malformed YAML, just without resolving tags) and everything
+      # else stays strictly validated.
       - id: check-yaml
+        name: check yaml
+        exclude: ^(local|production|test)[\w.-]*\.ya?ml$
+      - id: check-yaml
+        name: check yaml (compose, syntax only)
+        args: ["--unsafe"]
+        files: ^(local|production|test)[\w.-]*\.ya?ml$
 
   - repo: local
     hooks:

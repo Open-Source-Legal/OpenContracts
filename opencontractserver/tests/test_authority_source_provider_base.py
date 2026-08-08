@@ -11,6 +11,9 @@ These tests exercise:
 from django.test import SimpleTestCase
 
 from opencontractserver.enrichment.authorities import AuthoritySection
+from opencontractserver.pipeline.base.base_authority_discovery_provider import (
+    DiscoveryCandidate,
+)
 from opencontractserver.pipeline.base.base_authority_source_provider import (
     AuthorityRequest,
     BaseAuthoritySourceProvider,
@@ -35,10 +38,12 @@ class _DummyProvider(BaseAuthoritySourceProvider):
     supported_prefixes = ("usc-15",)
 
     def _locate_impl(self, canonical_key: str, **all_kwargs) -> AuthorityRequest:
+        candidate = all_kwargs.get("discovery_candidate")
         return AuthorityRequest(
             canonical_key=canonical_key,
             url="http://x",
             citation=f"dummy citation for {canonical_key}",
+            extra={"candidate_url": candidate.url if candidate else None},
         )
 
     def _fetch_impl(
@@ -82,6 +87,17 @@ class TestBaseAuthoritySourceProviderABC(SimpleTestCase):
     def test_locate_url_set(self):
         req = self.provider.locate("usc-15:78j")
         self.assertEqual(req.url, "http://x")
+
+    def test_locate_round_trips_listing_discovery_candidate(self):
+        candidate = DiscoveryCandidate(
+            canonical_key="usc-15:78j",
+            url="https://example.gov/discovered",
+            title="Discovered section",
+            extra={"source_identifier": "attachment-7"},
+        )
+        req = self.provider.locate("usc-15:78j", discovery_candidate=candidate)
+        self.assertIs(req.discovery_candidate, candidate)
+        self.assertEqual(req.extra["candidate_url"], candidate.url)
 
     # ---- fetch --------------------------------------------------------------
 

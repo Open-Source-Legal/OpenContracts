@@ -143,6 +143,7 @@ const corpusDocumentsMock: MockedResponse = {
     variables: {
       corpusId: dummyCorpus.id,
       first: CORPUS_DOCUMENTS_TOC_LIMIT,
+      includeCaml: true,
     },
   },
   result: {

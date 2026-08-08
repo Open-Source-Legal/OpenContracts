@@ -17,6 +17,7 @@ See ``docs/development/2026-06-06-v2-import-reingest-remap.md``.
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import uuid
@@ -52,6 +53,7 @@ from opencontractserver.tasks.export_tasks_v2 import package_corpus_export_v2
 from opencontractserver.tasks.import_tasks_v2 import (
     _import_document_with_annotations,
     _read_guarded_source_bytes,
+    _read_publisher_source_payload,
     _source_is_reingestable,
 )
 from opencontractserver.types.enums import PermissionTypes
@@ -138,6 +140,159 @@ class TestSourceReingestability(TestCase):
     def test_real_bytes_are_reingestable(self):
         self.assertTrue(_source_is_reingestable(b"%PDF-1.4 ..."))
         self.assertTrue(_source_is_reingestable(b"plain text body"))
+
+    def test_publisher_source_sidecar_is_hash_verified_and_legacy_is_unchanged(self):
+        source_bytes = b"<html><body>publisher source</body></html>"
+        source_hash = hashlib.sha256(source_bytes).hexdigest()
+        doc_data = {
+            "custom_meta": {
+                "publisher_source_member": "publisher-source-rule.html",
+                "publisher_source_content_hash": source_hash,
+                "publisher_source_mime_type": "text/html",
+                "publisher_source_packaging": "sidecar",
+            }
+        }
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("rule.txt", b"portable text")
+            zf.writestr("publisher-source-rule.html", source_bytes)
+        buf.seek(0)
+
+        with zipfile.ZipFile(buf) as zf:
+            payload = _read_publisher_source_payload(zf, "rule.txt", doc_data)
+            self.assertIsNotNone(payload)
+            self.assertEqual(payload.content, source_bytes)
+            self.assertEqual(payload.mime_type, "text/html")
+            self.assertIsNone(
+                _read_publisher_source_payload(
+                    zf,
+                    "rule.txt",
+                    {"custom_meta": {"unrelated": True}},
+                )
+            )
+
+    def test_publisher_source_sidecar_rejects_missing_mismatch_and_unsafe_path(self):
+        source_bytes = b"<html>publisher source</html>"
+        base_meta = {
+            "publisher_source_member": "publisher-source-rule.html",
+            "publisher_source_content_hash": hashlib.sha256(source_bytes).hexdigest(),
+            "publisher_source_mime_type": "text/html",
+            "publisher_source_packaging": "sidecar",
+        }
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("rule.txt", b"portable text")
+            zf.writestr("publisher-source-rule.html", source_bytes)
+        buf.seek(0)
+
+        with zipfile.ZipFile(buf) as zf:
+            with self.assertRaisesRegex(ValueError, "hash mismatch"):
+                _read_publisher_source_payload(
+                    zf,
+                    "rule.txt",
+                    {
+                        "custom_meta": {
+                            **base_meta,
+                            "publisher_source_content_hash": "0" * 64,
+                        }
+                    },
+                )
+            with self.assertRaisesRegex(ValueError, "safe ZIP member"):
+                _read_publisher_source_payload(
+                    zf,
+                    "rule.txt",
+                    {
+                        "custom_meta": {
+                            **base_meta,
+                            "publisher_source_member": "../publisher.html",
+                        }
+                    },
+                )
+            with self.assertRaisesRegex(ValueError, "occurs 0 times"):
+                _read_publisher_source_payload(
+                    zf,
+                    "rule.txt",
+                    {
+                        "custom_meta": {
+                            **base_meta,
+                            "publisher_source_member": "missing.html",
+                        }
+                    },
+                )
+
+    def test_publisher_source_sidecar_rejects_a_repeated_member_name(self):
+        """A name appearing twice in the central directory is refused.
+
+        This is the branch that forces the member census to exist.
+        ``ZipFile.NameToInfo`` keeps only the LAST entry for a repeated name,
+        so it can neither detect nor disambiguate this: a ZIP carrying two
+        ``publisher-source-rule.html`` entries would silently hash one and let
+        an extractor take the other. The sibling case above covers count 0
+        (missing); this covers count > 1, and together they pin both sides of
+        ``occurrences != 1`` across the memoised-``Counter`` refactor.
+        """
+        source_bytes = b"<html>publisher source</html>"
+        meta = {
+            "publisher_source_member": "publisher-source-rule.html",
+            "publisher_source_content_hash": hashlib.sha256(source_bytes).hexdigest(),
+            "publisher_source_mime_type": "text/html",
+            "publisher_source_packaging": "sidecar",
+        }
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("rule.txt", b"portable text")
+            zf.writestr("publisher-source-rule.html", source_bytes)
+            # Same name, different bytes — the shadowing case.
+            zf.writestr("publisher-source-rule.html", b"<html>decoy</html>")
+        buf.seek(0)
+
+        with zipfile.ZipFile(buf) as zf:
+            with self.assertRaisesRegex(ValueError, "occurs 2 times"):
+                _read_publisher_source_payload(zf, "rule.txt", {"custom_meta": meta})
+
+    def test_baked_import_persists_publisher_sidecar_as_original_file(self):
+        user = User.objects.create_user(username="source_sidecar_user", password="pw")
+        labelset = LabelSet.objects.create(title="LS", creator=user)
+        corpus = Corpus.objects.create(title="C", creator=user, label_set=labelset)
+        source_bytes = b"<html><body>publisher source</body></html>"
+        source_hash = hashlib.sha256(source_bytes).hexdigest()
+        custom_meta = {
+            "publisher_source_member": "publisher-source-rule.html",
+            "publisher_source_content_hash": source_hash,
+            "publisher_source_mime_type": "text/html",
+            "publisher_source_packaging": "sidecar",
+        }
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("rule.txt", b"portable text")
+            zf.writestr("publisher-source-rule.html", source_bytes)
+        buf.seek(0)
+
+        with zipfile.ZipFile(buf) as zf:
+            corpus_doc, _ = _import_document_with_annotations(
+                doc_filename="rule.txt",
+                doc_data={
+                    "title": "Rule",
+                    "description": "",
+                    "content": "portable text",
+                    "file_type": "text/plain",
+                    "pawls_file_content": [],
+                    "custom_meta": custom_meta,
+                },
+                import_zip=zf,
+                user_obj=user,
+                corpus_obj=corpus,
+                label_lookup={},
+                doc_label_lookup={},
+                reingest_and_remap=False,
+            )
+
+        self.assertIsNotNone(corpus_doc)
+        corpus_doc.refresh_from_db()
+        self.assertEqual(corpus_doc.original_file_type, "text/html")
+        with corpus_doc.original_file.open("rb") as source_file:
+            self.assertEqual(source_file.read(), source_bytes)
+        self.assertEqual(corpus_doc.custom_meta, custom_meta)
 
     @override_settings(MAX_CORPUS_REINGEST_SOURCE_BYTES=4)
     def test_read_guarded_source_bytes_rejects_oversized_zip_member(self):

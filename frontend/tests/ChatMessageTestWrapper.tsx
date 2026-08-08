@@ -6,6 +6,7 @@ import { MemoryRouter } from "react-router-dom";
 import { MotionConfig } from "framer-motion";
 import { authToken, userObj } from "../src/graphql/cache";
 import { relayStylePagination } from "@apollo/client/utilities";
+import { ToastContainer } from "react-toastify";
 
 interface ChatMessageTestWrapperProps {
   mocks?: MockedResponse[];
@@ -42,7 +43,14 @@ export const ChatMessageTestWrapper: React.FC<ChatMessageTestWrapperProps> = ({
     <MemoryRouter initialEntries={["/"]}>
       <JotaiProvider>
         <MockedProvider mocks={mocks} cache={createCache()} addTypename={true}>
-          <MotionConfig reducedMotion="always">{children}</MotionConfig>
+          <MotionConfig reducedMotion="always">
+            {children}
+            {/* Components in this tree report success/failure via react-toastify
+                (e.g. SaveMessageToWorkspace). Without a container the toast is
+                created but never rendered, so a test asserting the user was
+                told anything would fail for the wrong reason. */}
+            <ToastContainer autoClose={false} />
+          </MotionConfig>
         </MockedProvider>
       </JotaiProvider>
     </MemoryRouter>

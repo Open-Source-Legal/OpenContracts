@@ -93,6 +93,11 @@ DEFAULT_MAX_STEPS_FALLBACK = 60
 # structured multi-section plan; anything beyond is truncated (tail dropped)
 # with a marker so the head — usually the task restatement + next steps —
 # always survives.
+# Root-level folder in the creator's personal "My Documents" corpus where
+# finished reports are filed. Generated artifacts get their own folder so
+# they do not bury the user's own uploads in the workspace root.
+RESEARCH_WORKSPACE_FOLDER = "Research Reports"
+
 MAX_RESEARCH_PLAN_CHARS = 8_000
 
 # Memory store caps. Per-key, per-value, total-store and key-count ceilings
@@ -349,6 +354,70 @@ DEEP_RESEARCH_RETRIEVAL_CLOSURE_TOOLS: set[str] = {"find_citable_passages"}
 RESEARCH_CITABLE_PASSAGE_MAX_HITS = 10
 RESEARCH_CITABLE_PASSAGE_PREVIEW_CHARS = 600
 
+# Fraction of the model's context window at which a DEEP RESEARCH run
+# compacts. Far tighter than a chat agent's default, because history is resent
+# on every model call: cumulative input grows with the square of the tool-call
+# count, so the lever that matters is keeping each call's history small rather
+# than allowing one enormous one. At a 1M window this trips around 36k. Tuned
+# down from 0.06 after runs died with nothing recorded — the *token* half of
+# the budget. It is not the lever for the step budget below; the two limits
+# fail identically from the outside and are easy to confuse.
+DEEP_RESEARCH_COMPACTION_RATIO: float = 0.035
+
+# ``search_across_group`` fans a query over EVERY visible corpus in the group,
+# so the caller's ``k`` multiplies by member count: k=10 over ten corpora is
+# 100 passages in a single tool result. The whole message history is resent on
+# every subsequent model call, so one broad fan-out inflates every later call
+# — a run against a ten-member group burned 2.03M cumulative input tokens in
+# 11 tool calls and finalised as a salvage composition with nothing recorded.
+RESEARCH_GROUP_SEARCH_MAX_K_PER_CORPUS: int = 3
+RESEARCH_GROUP_SEARCH_MAX_ROWS: int = 30
+
+# The run is also capped at ``request_limit = report.max_steps`` MODEL
+# REQUESTS, and the agent cannot see that counter. A run that walks into it is
+# cut off mid-work: pydantic-ai raises, the salvage path composes a report out
+# of the findings recorded so far, and everything the agent had not yet written
+# — most visibly the report body — is simply gone. Observed: a run made exactly
+# 60 requests against ``max_steps=60`` and its salvaged body dropped two of the
+# four ramp steps it had been asked to walk.
+#
+# So tell it. Once a run has spent this fraction of its budget, every tool
+# return carries a step-budget notice, and past the second ratio the notice
+# says to finalize now. Counted in TOOL CALLS, which is what the audit log
+# records; model requests run a handful ahead of tool calls (a request that
+# only reasons makes none), so the ratios are set low enough to leave the agent
+# room to actually call ``finalize_report`` after the hard notice lands.
+DEEP_RESEARCH_STEP_BUDGET_WARN_RATIO: float = 0.65
+DEEP_RESEARCH_STEP_BUDGET_FINAL_RATIO: float = 0.80
+
+
+def build_step_budget_notice(calls_made: int, max_steps: int) -> str | None:
+    """The notice appended to a tool result once the step budget runs down.
+
+    ``None`` below the warn ratio, so the ordinary run is never nagged. Phrased
+    as a fact plus one instruction: a notice that only reports a number gets
+    read as background, and the failure it exists to prevent is the agent
+    treating "plenty of budget" as true right up to the cut-off.
+    """
+    if max_steps <= 0:
+        return None
+    spent = calls_made / max_steps
+    if spent >= DEEP_RESEARCH_STEP_BUDGET_FINAL_RATIO:
+        return (
+            f"[Step budget: {calls_made} of {max_steps} used.] Call "
+            "finalize_report NOW, with what you have. If you are cut off "
+            "before finalizing, the report is assembled from your recorded "
+            "findings alone and every part of the body you have not written "
+            "yet is lost."
+        )
+    if spent >= DEEP_RESEARCH_STEP_BUDGET_WARN_RATIO:
+        return (
+            f"[Step budget: {calls_made} of {max_steps} used.] Stop opening new "
+            "lines of enquiry. Finish the searches you need to support what you "
+            "have already found, then call finalize_report."
+        )
+    return None
+
 
 def build_deep_research_system_prompt(
     *,
@@ -360,12 +429,29 @@ def build_deep_research_system_prompt(
     findings_digest: str | None = None,
     memory_index: str | None = None,
     resuming: bool = False,
+    corpus_group_title: str | None = None,
+    corpus_group_scale: str | None = None,
+    obligation_threshold_scale: str | None = None,
 ) -> str:
     """Compose the system prompt for the deep-research agent.
 
     Untrusted strings (corpus metadata and the user's task) are fenced
     with ``<user_content>`` tags so the model can distinguish them from
     instructions. See ``opencontractserver.utils.prompt_sanitization``.
+
+    ``corpus_group_title`` widens the stated scope. Without it the mission
+    reads "explore the corpus", the agent never learns ``search_across_group``
+    exists, and a run whose answer lives in a sibling corpus quietly answers
+    from the anchor alone — which is exactly what happened before this was
+    added.
+
+    ``corpus_group_scale`` says how much of the group the anchor actually is,
+    and it turned out to be the part that mattered. Knowing the wider tool
+    exists was not enough: across twenty runs of a group-scoped question the
+    agent called ``search_across_group`` exactly ZERO times. It searched the
+    anchor, got hits, and stopped — reasonably, since nothing told it the
+    anchor was 2 documents out of the group's 354, or that the corpus named in
+    the question was one of the nine it never opened.
 
     ``plan``, ``findings_digest`` and ``memory_index`` are the durable
     recovery surface: they are folded into the prompt every run so the
@@ -410,7 +496,49 @@ def build_deep_research_system_prompt(
         [
             "",
             "## Mission",
-            "1. Use the retrieval tools below to explore the corpus thoroughly.",
+            (
+                "1. Explore with `similarity_search(query)`: it finds passages "
+                + "by meaning, so it can surface a requirement whose wording you "
+                + "would never have guessed. EVERY hit it returns is directly "
+                + "citable — the `annotation_id` on a hit is the cite handle, "
+                + "and you do NOT need a second lookup to use it. Reach for "
+                + "`find_citable_passages(phrase)` only when you know the exact "
+                + "words you want and search has not surfaced them."
+                if not corpus_group_title
+                else (
+                    "1. Explore by meaning first. EVERY hit a search returns "
+                    + "is directly citable — the `annotation_id` on a hit is the "
+                    + "cite handle, and you do NOT need a second lookup to use "
+                    + "it. Reach for `find_citable_passages(phrase)` only when "
+                    + "you know the exact words you want and search has not "
+                    + "surfaced them. This run is scoped to the Corpus Group "
+                    + f"'{corpus_group_title}', so `similarity_search` sees "
+                    + "ONLY the anchor corpus while `search_across_group(query, "
+                    + "k)` reaches every corpus in the group you may read. When "
+                    + "a question spans authorities — a statute in one corpus, "
+                    + "the rule it authorises in another, the tariff or notices "
+                    + "that implement it in a third — `search_across_group` is "
+                    + "the tool that finds them. Its hits are citable exactly "
+                    + "like `similarity_search` hits."
+                    + (
+                        f" The group holds {corpus_group_scale}. Weigh that "
+                        "before you conclude anything from the anchor alone: "
+                        "getting hits from `similarity_search` does not mean "
+                        "you have searched the record."
+                        if corpus_group_scale
+                        else ""
+                    )
+                )
+            ),
+            (
+                "   This corpus evaluates obligations at "
+                f"{obligation_threshold_scale}. When an obligation bites only "
+                "at some of those, classify it PHASE_TRIGGERED and list the "
+                "ones it bites at in `applies_at` — values outside that set are "
+                "refused."
+                if obligation_threshold_scale
+                else ""
+            ),
             "2. Each time you uncover a discrete, source-backed claim, call "
             + "`record_finding` with the claim text, the citing section, and the "
             + "annotation IDs returned by your retrieval tools.",
@@ -495,6 +623,15 @@ def build_deep_research_system_prompt(
             + "handed carries NO citation — leave it uncited rather than forcing "
             + "on a corpus anchor that cannot support it. Uncited background is "
             + "honest; a miscited anchor is not.",
+            "- Attribute a duty only to a party your evidence NAMES. On an "
+            + "obligation card, `responsible_party` is checked against the text "
+            + "of the annotations you cite, and a card whose passages never "
+            + "mention that party is FLAGGED in the report as an inferred "
+            + "attribution — the obligation and the citation can both be right "
+            + "while the obligor is imported from somewhere else. Prefer citing "
+            + "the passage that imposes the duty, since that passage names who "
+            + "owes it. Write a real party name either way: never a placeholder "
+            + "like 'not specified', and never a description of what to write.",
             "- One anchor must carry the WHOLE sentence it is attached to. Do "
             + "not extend a cited sentence with detail the passage does not "
             + "contain — split it into a cited sentence and a separate, uncited "

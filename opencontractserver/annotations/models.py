@@ -2329,3 +2329,82 @@ class AuthorityKeyEquivalence(django.db.models.Model):
 
     def __str__(self) -> str:
         return f"{self.from_key} ≡ {self.to_key} ({self.source})"
+
+
+class AuthorityRelationship(django.db.models.Model):
+    """Typed relationship between stable authority keys across corpora.
+
+    DocumentRelationship intentionally models same-corpus document edges.
+    Authority packs need a different endpoint identity: a PUCT order can adopt
+    an ERCOT revision and an Oncor tariff can cite that order, even before either
+    target has been ingested. Canonical keys are therefore authoritative.
+    Visible current documents are resolved through DocumentPath at graph-query
+    time, which keeps independently installed copies of the same pack isolated
+    instead of forcing one global Document cache per key.
+    """
+
+    source_key = django.db.models.CharField(max_length=255, db_index=True)
+    relationship_type = django.db.models.CharField(
+        max_length=32,
+        choices=[
+            (value, value)
+            for value in enrichment_constants.AUTHORITY_RELATIONSHIP_TYPES
+        ],
+        db_index=True,
+    )
+    target_key = django.db.models.CharField(max_length=255, db_index=True)
+    SOURCE_CHOICES = [
+        ("baseline", "Authority pack baseline"),
+        ("provider", "Source provider"),
+        ("manual", "Hand-curated"),
+    ]
+    source = django.db.models.CharField(
+        max_length=16, choices=SOURCE_CHOICES, default="baseline", db_index=True
+    )
+    origin = django.db.models.CharField(max_length=64, null=True, blank=True)
+    verified = django.db.models.BooleanField(default=False, db_index=True)
+    metadata = django.db.models.JSONField(default=dict, blank=True)
+    created = django.db.models.DateTimeField(auto_now_add=True)
+    modified = django.db.models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            django.db.models.UniqueConstraint(
+                fields=["source_key", "relationship_type", "target_key"],
+                name="authority_relationship_unique_edge",
+            ),
+            django.db.models.CheckConstraint(
+                condition=~django.db.models.Q(
+                    source_key=django.db.models.F("target_key")
+                ),
+                name="authority_relationship_no_self_edge",
+            ),
+            django.db.models.CheckConstraint(
+                condition=django.db.models.Q(
+                    relationship_type__in=enrichment_constants.AUTHORITY_RELATIONSHIP_TYPES
+                ),
+                name="authority_relationship_valid_type",
+            ),
+            django.db.models.CheckConstraint(
+                condition=django.db.models.Q(
+                    source__in=("baseline", "provider", "manual")
+                ),
+                name="authority_relationship_valid_source",
+            ),
+        ]
+        indexes = [
+            django.db.models.Index(
+                fields=["source_key", "relationship_type"],
+                name="auth_rel_source_type_idx",
+            ),
+            django.db.models.Index(
+                fields=["target_key", "relationship_type"],
+                name="auth_rel_target_type_idx",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return (
+            f"AuthorityRelationship({self.source_key} "
+            f"{self.relationship_type} {self.target_key})"
+        )

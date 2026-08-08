@@ -521,6 +521,9 @@ class SearchAcrossCorporaToolTests(TransactionTestCase):
         )
 
         self.doc = Document.objects.create(title="Doc A", creator=self.user)
+        self.doc, _, _ = self.visible_corpus.add_document(
+            document=self.doc, user=self.user
+        )
         self.annotation = Annotation.objects.create(
             document=self.doc,
             corpus=self.visible_corpus,
@@ -603,6 +606,31 @@ class SearchAcrossCorporaToolTests(TransactionTestCase):
         self._run_tool(query="q", corpus_group=self.group.slug, user_id=self.user.id)
         second_pass = {store.corpus_id for store in _FakeVectorStore.instances}
         self.assertEqual(second_pass, {self.visible_corpus.id, late_corpus.id})
+
+    def test_group_document_resolver_requires_visible_current_member(self):
+        """Cross-corpus document follow-up uses the live group visibility gate."""
+        from opencontractserver.llms.tools.core_tools.multi_corpus import (
+            _resolve_group_document,
+        )
+
+        document, corpus = _resolve_group_document(
+            self.group.slug, self.doc.id, self.user.id
+        )
+        self.assertEqual(document.id, self.doc.id)
+        self.assertEqual(corpus.id, self.visible_corpus.id)
+
+        hidden_doc = Document.objects.create(
+            title="Hidden Group Document", creator=self.other
+        )
+        hidden_doc, _, _ = self.hidden_corpus.add_document(
+            document=hidden_doc, user=self.other
+        )
+        with self.assertRaises(ValueError) as ctx:
+            _resolve_group_document(self.group.slug, hidden_doc.id, self.user.id)
+        self.assertEqual(
+            str(ctx.exception),
+            "Document is not available in the selected corpus group.",
+        )
 
     def test_k_clamped_to_max(self):
         self._run_tool(

@@ -48,7 +48,7 @@ const docsMock = (
 ) => ({
   request: {
     query: GET_CORPUS_COLLECTION_DOCS,
-    variables: { corpusId: CORPUS_ID, limit: 100 },
+    variables: { corpusId: CORPUS_ID, limit: 100, includeCaml: true },
   },
   ...(delay ? { delay } : {}),
   result: {
@@ -73,7 +73,7 @@ const docsMock = (
 const docsErrorMock = {
   request: {
     query: GET_CORPUS_COLLECTION_DOCS,
-    variables: { corpusId: CORPUS_ID, limit: 100 },
+    variables: { corpusId: CORPUS_ID, limit: 100, includeCaml: true },
   },
   error: new Error("collection boom"),
 };

@@ -3,8 +3,8 @@
 The **Authority Console** is the single admin surface for viewing, managing, and
 editing *authorities* — the bodies of law (USC titles, CFR parts, statutes,
 regulations, administrative regimes) whose aliases drive citation extraction and
-whose discovery feeds the reference-web crawl. It lives at **`/admin/authority`**
-and is superuser-gated.
+whose corpora can be installed and sideloaded as reusable packs. It lives at
+**`/admin/authority`** and is superuser-gated.
 
 It is the management layer for the open-vocabulary authority-discovery engine
 described in
@@ -16,17 +16,18 @@ runnable ingestion procedures see
 
 The discovery *pipeline* (taxonomy, shape grammars, the source-provider registry,
 the crawl frontier) shipped well-factored, but its *management* was scattered
-across five mechanisms with no unifying concept of "an authority":
+across several mechanisms with no unifying concept of "an authority":
 
 | Concern | Before | Now |
 |---|---|---|
+| Authority packs | management-command-only installation | Authority Packs catalog, preflight, install, and targeted corpus sideload |
 | `AuthorityNamespace` (the body-of-law registry) | **no API/admin/GUI** — hand-edit `authority_mappings.yaml` + re-run the loader | Registry tab + `AuthorityNamespaceService` |
 | `AuthorityKeyEquivalence` (aliases/relationships) | standalone `AuthorityMappings` panel | Aliases & Relationships tab |
 | `AuthorityFrontier` (discovery queue) | read-only `AuthoritySourcesMonitor` panel | Discovery Queue tab (now with action verbs) |
 | Source providers ("scrapers") | code-only, invisible to the API | Scrapers & Credentials tab |
 | Enrichment runs | standalone `AdminEnrichment` page | Runs tab |
 
-The console consolidates all five behind one tabbed front door. The three
+The console consolidates these concerns behind one tabbed front door. The three
 standalone panels (`AuthorityMappings`, `AuthoritySourcesMonitor`,
 `AdminEnrichment`) were **deleted**; `GlobalSettingsPanel`'s three separate admin
 cards collapsed into one **Authority Console** card.
@@ -47,6 +48,7 @@ the URL is the source of truth). It gates once at mount via `useIsAuthorityAdmin
 
 | Route | View | Absorbed from |
 |---|---|---|
+| `/admin/authority/packs` | **Authority Packs** | new surface |
 | `/admin/authority` → `/admin/authority/registry` | **Authorities** (Registry) | new surface |
 | `/admin/authority/registry/<prefix>` | **Authority detail** | new surface |
 | `/admin/authority/mappings` | **Aliases & Relationships** | `AuthorityMappings` (was `/admin/authority-mappings`) |
@@ -57,6 +59,26 @@ the URL is the source of truth). It gates once at mount via `useIsAuthorityAdmin
 The three old paths (`/admin/authorities`, `/admin/authority-mappings`,
 `/admin/enrichment`) remain as client-side `<Navigate>` redirects into the
 corresponding tab so existing bookmarks keep working for one release.
+
+### Authority Packs tab
+
+The trusted server catalog is discovered from the shipped pack directory and
+`AUTHORITY_PACK_ROOTS` / `AUTHORITY_PACK_PATHS`. The browser sends an opaque
+pack ID, never a filesystem
+path, URL, archive, or manifest. Opening a pack runs a fresh side-effect-free
+preflight and displays its fingerprint, corpus identities, current installation
+state, source-host lineage, and publication approval.
+
+Installation is private by default and atomically reuses the same
+`AuthorityPackService` as the legacy operator command. Public installation is
+an explicit option and remains disabled while a declared charter is unapproved
+or `pending_legal_review`.
+
+Once a corpus is installed, **Import corpus ZIP** opens the existing
+corpus-export modal with that corpus's server-issued ID. Direct and resumable
+chunked uploads therefore share the normal import service and permission gate;
+the console does not add a second ingestion system. This supports deployments
+whose acquisition/crawling happens outside OpenContracts.
 
 ### Authorities (Registry tab)
 

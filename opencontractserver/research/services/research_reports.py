@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Sequence
 from datetime import timedelta
 from difflib import SequenceMatcher
 from typing import Any, NamedTuple
@@ -43,6 +44,7 @@ from opencontractserver.research.constants import (
     RESEARCH_SUPPORT_NEGATION_PREFIXES,
     RESEARCH_SUPPORT_NEGATION_TOKENS,
     RESEARCH_SUPPORT_STOPWORDS,
+    RESEARCH_WORKSPACE_FOLDER,
 )
 from opencontractserver.research.models import ResearchReport
 from opencontractserver.shared.services.base import BaseService
@@ -100,12 +102,20 @@ class ResearchReportService(BaseService):
         conversation: Any = None,
         originating_message: Any = None,
         max_steps: int | None = None,
+        corpus_group: Any = None,
         request: Any = None,
     ) -> ResearchReport:
         """Create a QUEUED ResearchReport and enqueue the Celery task.
 
+        ``corpus_group`` optionally widens retrieval beyond the anchor corpus.
+        It is gated separately and by the *same* user: a group the caller
+        cannot see is refused rather than silently ignored, because silently
+        narrowing the scope would produce a report that looks group-wide and
+        is not.
+
         Raises:
-            PermissionError: when ``user`` lacks READ on ``corpus``.
+            PermissionError: when ``user`` lacks READ on ``corpus``, or the
+                requested group is not visible to them.
             ConcurrentResearchInProgress: when a non-terminal report for
                 the same ``(user, corpus)`` exists inside the configured
                 concurrency-guard window.
@@ -115,6 +125,19 @@ class ResearchReportService(BaseService):
         )
         if error:
             raise PermissionError(error)
+
+        if corpus_group is not None:
+            from opencontractserver.corpuses.services import CorpusGroupService
+
+            visible = (
+                CorpusGroupService.list_visible_groups(user)
+                .filter(pk=corpus_group.pk)
+                .exists()
+            )
+            if not visible:
+                raise PermissionError(
+                    "Corpus group not found or not visible to this user."
+                )
 
         default_max_steps: int = getattr(
             settings, "DEEP_RESEARCH_DEFAULT_MAX_STEPS", DEFAULT_MAX_STEPS_FALLBACK
@@ -169,6 +192,7 @@ class ResearchReportService(BaseService):
                 max_steps=resolved_max_steps,
                 conversation=conversation,
                 originating_message=originating_message,
+                corpus_group=corpus_group,
             )
 
             # Enqueue the Celery task. Local import keeps the service free
@@ -310,32 +334,61 @@ class ResearchReportService(BaseService):
     def append_finding(cls, report: ResearchReport, finding: dict) -> None:
         """Append a structured finding and bump ``last_progress_at``.
 
-        Refreshes the row first to avoid stomping a concurrent
-        ``cancel_requested`` flip.
+        Locks the row for the read-modify-write so a concurrent writer cannot
+        stomp the append (see ``append_tool_call`` for why the lock, not just
+        a refresh, is required), and so a concurrent ``cancel_requested`` flip
+        is observed rather than overwritten.
         """
-        report.refresh_from_db(fields=["findings", "step_count", "cancel_requested"])
-        findings = list(report.findings or [])
-        findings.append(finding)
+        with transaction.atomic():
+            locked = ResearchReport.objects.select_for_update().get(pk=report.pk)
+            findings = list(locked.findings or [])
+            findings.append(finding)
+            locked.findings = findings
+            locked.step_count = (locked.step_count or 0) + 1
+            locked.last_progress_at = timezone.now()
+            locked.save(
+                update_fields=[
+                    "findings",
+                    "step_count",
+                    "last_progress_at",
+                    "modified",
+                ]
+            )
+        # Mirror the committed state onto the caller's instance — callers read
+        # ``cancel_requested`` off it right after this returns.
         report.findings = findings
-        report.step_count = (report.step_count or 0) + 1
-        report.last_progress_at = timezone.now()
-        report.save(
-            update_fields=[
-                "findings",
-                "step_count",
-                "last_progress_at",
-                "modified",
-            ]
-        )
+        report.step_count = locked.step_count
+        report.last_progress_at = locked.last_progress_at
+        report.cancel_requested = locked.cancel_requested
 
     @classmethod
-    def append_tool_call(cls, report: ResearchReport, entry: dict) -> None:
-        """Append a tool-call audit entry. Cheap; does not bump progress."""
-        report.refresh_from_db(fields=["tool_call_log"])
-        log = list(report.tool_call_log or [])
-        log.append(entry)
+    def append_tool_call(cls, report: ResearchReport, entry: dict) -> int:
+        """Append a tool-call audit entry. Cheap; does not bump progress.
+
+        Returns the new length of the log. The audit log is the only running
+        count of how much of the run's step budget has been spent, so the
+        caller that writes it is also the caller that can warn about it — see
+        ``build_step_budget_notice``.
+
+        WHY ``select_for_update`` and not a bare ``refresh_from_db``: every
+        tool call now routes through here via ``_audited`` (research_tasks),
+        making this the hottest read-modify-write on the row. Within one
+        worker the ``sync_to_async(thread_sensitive=True)`` call sites already
+        serialise, but two *processes* can hold the same report — that is
+        exactly what ``reap_stalled_research`` does when it re-enqueues a
+        RUNNING report whose progress clock went cold while the original
+        worker is still alive. Unlocked, the later ``save()`` clobbers the
+        earlier append, silently dropping an audit entry and undercounting the
+        ``calls_made`` that feeds the step-budget notice.
+        """
+        with transaction.atomic():
+            locked = ResearchReport.objects.select_for_update().get(pk=report.pk)
+            log = list(locked.tool_call_log or [])
+            log.append(entry)
+            locked.tool_call_log = log
+            locked.save(update_fields=["tool_call_log", "modified"])
         report.tool_call_log = log
-        report.save(update_fields=["tool_call_log", "modified"])
+        return len(log)
 
     # ------------------------------------------------------------------
     # Durable context management — plan + memory (called from tool closures)
@@ -653,6 +706,59 @@ class ResearchReportService(BaseService):
     # Finalize (terminal write from inside the loop)
     # ------------------------------------------------------------------
     @classmethod
+    def finalize_once(
+        cls,
+        report: ResearchReport,
+        *,
+        executive_summary: str,
+        markdown_body: str,
+        retrieved_annotation_ids: list[int],
+        warnings: list[str] | None = None,
+    ) -> bool:
+        """Finalize exactly once, returning False if the run already ended.
+
+        ``finalize`` is deliberately NOT idempotent — a second call re-runs
+        composition, so the stored report becomes the later body while both
+        passes' warnings accumulate (pinned by
+        ``test_finalizing_twice_appends_its_warnings_twice``). The caller
+        therefore has to refuse the second call, and a plain
+        ``refresh_from_db`` + status check is check-then-act: pydantic-ai can
+        dispatch parallel tool calls, so two ``finalize_report`` invocations
+        can both read RUNNING before either commits COMPLETED and both
+        compose.
+
+        Holding the row lock across the whole composition closes that window —
+        the loser blocks, then re-reads a terminal status and is turned away.
+        Same treatment ``append_finding`` / ``append_tool_call`` already get,
+        and for the same reason (one report, concurrent writers). Locking for
+        the duration is acceptable precisely because this is the run's terminal
+        step: serialising it is the point, not a cost.
+
+        The guard is ``is_terminal``, not ``status == COMPLETED``. CANCELLED
+        and FAILED are also "the run already ended", and only COMPLETED was
+        being refused: a second worker (``reap_stalled_research`` resumes a
+        stalled RUNNING report, so two can be live at once) could finalize on
+        top of a row the first worker had just marked CANCELLED by soft time
+        limit or FAILED with a traceback. The result is a report that reads
+        COMPLETED while still carrying the other worker's ``error_message``,
+        after the user has already been notified the run was cancelled. No
+        path resets a report out of a terminal state — ``resume`` refuses one
+        outright — so widening this cannot strand a run that ought to finish.
+        """
+        with transaction.atomic():
+            locked = ResearchReport.objects.select_for_update().get(pk=report.pk)
+            if locked.is_terminal:
+                return False
+            cls.finalize(
+                report,
+                executive_summary=executive_summary,
+                markdown_body=markdown_body,
+                retrieved_annotation_ids=retrieved_annotation_ids,
+                warnings=warnings,
+            )
+        return True
+
+    @classmethod
     def finalize(
         cls,
         report: ResearchReport,
@@ -746,10 +852,51 @@ class ResearchReportService(BaseService):
         # also what keeps a citation inside what the run's creator may read.
         cited_ids &= set(retrieved_annotation_ids)
 
+        # The evidence gate, second half. ``record_finding`` refuses a material
+        # card with no citation at the door; this catches the card whose
+        # citations did not SURVIVE — an id the agent passed that retrieval
+        # never actually surfaced is filtered out of ``cited_ids`` above, which
+        # can leave a material card unsupported by the time we render. Such a
+        # card is withheld from the report rather than printed as though it
+        # were sourced, and the count is surfaced as a warning so the omission
+        # is visible rather than silent.
+        withheld_findings = False
+        blocked = [
+            finding
+            for finding in (report.findings or [])
+            if (finding.get("card") or {}).get("material")
+            and not (set(finding.get("citations") or []) & cited_ids)
+        ]
+        if blocked:
+            report.findings = [
+                finding for finding in (report.findings or []) if finding not in blocked
+            ]
+            withheld_findings = True
+            update_warnings = list(warnings or [])
+            update_warnings.append(
+                f"{len(blocked)} material obligation card(s) were withheld from "
+                "the report: their supporting annotations were not surfaced by "
+                "retrieval in this run, so nothing entails them."
+            )
+            warnings = update_warnings
+
         verified = _verify_cite_spans(document, cited_ids)
         rendered, citations = _render_citations(verified.markdown, cited_ids)
 
-        full_content_parts: list[str] = [rendered]
+        # A CAML component marker, placed AFTER the citation post-processors
+        # have run so none of them rewrite it, and above the prose so the
+        # article opens with the structured takeaway. The embed reads the
+        # report's own ``findings``, because marker props are strings only and
+        # a card does not serialise into one.
+        full_content_parts: list[str] = []
+        if any(f.get("card") for f in report.findings or []):
+            from graphql_relay import to_global_id
+
+            full_content_parts.append(
+                "[component:research-findings reportId="
+                f"{to_global_id('ResearchReportType', report.pk)}]"
+            )
+        full_content_parts.append(rendered)
         if citations:
             sources_section = ["## Sources", ""]
             for entry in citations:
@@ -771,6 +918,11 @@ class ResearchReportService(BaseService):
             "last_progress_at",
             "modified",
         ]
+        if withheld_findings:
+            # The withheld cards are removed from the stored scratchpad too, so
+            # the report and its findings cannot disagree about what was
+            # supported.
+            update_fields.append("findings")
         # Surface a weak-citation warning when any footnote resolves to a
         # section header / structural anchor rather than a supporting passage
         # (issue #2180). Observational only — it never rewrites the prose, it
@@ -788,6 +940,53 @@ class ResearchReportService(BaseService):
             extra_warnings.append(
                 "The agent finalized with no report content; nothing survived "
                 "composition. Re-run the research task."
+            )
+
+        # A card that gives the same date for approval and effectiveness has
+        # almost always conflated them: a regulator approving an instrument is
+        # a different event from the instrument taking effect, and the gap
+        # between them is exactly the window a reader needs when asking which
+        # regime governed a given day. The fields are separate so this is
+        # visible; flagged rather than rewritten, because the two genuinely
+        # coincide often enough that refusing the card would be wrong.
+        # An obligation whose obligor is not named by any passage it cites. The
+        # card is kept — the requirement is real and losing it is worse — but a
+        # reader has to be told which attributions are inferred, because that
+        # is the one defect two independent reviewers found in the same report.
+        ungrounded = sum(
+            1
+            for finding in report.findings or []
+            if (finding.get("card") or {}).get("obligor_grounded") is False
+        )
+        if ungrounded:
+            extra_warnings.append(
+                _pluralize(
+                    ungrounded,
+                    "obligation card names a responsible party that none of its "
+                    "cited passages mention; that attribution is",
+                    "obligation cards name a responsible party that none of "
+                    "their cited passages mention; those attributions are",
+                )
+                + " inferred rather than sourced — verify who actually bears "
+                "the duty before relying on it."
+            )
+
+        conflated = 0
+        for finding in report.findings or []:
+            card = finding.get("card") or {}
+            approval = (card.get("approval_date") or "").strip()
+            if approval and approval == (card.get("effective_date") or "").strip():
+                conflated += 1
+        if conflated:
+            extra_warnings.append(
+                _pluralize(
+                    conflated,
+                    "finding card gives the same date for approval and "
+                    "effectiveness; verify it",
+                    "finding cards give the same date for approval and "
+                    "effectiveness; verify they",
+                )
+                + " against the source — approval is not effectiveness."
             )
 
         header_footnotes = [
@@ -890,6 +1089,81 @@ class ResearchReportService(BaseService):
                     from opencontractserver.documents.models import Document
 
                     report.source_documents.set(Document.objects.filter(pk__in=doc_ids))
+
+        # File the finished report in the creator's workspace. Deliberately
+        # OUTSIDE the atomic block above: the report is already COMPLETED and
+        # its provenance committed, and a research run costs minutes of model
+        # time. A failed file write must not roll that back or turn a
+        # successful run into a failed one.
+        cls._save_to_workspace(report)
+
+    # ------------------------------------------------------------------
+    # Workspace copy
+    # ------------------------------------------------------------------
+    @classmethod
+    def _workspace_markdown(cls, report: ResearchReport) -> str:
+        """Compose the file body: provenance header, then the report.
+
+        The header exists so the file explains itself when someone opens it
+        months later outside the app, where there is no surrounding UI to say
+        which corpus it came from or when it was generated.
+        """
+        generated = report.completed_at or timezone.now()
+        header = [
+            f"# {report.title}",
+            "",
+            f"- **Source corpus:** {report.corpus.title}",
+            f"- **Generated:** {generated.date().isoformat()}",
+            f"- **Report:** [/research/{report.slug}](/research/{report.slug})",
+            "",
+            "---",
+        ]
+        return "\n".join(header) + "\n\n" + (report.content or "")
+
+    @classmethod
+    def _save_to_workspace(cls, report: ResearchReport) -> None:
+        """Save the completed report to its creator's personal workspace.
+
+        Never raises. Every failure mode here — no creator, a storage error, a
+        workspace corpus that cannot be provisioned — is strictly less
+        important than the report that already succeeded, so failures are
+        logged and leave ``workspace_document`` null.
+        """
+        from opencontractserver.corpuses.services import WorkspaceService
+
+        creator = report.creator
+        if creator is None:
+            logger.warning(
+                "Research report %s has no creator; skipping workspace save.",
+                report.pk,
+            )
+            return
+
+        # The link write is INSIDE the try as well. Guarding only the
+        # ``save_markdown`` call would leave a hole in the guarantee this method
+        # exists to provide: a stale ``report`` instance or a concurrently
+        # deleted row makes ``report.save()`` raise, and that exception would
+        # propagate out of ``finalize`` into the Celery task — reporting failure
+        # for a run whose report is already committed COMPLETED.
+        try:
+            document = WorkspaceService.save_markdown(
+                user=creator,
+                title=report.title,
+                content=cls._workspace_markdown(report),
+                folder_name=RESEARCH_WORKSPACE_FOLDER,
+                # Keyed on the slug, not the title: the path is the idempotency
+                # key, so a title edit between saves would otherwise strand the
+                # old file and start a new one instead of versioning.
+                filename_stem=report.slug or f"research-report-{report.pk}",
+            )
+            report.workspace_document = document
+            report.save(update_fields=["workspace_document", "modified"])
+        except Exception:
+            logger.exception(
+                "Failed to save research report %s to its creator's workspace; "
+                "the report itself is unaffected.",
+                report.pk,
+            )
 
     # ------------------------------------------------------------------
     # Cancel
@@ -1491,6 +1765,54 @@ def _claim_is_supported(claim: str, candidates_norm: list[str]) -> bool:
         if _is_negated(claim) != any(_is_negated(cand) for cand in candidates_norm):
             return False
     return True
+
+
+def party_named_in_passages(party: str, passages: Sequence[str]) -> bool:
+    """True when at least one cited passage actually NAMES ``party``.
+
+    The narrowest useful entailment test there is, and the one an obligation
+    card most needs. Two adversarial reviewers reading the same report landed
+    on the same defect from opposite directions — "the passage supports the
+    $50,000/MW figure but does not itself specify who must post it" and "duties
+    the ILLE bears are at times assigned to the TSP". Both are one failure: the
+    card names an obligor its evidence never mentions, and word-overlap over
+    the *claim* cannot see it, because the claim scores fine on everything
+    except the one word that matters.
+
+    Deliberately lenient — ANY distinctive token of the party string appearing
+    anywhere in the union of cited passages is enough. It is not asking "does
+    this passage impose the duty on this party", which needs an entailment
+    call; it is asking "is this party in the evidence at all", which is cheap,
+    deterministic, and catches the attribution invented wholesale. Acronyms are
+    matched too (``TSP``, ``ILLE``), because a three-letter defined term is
+    usually the *most* distinctive part of a party name and is exactly what
+    ``_content_words``' length floor would otherwise drop.
+
+    Fails closed when the citations carry no usable text, matching
+    :func:`_claim_is_supported`: a citation with nothing to read is not
+    evidence, and the remedy — cite the passage that names the obligor — is the
+    same one the caller's error message asks for.
+    """
+    needles = _content_words(party)
+    # Acronyms come off the RAW string: casefolding happens after, so an
+    # all-caps run is still visible as one. Two chars is deliberate ("DSP",
+    # "IE"); a one-letter "run" is noise.
+    needles |= {
+        token.strip(_TOKEN_PUNCTUATION).casefold()
+        for token in (party or "").split()
+        if len(token.strip(_TOKEN_PUNCTUATION)) >= 2
+        and token.strip(_TOKEN_PUNCTUATION).isupper()
+    }
+    needles = {needle for needle in needles if needle}
+    if not needles:
+        # Nothing distinctive to look for (a party written entirely in
+        # stopwords). Not a judgement that it is grounded — a judgement that
+        # this check cannot make one.
+        return True
+    haystack = " ".join(_normalize_for_quote_match(p) for p in passages if p)
+    if not haystack.strip():
+        return False
+    return any(needle in haystack for needle in needles)
 
 
 def _preceding_claim(text: str) -> tuple[int, str]:

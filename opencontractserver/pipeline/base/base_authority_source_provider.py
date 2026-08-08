@@ -1,11 +1,22 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar
+from urllib.parse import urlparse
 
 from opencontractserver.enrichment.authorities import AuthoritySection
+from opencontractserver.enrichment.authority_sources import (
+    AuthoritySourceRecord,
+    host_matches_declared_sources,
+)
 from opencontractserver.pipeline.base.base_component import PipelineComponentBase
+
+if TYPE_CHECKING:
+    from opencontractserver.pipeline.base.base_authority_discovery_provider import (
+        DiscoveryCandidate,
+    )
 
 
 @dataclass
@@ -26,6 +37,12 @@ class AuthorityRequest:
     params: dict = field(default_factory=dict)  # query params (eCFR: part/section)
     citation: str | None = None  # human cite, "15 U.S.C. § 78j"
     extra: dict = field(default_factory=dict)  # provider scratch (title, volume)
+    # Durable listing-discovery context, when this request originated from a
+    # BaseAuthorityDiscoveryProvider candidate.  Existing citation-keyed
+    # providers leave this as None; listing-backed providers can use the exact
+    # discovered URL/title/extra without trying to reverse-engineer them from a
+    # canonical key.
+    discovery_candidate: DiscoveryCandidate | None = None
 
 
 class BaseAuthoritySourceProvider(PipelineComponentBase, ABC):
@@ -67,15 +84,99 @@ class BaseAuthoritySourceProvider(PipelineComponentBase, ABC):
         prefix = canonical_key.split(":", 1)[0]
         return prefix in self.supported_prefixes
 
-    def locate(self, canonical_key: str, **direct_kwargs) -> AuthorityRequest:
+    def locate(
+        self,
+        canonical_key: str,
+        *,
+        discovery_candidate: DiscoveryCandidate | None = None,
+        **direct_kwargs,
+    ) -> AuthorityRequest:
+        """Build a fetch request for *canonical_key*.
+
+        ``discovery_candidate`` is supplied by the frontier orchestrator for
+        listing-discovered documents.  It is passed to ``_locate_impl`` so a
+        provider can select the exact discovered URL, then retained on the
+        resulting request for fetch-time metadata/provenance.  The keyword is
+        optional, preserving the citation-keyed provider contract.
+        """
         merged = {**self.get_component_settings(), **direct_kwargs}
-        return self._locate_impl(canonical_key, **merged)
+        if discovery_candidate is not None:
+            merged["discovery_candidate"] = discovery_candidate
+        request = self._locate_impl(canonical_key, **merged)
+        if discovery_candidate is not None and request.discovery_candidate is None:
+            request.discovery_candidate = discovery_candidate
+        self._validate_declared_url(request.url, label="initial request")
+        return request
 
     def fetch(
         self, request: AuthorityRequest, **direct_kwargs
-    ) -> list[AuthoritySection]:
+    ) -> Sequence[AuthoritySection | AuthoritySourceRecord]:
+        # Callers may construct AuthorityRequest directly in tests/integrations,
+        # so repeat the initial-host check at the I/O boundary.
+        self._validate_declared_url(request.url, label="initial request")
         merged = {**self.get_component_settings(), **direct_kwargs}
-        return self._fetch_impl(request, **merged)
+        sections = self._fetch_impl(request, **merged)
+        source_hosts = self._declared_source_hosts()
+        if source_hosts:
+            for section in sections:
+                self._validate_declared_url(
+                    section.source_url or "",
+                    label=f"returned source for {section.key}",
+                )
+                if not isinstance(section, AuthoritySourceRecord):
+                    raise ValueError(
+                        f"{type(self).__name__} declares source_hosts and must "
+                        "return AuthoritySourceRecord with redirect provenance"
+                    )
+                final_host = section.metadata.get("final_source_host")
+                if not isinstance(final_host, str) or not final_host.strip():
+                    raise ValueError(
+                        f"{type(self).__name__} record {section.canonical_key!r} "
+                        "is missing final_source_host provenance"
+                    )
+                if not host_matches_declared_sources(final_host, source_hosts):
+                    raise ValueError(
+                        f"{type(self).__name__} redirect-final host "
+                        f"{final_host!r} is outside declared source_hosts "
+                        f"{source_hosts!r}"
+                    )
+        return sections
+
+    def verify_publisher_evidence(
+        self,
+        canonical_key: str,
+        record: AuthoritySourceRecord,
+    ) -> bool:
+        """Verify a rich record's key from publisher-originated evidence.
+
+        The default is deliberately fail-closed.  Pack providers must override
+        this method and derive ``canonical_key`` from the record's raw
+        ``publisher_evidence``; comparing it only with ``record.canonical_key``
+        would trust the request echoed by the provider and is not verification.
+        """
+
+        del canonical_key, record
+        return False
+
+    def _validate_declared_url(self, url: str, *, label: str) -> None:
+        source_hosts = self._declared_source_hosts()
+        if not source_hosts:
+            return
+        host = urlparse(url).hostname
+        if not host_matches_declared_sources(host, source_hosts):
+            raise ValueError(
+                f"{type(self).__name__} {label} host {host!r} is outside "
+                f"declared source_hosts {source_hosts!r}"
+            )
+
+    def _declared_source_hosts(self) -> tuple[str, ...]:
+        # Lazy import avoids an early pipeline-registry cycle:
+        # authority_pack_config itself uses authority_pack_dirs().
+        from opencontractserver.enrichment.services.authority_source_hosts import (
+            source_hosts_for_pack_component,
+        )
+
+        return source_hosts_for_pack_component(type(self))
 
     # ---- subclass contract --------------------------------------------------
     @abstractmethod
@@ -84,4 +185,4 @@ class BaseAuthoritySourceProvider(PipelineComponentBase, ABC):
     @abstractmethod
     def _fetch_impl(
         self, request: AuthorityRequest, **all_kwargs
-    ) -> list[AuthoritySection]: ...
+    ) -> Sequence[AuthoritySection | AuthoritySourceRecord]: ...

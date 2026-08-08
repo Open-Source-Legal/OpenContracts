@@ -105,6 +105,96 @@ async def _inject_corpus_memory(corpus_obj, config) -> None:
         )
 
 
+async def _corpus_current_through(corpus_obj) -> str | None:
+    """Latest source-retrieval date across a corpus's current documents.
+
+    Read from ``Document.custom_meta["retrieved_at"]``, which the authority
+    ingestion path stamps per record. Returns ``None`` when nothing in the
+    corpus carries one — most corpora do not, and inventing a currency date
+    would be worse than omitting it.
+    """
+    from asgiref.sync import sync_to_async
+
+    def _compute() -> str | None:
+        latest: str | None = None
+        for meta in (
+            corpus_obj._get_active_documents(include_caml=True)
+            .exclude(custom_meta=None)
+            .values_list("custom_meta", flat=True)
+            .iterator()
+        ):
+            if not isinstance(meta, dict):
+                continue
+            retrieved = meta.get("retrieved_at")
+            if isinstance(retrieved, str) and (latest is None or retrieved > latest):
+                latest = retrieved
+        return latest
+
+    try:
+        return await sync_to_async(_compute, thread_sensitive=True)()
+    except Exception:
+        logger.warning(
+            "Failed to compute corpus currency for corpus %s",
+            getattr(corpus_obj, "id", None),
+            exc_info=True,
+        )
+        return None
+
+
+async def _inject_temporal_grounding(config, corpus_obj=None) -> None:
+    """Give the agent a computed 'now' instead of letting it invent one.
+
+    Nothing else in the stack tells an agent what today's date is, so when a
+    prompt asks it to state an analysis date it answers from training data. On
+    a question about July 2026 authorities the orchestrator reported "as of
+    June 2024" — substantively right, and immediately untrustworthy. A wrong
+    analysis date discredits correct temporal reasoning.
+
+    The block below is deterministic: a timestamp taken here, and a corpus
+    currency read from stamped source metadata. It also forces apart the two
+    date pairs that temporal legal questions turn on — the date the question
+    asks about versus the date the research ran, and when an authority was
+    *approved* versus when it became *effective*.
+    """
+    from django.utils import timezone
+
+    try:
+        lines = [
+            "",
+            "",
+            "## Temporal grounding (computed — do not infer dates)",
+            "",
+            f"- Research performed at: {timezone.now().isoformat()}",
+        ]
+        if corpus_obj is not None:
+            currency = await _corpus_current_through(corpus_obj)
+            if currency:
+                lines.append(
+                    f"- Corpus current through: {currency} "
+                    "(latest source retrieval in this corpus; other corpora "
+                    "in a group may differ)"
+                )
+        lines.extend(
+            [
+                "",
+                "You have no other knowledge of the current date. Never state "
+                "or imply an analysis / 'as of' date from your own knowledge "
+                "or training data — quote 'Research performed at' when the "
+                "analysis itself needs a date, and omit an 'as of' claim "
+                "entirely rather than guessing.",
+                "",
+                "Keep these distinct and never conflate them:",
+                "- the date the question asks about vs the date the research ran;",
+                "- when an authority was APPROVED vs when it became EFFECTIVE "
+                "(an approval does not make a rule operative — cite the "
+                "effective date for what applied on a given day).",
+            ]
+        )
+        config.system_prompt = (config.system_prompt or "") + "\n".join(lines)
+    except Exception:
+        logger.warning("Failed to inject temporal grounding", exc_info=True)
+
+
 class UnifiedAgentFactory:
     """Factory that creates agents using different frameworks with a common interface."""
 
@@ -256,6 +346,10 @@ class UnifiedAgentFactory:
         # Corpus memory injection
         if corpus_obj and getattr(corpus_obj, "memory_enabled", False):
             await _inject_corpus_memory(corpus_obj, config)
+
+        # Every agent gets a computed 'now'; without it they date their own
+        # analysis from training data.
+        await _inject_temporal_grounding(config, corpus_obj)
 
         public_context = _is_public(doc_obj) or (corpus_obj and _is_public(corpus_obj))
 
@@ -462,6 +556,10 @@ class UnifiedAgentFactory:
         # Corpus memory injection
         if corpus_obj and getattr(corpus_obj, "memory_enabled", False):
             await _inject_corpus_memory(corpus_obj, config)
+
+        # Every agent gets a computed 'now'; without it they date their own
+        # analysis from training data.
+        await _inject_temporal_grounding(config, corpus_obj)
 
         public_context = _is_public(corpus_obj)
 

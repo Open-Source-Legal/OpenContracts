@@ -34,6 +34,7 @@ import {
   Timestamp,
   UserName,
 } from "./ChatMessage.styles";
+import { SaveMessageToWorkspace } from "./SaveMessageToWorkspace";
 import { SourcePreview } from "./ChatMessageSourcePreview";
 import { StreamingThoughtTicker, TimelinePreview } from "./ChatMessageTimeline";
 import { ToolUsageIndicator } from "./ChatMessageToolUsage";
@@ -238,6 +239,15 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
           )}
           {isAssistant && hasToolUsage && (
             <ToolUsageIndicator timeline={timeline} />
+          )}
+          {/* A chat answer has no durable artifact of its own — once the
+              thread scrolls away it is only recoverable by re-reading the
+              conversation. Offer to file it in the user's own workspace.
+              Only on finished assistant messages: a half-streamed answer is
+              not worth saving, and there is no messageId to save until the
+              row is persisted. */}
+          {isAssistant && isComplete && messageId && (
+            <SaveMessageToWorkspace messageId={messageId} />
           )}
         </MessageHeader>
         {/* Standard message content bubble */}

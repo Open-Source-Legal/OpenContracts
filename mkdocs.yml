@@ -107,6 +107,7 @@ nav:
       - Agent Corpus Actions: architecture/agent_corpus_actions_design.md
       - Corpus Auto-Branding (Logo + README): architecture/corpus_auto_branding.md
       - Document Versioning: architecture/document_versioning.md
+      - User Workspace Storage: architecture/user-workspace-storage.md
       - Querying Annotations on Versioned Docs: architecture/querying_annotations_on_versioned_docs.md
       - Corpus Forking: architecture/corpus_forking.md
       - Corpus Export Format Spec: architecture/corpus-export-format-spec.md

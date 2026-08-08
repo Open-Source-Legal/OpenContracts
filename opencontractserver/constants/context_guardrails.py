@@ -14,6 +14,27 @@ history to prevent context overflow when talking to LLMs.
 # "gpt-4o-mini" matches the "gpt-4o" entry).
 MODEL_CONTEXT_WINDOWS: dict[str, int] = {
     # OpenAI
+    # NOTE the ordering hazard: lookup falls back to LONGEST-PREFIX matching,
+    # so every "gpt-4*" name that is not listed here inherits the bare "gpt-4"
+    # entry below — 8_192. That silently mis-sized gpt-4.1 by ~128x: the
+    # compaction layer believed an 8K window while the model holds ~1M, so it
+    # shrank history constantly, and ``get_remaining_context_budget`` reported
+    # a nearly-exhausted budget to an agent that had barely started. Any new
+    # gpt-4-prefixed model MUST be added here explicitly.
+    # GPT-5.6 family (Sol / Terra / Luna, July 2026): 1M context, 128K max
+    # output. Listed explicitly for the same reason every gpt-4.* entry is —
+    # there is no bare "gpt-5" entry to inherit, so an unlisted name would fall
+    # to DEFAULT_CONTEXT_WINDOW (128K) and size a 1M-window model at an eighth
+    # of its real budget. Deep research multiplies this by
+    # DEEP_RESEARCH_COMPACTION_RATIO, so getting it wrong moves when a run
+    # compacts, not just a reported number.
+    "gpt-5.6-sol": 1_047_576,
+    "gpt-5.6-terra": 1_047_576,
+    "gpt-5.6-luna": 1_047_576,
+    "gpt-4.1": 1_047_576,
+    "gpt-4.1-mini": 1_047_576,
+    "gpt-4.1-nano": 1_047_576,
+    "gpt-4.5": 128_000,
     "gpt-4o": 128_000,
     "gpt-4o-mini": 128_000,
     "gpt-4-turbo": 128_000,

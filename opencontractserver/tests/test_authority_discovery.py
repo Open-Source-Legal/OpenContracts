@@ -463,6 +463,68 @@ class EmptyFetchMarksUnlocatedTests(TransactionTestCase):
         )
 
 
+class GateFailureDoesNotStrandTheFrontierRowTests(TransactionTestCase):
+    """An unexpected exception in the gate section must not wedge the row.
+
+    ``discover_and_bootstrap`` marks the row ``in_progress`` before fetching.
+    The fetch and the bootstrap each have a fault handler; the stretch between
+    them (approval fingerprint → gate → audit record) did not. Since
+    ``dequeue_queued`` only ever returns ``queued`` rows, a row left
+    ``in_progress`` is invisible to every later crawl until an admin resets it
+    by hand — and the exception also aborts the whole crawl batch on its way
+    out of ``crawl_authorities_service``.
+    """
+
+    def test_gate_exception_marks_failed_not_in_progress(self):
+        user = _create_user("gate-fault-user")
+
+        frontier_row = AuthorityFrontier.objects.create(
+            canonical_key="usc-15:2",
+            authority="usc-15",
+            jurisdiction=C.JURISDICTION_US_FEDERAL,
+            authority_type=C.AUTHORITY_TYPE_STATUTE,
+            discovery_state="queued",
+        )
+
+        with patch(
+            "opencontractserver.pipeline.authority_source_providers"
+            ".us_code_provider.USCodeAuthoritySourceProvider._load_title_xml",
+            return_value=USC_SECTION_FIXTURE,
+        ), patch(
+            "opencontractserver.enrichment.services.authority_gate_service"
+            ".AuthorityGateService.evaluate",
+            side_effect=RuntimeError("gate exploded"),
+        ):
+            result = AuthorityDiscoveryService.discover_and_bootstrap(
+                creator_id=user.id,
+                frontier_row=frontier_row,
+                make_public=True,
+                relink_async=False,
+            )
+
+        self.assertEqual(result["status"], C.DISCOVERY_STATE_FAILED, result)
+        self.assertIn("gate exploded", result["error"])
+
+        frontier_row.refresh_from_db()
+        self.assertEqual(
+            frontier_row.discovery_state,
+            C.DISCOVERY_STATE_FAILED,
+            "a gate fault must leave a terminal state, never in_progress",
+        )
+        # The failure is auditable: the handler builds its record from names
+        # bound BEFORE the guarded block (merging it with the bootstrap handler
+        # would raise UnboundLocalError on `decision` and re-strand the row).
+        self.assertTrue(frontier_row.candidate_sources)
+        last_record = frontier_row.candidate_sources[-1]
+        self.assertEqual(last_record["outcome"], C.DISCOVERY_STATE_FAILED)
+        self.assertIn("gate exploded", last_record["error"])
+
+        self.assertFalse(
+            Document.objects.filter(custom_meta__canonical_key="usc-15:2").exists(),
+            "nothing may be ingested when the gate never returned a verdict",
+        )
+
+
 class IngestedDocumentPopulatedTests(TransactionTestCase):
     """After successful ingest, frontier row's ingested_document is set."""
 

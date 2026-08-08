@@ -42,7 +42,12 @@ const GROUP_ID = "Q29ycHVzR3JvdXBUeXBlOjM=";
 const AGENT_ID = AGENT_ID_ANALYST;
 
 const LIST_VARIABLES = {
-  mine: true,
+  // ``mine: false`` — the panel lists every group the viewer can see, not just
+  // the ones they created, so a public or shared group is reachable by the
+  // collaborators it exists for. Ownership gates the row actions instead.
+  // These mocks must match the variables EXACTLY: pinned to ``mine: true`` the
+  // query silently stops matching and the panel renders its empty state.
+  mine: false,
   corporaLimit: MEMBERSHIP_FETCH_LIMIT,
 };
 
@@ -370,6 +375,51 @@ test.describe("CorpusGroupManagement", () => {
     });
     // The warning supplements the table rather than replacing it.
     await expect(page.getByTestId("corpus-group-row")).toHaveCount(1);
+  });
+
+  test("shows another user's group read-only, with no edit or delete", async ({
+    mount,
+    page,
+  }) => {
+    // The panel lists every group the viewer can SEE, so a public group owned
+    // by someone else appears here. It must be unmistakably read-only: the row
+    // actions are ownership-gated (the mutations are permission-gated
+    // server-side regardless, but offering a button that always fails is not a
+    // UI we want).
+    const foreignGroup = {
+      ...vendorGroup,
+      id: "Q29ycHVzR3JvdXBUeXBlOjk5",
+      title: "Someone Else's Bundle",
+      slug: "someone-elses-bundle",
+      creator: { id: "user-2", displayName: "other-person" },
+    };
+
+    await mount(
+      <CorpusGroupManagementTestWrapper
+        mocks={[buildListMock([vendorGroup, foreignGroup])]}
+      />
+    );
+
+    await expect(page.getByTestId("corpus-group-row")).toHaveCount(2, {
+      timeout: 20000,
+    });
+
+    // The viewer's own group keeps its actions...
+    await expect(
+      page.getByRole("button", { name: "Edit Vendor Agreements" })
+    ).toBeVisible({ timeout: 20000 });
+
+    // ...and the foreign one has none, showing the owner instead.
+    await expect(
+      page.getByRole("button", { name: "Edit Someone Else's Bundle" })
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "Delete Someone Else's Bundle" })
+    ).toHaveCount(0);
+    await expect(page.getByText("other-person")).toBeVisible({
+      timeout: 20000,
+    });
+    await expect(page.getByText("Read-only")).toHaveCount(1);
   });
 
   test("lists existing groups and creates a new one", async ({

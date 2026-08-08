@@ -453,6 +453,68 @@ class ChunkedUploadTests(TestCase):
         session = ChunkedUploadSession.objects.get(id=upload_id)
         self.assertEqual(session.status, ChunkedUploadStatus.FAILED)
 
+    # ---- corpus-export kind ----
+
+    def test_corpus_export_start_rejects_inaccessible_target(self):
+        foreign = Corpus.objects.create(
+            title="Bob target", creator=self.other_user, backend_lock=False
+        )
+        zip_bytes = _make_zip({"data.json": b"{}"})
+
+        self._login()
+        start = self._start(
+            kind="corpus_export",
+            filename="corpus.zip",
+            total_size=len(zip_bytes),
+            chunk_size=1024,
+            metadata={"corpus_id": str(foreign.id)},
+        )
+
+        self.assertEqual(start.status_code, 403, start.content)
+        self.assertIn("Corpus not found", start.json()["error"])
+        self.assertFalse(
+            ChunkedUploadSession.objects.filter(
+                creator=self.user, kind="corpus_export"
+            ).exists()
+        )
+
+    def test_corpus_export_completion_threads_existing_target(self):
+        from unittest.mock import patch
+
+        from opencontractserver.document_imports import services
+
+        zip_bytes = _make_zip({"data.json": b"{}"})
+        self._login()
+        start = self._start(
+            kind="corpus_export",
+            filename="corpus.zip",
+            total_size=len(zip_bytes),
+            chunk_size=1024,
+            metadata={"corpus_id": str(self.corpus.id)},
+        )
+        self.assertEqual(start.status_code, 201, start.content)
+        upload_id = start.json()["upload_id"]
+        self._upload_all_parts(upload_id, zip_bytes, 1024)
+
+        with patch.object(
+            services,
+            "import_corpus_export_for_user",
+            return_value=services.CorpusImportResult(
+                corpus=self.corpus,
+                error=None,
+            ),
+        ) as import_service:
+            complete = self.client.post(_complete_url(upload_id))
+
+        self.assertEqual(complete.status_code, 202, complete.content)
+        self.assertEqual(complete.json()["corpus_id"], self.corpus.id)
+        import_service.assert_called_once()
+        self.assertEqual(
+            import_service.call_args.kwargs["corpus_id"],
+            str(self.corpus.id),
+        )
+        self.assertEqual(import_service.call_args.kwargs["user"], self.user)
+
 
 class ChunkedUploadServiceUnitTests(TestCase):
     """Direct service-layer tests that don't need the HTTP transport."""

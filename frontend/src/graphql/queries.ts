@@ -338,6 +338,7 @@ export interface CollectionOverviewDocNode {
 export interface GetCorpusCollectionDocsInput {
   corpusId: string;
   limit?: number;
+  includeCaml?: boolean;
 }
 
 export interface GetCorpusCollectionDocsOutput {
@@ -348,8 +349,16 @@ export interface GetCorpusCollectionDocsOutput {
 }
 
 export const GET_CORPUS_COLLECTION_DOCS = gql`
-  query GetCorpusCollectionDocs($corpusId: String!, $limit: Int) {
-    documents(inCorpusWithId: $corpusId, first: $limit) {
+  query GetCorpusCollectionDocs(
+    $corpusId: String!
+    $limit: Int
+    $includeCaml: Boolean
+  ) {
+    documents(
+      inCorpusWithId: $corpusId
+      first: $limit
+      includeCaml: $includeCaml
+    ) {
       totalCount
       edges {
         node {
@@ -1757,6 +1766,130 @@ export const GET_AUTHORITY_NAMESPACE_DETAIL = gql`
         isProvisional
       }
       effectiveProvider
+    }
+  }
+`;
+
+// ---- Server-discovered authority packs ------------------------------------ //
+
+/**
+ * One corpus declared by an authority pack.
+ *
+ * These are server-generated summaries, not client-supplied install inputs.
+ * The pack id + fingerprint are the only values sent back when installing.
+ */
+export interface AuthorityPackCorpus {
+  /** Global corpus id once this pack corpus has been installed. */
+  corpusId?: string | null;
+  slug: string;
+  title: string;
+  approvalStatus: string;
+  installed: boolean;
+  isPublic: boolean;
+}
+
+/**
+ * A pack available from the server's configured authority-pack catalog.
+ *
+ * No filesystem path is exposed: `id` is an opaque server identifier and
+ * `fingerprint` binds an install to the exact manifest that was preflighted.
+ */
+export interface AuthorityPack {
+  id: string;
+  name: string;
+  displayName: string;
+  description: string;
+  jurisdiction: string;
+  schemaVersion: number;
+  fingerprint: string;
+  sourceHosts: string[];
+  valid: boolean;
+  validationError?: string | null;
+  approvalStatus: string;
+  canInstall: boolean;
+  canPublish: boolean;
+  installedCount: number;
+  publicCount: number;
+  totalCorpora: number;
+  installed: boolean;
+  fullyPublic: boolean;
+  corpora: AuthorityPackCorpus[];
+}
+
+export interface GetAuthorityPacksOutputs {
+  authorityPacks: AuthorityPack[];
+}
+
+export const GET_AUTHORITY_PACKS = gql`
+  query AuthorityPacks {
+    authorityPacks {
+      id
+      name
+      displayName
+      description
+      jurisdiction
+      schemaVersion
+      fingerprint
+      sourceHosts
+      valid
+      validationError
+      approvalStatus
+      canInstall
+      canPublish
+      installedCount
+      publicCount
+      totalCorpora
+      installed
+      fullyPublic
+      corpora {
+        corpusId
+        slug
+        title
+        approvalStatus
+        installed
+        isPublic
+      }
+    }
+  }
+`;
+
+export interface GetAuthorityPackPreflightInputs {
+  packId: string;
+}
+
+export interface GetAuthorityPackPreflightOutputs {
+  authorityPackPreflight: AuthorityPack | null;
+}
+
+export const GET_AUTHORITY_PACK_PREFLIGHT = gql`
+  query AuthorityPackPreflight($packId: String!) {
+    authorityPackPreflight(packId: $packId) {
+      id
+      name
+      displayName
+      description
+      jurisdiction
+      schemaVersion
+      fingerprint
+      sourceHosts
+      valid
+      validationError
+      approvalStatus
+      canInstall
+      canPublish
+      installedCount
+      publicCount
+      totalCorpora
+      installed
+      fullyPublic
+      corpora {
+        corpusId
+        slug
+        title
+        approvalStatus
+        installed
+        isPublic
+      }
     }
   }
 `;
@@ -7113,6 +7246,7 @@ export const GET_DOCUMENT_RELATIONSHIPS = gql`
 export interface GetCorpusDocumentsForTocInput {
   corpusId: string;
   first?: number;
+  includeCaml?: boolean;
 }
 
 export interface CorpusDocumentForToc {
@@ -7139,8 +7273,16 @@ export interface GetCorpusDocumentsForTocOutput {
 }
 
 export const GET_CORPUS_DOCUMENTS_FOR_TOC = gql`
-  query GetCorpusDocumentsForToc($corpusId: String!, $first: Int) {
-    documents(inCorpusWithId: $corpusId, first: $first) {
+  query GetCorpusDocumentsForToc(
+    $corpusId: String!
+    $first: Int
+    $includeCaml: Boolean
+  ) {
+    documents(
+      inCorpusWithId: $corpusId
+      first: $first
+      includeCaml: $includeCaml
+    ) {
       edges {
         node {
           id

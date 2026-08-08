@@ -375,6 +375,7 @@ def build_document_export(
             "labelled_text": [],
             "title": doc.title or "",
             "description": doc.description,
+            "custom_meta": doc.custom_meta,
             "content": extracted_document_content_json,
             "pawls_file_content": pawls_tokens,
             "page_count": doc.page_count,

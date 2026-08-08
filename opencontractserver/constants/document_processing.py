@@ -81,6 +81,12 @@ DEFAULT_MAX_CORPUS_REINGEST_SOURCE_BYTES = 256 * 1024 * 1024
 # guard entirely).
 DEFAULT_MAX_CORPUS_MANIFEST_SIZE_BYTES = 512 * 1024 * 1024
 
+# Read size (1 MB) for streaming a stored blob through a hash. Used where a
+# publisher-source member's SHA-256 is re-derived from a file already on disk
+# rather than from bytes in memory, so the digest never costs more than one
+# chunk of RAM regardless of the file's size.
+BLOB_HASH_CHUNK_BYTES = 1024 * 1024
+
 # Default path prefix for documents uploaded without explicit path
 # Used when generating document paths in corpus operations
 DEFAULT_DOCUMENT_PATH_PREFIX = "/documents"
@@ -147,13 +153,13 @@ DOCLING_PARSER_REQUEST_TIMEOUT_SECONDS = 600
 # (rule-based, deterministic PDF parser — see
 # ``opencontractserver/pipeline/parsers/warp_ingest_parser.py``). Warp-Ingest is
 # CPU-only (no GPU layout model), so a typical parse is faster than Docling, but
-# OCR of a large scanned document can still take minutes; the generous ceiling
-# mirrors Docling so big scanned uploads don't fail with ``Timeout``. Single
-# source of truth for both the Django setting default (``WARP_INGEST_PARSER_TIMEOUT``
-# in ``config/settings/base.py``, used to seed the DB pipeline settings) and the
-# ``WarpIngestParser`` dataclass field default (the runtime fallback). Still
-# overridable per-deployment via the ``WARP_INGEST_PARSER_TIMEOUT`` env var.
-WARP_INGEST_PARSER_REQUEST_TIMEOUT_SECONDS = 600
+# a large, image-heavy publisher PDF can still take well over 30 minutes. Keep
+# an hour of headroom so the client does not abandon a parser that is making
+# progress; deployments may tighten this via ``WARP_INGEST_PARSER_TIMEOUT``.
+# This is the single source of truth for both the Django setting default
+# (``WARP_INGEST_PARSER_TIMEOUT`` in ``config/settings/base.py``, used to seed
+# DB pipeline settings) and the ``WarpIngestParser`` dataclass fallback.
+WARP_INGEST_PARSER_REQUEST_TIMEOUT_SECONDS = 3600
 
 # Maximum number of embedding batch tasks to queue in a single reembed_corpus run.
 # For very large corpuses (millions of annotations), this prevents flooding the

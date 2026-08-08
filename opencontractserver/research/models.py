@@ -78,6 +78,23 @@ class ResearchReport(BaseOCModel):
         on_delete=models.CASCADE,
         related_name="research_reports",
     )
+    # Optional widening of scope. The run still has an anchor ``corpus`` (the
+    # agent, its vector store and its embedder are corpus-bound), but when a
+    # group is set the retrieval closure fans across every corpus in it that
+    # the *creator* can read — resolved at query time, so adding a corpus to
+    # the group does not retroactively widen a finished report, and removing
+    # access narrows the next run rather than leaking the last one.
+    corpus_group = models.ForeignKey(
+        "corpuses.CorpusGroup",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="research_reports",
+        help_text=(
+            "Search across this group's visible corpora instead of the anchor "
+            "corpus alone."
+        ),
+    )
     title = models.CharField(max_length=255, default="Untitled Research Report")
     slug = models.SlugField(
         max_length=160,
@@ -187,6 +204,20 @@ class ResearchReport(BaseOCModel):
         blank=True,
         related_name="triggered_research_reports",
         help_text="User chat message that triggered this run, if any",
+    )
+    workspace_document = models.ForeignKey(
+        "documents.Document",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="research_report_saves",
+        help_text=(
+            "Markdown copy of this report filed in the creator's personal "
+            "'My Documents' workspace. A convenience link, not the idempotency "
+            "key — the save is keyed by path, so re-finalizing versions the "
+            "same file in place. Null when the report has not completed, or "
+            "when the (deliberately non-fatal) workspace write failed."
+        ),
     )
 
     objects = ResearchReportManager()  # type: ignore[misc]

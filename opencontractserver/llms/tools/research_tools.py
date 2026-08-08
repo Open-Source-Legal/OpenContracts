@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 async def astart_deep_research(
     task_description: str,
     title: str | None = None,
+    corpus_group_slug: str | None = None,
     *,
     corpus_id: int,
     user_id: int,
@@ -48,6 +49,13 @@ async def astart_deep_research(
             agent's instructions.
         title: Optional short title for the report. Defaults to a
             slug derived from the task.
+        corpus_group_slug: Optional Corpus Group to search across instead of
+            this corpus alone. Pass it when the question spans corpora — the
+            statute in one, the rule in another, the implementing notices in a
+            third. The group must be visible to the requesting user; an
+            invisible one is refused rather than quietly narrowed to the
+            anchor corpus, which would return a report that looks group-wide
+            and is not.
     """
     user, corpus = await sync_to_async(_load_user_and_corpus)(user_id, corpus_id)
 
@@ -56,6 +64,17 @@ async def astart_deep_research(
             "Error: could not start research — the corpus or user could not "
             "be resolved. Ask the user to retry from inside the corpus chat."
         )
+
+    corpus_group = None
+    if corpus_group_slug:
+        corpus_group = await sync_to_async(_load_group)(corpus_group_slug, user)
+        if corpus_group is None:
+            # Deliberately the SAME message for "does not exist" and "exists
+            # but is not visible to this user" — see ``_load_group``.
+            return (
+                f"Error: no corpus group named {corpus_group_slug!r} is "
+                "accessible. Start without it, or check the group's slug."
+            )
 
     conversation = None
     originating_message = None
@@ -72,10 +91,18 @@ async def astart_deep_research(
             title=title,
             conversation=conversation,
             originating_message=originating_message,
+            corpus_group=corpus_group,
         )
     except ConcurrentResearchInProgress as exc:
         return f"Could not start: {exc}"
     except PermissionError as exc:
+        # DELIBERATE departure from the "security exceptions propagate" rule in
+        # CLAUDE.md's Agent Tool Architecture. The check itself is enforced (and
+        # stays enforced) in ``ResearchReportService.start``; this only decides
+        # what the *chat* sees. Propagating kills the whole turn, so a user who
+        # names a corpus group they cannot read gets a dead conversation instead
+        # of an answer. Returning the refusal as text lets the agent say so and
+        # carry on. Nothing is granted here — start() already refused.
         return f"Could not start: {exc}"
 
     return (
@@ -84,6 +111,27 @@ async def astart_deep_research(
         "back in this chat) when the report is ready. Typical wall-clock is "
         "5-30 minutes."
     )
+
+
+def _load_group(slug: str, user):
+    """Resolve a group by slug, IDOR-uniformly.
+
+    Routed through ``CorpusGroupService.get_group_by_ref`` — the same entry
+    point the sibling ``core_tools/multi_corpus.py::_resolve_group_corpora``
+    uses — rather than an unfiltered ``CorpusGroup.objects.filter(slug=...)``.
+
+    The unfiltered lookup was not an access hole (``ResearchReportService.start``
+    still refused the run), but it made "no such group" and "a group you cannot
+    see" distinguishable to the caller: the former returned this tool's
+    not-found string, the latter fell through to start()'s ``PermissionError``
+    text. That difference is a slug-enumeration oracle over every group in the
+    install, which is precisely what the service method exists to close — and
+    reaching the model inline also broke CLAUDE.md's services-layer rule.
+    ``get_group_by_ref`` returns ``None`` uniformly for both cases.
+    """
+    from opencontractserver.corpuses.services import CorpusGroupService
+
+    return CorpusGroupService.get_group_by_ref(user, slug)
 
 
 def _load_user_and_corpus(user_id: int, corpus_id: int):

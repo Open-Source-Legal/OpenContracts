@@ -58,7 +58,9 @@ async function dumpPageCoverage(page: import("@playwright/test").Page) {
  * (cross-origin from the Vite dev server), so we need to handle CSRF.
  */
 const DJANGO_URL =
-  process.env.REACT_APP_API_ROOT_URL || "http://127.0.0.1:8000";
+  process.env.E2E_DJANGO_URL ||
+  process.env.REACT_APP_API_ROOT_URL ||
+  "http://127.0.0.1:8000";
 
 /**
  * Fetch a CSRF token from Django by hitting /admin/login/ (always
@@ -89,20 +91,32 @@ export const test = baseTest.extend({
     });
 
     // When Vite serves the frontend (not Django), the browser never gets
-    // a csrftoken cookie. Apollo sends GraphQL requests directly to
-    // Django (cross-origin), so session-auth requests fail with 403.
+    // a csrftoken cookie. Frontend requests go directly to Django
+    // (cross-origin), so session-auth requests fail with 403.
     //
     // route.continue() with modified headers does NOT work for cross-
     // origin requests in Playwright. Instead, we intercept, manually
-    // fetch with CSRF headers via Node fetch(), and fulfill the response.
+    // fetch with CSRF headers, and fulfill the response.
     const csrfToken = await fetchCsrfToken();
-    // Playwright's route.continue() silently drops modified headers for
-    // cross-origin requests (page on :5173, Django on :8000). Work around
-    // this by intercepting ALL GraphQL requests and re-issuing them via
-    // Node fetch() with the correct headers.
-    await page.route(`${DJANGO_URL}/graphql/`, async (route) => {
+    // Import requests and every Bearer-authenticated request use Chromium's
+    // real network stack so bodies, preflights, and responses reach Django
+    // unchanged. The isolated test settings trust this E2E origin explicitly.
+    await page.route(`${DJANGO_URL}/**`, async (route) => {
       const request = route.request();
+      if (new URL(request.url()).pathname.startsWith("/api/imports/")) {
+        await route.continue();
+        return;
+      }
+      // Once the UI has a Bearer token, use Chromium's native network stack.
+      // The isolated test settings trust E2E_FRONTEND_ORIGIN, so authenticated
+      // GraphQL mutations/refetches need neither CSRF injection nor proxying.
+      // Keeping them native also preserves normal browser response delivery.
+      if (request.headers()["authorization"]?.startsWith("Bearer ")) {
+        await route.continue();
+        return;
+      }
       const headers = { ...request.headers() };
+      const browserOrigin = headers.origin;
 
       // Inject CSRF cookie+header for unauthenticated requests.
       // Authenticated requests (Bearer token) skip CSRF in Django,
@@ -111,22 +125,51 @@ export const test = baseTest.extend({
         headers["x-csrftoken"] = csrfToken;
         headers["cookie"] = `csrftoken=${csrfToken}`;
       }
+      // The isolated authority E2E intentionally runs Vite on a non-default
+      // port. Present Django with the standard trusted test origin; the
+      // fulfilled browser response below still advertises the real origin.
+      if (browserOrigin) {
+        headers.origin = "http://127.0.0.1:5173";
+      }
 
       try {
-        const response = await fetch(request.url(), {
-          method: request.method(),
-          headers,
-          body: request.postData(),
-        });
-        const body = await response.text();
-        await route.fulfill({
-          status: response.status,
-          contentType:
-            response.headers.get("content-type") || "application/json",
-          body,
-        });
-      } catch {
-        await route.abort();
+        const response = await route.fetch({ headers });
+        const responseHeaders = response.headers();
+        if (browserOrigin) {
+          responseHeaders["access-control-allow-origin"] = browserOrigin;
+          responseHeaders["access-control-allow-credentials"] = "true";
+          responseHeaders["vary"] = [responseHeaders.vary, "Origin"]
+            .filter(Boolean)
+            .join(", ");
+          if (request.method() === "OPTIONS") {
+            responseHeaders["access-control-allow-methods"] =
+              headers["access-control-request-method"] ||
+              "GET, POST, PUT, PATCH, DELETE, OPTIONS";
+            responseHeaders["access-control-allow-headers"] =
+              headers["access-control-request-headers"] ||
+              "authorization, content-type, x-csrftoken";
+          }
+        }
+        await route.fulfill({ response, headers: responseHeaders });
+      } catch (error) {
+        // A failed proxy fulfillment otherwise appears in the app only as
+        // "Failed to fetch", which can mask a mutation that Django already
+        // committed. Surface the actual Playwright error to the test runner.
+        // eslint-disable-next-line no-console
+        console.error(
+          `[e2e/proxy] ${request.method()} ${request.url()} failed:`,
+          error
+        );
+        try {
+          await route.abort();
+        } catch (abortError) {
+          // eslint-disable-next-line no-console
+          console.error(
+            `[e2e/proxy] abort after failure also failed for ${request.url()}:`,
+            abortError
+          );
+        }
+        throw error;
       }
     });
 

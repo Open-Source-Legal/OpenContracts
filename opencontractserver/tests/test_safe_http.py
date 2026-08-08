@@ -137,6 +137,38 @@ class TestHostOnAllowlist:
     def test_trailing_dot_stripped(self):
         assert host_on_allowlist("uscode.house.gov.")
 
+    def test_suffix_match_requires_a_dot_boundary(self):
+        # The subdomain check is "host is a DOTTED CHILD of an allowlisted
+        # domain", not "host ends with the allowlist string" — a naive
+        # ``endswith`` would let "notercot.com" satisfy an "ercot.com" entry
+        # because the substring matches without a "." between them.
+        allowlist = frozenset({"ercot.com"})
+        assert host_on_allowlist("ercot.com", allowlist=allowlist)
+        assert host_on_allowlist("www.ercot.com", allowlist=allowlist)
+        assert not host_on_allowlist("notercot.com", allowlist=allowlist)
+        assert not host_on_allowlist("fakeercot.com", allowlist=allowlist)
+
+
+class TestAdditiveCACertificates:
+    def test_builds_system_context_and_loads_each_pem(self):
+        context = MagicMock()
+        with patch("ssl.create_default_context", return_value=context) as create:
+            result = _safe_http_module._extra_ca_ssl_context(
+                ("first audited PEM", "second audited PEM")
+            )
+
+        assert result is context
+        create.assert_called_once()
+        assert [
+            call.kwargs["cadata"]
+            for call in context.load_verify_locations.call_args_list
+        ] == ["first audited PEM", "second audited PEM"]
+
+    @pytest.mark.parametrize("value", ["", "   ", None])
+    def test_rejects_empty_or_non_string_certificate(self, value):
+        with pytest.raises(ValueError, match="non-empty PEM text"):
+            _safe_http_module._extra_ca_ssl_context((value,))
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # validate_url — scheme rejection

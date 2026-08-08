@@ -32,6 +32,7 @@ from config.graphql import authority_mapping_mutations as _authority_mapping_mut
 from config.graphql import (
     authority_namespace_mutations as _authority_namespace_mutations,
 )
+from config.graphql import authority_pack_api as _authority_pack_api
 from config.graphql import badge_mutations as _badge_mutations
 from config.graphql import base_types as _base_types
 from config.graphql import conversation_mutations as _conversation_mutations
@@ -88,6 +89,7 @@ _query_ns: dict[str, Any] = {}
 _query_ns.update(_action_queries.QUERY_FIELDS)
 _query_ns.update(_annotation_queries.QUERY_FIELDS)
 _query_ns.update(_annotation_types.QUERY_FIELDS)
+_query_ns.update(_authority_pack_api.QUERY_FIELDS)
 _query_ns.update(_conversation_queries.QUERY_FIELDS)
 _query_ns.update(_conversation_types.QUERY_FIELDS)
 _query_ns.update(_corpus_queries.QUERY_FIELDS)
@@ -112,6 +114,7 @@ _mutation_ns.update(_annotation_mutations.MUTATION_FIELDS)
 _mutation_ns.update(_authority_frontier_mutations.MUTATION_FIELDS)
 _mutation_ns.update(_authority_mapping_mutations.MUTATION_FIELDS)
 _mutation_ns.update(_authority_namespace_mutations.MUTATION_FIELDS)
+_mutation_ns.update(_authority_pack_api.MUTATION_FIELDS)
 _mutation_ns.update(_badge_mutations.MUTATION_FIELDS)
 _mutation_ns.update(_conversation_mutations.MUTATION_FIELDS)
 _mutation_ns.update(_corpus_category_mutations.MUTATION_FIELDS)
@@ -151,6 +154,7 @@ _extra_type_modules = [
     _authority_frontier_mutations,
     _authority_mapping_mutations,
     _authority_namespace_mutations,
+    _authority_pack_api,
     _badge_mutations,
     _base_types,
     _conversation_mutations,

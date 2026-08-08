@@ -210,10 +210,32 @@ def build_delegation_tool(
 
     snake_slug = _slug_to_snake_case(agent.slug or "")
     tool_name = f"delegate_to_{snake_slug}"
+    # The description has to carry the ROUTING INTENT, not just describe the
+    # target agent. This tool only exists on turns where the user explicitly
+    # @-mentioned that agent, but the conductor cannot see that: it just sees
+    # one more tool alongside its own retrieval tools, which usually look
+    # applicable enough to answer with. Describing the agent alone therefore
+    # produces silent non-routing — the conductor answers from its own corpus,
+    # the mention is ignored, and the reply looks just as authoritative as a
+    # delegated one. (Observed on the GridDossier group orchestrator: a plain
+    # "@orchestrator, using the X group, what ...?" was answered from the
+    # current corpus with no delegation at all.) Stating the mention up front
+    # makes the mention behave like the routing instruction users read it as.
+    delegation_directive = (
+        f"Answer as @{agent.slug} by calling this tool. The user @-mentioned "
+        f"@{agent.slug} in this message, and calling this tool IS how you "
+        f"respond to that. @{agent.slug} is a separate agent with its own "
+        "instructions, tools and corpus access, including material outside "
+        "this corpus; this tool runs it and returns its answer to you. Do not "
+        "answer on its behalf, do not tell the user to wait for it or ask "
+        "which they would prefer, and do not say you lack access to what it "
+        "can reach — call this tool instead."
+    )
     description = (
-        agent.description
+        f"{delegation_directive} @{agent.slug} describes itself as: "
+        f"{agent.description}"
         if agent.description
-        else f"Delegate this turn to @{agent.slug}."
+        else delegation_directive
     )
 
     # Capture the agent id; we re-fetch on each invocation against the user's

@@ -6,8 +6,9 @@ and enforced through the permission model:
 * **nodes** — documents (filing primaries, exhibits, statute sections) plus
   "ghost" nodes for law citations with no *visible* target document.
 * **edges** — resolved LAW links (possibly cross-corpus), EXTERNAL law
-  citations (rolled up to their section root), and ``DocumentRelationship``
-  rows — weighted by mention count.
+  citations (rolled up to their section root), ``DocumentRelationship`` rows,
+  and verified canonical-key ``AuthorityRelationship`` rows — weighted by
+  mention count.
 
 Visibility rules:
 
@@ -29,12 +30,15 @@ or ``("key", canonical_key)`` tuples.
 
 from __future__ import annotations
 
-from collections import Counter
+from collections import Counter, defaultdict
 from typing import Any
 
-from opencontractserver.annotations.models import AuthorityFrontier
+from opencontractserver.annotations.models import (
+    AuthorityFrontier,
+    AuthorityRelationship,
+)
 from opencontractserver.corpuses.models import Corpus
-from opencontractserver.documents.models import Document
+from opencontractserver.documents.models import Document, DocumentPath
 from opencontractserver.documents.services import DocumentRelationshipService
 from opencontractserver.enrichment import constants as C
 from opencontractserver.enrichment.services.corpus_reference_service import (
@@ -90,11 +94,123 @@ class GovernanceGraphService:
                 user, corpus_id=corpus_pk, request=request
             ).values_list("source_document_id", "target_document_id")
         )
+        # Resolve canonical authority edges inside this request rather than
+        # storing global Document caches on AuthorityRelationship. The same
+        # pack may be installed into independently owned corpora, so key ->
+        # Document resolution must be scoped by current paths and visibility.
+        authority_source_rows = list(
+            BaseService.filter_visible(Document, user, request=request)
+            .filter(
+                path_records__corpus_id=corpus_pk,
+                path_records__is_current=True,
+                path_records__is_deleted=False,
+                custom_meta__canonical_key__isnull=False,
+            )
+            .values_list("id", "custom_meta")
+            .distinct()
+        )
+        authority_source_docs_by_key: dict[str, list[int]] = defaultdict(list)
+        for source_document_id, source_meta in authority_source_rows:
+            if not isinstance(source_meta, dict):
+                continue
+            source_key = source_meta.get("canonical_key")
+            if isinstance(source_key, str) and source_key:
+                authority_source_docs_by_key[source_key].append(source_document_id)
+
+        # Verification is the production-graph admission gate. Query only rows
+        # whose source key has a visible current document in this corpus.
+        authority_rel_rows = list(
+            AuthorityRelationship.objects.filter(
+                verified=True,
+                source_key__in=authority_source_docs_by_key.keys(),
+            )
+            .exclude(target_key="")
+            .values_list(
+                "source_key",
+                "target_key",
+                "relationship_type",
+            )
+        )
+
+        # Batch-resolve every target key to visible documents with active paths.
+        # Corpus visibility is checked separately because Document visibility
+        # alone must never reveal a target living only in an unreadable corpus.
+        authority_target_keys = {
+            target_key for _source_key, target_key, _rel_type in authority_rel_rows
+        }
+        visible_target_rows = list(
+            BaseService.filter_visible(Document, user, request=request)
+            .filter(
+                custom_meta__canonical_key__in=authority_target_keys,
+                path_records__is_current=True,
+                path_records__is_deleted=False,
+            )
+            .values_list("id", "custom_meta")
+            .distinct()
+        )
+        target_key_by_document: dict[int, str] = {}
+        for target_document_id, target_meta in visible_target_rows:
+            if not isinstance(target_meta, dict):
+                continue
+            target_key = target_meta.get("canonical_key")
+            if isinstance(target_key, str) and target_key in authority_target_keys:
+                target_key_by_document[target_document_id] = target_key
+
+        target_path_corpora: dict[int, set[int]] = defaultdict(set)
+        if target_key_by_document:
+            for target_document_id, target_corpus_id in DocumentPath.objects.filter(
+                document_id__in=target_key_by_document,
+                is_current=True,
+                is_deleted=False,
+            ).values_list("document_id", "corpus_id"):
+                target_path_corpora[target_document_id].add(target_corpus_id)
+
+        authority_target_corpus_ids = {
+            target_corpus_id
+            for corpus_ids in target_path_corpora.values()
+            for target_corpus_id in corpus_ids
+        }
+        visible_authority_target_corpus_ids = {corpus.id} | set(
+            BaseService.filter_visible(Corpus, user, request=request)
+            .filter(id__in=authority_target_corpus_ids - {corpus.id})
+            .values_list("id", flat=True)
+        )
+
+        target_candidates_by_key: dict[str, list[tuple[int, int]]] = defaultdict(list)
+        for target_document_id, target_key in target_key_by_document.items():
+            for target_corpus_id in target_path_corpora.get(target_document_id, set()):
+                if target_corpus_id in visible_authority_target_corpus_ids:
+                    target_candidates_by_key[target_key].append(
+                        (target_document_id, target_corpus_id)
+                    )
+        authority_target_by_key = {
+            target_key: min(
+                candidates,
+                # Prefer a copy installed in the requested corpus, then pick a
+                # stable readable corpus/document pair.
+                key=lambda candidate: (
+                    candidate[1] != corpus_pk,
+                    candidate[1],
+                    candidate[0],
+                ),
+            )
+            for target_key, candidates in target_candidates_by_key.items()
+            if candidates
+        }
 
         # Every document surfaced as a node must itself be READ-visible.
         # (Relationship endpoints already are — the service enforces it.)
         candidate_doc_ids = {src for src, _t, _c, _k in ref_rows if src} | {
             tgt for _s, tgt, _c, _k in ref_rows if tgt
+        }
+        candidate_doc_ids |= {
+            source_document_id
+            for source_document_ids in authority_source_docs_by_key.values()
+            for source_document_id in source_document_ids
+        }
+        candidate_doc_ids |= {
+            target_document_id
+            for target_document_id, _target_corpus_id in authority_target_by_key.values()
         }
         visible_doc_ids = set(
             BaseService.filter_visible(Document, user, request=request)
@@ -130,6 +246,32 @@ class GovernanceGraphService:
             edge_weight[(("doc", src), ("doc", tgt), C.GRAPH_EDGE_DOCUMENT)] += 1
             doc_corpus.setdefault(src, corpus_pk)
             doc_corpus.setdefault(tgt, corpus_pk)
+
+        for source_key, target_key, relationship_type in authority_rel_rows:
+            target = authority_target_by_key.get(target_key)
+            for src in authority_source_docs_by_key.get(source_key, []):
+                if src not in visible_doc_ids:
+                    continue  # defensive: source visibility was already scoped
+                doc_corpus.setdefault(src, corpus_pk)
+                if target is not None:
+                    target_document_id, target_corpus_id = target
+                    if target_document_id == src:
+                        continue
+                    edge_weight[
+                        (
+                            ("doc", src),
+                            ("doc", target_document_id),
+                            relationship_type,
+                        )
+                    ] += 1
+                    doc_corpus.setdefault(target_document_id, target_corpus_id)
+                    target_corpus_ids.add(target_corpus_id)
+                else:
+                    # No visible current (Document, Corpus) pair for the key:
+                    # retain the verified relationship as a key-only ghost.
+                    edge_weight[
+                        (("doc", src), ("key", target_key), relationship_type)
+                    ] += 1
 
         degree: Counter = Counter()
         for (src_ep, tgt_ep, _t), w in edge_weight.items():

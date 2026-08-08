@@ -46,6 +46,60 @@ class AuthorityFrontierService(BaseService):
     """Manage the durable authority discovery queue."""
 
     @classmethod
+    def discovery_identities_for_provider(cls, discovery_provider: str) -> set[str]:
+        """Return candidate identities durably enumerated by one provider.
+
+        ``candidate_sources`` is the existing append-only frontier provenance
+        rail, so it also serves as the deterministic discovery cursor: capped
+        reruns exclude exact observations and continue through stable listing
+        order without introducing another queue/model.  A changed URL, title,
+        or provider-owned listing metadata value for the same canonical key has
+        a different identity and remains reachable.
+        """
+
+        from opencontractserver.pipeline.base.base_authority_discovery_provider import (
+            DiscoveryCandidate,
+            discovery_candidate_identity,
+        )
+
+        identities: set[str] = set()
+        for canonical_key, candidate_sources in AuthorityFrontier.objects.values_list(
+            "canonical_key", "candidate_sources"
+        ):
+            for record in candidate_sources or []:
+                if (
+                    not isinstance(record, Mapping)
+                    or record.get("discovery_provider") != discovery_provider
+                ):
+                    continue
+                url = record.get("url")
+                if not isinstance(url, str) or not url:
+                    continue
+                extra = record.get("extra")
+                identities.add(
+                    discovery_candidate_identity(
+                        DiscoveryCandidate(
+                            canonical_key=canonical_key,
+                            url=url,
+                            title=(
+                                record.get("title")
+                                if isinstance(record.get("title"), str)
+                                else None
+                            ),
+                            extra=(dict(extra) if isinstance(extra, Mapping) else {}),
+                        ),
+                        discovery_provider=discovery_provider,
+                    )
+                )
+                # Keep accepting a previously stored identity during rolling
+                # upgrades, while the reconstruction above upgrades legacy v1
+                # observations to the current title/extra-bound identity.
+                stored_identity = record.get("discovery_id")
+                if isinstance(stored_identity, str) and len(stored_identity) == 64:
+                    identities.add(stored_identity)
+        return identities
+
+    @classmethod
     def seed_from_wanted_authorities(cls, user, corpus_id: int | None = None) -> dict:
         """Upsert one AuthorityFrontier row per wanted section-root key.
 
@@ -281,18 +335,20 @@ class AuthorityFrontierService(BaseService):
         Phase 2 (issue #2054): a ``BaseAuthorityDiscoveryProvider`` lists
         documents nobody has cited yet (candidate = canonical_key + url +
         minimal metadata); this is the ONE place that turns those candidates
-        into durable frontier rows, mirroring ``seed_child_keys``'s idempotency
-        contract exactly: a ``canonical_key`` that already has a row (at ANY
-        depth/discovery_state) is SKIPPED entirely — re-running the same
-        discovery crawl never creates duplicates and never resets an in-flight
-        row (e.g. one already ``in_progress`` or ``ingested``).
+        into durable frontier rows.
 
         Freshly created rows are seeded at ``depth=0`` (a discovery-sourced
         candidate is a fresh root, not a hop from an existing frontier row),
         ``mention_count=1`` (parity with ``seed_child_keys``'s floor demand for a
-        freshly-seen key), and carry the candidate's url/title as the FIRST
-        ``candidate_sources`` audit-trail entry — set once, at creation, never
-        rewritten by a later discovery pass over the same key.
+        freshly-seen key), and carry the candidate's url/title/extra in the
+        append-only ``candidate_sources`` audit trail.  A key may already exist
+        because a filing cited it before its publisher listing was crawled.  In
+        that case a new/different listing candidate is appended under a row lock
+        without changing state, provider, demand counts, errors, or the ingested
+        document; an exact rediscovery is a no-op.  Persisting ``extra`` is
+        essential: the fetch provider later receives this exact
+        candidate context, so listing-only document URLs and attachment identity
+        survive the discovery -> frontier -> locate hand-off.
 
         Does NOT stamp ``AuthorityFrontier.provider``: that field names a
         registered ``BaseAuthoritySourceProvider`` (the citation-keyed FETCH
@@ -301,33 +357,94 @@ class AuthorityFrontierService(BaseService):
         orchestration picks a source provider via its normal ``_provider_for``
         routing, exactly like ``seed_child_keys`` / ``seed_from_wanted_authorities``.
         """
-        created = skipped = 0
+        created = appended = skipped = 0
         queued_keys: set[str] = set()
+        from opencontractserver.pipeline.base.base_authority_discovery_provider import (
+            DiscoveryCandidate,
+            discovery_candidate_identity,
+        )
+
         for candidate in candidates:
             key = candidate.canonical_key
             queued_keys.add(key)
             authority = key.split(":", 1)[0]
             juris, atype = C.classify_prefix(authority)
-            _, was_created = AuthorityFrontier.objects.get_or_create(
-                canonical_key=key,
-                defaults={
-                    "authority": authority,
-                    "jurisdiction": juris,
-                    "authority_type": atype,
-                    "mention_count": 1,
-                    "candidate_sources": [
-                        {
-                            "discovery_provider": discovery_provider,
-                            "url": candidate.url,
-                            "title": candidate.title,
-                        }
-                    ],
-                },
-            )
+            candidate_source: dict[str, object] = {
+                "discovery_provider": discovery_provider,
+                "discovery_id": discovery_candidate_identity(
+                    candidate,
+                    discovery_provider=discovery_provider,
+                ),
+                "url": candidate.url,
+                "title": candidate.title,
+            }
+            # Preserve the historical sparse shape for candidates that carry no
+            # provider-specific metadata, while round-tripping every non-empty
+            # mapping for listing-backed source providers.
+            if candidate.extra:
+                candidate_source["extra"] = dict(candidate.extra)
+
+            with transaction.atomic():
+                locked = AuthorityFrontier.objects.select_for_update()
+                row, was_created = locked.get_or_create(
+                    canonical_key=key,
+                    defaults={
+                        "authority": authority,
+                        "jurisdiction": juris,
+                        "authority_type": atype,
+                        "mention_count": 1,
+                        "candidate_sources": [candidate_source],
+                    },
+                )
+                was_appended = False
+                if not was_created:
+                    prior_sources = list(row.candidate_sources or [])
+                    prior_identities: set[str] = set()
+                    for prior in prior_sources:
+                        if not isinstance(prior, Mapping):
+                            continue
+                        if prior.get(
+                            "discovery_provider"
+                        ) != discovery_provider or not isinstance(
+                            prior.get("url"), str
+                        ):
+                            continue
+                        extra = prior.get("extra")
+                        prior_identities.add(
+                            discovery_candidate_identity(
+                                DiscoveryCandidate(
+                                    canonical_key=key,
+                                    url=str(prior["url"]),
+                                    title=(
+                                        prior.get("title")
+                                        if isinstance(prior.get("title"), str)
+                                        else None
+                                    ),
+                                    extra=(
+                                        dict(extra)
+                                        if isinstance(extra, Mapping)
+                                        else {}
+                                    ),
+                                ),
+                                discovery_provider=discovery_provider,
+                            )
+                        )
+                        prior_identity = prior.get("discovery_id")
+                        if (
+                            isinstance(prior_identity, str)
+                            and len(prior_identity) == 64
+                        ):
+                            prior_identities.add(prior_identity)
+                    if candidate_source["discovery_id"] not in prior_identities:
+                        row.candidate_sources = [*prior_sources, candidate_source]
+                        row.save(update_fields=["candidate_sources", "modified"])
+                        was_appended = True
             created += int(was_created)
-            skipped += int(not was_created)
+            appended += int(was_appended)
+            skipped += int(not was_created and not was_appended)
         return {
             "discovery_created": created,
+            "discovery_appended": appended,
             "discovery_skipped": skipped,
             # Consumer (discover_authority_candidates command) only needs
             # containment; skip the sort (mirrors seed_child_keys).
@@ -540,7 +657,13 @@ class AuthorityFrontierService(BaseService):
 
     @classmethod
     def approve(cls, user, *, pk) -> FrontierActionResult:
-        """Approve a ``pending_approval`` candidate so it re-enters the queue."""
+        """Durably approve a ``pending_approval`` candidate and re-queue it.
+
+        Approval is copied from the latest pending-attempt fingerprint, binding
+        it to that provider response's source, evidence, rights, and exact bytes.
+        A changed/reseeded response therefore parks for a new approval.  Both
+        attempt and approval remain in the append-only candidate_sources trail.
+        """
         row = cls._get_admin_row(user, pk)
         if row is None:
             return FrontierActionResult(False, DENIED)
@@ -548,7 +671,41 @@ class AuthorityFrontierService(BaseService):
             return FrontierActionResult(
                 False, "Only pending-approval rows can be approved."
             )
-        cls.mark(row, C.DISCOVERY_STATE_QUEUED, clear_error=True)
+        pending_attempt = next(
+            (
+                record
+                for record in reversed(list(row.candidate_sources or []))
+                if isinstance(record, Mapping)
+                and record.get("outcome") == C.DISCOVERY_STATE_PENDING_APPROVAL
+                and record.get("provider") == row.provider
+            ),
+            None,
+        )
+        approval_fingerprint = (
+            pending_attempt.get("approval_fingerprint")
+            if pending_attempt is not None
+            else None
+        )
+        if not isinstance(approval_fingerprint, str) or len(approval_fingerprint) != 64:
+            return FrontierActionResult(
+                False,
+                "Pending attempt has no response approval fingerprint; re-run "
+                "discovery before approving.",
+            )
+        approved_at = timezone.now().isoformat()
+        cls.mark(
+            row,
+            C.DISCOVERY_STATE_QUEUED,
+            clear_error=True,
+            candidate_record={
+                "provider": row.provider,
+                "outcome": "approved",
+                "approval_scope": "authority-ingestion",
+                "approval_fingerprint": approval_fingerprint,
+                "approved_by": user.pk,
+                "approved_at": approved_at,
+            },
+        )
         cls.log_action("Approved", row, user)
         return FrontierActionResult(True, obj=row)
 

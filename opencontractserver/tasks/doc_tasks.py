@@ -1500,8 +1500,7 @@ def remap_pending_annotations(
     # to finalize its corpus import. Two-stage guard: the ``is not None`` filter
     # short-circuits ordinary single-doc uploads (run_id is NULL) before any
     # query, and ``_maybe_finalize_corpus_import`` itself is a no-op when no
-    # ``PendingCorpusImport`` coordination row exists for the run (a
-    # relationship-free reingest run mints a run id but no row).
+    # ``PendingCorpusImport`` coordination row exists for the run.
     _trigger_corpus_import_finalize(pending_rows)
 
     if len(per_row) == 1:
@@ -1931,8 +1930,8 @@ def _maybe_finalize_corpus_import(run_id: str | uuid.UUID) -> None:
     exactly once — robust to the post-loop / last-remap race and to Celery
     at-least-once redelivery.
 
-    A no-op when no coordination row exists for ``run_id`` (relationship-free
-    runs mint a run id but no row), when the row is not yet ``READY`` (still
+    A no-op when no coordination row exists for ``run_id`` (for example an
+    unknown/stale caller), when the row is not yet ``READY`` (still
     enumerating), when another observer already claimed it (status moved past
     ``READY``), or when ``PENDING`` rows for the run still remain.
     """

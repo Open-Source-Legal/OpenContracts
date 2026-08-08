@@ -757,6 +757,7 @@ there are no inline permission checks:
 | Post message in thread | READ on conversation | `CreateThreadMessageMutation` → `get_for_user_or_none(Conversation, …)` |
 | Reply to message | READ on conversation | `ReplyToMessageMutation` → `BaseService.require_permission` |
 | Vote on message/thread | READ on conversation | Visibility-based (`BaseService.get_or_none` in `voting_mutations.py`) |
+| Save message to My Documents | READ on conversation | Visibility-based (`SaveMessageToWorkspaceMutation` → `BaseService.filter_visible`). Copies a message you can already read into **your own** personal corpus, so it is strictly weaker than editing; the author never gains access to the saver's private copy. |
 | Edit own message | Creator OR moderator | `UpdateMessage` → `BaseService.filter_visible` + `BaseService.user_has` |
 | Delete own message | Creator OR moderator | `DeleteMessage` → `get_for_user_or_none(ChatMessage, …)` + `BaseService.user_has` |
 | Moderate thread (lock/pin/delete) | See below | `moderation_mutations.py` → `conversation.can_moderate(user)` |

@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { useMutation } from "@apollo/client";
+import { useMutation, useQuery } from "@apollo/client";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 import {
@@ -9,6 +9,7 @@ import {
   ModalFooter,
   Button,
   Input,
+  Select,
   Textarea,
 } from "@os-legal/ui";
 import { Sparkles, X } from "lucide-react";
@@ -18,6 +19,11 @@ import {
   StartResearchReportInput,
   StartResearchReportOutput,
 } from "../../../graphql/mutations";
+import {
+  GET_CORPUS_GROUP_OPTIONS,
+  CorpusGroupOptionsResult,
+} from "../../corpus_groups/graphql";
+import { ErrorMessage } from "../feedback";
 import {
   MAX_RESEARCH_PROMPT_CHARS,
   MAX_RESEARCH_TITLE_CHARS,
@@ -45,17 +51,33 @@ export const StartResearchModal: React.FC<StartResearchModalProps> = ({
   const navigate = useNavigate();
   const [prompt, setPrompt] = useState("");
   const [title, setTitle] = useState("");
+  const [corpusGroupId, setCorpusGroupId] = useState("");
 
   const [startResearch, { loading }] = useMutation<
     StartResearchReportOutput,
     StartResearchReportInput
   >(START_RESEARCH_REPORT);
 
+  // Only fetched while the modal is open — the picker is optional and most
+  // runs never widen past the anchor corpus.
+  const { data: groupData, error: groupError } =
+    useQuery<CorpusGroupOptionsResult>(GET_CORPUS_GROUP_OPTIONS, {
+      skip: !open,
+      fetchPolicy: "cache-and-network",
+    });
+  const groupOptions = (groupData?.corpusGroups?.edges ?? []).map(
+    ({ node }) => ({
+      value: node.id,
+      label: node.title,
+    })
+  );
+
   // Reset inputs on close so a dismissed-then-reopened modal starts blank
   // (otherwise the previous prompt/title would still be present and submittable).
   const handleClose = () => {
     setPrompt("");
     setTitle("");
+    setCorpusGroupId("");
     onClose();
   };
 
@@ -71,6 +93,7 @@ export const StartResearchModal: React.FC<StartResearchModalProps> = ({
           corpusId,
           prompt: trimmedPrompt,
           title: title.trim() || undefined,
+          corpusGroupId: corpusGroupId || undefined,
         },
       });
       const payload = res.data?.startResearchReport;
@@ -125,6 +148,27 @@ export const StartResearchModal: React.FC<StartResearchModalProps> = ({
             fullWidth
           />
         </div>
+        {groupOptions.length > 0 && (
+          <div style={{ marginTop: 16 }}>
+            <Select
+              label="Search a corpus group as well (optional)"
+              placeholder="This corpus only"
+              options={groupOptions}
+              value={corpusGroupId}
+              onChange={setCorpusGroupId}
+              clearable
+              searchable={groupOptions.length > 8}
+              fullWidth
+              helperText="The agent can reach every corpus in the group you may read — use this when the answer spans authorities (a statute in one corpus, the rule it authorises in another)."
+            />
+          </div>
+        )}
+        {groupError && (
+          <ErrorMessage style={{ marginTop: 16 }}>
+            Couldn't load corpus groups ({groupError.message}). You can still
+            start research against this corpus alone.
+          </ErrorMessage>
+        )}
       </ModalBody>
       <ModalFooter>
         <Button

@@ -12,6 +12,7 @@ import { DocumentGraphEmbed } from "../components/corpuses/CorpusHome/intelligen
 import { GovernanceGraphEmbed } from "../components/corpuses/CorpusHome/intelligence/embeds/GovernanceGraphEmbed";
 import { AskAcrossDocsEmbed } from "../components/corpuses/CorpusHome/intelligence/embeds/AskAcrossDocsEmbed";
 import { CollectionDataStoryEmbed } from "../components/corpuses/CorpusHome/intelligence/embeds/CollectionDataStoryEmbed";
+import { ResearchFindingsEmbed } from "../components/corpuses/CorpusHome/intelligence/embeds/ResearchFindingsEmbed";
 import type { CamlComponentRegistry } from "./camlComponents";
 
 export const CAML_COMPONENTS: CamlComponentRegistry = {
@@ -23,4 +24,7 @@ export const CAML_COMPONENTS: CamlComponentRegistry = {
   "document-graph": DocumentGraphEmbed,
   "governance-graph": GovernanceGraphEmbed,
   "ask-across-docs": AskAcrossDocsEmbed,
+  // Emitted by ResearchReportService.finalize when a run recorded structured
+  // findings; renders the takeaway cards above the written report.
+  "research-findings": ResearchFindingsEmbed,
 };

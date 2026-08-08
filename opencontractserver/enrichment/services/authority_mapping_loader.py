@@ -238,7 +238,7 @@ class AuthorityMappingLoader:
         One idempotent call converges the whole installed taxonomy: the shipped
         ``authority_mappings.yaml`` first (origin ``"core"``), then each
         installed pack's mappings YAML (in-tree ``authority_packs/`` +
-        ``AUTHORITY_PACK_PATHS``, in ``authority_pack_dirs()`` discovery order)
+        sideloaded, in ``authority_pack_dirs()`` discovery order)
         stamped with the pack's manifest ``name`` (falling back to its directory
         name). Core loading first means that on a same-prefix collision the
         shipped engine baseline wins and the pack's claim is skipped + warned —
@@ -291,7 +291,7 @@ class AuthorityMappingLoader:
                 # Case-insensitive, matching the reserved-name check. Two
                 # installed pack dirs declaring the SAME manifest name are, by
                 # declaration, the same pack (e.g. an in-tree copy + an
-                # AUTHORITY_PACK_PATHS copy): they co-own their prefixes, the
+                # sideloaded copy): they co-own their prefixes, the
                 # load stays idempotent, and the later summary replaces the
                 # earlier one in the report. A case-DIFFERENT name ("Bolivia"
                 # vs "bolivia") loads as a distinct origin — the collision

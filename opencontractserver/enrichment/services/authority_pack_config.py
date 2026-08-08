@@ -20,7 +20,7 @@ its OWN additions *inside the pack*, declared in the pack's authority-mappings Y
         ...
 
 These are read from every *installed* pack (the same directories the pipeline
-registry scans for providers: in-tree ``authority_packs/`` + ``AUTHORITY_PACK_PATHS``)
+registry scans for providers -- see ``pipeline.registry.authority_pack_dirs``)
 and merged with the Python baseline at runtime, so a pack's citation vocabulary
 travels WITH the pack — copy the directory, get the classification. Installing the
 pack is the decision; the baseline always wins a key collision (a pack extends, it
@@ -50,8 +50,9 @@ logger = logging.getLogger(__name__)
 
 # (compiled prefix pattern, jurisdiction | None, authority_type | None)
 ShapeRule = tuple[re.Pattern, "str | None", "str | None"]
-# abbreviation (as it appears in text) -> (prefix, jurisdiction, authority_type)
-AbbrevEntry = tuple[str, str, str]
+# abbreviation (as it appears in text) ->
+# (prefix, jurisdiction, authority_type, requires_section_marker)
+AbbrevEntry = tuple[str, str | None, str | None, bool]
 
 
 def pack_origin_name(pack_dir: Path, manifest: dict) -> str:
@@ -163,8 +164,12 @@ def iter_shape_rules(data: dict, *, label: str = "shape_rules") -> list[dict]:
 def iter_abbreviations(data: dict, *, label: str = "abbreviations") -> dict[str, dict]:
     """Validate a parsed ``abbreviations:`` mapping → ``{"state": {...}, "municipal": {...}}``.
 
-    Each leaf is ``abbreviation -> {prefix, jurisdiction, authority_type}``. Raises
-    ``ValueError`` on a malformed entry; the runtime scan downgrades to skip.
+    Each leaf is ``abbreviation -> {prefix, jurisdiction, authority_type,
+    requires_section_marker?}``. ``requires_section_marker`` lets a pack keep a
+    useful authority name while requiring ``§``, ``Section``, or ``Sec.`` before
+    the locator. This avoids interpreting an edition year as a section without
+    adding a one-off core grammar. Raises ``ValueError`` on a malformed entry;
+    the runtime scan downgrades to skip.
     """
     raw = data.get("abbreviations")
     if raw is None:
@@ -187,10 +192,17 @@ def iter_abbreviations(data: dict, *, label: str = "abbreviations") -> dict[str,
                     f"{label}: abbreviations.{group}[{abbr!r}] authority_type "
                     f"{atype!r} not in ALL_AUTHORITY_TYPES"
                 )
+            requires_marker = spec.get("requires_section_marker", False)
+            if type(requires_marker) is not bool:
+                raise ValueError(
+                    f"{label}: abbreviations.{group}[{abbr!r}] "
+                    "'requires_section_marker' must be true or false"
+                )
             out[group][str(abbr)] = {
                 "prefix": str(spec["prefix"]),
                 "jurisdiction": spec.get("jurisdiction") or None,
                 "authority_type": atype or None,
+                "requires_section_marker": requires_marker,
             }
     return out
 
@@ -252,6 +264,7 @@ def pack_declared_abbreviations() -> (
                     spec["prefix"],
                     spec["jurisdiction"],
                     spec["authority_type"],
+                    spec["requires_section_marker"],
                 )
     return state, municipal
 

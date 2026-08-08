@@ -62,6 +62,82 @@ class StateGrammarTests(SimpleTestCase):
         assert "ca-corp:300" in self._keys("Cal. Corp. Code § 300 requires")
 
 
+class TexasGridAuthorityGrammarTests(SimpleTestCase):
+    """Baseline grid-authority shapes that live in the engine, not in a pack.
+
+    PUCT Texas Administrative Code sections, ERCOT revision requests, guide
+    sections, and market notices are structurally precise identifiers matched
+    by regex in ``grammars.py``. They stay in the shared Tier-2 grammar because
+    a pack's declarative vocabulary (``shape_rules`` / ``abbreviations``) cannot
+    express a bespoke pattern — see ``test_authority_pack_taxonomy.py`` for what
+    a pack *can* declare, which is where a pack's own abbreviations are tested.
+    """
+
+    def setUp(self):
+        self.ex = GenericCitationExtractor()
+
+    def _keys(self, text):
+        return {
+            candidate.canonical_key: candidate for candidate in self.ex.extract(text)
+        }
+
+    def test_puct_texas_admin_code_forms(self):
+        tac = self._keys("The standard in 16 TAC § 25.361(c) controls.")[
+            "tx-admin-puct:25.361(c)"
+        ]
+        assert tac.raw_text == "16 TAC § 25.361(c)"
+        assert tac.jurisdiction == "us-tx"
+        assert tac.authority_type == C.AUTHORITY_TYPE_REGULATION
+        assert "tx-admin-puct:25.361" in self._keys("See 16 Tex. Admin. Code § 25.361.")
+
+    def test_revision_request_identifiers(self):
+        keys = self._keys("PGRR145 was coordinated with NPRR 1325.")
+        assert keys["ercot-pgrr:145"].raw_text == "PGRR145"
+        assert keys["ercot-nprr:1325"].raw_text == "NPRR 1325"
+        assert all(
+            candidate.authority_type == C.AUTHORITY_TYPE_ADMIN_RULE
+            for candidate in keys.values()
+        )
+
+    def test_multilevel_ercot_guide_section(self):
+        keys = self._keys("ERCOT Planning Guide § 9.2.1.1(1)(e) requires the study.")
+        candidate = keys["ercot-planning:9.2.1.1(1)(e)"]
+        assert candidate.raw_text == "ERCOT Planning Guide § 9.2.1.1(1)(e)"
+        assert candidate.jurisdiction == "us-tx-ercot"
+        assert "ercot-planning:9" in self._keys("ERCOT Planning Guide Section 9")
+
+    def test_guide_section_matches_regardless_of_case(self):
+        # Sibling shapes (16 TAC, PGRR/NPRR) are already case-insensitive;
+        # the guide pattern was missing that flag and silently under-extracted
+        # a lowercase/mixed-case header like a scanned document's running text.
+        assert "ercot-planning:9" in self._keys("planning guide section 9")
+        assert "ercot-protocol:4.2" in self._keys("PROTOCOLS SECTION 4.2")
+
+    def test_market_notice_identifier(self):
+        keys = self._keys(
+            "Implementation followed Market Notices M-B062326-01 and M-A301326-01."
+        )
+        candidate = keys["ercot-notice:M-B062326-01"]
+        assert candidate.raw_text == "M-B062326-01"
+        assert candidate.authority_type == C.AUTHORITY_TYPE_GUIDANCE
+        assert "ercot-notice:M-A301326-01" in keys
+
+    def test_grid_shapes_reject_nearby_ordinary_numbers(self):
+        # "Planning guide section 9" IS a valid citation on its own (see
+        # test_guide_section_matches_regardless_of_case) — the nearby
+        # "project 1325" and the date must not also be swept in as extra
+        # matches or as part of the citation's span.
+        keys = self._keys(
+            "Planning guide section 9 is discussed in project 1325 on 06/23/26."
+        )
+        assert set(keys) == {"ercot-planning:9"}
+        assert not self._keys("The ERCOT Planning Guide 2026 edition is current.")
+        assert not self._keys("The ERCOT Protocols 2026 edition is current.")
+        assert not self._keys("The 16 TAC 2026 edition is current.")
+        assert not self._keys("The labels PGRR and NPRR are incomplete identifiers.")
+        assert not self._keys("Inventory item B062326-01 is not a market notice.")
+
+
 class BareActGrammarTests(SimpleTestCase):
     def setUp(self):
         self.ex = GenericCitationExtractor()
@@ -499,6 +575,8 @@ class ReferenceTypeFilterTests(SimpleTestCase):
         "_fedreg",
         "_publ",
         "_stat",
+        "_puct_texas_admin_code",
+        "_ercot_authorities",
         "_bare_acts",
     )
     _INSTANCE_PASSES = ("_states", "_municipal", "_municipal_generic")

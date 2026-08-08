@@ -48,9 +48,11 @@ _CONF_MUNICIPAL_GENERIC = 0.6
 _CONF_HTS_ANCHORED = 0.9
 _CONF_HTS_CONTEXTUAL = 0.7
 
-# A section token: digits, optional trailing letter, optional (a)(2) subsections,
-# optional hyphenated rule tail (10b-5, 261.4).
-_SEC = r"\d+[A-Za-z]?(?:\.\d+)?(?:[-–]\d+)?(?:\([0-9a-zA-Z]+\))*"
+# A section token: digits, optional trailing letter, dotted hierarchy,
+# optional hyphenated rule tail, then optional (a)(2) subsections. Known-code
+# abbreviations are already the precision anchor, so retaining multiple dotted
+# levels is both safe and necessary for tariff/guide sections such as 6.1.2.
+_SEC = r"\d+[A-Za-z]?(?:\.\d+){0,5}(?:[-–]\d+)?(?:\([0-9a-zA-Z]+\))*"
 
 _USC_RE = re.compile(
     r"\b(?P<title>\d+)\s+U\.?\s?S\.?\s?C\.?\s+(?:§+\s*)?(?P<sec>" + _SEC + r")"
@@ -71,6 +73,33 @@ _PUBL_RE = re.compile(
     re.IGNORECASE,
 )
 _STAT_RE = re.compile(r"\b(?P<vol>\d+)\s+Stat\.?\s+(?P<page>\d[\d,]*)")
+
+# --- Texas electric / ERCOT authority shapes ------------------------------ #
+# These identifiers are structurally precise and recur across multiple grid
+# authority packs. They belong in the shared Tier-2 grammar rather than in one
+# pack's provider parser; pack mappings still own aliases/classification.
+_PUCT_TAC_RE = re.compile(
+    r"\b16\s+(?:T\.?A\.?C\.?|Tex(?:as)?\.?\s+Admin(?:istrative)?\.?\s+Code)"
+    r"\s+(?:§+\s*)?(?P<section>25\.\d+(?:\([0-9A-Za-z]+\))*)",
+    re.IGNORECASE,
+)
+_ERCOT_REVISION_RE = re.compile(
+    r"\b(?P<family>PGRR|NPRR)\s*(?:No\.?\s*)?(?P<number>\d{2,4})\b",
+    re.IGNORECASE,
+)
+_ERCOT_GUIDE_RE = re.compile(
+    r"\b(?:ERCOT\s+)?(?P<guide>Planning\s+Guide|Protocols?|Operating\s+Guide)"
+    r"\s+(?:"
+    r"(?:§+\s*|[Ss]ection\s+)"
+    r"(?P<section_marked>\d+(?:\.\d+){0,5}(?:\([0-9A-Za-z]+\))*)"
+    r"|(?P<section_bare>\d+(?:\.\d+){1,5}(?:\([0-9A-Za-z]+\))*)"
+    r")",
+    re.IGNORECASE,
+)
+_ERCOT_MARKET_NOTICE_RE = re.compile(
+    r"(?<![A-Za-z0-9])(?P<notice>[A-Z]-[A-Z]\d{6}-\d+)(?![A-Za-z0-9])",
+    re.IGNORECASE,
+)
 
 # Bare Act: "the Clean Water Act", "the Bank Holding Company Act of 1956".
 # Require >=1 capitalized word before "Act" so bare "the Act" never matches.
@@ -303,6 +332,59 @@ def _stat(text: str) -> Iterator[Candidate]:
         )
 
 
+def _puct_texas_admin_code(text: str) -> Iterator[Candidate]:
+    for match in _PUCT_TAC_RE.finditer(text):
+        section = match.group("section").lower()
+        yield _cand(
+            match.start(),
+            match.end(),
+            match.group(0),
+            f"tx-admin-puct:{section}",
+            "us-tx",
+            C.AUTHORITY_TYPE_REGULATION,
+        )
+
+
+def _ercot_authorities(text: str) -> Iterator[Candidate]:
+    for match in _ERCOT_REVISION_RE.finditer(text):
+        family = match.group("family").lower()
+        yield _cand(
+            match.start(),
+            match.end(),
+            match.group(0),
+            f"ercot-{family}:{match.group('number')}",
+            "us-tx-ercot",
+            C.AUTHORITY_TYPE_ADMIN_RULE,
+        )
+    guide_prefixes = {
+        "planning guide": "ercot-planning",
+        "protocol": "ercot-protocol",
+        "protocols": "ercot-protocol",
+        "operating guide": "ercot-operating",
+    }
+    for match in _ERCOT_GUIDE_RE.finditer(text):
+        prefix = guide_prefixes[match.group("guide").lower()]
+        section = match.group("section_marked") or match.group("section_bare")
+        assert section is not None  # one regex alternative always captures it
+        yield _cand(
+            match.start(),
+            match.end(),
+            match.group(0),
+            f"{prefix}:{section.lower()}",
+            "us-tx-ercot",
+            C.AUTHORITY_TYPE_ADMIN_RULE,
+        )
+    for match in _ERCOT_MARKET_NOTICE_RE.finditer(text):
+        yield _cand(
+            match.start(),
+            match.end(),
+            match.group(0),
+            f"ercot-notice:{match.group('notice').upper()}",
+            "us-tx-ercot",
+            C.AUTHORITY_TYPE_GUIDANCE,
+        )
+
+
 def _hts(text: str) -> Iterator[Candidate]:
     """HTS tariff-code citations -> ``htsus:<code>`` law candidates.
 
@@ -469,48 +551,91 @@ class GenericCitationExtractor:
         )
 
         pack_state, pack_muni = pack_declared_abbreviations()
-        state_table = {**pack_state, **STATE_CODE_ABBREVIATIONS}
-        muni_table = {**pack_muni, **MUNICIPAL_CODE_ABBREVIATIONS}
+        # Baseline entries predate the pack precision flag, so normalize them
+        # to the four-field runtime shape. The baseline still wins collisions.
+        state_table = {
+            **pack_state,
+            **{
+                abbreviation: (*entry, False)
+                for abbreviation, entry in STATE_CODE_ABBREVIATIONS.items()
+            },
+        }
+        muni_table = {
+            **pack_muni,
+            **{
+                abbreviation: (*entry, False)
+                for abbreviation, entry in MUNICIPAL_CODE_ABBREVIATIONS.items()
+            },
+        }
 
         # State-code alternation, longest-first so "Del. Code Ann. tit. 8" wins
         # over a hypothetical "Del. Code". Escaped spaces become ``\s+`` so OCR
         # double-spaces / line-break wraps still match; the captured text is
         # whitespace-normalized before lookup (``_state_canon``).
-        ordered = sorted(state_table, key=len, reverse=True)
-        self._state_alt = "|".join(re.escape(a).replace(r"\ ", r"\s+") for a in ordered)
-        self._state_canon = {re.sub(r"\s+", " ", a): v for a, v in state_table.items()}
-        self._state_re = (
-            re.compile(
-                r"(?P<abbr>" + self._state_alt + r")\s+(?:§+\s*)?(?P<sec>" + _SEC + r")"
-            )
-            if ordered
-            else None
+        self._state_canon = {
+            re.sub(r"\s+", " ", abbreviation): entry[:3]
+            for abbreviation, entry in state_table.items()
+        }
+        self._state_res = self._compile_abbreviation_patterns(
+            state_table, section_pattern=_SEC
         )
         # Municipal-code table alternation — same construction as the state
         # table (longest-first, OCR-tolerant whitespace, normalized lookup).
-        ordered_muni = sorted(muni_table, key=len, reverse=True)
-        self._muni_alt = "|".join(
-            re.escape(a).replace(r"\ ", r"\s+") for a in ordered_muni
+        self._muni_canon = {
+            re.sub(r"\s+", " ", abbreviation): entry[:3]
+            for abbreviation, entry in muni_table.items()
+        }
+        self._muni_res = self._compile_abbreviation_patterns(
+            muni_table, section_pattern=_MUNI_SEC
         )
-        self._muni_canon = {re.sub(r"\s+", " ", a): v for a, v in muni_table.items()}
-        # NOTE the ``§`` is OPTIONAL here (``(?:§+\s*)?``) — intentional and the
-        # SAME as ``_state_re`` above: a table-matched code is already a KNOWN
-        # authority (the named abbreviation is the precision guard), and Bluebook
-        # cites for known codes sometimes drop the ``§``. This is deliberately
-        # ASYMMETRIC with the open-vocab ``_MUNI_CONN`` (which REQUIRES ``§``/
-        # Section/Sec.): there the anchor is the only thing separating a real
-        # citation from prose, so do not "unify" the two by making this required.
-        self._muni_re = (
-            re.compile(
-                r"(?P<abbr>"
-                + self._muni_alt
-                + r")\s+(?:§+\s*)?(?P<sec>"
-                + _MUNI_SEC
-                + r")"
+
+    @staticmethod
+    def _compile_abbreviation_patterns(
+        table: dict[str, tuple],
+        *,
+        section_pattern: str,
+    ) -> tuple[re.Pattern, ...]:
+        """Compile optional- and required-marker abbreviation groups.
+
+        Known baseline abbreviations retain their historical optional-``§``
+        behavior. Pack entries can opt into the stricter connector without
+        creating a separate grammar path.
+        """
+
+        patterns: list[re.Pattern] = []
+        for marker_required in (False, True):
+            ordered = sorted(
+                (
+                    abbreviation
+                    for abbreviation, entry in table.items()
+                    if bool(entry[3]) is marker_required
+                ),
+                key=len,
+                reverse=True,
             )
-            if ordered_muni
-            else None
-        )
+            if not ordered:
+                continue
+            alternation = "|".join(
+                re.escape(abbreviation).replace(r"\ ", r"\s+")
+                for abbreviation in ordered
+            )
+            connector = (
+                r"\s+(?:§+\s*|(?i:section|sec\.?)\s+)"
+                if marker_required
+                else r"\s+(?:§+\s*)?"
+            )
+            patterns.append(
+                re.compile(
+                    r"(?P<abbr>"
+                    + alternation
+                    + r")"
+                    + connector
+                    + r"(?P<sec>"
+                    + section_pattern
+                    + r")"
+                )
+            )
+        return tuple(patterns)
 
     def extract(
         self,
@@ -528,6 +653,8 @@ class GenericCitationExtractor:
             out.extend(_fedreg(text))
             out.extend(_publ(text))
             out.extend(_stat(text))
+            out.extend(_puct_texas_admin_code(text))
+            out.extend(_ercot_authorities(text))
             out.extend(_hts(text))
             out.extend(_bare_acts(text))
             out.extend(self._states(text))
@@ -542,9 +669,10 @@ class GenericCitationExtractor:
         return out
 
     def _states(self, text: str) -> Iterator[Candidate]:
-        if self._state_re is None:
-            return
-        for m in self._state_re.finditer(text):
+        matches = [
+            match for pattern in self._state_res for match in pattern.finditer(text)
+        ]
+        for m in sorted(matches, key=lambda match: (match.start(), -match.end())):
             abbr = re.sub(r"\s+", " ", m.group("abbr"))
             prefix, jur, typ = self._state_canon[abbr]
             key = f"{prefix}:{m.group('sec').lower()}"
@@ -552,9 +680,10 @@ class GenericCitationExtractor:
 
     def _municipal(self, text: str) -> Iterator[Candidate]:
         """Known municipal codes (table) → full jurisdiction, high confidence."""
-        if self._muni_re is None:
-            return
-        for m in self._muni_re.finditer(text):
+        matches = [
+            match for pattern in self._muni_res for match in pattern.finditer(text)
+        ]
+        for m in sorted(matches, key=lambda match: (match.start(), -match.end())):
             abbr = re.sub(r"\s+", " ", m.group("abbr"))
             prefix, jur, typ = self._muni_canon[abbr]
             key = f"{prefix}:{m.group('sec').lower()}"

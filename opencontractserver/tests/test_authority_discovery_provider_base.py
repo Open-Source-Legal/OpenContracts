@@ -25,6 +25,7 @@ from opencontractserver.pipeline.base.base_authority_discovery_provider import (
     BaseAuthorityDiscoveryProvider,
     DiscoveryCandidate,
     DiscoveryResult,
+    discovery_candidate_identity,
 )
 from opencontractserver.pipeline.registry import (
     ComponentType,
@@ -77,6 +78,10 @@ class _NonPublicDomainDiscoveryProvider(_DummyDiscoveryProvider):
     license: ClassVar[str] = "cc-by"
 
 
+class _LinkOnlyDiscoveryProvider(_NonPublicDomainDiscoveryProvider):
+    link_only_discovery: ClassVar[bool] = True
+
+
 class TestBaseAuthorityDiscoveryProviderABC(SimpleTestCase):
     """Tests for the BaseAuthorityDiscoveryProvider ABC contract."""
 
@@ -121,8 +126,8 @@ class TestBaseAuthorityDiscoveryProviderABC(SimpleTestCase):
 
     # ---- de-duplication ------------------------------------------------------
 
-    def test_discover_candidates_dedupes_by_canonical_key_across_pages(self):
-        """A paginated listing whose pages overlap must not seed a key twice."""
+    def test_discover_candidates_dedupes_exact_identity_across_pages(self):
+        """A paginated listing whose pages overlap must not seed an exact link twice."""
         provider = _DummyDiscoveryProvider(
             {
                 "https://x/1": "key-a https://x/a",
@@ -132,6 +137,66 @@ class TestBaseAuthorityDiscoveryProviderABC(SimpleTestCase):
         result = provider.discover_candidates(["https://x/1", "https://x/2"])
         keys = [c.canonical_key for c in result.candidates]
         self.assertEqual(sorted(keys), ["key-a", "key-b"])
+
+    def test_same_key_with_changed_url_is_a_distinct_candidate(self):
+        provider = _DummyDiscoveryProvider(
+            {"https://x/1": ("key-a https://x/old\n" "key-a https://x/reseeded")}
+        )
+        result = provider.discover_candidates(["https://x/1"])
+        self.assertEqual(
+            [candidate.url for candidate in result.candidates],
+            ["https://x/old", "https://x/reseeded"],
+        )
+
+    def test_changed_listing_metadata_is_a_distinct_observation(self):
+        first = DiscoveryCandidate(
+            canonical_key="key-a",
+            url="https://x/stable",
+            title="Planning Guide Section 9",
+            extra={
+                "source_identifier": "planning-guide-9",
+                "current_version": True,
+            },
+        )
+        changed = DiscoveryCandidate(
+            canonical_key=first.canonical_key,
+            url=first.url,
+            title=first.title,
+            extra={
+                "source_identifier": "planning-guide-9",
+                "current_version": False,
+            },
+        )
+        provider_name = type(_DummyDiscoveryProvider()).__name__
+        self.assertNotEqual(
+            discovery_candidate_identity(
+                first,
+                discovery_provider=provider_name,
+            ),
+            discovery_candidate_identity(
+                changed,
+                discovery_provider=provider_name,
+            ),
+        )
+
+    def test_excluding_old_url_keeps_reseeded_same_key_reachable(self):
+        provider = _DummyDiscoveryProvider(
+            {"https://x/1": "key-a https://x/old\nkey-a https://x/reseeded"}
+        )
+        old = DiscoveryCandidate(canonical_key="key-a", url="https://x/old")
+        old_identity = discovery_candidate_identity(
+            old,
+            discovery_provider=type(provider).__name__,
+        )
+        result = provider.discover_candidates(
+            ["https://x/1"],
+            max_candidates=1,
+            exclude_identities={old_identity},
+        )
+        self.assertEqual(
+            [candidate.url for candidate in result.candidates],
+            ["https://x/reseeded"],
+        )
 
     # ---- bounds (issue #2054 test criterion c) -------------------------------
 
@@ -147,6 +212,26 @@ class TestBaseAuthorityDiscoveryProviderABC(SimpleTestCase):
         )
         self.assertEqual(len(result.candidates), 1)
         self.assertTrue(result.capped)
+
+    def test_excluded_candidate_identity_advances_beyond_cap(self):
+        provider = _DummyDiscoveryProvider(
+            {"https://x/1": "key-a https://x/a\nkey-b https://x/b"}
+        )
+        first = provider.discover_candidates(["https://x/1"], max_candidates=1)
+        first_identity = discovery_candidate_identity(
+            first.candidates[0],
+            discovery_provider=type(provider).__name__,
+        )
+        second = provider.discover_candidates(
+            ["https://x/1"],
+            max_candidates=1,
+            exclude_identities={first_identity},
+        )
+        self.assertEqual(
+            [candidate.canonical_key for candidate in second.candidates],
+            ["key-b"],
+        )
+        self.assertEqual(second.excluded_count, 1)
 
     def test_discover_candidates_not_capped_when_under_limit(self):
         provider = _DummyDiscoveryProvider({"https://x/1": "key-a https://x/a"})
@@ -235,6 +320,18 @@ class TestBaseAuthorityDiscoveryProviderABC(SimpleTestCase):
         )
         with self.assertRaises(PermissionError):
             provider.discover_candidates(["https://x/1"])
+
+    def test_non_public_index_can_opt_into_link_only_enumeration(self):
+        provider = _LinkOnlyDiscoveryProvider({"https://x/1": "key-a https://x/a"})
+        result = provider.discover_candidates(["https://x/1"])
+        self.assertEqual(len(result.candidates), 1)
+        self.assertEqual(
+            result.candidates[0].extra,
+            {
+                "discovery_mode": "link-only",
+                "publisher_license": "cc-by",
+            },
+        )
 
 
 class TestAuthorityDiscoveryProviderRegistry(SimpleTestCase):

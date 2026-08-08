@@ -560,8 +560,18 @@ def _mutate_ReEmbedCorpus(payload_cls, root, info, corpus_id, new_embedder):
             message=f"Invalid embedder path: {e}",
         )
 
-    # No-op if the embedder is already the same
-    if corpus.preferred_embedder == new_embedder:
+    # No-op only when the corpus is ACTUALLY migrated, not merely labelled as
+    # such. ``reembed_corpus`` writes ``preferred_embedder`` before queueing and
+    # caps each dispatch at ``MAX_REEMBED_TASKS_PER_RUN``; a corpus bigger than
+    # that cap therefore finishes its first run carrying the new embedder with
+    # most of its annotations still unembedded. Comparing only the path made
+    # that state unrecoverable — every retry answered "no re-embedding needed"
+    # with ok=True while the corpus stayed half-migrated and its tail stayed
+    # invisible to vector search, silently and permanently.
+    outstanding = CorpusService.count_annotations_missing_embeddings(
+        corpus, new_embedder
+    )
+    if corpus.preferred_embedder == new_embedder and not outstanding:
         return payload_cls(
             ok=True,
             message="Corpus already uses this embedder. No re-embedding needed.",
@@ -587,10 +597,17 @@ def _mutate_ReEmbedCorpus(payload_cls, root, info, corpus_id, new_embedder):
         )
     )
 
+    resuming = corpus.preferred_embedder == new_embedder
     return payload_cls(
         ok=True,
-        message=f"Re-embedding started. The corpus will use "
-        f"'{new_embedder}' once complete.",
+        message=(
+            f"Resuming re-embedding: {outstanding} annotation(s) still need "
+            f"'{new_embedder}' embeddings. Large corpora need more than one "
+            "run."
+            if resuming
+            else f"Re-embedding started. The corpus will use "
+            f"'{new_embedder}' once complete."
+        ),
     )
 
 

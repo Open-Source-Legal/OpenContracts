@@ -5,8 +5,11 @@ Tests the cached registry pattern that provides efficient access to
 pipeline components (parsers, embedders, thumbnailers, post-processors).
 """
 
+import threading
+import time
 from unittest.mock import patch
 
+import pytest
 from django.test import TestCase
 
 from opencontractserver.pipeline.base.file_types import (
@@ -655,3 +658,71 @@ class TestEnricherRegistry(TestCase):
         result = get_all_components_cached()
         self.assertIn("enrichers", result)
         self.assertIsInstance(result["enrichers"], tuple)
+
+
+@pytest.mark.serial
+class TestRegistryThreadSafety(TestCase):
+    """Concurrent first access must not hand out a half-built registry.
+
+    ``get_registry()`` is ``lru_cache``d, but ``lru_cache`` does not serialise
+    the wrapped call — on a miss, two threads both construct. Discovery walks
+    the filesystem, ``exec_module``s every in-pack authority provider and
+    mutates the process-global ``sys.modules`` while doing it, so the second
+    thread used to sail past the ``_initialized`` flag (which is set BEFORE
+    discovery runs) and read component tuples that were still empty.
+
+    Serial-marked: it resets the process-global singleton, which would corrupt
+    sibling tests sharing an xdist worker.
+    """
+
+    def setUp(self):
+        reset_registry()
+        self.addCleanup(reset_registry)
+
+    def test_second_thread_waits_for_discovery_instead_of_reading_empty_tuples(self):
+        real_discover = PipelineComponentRegistry._discover_all_components
+        discovery_started = threading.Event()
+        release_discovery = threading.Event()
+        reader_running = threading.Event()
+        observed: dict[str, object] = {}
+
+        def blocking_discover(registry_self):
+            discovery_started.set()
+            # Hold the half-built registry open for as long as the reader needs.
+            self.assertTrue(release_discovery.wait(timeout=30))
+            real_discover(registry_self)
+
+        def build():
+            observed["builder"] = get_registry()
+
+        def read():
+            reader_running.set()
+            observed["parsers"] = get_registry().parsers
+
+        with patch.object(
+            PipelineComponentRegistry,
+            "_discover_all_components",
+            blocking_discover,
+        ):
+            builder = threading.Thread(target=build)
+            builder.start()
+            self.assertTrue(discovery_started.wait(timeout=30))
+
+            reader = threading.Thread(target=read)
+            reader.start()
+            self.assertTrue(reader_running.wait(timeout=30))
+            # Without the lock the reader is already through by now and has
+            # captured the empty tuples; with it, it is parked on the lock.
+            time.sleep(0.25)
+            release_discovery.set()
+
+            builder.join(timeout=30)
+            reader.join(timeout=30)
+            self.assertFalse(builder.is_alive())
+            self.assertFalse(reader.is_alive())
+
+        self.assertIs(observed["builder"], get_registry())
+        self.assertTrue(
+            observed["parsers"],
+            "the second thread read a registry whose discovery had not finished",
+        )

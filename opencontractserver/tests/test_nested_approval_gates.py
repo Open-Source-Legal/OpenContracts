@@ -24,10 +24,11 @@ from typing import Any, Literal
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from asgiref.sync import sync_to_async
 from django.contrib.auth import get_user_model
 from django.test import TransactionTestCase
 
-from opencontractserver.corpuses.models import Corpus
+from opencontractserver.corpuses.models import Corpus, CorpusGroup
 from opencontractserver.documents.models import Document
 from opencontractserver.llms.agents.core_agents import (
     MessageState,
@@ -230,15 +231,33 @@ class TestNestedApprovalGates(TransactionTestCase):
         self.assertIsNotNone(fn, "ask_document tool not found in effective_tools")
         return fn
 
-    def _make_ctx(self, *, skip_approval_gate: bool = False):
-        """Build a lightweight tool-call context stub for ask_document tests."""
+    _CTX_DOCUMENT_ID_DEFAULT = object()
+
+    def _make_ctx(
+        self, *, skip_approval_gate: bool = False, document_id=_CTX_DOCUMENT_ID_DEFAULT
+    ):
+        """Build a lightweight tool-call context stub for ask_document tests.
+
+        ``document_id`` defaults to ``self.document`` (a document-scoped
+        agent). Pass ``document_id=None`` explicitly for a corpus-level agent
+        context not bound to a single document — the shape a real corpus
+        agent has when resolving ``ask_document`` calls dynamically, and the
+        only shape ``_validate_resource_id_params`` lets a foreign
+        ``document_id`` argument through without tripping its context-mismatch
+        guard.
+        """
+        resolved_document_id = (
+            self.document.id
+            if document_id is self._CTX_DOCUMENT_ID_DEFAULT
+            else document_id
+        )
 
         class _Ctx:
             tool_call_id = "test-call"
             deps = types.SimpleNamespace(
                 skip_approval_gate=skip_approval_gate,
                 user_id=self.user.id,
-                document_id=self.document.id,
+                document_id=resolved_document_id,
                 corpus_id=self.corpus.id,
             )
 
@@ -304,6 +323,63 @@ class TestNestedApprovalGates(TransactionTestCase):
 
             self.assertIn("answer", result)
             self.assertEqual(result["answer"], "The document is about testing.")
+
+    def _create_cross_corpus_group_fixtures(self):
+        """Sync ORM setup for the cross-corpus-group test (run off-thread)."""
+        foreign_corpus = Corpus.objects.create(
+            title="Group Member Corpus",
+            description="",
+            creator=self.user,
+            is_public=False,
+        )
+        foreign_document = Document.objects.create(
+            title="Group Member Document",
+            description="",
+            creator=self.user,
+            is_public=False,
+        )
+        foreign_document, _, _ = foreign_corpus.add_document(
+            document=foreign_document, user=self.user
+        )
+        group = CorpusGroup.objects.create(
+            title="Nested Group", creator=self.user, is_public=False
+        )
+        group.corpora.set([self.corpus, foreign_corpus])
+        return foreign_corpus, foreign_document, group
+
+    async def test_ask_document_tool_resolves_cross_corpus_group_member(self):
+        """A group-qualified cross-corpus result keeps the group permission gate."""
+        foreign_corpus, foreign_document, group = await sync_to_async(
+            self._create_cross_corpus_group_fixtures
+        )()
+
+        normal_events = [
+            _FakeContentEvent(content="Cross-corpus document answer."),
+            _FakeFinalEvent(content="Done.", sources=[], metadata={}),
+        ]
+        agent = await self._create_corpus_agent(sub_agent_events=normal_events)
+        ask_doc_fn = self._get_ask_doc(agent)
+
+        with patch(
+            _AGENTS_API_FOR_DOC_PATCH,
+            new_callable=AsyncMock,
+            return_value=agent._mock_sub_agent,
+        ) as for_document:
+            # A corpus-level agent isn't bound to a single document, unlike
+            # every other test in this class — that's the shape being tested
+            # here, so the context must not be either (see _make_ctx).
+            result = await ask_doc_fn(
+                self._make_ctx(document_id=None),
+                document_id=foreign_document.id,
+                question="What does this group document say?",
+                corpus_group=group.slug,
+            )
+
+        self.assertEqual(result["answer"], "Cross-corpus document answer.")
+        self.assertEqual(
+            for_document.await_args.kwargs["document"], foreign_document.id
+        )
+        self.assertEqual(for_document.await_args.kwargs["corpus"], foreign_corpus.id)
 
     # ------------------------------------------------------------------
     # Tests: malformed approval events

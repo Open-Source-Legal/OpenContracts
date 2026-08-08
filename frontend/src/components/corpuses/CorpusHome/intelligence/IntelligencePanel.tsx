@@ -324,7 +324,17 @@ export const IntelligencePanel: React.FC<IntelligencePanelProps> = ({
   const activeCorpus = useReactiveVar(openedCorpus);
   const [showAll, setShowAll] = useState(false);
   const variables = useMemo(
-    () => ({ corpusId, limit: CORPUS_DOCUMENTS_TOC_LIMIT }),
+    // ``documents(inCorpusWithId:)`` excludes markdown unless asked otherwise
+    // (config/graphql/filters.py::filter_queryset) — a default meant for
+    // extractors and analyzers. This panel's headline metric is the document
+    // count, so without the flag a workspace holding only generated artifacts
+    // (saved chat answers, research reports) reads "0 DOCUMENTS" and "No
+    // documents in this collection yet" while the corpus header says 1.
+    () => ({
+      corpusId,
+      limit: CORPUS_DOCUMENTS_TOC_LIMIT,
+      includeCaml: true,
+    }),
     [corpusId]
   );
 

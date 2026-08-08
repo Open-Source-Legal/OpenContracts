@@ -16,6 +16,7 @@ from tree_queries.models import TreeNode
 
 from opencontractserver.constants.artifacts import ARTIFACT_SLUG_RETRY_ATTEMPTS
 from opencontractserver.constants.document_processing import (
+    CAML_ARTICLE_TITLE,
     DEFAULT_DOCUMENT_PATH_PREFIX,
     MARKDOWN_MIME_TYPE,
     MAX_PROCESSING_ERROR_LENGTH,
@@ -118,6 +119,24 @@ class TemporaryFileHandle(django.db.models.Model):
 
 
 # Create your models here.
+# A corpus's CAML article is its landing page, not content, so it must not be
+# counted as a document. Excluding *all* markdown was equivalent while the
+# article was the only markdown a corpus could contain — that stopped being
+# true once generated artifacts (saved chat answers, research reports filed
+# into a personal workspace) became real documents. A personal workspace then
+# reported "0 documents" while listing files, which is the first thing a user
+# sees.
+#
+# Shared deliberately: ``Corpus.document_count()`` and the annotated subquery
+# in ``config/graphql/corpus_queries.py::_corpus_count_subqueries`` answer the
+# same question for the detail and list views. Two copies of this predicate
+# would drift and make the two views disagree.
+CAML_ARTICLE_DOCUMENT_PATH_Q = django.db.models.Q(
+    document__file_type=MARKDOWN_MIME_TYPE,
+    document__title=CAML_ARTICLE_TITLE,
+)
+
+
 class Corpus(InstanceUserCanMixin, TreeNode):
     """
     Corpus, which stores a collection of documents that are grouped for machine learning / study / export purposes.
@@ -1108,6 +1127,7 @@ class Corpus(InstanceUserCanMixin, TreeNode):
             folder=folder,
             file_type=effective_file_type,
             content_file=content_file,
+            _source_filename=filename,
             **doc_kwargs,
         )
 
@@ -1319,8 +1339,10 @@ class Corpus(InstanceUserCanMixin, TreeNode):
     def document_count(self) -> int:
         """
         Get count of documents with active paths in this corpus.
-        Excludes CAML articles (text/markdown) so the count reflects
-        only user-uploaded documents.
+
+        Excludes the corpus's CAML article — that is the landing page, not
+        content — but counts every other markdown document, including
+        generated artifacts filed into a personal workspace.
 
         Returns:
             Integer count of active documents
@@ -1329,7 +1351,7 @@ class Corpus(InstanceUserCanMixin, TreeNode):
 
         return (
             DocumentPath.objects.filter(corpus=self, is_current=True, is_deleted=False)
-            .exclude(document__file_type=MARKDOWN_MIME_TYPE)
+            .exclude(CAML_ARTICLE_DOCUMENT_PATH_Q)
             .values("document_id")
             .distinct()
             .count()

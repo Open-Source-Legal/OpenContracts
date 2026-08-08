@@ -25,6 +25,7 @@ from opencontractserver.llms.model_factory import (
     abuild_agent_model,
     build_agent_model,
     invalidate_credential_cache,
+    requires_responses_api,
 )
 from opencontractserver.pipeline.base.settings_schema import (
     get_secret_settings,
@@ -169,6 +170,36 @@ class TestBuildAgentModelDbWins(TestCase):
             result = build_agent_model("openai:gpt-4o")
         self.assertEqual(result, "openai:gpt-4o")
 
+    def test_construct_failure_for_responses_api_model_keeps_the_redirect(self):
+        """A DB-creds construction error must not drop the Responses-API prefix.
+
+        Regression: both DB-creds fallback branches used to return the bare
+        ``spec`` unconditionally, silently undoing the env-credential path's
+        ``openai-responses:`` rewrite the moment a DB-configured install hit a
+        recoverable construction error (e.g. a bad ``base_url``) — the exact
+        400 this redirect exists to prevent, specifically for the System
+        Settings model picker.
+        """
+        self._configure_openai_creds(api_key="sk-db-key")
+        with mock.patch(
+            "opencontractserver.llms.model_factory._construct_model",
+            side_effect=RuntimeError("boom"),
+        ):
+            result = build_agent_model("openai:gpt-5.6-luna")
+        self.assertEqual(result, "openai-responses:gpt-5.6-luna")
+
+    def test_construct_returning_none_for_responses_api_model_keeps_the_redirect(
+        self,
+    ):
+        """The ``model is None`` fallback must also preserve the redirect."""
+        self._configure_openai_creds(api_key="sk-db-key")
+        with mock.patch(
+            "opencontractserver.llms.model_factory._construct_model",
+            return_value=None,
+        ):
+            result = build_agent_model("openai:gpt-5.6-luna")
+        self.assertEqual(result, "openai-responses:gpt-5.6-luna")
+
     def test_db_creds_build_real_pydantic_ai_model(self):
         """End-to-end: a non-string credentialed pydantic-ai model is returned."""
         self._configure_openai_creds(
@@ -184,6 +215,63 @@ class TestBuildAgentModelDbWins(TestCase):
         self._configure_openai_creds(api_key="sk-db-key")
         result = async_to_sync(abuild_agent_model)("openai:gpt-4o")
         self.assertNotIsInstance(result, str)
+
+    def test_db_creds_build_a_real_responses_api_model(self):
+        """End-to-end twin of the Chat-Completions test above, for /v1/responses.
+
+        The sibling tests either mock ``_construct_model`` or assert the
+        env-credential STRING redirect. Neither reaches the branch that decides
+        which pydantic-ai class a DB-credentialed install actually gets — and
+        that branch is the whole point of the routing: a
+        ``gpt-5.6`` model built as an ``OpenAIChatModel`` 400s on every agent in
+        the install ("Function tools with reasoning_effort are not supported …
+        in /v1/chat/completions"), with the reason visible only in a worker log.
+        Assert the concrete class here, since the class IS the endpoint.
+        """
+        from pydantic_ai.models.openai import OpenAIResponsesModel
+
+        self._configure_openai_creds(
+            api_key="sk-db-key", base_url="http://gateway.local/v1"
+        )
+        result = build_agent_model("openai:gpt-5.6-luna")
+        self.assertIsInstance(result, OpenAIResponsesModel)
+
+    def test_db_creds_build_a_chat_model_for_an_ordinary_openai_model(self):
+        # The negative half: the redirect must not capture models that belong
+        # on Chat Completions, or every ordinary agent moves endpoint too.
+        from pydantic_ai.models.openai import OpenAIResponsesModel
+
+        self._configure_openai_creds(api_key="sk-db-key")
+        result = build_agent_model("openai:gpt-4o")
+        self.assertNotIsInstance(result, OpenAIResponsesModel)
+
+
+class TestRequiresResponsesApiAnchoring(TestCase):
+    """The prefix match is anchored, so a longer version number cannot match.
+
+    ``gpt-5.6`` is a string prefix of ``gpt-5.60-…``, which would be a DIFFERENT
+    model. A bare ``startswith`` would route it to an endpoint it may not
+    support, and the failure surfaces as a 400 in a worker log.
+    """
+
+    def test_the_exact_family_name_matches(self):
+        self.assertTrue(requires_responses_api("openai", "gpt-5.6"))
+
+    def test_a_dash_suffixed_variant_matches(self):
+        for name in ("gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra"):
+            self.assertTrue(requires_responses_api("openai", name), name)
+
+    def test_a_dot_suffixed_point_release_matches(self):
+        self.assertTrue(requires_responses_api("openai", "gpt-5.6.1"))
+
+    def test_a_longer_version_number_does_not_match(self):
+        self.assertFalse(requires_responses_api("openai", "gpt-5.60"))
+        self.assertFalse(requires_responses_api("openai", "gpt-5.60-turbo"))
+
+    def test_another_provider_is_never_redirected(self):
+        # The Responses API is OpenAI's; an identically-named model on another
+        # provider must not be rewritten to an OpenAI-only prefix.
+        self.assertFalse(requires_responses_api("anthropic", "gpt-5.6-luna"))
 
 
 class TestProviderSecretStatusSurface(TestCase):
@@ -265,7 +353,7 @@ class TestCredentialCache(TestCase):
         self._configure_openai_creds(api_key="sk-old")
         seen_keys: list[str | None] = []
 
-        def _capture(provider_key, model_name, creds):
+        def _capture(provider_key, model_name, creds, *, responses_api=False):
             seen_keys.append(creds.get("api_key"))
             return object()
 
