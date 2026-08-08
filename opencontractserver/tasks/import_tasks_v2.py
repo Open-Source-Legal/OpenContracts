@@ -15,6 +15,7 @@ import logging
 import re
 import uuid
 import zipfile
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import PurePosixPath
@@ -35,6 +36,7 @@ from opencontractserver.annotations.models import (
     Relationship,
     StructuralAnnotationSet,
 )
+from opencontractserver.constants.document_processing import BLOB_HASH_CHUNK_BYTES
 from opencontractserver.corpuses.models import Corpus, TemporaryFileHandle
 from opencontractserver.documents.models import (
     Document,
@@ -142,6 +144,30 @@ def _read_guarded_source_bytes(
     )
 
 
+#: Attribute the per-ZIP member-name census is memoised under.
+_MEMBER_NAME_COUNTS_ATTR = "_oc_member_name_counts"
+
+
+def _member_name_counts(import_zip: zipfile.ZipFile) -> Counter:
+    """Member filename -> occurrence count for one open ZIP, computed once.
+
+    ``ZipFile.NameToInfo`` cannot answer this: it keeps only the LAST entry for
+    a repeated name, and spotting a repeat is the entire point of the caller's
+    check. The direct form rescanned ``infolist()`` once per tagged document,
+    which is O(entries x tagged documents) over attacker-supplied input — a ZIP
+    carrying many entries and many publisher-source-tagged documents turns a
+    linear import into a quadratic one for no gain.
+
+    Memoised on the ``ZipFile`` instance because that object is opened once per
+    import and its central directory does not change while we read from it.
+    """
+    counts = getattr(import_zip, _MEMBER_NAME_COUNTS_ATTR, None)
+    if counts is None:
+        counts = Counter(info.filename for info in import_zip.infolist())
+        setattr(import_zip, _MEMBER_NAME_COUNTS_ATTR, counts)
+    return counts
+
+
 def _read_publisher_source_payload(
     import_zip: zipfile.ZipFile,
     doc_filename: str,
@@ -191,7 +217,7 @@ def _read_publisher_source_payload(
         raise ValueError(
             "sidecar publisher-source packaging must reference a distinct ZIP member"
         )
-    occurrences = sum(1 for info in import_zip.infolist() if info.filename == member)
+    occurrences = _member_name_counts(import_zip)[member]
     if occurrences != 1:
         raise ValueError(
             f"publisher_source_member {member!r} occurs {occurrences} times in ZIP"
@@ -241,7 +267,7 @@ def _attach_publisher_original_file(
         try:
             digest = hashlib.sha256()
             with document.original_file.open("rb") as existing:
-                for chunk in iter(lambda: existing.read(1024 * 1024), b""):
+                for chunk in iter(lambda: existing.read(BLOB_HASH_CHUNK_BYTES), b""):
                     digest.update(chunk)
             if digest.hexdigest() == payload.content_hash:
                 if document.original_file_type != payload.mime_type:

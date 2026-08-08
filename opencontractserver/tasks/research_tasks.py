@@ -570,8 +570,8 @@ def _build_finding_card(
         return None, (
             "a finding card is either a REGIME card (as_of_date, "
             "applicable_process, authority_status, interval) or an OBLIGATION "
-            "card (obligation, owed_by, form_reference, deadline) — not both. "
-            "Record them as separate findings."
+            "card (obligation, responsible_party, form_reference, deadline) — "
+            "not both. Record them as separate findings."
         )
 
     if wants_obligation:
@@ -1406,12 +1406,13 @@ async def _run_deep_research_async(
         salvage_body = _compose_salvage_body(report, response_text=response.content)
         # ``finalize_once``, not ``finalize``: the status check above is a
         # cheap early-out, not a guard. ``reap_stalled_research`` can have a
-        # second worker on this same report, and it could commit a real
-        # finalize between that check and this write — at which point a
-        # salvage composition would overwrite the genuine report with a
-        # "the run ended before the agent produced a final report" note.
-        # A refusal here means someone else already finalized, which is
-        # exactly the outcome we want; the salvage is simply dropped.
+        # second worker on this same report, and it could reach a terminal
+        # state between that check and this write — at which point a salvage
+        # composition would overwrite the genuine outcome with a "the run
+        # ended before the agent produced a final report" note. A refusal here
+        # means the run has already ended some other way (finalized by the
+        # other worker, cancelled, or failed), which is exactly the outcome we
+        # want; the salvage is simply dropped.
         await sync_to_async(ResearchReportService.finalize_once)(
             report,
             executive_summary=(
@@ -1421,7 +1422,15 @@ async def _run_deep_research_async(
             ),
             markdown_body=salvage_body,
             retrieved_annotation_ids=retrieved,
-            warnings=["budget_exhausted", f"terminal_reason: {reason}"],
+            # ``terminal_reason`` ONLY. The legacy ``budget_exhausted`` string
+            # used to accompany it, and every warning is rendered verbatim to
+            # the user (``ResearchReportDetail.tsx``) — so a run that simply
+            # stopped, or blew the STEP budget, showed a chip claiming the
+            # token budget was exhausted directly beside the reason saying
+            # otherwise. Naming the ending is the whole point of this field;
+            # keeping the string it replaced next to it re-creates the
+            # ambiguity in the one surface a user actually reads.
+            warnings=[f"terminal_reason: {reason}"],
         )
         await sync_to_async(report.refresh_from_db)()
 

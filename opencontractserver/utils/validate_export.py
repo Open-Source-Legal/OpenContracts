@@ -27,6 +27,7 @@ from opencontractserver.annotations.compact_json import (
     is_span_format,
     iter_page_annotations,
 )
+from opencontractserver.constants.document_processing import BLOB_HASH_CHUNK_BYTES
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -219,7 +220,9 @@ def _check_zip_structure(
             try:
                 digest = hashlib.sha256()
                 with zip_file.open(member) as source_file:
-                    for chunk in iter(lambda: source_file.read(1024 * 1024), b""):
+                    for chunk in iter(
+                        lambda: source_file.read(BLOB_HASH_CHUNK_BYTES), b""
+                    ):
                         digest.update(chunk)
             except (KeyError, OSError, RuntimeError, zipfile.BadZipFile) as exc:
                 result.error(

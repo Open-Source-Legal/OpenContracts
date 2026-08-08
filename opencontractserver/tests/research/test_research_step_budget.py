@@ -13,9 +13,12 @@ opaque ``budget_exhausted`` string.
 
 from __future__ import annotations
 
+from typing import Any
+from unittest.mock import patch
+
 from asgiref.sync import async_to_sync
 from django.contrib.auth import get_user_model
-from django.test import SimpleTestCase, TestCase
+from django.test import SimpleTestCase, TestCase, TransactionTestCase
 
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.research.constants import (
@@ -25,6 +28,7 @@ from opencontractserver.research.constants import (
 )
 from opencontractserver.research.models import ResearchReport
 from opencontractserver.tasks.research_tasks import _audited, _terminal_reason
+from opencontractserver.types.enums import JobStatus
 
 
 class _Response:
@@ -309,3 +313,185 @@ class DefaultToolsetAuditTests(TestCase):
             self.report, self._Agent(self._Toolset({"legacy": tool}))
         )
         self.assertIs(tool.function_schema.function, legacy_sync_tool)
+
+
+class _ChatResult:
+    """``chat()`` swallows the framework exception and returns it as metadata."""
+
+    def __init__(self, metadata: dict, content: str):
+        self.metadata = metadata
+        self.content = content
+
+
+class _FakeDeps:
+    def __init__(self, retrieved: list[int] | None = None):
+        self.retrieved_annotation_ids = list(retrieved or [])
+
+
+class _FakeAgent:
+    """Enough of the corpus agent for ``_run_deep_research_async`` to drive.
+
+    ``chat`` never calls ``finalize_report`` — that IS the scenario: the run
+    is cut off by the request limit and the salvage path has to compose what
+    survived.
+    """
+
+    def __init__(self, metadata: dict, content: str = ""):
+        self._metadata = metadata
+        self._content = content
+        self.agent_deps = _FakeDeps()
+        # An empty function toolset: ``_audit_default_toolset`` walks it and
+        # finds nothing to wrap, rather than logging that it could not reach
+        # the toolset at all.
+        self.pydantic_ai_agent = type(
+            "Inner", (), {"_function_toolset": type("TS", (), {"tools": {}})()}
+        )()
+        self.chat_calls: list[Any] = []
+
+    async def chat(self, prompt: str, **kwargs):
+        self.chat_calls.append(kwargs)
+        return _ChatResult(self._metadata, self._content)
+
+
+class SalvagePathIntegrationTests(TransactionTestCase):
+    """The whole budget-exhaustion → salvage flow, driven end to end.
+
+    ``TransactionTestCase``, not ``TestCase``: driving the real coroutine means
+    Django's async layer opens and closes connections around every
+    ``sync_to_async`` hop, which a ``TestCase``'s outer atomic block does not
+    survive (``InterfaceError: connection already closed``).
+
+    The pieces (``_terminal_reason``, ``_compose_salvage_body``,
+    ``finalize_once``) each had unit coverage; nothing drove
+    ``_run_deep_research_async`` through the branch that assembles them, which
+    is the branch this PR exists for. The run that motivated it lost two of
+    four required sections at exactly 60 of 60 permitted requests, and every
+    piece of that loss happened where the pieces meet.
+    """
+
+    STEP_LIMIT_ERROR = "The next request would exceed the request_limit of 60"
+
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(
+            username="salvage", password="x"
+        )
+        self.corpus = Corpus.objects.create(title="Rules", creator=self.user)
+        self.report = ResearchReport.objects.create(
+            creator=self.user,
+            corpus=self.corpus,
+            prompt="which obligations bite at 75 MW",
+            max_steps=60,
+        )
+        self.report.findings = [
+            {
+                "section": "Ramp 50 MW",
+                "claim": "a study is required before energization",
+                "citations": [],
+            },
+            {
+                "section": "Ramp 75 MW",
+                "claim": "security must be posted",
+                "citations": [],
+            },
+        ]
+        self.report.save(update_fields=["findings"])
+
+    def _run(self, agent: _FakeAgent) -> dict:
+        from opencontractserver.tasks import research_tasks
+
+        async def _for_corpus(*args, **kwargs):
+            return agent
+
+        # ``agents`` is the ``AgentAPI`` SINGLETON from ``llms/api.py``, not the
+        # ``llms.agents`` package — patching the module path leaves the real
+        # factory in place, which builds a live agent and puts a real request on
+        # the wire (observed: a 401 from api.openai.com, salvaged into a
+        # terminal reason naming ModelHTTPError). Patch the staticmethod.
+        with patch(
+            "opencontractserver.llms.api.AgentAPI.for_corpus", new=_for_corpus
+        ), patch.object(
+            research_tasks,
+            "build_deep_research_system_prompt",
+            return_value="system prompt",
+        ):
+            return async_to_sync(research_tasks._run_deep_research_async)(self.report)
+
+    def test_a_step_limited_run_is_salvaged_into_a_named_terminal_reason(self):
+        result = self._run(_FakeAgent({"error": self.STEP_LIMIT_ERROR}))
+
+        self.report.refresh_from_db()
+        self.assertEqual(self.report.status, JobStatus.COMPLETED.value)
+        self.assertEqual(result["status"], "completed")
+
+        # ONE warning, and it names the budget that actually ran out. The
+        # legacy ``budget_exhausted`` string used to ride along beside it —
+        # every warning is rendered verbatim to the user, so a step overrun
+        # showed a chip claiming the token budget was gone.
+        self.assertEqual(len(self.report.warnings), 1, self.report.warnings)
+        self.assertTrue(self.report.warnings[0].startswith("terminal_reason: "))
+        self.assertIn("step budget exhausted", self.report.warnings[0])
+        self.assertNotIn("budget_exhausted", self.report.warnings)
+
+        # The composed document carries the salvage note AND every finding the
+        # run had recorded. Losing findings here is the original defect.
+        self.assertIn("salvage composition", self.report.content)
+        self.assertIn("a study is required before energization", self.report.content)
+        self.assertIn("security must be posted", self.report.content)
+        self.assertIn("Ramp 50 MW", self.report.content)
+        self.assertIn("Ramp 75 MW", self.report.content)
+
+    def test_an_agent_that_merely_stopped_is_not_labelled_a_budget_overrun(self):
+        # No error metadata at all: the agent returned without finalizing.
+        # Under the old single-warning scheme this was indistinguishable from
+        # a token overrun, and a compaction ratio was tuned on that reading.
+        self._run(_FakeAgent({}, content="Here is what I found so far."))
+
+        self.report.refresh_from_db()
+        self.assertEqual(self.report.status, JobStatus.COMPLETED.value)
+        self.assertIn(
+            "stopped without calling finalize_report", self.report.warnings[0]
+        )
+        self.assertNotIn("budget", self.report.warnings[0])
+
+    def test_salvage_does_not_overwrite_a_run_another_worker_cancelled(self):
+        """``reap_stalled_research`` can put a second worker on one report.
+
+        If that worker's soft time limit fires and marks the row CANCELLED
+        while this one is still composing, the salvage write must be refused.
+        It used to land: ``finalize_once`` only turned away a COMPLETED row,
+        so a cancelled run flipped to COMPLETED — after the user had already
+        been notified it was cancelled — carrying a report body that claims
+        the budget ran out.
+        """
+        from opencontractserver.research.services.research_reports import (
+            ResearchReportService,
+        )
+
+        ResearchReportService.mark_cancelled(
+            self.report, warning="Research stopped: exceeded the time budget."
+        )
+
+        self._run(_FakeAgent({"error": self.STEP_LIMIT_ERROR}))
+
+        self.report.refresh_from_db()
+        self.assertEqual(self.report.status, JobStatus.CANCELLED.value)
+        self.assertEqual(
+            self.report.warnings, ["Research stopped: exceeded the time budget."]
+        )
+        self.assertFalse(self.report.content)
+
+    def test_salvage_does_not_overwrite_a_run_another_worker_failed(self):
+        # Same window, the FAILED half. A COMPLETED row still carrying the
+        # other worker's ``error_message`` reads as a successful report.
+        from opencontractserver.research.services.research_reports import (
+            ResearchReportService,
+        )
+
+        ResearchReportService.mark_failed(self.report, "APIConnectionError: reset")
+
+        self._run(_FakeAgent({"error": self.STEP_LIMIT_ERROR}))
+
+        self.report.refresh_from_db()
+        self.assertEqual(self.report.status, JobStatus.FAILED.value)
+        self.assertIn("APIConnectionError", self.report.error_message)
+        self.assertFalse(self.report.content)

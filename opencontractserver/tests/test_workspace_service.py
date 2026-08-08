@@ -129,6 +129,57 @@ class WorkspaceServiceTestCase(TestCase):
         self.assertTrue(path.strip("/").startswith("Research Reports/"))
         self.assertNotIn("..", path)
 
+    def test_folder_names_with_separators_cannot_invent_folders_either(self):
+        """``folder_name`` is sanitized too, and by the same rule as the title.
+
+        It reaches ``_safe_segment`` on a different argument and a different
+        branch (the ``if folder_name:`` block), and only the title side was
+        pinned — so a caller-supplied folder could have regressed to raw
+        interpolation without a test noticing. The folder is written straight
+        into ``path_prefix`` AND into a ``CorpusFolder.name``, so a surviving
+        ``..`` is both an extra path level and a zip-slip segment in the V2
+        export that later carries it.
+        """
+        document = WorkspaceService.save_markdown(
+            user=self.user,
+            title="Note",
+            content="text",
+            folder_name="../../etc/Reports",
+        )
+
+        personal = Corpus.objects.get(creator=self.user, is_personal=True)
+        path = (
+            DocumentPath.objects.filter(document=document, corpus=personal)
+            .values_list("path", flat=True)
+            .first()
+        )
+        self.assertEqual(path.strip("/").count("/"), 1)
+        self.assertNotIn("..", path)
+
+        # The CorpusFolder row carries the sanitized name, not the raw one.
+        folder = CorpusFolder.objects.get(corpus=personal, parent=None)
+        self.assertNotIn("..", folder.name)
+        self.assertNotIn("/", folder.name)
+        self.assertTrue(path.strip("/").startswith(f"{folder.name}/"))
+
+    def test_a_folder_name_that_sanitizes_to_nothing_falls_back(self):
+        # "..." collapses to "." then strips to empty; without the fallback the
+        # document would silently land in the corpus root instead of a folder.
+        document = WorkspaceService.save_markdown(
+            user=self.user,
+            title="Note",
+            content="text",
+            folder_name="...",
+        )
+
+        personal = Corpus.objects.get(creator=self.user, is_personal=True)
+        path = (
+            DocumentPath.objects.filter(document=document, corpus=personal)
+            .values_list("path", flat=True)
+            .first()
+        )
+        self.assertTrue(path.strip("/").startswith("Generated/"))
+
     def test_two_users_get_separate_workspaces(self):
         other = User.objects.create_user(username="other-workspace", password="x")
 

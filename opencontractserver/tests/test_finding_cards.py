@@ -659,3 +659,81 @@ class ObligationSchemaFromCamlTests(TestCase):
     def test_steps_are_deduplicated_and_ordered(self):
         schema = ObligationSchema.from_caml_props({"steps": "100,25,50,25"})
         self.assertEqual(schema.threshold_steps, (25.0, 50.0, 100.0))
+
+
+class CardFieldContractTests(TestCase):
+    """The stored card IS ``model_dump()``, so these names are a wire contract.
+
+    The frontend embed
+    (``frontend/src/components/corpuses/CorpusHome/intelligence/embeds/
+    ResearchFindingsEmbed.tsx``) declares a matching TypeScript interface and
+    reads these keys off the report's ``findings``. TypeScript cannot see this
+    module, so a rename here is invisible over there: the component read
+    ``card.owed_by`` — a name ``ObligationCard`` never had — and every real
+    obligation card rendered a blank heading in production while the component
+    suite stayed green against hand-authored mocks carrying the wrong shape.
+
+    This is the tripwire. A field renamed, added or dropped fails HERE, next to
+    a comment naming the file that has to change with it. It is deliberately a
+    whole-set comparison rather than a spot-check of the fields the embed reads
+    today: the embed grows, and a test that only knows about today's subset
+    stops covering it the moment it does.
+    """
+
+    OBLIGATION_FIELDS = {
+        "kind",
+        "obligation",
+        "applicability",
+        "applies_at",
+        "threshold_unit",
+        "responsible_party",
+        "preparer",
+        "submitter",
+        "recipient",
+        "certifier",
+        "obligor_grounded",
+        "approval_date",
+        "effective_date",
+        "service_request_date",
+        "application_date",
+        "deadline",
+        "commencement_date",
+        "form_reference",
+        "material",
+        "confidence",
+        "unresolved_qualifications",
+    }
+
+    REGIME_FIELDS = {
+        "kind",
+        "as_of_date",
+        "applicable_process",
+        "authority_status",
+        "effective_interval_start",
+        "effective_interval_end",
+        "primary_authority_effective_from",
+        "confidence",
+        "unresolved_qualifications",
+    }
+
+    def test_obligation_card_field_names_are_pinned(self):
+        self.assertEqual(set(ObligationCard.model_fields), self.OBLIGATION_FIELDS)
+
+    def test_regime_card_field_names_are_pinned(self):
+        self.assertEqual(set(RegimeCard.model_fields), self.REGIME_FIELDS)
+
+    def test_a_dumped_card_carries_exactly_those_keys(self):
+        # ``model_fields`` is the declaration; ``model_dump()`` is what is
+        # actually stored on the report and shipped to the browser. Pin both,
+        # so a serialisation alias could not diverge from the field list.
+        dumped = ObligationCard(
+            obligation="File the study",
+            applicability="GENERALLY_APPLICABLE",
+            responsible_party="The developer",
+            confidence="HIGH",
+            unresolved_qualifications=["nothing outstanding"],
+        ).model_dump()
+        self.assertEqual(set(dumped), self.OBLIGATION_FIELDS)
+        # The heading the embed renders. Named explicitly because this is the
+        # exact key that drifted.
+        self.assertEqual(dumped["responsible_party"], "The developer")

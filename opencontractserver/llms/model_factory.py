@@ -317,9 +317,19 @@ OPENAI_RESPONSES_ONLY_PREFIXES: tuple[str, ...] = ("gpt-5.6",)
 
 
 def requires_responses_api(provider_key: str, model_name: str) -> bool:
-    """Whether ``model_name`` must be driven through the Responses API."""
-    return provider_key == "openai" and model_name.startswith(
-        OPENAI_RESPONSES_ONLY_PREFIXES
+    """Whether ``model_name`` must be driven through the Responses API.
+
+    The prefix match is anchored on a delimiter, not a bare ``startswith``: the
+    family names are dotted, so ``gpt-5.6`` is a prefix of a hypothetical
+    ``gpt-5.60-…`` — a DIFFERENT model, which would then be silently routed to
+    an endpoint it may not support. A prefix matches the whole name or the name
+    up to the next ``-`` / ``.``.
+    """
+    if provider_key != "openai":
+        return False
+    return any(
+        model_name == prefix or model_name.startswith((f"{prefix}-", f"{prefix}."))
+        for prefix in OPENAI_RESPONSES_ONLY_PREFIXES
     )
 
 
@@ -346,10 +356,13 @@ def build_agent_model(spec: str) -> Any:
     # env-credential fallback returns this string for pydantic-ai to resolve,
     # and the DB-credential path below builds the matching Model class.
     responses_api = requires_responses_api(provider_key, model_name)
+    # Every env-credential exit below returns the same thing; naming it once
+    # keeps the three of them from drifting apart.
+    env_spec = f"openai-responses:{model_name}" if responses_api else spec
 
     creds = _get_db_credentials(provider_key)
     if not creds:
-        return f"openai-responses:{model_name}" if responses_api else spec
+        return env_spec
 
     try:
         model = _construct_model(
@@ -362,10 +375,10 @@ def build_agent_model(spec: str) -> Any:
             provider_key,
             exc_info=True,
         )
-        return f"openai-responses:{model_name}" if responses_api else spec
+        return env_spec
 
     if model is None:
-        return f"openai-responses:{model_name}" if responses_api else spec
+        return env_spec
 
     # debug, not info: once DB credentials are configured this runs on every
     # single agent build (every chat message, structured call, memory task).

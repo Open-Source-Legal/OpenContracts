@@ -728,15 +728,26 @@ class ResearchReportService(BaseService):
         compose.
 
         Holding the row lock across the whole composition closes that window —
-        the loser blocks, then re-reads COMPLETED and is turned away. Same
-        treatment ``append_finding`` / ``append_tool_call`` already get, and
-        for the same reason (one report, concurrent writers). Locking for the
-        duration is acceptable precisely because this is the run's terminal
+        the loser blocks, then re-reads a terminal status and is turned away.
+        Same treatment ``append_finding`` / ``append_tool_call`` already get,
+        and for the same reason (one report, concurrent writers). Locking for
+        the duration is acceptable precisely because this is the run's terminal
         step: serialising it is the point, not a cost.
+
+        The guard is ``is_terminal``, not ``status == COMPLETED``. CANCELLED
+        and FAILED are also "the run already ended", and only COMPLETED was
+        being refused: a second worker (``reap_stalled_research`` resumes a
+        stalled RUNNING report, so two can be live at once) could finalize on
+        top of a row the first worker had just marked CANCELLED by soft time
+        limit or FAILED with a traceback. The result is a report that reads
+        COMPLETED while still carrying the other worker's ``error_message``,
+        after the user has already been notified the run was cancelled. No
+        path resets a report out of a terminal state — ``resume`` refuses one
+        outright — so widening this cannot strand a run that ought to finish.
         """
         with transaction.atomic():
             locked = ResearchReport.objects.select_for_update().get(pk=report.pk)
-            if locked.status == JobStatus.COMPLETED.value:
+            if locked.is_terminal:
                 return False
             cls.finalize(
                 report,

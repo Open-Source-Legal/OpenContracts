@@ -32,9 +32,14 @@ import { OS_LEGAL_COLORS } from "../../../../../assets/configurations/osLegalSty
  */
 interface FindingCardData {
   kind?: "REGIME" | "OBLIGATION";
-  // Obligation shape
+  // Obligation shape. Field names mirror `ObligationCard` /`RegimeCard` in
+  // opencontractserver/enrichment/finding_cards.py EXACTLY — the stored card
+  // is that model's `model_dump()`, so a name that drifts from it reads
+  // `undefined` in production while a hand-authored mock keeps the tests
+  // green. `test_finding_cards.py` pins the field sets against this list.
   obligation?: string;
-  owed_by?: string;
+  responsible_party?: string;
+  obligor_grounded?: boolean;
   form_reference?: string | null;
   deadline?: string | null;
   // Regime shape
@@ -117,6 +122,20 @@ const Card = styled.article`
   }
 `;
 
+const InferredTag = styled.span`
+  margin-left: 0.5rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 3px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  vertical-align: middle;
+  color: var(--oc-fg-secondary, #5a6674);
+  background: var(--oc-bg-subtle, #f1f3f5);
+  border: 1px solid var(--oc-border-default, #d4d9df);
+`;
+
 /** Half-open notation. `unestablished` is deliberate, not a placeholder. */
 function renderInterval(card: FindingCardData): string {
   const start = card.effective_interval_start || "unestablished";
@@ -156,7 +175,18 @@ export const ResearchFindingsEmbed: React.FC<
               key={`${card.as_of_date ?? card.obligation}-${i}`}
               data-testid="finding-card"
             >
-              <h4>{isObligation ? card.owed_by : card.as_of_date}</h4>
+              <h4 data-testid="finding-heading">
+                {isObligation ? card.responsible_party : card.as_of_date}
+                {/* An obligor the cited passages never NAME is an attribution
+                    carried in from elsewhere. The backend marks it rather than
+                    refusing the card; rendering the two identically would put
+                    the distinction back where the card exists to take it. */}
+                {isObligation && card.obligor_grounded === false && (
+                  <InferredTag data-testid="finding-obligor-inferred">
+                    obligor inferred
+                  </InferredTag>
+                )}
+              </h4>
               <dl>
                 {isObligation ? (
                   <>

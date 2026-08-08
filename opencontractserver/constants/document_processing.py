@@ -81,6 +81,12 @@ DEFAULT_MAX_CORPUS_REINGEST_SOURCE_BYTES = 256 * 1024 * 1024
 # guard entirely).
 DEFAULT_MAX_CORPUS_MANIFEST_SIZE_BYTES = 512 * 1024 * 1024
 
+# Read size (1 MB) for streaming a stored blob through a hash. Used where a
+# publisher-source member's SHA-256 is re-derived from a file already on disk
+# rather than from bytes in memory, so the digest never costs more than one
+# chunk of RAM regardless of the file's size.
+BLOB_HASH_CHUNK_BYTES = 1024 * 1024
+
 # Default path prefix for documents uploaded without explicit path
 # Used when generating document paths in corpus operations
 DEFAULT_DOCUMENT_PATH_PREFIX = "/documents"

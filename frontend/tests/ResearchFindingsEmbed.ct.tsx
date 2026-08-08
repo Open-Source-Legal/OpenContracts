@@ -179,7 +179,11 @@ test.describe("ResearchFindingsEmbed", () => {
     await expect(page.locator('[data-testid="finding-card"]')).toHaveCount(2);
 
     // Card A: open interval (no end), qualifications present, and the
-    // authority-effective-from row rendered.
+    // authority-effective-from row rendered. The heading carries `as_of_date`
+    // on a regime card (see the obligation test for why headings are pinned).
+    await expect(
+      page.locator('[data-testid="finding-heading"]').first()
+    ).toHaveText("2026-07-11");
     await expect(wrap).toContainText(
       "Small Generator Interconnection Procedure"
     );
@@ -191,6 +195,9 @@ test.describe("ResearchFindingsEmbed", () => {
 
     // Card B: unestablished start, closed end, no qualifications -> "None
     // stated", and no authority-effective-from row (field is null).
+    await expect(
+      page.locator('[data-testid="finding-heading"]').nth(1)
+    ).toHaveText("2026-07-10");
     await expect(wrap).toContainText("Prior Interconnection Procedure");
     await expect(
       page.locator('[data-testid="finding-interval"]').nth(1)
@@ -217,7 +224,8 @@ test.describe("ResearchFindingsEmbed", () => {
               card: {
                 kind: "OBLIGATION",
                 obligation: "File annual interconnection compliance report",
-                owed_by: "Grid Operator",
+                responsible_party: "Grid Operator",
+                obligor_grounded: true,
                 form_reference: "Form IC-7",
                 deadline: "Annually by March 31",
                 confidence: "HIGH",
@@ -233,9 +241,12 @@ test.describe("ResearchFindingsEmbed", () => {
                 // `!!card.obligation`. `unresolved_qualifications` is also
                 // omitted entirely (not just empty) to exercise the `??`
                 // fallback to `[]`, as distinct from card A/B's
-                // explicit-empty-array case.
+                // explicit-empty-array case. `obligor_grounded: false` is the
+                // backend's marker for an obligor the cited passages never
+                // name (research_tasks.py::_build_obligation_card).
                 obligation: "Maintain interconnection insurance",
-                owed_by: "Developer",
+                responsible_party: "Developer",
+                obligor_grounded: false,
                 form_reference: null,
                 deadline: null,
                 confidence: "LOW",
@@ -254,6 +265,16 @@ test.describe("ResearchFindingsEmbed", () => {
     await expect(page.locator('[data-testid="finding-card"]')).toHaveCount(2);
 
     // Card C: form reference + deadline both present.
+    //
+    // The heading assertion is load-bearing, not decorative. The component
+    // read `card.owed_by` — a field `ObligationCard` has never had — so every
+    // real obligation card rendered a BLANK heading in production while this
+    // suite stayed green, because nothing here looked at the heading and the
+    // mocks were hand-authored to the wrong shape. Assert the heading text on
+    // both card shapes so the next rename cannot pass.
+    await expect(
+      page.locator('[data-testid="finding-heading"]').first()
+    ).toContainText("Grid Operator");
     await expect(
       page.locator('[data-testid="finding-obligation"]').first()
     ).toHaveText("File annual interconnection compliance report");
@@ -267,12 +288,25 @@ test.describe("ResearchFindingsEmbed", () => {
 
     // Card D: no `kind`, no form reference, no deadline, no qualifications.
     await expect(
+      page.locator('[data-testid="finding-heading"]').nth(1)
+    ).toContainText("Developer");
+    await expect(
       page.locator('[data-testid="finding-obligation"]').nth(1)
     ).toHaveText("Maintain interconnection insurance");
     await expect(page.locator('[data-testid="finding-form"]')).toHaveCount(1); // only card C's
     await expect(page.locator('[data-testid="finding-deadline"]')).toHaveCount(
       1
     ); // only card C's
+
+    // `obligor_grounded: false` (card D) is marked; card C's `true` is not.
+    // An inferred obligor rendering identically to a named one puts the
+    // distinction back into prose, which is what the card exists to prevent.
+    await expect(
+      page.locator('[data-testid="finding-obligor-inferred"]')
+    ).toHaveCount(1);
+    await expect(
+      page.locator('[data-testid="finding-card"]').nth(1)
+    ).toContainText("obligor inferred");
 
     await docScreenshot(
       page,

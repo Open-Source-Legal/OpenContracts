@@ -8,6 +8,7 @@ import strawberry
 from graphql_relay import to_global_id
 
 from config.graphql.core.scalars import GenericScalar
+from config.graphql.ratelimits import RateLimits, graphql_ratelimit
 from opencontractserver.enrichment.services.authority_pack_service import (
     AuthorityPackPlan,
     AuthorityPackService,
@@ -107,14 +108,22 @@ def q_authority_pack_preflight(
     return _to_graphql(plan) if plan is not None else None
 
 
-def m_install_authority_pack(
-    info: strawberry.Info,
-    pack_id: Annotated[str, strawberry.argument(name="packId")],
-    expected_fingerprint: Annotated[
-        str, strawberry.argument(name="expectedFingerprint")
-    ],
+@graphql_ratelimit(rate=RateLimits.ADMIN_OPERATION)
+def _resolve_install_authority_pack(
+    root,
+    info,
+    pack_id: str,
+    expected_fingerprint: str,
     publish: bool,
 ) -> InstallAuthorityPackMutation:
+    """Install a pack. Rate-limited like every other admin write.
+
+    Split from the strawberry-facing resolver because ``graphql_ratelimit``
+    wraps ``(root, info, …)`` — the same shape ``annotation_queries`` uses for
+    its decorated resolvers. Already gated to ``is_authority_admin`` inside the
+    service; the limit is defence in depth on an operation that installs
+    corpora and rewrites the governance graph.
+    """
     result = AuthorityPackService.install(
         info.context.user,
         pack_id=pack_id,
@@ -144,6 +153,23 @@ def m_install_authority_pack(
         message=message,
         result=result.value.as_dict(),
         pack=_to_graphql(result.value.pack),
+    )
+
+
+def m_install_authority_pack(
+    info: strawberry.Info,
+    pack_id: Annotated[str, strawberry.argument(name="packId")],
+    expected_fingerprint: Annotated[
+        str, strawberry.argument(name="expectedFingerprint")
+    ],
+    publish: bool,
+) -> InstallAuthorityPackMutation:
+    return _resolve_install_authority_pack(
+        None,
+        info,
+        pack_id=pack_id,
+        expected_fingerprint=expected_fingerprint,
+        publish=publish,
     )
 
 
