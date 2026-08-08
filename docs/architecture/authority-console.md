@@ -124,10 +124,11 @@ prints the fingerprint, source hosts, approval state, and per-corpus plan and
 writes nothing, because a headless deployment has no authority-admin browser
 session.
 
-After a successful install the card flips to its new state and the corpora are
-live:
+After a successful install the modal closes and the card flips to its new state
+— below, a pack installed privately, so both corpora exist but neither is
+published (`Installed 2/2`, `Public 0/2`):
 
-![Authority Packs catalog after installing](../assets/images/screenshots/auto/admin--pack-preflight-modal--install-and-publish.png)
+![Authority Packs catalog after a private install](../assets/images/screenshots/auto/admin--pack-preflight-modal--install-and-publish.png)
 
 Once a corpus is installed, **Import corpus ZIP** opens the existing
 corpus-export modal with that corpus's server-issued ID. Direct and resumable
