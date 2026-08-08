@@ -31,4 +31,10 @@
     detection vocabulary comes from, closing the gap between the tagging engine
     and the packs that extend it (`prefixes`/`aliases` plus a pack's optional
     `shape_rules` / `abbreviations`), so standing up detection for a new body of
-    law reads as the data change it is.
+    law reads as the data change it is. Also shows what tagging *produces*: the
+    doc rendered the References panel's transient **In progress** state but
+    never its settled one, and described the corpus governance-graph glimpse
+    without showing it — both screenshots existed and were referenced by no doc.
+    Linking them makes one point twice over, in list form and in graph form: an
+    **Awaiting source** row and a hollow ghost node are the same unresolved
+    citation, and are exactly what seeds the authority crawl.
