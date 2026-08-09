@@ -18,8 +18,10 @@ Fetched packs land in ``settings.AUTHORITY_PACK_INSTALL_DIR`` — an implicit
 pack bundle root scanned by ``authority_pack_dirs()`` — and are then installed
 via the existing ``load_authority_pack`` command (preflight validation,
 idempotent convergence, ``--public`` publication, post-install re-link). The
-install dir is a managed fetch cache: re-installing a pack atomically replaces
-its directory. Hand-curated packs belong in ``AUTHORITY_PACK_PATHS``/``ROOTS``.
+install dir is a managed fetch cache: re-installing a pack replaces its
+directory (rmtree + move, not an atomic swap — a crash mid-replace leaves the
+pack absent until the command is re-run). Hand-curated packs belong in
+``AUTHORITY_PACK_PATHS``/``ROOTS``.
 
 Grammar-tier pack taxonomy extensions (``abbreviations``/``shape_rules``) are
 ``lru_cache``d per process, so web/worker processes need a restart after a
@@ -43,6 +45,10 @@ PACK_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 # Ceiling on the fetched archive; packs are text and compress well, so anything
 # near this size is a mistake, not a pack.
 MAX_TARBALL_BYTES = 500 * 1024 * 1024
+
+# Ceiling on the *uncompressed* bytes extracted from the archive, so a small
+# malicious gzip can't expand into something enormous during extraction.
+MAX_EXTRACTED_BYTES = 2 * 1024 * 1024 * 1024
 
 DOWNLOAD_TIMEOUT_SECONDS = 120
 
@@ -198,13 +204,21 @@ class Command(BaseCommand):
                 # Extract only the requested pack, stripping the archive's
                 # top-level prefix. The 'data' filter refuses absolute paths,
                 # parent-directory traversal, symlink escapes, and device
-                # members — the registry repo is trusted-ish, but a tarball is
-                # attacker-shaped input and costs nothing to sanitise.
+                # members, and the running size cap bounds decompression-bomb
+                # expansion — the registry repo is trusted-ish, but a tarball
+                # is attacker-shaped input and costs nothing to sanitise.
                 want = f"{prefix}/{pack}/"
                 staged = tmp_path / "staged"
+                extracted = 0
                 for member in tar.getmembers():
                     if not member.name.startswith(want):
                         continue
+                    extracted += member.size
+                    if extracted > MAX_EXTRACTED_BYTES:
+                        raise CommandError(
+                            f"Pack {pack!r} expands past {MAX_EXTRACTED_BYTES} "
+                            "bytes; refusing"
+                        )
                     member.name = member.name[len(prefix) + 1 :]
                     tar.extract(member, path=staged, filter="data")
 

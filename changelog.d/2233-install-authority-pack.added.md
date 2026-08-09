@@ -3,7 +3,7 @@
   ([Open-Source-Legal/authority-packs](https://github.com/Open-Source-Legal/authority-packs), CC BY-SA 4.0 —
   first catalog entry: the Fort Worth, Texas pack, 147 verbatim law sections). Downloads the registry
   tarball (`--repo`/`--ref` overrides; `--tarball` for air-gapped installs), safely extracts the requested
-  pack (tarfile `data` filter + pack-name slug validation) into the new `AUTHORITY_PACK_INSTALL_DIR`
+  pack (tarfile `data` filter + pack-name slug validation + compressed and uncompressed size caps) into the new `AUTHORITY_PACK_INSTALL_DIR`
   (default `<root>/.authority_packs`, gitignored), and delegates validation/install to `load_authority_pack`.
   `authority_pack_dirs()` (`opencontractserver/pipeline/registry.py`) now scans the install dir as an
   implicit bundle root, so fetched packs are discoverable with zero env-var wiring. Also adds
