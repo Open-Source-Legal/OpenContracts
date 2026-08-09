@@ -19,8 +19,9 @@
     "wrangler": "^4.114.0"
   },
   "overrides": {
-    "undici": ">=7.24.0",
+    "undici": ">=8.9.0",
     "picomatch": ">=4.0.4",
-    "esbuild": ">=0.28.1"
+    "esbuild": ">=0.28.1",
+    "nanoid": ">=3.3.17"
   }
 }
