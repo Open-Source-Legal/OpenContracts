@@ -62,23 +62,80 @@ corresponding tab so existing bookmarks keep working for one release.
 
 ### Authority Packs tab
 
+![Authority Console — Authority Packs catalog](../assets/images/screenshots/auto/admin--authority-packs-tab--status-badges.png)
+
 The trusted server catalog is discovered from the shipped pack directory and
-`AUTHORITY_PACK_ROOTS` / `AUTHORITY_PACK_PATHS`. The browser sends an opaque
-pack ID, never a filesystem
-path, URL, archive, or manifest. Opening a pack runs a fresh side-effect-free
-preflight and displays its fingerprint, corpus identities, current installation
-state, source-host lineage, and publication approval.
+`AUTHORITY_PACK_ROOTS` / `AUTHORITY_PACK_PATHS` (see
+[Installing a sideloaded pack](../guides/authoring-authority-packs.md#installing-a-sideloaded-pack)).
+The browser sends an opaque pack ID, **never** a filesystem path, URL, archive,
+or manifest — the catalog is the only way in, so the console cannot be used to
+upload pack code or point the server at an arbitrary directory.
+
+Each card carries the pack's display name over its manifest `name`, the
+declared jurisdiction / manifest schema version / charter approval state as
+chips, `Corpora` + `Installed n/m` + `Public n/m` counts, and its declared
+source-host count. The status badge (`PacksTab.tsx::packStatus`) is derived,
+not stored:
+
+| Badge | Meaning |
+|---|---|
+| `Invalid` | The manifest failed server validation. The card shows the error, and its button reads **Review pack** and is *disabled* ("Repair this server-deployed pack before installing it") — an invalid pack cannot even be opened, since `can_install` tracks `valid` exactly. |
+| `Available` | Valid, nothing installed yet. |
+| `Partially installed` | Some but not all of the pack's corpora exist. |
+| `Installed privately` | Every corpus installed, none public. |
+| `Partially public` / `Fully public` | Some / all installed corpora are published. |
+
+An empty catalog is the normal symptom of an unmounted or mis-pointed pack
+directory — the pack root is resolved **inside** the container, so a host path
+that was never bind-mounted yields exactly this:
+
+![Authority Packs — empty catalog](../assets/images/screenshots/auto/admin--authority-packs-tab--empty-catalog.png)
+
+#### Preflight
+
+**Review & install** (the button on any valid pack) runs a fresh,
+side-effect-free preflight
+(`AuthorityPackService.preflight`) and shows what an install *would* do before
+anything is written:
+
+![Pack preflight modal](../assets/images/screenshots/auto/admin--pack-preflight-modal--summary-badges.png)
+
+The manifest fingerprint is round-tripped as `expectedFingerprint` on the
+install mutation, so a pack edited on disk between preflight and install is
+rejected rather than silently installing something else. Declared source hosts
+are listed because installing is the trust decision that widens the SSRF
+allowlist. The per-corpus table gives each corpus's slug, charter approval,
+installation state, and visibility.
 
 Installation is private by default and atomically reuses the same
-`AuthorityPackService` as the legacy operator command. Public installation is
-an explicit option and remains disabled while a declared charter is unapproved
-or `pending_legal_review`.
+`AuthorityPackService` as the operator command. **Publish** is a separate
+opt-in checkbox that stays disabled while a declared charter is unapproved or
+`pending_legal_review` (the *Publication unavailable* notice above). The modal
+refuses to close while an install is in flight, so a half-applied transaction is
+never left unattended. A server-side rejection is surfaced in place as
+*Installation failed* rather than as a toast that scrolls away — a slug already
+owned by another creator is the common one, and it is refused here rather than
+producing a second corpus:
+
+![Pack preflight — install rejected by the server](../assets/images/screenshots/auto/admin--pack-preflight-modal--install-rejected.png)
+
+The same validation is reachable headlessly — `load_authority_pack --check`
+prints the fingerprint, source hosts, approval state, and per-corpus plan and
+writes nothing, because a headless deployment has no authority-admin browser
+session.
+
+After a successful install the modal closes and the card flips to its new state
+— below, a pack installed privately, so both corpora exist but neither is
+published (`Installed 2/2`, `Public 0/2`):
+
+![Authority Packs catalog after a private install](../assets/images/screenshots/auto/admin--pack-preflight-modal--install-and-publish.png)
 
 Once a corpus is installed, **Import corpus ZIP** opens the existing
 corpus-export modal with that corpus's server-issued ID. Direct and resumable
 chunked uploads therefore share the normal import service and permission gate;
-the console does not add a second ingestion system. This supports deployments
-whose acquisition/crawling happens outside OpenContracts.
+the console does not add a second ingestion system. This is the landing surface
+for deployments whose acquisition and crawling happen outside OpenContracts —
+see [Collecting content out of process](../guides/authoring-authority-packs.md#collecting-content-out-of-process-the-source-plan).
 
 ### Authorities (Registry tab)
 

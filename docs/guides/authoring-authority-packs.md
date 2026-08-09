@@ -34,16 +34,26 @@ allowlist entries, and corpus definitions all travel inside the directory.
   charters/<area>.yaml               # v2: corpus scope and legal-review ownership
   metadata/<schema>.yaml             # v2: typed AuthoritySourceRecord fields
   relationships.yaml                 # v2: canonical-key relationship declarations
+  sources.yaml                       # OPTIONAL: source plan for the out-of-process collector
   providers/<name>_provider.py       # OPTIONAL: citation-keyed scraper (discovered from here)
   discovery_providers/<name>.py      # OPTIONAL: listing-index crawler (discovered from here)
   fixtures/                          # OPTIONAL: test/golden data; never legal approval
 ```
 
-The reference pack lives at
-`opencontractserver/enrichment/data/authority_packs/bolivia/` — read it alongside
-this guide; it is the canonical worked example (taxonomy + curated content +
-Spanish persona; no scraper, because its sources are listing-page, not
-key-addressable).
+**Two worked examples, for two different purposes.** Read whichever matches
+what you are writing:
+
+| Example | Schema | Read it for |
+|---|---|---|
+| `opencontractserver/enrichment/data/authority_packs/bolivia/` | v1 | The shipped, installable pack — taxonomy + curated content + a Spanish persona. No scraper: its sources are listing-page, not key-addressable. |
+| `opencontractserver/tests/fixtures/authority_packs/example_utility/` | **v2** | A complete, deliberately fictional multi-corpus pack exercising every v2 slot — slugs, charters, typed metadata, relationships, prefix binding, and a `sources.yaml` source plan. |
+
+`example_utility` lives under `tests/fixtures/` rather than the in-tree pack
+root on purpose: `authority_pack_dirs()` enumerates *every* immediate
+subdirectory of that root, so a fixture placed there would ship as an
+installable pack on every deployment. Tests mount it explicitly via
+`override_settings(AUTHORITY_PACK_PATHS=[…])`, which is also the cheapest way to
+try a pack of your own without committing it.
 
 Each artifact binds to an existing extension seam, so the runtime needs **zero
 changes** to accept a new pack:
@@ -58,6 +68,7 @@ changes** to accept a new pack:
 | Corpus charter | `charters/<area>.yaml` | Load-time scope/review declaration (schema v2) | required in v2 |
 | Typed metadata schema | `metadata/<schema>.yaml` | Existing `Fieldset` / `Column` / `Datacell` metadata path | optional |
 | Authority relationships | `relationships.yaml` | Canonical-key `AuthorityRelationship` rows | optional |
+| Source plan | `sources.yaml` | The out-of-process collector (`scripts/authority_import/`) → corpus-export ZIPs | optional |
 | Corpus namespace binding | `pack.yaml` corpus `authority_prefixes:` | Existing pack-owned `AuthorityNamespace` rows → exact target corpus | optional |
 | Source hosts (for a scraper) | `pack.yaml` `source_hosts:` | the SSRF allowlist, merged at runtime | optional |
 | Provider credentials | the `PipelineSettings` encrypted-secrets vault (**not** a pack file) | `get_component_settings()`, keyed by provider class path | optional |
@@ -81,6 +92,7 @@ jurisdiction: us-example
 mappings: authority_mappings.example.yaml
 metadata_schema: metadata/authority_source_record.yaml  # pack-wide default
 relationships: relationships.yaml
+sources: sources.yaml                 # optional; read only by the out-of-process collector
 source_hosts:
   - example.gov                       # bare host; no scheme, port, or path
 corpora:
@@ -126,10 +138,10 @@ successfully, keeps each provider-authored edge in
 all — no error, no warning, no failing import. The only visible symptom is an
 authority graph that is quietly missing edges. (This stranded 154 of 396
 declared edges across one deployment's four packs before every prefix was
-bound;
-`test_grid_dossier_authority_pack_data.py::
-test_every_declared_prefix_is_bound_to_exactly_one_pack_corpus` now fails a
-pack that leaves one unbound.)
+bound.) Because binding is a property of a pack's own data, a pack repository
+should assert it in its own suite; the loader-side rules — a prefix bound by at
+most one corpus, no undeclared/manual/foreign/already-bound namespaces — are
+covered by `test_authority_pack_loader.py`.
 
 Leaving a prefix unbound is right only when its documents are never sideloaded
 into a corpus of this pack — for example a prefix declared purely so citations
@@ -213,6 +225,34 @@ This workflow requires no provider module or `source_hosts` declaration and
 does not make OpenContracts contact the publisher. Provenance collected by the
 external pipeline should travel in the exported document paths and metadata.
 
+### Collecting content out of process (the source plan)
+
+You do not have to build those ZIPs by hand. A pack may declare a **source
+plan** in `sources.yaml`, and the standalone builder
+`scripts/authority_import/build_authority_imports.py` runs it *outside* the
+application — reusing the pack's own registered discovery and source providers —
+and writes `<pack>/imports/<corpus-slug>.zip` plus an index and a scrape report:
+
+```bash
+python scripts/authority_import/build_authority_imports.py \
+  --rights-approved /srv/authorities/<repo>/packs/<pack>
+```
+
+Each plan entry names one candidate mode (`discovery_provider` + `index_urls`,
+an explicit `candidates` list, or `canonical_keys`) and an `ingestion_mode`:
+`full_content` runs the normal authority rights gate, while `link_only`
+discovers and locates but never fetches publisher bytes. `--rights-approved`
+records the external collector's per-build decision for `LICENSED` /
+`REVIEW_REQUIRED` records; without it those records fail closed. It does not
+publish the corpora, approve graph edges, or waive publisher restrictions.
+
+The web app never runs the scraper on this path — the operator uploads the
+generated ZIPs through **Authority Packs → Import corpus ZIP**. Full field
+reference, the rights and TLS rules, and the pre-import verification checklist
+live with the builder in
+[`scripts/authority_import/README.md`](https://github.com/Open-Source-Legal/OpenContracts/blob/main/scripts/authority_import/README.md);
+`example_utility/sources.yaml` is a working two-source plan.
+
 ## Shipping a scraper inside the pack
 
 A live-fetch provider is the one irreducibly-Python slot (every source's HTML/XML/
@@ -236,6 +276,41 @@ instead of in core's `pipeline/authority_source_providers/`:
    manifest. They cannot borrow a host declared by another installed pack, and
    both the initial URL and redirect-final host must belong to that manifest.
 4. Put any credentials in the secrets vault (above), never in the pack.
+
+### Importing a pack's own modules
+
+A pack with more than one provider usually wants a shared helper (publisher
+identity derivation, a parsing utility) at its pack root. **Reach it with a
+relative import, never an absolute dotted path:**
+
+```python
+# in <pack>/providers/example_provider.py
+from ..publisher_identity import derive_canonical_key   # ✅ works in-tree and sideloaded
+```
+
+In-pack component modules are imported *by file path* under a synthetic
+`_authority_pack.<pack>.…` namespace whose parent packages the registry creates
+(`opencontractserver/pipeline/registry.py::_ensure_synthetic_package`). Relative
+imports resolve against that namespace identically wherever the pack is mounted,
+which is what "a pack is copy-to-port" requires.
+
+An absolute in-tree path
+(`from opencontractserver.enrichment.data.authority_packs.<pack>.helper import …`)
+appears to work only while the pack sits in this repository and is *also*
+importable as a real Python package. The moment it is sideloaded that import
+raises and **every provider in the module silently fails to register** — the
+pack installs, the corpora appear, and nothing fetches. This is not
+hypothetical: it stranded 15 providers across two packs on their first sideload.
+Covered by `PackSiblingImportTests` in `test_authority_pack_providers.py`.
+
+Two related rules:
+
+- **Pack directory basenames should be unique** across the in-tree root and
+  every configured root/path. Colliding basenames are disambiguated with a path
+  digest and logged as a warning, but the readable namespace is worth keeping.
+- **Re-mounting a pack name from a different directory is safe.** The registry
+  drops the old directory's cached submodules, so a swapped pack cannot hand
+  back the previous pack's helper.
 
 ### The shared `AuthoritySourceRecord`
 
@@ -373,6 +448,23 @@ registered once. A path that is not a directory is logged and skipped rather
 than failing worker boot. Under Docker the directory has to be **mounted into
 the container** — the path is resolved inside it, not on the host.
 
+A root is *scanned*, so only subdirectories containing a `pack.yaml` count. That
+makes a root pointed one level too deep (at a pack rather than at the bundle)
+contribute nothing, instead of surfacing that pack's own `charters/` and
+`specs/` as broken packs. Explicit `AUTHORITY_PACK_PATHS` entries are
+deliberately not filtered that way: you named that directory, so a missing
+manifest must surface as an invalid pack you can repair rather than vanish.
+
+**Confirm the server can see it.** Configured packs appear in **Admin Settings →
+Authority Console → Authority Packs**:
+
+![Authority Packs catalog](../assets/images/screenshots/auto/admin--authority-packs-tab--status-badges.png)
+
+An empty catalog means no configured directory yielded a pack — most often a
+host path that was never bind-mounted into the container:
+
+![Authority Packs — empty catalog](../assets/images/screenshots/auto/admin--authority-packs-tab--empty-catalog.png)
+
 **Verify before installing.** A sideloaded pack is code and data you did not
 necessarily write. `--check` runs the same validation as the Authority Console
 preflight and writes nothing:
@@ -391,9 +483,25 @@ personas, metadata schemas, and relationships in one transaction. Then restart
 so the registry and SSRF allowlist pick up the pack's `providers/` module and
 `source_hosts` — discovery happens at registry build.
 
-An administrator can do the same thing without a shell: **Admin Settings →
-Authority Console → Authority Packs** lists every configured pack, shows its
-preflight, and installs it.
+An administrator can do the same thing without a shell. **Review & install** on
+a catalog card runs the identical validation and shows what the install would do
+before anything is written (a pack that failed validation instead shows a
+disabled **Review pack** button — repair it on disk first):
+
+![Pack preflight modal](../assets/images/screenshots/auto/admin--pack-preflight-modal--summary-badges.png)
+
+The fingerprint shown here is sent back with the install, so a pack edited on
+disk in between is rejected rather than quietly installing something else.
+Installation is private by default; **publish** is a separate opt-in that stays
+disabled while a declared charter is unapproved or `pending_legal_review`. See
+[Authority Console § Authority Packs tab](../architecture/authority-console.md#authority-packs-tab).
+
+**Acceptance runs.** A pack repository that keeps its own end-to-end acceptance
+spec (install the packs, import the prepared ZIPs, assert the resulting corpora)
+runs it against this frontend with `E2E_RUN_AUTHORITY_IMPORTS=true`, which
+raises Playwright's timeouts for a real-stack install of large corpora. No
+in-tree spec sets it — the packs, their exports, and the spec all live with the
+deployment.
 
 ## Add / remove / copy
 
@@ -531,7 +639,12 @@ vocabulary*, not per-authority config:
   prefixes / license / priority / credential status.
 - The seeded corpora are queryable, each answering in its pack persona.
 
-Tests for the mechanics live in `opencontractserver/tests/test_authority_pack.py`,
-`test_authority_pack_providers.py`, `test_authority_source_hosts.py`,
-`test_authority_sources.py`, `test_authority_ingestion_invariants.py`, and the
-`test_grid_dossier_*` modules.
+Tests for the mechanics live in `opencontractserver/tests/`:
+`test_authority_pack.py` (manifest + install service),
+`test_authority_pack_loader.py` (convergence, idempotency, curator-state
+preservation, atomic abort, prefix binding — against the `example_utility`
+fixture), `test_authority_pack_sideload.py` (the `AUTHORITY_PACK_ROOTS` /
+`AUTHORITY_PACK_PATHS` contract), `test_authority_pack_providers.py` (in-pack
+provider discovery and sibling imports), `test_authority_pack_taxonomy.py`
+(`shape_rules` / `abbreviations`), `test_authority_source_hosts.py`,
+`test_authority_sources.py`, and `test_authority_ingestion_invariants.py`.

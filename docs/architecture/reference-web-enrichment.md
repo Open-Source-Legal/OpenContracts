@@ -14,6 +14,20 @@ to laws it does *not* contain (the "wanted authorities") seed a global
 from public-domain providers so the citations resolve from `EXTERNAL` to
 `RESOLVED`.
 
+What a reader ends up with is the document's **References panel** — every tag the
+engine produced, in both directions:
+
+![References panel — resolved and unresolved citations on a document](../assets/images/screenshots/auto/annotations--references-panel--with-data.png)
+
+Under `CITES`, each row is one `CorpusReference` — chipped by what it points at
+(`Law`, `Exhibit`), counted by mentions (`×2` where the same authority is cited
+twice), and badged with where it landed. **Linked** means the target is in reach
+and the row opens it; **Awaiting source** is the interesting one — an
+unresolved `LAW` reference, a statute this corpus cites but does not contain.
+Those rows *are* the wanted authorities that seed the crawl, which is what makes
+the panel read as a to-do list rather than a list of failures. `CITED BY` is the
+same web read backwards, from the `DocumentRelationship` projection.
+
 This document covers the detection engine, the in-flight persistence lifecycle,
 the cross-document concurrency model, the authority crawl, and how to operate all
 of it (trigger, monitor, explore). It assumes the reader is comfortable with the
@@ -49,6 +63,16 @@ registry/grammar hits.
 span overlap**, and grammar/LLM candidates add only the non-overlapping tail. So a
 citation the grammar already catches is never *also* stored as a (lower-trust) LLM
 row.
+
+**Where a jurisdiction's vocabulary comes from.** The registry tier reads
+`AuthorityNamespace` prefixes and aliases, which are curated through the
+[Authority Console](authority-console.md) Registry tab and loaded in bulk from
+the shipped `authority_mappings.yaml` baseline plus every installed **authority
+pack**. A pack also carries optional `shape_rules` (classify a numbered prefix
+family) and `abbreviations` (Bluebook-style forms the Tier-2a extractor matches),
+merged onto the shipped baseline at runtime — so standing up detection for a new
+body of law is a data change, not a code change. See
+[Authoring an Authority Pack](../guides/authoring-authority-packs.md).
 
 ### Customs / trade grammar family (CBP CROSS-style corpora)
 
@@ -257,10 +281,19 @@ stays on the Runs tab.
 
 ### Explore — the governance graph
 
-Every corpus landing page shows a static governance-graph *glimpse*; "Explore the
-full graph" opens the deep-linkable interactive **explorer** at `?view=graph`
-(`GovernanceGraphExplorer`, sharing `utils/governanceGraphLayout.ts` with the
-glimpse). Filings sit above, the law shelf below; pan/zoom, search, and
+Every corpus landing page shows a static governance-graph *glimpse* — the whole
+reference web of a corpus in one frame, filings above and the law shelf below:
+
+![Governance-graph glimpse on a corpus landing page](../assets/images/screenshots/auto/corpus--governance-graph--with-data.png)
+
+The hollow, dashed node is the same story the References panel tells in list
+form: a statute the corpus cites but has not ingested. Solid law nodes are
+resolved; the ghost is a wanted authority waiting on the crawl.
+
+"Explore the full graph" opens the deep-linkable interactive **explorer** at
+`?view=graph` (`GovernanceGraphExplorer`, sharing
+`utils/governanceGraphLayout.ts` with the glimpse). Filings sit above, the law
+shelf below; pan/zoom, search, and
 kind/authority filters (dim, don't reflow) let you navigate, and selecting a node
 opens a detail drawer.
 
