@@ -1,8 +1,9 @@
 # OpenContracts Individual Contributor License Agreement
 
 Thank you for your interest in contributing to OpenContracts (the
-"Project"), maintained by the Open-Source-Legal organization
-(https://github.com/Open-Source-Legal/OpenContracts) (the "Maintainers").
+"Project"), maintained by John Scrudato IV (the "Maintainer"), the
+copyright holder of OpenContracts
+(https://github.com/Open-Source-Legal/OpenContracts).
 
 This Contributor License Agreement ("Agreement") clarifies the
 intellectual property license granted with any Contribution you make to
@@ -22,29 +23,29 @@ submitted to the Project.
 "Contribution" means any original work of authorship, including any
 modification or addition to existing work, that is intentionally
 submitted by You to the Project for inclusion in, or documentation of,
-any product owned or managed by the Maintainers (the "Work"). "Submitted"
+any product owned or managed by the Maintainer (the "Work"). "Submitted"
 means any form of electronic, verbal, or written communication sent to
-the Maintainers or their representatives, including communication on
-issue trackers and source code control systems managed by, or on behalf
-of, the Maintainers — including pull requests on
+the Maintainer or a designated representative, including communication
+on issue trackers and source code control systems managed by, or on
+behalf of, the Maintainer — including pull requests on
 https://github.com/Open-Source-Legal/OpenContracts.
 
 ## 2. Grant of Copyright License
 
 Subject to the terms of this Agreement, You hereby grant to the
-Maintainers and to recipients of software distributed by the Project a
+Maintainer and to recipients of software distributed by the Project a
 perpetual, worldwide, non-exclusive, royalty-free, irrevocable copyright
 license to reproduce, prepare derivative works of, publicly display,
 publicly perform, sublicense, and distribute Your Contributions and such
 derivative works, under the Project's current license (MIT) or any
-future license the Maintainers choose for the Project — including more
+future license the Maintainer chooses for the Project — including more
 permissive or more restrictive licenses — provided such relicensing does
 not retroactively restrict Your own rights to Your Contributions.
 
 ## 3. Grant of Patent License
 
 Subject to the terms of this Agreement, You hereby grant to the
-Maintainers and to recipients of software distributed by the Project a
+Maintainer and to recipients of software distributed by the Project a
 perpetual, worldwide, non-exclusive, royalty-free, irrevocable (except
 as stated in this section) patent license to make, have made, use, offer
 to sell, sell, import, and otherwise transfer the Work, where such
@@ -62,7 +63,7 @@ litigation is filed.
 
 You retain all right, title, and interest in and to Your Contributions.
 This Agreement only grants the licenses described above — it does not
-assign copyright to the Maintainers.
+assign copyright to the Maintainer.
 
 ## 5. Representations
 
@@ -73,7 +74,7 @@ You represent that:
   Contributions, You represent that You have received permission to
   contribute on behalf of that employer, that Your employer has waived
   such rights for Your Contributions, or that Your employer has executed
-  a separate Corporate CLA with the Maintainers.
+  a separate Corporate CLA with the Maintainer.
 - Each of Your Contributions is Your original creation, or You have
   sufficient rights to submit it under the terms of this Agreement.
 - Your Contribution submissions include complete details of any
@@ -88,7 +89,7 @@ OF ANY KIND, either express or implied.
 
 ## 7. Notification of Changes
 
-You agree to notify the Maintainers of any facts or circumstances of
+You agree to notify the Maintainer of any facts or circumstances of
 which You become aware that would make the representations in Section 5
 inaccurate in any respect.
 
