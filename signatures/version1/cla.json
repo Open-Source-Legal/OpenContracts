@@ -1,3 +1,12 @@
 {
-   "signedContributors": []
+  "signedContributors": [
+    {
+      "name": "JSv4",
+      "id": 5049984,
+      "comment_id": 5234383761,
+      "created_at": "2026-08-09T23:23:56Z",
+      "repoId": 556553471,
+      "pullRequestNo": 2235
+    }
+  ]
 }
