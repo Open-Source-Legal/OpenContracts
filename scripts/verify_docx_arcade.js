@@ -47,7 +47,9 @@ function serve(rootDirs) {
       if (rel.endsWith("/")) rel += "index.html";
       for (const root of rootDirs) {
         const file = path.join(root, rel);
-        if (!file.startsWith(root)) continue; // no traversal
+        // Separator-suffixed prefix check: bare startsWith(root) would let a
+        // sibling dir sharing root as a string prefix (root + "-evil") pass.
+        if (!file.startsWith(root + path.sep)) continue;
         if (fs.existsSync(file) && fs.statSync(file).isFile()) {
           res.writeHead(200, { "Content-Type": MIME[path.extname(file)] ?? "application/octet-stream" });
           fs.createReadStream(file).pipe(res);
@@ -177,11 +179,14 @@ const ok = (name, pass, detail = "") => {
     const a = window.__arcade;
     const rows = a.debugGame().rows ?? [];
     const rowWith = rows.find((r) => r.includes("HELLO"));
+    // Row width comes from the live rows (solids is row-major COLS wide),
+    // so this stays correct if the screen geometry ever changes.
+    const width = rows[0]?.length ?? 0;
     return {
       framesAfter: a.frames(),
       inGame: Boolean(rowWith),
       solid: rowWith
-        ? a.debugGame().solids[rows.indexOf(rowWith) * 92 + rowWith.indexOf("H")] === 1
+        ? a.debugGame().solids[rows.indexOf(rowWith) * width + rowWith.indexOf("H")] === 1
         : false,
     };
   });
