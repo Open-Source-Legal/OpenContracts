@@ -143,6 +143,25 @@ const unesc = (s) =>
     .replace(/&apos;/g, "'")
     .replace(/&amp;/g, "&");
 
+/** Fit rows to the cell grid: pad the row count to `height`, pad/truncate
+ *  each row to `width`, and neutralize surrogate code units. The grid
+ *  indexes by UTF-16 code unit, so an astral character (an emoji typed
+ *  into a level) spans two cells and width-truncation could strand half
+ *  of it — and a lone surrogate is not serializable back into w:t by the
+ *  frame writer. Each surrogate unit becomes a '?' cell (solid scenery /
+ *  a wall, per the games' unknown-glyph rule). */
+function fitRows(rows, width, height) {
+  while (rows.length < height) rows.push("");
+  return rows
+    .slice(0, height)
+    .map((r) =>
+      (r.length >= width ? r.slice(0, width) : r.padEnd(width, " ")).replace(
+        /[\uD800-\uDFFF]/g,
+        "?"
+      )
+    );
+}
+
 /**
  * Flatten a paragraph's XML into text rows. Only w:t (text), w:br/w:cr
  * (row breaks) and w:tab (a space) matter; every other element — including
@@ -173,10 +192,7 @@ export function paraXmlToRows(xml, width, height) {
     }
   }
   rows.push(cur);
-  while (rows.length < height) rows.push("");
-  return rows
-    .slice(0, height)
-    .map((r) => (r.length >= width ? r.slice(0, width) : r.padEnd(width, " ")));
+  return fitRows(rows, width, height);
 }
 
 /**
@@ -204,10 +220,7 @@ export function domBlockToRows(el, width, height) {
     }
   }
   rows.push(cur);
-  while (rows.length < height) rows.push("");
-  return rows
-    .slice(0, height)
-    .map((r) => (r.length >= width ? r.slice(0, width) : r.padEnd(width, " ")));
+  return fitRows(rows, width, height);
 }
 
 // ─── 3×5 banner font ──────────────────────────────────────────────────

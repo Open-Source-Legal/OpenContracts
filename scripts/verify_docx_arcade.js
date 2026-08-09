@@ -247,6 +247,35 @@ const ok = (name, pass, detail = "") => {
   });
   ok("session-level floor-plan edit raises a wall", zEdit.success !== false && zInGrid);
 
+  // An astral char (emoji) typed into a level must not strand a lone
+  // surrogate in the grid or halt the frame loop — fitRows() neutralizes
+  // each surrogate unit into a '?' wall cell.
+  await page.evaluate(() => {
+    const a = window.__arcade;
+    const anchor = a.cartridgeAnchors().plan;
+    let xml = a.session.raw.getXml(anchor);
+    let count = 0;
+    xml = xml.replace(/(<w:t [^>]*>)([^<]{48})(<\/w:t>)/g, (m, a1, row, a3) => {
+      count++;
+      if (count === 12) return a1 + row.slice(0, 24) + "🙂" + row.slice(26) + a3;
+      return m;
+    });
+    a.session.raw.replaceXml(anchor, xml);
+  });
+  await page.waitForTimeout(1200);
+  const emojiState = await page.evaluate(() => ({
+    playing: window.__arcade.playing(),
+    frames: window.__arcade.frames(),
+    qWall: window.__arcade.debugGame().grid?.some((r) => r.includes("?")) ?? false,
+  }));
+  await page.waitForTimeout(600);
+  const framesAfterEmoji = await page.evaluate(() => window.__arcade.frames());
+  ok(
+    "emoji in the floor plan does not halt the loop",
+    emojiState.playing && framesAfterEmoji > emojiState.frames
+  );
+  ok("astral char becomes ?-wall cells", emojiState.qWall);
+
   const t2 = await page.evaluate(() => ({ fps: window.__arcade.fps(), timings: window.__arcade.timings() }));
   ok("dungeon fps reasonable", t2.fps > 5, `fps=${t2.fps.toFixed(1)} runs=${t2.timings.runs}`);
   ok("run budget respected", t2.timings.runs < 150, `${t2.timings.runs} runs`);
