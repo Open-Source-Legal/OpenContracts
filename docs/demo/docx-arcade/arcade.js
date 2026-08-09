@@ -32,6 +32,11 @@ import { createDocxDungeon, DUNGEON_PLAN, PLAN_W, PLAN_H } from "./docx-dungeon.
 const SIM_STEP = 1 / 30; // fixed-step sim; rendering floats with the pace
 const SOURCE_POLL_FRAMES = 5; // re-read the active cartridge every N frames
 
+/** Minimal HTML escape for the one dock string not authored by this repo
+ *  (editor.lastReconcileFallback) — the stats line renders via innerHTML. */
+const escHtml = (s) =>
+  String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
 // ─── Seeding: build the arcade document through the agentic surface ───
 function check(r, what) {
   if (!r.success) throw new Error(`${what} failed: ${r.error?.code} ${r.error?.message}`);
@@ -335,7 +340,7 @@ export function startArcade({ editor, session, ui, params }) {
       `<b>${game.label}</b> · ${game.statusWord()} · <b>${fps.toFixed(1)}</b> fps · ` +
       `replaceXml <b>${timings.mutate.toFixed(1)}</b> ms · refresh <b>${timings.refresh.toFixed(1)}</b> ms · ` +
       `<b>${lastRuns}</b> runs · ` +
-      (fb ? `remounted (${fb})` : `<span class="inc">incremental — one block repainted</span>`);
+      (fb ? `remounted (${escHtml(fb)})` : `<span class="inc">incremental — one block repainted</span>`);
   }
 
   function updateChip() {
@@ -424,7 +429,9 @@ export function startArcade({ editor, session, ui, params }) {
   // Pointer placement decides who owns the keyboard. Clicking the screen
   // paragraph grabs the controls (and never drops a caret into the
   // framebuffer); clicking anywhere else is ordinary editing.
-  const unidOf = (anchor) => anchor.split(":")[2];
+  // Anchor unids are library-generated hex, but CSS.escape keeps the
+  // attribute selectors robust rather than relying on that format.
+  const unidOf = (anchor) => CSS.escape(anchor.split(":")[2]);
   editor.root.addEventListener(
     "pointerdown",
     (ev) => {

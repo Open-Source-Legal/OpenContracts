@@ -74,7 +74,18 @@ None — the demo runs entirely in-tab on a blank in-memory document.
 
 ## Automation notes
 
-The session used throwaway Playwright scripts implementing exactly these
-steps (17 assertions + a typing scenario); they drive the page through
-`window.__arcade` (the demo's debug/controller handle, analogous to the
-Observatory's `window.__moneyshot`).
+The committed harness `scripts/verify_docx_arcade.js` implements exactly
+these steps (19 assertions, including the typing/blur-commit scenario). It
+drives the page through `window.__arcade` (the demo's debug/controller
+handle, analogous to the Observatory's `window.__moneyshot`), serves the
+demo itself on an ephemeral port, and is configured by env vars —
+`CHROMIUM_PATH`, and `ENGINE_URL`/`ENGINE_DIR` for a local engine mirror
+(see the header comment). It is not in CI; run it after touching
+`docs/demo/docx-arcade/`:
+
+```bash
+node scripts/verify_docx_arcade.js                      # CDN engine
+CHROMIUM_PATH=/opt/pw-browsers/chromium \
+ENGINE_DIR=/path/to/mirror ENGINE_URL=/engine/embed.bundle.js \
+node scripts/verify_docx_arcade.js                      # offline mirror
+```

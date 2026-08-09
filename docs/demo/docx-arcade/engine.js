@@ -320,7 +320,7 @@ export function createInput({ onControlChange, onKeyTap }) {
         return;
       }
       if (control !== "game") return;
-      const key = ev.key.length === 1 ? ev.key.toLowerCase() : ev.key.toLowerCase();
+      const key = ev.key.toLowerCase();
       if (!GAME_KEYS.has(key) || ev.ctrlKey || ev.metaKey || ev.altKey) return;
       ev.preventDefault();
       ev.stopPropagation();
@@ -334,8 +334,7 @@ export function createInput({ onControlChange, onKeyTap }) {
   window.addEventListener(
     "keyup",
     (ev) => {
-      const key = ev.key.length === 1 ? ev.key.toLowerCase() : ev.key.toLowerCase();
-      held.delete(key);
+      held.delete(ev.key.toLowerCase());
     },
     true
   );
