@@ -1784,6 +1784,27 @@ AUTHORITY_PACK_PATHS = env.list("AUTHORITY_PACK_PATHS", default=[])
 # path. Same restart requirement as AUTHORITY_PACK_PATHS.
 AUTHORITY_PACK_ROOTS = env.list("AUTHORITY_PACK_ROOTS", default=[])
 
+# Where `manage.py install_authority_pack` materialises packs fetched from the
+# pack registry repo. The directory is an implicit pack bundle root (scanned by
+# authority_pack_dirs() exactly like an AUTHORITY_PACK_ROOTS entry), so a
+# fetched pack is discoverable with zero further configuration. It is a managed
+# fetch cache — re-installing a pack replaces its directory — so hand-curated
+# packs belong in AUTHORITY_PACK_PATHS/ROOTS instead. Deployments that recreate
+# containers should mount a volume here (or re-run install_authority_pack on
+# boot): installed pack *content* lives in the database, but the grammar tier
+# re-reads pack taxonomy extensions from this directory at process start.
+AUTHORITY_PACK_INSTALL_DIR = env.str(
+    "AUTHORITY_PACK_INSTALL_DIR", default=str(ROOT_DIR / ".authority_packs")
+)
+
+# The pack registry `install_authority_pack` fetches from: any git host that
+# serves `<repo>/archive/<ref>.tar.gz` tarballs (GitHub does), whose repository
+# root contains one directory per pack. Override per-install with --repo.
+AUTHORITY_PACK_REGISTRY_URL = env.str(
+    "AUTHORITY_PACK_REGISTRY_URL",
+    default="https://github.com/Open-Source-Legal/authority-packs",
+)
+
 # Rate Limiting Configuration
 # ------------------------------------------------------------------------------
 # Import rate limiting settings
