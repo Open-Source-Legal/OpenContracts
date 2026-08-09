@@ -178,8 +178,11 @@ def authority_pack_dirs() -> list[Path]:
 
     Union of (a) every immediate subdirectory of the in-tree
     ``enrichment/data/authority_packs/`` root, (b) every immediate subdirectory
-    of each ``AUTHORITY_PACK_ROOTS`` entry (a mounted pack *bundle*), and (c)
-    each path in ``AUTHORITY_PACK_PATHS`` (an individual out-of-tree pack).
+    of ``AUTHORITY_PACK_INSTALL_DIR`` (the ``install_authority_pack`` fetch
+    cache — an implicit bundle root, so fetched packs are discoverable with no
+    further configuration), (c) every immediate subdirectory of each
+    ``AUTHORITY_PACK_ROOTS`` entry (a mounted pack *bundle*), and (d) each path
+    in ``AUTHORITY_PACK_PATHS`` (an individual out-of-tree pack).
 
     Order is deterministic (in-tree first, then roots, then explicit paths, each
     sorted) so duplicate-prefix warnings are reproducible, and the result is
@@ -194,6 +197,11 @@ def authority_pack_dirs() -> list[Path]:
     try:
         from django.conf import settings
 
+        install_dir = getattr(settings, "AUTHORITY_PACK_INSTALL_DIR", "") or ""
+        if install_dir:
+            root = Path(install_dir).expanduser()
+            if root.is_dir():
+                dirs.extend(p.resolve() for p in _packs_under(root))
         for raw in getattr(settings, "AUTHORITY_PACK_ROOTS", []) or []:
             root = Path(raw).expanduser()
             if root.is_dir():

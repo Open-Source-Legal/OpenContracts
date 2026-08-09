@@ -422,6 +422,34 @@ index. A publisher moving the same canonical key to a different URL—or changin
 its current/historical or document-type metadata—produces a new reviewable
 candidate instead of being hidden by key-only deduplication.
 
+## Installing from the pack registry (one command)
+
+Published packs live in their own repository —
+[`Open-Source-Legal/authority-packs`](https://github.com/Open-Source-Legal/authority-packs)
+(CC BY-SA 4.0; one top-level directory per pack) — so a deployment installs
+only the jurisdictions it wants and the MIT platform stays untangled from pack
+content licensing. `install_authority_pack` is the fetch+install wrapper:
+
+```bash
+docker compose -f local.yml run --rm django python manage.py \
+  install_authority_pack --list                     # what's available
+docker compose -f local.yml run --rm django python manage.py \
+  install_authority_pack fort_worth --creator <username> --check   # preflight
+docker compose -f local.yml run --rm django python manage.py \
+  install_authority_pack fort_worth --creator <username> --public  # install
+```
+
+It downloads the registry tarball (`--repo`/`--ref` override
+`AUTHORITY_PACK_REGISTRY_URL` and the default `main`; `--tarball` skips the
+network entirely for air-gapped installs), extracts the one pack into
+`AUTHORITY_PACK_INSTALL_DIR` (an implicit bundle root, auto-discovered — no
+env-var wiring needed), and delegates validation + install to
+`load_authority_pack`. The install dir is a managed fetch cache: re-installing
+a pack replaces its directory, and deployments that recreate containers should
+volume-mount it (pack *content* persists in the database, but the grammar tier
+re-reads taxonomy extensions from disk at process start). The usual restart
+rule applies after install.
+
 ## Installing a sideloaded pack
 
 This is the normal path. The pack lives in its own repository; the install
