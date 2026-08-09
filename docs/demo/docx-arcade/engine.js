@@ -81,7 +81,10 @@ function rowRuns(chars, colors) {
 /** The whole frame as one w:p: the captured opening tag (which carries the
  *  paragraph's Unid — THE thing that keeps the anchor stable across frames),
  *  a pPr with shading + exact line height, then per row: colored runs joined
- *  by w:br. */
+ *  by w:br.*
+ *  `bg` and the grid's colors are interpolated into XML *attributes* with
+ *  no escaping — esc() covers text content only. Callers must pass palette
+ *  hex constants, never user-supplied text. */
 export function frameXml(openTag, grid, bg) {
   const parts = [
     openTag,
@@ -113,7 +116,10 @@ export function frameXml(openTag, grid, bg) {
  *  end under pre-wrap, so the browser refuses to place a caret inside it
  *  and typing into blank level rows silently goes nowhere. NBSP renders
  *  identically in the editor but stays caret-addressable; paraXmlToRows
- *  folds it back to a plain space when the game reads the level. */
+ *  folds it back to a plain space when the game reads the level.
+ *
+ *  `ink`/`bg` land in XML attributes unescaped — palette hex constants
+ *  only, never user-supplied text (esc() covers text content only). */
 export function cartridgeXml(openTag, rows, { ink = "8FA8C4", bg = "0E1626" } = {}) {
   const parts = [
     openTag,

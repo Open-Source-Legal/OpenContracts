@@ -52,7 +52,9 @@ function serve(rootDirs) {
         if (!file.startsWith(root + path.sep)) continue;
         if (fs.existsSync(file) && fs.statSync(file).isFile()) {
           res.writeHead(200, { "Content-Type": MIME[path.extname(file)] ?? "application/octet-stream" });
-          fs.createReadStream(file).pipe(res);
+          fs.createReadStream(file)
+            .on("error", () => res.destroy())
+            .pipe(res);
           return;
         }
       }

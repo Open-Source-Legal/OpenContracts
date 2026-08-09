@@ -436,9 +436,15 @@ export function startArcade({ editor, session, ui, params }) {
   // Pointer placement decides who owns the keyboard. Clicking the screen
   // paragraph grabs the controls (and never drops a caret into the
   // framebuffer); clicking anywhere else is ordinary editing.
-  // Anchor unids are library-generated hex, but CSS.escape keeps the
-  // attribute selectors robust rather than relying on that format.
-  const unidOf = (anchor) => CSS.escape(anchor.split(":")[2]);
+  // Anchor ids are docxodus-shaped ("kind:region:unid"); fail loudly if a
+  // future engine bump changes that shape — a silent undefined here would
+  // just make every selector match nothing. CSS.escape keeps the attribute
+  // selectors robust rather than relying on the unid's hex format.
+  const unidOf = (anchor) => {
+    const unid = anchor?.split(":")[2];
+    if (!unid) throw new Error(`unexpected anchor shape: ${anchor}`);
+    return CSS.escape(unid);
+  };
   editor.root.addEventListener(
     "pointerdown",
     (ev) => {
