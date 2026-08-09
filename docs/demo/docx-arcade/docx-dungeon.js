@@ -19,6 +19,7 @@ import {
   hash2,
   drawText,
   drawBigTextCentered,
+  fmtTime,
 } from "./engine.js";
 
 export const PLAN_W = 48;
@@ -142,8 +143,10 @@ export function createDocxDungeon() {
     if (cx < 0 || cx >= PLAN_W || cy < 0 || cy >= PLAN_H) return "#";
     return state.grid[cy][cx];
   };
-  const isWall = (ch) => ch !== "." && ch !== "P" && ch !== "¶" && ch !== "E";
-  const isSolid = (ch) => ch !== "." && ch !== "P" && ch !== "¶"; // E blocks too
+  // applySource normalizes the grid before storage (P and ¶ become floor),
+  // so cells are only ".", "E", or wall glyphs.
+  const isWall = (ch) => ch !== "." && ch !== "E";
+  const isSolid = (ch) => ch !== "."; // the E door blocks movement too
   const solidCell = (cx, cy) => isSolid(cellAt(cx, cy));
 
   function applySource(rows) {
@@ -475,8 +478,6 @@ export function createDocxDungeon() {
     return g;
   }
 
-  const fmtTime = (s) =>
-    `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
   const compass = (a) => {
     const names = ["E", "SE", "S", "SW", "W", "NW", "N", "NE"];
     return names[Math.round(((a % (Math.PI * 2)) + Math.PI * 2) / (Math.PI / 4)) % 8];

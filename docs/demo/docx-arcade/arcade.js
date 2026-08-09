@@ -22,6 +22,7 @@ import {
   cartridgeXml,
   paraXmlToRows,
   domBlockToRows,
+  stripBidiMarks,
   drawText,
   createInput,
   createBleeper,
@@ -212,7 +213,13 @@ export function startArcade({ editor, session, ui, params }) {
   let lastRuns = 0;
   let lastFrameEnd = performance.now();
   const timings = { mutate: 0, refresh: 0 };
-  let interval = Number(params.get("fps")) ? Math.round(1000 / Number(params.get("fps"))) : Number(ui.pace.value);
+  // ?fps= accepts 0 for "unthrottled" (matching the pace select), so the
+  // param is checked for presence rather than truthiness.
+  const fpsParam = params.get("fps");
+  let interval = Number(ui.pace.value);
+  if (fpsParam !== null && Number.isFinite(Number(fpsParam)) && Number(fpsParam) >= 0) {
+    interval = Number(fpsParam) > 0 ? Math.round(1000 / Number(fpsParam)) : 0;
+  }
   const sourceCache = new Map(); // sourceKey → last raw xml
   let lastSourceKey = null;
   let haltReason = null;
@@ -261,8 +268,8 @@ export function startArcade({ editor, session, ui, params }) {
     let rows = null;
     const el = editor.root.querySelector(`[data-anchor="${unidOf(anchor)}"]`);
     if (el && el.dataset.committedText !== undefined) {
-      const flat = (el.textContent ?? "").replace(/[‎‏⁦-⁩]/g, "");
-      if (flat !== el.dataset.committedText.replace(/[‎‏⁦-⁩]/g, "")) {
+      const flat = stripBidiMarks(el.textContent ?? "");
+      if (flat !== stripBidiMarks(el.dataset.committedText)) {
         rows = domBlockToRows(el, width, height);
       }
     }

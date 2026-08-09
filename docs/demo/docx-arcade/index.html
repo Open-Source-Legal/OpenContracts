@@ -95,17 +95,23 @@
     // Same engine pin as the Docx Observatory host: the arcade needs
     // DocxEditor.refresh() (docxodus ≥ 9.6.0). ?engine= overrides the pin
     // for local mirrors and version tests — but it feeds a dynamic import()
-    // on this origin, so only same-origin URLs and jsDelivr builds are
-    // honored; anything else falls back to the pin.
+    // on this origin, so only same-origin URLs and jsDelivr *docxodus*
+    // builds are honored (jsDelivr serves every public npm package, so an
+    // origin check alone would still admit arbitrary code); anything else
+    // falls back to the pin.
     const DEFAULT_ENGINE = "https://cdn.jsdelivr.net/npm/docxodus@9.7.0/dist/embed.bundle.js";
     let engineUrl = new URL(DEFAULT_ENGINE);
     if (params.get("engine")) {
       try {
         const candidate = new URL(params.get("engine"), location.href);
-        if (candidate.origin === location.origin || candidate.origin === "https://cdn.jsdelivr.net") {
+        const allowed =
+          candidate.origin === location.origin ||
+          (candidate.origin === "https://cdn.jsdelivr.net" &&
+            candidate.pathname.startsWith("/npm/docxodus@"));
+        if (allowed) {
           engineUrl = candidate;
         } else {
-          console.warn(`?engine= origin not allowed (${candidate.origin}); using the pinned engine.`);
+          console.warn(`?engine= not allowed (${candidate.href}); using the pinned engine.`);
         }
       } catch {
         console.warn("?engine= is not a valid URL; using the pinned engine.");

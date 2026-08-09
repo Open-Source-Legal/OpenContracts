@@ -195,6 +195,16 @@ export function paraXmlToRows(xml, width, height) {
   return fitRows(rows, width, height);
 }
 
+/** Strip the renderer's bidi sentinel marks (LRM/RLM + isolate controls).
+ *  One definition shared by DOM row parsing here and the dirty-block check
+ *  in arcade.js — the sentinel format is a renderer detail, so a change to
+ *  it must not be able to desync the two. */
+export const stripBidiMarks = (s) => s.replace(/[\u200E\u200F\u2066-\u2069]/g, "");
+
+/** mm:ss for the games' HUD clocks. */
+export const fmtTime = (s) =>
+  `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+
 /**
  * Flatten a rendered cartridge block (the editor's live DOM) into text rows.
  *
@@ -208,10 +218,9 @@ export function paraXmlToRows(xml, width, height) {
 export function domBlockToRows(el, width, height) {
   const rows = [];
   let cur = "";
-  const BIDI = /[‎‏⁦-⁩]/g;
   for (const child of el.childNodes) {
     const raw = child.textContent ?? "";
-    const text = raw.replace(BIDI, "");
+    const text = stripBidiMarks(raw);
     if (raw.length > 0 && text.length === 0) {
       rows.push(cur);
       cur = "";

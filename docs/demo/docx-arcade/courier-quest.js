@@ -20,6 +20,7 @@ import {
   hash2,
   drawText,
   drawBigTextCentered,
+  fmtTime,
 } from "./engine.js";
 
 // ─── Physics (cells & seconds; the sim runs at a fixed 30 Hz) ─────────
@@ -599,9 +600,6 @@ export function createCourierQuest() {
     drawText(g, 1, 0, hud.slice(0, COLS - 2), INK.hud);
     return g;
   }
-
-  const fmtTime = (s) =>
-    `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
   hardReset();
 

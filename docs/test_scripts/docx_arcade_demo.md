@@ -75,7 +75,9 @@ None — the demo runs entirely in-tab on a blank in-memory document.
 ## Automation notes
 
 The committed harness `scripts/verify_docx_arcade.js` implements exactly
-these steps (19 assertions, including the typing/blur-commit scenario). It
+these steps as assertions — boot, both games' input/physics, live editing
+through the session API and real caret typing, blur-commit semantics, and
+astral-character resilience. It
 drives the page through `window.__arcade` (the demo's debug/controller
 handle, analogous to the Observatory's `window.__moneyshot`), serves the
 demo itself on an ephemeral port, and is configured by env vars —
