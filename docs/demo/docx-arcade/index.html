@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="color-scheme" content="light" />
+  <title>The Docx Arcade — playable games inside a live Word document</title>
+  <meta name="description" content="A platformer and a first-person dungeon rendered as pure ASCII inside a real .docx, hosted by the in-browser Docxodus editor OpenContracts uses. The screen is a paragraph; the levels are paragraphs too — edit them in Word while you play." />
+  <meta property="og:title" content="The Docx Arcade" />
+  <meta property="og:description" content="WASD games running inside a live Word document. Pause mid-jump, edit the level text, press Save — the .docx remembers." />
+  <meta property="og:type" content="website" />
+  <meta property="og:image" content="https://open-source-legal.github.io/OpenContracts/assets/images/logos/OpenContracts.webp" />
+  <style>
+    /* A HOST page, like the Docx Observatory: the editor surface ships in the
+       npm package (`createRibbonEditor`); the games and frame loop are demo
+       content beside this page (arcade.js + cartridges). The page's only
+       original chrome is the arcade dock pinned under the document. */
+    html, body { height: 100%; }
+    body { margin: 0; background: #e8ecf2; }
+    #app { height: 100%; }
+    #links {
+      position: fixed; top: 10px; right: 12px; z-index: 50;
+      display: flex; gap: 6px;
+      font: 12px/1 system-ui, sans-serif;
+    }
+    #links a {
+      color: #33465b; background: #ffffffd9; border: 1px solid #d3dae4;
+      border-radius: 999px; padding: 7px 12px; backdrop-filter: blur(4px);
+      text-decoration: none;
+    }
+    #links a:hover { color: #101418; background: #fff; border-color: #b9c4d4; }
+    #app .dxr-titlebar { padding-right: 180px; }
+    body:has(.dxr[data-state="loading"]) #links,
+    body:has(.dxr[data-state="error"]) #links { display: none; }
+
+    #dock {
+      position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%);
+      z-index: 60; max-width: min(980px, calc(100vw - 24px));
+      display: flex; flex-direction: column; gap: 5px; align-items: center;
+      background: rgba(11, 15, 26, 0.94); color: #d5dce8;
+      border: 1px solid #1f2a3f; border-radius: 10px;
+      padding: 8px 14px 7px;
+      font: 12px/1.4 "SF Mono", "Cascadia Code", Consolas, "Courier New", monospace;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+    }
+    #dock .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: center; }
+    #dock button, #dock select {
+      appearance: none; background: #111827; color: #d5dce8;
+      border: 1px solid #1f2a3f; border-radius: 6px;
+      font: inherit; font-size: 11.5px; padding: 4px 10px; cursor: pointer;
+    }
+    #dock button:hover { background: #18233a; }
+    #dock button[aria-pressed="true"] { background: #123a34; color: #5eead4; }
+    #chip {
+      font-size: 11px; padding: 3px 10px; border-radius: 999px;
+      border: 1px solid #1f2a3f; letter-spacing: 0.02em;
+    }
+    #chip[data-mode="game"] { background: #123a34; color: #5eead4; border-color: #1d5a4f; }
+    #chip[data-mode="doc"] { background: #2a2333; color: #d8b4fe; border-color: #46375c; }
+    #dockstats { color: #7a8699; font-size: 11px; white-space: nowrap; overflow-x: auto; max-width: 100%; }
+    #dockstats b { color: #d5dce8; font-weight: 600; }
+    #dockstats .inc { color: #5eead4; }
+    #dockhint { color: #7a8699; font-size: 10.5px; text-align: center; }
+  </style>
+</head>
+<body>
+  <div id="links">
+    <a href="https://jsv4.github.io/Docxodus/demo/observatory.html" title="The screensaver that started it">Observatory ↗</a>
+    <a href="https://github.com/Open-Source-Legal/OpenContracts" title="OpenContracts on GitHub">OpenContracts ↗</a>
+  </div>
+  <div id="app"></div>
+
+  <div id="dock" hidden>
+    <div class="row">
+      <span id="chip" data-mode="doc">DOCUMENT has the keyboard — click the screen to play</span>
+    </div>
+    <div class="row" id="dockgames"></div>
+    <div class="row">
+      <button id="playpause">Pause</button>
+      <button id="reset">Reset</button>
+      <select id="pace" title="Target frame pacing">
+        <option value="125">8 fps</option>
+        <option value="83" selected>12 fps</option>
+        <option value="0">unthrottled</option>
+      </select>
+      <button id="mute">Mute</button>
+      <button id="embed" title="Copy an iframe snippet — the arcade embeds anywhere">Embed</button>
+      <span id="dockstats">warming up…</span>
+    </div>
+    <div id="dockhint"></div>
+  </div>
+
+  <script type="module">
+    const params = new URLSearchParams(location.search);
+    // Same engine pin as the Docx Observatory host: the arcade needs
+    // DocxEditor.refresh() (docxodus ≥ 9.6.0). ?engine= overrides the pin.
+    const ENGINE = params.get("engine")
+      ?? "https://cdn.jsdelivr.net/npm/docxodus@9.7.0/dist/embed.bundle.js";
+    const engineUrl = new URL(ENGINE, location.href);
+
+    try {
+      const [{ createRibbonEditor, DocxSession, getWasmExports }, { startArcade }] =
+        await Promise.all([import(engineUrl.href), import("./arcade.js")]);
+
+      const ribbon = await createRibbonEditor("#app", null, {
+        documentName: "docx-arcade.docx",
+        headerFooter: false,
+        hint: "The screen below is a Word paragraph. Click it to play; click anywhere else to edit the document — including the levels.",
+        loader: {
+          eyebrow: "Running locally in this tab",
+          meta: "a live DOCX as the framebuffer",
+        },
+      });
+
+      const editor = ribbon.editor;
+      const bridge = getWasmExports().DocxSessionBridge;
+      const session = new DocxSession(editor.sessionHandle, bridge);
+      const controller = startArcade({
+        editor,
+        session,
+        params,
+        ui: {
+          games: document.getElementById("dockgames"),
+          playpause: document.getElementById("playpause"),
+          reset: document.getElementById("reset"),
+          pace: document.getElementById("pace"),
+          mute: document.getElementById("mute"),
+          embed: document.getElementById("embed"),
+          stats: document.getElementById("dockstats"),
+          hint: document.getElementById("dockhint"),
+          chip: document.getElementById("chip"),
+        },
+      });
+      document.getElementById("dock").hidden = false;
+
+      window.__arcade = { ...controller, ribbon, bridge };
+    } catch (error) {
+      document.getElementById("app").innerHTML =
+        '<div style="display:grid;place-items:center;height:100%;padding:24px;text-align:center;'
+        + 'font:14px/1.6 system-ui,sans-serif;color:#33465b"><div><strong>The arcade could not start.</strong>'
+        + '<p id="bootError" style="margin:8px 0 16px;color:#5d6975"></p>'
+        + '<button onclick="location.reload()" style="font:inherit;padding:8px 14px;border:1px solid #d3dae4;'
+        + 'border-radius:8px;background:#fff;cursor:pointer">Retry</button></div></div>';
+      document.getElementById("bootError").textContent = String(error).slice(0, 220);
+      window.__arcadeError = String(error);
+    }
+  </script>
+</body>
+</html>

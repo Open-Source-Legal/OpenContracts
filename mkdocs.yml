@@ -52,6 +52,8 @@ nav:
       - v3.0.0.b4: releases/v3.0.0.b4.md
       - v3.0.0.b3: releases/v3.0.0.b3.md
       - v3 Upgrade Guide: migrations/v3_upgrade_guide.md
+  - Demos:
+      - The Docx Arcade: demo/index.md
   - Walkthrough:
       - Key Concepts: walkthrough/key-concepts.md
       - Step 1 - Add Documents: walkthrough/step-1-add-documents.md
