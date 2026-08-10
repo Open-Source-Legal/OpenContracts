@@ -7,8 +7,986 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-08-09
+
 ### Changed
 
+
+- **Graduated the `conversation & threading` test domain out of the mypy
+  baseline (#1738).** Removed the 7 `[mypy-opencontractserver.tests.test_*]`
+  `ignore_errors` blocks for the chat/threads feature:
+  `test_conversation_mutations_graphql`, `test_conversation_permissions`,
+  `test_conversation_query`, `test_conversation_search`,
+  `test_long_conversation_api`, `test_thread_corpus_actions`,
+  `test_threading`. Pruned the corresponding 433 lines from
+  `docs/typing/mypy_baseline.txt` (3375 → 2942) and fixed the 361 errors that
+  actually surface. The baseline had drifted: e.g. `test_conversation_search`
+  fell 77 → 23 (its historical `set_permissions_for_obj_to_user` arg-type
+  errors no longer reproduce under `django-stubs==6.0.5`), while
+  `test_conversation_permissions` grew 86 → 159 after recent edits. Fixes use
+  the established patterns — class-level annotations for
+  `setUpClass`/`setUpTestData` attributes (the recommended fix from #1479), the
+  graphene `self.client` → `self.graphene_client` rename (3 files), and
+  `assert ... is not None` narrowing of Optional ORM/embedding returns. The
+  three `setUpClass`-heavy files also swapped their module-level
+  `User = get_user_model()` alias for the concrete
+  `from opencontractserver.users.models import User` import, since mypy rejects
+  a `get_user_model()` variable as a type annotation.
+- **Declared the `_skip_signals` fixture flag on `InstanceUserCanMixin`
+  (`opencontractserver/shared/user_can_mixin.py`).** `_skip_signals` is an
+  out-of-band attribute that tests/fixtures and one production path
+  (`llms/tools/moderation_tools.py`) set on model instances so the signal
+  handlers in `*/signals.py` skip their side effects (notifications, badge
+  awards, corpus-action triggers). It was undeclared, which forced a
+  `# type: ignore[attr-defined]` in `moderation_tools.py` and produced 26
+  `attr-defined` errors in `test_thread_corpus_actions`. Declaring it once as
+  `_skip_signals: bool` on the mixin shared by `BaseOCModel` *and* the
+  `TreeNode`-rooted `Corpus` / `CorpusFolder` (a type-only bare annotation;
+  Django's model metaclass ignores it at runtime, so the presence-based
+  `hasattr`/`getattr` guards still behave identically) removes the existing
+  ignore, clears all 26 test errors, and types the flag across both model
+  lineages — future-proofing the other still-baselined tests that use it on
+  `Conversation`/`ChatMessage` (`test_badges`, `test_leaderboard`,
+  `test_notifications`) as well as on `Corpus` (`test_caml_intelligence_block`).
+  The full
+  project surface (`mypy --config-file mypy.ini opencontractserver config`)
+  stays clean under both the pre-commit pin (`mypy==2.0.0`) and CI's pin
+  (`mypy==2.1.0`).
+- **Graduated the `extract` test domain out of the mypy baseline (#1738).**
+  Removed the 6 `[mypy-opencontractserver.tests.test_*]` `ignore_errors` blocks
+  for the structured-data-extraction feature — Extracts plus their
+  Fieldsets/Columns, Datacells, and metadata columns (all in
+  `opencontractserver/extracts/models.py`): `test_extract_mutations`,
+  `test_extract_queries`, `test_extract_tasks`, `test_datacell_mutations`,
+  `test_column_mutations`, `test_metadata_columns_graphql`. Pruned the
+  corresponding 57 lines from `docs/typing/mypy_baseline.txt` (3648 → 3591) and
+  fixed the 42 errors that surface. Every error was the same one: a
+  `graphene.test.Client` assigned to `self.client` shadows
+  `django.test.TestCase.client` (which has no `.execute()`), so `self.client`
+  was renamed to `self.graphene_client` in the 5 GraphQL test modules — a
+  behaviour-equivalent rename, since the assignment already shadowed the Django
+  client at runtime and every read was `.execute()`. `test_extract_tasks` needed
+  no code change: its historical `set_permissions_for_obj_to_user` arg-type
+  errors no longer reproduce under `django-stubs==6.0.5`. The full project
+  surface (`mypy --config-file mypy.ini opencontractserver config`) stays clean
+  under both the pre-commit pin (`mypy==2.0.0`) and CI's pin (`mypy==2.1.0`).
+- **Graduated the `pipeline & parsers` test domain out of the mypy baseline
+  (#1738).** Removed the 14 `[mypy-opencontractserver.tests.test_*]`
+  `ignore_errors` blocks for the document-parsing pipeline
+  (registry/settings/utils core + the Docling/LlamaParse/Markdown/Text/chunked
+  parsers): `test_base_pipeline_parser`, `test_pipeline_component_base`,
+  `test_pipeline_component_queries`, `test_pipeline_hardening`,
+  `test_pipeline_registry`, `test_pipeline_settings`,
+  `test_pipeline_settings_schema`, `test_pipeline_utils`, `test_chunked_parser`,
+  `test_markdown_parser`, `test_doc_parser_docling_rest`,
+  `test_doc_parser_docxodus`, `test_doc_parser_llamaparse`,
+  `test_txt_ingestor_pipeline`. Pruned the corresponding 216 lines from
+  `docs/typing/mypy_baseline.txt` (3591 → 3375) and fixed the 227 errors that
+  surfaced. Fixes use the established patterns from prior chunks: class-level
+  annotations for `setUpClass` attributes (the recommended fix from #1479), the
+  graphene `self.client` → `self.graphene_client` rename, `assert ... is not
+  None` narrowing of Optional ORM/parse returns, and `cast(...)` / typed
+  literals (`BoundingBoxPythonType`, `TokenIdPythonType`) for the parser
+  helpers' intentionally-partial dict fixtures, plus `ClassVar` /
+  override-signature fixes on the module-level probe embedders in
+  `test_pipeline_utils`.
+- **Fixed a latent typing gap in `get_components_by_mimetype`
+  (`opencontractserver/pipeline/utils.py`).** The signature declared
+  `file_type: Optional[FileTypeEnum]`, but the body already converts MIME
+  strings via `FileTypeEnum.from_mimetype` (a documented backward-compat path);
+  the parameter is now `Optional[Union[str, FileTypeEnum]]`, matching the
+  implementation. This let a now-unused `# type: ignore[arg-type]` be removed
+  from the lone string-passing caller in
+  `opencontractserver/tasks/doc_tasks.py`. The full project surface
+  (`mypy --config-file mypy.ini opencontractserver config`) stays clean under
+  both the pre-commit pin (`mypy==2.0.0`) and CI's pin (`mypy==2.1.0`).
+- **Cheap exact `totalCount` for the un-scoped annotations browse.** The
+  "Browse annotations" view's exact "Total Annotations" tile is a `COUNT` over
+  the full permission-filtered annotation set (a `DISTINCT` across several
+  visibility joins). graphene-django 3.2.3 runs that `COUNT` eagerly on every
+  page — including each infinite-scroll page — so at hundreds of thousands of
+  rows it dominated page latency. `AnnotationQuerySet`
+  (`opencontractserver/shared/QuerySets.py`) gains `with_cached_count()`, which
+  casts to a `CachedCountAnnotationQuerySet` whose `COUNT(*)` is cached per
+  `(user, filter)` (keyed by the compiled SQL) for
+  `ANNOTATION_COUNT_CACHE_TTL_SECONDS` (60 min). The value stays **exact** and
+  is stale by at most the TTL after a create/delete. Only the un-scoped resolver
+  branch (`config/graphql/annotation_queries.py`) opts in; document- and
+  corpus-scoped annotation counts stay live. The cached-count behaviour survives
+  the queryset clones graphene makes during pagination. A cache-backend outage
+  degrades gracefully to a live `COUNT` rather than breaking the browse page, and
+  an unconfigured TTL bypasses the cache entirely instead of caching
+  indefinitely.
+- **Trimmed unused fields from `GET_ANNOTATIONS_FOR_CARDS`**
+  (`frontend/src/graphql/queries.ts`): `linkUrl` and `annotationLabel.labelType`
+  are never read by the annotation card (`getAnnotationLabelType` keys off
+  `annotationType`), so they are no longer fetched.
+- **De-joined `Annotation.visible_to_user` — `EXISTS` subqueries, no more
+  `.distinct()`** (issue #1906, Tier 3 of #1908).
+  `AnnotationQuerySet.visible_to_user`
+  (`opencontractserver/shared/QuerySets.py`) previously reached structural-set
+  document visibility through the `structural_set__documents` reverse-FK join,
+  which fans one annotation out to one row per document in the set and so forced
+  a trailing `.distinct()`. That `DISTINCT` knocked the un-scoped "Browse
+  annotations" `COUNT(*)` and `ORDER BY -modified` page off any single index (a
+  full scan + dedup over hundreds of thousands of rows). Document-, corpus-, and
+  structural-set visibility are now expressed as correlated `EXISTS` subqueries,
+  so the outer query stays on the `annotation` table alone — no joins, no row
+  fan-out, no `.distinct()`. The returned row set is **identical** to the old
+  predicate; this is pinned by the `visible_to_user ⟺ user_can(READ)` invariant
+  (`opencontractserver/tests/permissioning/test_authorization_invariants.py`)
+  and by new de-join regression tests
+  (`opencontractserver/tests/test_annotation_visibility_exists.py`).
+- **New composite index `annot_structural_modified_idx` on
+  `Annotation(structural, modified)`** (migration
+  `opencontractserver/annotations/migrations/0077_annotation_structural_modified_index.py`,
+  built `CONCURRENTLY`). Backs the `structural=<bool>` + `ORDER BY -modified`
+  query shape used by the anonymous / Discover browse and the `structural`
+  filter on the annotations connection — usable only now that the predicate is
+  de-joined. The unfiltered `-modified` page keeps using the single-column
+  `modified` index, so the new index is purely additive.
+- **Cached annotation count retained, now justified rather than a band-aid**
+  (`CachedCountQuerySetMixin`, `config/graphql/annotation_queries.py`). The
+  Tier-3 de-join removes the `DISTINCT` + M2M fan-out the count used to pay for,
+  but a `COUNT(*)` over the permission predicate is an OR across several
+  dimensions (creator / public / structural / analysis / extract / doc / corpus)
+  that no single index satisfies, so it remains an O(n) scan that graphene-django
+  re-fires on every infinite-scroll page. Issue #1906 conditioned removal of the
+  cache on the count becoming "index-cheap"; it does not, so the cache stays and
+  its docstring now documents that reasoning.
+- **Corpus auto-branding now resolves LLM config from the `PipelineSettings`
+  singleton.** The README agent (`opencontractserver/corpuses/services/branding.py`)
+  already routes through `agents.for_corpus`, so it now picks up the install-wide
+  `default_llm` / per-corpus `preferred_llm` and live DB credentials via
+  `model_factory.build_agent_model`. Logo generation
+  (`opencontractserver/utils/image_generation.py`) now reads the OpenAI provider's
+  live-configured `api_key` / `base_url` from the singleton (DB-wins /
+  env-fallback), via the new `model_factory.aget_provider_credentials`, instead of
+  reading `OPENAI_API_KEY` straight from the environment — and targets a configured
+  custom/compatible gateway endpoint when set.
+- Hardened the branding Celery task (`generate_corpus_branding`): use
+  `async_to_sync` instead of `asyncio.run` (safe on gevent/eventlet worker pools)
+  and add `soft_time_limit` / `time_limit` plus an `asyncio.wait_for` bound on the
+  README agent turn so a hung LLM/tool call can never pin a worker indefinitely.
+- The branding README agent now reuses the canonical CAML authoring guide instead
+  of an ad-hoc "write GitHub markdown" prompt, so auto-branding produces a real
+  CAML article. Extracted the CAML syntax/editorial/structure/output reference
+  from `template_seeds.py` into a shared `opencontractserver/corpuses/caml_authoring.py`
+  (`CAML_ARTICLE_SYSTEM_INSTRUCTIONS` + the tool-agnostic `CAML_AUTHORING_GUIDE`),
+  reused by both the seeded "CAML Article Writer" corpus action and the branding
+  agent. The guide is sliced from the full writer prompt, so the seeded prompt is
+  byte-for-byte unchanged (no re-seed / production drift).
+- Corpus branding degrades gracefully when the OpenAI provider is unregistered:
+  `aget_provider_credentials` returns `{}` (no raise) and logo generation falls
+  back to the deterministic PIL monogram; README generation is best-effort and
+  never blocks corpus creation.
+- **LLM provider credential follow-ups (PR #1897 review, issue #1917).** Code-quality
+  hardening for the DB-configurable LLM credential feature:
+  - Added a public, documented `PipelineSettings.clear_cache()` classmethod
+    (`opencontractserver/documents/models.py`) as the canonical way to drop the
+    cached singleton; the existing `_invalidate_cache()` is now a thin
+    backwards-compatible alias that delegates to it. Tests and admin/CLI tooling
+    that write the singleton out-of-band no longer have to reach for the private
+    underscore method.
+  - `opencontractserver/tests/test_llm_model_factory.py`: assert the credentialed
+    model against pydantic-ai's exported abstract base `pydantic_ai.models.Model`
+    (`assertIsInstance`) instead of the fragile `type(result).__name__.endswith("Model")`
+    class-name string, which would have silently broken on an upstream rename of
+    `OpenAIChatModel`; switched cache resets to the new `clear_cache()` (dropping a
+    redundant `cache.delete()` + `_invalidate_cache()` double call); and added
+    `self.addCleanup(reset_registry)` to every `setUp` so the pipeline-component
+    registry is restored symmetrically after each test rather than only reset
+    before it.
+  - The correctness/security items from the same review — narrowing the
+    `except Exception` fallbacks to explicit recoverable-error tuples, the
+    `base_url`-without-`api_key` warning, `urlparse` scheme validation of a
+    DB-configured `base_url`, and the `test_colonless_spec_returned_unchanged`
+    comment — were already addressed in `opencontractserver/llms/model_factory.py`
+    / the test before #1897 merged. The aiohttp `<3.14` cap (#1920) and the
+    per-call credential-read cost (#1921) are tracked as separate follow-up issues.
+- **Discover search: dedupe the per-query embedding across the five category resolvers (PR #1908 follow-up, issue #1919).**
+  The Discover "All" tab fires all five category resolvers
+  (`config/graphql/discover_queries.py`) as five independent HTTP requests
+  (Apollo uses a non-batching link), each of which previously embedded the
+  *same* query string with the same default embedder — up to 5× the embedding
+  latency/cost for one user search. A new per-process LRU
+  (`_cached_query_vector`, sized by
+  `DISCOVER_QUERY_VECTOR_CACHE_SIZE` in `opencontractserver/constants/search.py`)
+  memoises the deterministic `(query_text, embedder_path)` embedding so those
+  requests share one embedding call. The semantic arm stays best-effort: a
+  transient embedder failure is never cached as a wrong result and the text arm
+  always returns on its own.
+- **Clarity/DRY cleanups in `discover_queries.py`.** `_order_by_ids` now *owns*
+  the `id__in=ids` predicate; the five resolvers no longer pre-filter the
+  visible queryset (removing a redundant double `id__in` clause that only
+  PostgreSQL's optimiser was collapsing). The five identical deferred
+  `get_default_embedder_path` imports inside the resolver bodies are
+  consolidated into a single module-level `_default_embedder_path()` helper.
+  Added inline docs for the `discoverCorpuses` content-match `IN (...)` size
+  bound and for the `5 × READ_LIGHT` per-search rate cost of the "All" tab
+  (`DISCOVER_DEFAULT_LIMIT` comment).
+- **New backend test coverage** in
+  `opencontractserver/tests/test_discover_search_graphql.py`: the `limit`
+  parameter is now exercised end-to-end (`limit=1` clamps the fused result set),
+  and `discoverCorpuses` is asserted not to surface a collection whose content
+  matches the query but which the user cannot read.
+- Lifted the temporary `aiohttp<3.14` cap in `requirements/base.txt` (added in
+  #1914), returning `aiohttp` to its natural unpinned-transitive state so CI
+  resolves the current 3.14+ line again. vcrpy 8.1.1 (the latest release, still
+  pinned in `requirements/local.txt`) is not yet compatible with aiohttp 3.14:
+  `vcr/stubs/aiohttp_stubs.py` subclasses `aiohttp.streams.AsyncStreamReaderMixin`
+  at import time, a symbol aiohttp 3.14 removed (kevin1024/vcrpy#995; fix proposed
+  in the unreleased PR #996). A small, idempotent import-time shim,
+  `ensure_aiohttp_vcr_compat()` in `opencontractserver/utils/vcr_replay.py`,
+  restores that symbol as an empty mixin so VCR cassette entry works under
+  aiohttp >=3.14 (this codebase only records/replays httpx LLM cassettes, so the
+  aiohttp `MockStream` is never instantiated). The shim is applied from the root
+  `conftest.py` before any test module's top-level `import vcr`, and from
+  `maybe_vcr_cassette()` for the non-pytest E2E record/replay harness. Delete the
+  shim and bump `vcrpy` once a release ships the vcrpy#996 fix. Regression test:
+  `opencontractserver/tests/test_vcr_replay.py::EnsureAiohttpVcrCompatTests`.
+  Closes #1920.
+- **Memoized the per-agent-build LLM credential read (#1921).**
+  `opencontractserver/llms/model_factory.py::_get_db_credentials` ran on every
+  agent build — every chat message, structured-output call, and
+  memory-curation task — and resolved the provider's secret through
+  `PipelineSettings.get_full_component_settings`, which reads the encrypted
+  secret store twice and so derived the Fernet key with the deliberately
+  expensive PBKDF2 KDF (480k HMAC iterations) twice per build whenever any
+  provider key was configured. The resolved per-provider credentials are now
+  cached in-process keyed on `(class_path, PipelineSettings.modified)` — the
+  same key the reranker/embedder instance caches use
+  (`opencontractserver/pipeline/utils.py`). Repeat builds skip the decryption,
+  while live rotation is preserved: a superuser key change calls
+  `PipelineSettings.save()`, which bumps `modified` (auto_now) and clears the
+  singleton cache, so the next build misses the memo and re-decrypts — no
+  redeploy, and no staleness beyond the existing 5-minute `PipelineSettings`
+  cache TTL (the live-configurability guarantee of #1897 is intact, as is the
+  DB-wins / env-fallback precedence). New `invalidate_credential_cache()`
+  mirrors the existing `invalidate_embedder_cache` / `invalidate_reranker_cache`
+  helpers (wired into `conftest.py` for test isolation; call it after any
+  out-of-band singleton write that bypasses `save()`). Tests:
+  `opencontractserver/tests/test_llm_model_factory.py::TestCredentialCache`.
+- **Removed the `PipelineSettings._invalidate_cache()` alias (issue #1928, follow-up
+  from PR #1922 / issue #1917).** PR #1922 introduced the public, documented
+  `PipelineSettings.clear_cache()` classmethod and left `_invalidate_cache()` as a
+  thin backwards-compatible alias, migrating only the file it was already touching.
+  This change finishes the job:
+  - Deleted the `_invalidate_cache()` classmethod from
+    `opencontractserver/documents/models.py` — it had no callers left.
+  - Migrated all 37 remaining `PipelineSettings._invalidate_cache()` call sites
+    (including the `addCleanup(PipelineSettings._invalidate_cache)` pairs) to
+    `PipelineSettings.clear_cache()` across `opencontractserver/conftest.py` and ten
+    test modules (`test_pipeline_settings.py`, `test_pipeline_component_base.py`,
+    `test_pipeline_utils.py`, `test_base_pipeline_parser.py`, `test_base_enricher.py`,
+    `test_enricher_pipeline.py`, `test_web_search_tool.py`,
+    `test_migrate_pipeline_settings_command.py`, `test_zip_import_integration.py`,
+    `test_import_v2_reingest_remap.py`).
+  - Pure mechanical cleanup with no behavior change: `clear_cache()` is the method the
+    alias already delegated to. Honors CLAUDE.md's "no dead code / DRY" principle now
+    that a single public entry point covers every caller.
+- **Corpus file-tool review polish (PR #1940 follow-up, issue #1943 items 3–5).**
+  - **`require_user` helper (`opencontractserver/llms/tools/core_tools/_helpers.py`).**
+    The 5-line "no user injected / id not found → `PermissionError`" guard that
+    `rename_document` and `delete_document` each repeated is now a single
+    `require_user(user_id, caller)` helper (companion to the existing
+    `get_user_or_none`), preserving the same per-caller error messages.
+    Read-only tools keep using `get_user_or_none` (which tolerates anonymous
+    access) (item 4).
+  - **`delete_document` tool description (`opencontractserver/llms/tools/tool_registry.py`).**
+    The description now spells out that deletion needs the corpus DELETE tier —
+    *higher* than the write permission `rename_document`/`move_document` use —
+    and instructs the LLM to report a `permission denied` failure rather than
+    retry-loop on it. A WRITE-but-not-DELETE user still passes the coarse
+    framework `requires_write_permission` gate and is correctly rejected by
+    `DocumentLifecycleService.soft_delete_document`; tightening this to a
+    dedicated `requires_delete_permission` flag (so the tool is filtered out
+    before such a user ever sees it) remains a tracked follow-up (item 3).
+  - **Direct unit test for `sanitize_corpus_filename`**
+    (`opencontractserver/tests/test_shared_utils.py`). The canonical
+    corpus-filename sanitiser was only exercised indirectly through the rename
+    integration paths; it now has a focused test covering empty/None →
+    fallback, all-special-chars → underscores, path-separator collapse (no
+    directory traversal), no run-collapsing, leading-dot preservation, and
+    truncation at `MAX_FILENAME_LENGTH` (item 5).
+  - **Not changed (item 2):** `CorpusDocumentService._check_document_in_corpus`
+    was kept private. It was deliberately renamed from public to underscore-
+    prefixed in PR #1685 to signal its "NO PERMISSION CHECK" contract; its
+    cross-service callers all live inside `corpuses.services` and gate corpus
+    READ upstream, so the leading underscore (service-internal use) is correct.
+- **Batched the per-document soft-delete loops behind `emptyCorpus` and folder
+  cascade-delete into one shared bulk-trash primitive (#1951).** Added
+  `DocumentLifecycleService.bulk_soft_delete_documents(corpus, document_ids,
+  user)` in `opencontractserver/corpuses/services/lifecycle.py` — the batched
+  counterpart of `Corpus.remove_document(document=...)`. It supersedes every
+  active head path in one `UPDATE`, inserts the immutable soft-delete history
+  nodes in one `bulk_create`, replays `post_save(created=True)` per new row via
+  the existing `CorpusPathService._dispatch_document_path_created_signals`
+  helper (so the document-text embedding + `Readme.CAML` cache-refresh
+  side-effects fire exactly as before), and revokes `is_public` on now-orphaned
+  documents in a single query pair. `DocumentLifecycleService.empty_corpus`
+  (`lifecycle.py:~407`) and `FolderCRUDService._trash_documents_in_subtree`
+  (`opencontractserver/corpuses/services/folders.py:~927`) now route through it,
+  retiring both `TODO(perf, deferred)` per-document `remove_document` loops.
+  The query count is now independent of the document count (a fixed handful of
+  statements instead of several per document), removing the
+  statement/connection-timeout risk those loops carried on multi-thousand-
+  document corpora when run inside the single request transaction
+  (`ATOMIC_REQUESTS=True`). Trash listing and restorability are unchanged: the
+  history nodes are identical to those `remove_document` produced. The legacy
+  "empty trash" path (`permanently_delete_all_in_trash`) is intentionally left
+  out of scope — it is a *permanent* delete that destroys history nodes and
+  keeps deliberate per-document partial-success semantics, so it cannot share a
+  soft-delete primitive whose contract is "history nodes + signals preserved".
+- **Corpus Intelligence home — readability polish** (`frontend/src/components/corpuses/CorpusHome/intelligence/IntelligencePanel.tsx`, `DocumentGraphGlimpse.tsx`, `frontend/src/utils/formatters.ts`, `config/graphql/corpus_queries.py`). Four fixes from a fresh design review of the overview: (1) zero-value stat cards are suppressed so the panel no longer leads with a prominent "0 Extracts" (auto-fit grid renders only present metrics); (2) the document graph now carries a **legend** (citation/exhibit vs. related-filing edge styles, "larger = more connections"), rendered conditionally on the edge types actually present, so the visual is no longer opaque blue dots; (3) dominant-label bars use a single restrained fill with the per-label hue kept only in the swatch — a saturated tag no longer becomes the loudest element on the page and steals focus from the graph; (4) machine-style label names are humanized for display (`SEC_HEADER` → "SEC Header", `EXHIBIT_REFERENCE` → "Exhibit Reference") via the new `humanizeLabel()` formatter. Backend: `resolve_corpus_intelligence_aggregates` now excludes `OC_`-reserved platform labels (e.g. `OC_SECTION`) from the distribution — these are pipeline scaffolding, not user-facing tags (new `OC_RESERVED_LABEL_PREFIX` constant). Tests: `test_corpus_intelligence.py::...excludes_oc_reserved_labels`, `formatters.test.ts` humanizeLabel cases, and CT coverage for the legend + zero-suppression in `DocumentGraphGlimpse.ct.tsx` / `IntelligencePanel.ct.tsx`.
+- `EnrichmentService.relink_corpora_for_keys` (`opencontractserver/enrichment/services/enrichment_service.py`) now pre-filters the EXTERNAL law-reference scan SQL-side by authority prefix before the Python `candidate_keys` root match. Previously the reactive re-link loaded every distinct `(corpus_id, canonical_key)` pair for every EXTERNAL law reference in the system into memory; on large deployments this is an unbounded cross-product. Since `candidate_keys` never crosses authorities (it only rolls a subsection up to its section root), bounding the scan to the wanted keys' authorities is safe and cannot drop matches.
+- CI backend test suite (`.github/workflows/backend.yml`) now runs pytest with
+  `--timeout=600 --timeout-method=thread` (adds `pytest-timeout` to
+  `requirements/local.txt`). A single test that blocks on a starved service —
+  the 2-core runner runs `-n auto` workers alongside the docling/embedder ML
+  containers — previously hung its worker until the 100-minute step ceiling with
+  no traceback. It now fails fast (~10 min, ~10x the slowest legitimate test)
+  and dumps the offending test's stack so the culprit is immediately
+  identifiable. The `thread` method is required because it interrupts blocking C
+  calls (sockets) the default `signal` method cannot, and works inside xdist
+  workers.
+- Authority verify+license gate (`enrichment/services/authority_gate_service.py`)
+  now distinguishes a non-public-domain provider license
+  (`blocked_license`) from an off-allowlist source domain (new
+  `blocked_domain` state) so operators can filter `AuthorityFrontier` by state
+  alone without parsing the `reason` string. A fetched result with no source URL
+  is now `unlocated` rather than silently bypassing the domain allowlist on its
+  license alone. Adds the `blocked_domain` choice to
+  `AuthorityFrontier.discovery_state` (migration `0088`). Per-call agentic bounds
+  (`max_agent_requests`, `max_fetch_chars`) are now tunable ClassVars, and
+  `candidate_sources` audit entries use a typed `_AuditRecord` schema.
+- `CorpusReference` gains a composite index on
+  `(created_by_analysis, is_provisional)` (`idx_corpusref_analysis_provis`,
+  migration `0097`) covering the in-flight finalize UPDATE in
+  `EnrichmentService.apply()` (`filter(created_by_analysis=..., is_provisional=True)`),
+  avoiding a two-single-column-index merge / seq-scan on large corpora.
+- `formatJurisdiction` / `titleCase` are de-duplicated into
+  `frontend/src/utils/formatters.ts` (single canonical null-returning
+  signature) and shared by the Authority Sources monitor and the
+  governance-graph explorer, which previously carried divergent copies that
+  rendered the same jurisdiction code two different ways. Provisional/awaiting
+  badge colours and the explorer canvas/vignette tones now come from
+  `OS_LEGAL_COLORS` tokens instead of bare hex literals. Documents the
+  `ENRICHMENT_DOC_MAX_CONCURRENCY` setting in `config/settings/base.py`.
+- `EnrichmentService.apply()` now logs a warning when another enrichment
+  `Analysis` is already `RUNNING` on the same corpus. Concurrent runs remain
+  safe (the claim rule reclaims+finalizes provisional rows and the crawl seed
+  reads finalized rows only), but the earlier run can finalize zero of its own
+  rows and complete "empty"; the warning makes that otherwise-confusing outcome
+  explicit in the logs. `_provider_for` also gains an explicit
+  `tuple[str | None, Any, str | None]` return annotation so a future caller that
+  destructures the old 2-tuple is caught at type-check time.
+- Moved the `AuthorityFrontier` discovery-state vocabulary into `opencontractserver/enrichment/constants.py` as a single source of truth (`DISCOVERY_STATE_*` constants, `DISCOVERY_STATE_CHOICES`, and `DISCOVERY_SUCCESS_STATES`). The model field (`opencontractserver/annotations/models.py`), the frontier service transition verbs, the discovery orchestrator, the crawl driver, and the verify/license gate's `GATE_*` verdicts now reference these constants instead of bare string literals, so a rename is a one-line edit and the parallel definitions cannot drift (CLAUDE.md item 4; issue #2020 finding 7). The model's `DISCOVERY_STATE_CHOICES` is re-exported from the constants with identical values, so no migration is generated.
+- Renamed `enrichment.constants._USC_PREFIX_RE` / `_CFR_PREFIX_RE` to `USC_PREFIX_RE` / `CFR_PREFIX_RE` (no leading underscore). They are imported cross-module by the USC/CFR authority source providers' `can_handle` overrides, so the underscore (signalling module-private) was misleading; updated both providers' imports (issue #2020 finding 3).
+- Optimised `AuthorityDiscoveryService._provider_for` (`opencontractserver/enrichment/services/authority_discovery_service.py`) to instantiate each enabled provider once per call and reuse the instances across every candidate key, instead of re-instantiating every provider for each candidate. `can_handle` is pure given the key, so the prior per-candidate instantiation was wasted work that grew with the candidate-key fan-out (issue #2020 finding 6).
+- Expanded the `dequeue_for_provider` docstring to document its crash-recovery purpose (freshly-seeded rows carry `provider=None` and are intentionally skipped; the primary dispatch path is the provider-agnostic `dequeue_queued`) and clarified the `AuthorityKeyEquivalence` model docstring that its direction convention is documentation-only because callers query both columns (issue #2020 findings 9, 10).
+- **The enrichment job list no longer silently truncates history (issue #2029 —
+  PR #2008 review).** `GET_CORPUS_ANALYSES` now requests `totalCount`
+  (`frontend/src/graphql/queries.ts`) and `EnrichmentJobList`
+  (`frontend/src/components/admin/enrichment/EnrichmentJobList.tsx`) renders a
+  "Showing the N most recent of M runs" note whenever the server holds more
+  analyses than the `first: 50` page cap returns. `totalCount` is threaded
+  through `useEnrichmentJobs` → `useOptimisticRows` to both the Admin panel and
+  the corpus enrichment card.
+- **Multi-minute enrichment elapsed times now read as `Nm Ns` / `Nh Nm`
+  (`frontend/src/components/admin/enrichment/EnrichmentJobList.tsx`).** A crawl
+  that ran 127 seconds previously rendered as the unscannable "127s"; it now
+  renders "2m 7s". Sub-minute durations are unchanged ("47s").
+- **Crawl-bound number inputs reject fractional values
+  (`frontend/src/components/admin/enrichment/EnrichmentRunner.tsx`).** Added
+  `step={1}` to the Advanced crawl-bound inputs so the browser flags
+  non-integer entries at the UI layer before they reach the `graphene.Int`
+  mutation schema.
+- **Hardened the bulk-trash audit log (#2036, follow-up to #1951).**
+  `DocumentLifecycleService.bulk_soft_delete_documents`
+  (`opencontractserver/corpuses/services/lifecycle.py`) now emits its
+  "Bulk soft-deleted N document(s)" log via `transaction.on_commit`, so the line
+  is written only for durably committed trashing (no false success on a
+  rolled-back or failed-`COMMIT` block) — matching the rollback-safety contract
+  the primitive's dispatched `post_save` signals already use. Also promoted the
+  in-body PERF/MEMORY note to a "Scaling caveat" in the method docstring: the
+  primitive is O(1) in queries but still materializes the full document set in
+  memory, so it carries no built-in document-count ceiling for the
+  `empty_corpus` / folder cascade-delete callers.
+- **Post-merge review follow-ups for the bulk-trash primitive (#2039, follow-up
+  to #2030).** Documentation + test polish, no behavior change. This work landed
+  after the overlapping #2046 (review #2036) merged, so the
+  `bulk_soft_delete_documents` parts are reconciled with it: in
+  `opencontractserver/corpuses/services/lifecycle.py` the *memory* follow-up
+  references (the docstring "Scaling caveat" and the `PERF/MEMORY` comment) are
+  retargeted from the now-closed #1951 to the open #2045 — completing the #2039
+  point that the `(#1951)` forward-reference dangles once #1951 is closed (#2046
+  added the caveat but kept pointing at the closed #1951). The separate #2039
+  nit about `trashed_doc_ids` being read outside its `with` block is now moot:
+  #2046 moved the audit log into `transaction.on_commit` *inside* the block, so
+  there is no outside-block reference left to guard and no pre-initialisation is
+  needed. Both the module and class docstrings in
+  `opencontractserver/corpuses/services/paths.py` are corrected to describe the
+  mixed convention accurately — they previously claimed *all* methods were
+  underscore-prefixed, which the public `disambiguate_path` /
+  `reconcile_paths_after_folder_change` contradict — and record that the
+  underscore helpers (e.g. `_dispatch_document_path_created_signals`) are
+  deliberately shared across sibling services, while public `disambiguate_path`
+  is also called from the model layer (`Corpus.add_document`) and
+  `documents.versioning`. `mypy.ini`'s `python_version` comment is trimmed from
+  12 lines to 6 — dropping prose while keeping the numpy detail and the
+  dual-usage note (pre-commit hook + standalone CI `Run mypy` step) inline,
+  rather than cross-referencing the `2030-mypy-py312` changelog fragment (which
+  `collate_changelog.py --apply` deletes at release).
+  `test_query_count_independent_of_document_count` gains `msg=` strings on both
+  its query-count floor and the O(1) equality assertions so a future failure is
+  self-documenting.
+- **Authority discovery Phase-4 code-review follow-ups (issue #2026).**
+  - `opencontractserver/utils/safe_http.py::safe_fetch_bytes` now sends a
+    default `User-Agent` (`DEFAULT_USER_AGENT`) so the US Code title-ZIP loader
+    and the agentic fetch tool identify OpenContracts to `.gov` servers instead
+    of going out as an anonymous `httpx` client (politeness + fewer rate-limit
+    blocks); a caller-supplied `User-Agent` (the FR/CFR providers) still
+    overrides it. This applies to **every** no-`headers` caller of
+    `safe_fetch_bytes`/`safe_fetch_text`, not only the providers — notably
+    `enrichment/services/popular_name_importer.py`, which now sends
+    `DEFAULT_USER_AGENT` instead of the bare `httpx` default (no test asserts on
+    the old UA string, so nothing regresses). The two byte-identical `_USER_AGENT` literals in
+    `cfr_provider.py` / `federal_register_provider.py` are consolidated into a
+    single `AUTHORITY_PROVIDER_USER_AGENT` constant (same `constants/safe_http.py`
+    neighbourhood) so the contact address can no longer drift between them, and
+    `us_code_provider.py` (the third deterministic authority provider, previously
+    sending the generic default) now sends the same UA so all three present
+    consistently to `.gov` hosts. The default/caller merge uses `httpx.Headers`
+    (case-insensitive), so a caller passing `user-agent` in any casing overrides
+    the default rather than emitting two conflicting `User-Agent` lines.
+    `AUTHORITY_PROVIDER_USER_AGENT` also gains a `+` before its info URL
+    (`(+https://github.com/...)`, the conventional "informational URL" marker)
+    to match `DEFAULT_USER_AGENT` — a cosmetic change to the UA bytes the
+    FR/CFR/US Code providers send to `.gov` hosts, with no behavioural impact.
+  - Replaced the bare `* 4` UTF-8 worst-case byte factor in
+    `opencontractserver/pipeline/authority_source_providers/agentic_web_locator_provider.py`
+    with the named `UTF8_MAX_BYTES_PER_CHAR` constant
+    (`opencontractserver/constants/safe_http.py`).
+  - Removed the unused `source_url` override parameter from
+    `AuthorityGateService.evaluate`
+    (`opencontractserver/enrichment/services/authority_gate_service.py`): no
+    caller passed it and no test exercised it, so it was speculative API surface
+    over a single source of truth (the domain gate reads
+    `sections[0].source_url`).
+  - Moved the agentic provider's private `_sanitize_for_prompt` helper into
+    `opencontractserver/utils/prompt_sanitization.py` as the public
+    `sanitize_for_prompt_strict` (its stricter, ASCII-only companion to the
+    existing `sanitize_plaintext_for_prompt`), so this security helper is
+    discoverable alongside the other prompt-injection utilities rather than
+    buried in a provider file. Tests moved to `test_prompt_sanitization.py`.
+  - Hardened the Federal Register provider's step-1 redirect parsing: the
+    document-number capture in `_LOCATION_DOC_NUMBER_RE` is now `[\d-]+` (real FR
+    numbers are `YYYY-NNNNN`), so a malformed/attacker-influenced `Location`
+    carrying letters, underscores, or URL-special characters (`?`, `#`) fails to
+    match and raises instead of silently being interpolated into the step-2 URL
+    (wrong endpoint, no error). The step-1 `requests.get` magic `timeout=15` is
+    replaced with the shared `(CONNECT_TIMEOUT_SECONDS, READ_TIMEOUT_SECONDS)`
+    constants.
+  - Documented the deliberate trust boundary on the agentic
+    `_tool_web_search` query (LLM-generated, forwarded unsanitized to a
+    text-only search tool — no SSRF surface), why `AuthorityGateService` does
+    not extend `BaseService` (stateless, no user context), and why the redirect
+    loop in `safe_fetch_bytes` does not `r.read()` the redirect body (unbounded
+    read that would bypass the per-hop size cap).
+- **New backend test coverage (issue #2026).**
+  `test_safe_http.py` adds the CGNAT rejection + boundary cases, the
+  `MAX_REDIRECTS` exhaustion path, and the default/overridden `User-Agent`
+  behaviour; `test_federal_register_provider.py` adds the step-3 raw-text
+  size-cap `SSRFValidationError`→abstract fallback regression; `test_authority_gate.py`
+  adds the no-colon `canonical_key` heading-fallback edge case; and
+  `test_agentic_web_locator.py` adds `_tool_web_search` delegation/error-propagation
+  coverage.
+- `EnrichmentService.discover` (`opencontractserver/enrichment/services/enrichment_service.py`) replaces the ambiguous `documents_total` result key with two unambiguous counts — `documents_total_in_corpus` (corpus-as-gate total) and `documents_visible_to_caller` (after the `MIN(corpus, document)` filter, before the `max_documents` cap) — so the `documents_truncated` "never silent" guarantee can no longer be defeated by permission filtering masquerading as a small corpus. `documents_truncated` now reflects only the `max_documents` cap applied to the visible set. The `discover_authorities` agent-tool docstring and `opencontractserver/tests/test_enrichment_discovery.py` are updated for the new keys.
+- Removed the unreachable `require_document_visibility` parameter from `EnrichmentService._load`: all three callers hardcoded `True`, so the corpus-as-gate branch was dead code. The `MIN(corpus, document)` decision and its rationale now live once in `_load` instead of being repeated as a justification comment at every call site.
+- **Reference extraction is gated by requested `reference_types`.**
+  `ReferenceExtractor.extract()` (`opencontractserver/enrichment/extractor.py`) and
+  `GenericCitationExtractor.extract()` (`opencontractserver/enrichment/grammars.py`) now
+  accept a `reference_types` argument and skip grammar passes whose output type is not
+  requested. Because every generic grammar pass emits `REF_LAW` candidates, an apply/scan
+  for only `REF_DEFINED_TERM` no longer runs all nine grammar passes wastefully — the
+  enrichment service (`enrichment_service.py`) passes the wanted set through to
+  `generic.extract(...)`.
+- **Chunked ingest: cap chord fan-out to bound worker-pool pressure.** `ingest_doc`
+  (`opencontractserver/tasks/doc_tasks.py`) previously dispatched an unbounded Celery
+  chord — one task per chunk — so a very large document could enqueue hundreds of header
+  tasks at once and saturate the worker pool (an availability risk). It now fans out only
+  while `chunk_count <= parser.max_chord_tasks`; above that ceiling the document is parsed
+  in a single in-process task. `max_chord_tasks` is a **new, distinct** config
+  (`DEFAULT_MAX_CHORD_TASKS = 10` in `opencontractserver/constants/document_processing.py`,
+  surfaced on `BaseChunkedParser` and as a `DoclingParser` pipeline setting /
+  `DOCLING_MAX_CHORD_TASKS` env var) — deliberately separate from `max_concurrent_chunks`,
+  which only sizes the in-process thread pool, so tuning thread parallelism never silently
+  changes which documents fan out vs. parse in-process. A non-positive `max_chord_tasks`
+  (e.g. `DOCLING_MAX_CHORD_TASKS=0`) now logs a warning identifying the misconfiguration
+  each time it forces a chunked document onto the in-process path, instead of silently
+  disabling chord fan-out with no indication.
+- **De-duplicated the Preferred LLM update-args logic in agent management forms.** `GlobalAgentManagement.tsx` and `CorpusAgentManagement.tsx` each computed the `preferredLlm`/`clearPreferredLlm` mutation variables in `handleUpdate` with identical, copy-pasted logic. Extracted the shared contract into `computePreferredLlmUpdateArgs` (`frontend/src/utils/agentConfigurationForm.ts`) so `AgentConfigurationService.update_agent`'s "never send an empty-string `preferred_llm`" invariant is encoded once instead of twice. No behavior change.
+- **Authority-pack tests now exercise the loader, not one jurisdiction's data.**
+  The five `test_grid_dossier_*` modules asserted pack machinery through the
+  shipped Texas packs, so removing the packs would have removed the coverage
+  with them. They are replaced by a complete, deliberately fictional schema-v2
+  fixture pack (`opencontractserver/tests/fixtures/authority_packs/example_utility`
+  — two corpora, taxonomy, charters, specs, personas, typed metadata schema,
+  relationships and a source plan) and:
+  - `test_authority_pack_loader.py` — corpus/taxonomy/metadata-schema/relationship
+    convergence, idempotency and curator-state preservation, atomic abort, and
+    prefix-binding validation, all against the fixture pack.
+  - `test_authority_discovery_runtime.py` (renamed from
+    `test_grid_dossier_discovery_runtime.py`) — unchanged in substance; it always
+    defined its own providers and only *named* them after a jurisdiction.
+  - `test_authority_pack_sideload.py` (new) — the sideload contract itself:
+    bundle-root discovery, precedence, de-duplication across overlapping
+    settings, a misconfigured entry being skipped rather than raised, and
+    `--check` reporting a plan without writing.
+  The fixture pack lives under `tests/fixtures/` rather than the in-tree pack
+  root on purpose: `authority_pack_dirs()` enumerates every immediate
+  subdirectory of that root, so a fixture placed there would ship as an
+  installable pack in every deployment's Authority Console catalog.
+  The three modules that asserted the packs' own identities moved out with the
+  packs, including the one whose `authority_corpus_id is None` assertion was
+  failing before this branch began.
+- **Authority packs are deployment data, and the tree now says so.** The four
+  Texas / large-load packs (`texas_electric_law`, `puct_electric`,
+  `ercot_large_load`, `oncor_delivery` — ten corpora, their providers, charters,
+  specs, personas, relationship declarations and rights fixtures) are no longer
+  shipped in `opencontractserver/enrichment/data/authority_packs/`. They were
+  **moved, not deleted**, to their own repository (`Authorities/TX_Large_Loads`),
+  alongside the four test modules that assert their data contract, source plans,
+  provider parsers and load identities. A body of regulation has its own
+  legal-review state, refresh cadence and publisher relationships; shipping one
+  in the product meant every install carried — and every worker imported the
+  providers of — one deployment's regulatory topology. `bolivia` remains as the
+  worked example the format needs, and the pack machinery is unchanged. The
+  corpus-group manifests that composed these ten corpora, and the evaluation
+  commands that graded runs over them, went to their own repositories earlier on
+  this branch for the same reason; none of them ever appeared in a release.
+- **Added `AUTHORITY_PACK_ROOTS`** (env var, comma-separated, empty by default):
+  directories *of* packs, the same shape as the in-tree root, so a pack
+  repository mounts with one variable instead of one entry per pack.
+  `AUTHORITY_PACK_PATHS` (individual pack directories) is unchanged and both are
+  honoured; `pipeline/registry.py::authority_pack_dirs` now de-duplicates by
+  resolved path, so a pack reachable through both is registered once rather than
+  importing its providers twice under the same generated module name.
+- **Added `load_authority_pack --check`**: runs the same validation as the
+  Authority Console preflight — manifest fingerprint, declared source hosts,
+  approval state, per-corpus plan — and writes nothing, exiting non-zero on an
+  invalid pack. The Console preflight needs an authority-admin browser session;
+  a headless deployment installing a pack it did not author had no equivalent.
+- **Fixed: a sideloaded pack could not import its own modules.** In-pack
+  component modules are imported by file path, so their parent packages did not
+  exist and `from ..helper import x` had nothing to resolve against; a pack in
+  the tree hid this by also being importable as a real Python package, so two of
+  the four packs reached their own pack-root helpers by absolute dotted path and
+  silently failed to register 15 providers the moment they were sideloaded.
+  `pipeline/registry.py` now creates each pack's parent packages (shared across
+  component families, so one pack helper is one module object however many
+  families import it, and re-pointed on every discovery pass so `reset_registry`
+  and a swapped pack directory stay correct). The now-redundant `module_ns`
+  parameter of `_discover_pack_component_classes` is gone — the component
+  subdirectory name already disambiguates the two families.
+- **Fixed: re-mounting a pack name from a new directory served the old pack's
+  helper.** The synthetic parent package is keyed by pack name, and an import
+  resolves against `sys.modules` before consulting that package's `__path__`, so
+  re-pointing the path alone left cached submodules from the previous directory
+  in place. Cached submodules are now dropped when the path actually changes.
+  Covered by
+  `PackSiblingImportTests::test_same_pack_name_from_a_new_directory_reloads_its_helper`,
+  which fails against the un-purged version.
+- Moved `MAX_DERIVED_MESSAGE_TITLE_CHARS` (from
+  `config/graphql/conversation_mutations.py`) and `MAX_WORKSPACE_FILENAME_CHARS`
+  (from `opencontractserver/corpuses/services/workspace.py`) into
+  `opencontractserver/constants/truncation.py`, and replaced the inline
+  `1024 * 1024` CA-certificate size cap in
+  `opencontractserver/enrichment/authority_import_artifacts.py` with
+  `MAX_EXTRA_CA_CERTIFICATE_BYTES` in `opencontractserver/constants/safe_http.py`
+  — per the shared-constants convention in CLAUDE.md.
+- Added a regression test pinning that a billion-laughs XML payload is rejected
+  as malformed on both authority-source XML paths
+  (`opencontractserver/tests/test_authority_sources.py`). The stdlib
+  `ElementTree` calls in `authority_sources.py` are safe because the shipped
+  runtime (`python:3.12.13-slim-bookworm`, expat 2.7.4) enables expat's input
+  amplification limit by default; the test fails if a future base image
+  regresses below expat 2.6, at which point `defusedxml` becomes necessary.
+- `installAuthorityPack` now carries `@graphql_ratelimit(RateLimits.ADMIN_OPERATION)`
+  like comparable admin writes (`config/graphql/authority_pack_api.py`). It was
+  already gated to authority admins; the limit is defence in depth on an
+  operation that installs corpora and rewrites the governance graph. No schema
+  change — the decorated resolver sits behind the strawberry-facing one, the
+  same split `config/graphql/annotation_queries.py` uses.
+- The publisher-source duplicate-member check rescanned `ZipFile.infolist()`
+  once per tagged document (`opencontractserver/tasks/import_tasks_v2.py`),
+  i.e. O(entries × tagged documents) over attacker-supplied input. The member
+  census is now computed once per open ZIP and memoised on it. (`NameToInfo`
+  cannot serve this — it keeps only the last entry for a repeated name, and
+  spotting a repeat is the point of the check.)
+- The 1 MB blob-hashing chunk size is now `BLOB_HASH_CHUNK_BYTES` in
+  `opencontractserver/constants/document_processing.py` rather than a literal
+  at each of its two call sites (`import_tasks_v2.py`, `validate_export.py`).
+- New tests, no behaviour change: a DB-credentialed `build_agent_model` now has
+  an end-to-end assertion that a Responses-only model really is constructed as
+  `OpenAIResponsesModel` (and an ordinary model is not) — the existing coverage
+  mocked `_construct_model` or asserted only the env-credential string
+  redirect, so nothing reached the branch that picks the class, and the class
+  IS the endpoint. Anchoring of `requires_responses_api` is pinned directly.
+  The publisher-source duplicate-member rejection (`occurrences > 1`) is now
+  tested alongside the existing missing-member case, so both sides of the guard
+  the memoised census serves are covered.
+- Hardened the Phase 0+1 authority-discovery surface after review:
+  `CorpusReference.authority_type`/`detection_tier` and
+  `AuthorityNamespace.authority_type` now carry `choices=` so invalid values are
+  rejected at the Admin/serializer layer; `AuthorityNamespace.save()` refuses the
+  incoherent `is_global=True` + `authority_corpus` combination
+  (`opencontractserver/annotations/models.py`); the `0083` classification
+  backfill flushes via batched `bulk_update` instead of one `save()` per row to
+  avoid timing out large deployments; `EnrichmentService.discover()` /
+  `discover_authorities` gained an optional `max_documents` cap that reports
+  `documents_total` / `documents_truncated` so the bound is never silent; and the
+  `0082`/`0085` namespace seed bodies moved to
+  `opencontractserver/enrichment/_namespace_seed.py`, replacing the
+  `importlib.import_module` of one migration from another.
+- **Centralized authority-system documentation.** Added a single durable
+  operator/author guide, `docs/guides/authoring-authority-packs.md` (pack layout,
+  shipping a scraper inside a pack, `source_hosts`, add/remove/copy-to-port,
+  what's still core), wired into the mkdocs nav alongside the existing
+  Authority Console and Reference-Web Enrichment architecture docs. The
+  `0002-authority-packs` proposal is re-framed as design-history (it points to the
+  guide for the how-to and notes the now-self-contained pack layout), its dangling
+  `0001-…` reference de-linked, and the proposal added to the nav so it is no
+  longer orphaned. The guide and the proposal favour pointers to real files over
+  pasted code to limit staleness.
+- **Documented the authority tagging system and authority packs against what
+  #2215 actually shipped**, and wired the pack screenshots the component tests
+  have been capturing into the docs that describe them.
+  - `docs/architecture/authority-console.md` — the **Authority Packs tab**
+    section was four paragraphs with no visuals, while thirteen
+    `admin--authority-packs-tab--*` / `admin--pack-preflight-modal--*`
+    screenshots sat in the auto directory referenced by no doc. It links the
+    five that teach something; the rest are loading spinners, error banners and
+    near-duplicates that `AuthorityPackPreflightCoverage.ct.tsx` captures for
+    coverage, which is not the same job as documentation. It now shows the
+    catalog, the derived status-badge vocabulary
+    (`Invalid` / `Available` / `Partially installed` / `Installed privately` /
+    `Partially public` / `Fully public`, per `PacksTab.tsx::packStatus`), the
+    empty catalog as the symptom of an unmounted pack directory, and the
+    preflight modal — including the `expectedFingerprint` round-trip that
+    rejects a pack edited between preflight and install, the publish opt-in's
+    charter gate, and the `load_authority_pack --check` headless equivalent.
+  - `docs/guides/authoring-authority-packs.md` —
+    documents the previously undocumented **`sources.yaml` source plan** and the
+    out-of-process collector (`scripts/authority_import/`) that turns it into
+    GUI-importable corpus ZIPs; adds the **in-pack import contract** (relative
+    imports resolve wherever a pack is mounted, an absolute in-tree dotted path
+    silently fails to register the module's providers once sideloaded — the
+    defect that stranded 15 providers); points at the schema-v2 fixture pack
+    `opencontractserver/tests/fixtures/authority_packs/example_utility` as the
+    complete worked example alongside v1 `bolivia`; explains the
+    `pack.yaml`-required root scan
+    and `E2E_RUN_AUTHORITY_IMPORTS`; and replaces two dead
+    `test_grid_dossier_*` test references (those modules moved out of the tree
+    with the packs) with the modules that exist.
+  - `docs/architecture/reference-web-enrichment.md` — states where the Tier-1
+    detection vocabulary comes from, closing the gap between the tagging engine
+    and the packs that extend it (`prefixes`/`aliases` plus a pack's optional
+    `shape_rules` / `abbreviations`), so standing up detection for a new body of
+    law reads as the data change it is. Also shows what tagging *produces*: the
+    doc rendered the References panel's transient **In progress** state but
+    never its settled one, and described the corpus governance-graph glimpse
+    without showing it — both screenshots existed and were referenced by no doc.
+    Linking them makes one point twice over, in list form and in graph form: an
+    **Awaiting source** row and a hollow ghost node are the same unresolved
+    citation, and are exactly what seeds the authority crawl.
+- **Changelog now uses per-PR fragments to eliminate `CHANGELOG.md` merge
+  conflicts.** Every PR previously inserted its entry at the top of the single
+  `## [Unreleased]` section, so concurrent PRs collided on the same lines
+  (the file changed in hundreds of commits per month, perpetually conflicting).
+  PRs now add a uniquely-named fragment under `changelog.d/<slug>.<type>.md`
+  instead — unique filenames mean two PRs can never touch the same lines, so
+  changelog conflicts are structurally impossible. `scripts/collate_changelog.py`
+  collates fragments into `CHANGELOG.md` at release time (`--check` / `--preview`
+  / `--apply`), a `repo: local` pre-commit hook validates fragment names, and
+  `CHANGELOG.md merge=union` in `.gitattributes` is a safety net for direct
+  edits. See `changelog.d/README.md`.
+- **Deleting a folder now removes its whole sub-tree and moves the documents to
+  Trash instead of stranding sub-folders at the corpus root.** Previously the
+  folder-delete UI reparented sub-folders to the grandparent and moved only the
+  top folder's direct documents to root, so emptying the trash never cleared the
+  orphaned sub-folders. `FolderCRUDService.delete_folder`
+  (`opencontractserver/corpuses/services/folders.py`) now, when
+  `move_children_to_parent=False` (the `deleteContents=True` path the UI uses),
+  soft-deletes every document in the folder and all of its descendants (reusing
+  `Corpus.remove_document`, so they stay restorable) and then cascade-deletes the
+  folder sub-tree. The reparent branch (`move_children_to_parent=True`) is
+  unchanged; its document-relocation logic was extracted verbatim into
+  `_relocate_folder_documents_to_root`. `DeleteFolderModal` now sends
+  `deleteContents: true` and its confirmation copy reflects the Trash behavior.
+- Bumped the Docling document parser request timeout default from 300s to 600s. Large documents were exceeding the previous 5-minute ceiling and failing with `Timeout`. The value now lives in a single named constant, `DOCLING_PARSER_REQUEST_TIMEOUT_SECONDS` in `opencontractserver/constants/document_processing.py`, referenced by both the Django setting default (`config/settings/base.py` `DOCLING_PARSER_TIMEOUT`) and the `DoclingParser` dataclass field default (`opencontractserver/pipeline/parsers/docling_parser_rest.py` `request_timeout`) so they can't drift apart. Still overridable per-deployment via the `DOCLING_PARSER_TIMEOUT` env var.
+- Rewrote the default `Document Description Updater` action-template prompt (`opencontractserver/corpuses/template_seeds.py`) to lead with the document's subject matter — the goods, services, rights, or obligations it concerns, and the key parties — instead of restating its type or title, and to drop the "This document is …" lead-in. Data migration `agents/0017_update_document_description_prompt` re-syncs already-seeded databases (the seeder skips templates that already exist by name).
+- **The Tier-2b LLM enrichment concurrency cap is now ops-tunable.** The
+  cross-document orchestrator's global chunk-semaphore was pinned to the
+  `LLM_MAX_CONCURRENCY` constant (8). A new `ENRICHMENT_LLM_MAX_CONCURRENCY`
+  env var / Django setting (default `None`) overrides it via
+  `opencontractserver.enrichment.constants.llm_max_concurrency()`, which falls
+  back to the constant — so a deployment can raise LLM throughput (at higher
+  provider rate-limit / cost exposure) without a code change. The constant stays
+  the single numeric default; both `EnrichmentService._aresolve_documents` and
+  `LLMCitationExtractor`'s default route through the resolver, and an explicit
+  constructor argument still wins.
+- **LLM-derived citation keys are normalized to cut open-vocabulary noise.**
+  `opencontractserver/enrichment/llm_citation_extractor.py` now (a) folds locator
+  separators so the same authority cited two ways collapses to one key
+  (`eu:2017/1129` → `eu:2017-1129`; subsection punctuation `.`/`(`/`)` is left
+  untouched), and (b) flags locator-less `act:*` references — a body of law or
+  loose phrase with no section number (`act:gaap`, `act:applicable-law`,
+  `act:guam-administrative-adjudication-law`) — as `needs_review`, so they
+  surface for triage but never auto-promote into the persisted reference web or
+  crawl frontier. Reversible; nothing is dropped. A numbered key (`act:asc-606`)
+  or a real prefix (`irc:163`) is unaffected.
+- **Extraction: inject full text for short documents.** For documents whose extracted text
+  is ≤ `EXTRACT_FULL_TEXT_CHAR_LIMIT` (24 K chars ≈ ~6 K tokens,
+  `opencontractserver/constants/extraction.py`), `doc_extract_query_task` now appends the full
+  document text to the prompt — read via the canonical `read_field_file_text`, prefixed with
+  `UNTRUSTED_CONTENT_NOTICE`, and wrapped in `fence_user_content` — so the agent can answer,
+  and confirm the **absence** of a clause, in a single read instead of issuing many low-signal
+  `similarity_search` calls (retrieval cannot prove absence). When the full text is in context
+  the prompt also relaxes the system prompt's mandatory multi-search negative-case rule. In
+  the diligence eval this cut per-cell tool calls from **~16 to ~1** and eliminated the
+  `tool_loop_no_output` / `no_final_response` failures that short contracts otherwise
+  triggered. Larger documents fall back to retrieval (where the request budget backstops any
+  looping).
+- **Documented Gotenberg-powered file conversion for non-core formats.**
+  `docs/upload_methods/supported_formats.md` gained a "Convertible Formats
+  (via Gotenberg)" section explaining the ~126 legacy Office/OpenDocument/
+  iWork/image/HTML extensions the optional pre-parse converter can turn into
+  PDF, how it fits into the ingest pipeline, and its off-by-default posture.
+  `docs/pipelines/pipeline_configuration.md` gained a "File Converters
+  (Gotenberg)" section with a screenshotted step-by-step walkthrough for
+  enabling/disabling conversion via the Admin UI or the `DEFAULT_FILE_CONVERTER`
+  env var, plus a note that the `gotenberg` compose service already ships in
+  `local.yml`/`production.yml` and needs no compose changes to use.
+  `docs/configuration/choose-and-configure-docker-stack.md` gained an
+  "Optional Services" section covering `gotenberg` (and pointers for
+  `warp-ingest`/`privacy_filter`). Sample `.django` env files
+  (`docs/sample_env_files/backend/{local,production}/.django`) now document
+  `GOTENBERG_SERVICE_URL`, `GOTENBERG_CONVERTER_TIMEOUT`, and
+  `DEFAULT_FILE_CONVERTER`. `README.md`'s "Supported Formats" section and
+  documentation table now mention the conversion capability.
+- **New `data-testid="file-converter-row"`** on the File Converter row in
+  `frontend/src/components/admin/system_settings/FiletypeDefaults.tsx`, used
+  by three new `docScreenshot` captures in
+  `frontend/tests/system-settings-flows.ct.tsx`'s "file converter on/off"
+  suite (disabled row, converter picker modal, enabled row) that back the new
+  docs walkthrough.
+- **Graph-glimpse scaffolding deduplicated** — `DocumentGraphGlimpse` and
+  `GovernanceGraphGlimpse` shared ~120 lines of copy-pasted card chrome and
+  deterministic-layout machinery; both now compose shared modules instead:
+  `frontend/src/components/corpuses/CorpusHome/intelligence/graphCardChrome.ts`
+  (card shell, header, SVG frame, parametrised skeleton, legend, empty state,
+  explore link) and `frontend/src/utils/graphLayout.ts` (`createSeededRandom`
+  Park–Miller LCG + `runSimulationTicks` synchronous d3 tick loop, unit-tested
+  in `graphLayout.test.ts`). The governance ghost-key display form moved to
+  `formatCanonicalLawKey` in `frontend/src/utils/formatters.ts` (unit-tested)
+  so the wanted-authorities panel renders keys identically. Also fixed
+  `frontend/tests/CorpusIntelligenceOverview.ct.tsx`, which had been broken
+  since the overview gained `GovernanceGraphLive`: the mount lacked a Router
+  context (`useNavigate` threw) and the `GET_GOVERNANCE_GRAPH` mock was
+  missing.
+- **GraphQL layer migrated from graphene / graphene-django to strawberry-graphql** with a
+  machine-verified guarantee of zero query-shape changes:
+  - The full graphene SDL was captured at migration time as the golden contract
+    (`config/graphql/schema.graphql`, 10.6k lines) and
+    `opencontractserver/tests/test_schema_parity.py` structurally compares the served
+    strawberry schema against it — every type, field, argument name/type, nullability
+    wrapper, interface, enum member, and printed default must match exactly.
+  - New shared runtime in `config/graphql/core/`: relay global IDs + `Node` interface with
+    graphene wire format (`base64("TypeName:pk")`), `CountableConnection`/`PdfPageAwareConnection`
+    factories, a faithful port of graphene-django's connection resolution (arrayconnection
+    cursors, `RELAY_CONNECTION_MAX_LIMIT=100`, the 1-based `offset`→`after` conversion),
+    django-filter FilterSet argument mapping incl. `GlobalIDFilter` global-ID decoding,
+    `GenericScalar`/`JSONString`/`BigInt` scalars, permission-annotation resolvers
+    (`myPermissions`/`isPublished`/`objectSharedWith`), DRF-serializer mutation bases, and
+    auth decorators with graphql_jwt-compatible error messages.
+  - Auth middlewares replaced: `graphql_jwt.middleware.JSONWebTokenMiddleware` and the
+    API-key graphene middleware are gone; per-request authentication now happens once in
+    `config/graphql/views.py::GraphQLView.get_context` via the standard
+    `AUTHENTICATION_BACKENDS` chain (JWT / Auth0 / API-key / session). The
+    `tokenAuth`/`verifyToken`/`refreshToken` mutations are strawberry-native ports
+    (`config/graphql/jwt_auth.py`, `config/graphql/user_mutations.py`) preserving
+    long-running refresh-token laziness; `django-graphql-jwt` remains only as a JWT
+    signing/backend utility library.
+  - Security hardening preserved: `DepthLimitValidationRule` + `DisableIntrospection`
+    (production) now attach via strawberry's `AddValidationRules` extension, which APPENDS
+    to the full graphql-core spec rule set (the graphene-era replace-the-rules trap is
+    structurally impossible). The GCS file-URL pre-warm middleware became
+    `config/graphql/file_url_prewarm.py::FileUrlPrewarmExtension`.
+  - The per-resolver `PermissionAnnotatingMiddleware` was folded into the permission
+    resolvers themselves (`config/graphql/core/permissions.py`) with the same per-request
+    memoisation contract (`info.context.permission_annotations`).
+  - Test suite kept its substantive cases: `graphene.test.Client` was replaced by the
+    drop-in `config/graphql/testing.py::Client` (same result dict shape), plus a
+    `GraphQLTestCase` port for endpoint-level tests; `schema.execute(...)` calls became
+    `schema.execute_sync(...)`.
+  - `graphene-django` removed from requirements/`INSTALLED_APPS`; `strawberry-graphql`
+    added; the `GRAPHENE` settings block deleted.
+- **The Tier-2b LLM enrichment pass now runs concurrently across documents and
+  chunks instead of strictly serially.** Previously every ~2,000-char chunk of
+  every document was a sequential `await` (one corpus measured ~2,900 serial
+  calls, ~72 min, and a worker restart lost the lot). Now
+  `LLMCitationExtractor.aextract`
+  (`opencontractserver/enrichment/llm_citation_extractor.py`) runs its chunks via
+  `asyncio.gather` behind a semaphore, the sliding-window grew from 2,000→8,000
+  chars (≈4× fewer chunks, less redundant overlap), and a new
+  `EnrichmentService._aresolve_documents` orchestrator extracts ALL documents
+  concurrently under one *global* chunk-semaphore (`LLM_MAX_CONCURRENCY`, default
+  8) — bounding total provider load while filling the lanes across documents,
+  and still writing each document the moment its detection completes (the
+  per-document path serialized them, so a corpus with a few large documents
+  bottlenecked). Measured: the same 75-document / 4.5 MB corpus went from ~72 min
+  (which then died) to **~4 minutes**, completing with all references finalized.
+  DB writes are marshaled through `sync_to_async` (thread-sensitive) so the ORM
+  writes serialize and never race; only the LLM calls run concurrently.
+- The obligation-card attribution check now MARKS instead of refusing. A card
+  whose cited passages never name its `responsible_party` is kept, with
+  `obligor_grounded: false`, and the report warns how many attributions are
+  inferred rather than sourced
+  (`opencontractserver/enrichment/finding_cards.py`,
+  `research_tasks.py::_build_obligation_card`,
+  `research/services/research_reports.py::finalize`). Refusing cost more than
+  it bought: a run that found many requirements filed **two**, because every
+  refusal deletes the obligation along with the bad attribution. Worse, the
+  refusal offered a way out in prose, and the agent spent its remaining budget
+  guessing at it — `responsible_party="Not specified in cited passage"`, then
+  the text of the instruction itself pasted in as a party name. No wording of a
+  refusal makes a passage name a party it does not name. An obligation with an
+  inferred obligor is worth recording and worth labelling; it is not worth
+  deleting.
+- Obligation finding cards are no longer pinned to one project's thresholds.
+  `RAMP_STEPS_MW = (25, 50, 75, 100)` was a constant in
+  `enrichment/finding_cards.py` and was *enforced* — a card naming any other
+  value was refused — which made the card useful for exactly one Texas
+  interconnection study and silently wrong for anything else. The thresholds an
+  obligation attaches at belong to the subject, not the software: an
+  employment-law review turns on 50 and 250 employees, a fund review on AUM
+  tiers.
+  A corpus now declares its own scale in its `Readme.CAML`:
+  `[component:obligation-schema unit=MW steps=25,50,75,100 label=ramp]`, read
+  via the new `caml_intelligence.parse_component_props` and modelled by
+  `ObligationSchema`. Configured where the corpus already describes itself
+  rather than in a settings column nobody discovers, and tolerant of a typo —
+  a malformed marker degrades to the default instead of failing the run.
+  With no configuration the card still works and is still guarded: a
+  PHASE_TRIGGERED obligation must say where it bites, but nothing constrains
+  the values, because there is no list to constrain them against.
+  Field renames follow: `applies_at_mw` → `applies_at` (plus a system-stamped
+  `threshold_unit`, so a bare `75` in a stored card is readable a year later),
+  and `energization_date` → `commencement_date`. The `recipient` description no
+  longer names ERCOT/TSP/DSP.
+- **Reverted the v3 product name from `cite` back to OpenContracts and
+  repositioned the README around the platform's programmable surfaces.** The
+  `cite` rename correlated with a sharp drop in project interest; `cite` is
+  effectively un-searchable (a high-frequency English/academic word) and the
+  rename forfeited the project's accrued search, backlink, and star/fork equity.
+  `OpenContracts` reclaims that equity and is consistent with the unchanged
+  `opencontractserver` backend module. `README.md` now leads builder-first —
+  concrete capability plus a runnable agent snippet above the fold and a new
+  "Build on it" section covering the Python agent API
+  (`opencontractserver/llms/api.py`), the MCP server (`/mcp/`), structured
+  extraction, the pluggable pipeline, and GraphQL/REST. Also reverted the product
+  name across the landing content packs
+  (`frontend/src/config/landingContent/default.json`, `publicRecord.json`) and
+  the user-visible app chrome: the browser tab `<title>` / SEO + OpenGraph +
+  JSON-LD (`frontend/index.html`, `components/seo/MetaTags.tsx`), the PWA manifest
+  (`frontend/public/manifest.json`), the nav/footer "About" link
+  (`overflowMenuItems.ts`, `layout/Footer.tsx`) and footer tagline, the
+  auth/loading messages (`auth/AuthGate.tsx`, `widgets/ModernLoadingDisplay.tsx`),
+  and the cookie banner (`cookies/CookieConsent.tsx`) — with the affected
+  component tests updated in lockstep. Removed the `cite`-era "Domain Migration"
+  README section and switched the README brand mark to the name-neutral
+  `docs/assets/images/brand/icon_mark.svg`. Copy/branding only — no API, schema,
+  data, or behavioral changes. (The `CiteMark` / `CiteWordmark` brand components
+  and the `[cite]` wordmark/lockup SVG assets are intentionally left for a
+  separate design pass; the verb "cite" and the `@cite` CAML directive are
+  unchanged.)
+- **Authority Console — Phase 2 (relationships editing + DRY consolidation).** The
+  standalone `/admin/authority-mappings` panel (`AuthorityMappings.tsx`) is now
+  **absorbed** into the console's **Aliases & Relationships** tab and **deleted**
+  (along with its CT + test wrapper and its route/export), leaving no duplicate
+  component. The act-section ↔ USC/CFR key-equivalence editor (inline create +
+  manual-only edit/delete, source chips, search) is extracted into shared
+  primitives (`authority/shared/KeyEquivalenceEditor.tsx`) reused by **both** the
+  Mappings tab and the single-authority detail's **Relationships** section — so a
+  body of law's relationships can now be created/edited/deleted in-context on its
+  detail page (prefix-prefilled), driving the same superuser-gated
+  `create/update/delete AuthorityKeyEquivalence` mutations. The registry's create
+  form is also refactored onto the shared `CreateForm`/`CreateField` chrome. No
+  backend changes (the equivalence CRUD already existed). Playwright CT cover the
+  registry, detail-with-relationships, access gate, and mappings render + create.
+- **Authority Console — Phase 3 frontend (discovery queue absorption).** The
+  standalone `/admin/authorities` panel (`AuthoritySourcesMonitor.tsx`) is now
+  **absorbed** into the console's **Discovery Queue** tab and **deleted** (panel +
+  CT + test wrapper + route + export). The tab reuses the shared console chrome +
+  `FacetedStatsChips` + `useFacetedRelayList` and adds **per-row admin verbs** —
+  requeue / reset / reroute / approve (on `pending_approval`) / delete — wired to
+  the Phase-3 `AuthorityFrontierService` mutations, alongside the existing
+  multi-select "Run discovery" and a bulk delete. Frontend mutation docs added to
+  `frontend/src/graphql/mutations.ts`. Playwright CT cover the discovery-queue
+  render + per-row verbs.
+- **Authority Console — Phase 5 (runs tab + final cleanup; initiative complete).**
+  The standalone `/admin/enrichment` page (`AdminEnrichment.tsx`) is **absorbed**
+  into the console's **Runs** tab and **deleted** (page + CT + wrapper + route +
+  export). The Runs tab re-mounts the existing `EnrichmentRunner` /
+  `EnrichmentJobList` (driven by `useOptimisticRows`) unchanged — those stay in
+  `components/admin/enrichment/` because the per-corpus `CorpusEnrichmentCard`
+  also consumes them; only the page wrapper moved. The transitional
+  `PlaceholderTab` is removed (all five tabs are now real). This completes the
+  unified Authority Console: **all three former standalone admin panels
+  (`/admin/authorities`, `/admin/authority-mappings`, `/admin/enrichment`) are
+  deleted**, collapsed into one front door at `/admin/authority` with tabs for
+  Authorities · Aliases & Relationships · Discovery Queue · Scrapers · Runs —
+  zero duplicate components, zero dead code.
+- Vector embedding now batches relationship text alongside annotations, removes
+  relationship/creator query fan-out, caches decrypted component settings per
+  component instance, uses accelerator-sized inference batches, and coalesces
+  simultaneous HTTP requests. The Intel Arc 140V reference gate measured a
+  49.13x throughput improvement over the production CPU embedder while retaining
+  a minimum CPU/GPU cosine similarity of 0.9999989.
+- **Worker-upload ingestion now produces a faithful mirror of the parser
+  pipeline.** Closed three fidelity gaps in
+  `opencontractserver/worker_uploads/tasks.py::_process_single_upload` so a
+  document pushed through `/api/worker-uploads/documents/` ends up
+  byte-for-byte equivalent to one ingested in-cluster:
+  - **Structural annotation set materialisation.** Previously the parser's
+    structural annotations (which are nearly *all* of a Docling parse) were
+    imported as plain per-document annotations (`structural=True` but
+    `structural_set=NULL`), diverging from in-cluster ingestion where they live
+    in a shared `StructuralAnnotationSet` (`document=NULL`) and resolve through
+    the structural-set join in `AnnotationService.get_document_annotations`. The
+    worker path now calls `build_subtree_groups_for_document` +
+    `create_structural_annotation_set` (the same steps as
+    `BaseParser.save_parsed_data`). The migration logic was extracted from
+    `BaseParser._create_structural_annotation_set` into a shared
+    `opencontractserver/utils/structural_sets.py::create_structural_annotation_set`
+    (no behaviour change to the parser path; DRY).
+  - **Thumbnail generation.** The worker path now dispatches `extract_thumbnail`
+    after ingest (the uploaded PDF is stored, so the server can regenerate
+    `Document.icon` exactly as the parser pipeline does). This is the standalone
+    thumbnail task — it does not trigger a re-parse.
+  - **Embedding ownership.** `import_annotations` gained a
+    `dispatch_embeddings: bool = True` parameter
+    (`opencontractserver/utils/importing.py`). When a worker upload supplies
+    pre-computed embeddings, `_process_single_upload` passes
+    `dispatch_embeddings=False` so the server does not redundantly re-embed every
+    annotation — the remote worker owns the embedding layer (the point of
+    offloading enrichment). With no embeddings supplied, the server embeds as
+    before.
+  - `WorkerDocumentUploadMetadataType` gained optional `parser_name` /
+    `parser_version` fields so a remotely-parsed document records the same
+    structural-set provenance as an in-cluster parse.
 - **Corpus CAML article (README) reading layer — typography, contrast, and spacing (2026-06).**
   The corpus home README.caml view felt crowded and low-contrast on mobile
   because its prose blocks render through the shared chat `MarkdownMessageRenderer`,
@@ -23,6 +1001,2132 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+
+- **Mobile: corpus tab menu was unreachable when a `Readme.CAML` article is present.**
+  When a corpus has a `Readme.CAML`, `CorpusArticleView` replaces the corpus
+  home. On mobile, the navigation sidebar (corpus tab menu) is only reachable
+  via a menu button wired to `onOpenMobileMenu`, but `CorpusHome.tsx` never
+  passed that callback to `CorpusArticleView` and the article toolbar rendered
+  no menu button at all — so power-user mode on a phone left users with no way
+  to navigate within the corpus. Fix: `CorpusHome.tsx` now forwards
+  `onOpenMobileMenu` to both `CorpusArticleView` render sites
+  (`frontend/src/components/corpuses/CorpusHome.tsx`), and the article toolbar
+  renders a compact, mobile-only circular menu button styled in the os-legal
+  design language to match the article toolbar
+  (`frontend/src/components/corpuses/CorpusHome/CorpusArticleView.tsx`). The
+  button is gated on `isPowerUserMode` to match `CorpusLandingView` /
+  `CorpusDetailsView`, since the sidebar only exists in power-user mode
+  (`frontend/src/views/Corpuses.tsx`). Added component tests
+  (`frontend/tests/CorpusArticleView.ct.tsx`) covering both the power-user
+  (button visible, click fires `onOpenMobileMenu`) and explore-mode (button
+  absent) cases.
+- **Mobile annotation deep-link showed "no longer available" instead of a loader during the initial uncached load.**
+  Navigating directly to an annotation on mobile (e.g. `cite.opensource.legal/d/...?ann=<id>`)
+  before anything is cached takes a few seconds while the document and its
+  annotations are fetched. During that window the mobile "Annotation" sheet
+  (`frontend/src/components/knowledge_base/document/layouts/mobile/MobileAnnotationDetail.tsx`)
+  resolved the selected id against an empty annotation set and rendered
+  "This annotation is no longer available." — wrongly implying the annotation
+  was gone. The component had no access to a loading signal, so it could not
+  distinguish "still fetching" from "not found". Fix: thread the document
+  loader's `loading` flag from `MobileDocumentLayout.tsx` into
+  `MobileAnnotationDetail`, and surface a combined `loading` boolean from
+  `useStructuralAnnotations` (all-structural + targeted lazy fetch) so that
+  structural-annotation deep-links — which resolve via a targeted fetch that
+  runs *after* the corpus/document queries settle — also show the loader rather
+  than flashing the not-found message. The not-found state now only appears once
+  both the document load and any targeted structural fetch settle and the
+  annotation is still unresolved.
+- **Corpus Chat (Home tab) — reset the conversation-expanded flag on ASK -> VIEW
+  entry.** `CorpusQueryView` suppresses its outer "Conversation History" header
+  while a single conversation is open by reading `chatExpandedInConversation`
+  (`frontend/src/views/CorpusQueryView.tsx`). `backToAskFromView` already cleared
+  that flag on the VIEW -> ASK exit, but the symmetric ASK -> VIEW entry
+  (`openHistoryView`) did not, so a `true` left by an ASK-flow conversation could
+  carry into VIEW and momentarily hide the outer header before `CorpusChat`
+  mounts and re-reports list mode via `onViewModeChange`. `openHistoryView` now
+  clears the flag on entry, mirroring `backToAskFromView`. Follow-up to the
+  PR #1890 review (#1911); the existing VIEW header-suppression regression test
+  (`frontend/src/views/__tests__/CorpusQueryView.handlers.test.tsx`) continues to
+  pin the clean-entry contract.
+- **Corpus Chat — scroll-mode comments.** Clarified the scroll-to-bottom effect
+  in `frontend/src/components/corpuses/CorpusChat.tsx`: documented that a first
+  mount with a pre-loaded transcript resolves to an instant `"auto"` jump (never
+  smooth), and dropped a redundant comment over `scrollToBottom` whose default is
+  self-evident from the `behavior: ScrollBehavior = "auto"` signature.
+- Pinned `aiohttp>=3.13,<3.14` in `requirements/base.txt`. aiohttp 3.14.0 removed `aiohttp.streams.AsyncStreamReaderMixin`, which the pinned `vcrpy==8.1.1` aiohttp stub imports at module load — a fresh dependency resolution in CI picked up 3.14.0 and aborted the entire pytest collection with `AttributeError`. The cap should be lifted alongside a `vcrpy` bump that supports the aiohttp 3.14 stream API.
+- **Mobile annotation deep-link loader: closed a one-frame not-found flash for structural deep-links and made the loader screen-reader-announced (PR #1903 follow-up, #1918).**
+  Two refinements to the mobile `?ann=<id>` loader added in #1903:
+  - **One-frame flash for structural deep-links.** `useStructuralAnnotations`
+    (`frontend/src/components/knowledge_base/document/document_kb/useStructuralAnnotations.ts`)
+    dispatches the targeted lazy fetch from an effect that runs *after* the
+    render that needs it, so for one frame its result is
+    `{ called: false, loading: false }` — long enough for
+    `MobileAnnotationDetail` to flash "This annotation is no longer available."
+    before the spinner appeared. The returned `loading` now also reports the
+    pre-dispatch window (mirroring the effect's own guard, gated on
+    `!called` so it self-heals once the fetch fires and never sticks — the
+    targeted path deliberately leaves `structuralAnnotationsLoaded` false).
+    The loader is now continuous from the first render until the fetch settles.
+  - **Accessibility.** The mobile loader (`LoadingState` in
+    `frontend/src/components/knowledge_base/document/layouts/mobile/MobileAnnotationDetail.tsx`)
+    is now a `role="status"` live region, so assistive technology announces
+    "Loading annotation…" when a deep-link opens the sheet. The spinner icon
+    stays `aria-hidden`.
+  - **Defensive API.** `MobileAnnotationDetail`'s `loading` prop is now optional
+    (defaults to `false`), so a future callsite that forgets to thread it
+    degrades safely to the not-found state instead of breaking the build.
+- **Removed the blanket `mypy.ini` suppression for `test_discover_search_graphql` by fixing the root-cause type error (issue #1919).**
+  PR #1908 added `[mypy-opencontractserver.tests.test_discover_search_graphql]
+  ignore_errors = True` to silence 8 `"Client" has no attribute "execute"`
+  errors. The real cause was a name collision: the test stored its
+  `graphene.test.Client` on `self.client`, which `django-stubs` types as
+  `django.test.Client` (inherited from `TestCase`) — a class with no
+  `.execute()`. Renaming the attribute to `self.graphene_client` (the
+  convention already used by the mypy-clean `test_document_queries.py`) makes
+  the file type-check cleanly, so the per-module suppression is deleted rather
+  than carried forward as a precedent for brand-new code. Verified with a
+  full-project `mypy --config-file=mypy.ini opencontractserver config` run.
+- **`rename_document` agent tool: dropped an extra query and closed a status race (PR #1940 follow-up, issue #1943 item 1).**
+  `FolderDocumentService.rename_document`
+  (`opencontractserver/corpuses/services/folder_documents.py`) now returns a
+  4-tuple `(success, error, new_path, changed)` — the new `changed` boolean is
+  `True` only for a real rename and `False` for a no-op (sanitised name already
+  matched) or any failure. The tool
+  (`opencontractserver/llms/tools/core_tools/documents.py`) previously
+  snapshotted the pre-rename `DocumentPath.path` and compared it to the
+  service's returned path to label the response `"renamed"` vs `"unchanged"`.
+  That extra `DocumentPath` read is gone, and so is the snapshot-vs-service race
+  window where a concurrent rename could mislabel the `status` (the underlying
+  data was always safe — the service's `select_for_update` guarantees that;
+  only the tool-layer status string could drift).
+- Fixed a test-isolation bug that made `EmbeddingManagerConcurrentTest::test_concurrent_store_embedding_no_duplicates` fail intermittently under `pytest -n` (xdist). `TestMoveDocumentAsync.setUp` (`opencontractserver/tests/test_move_document_tool.py`) and `TestCorpusFileToolsAsync.setUp` (`opencontractserver/tests/test_corpus_file_tools.py`) disconnected `process_doc_on_create_atomic` and then **unconditionally reconnected it in a `finally` block** — overriding the session-scoped `disable_document_processing_signals` fixture (`conftest.py`) and leaving the create signal connected for every later test sharing the same xdist worker. A subsequent `TransactionTestCase` that commits a `Document` (e.g. the embedding concurrency test) then fired real ingestion against absent media and errored. Both `setUp`s now rely on the conftest fixture and no longer touch the signal.
+- **Intelligence setup: large corpora no longer silently skip enrichment.**
+  `CorpusActionService` gained `batch_run_action(user, action, allow_partial=)`
+  (`opencontractserver/corpuses/services/corpus_actions.py`) — the trusted-caller
+  variant the one-click setup now uses with `allow_partial=True`, queuing the
+  first `BATCH_RUN_MAX_DOCS` documents (deterministic id order) instead of
+  refusing outright when a corpus exceeds the per-call cap. The per-template
+  outcome (`TemplateSetupOutcome.remaining_count`, exposed as `remainingCount`
+  on `IntelligenceTemplateOutcomeType`) reports the deferred remainder and the
+  banner toast surfaces it. Previously a 250-doc corpus got a success toast, a
+  permanently hidden banner, and zero documents enriched.
+- **Intelligence-setup status no longer demands deployment-unavailable pieces.**
+  `IntelligenceSetupStatus.is_fully_set_up`
+  (`opencontractserver/corpuses/services/intelligence_setup.py`) excludes the
+  reference action when no enrichment analyzer is registered
+  (`reference_available`, new on the status payload) and excludes bundle
+  templates that are unseeded/inactive deployment-wide — either condition
+  previously made the setup CTA an undismissable zombie whose every click
+  toasted success.
+- **Setup CTA hidden from viewers who can't run it.** The status payload gained
+  `can_setup` (mirrors the mutation's permission gate);
+  `IntelligenceSetupBanner.tsx` renders nothing unless `canSetup` — read-only
+  and anonymous viewers of a public not-set-up corpus previously saw a
+  guaranteed-to-fail "Set up" button.
+- **Permission tier harmonized to CRUD.** `setupCorpusIntelligence` (service +
+  mutation docstrings, `config/graphql/corpus_mutations.py`) now requires CRUD
+  on the corpus — the tier `AddTemplateToCorpus` and `CreateCorpusAction`
+  already gate the identical writes at; it previously required only UPDATE, a
+  weaker path to the same row installs.
+- **Reference action can no longer be double-installed.** The governance
+  graph's "Map the reference web" bootstrap
+  (`GovernanceGraphLive.tsx`) consults `corpusIntelligenceSetupStatus` and
+  skips `createCorpusAction` when the add_document reference action already
+  exists (a duplicate row would run the enrichment analyzer twice on every
+  future upload); the server side switched to `get_or_create` to narrow the
+  concurrent-race window.
+- **Post-create setup opt-in surfaces soft failures.** `Corpuses.tsx` now
+  inspects the resolved `setupCorpusIntelligence.ok` and shows the
+  "couldn't start" toast — an `ok=false` envelope was previously discarded,
+  leaving users to believe enrichment was running.
+- **Setup warning toast names the actual failures.** The banner aggregates
+  `templates[].error` into the warning instead of a generic guess.
+- **In-flight weave reported as started.** When an enrichment analysis is
+  already QUEUED/RUNNING, `CorpusIntelligenceSetupService.setup`
+  (`opencontractserver/corpuses/services/intelligence_setup.py`) no longer leaves
+  `reference_analysis_started=False` — the reference web *is* being built, so the
+  summary (and the banner toast's "reference web weaving" note) now reflects it
+  instead of silently omitting it.
+- **`setup()` permission lookup collapsed to one IDOR-safe call.** The READ
+  `get_or_none` + separate `require_permission(CRUD)` pair became a single
+  `get_or_none(Corpus, …, PermissionTypes.CRUD)` (the canonical pattern
+  `status()` already uses) — no behavior change, but no longer a divergent
+  double-check.
+- **Dedup/cleanup.** Template installs go through a single shared
+  `CorpusActionService.install_template` (dedupe fast-path, savepoint clone,
+  IntegrityError recovery, CRUD grant) used by both `AddTemplateToCorpus` and
+  the bundle; the enrichment analyzer lookup goes through the new lookup-only
+  `EnrichmentService.get_analyzer()` next to the converge logic; setup
+  prefetches bundle templates with `name__in` and derives
+  `total_active_documents` from the batch summary instead of a redundant
+  corpus-document count.
+- `CorpusIntelligenceSetupService._setup_templates` (`opencontractserver/corpuses/services/intelligence_setup.py`) now contains non-`IntegrityError` clone failures (e.g. `OperationalError`, `ValueError`) per template instead of letting them propagate out of the loop. Previously such a failure aborted the remaining templates and returned a 500 with earlier templates left half-installed; the bundle's graceful partial-success contract is now honored — the failing template records its error and the sweep continues.
+- Fixed an `AttributeError` crash in `Datacell._validate_manual_entry`
+  (`opencontractserver/extracts/models.py`, issue #1986 item 7). The "required"
+  check in the missing-`value` branch called
+  `self.column.validation_config.get("required")` *before* the
+  `config = self.column.validation_config or {}` guard, so validating a
+  manual-entry datacell with no `value` key on a column whose `validation_config`
+  is `None` (a nullable JSONField — legitimately null on explicitly-cleared or
+  legacy rows) raised `'NoneType' object has no attribute 'get'`. The `or {}`
+  guard is now resolved once at the top of the method and reused, so a config-less
+  column validates cleanly (nothing is required) while a column that *does* set
+  `required` still raises the expected `ValidationError`.
+- **Enrichment linking/provenance robustness — three pre-existing bugs in
+  `opencontractserver/enrichment/services/enrichment_service.py` (issue #1996).**
+  - **Analysis stranded `COMPLETED` when linking failed.** `apply()` stamped the
+    provenance `Analysis` `COMPLETED` and saved it *before* calling
+    `_link_external()` (which issues two `bulk_update`s over potentially
+    thousands of rows). A failure there propagated to the caller while the
+    `Analysis` row stayed permanently `COMPLETED` with `law_references_linked=0`.
+    Fix: `_link_external()` now runs inside `apply()`'s `try` (after
+    `writer.write`, before the `COMPLETED` stamp), so a linking failure marks the
+    `Analysis` `FAILED` and re-raises (`enrichment_service.py:444-458`).
+  - **Nondeterministic / non-navigable `target_corpus_id` for multi-corpus
+    authority documents.** `_link_external()` built `path_corpus_cache` with
+    `dict(DocumentPath…values_list("document_id","corpus_id"))`, which silently
+    kept whatever row Postgres returned last when an authority document had
+    current paths in more than one corpus — yielding a nondeterministic
+    `target_corpus_id` and a mention `link_url` that 404s for the other corpus.
+    Fix: the target corpus is now chosen deterministically *and* navigably —
+    prefer a corpus the citing corpus's audience can actually open, breaking ties
+    on the lowest `corpus_id` (one query for paths + one for the visible-corpus
+    set; no per-target N+1) (`enrichment_service.py:620-655`).
+  - **`refs` queryset iterated twice while lazy.** The `CorpusReference`
+    queryset was walked once to build the target cache and again to
+    promote/demote; rows inserted between the two evaluations by a concurrent
+    `apply()` on the same corpus appeared in pass 2 but not the cache and were
+    silently skipped. Fix: materialize it once with `list(...)` before the first
+    loop (`enrichment_service.py:604-613`).
+  - Regression coverage added in
+    `opencontractserver/tests/test_enrichment_linking.py`
+    (`test_apply_marks_analysis_failed_when_linking_raises`,
+    `test_link_target_corpus_is_deterministic_for_multi_corpus_authority`,
+    `test_link_target_corpus_prefers_audience_visible_corpus`).
+- **Authority Console — review follow-ups (gap/omission fixes).**
+  - **Registry list N+1 eliminated.** `GET_AUTHORITY_NAMESPACES`
+    (`frontend/src/graphql/queries.ts`) no longer selects `effectiveProvider` /
+    `equivalenceCount` / `frontierCount` — three per-row resolver-backed fields
+    (each fires its own COUNT / `can_handle()` loop in
+    `config/graphql/annotation_types.py:AuthorityNamespaceNode`) that the master
+    table never rendered, so a 50-row page no longer triggers ~150 wasted
+    queries. They remain on `GET_AUTHORITY_NAMESPACE_DETAIL`.
+  - **Frontier admin verbs guard `in_progress`.**
+    `AuthorityFrontierService.requeue/reset/reroute`
+    (`opencontractserver/enrichment/services/authority_frontier_service.py`) now
+    refuse a row a crawl worker is actively ingesting (matching `approve`'s
+    state guard), so an admin can no longer flip an `in_progress` row back to
+    `queued` mid-pass.
+  - **Malformed `authorityCorpusId` is now an error, not a silent global.**
+    `createAuthorityNamespace` / `updateAuthorityNamespace`
+    (`config/graphql/authority_namespace_mutations.py`) return
+    `ok=false, "Invalid authority_corpus_id."` when a non-empty corpus global id
+    fails to decode, instead of silently creating a global namespace (create) or
+    unlinking the corpus (update). An explicit `""` still clears the link.
+  - **Deleted-panel routes redirect instead of 404.**
+    `/admin/authorities`, `/admin/authority-mappings`, and `/admin/enrichment`
+    now `Navigate` to the equivalent console tab (`frontend/src/App.tsx`); the
+    user docs (`docs/guides/ingesting-authorities.md`,
+    `docs/architecture/reference-web-enrichment.md`) were repointed to
+    `/admin/authority`.
+  - **Reroute is constrained to the registry.** The Discovery Queue reroute
+    (`frontend/src/components/admin/authority/DiscoveryQueueTab.tsx`) validates
+    the chosen provider against `authoritySourceProviders` client-side (fail-fast
+    on a typo) and seeds the provider filter from the full registry rather than
+    only the providers on the loaded page.
+  - **DRY + dead-code cleanup.** Extracted the duplicated namespace-search
+    predicate into `authority_namespace_search_q()` (shared by
+    `AuthorityNamespaceService.stats()` and `config/graphql/filters.py` so chip
+    counts can never desync from the list); removed the orphaned
+    `AUTHORITY_DISCOVERY_POLL_MS` / `_WINDOW_MS` constants (only the deleted
+    `AuthoritySourcesMonitor` used them); and corrected stale `discovery_state`
+    vocabulary (`discovered`/`resolved` retired by migration 0100) in the
+    `GovernanceGraphNode` GraphQL schema description + frontend type comments.
+  - **Tests.** Added GraphQL-layer coverage for the five frontier mutations + the
+    `authoritySourceProviders` query, the `in_progress` guard, both remaining
+    `mark()` mutual-exclusivity pairs, the malformed-corpus-id rejection, and a
+    Registry create-form Playwright CT.
+- Authority discovery: added migration `annotations/0086_reseed_authority_namespaces_v2` to converge the `AuthorityNamespace` seed on reused CI databases. `0085` was recorded as applied on the self-hosted runner's persistent `--reuse-db` volume before the seed body/constants were finalized, so `RunPython` never re-ran and the table stayed stale — failing `AuthorityNamespaceSeedTests` and the grammar-tier discovery test in CI despite passing on a fresh DB. The new idempotent re-seed is a no-op on already-populated databases.
+- `LLMCitationExtractor.__init__` now rejects a non-positive `window` (and negative `overlap`) instead of looping forever in `aextract()` (`opencontractserver/enrichment/llm_citation_extractor.py`); "Washington" jurisdiction parsing disambiguates Washington, D.C. (`us-dc`) from Washington State (`us-wa`).
+- `emit_analysis_status_notification` (`opencontractserver/notifications/signals.py`)
+  no longer hydrates the full `Analyzer` row via a deferred FK load on every
+  qualifying `Analysis.save()`: the existing gate query now also captures
+  `task_name` (`values_list(...).first()`) and the notification `data` dict
+  reuses it instead of `instance.analyzer.task_name`. Also corrected the
+  handler docstring, which wrongly claimed WebSocket delivery was automatic via
+  a `post_save` receiver on `Notification` (there is none — the explicit
+  `broadcast_notification_via_websocket(...)` call is required).
+- Migration `0093_load_authority_namespaces_baseline` now upserts
+  `AuthorityNamespace` rows via `apps.get_model` (the historical model) instead
+  of calling the live `AuthorityMappingLoader` service, so a fresh-database
+  `migrate` runs against the schema as of that migration — a later
+  `AuthorityNamespace` schema change can no longer break fresh-DB migrate / CI /
+  onboarding (matches the fix already applied to 0092).
+- `GovernanceGraphExplorer` now calls `d3.interrupt(svgEl)` in its zoom effect
+  cleanup, cancelling any in-flight zoom/reset transition on unmount so a tween
+  can no longer fire `setTransform` on an unmounted component (React warning +
+  leak when navigating away mid-transition).
+- The concurrent enrichment orchestrator (`EnrichmentService._aresolve_documents`,
+  `opencontractserver/enrichment/services/enrichment_service.py`) now isolates
+  per-document failures instead of letting one document's error abort the whole
+  run. Previously a bare `asyncio.gather(...)` propagated the first exception and
+  cancelled every other in-flight document coroutine, so a single transient LLM
+  timeout / network blip on one document discarded the entire corpus's concurrent
+  work — the opposite of the in-flight-persistence resilience this path exists
+  for. Each document's extraction+write is now wrapped so a failure is logged and
+  skipped (its references are reclaimed by a later run); only when *every*
+  attempted document fails is the run re-raised as FAILED, so a systemic error
+  (bad API key, provider outage) is never silently finalized as an empty result.
+  Covered by `ConcurrentLLMFailureIsolationTests` and a finalized-NULL-analysis
+  orphan case in `WriterClaimRuleTests`
+  (`opencontractserver/tests/test_enrichment_in_flight.py`).
+- `upsert_equivalence` (`opencontractserver/enrichment/services/authority_equivalence_ingest.py`)
+  is now atomic: the source-ownership check and the row write happen inside
+  `transaction.atomic()` over a `select_for_update().get_or_create()` instead of a
+  racy `filter().first()` → `update_or_create()`. Previously two concurrent
+  different-source writers (e.g. parallel USLM fetches during a crawl) could both
+  read `existing=None`, both pass the ownership guard, and the second writer would
+  then flip `source` on the row the first just created — silently clobbering
+  ownership (the unique constraint only catches strict duplicates, not
+  source-ownership violations). `AuthorityMappingLoader.load()` now delegates to
+  this same atomic primitive (removing its duplicated filter-then-create) so the
+  baseline loader inherits the fix.
+- `ENRICHMENT_LLM_MAX_CONCURRENCY` / `ENRICHMENT_DOC_MAX_CONCURRENCY` overrides
+  (`opencontractserver/enrichment/constants.py`) now use `is not None` rather than
+  truthiness, so an explicit `0` is honored as a deliberate value instead of being
+  silently folded into the code default (a misconfiguration is surfaced, not
+  masked).
+- Fixed a TOCTOU race in `AuthorityFrontierService.seed_from_wanted_authorities` (`opencontractserver/enrichment/services/authority_frontier_service.py`): the per-key create-or-refresh now runs inside a single `transaction.atomic()` + `select_for_update()` critical section instead of `get_or_create` followed by an unconditional `save`. Two concurrent seed passes could previously both clear `get_or_create` and have one silently clobber the other's count update, and a freshly created row was briefly visible at `mention_count=0` (the field default) between the insert and its follow-up save. The lock serialises the second writer and seeds the real counts atomically. The "prefer existing non-null" semantics for `jurisdiction`/`authority_type` are preserved (issue #2020 finding 1).
+- Fixed stale `last_error` on a successful retry in `AuthorityFrontierService.mark()` (same file): a row transitioning `failed (error=...) -> ingested` previously retained the old error string, so downstream health checks reading `last_error` misread a healthy row as broken. `mark()` now clears `last_error` implicitly when transitioning into a terminal success state (`enrichment.constants.DISCOVERY_SUCCESS_STATES`, i.e. `ingested`); the failure history is still preserved in the append-only `candidate_sources` audit trail (issue #2020 finding 2).
+- Fixed a double XML traversal in `CFRAuthoritySourceProvider._fetch_impl` (`opencontractserver/pipeline/authority_source_providers/cfr_provider.py`): the `<P>` flatten list comprehension called `_flatten_element_text(p_el)` twice per element (once for the value, once for the truthiness filter). A walrus binds the result once so each `<P>` is traversed a single time (issue #2020 finding 5).
+- Added regression tests in `opencontractserver/tests/test_authority_frontier.py`: the seed upsert takes a `SELECT ... FOR UPDATE` row lock, a `failed -> ingested` transition clears the stale error (while a non-success transition preserves it), and `dequeue_for_provider` excludes freshly-seeded `provider=None` rows (issue #2020 findings 11, 12).
+- Harden the bounded authority crawl against a concurrency race and provenance
+  bloat (issue #2027, a code review of the Phase-5 BFS engine):
+  - **Atomic dequeue claim.**
+    `AuthorityFrontierService.dequeue_queued()`
+    (`opencontractserver/enrichment/services/authority_frontier_service.py`)
+    was a plain `filter(discovery_state="queued")` read — the `in_progress`
+    transition only happened later inside `discover_and_bootstrap`, leaving a
+    TOCTOU window where two concurrent `crawl_authorities` tasks (e.g. two
+    manual triggers on the same corpus) could dequeue the SAME frontier row and
+    `discover_and_bootstrap` it twice (wasted provider calls, distorted summary
+    counters). It now claims the rows it returns inside a single
+    `SELECT … FOR UPDATE SKIP LOCKED` transaction, flipping them to
+    `in_progress`; a second worker skips locked rows and grabs the next ones.
+    Rows excluded by `max_depth` / `min_demand` are never claimed, so the
+    `frontier_drained` residual census still counts them as `queued`.
+  - **One provenance `Analysis` per authority corpus.** Every section of an
+    authority bootstraps into ONE corpus (the provider `title` is a constant —
+    all `usc-*` sections land in the single "United States Code" corpus), so the
+    BFS calls `EnrichmentService.apply()` on that corpus once per ingested
+    section. Each call previously minted a fresh `Analysis`
+    (`_get_analysis` → `Analysis.objects.create`), so a deep crawl left dozens
+    of provenance rows on one corpus. `CrawlAuthoritiesService.crawl()`
+    (`opencontractserver/enrichment/services/crawl_authorities_service.py`) now
+    caches the `Analysis` the first apply creates per corpus and threads it back
+    into the rest via `apply(analysis=…)`, capping it at one per corpus. A
+    misleading "this apply scan is bounded (one small document per section)"
+    comment was corrected.
+  - **Honest `blocked_by_bound` accounting.** Clarified (in comments) that
+    `blocked_by_bound["min_demand_or_depth"]` is populated only on the
+    `frontier_drained` stop — where every residual `queued` row is provably
+    bound-excluded — and intentionally NOT on the `max_authorities` /
+    `token_budget` early stops, whose unreached rows may be perfectly eligible
+    and are accounted for by the `frontier_residual` census instead.
+  - **Uniform tool signature.** `crawl_authorities` / `acrawl_authorities`
+    (`opencontractserver/llms/tools/core_tools/corpus_references.py`) now apply
+    `C.CRAWL_DEFAULT_*` constants to all five bound parameters instead of using
+    `None` sentinels for two of them and constants for the other three.
+- Regression tests: `test_authority_frontier.py` (dequeue atomically claims
+  returned rows / leaves filtered-out rows `queued`) and
+  `test_crawl_authorities.py::ApplyAnalysisReuseTests` (a crawl that ingests
+  multiple sections of one authority reuses a single provenance `Analysis`).
+- **Closed a duplicate-notification race in the analysis-status signal
+  (`opencontractserver/notifications/signals.py`, issue #2029 — PR #2008
+  review).** The handler guarded duplicate `ANALYSIS_RUNNING/COMPLETE/FAILED`
+  notifications with a `Notification.objects.filter(...).exists()` check
+  followed by a separate `.create()`. Two concurrent `Analysis.post_save`
+  signals (e.g. a Celery worker plus an in-process save) could both pass the
+  `exists()` check before either committed, leaking duplicate rows. The
+  check-then-create pair is now a single atomic `get_or_create`, backed by a new
+  partial unique constraint `uniq_notification_per_analysis_type` on
+  `(analysis, notification_type)` (`condition=analysis NOT NULL`) added in
+  `opencontractserver/notifications/migrations/0007_notification_analysis_idempotency_constraint.py`.
+  The migration de-dupes any pre-existing rows (keeping the earliest) before
+  adding the constraint; the partial condition leaves the many analysis-less
+  notification types unconstrained.
+- **`runCorpusEnrichment` now rejects unknown `reference_types` instead of
+  silently dropping them (`config/graphql/enrichment_mutations.py`).** A request
+  whose `reference_types` contained only unrecognised codes previously filtered
+  to an empty list, left `types` unset, and ran enrichment against ALL reference
+  types — the opposite of the caller's intent. The mutation now returns
+  `ok=False` naming the unknown code(s) and dispatches nothing.
+- **`runCorpusEnrichment` surfaces partial success
+  (`config/graphql/enrichment_mutations.py`).** When the enrichment analyzer
+  dispatches but the authority crawl fails, the mutation now returns `ok=True`
+  with the already-running enrichment row and a non-fatal message — previously
+  it returned `ok=False` with the enrichment row mixed in, leading callers to
+  treat the whole request as failed and retry (double-dispatching enrichment).
+  The Runner (`frontend/src/components/admin/enrichment/EnrichmentRunner.tsx`)
+  surfaces the message as a warning toast.
+- **Forwarded `request` to the corpus UPDATE check in
+  `AnalysisLifecycleService.start_document_analysis`
+  (`opencontractserver/analyzer/services/analysis_lifecycle_service.py`).** The
+  `user_can(user, UPDATE)` gate now shares the Tier-2 permission cache when
+  called from a GraphQL mutation, removing a redundant permission DB hit.
+- **CI linter (mypy): pin the type-check target to Python 3.12 to match the
+  runtime.** `mypy.ini`'s `python_version` was stale at `3.11` while the
+  project ships only Python 3.12 (`compose/*/django/Dockerfile`
+  `ARG PYTHON_VERSION=3.12.*`). numpy is an unpinned transitive dependency, so a
+  freshly-resolved CI hook env pulled numpy 2.5.0, whose `numpy/__init__.pyi`
+  ships a PEP 695 `type` statement. Under a sub-3.12 target mypy rejects it
+  ("Type statement is only supported in Python 3.12 and greater") and aborts the
+  whole run with "errors prevented further checking", breaking the `linter` job
+  on every PR. Bumping the target to `3.12` fixes both the pre-commit `mypy`
+  hook and the standalone `Run mypy` CI step; the full 1,424-file surface
+  type-checks clean.
+- **Invalid per-corpus LLM specs now return a clean field error instead of a
+  generic "internal error".** The Corpus Settings model picker is free-text, so a
+  user can type an unregistered provider or malformed spec (e.g.
+  `not-a-provider:foo`). `Corpus.save()` already rejected these, but the
+  model-layer `ValidationError` surfaced through the update mutation as the opaque
+  "Mutation failed due to an internal error." `CorpusSerializer.validate_preferred_llm`
+  (`config/graphql/serializers.py`) now runs `validate_model_spec` before
+  `save()`, so an invalid spec fails serializer validation and the mutation
+  returns `ok=false` with the real reason (e.g. "Provider 'not-a-provider' … is
+  not registered"). Normalisation of the canonical stored form stays in
+  `Corpus.save()` (single source of truth). Also extracted the
+  `agenerate_text` default sampling temperature into a named
+  `DEFAULT_COMPLETION_TEMPERATURE` constant (`opencontractserver/constants/llm.py`)
+  to remove a magic number.
+- Bumped mypy's target from `python_version = 3.11` to `3.12` in `mypy.ini` to match the actual runtime (Docker images and CI both run 3.12.x; there is no 3.11 target anywhere in the repo). The stale `3.11` value made mypy validate third-party stub *syntax* against 3.11 and reject numpy's PEP 695 `type` aliases in `numpy/__init__.pyi` (`Type statement is only supported in Python 3.12 and greater [syntax]`), aborting the whole run before any project code was checked. numpy is unpinned and pulled transitively (pgvector/shapely/opencv/…) into the mypy hook env, so a routine numpy 2.4.x bump broke the `linter` job on every branch, including `main`. Both CI mypy invocations — the pre-commit hook (`mypy==2.0.0`) and the dedicated `Run mypy` step (`mypy==2.1.0`) — now pass clean (`Success: no issues found in 1425 source files`) with zero new project type errors. Updated `docs/typing/README.md` and added an in-file note in `mypy.ini` so the target is not silently lowered again.
+- **Conversation-title generation now honours the configured LLM instead of a
+  hardcoded `gpt-4o-mini`.** `UnifiedAgentConsumer._generate_conversation_title`
+  (`config/websocket/consumers/unified_agent_conversation.py`) called the
+  OpenAI-only `SimpleLLMClient`, which hardcoded `gpt-4o-mini` and ignored the
+  corpus `preferred_llm` and the install-wide `PipelineSettings.default_llm` —
+  the last *conversational* LLM path that bypassed the Singleton registry. It
+  now routes through a new provider-agnostic, registry-backed helper
+  `opencontractserver.llms.completions.agenerate_text`, which walks the same
+  resolution chain as the agent factory (per-call → `corpus_preferred` →
+  install-wide default → Django settings) and builds the model via the
+  credential-aware `model_factory`, so titles use whichever LLM the corpus is
+  configured for (OpenAI, Anthropic, Google, Ollama, …). (Provider-specific
+  pipeline analyzers such as `*_claude` in `tasks/doc_analysis_tasks.py` and the
+  deliberately-cheap structured-extraction default in `tasks/data_extract_tasks.py`
+  pin their own models on purpose and are intentionally out of scope.)
+- **Bulk-import CLI (`scripts/bulk_import/oc_bulk_import.py`):** fixed the auth and GraphQL-contract bugs that made it non-functional against a running backend — `tokenAuth` no longer selects the uninstalled `refreshToken` field (which made the whole mutation error), `createCorpus` reads the flat `objId` (not the non-existent `obj{id}`), and `--corpus-id` now accepts a raw primary key (normalized to a relay global id for `documentStats`) instead of crashing with an uncaught traceback. The dead long-running-refresh path is replaced with re-authentication on a 401.
+- **Bulk-import backpressure in worker-token mode.** Backpressure paces uploads off the GraphQL `documentStats.processingCount`, which a `WorkerKey` cannot authenticate — so against a **private** corpus the query returned 0 and pacing silently never engaged. `OCClient.graphql_headers()` now sends a bearer JWT when one is supplied (alongside the worker token), so `documentStats` authenticates; `run` warns when worker-token mode has no bearer token (backpressure then only works for a public corpus).
+- **Bounded the memory footprint of `DocumentLifecycleService.bulk_soft_delete_documents`** (`opencontractserver/corpuses/services/lifecycle.py:430-657`), the shared bulk-trash primitive behind `empty_corpus` and `FolderCRUDService._trash_documents_in_subtree` (folder cascade-delete). Previously the primitive materialized every active, locked `DocumentPath` (plus its joined `Document`) for the whole document set into a single Python `list(...)` inside one `transaction.atomic()` block — for a multi-thousand-document corpus this risked an app-server heap spike/OOM rather than a bounded DB timeout (follow-up to #2030/#1951). It now processes active paths via keyset ("seek") pagination in fixed-size chunks (`BULK_SOFT_DELETE_CHUNK_SIZE = 500`, new `opencontractserver/constants/corpus_lifecycle.py`), so at most one chunk's worth of rows is ever held in memory. The `pk`-ascending lock-acquisition order (deadlock hygiene) is preserved *across* chunks via a strictly-increasing `pk__gt` floor, not just within one chunk; the `post_save` signal replay still fires once per created row, once per chunk; the whole operation still runs inside a single `transaction.atomic()` (unchanged all-or-nothing semantics); and the `is_public` revocation tail still runs once over the full accumulated document-id set (it was already a fixed, cheap query pair, so chunking it would only add query count without reducing memory). Trade-off: query count is now `O(document_count / BULK_SOFT_DELETE_CHUNK_SIZE)` instead of a fixed handful regardless of size — a deliberate, documented exchange of a few extra statements for a hard memory ceiling. `opencontractserver/tests/test_corpus_objs_service.py::TestBulkSoftDeletePrimitive::test_query_count_independent_of_document_count` was rewritten into `test_query_count_constant_within_a_single_chunk` (per-chunk constant-cost, scoped correctly now that chunking exists) plus a new `test_query_count_increment_crossing_chunk_boundary_is_bounded_not_per_document` (proves crossing a chunk boundary adds a bounded increment, not a per-document one) and a new `test_chunked_processing_is_correct_across_multiple_chunks` (8 documents across 3 patched-small chunks, asserting full correctness of the final state: all docs trashed, restorable via the trash listing, signals fired once each, `is_public` revoked).
+- **Non-streaming `agent.chat()` now reports tool calls in `metadata["timeline"]`.**
+  `PydanticAICoreAgent._chat_raw` (`opencontractserver/llms/agents/pydantic_ai_agents.py`)
+  returned `{"usage": ..., "framework": "pydantic_ai"}` with no `"timeline"` key at
+  all, even when the run invoked tools. The streaming path (`_stream_core` via
+  `TimelineStreamMixin`) already populated `metadata["timeline"]` with
+  `{"type": "tool_call", "tool": ..., "args": ...}` entries, but any caller using
+  the plain `agent.chat(...)` non-streaming API — e.g.
+  `opencontractserver/benchmarks/traversal_benchmark.py::run_one`, which reads
+  `metadata.get("timeline")` and filters for `type == "tool_call"` — silently saw
+  zero tool calls regardless of how many the model actually made. Added
+  `_extract_tool_call_timeline` (same file, near `_usage_to_dict`), which walks
+  `run_result.all_messages()` for `ToolCallPart` instances and reconstructs the
+  same timeline-entry shape the streaming path emits; `_chat_raw` now calls it and
+  includes the result under `metadata["timeline"]`. Regression test:
+  `opencontractserver/tests/test_pydantic_ai_agents.py::TestPydanticAIAgents::test_chat_metadata_includes_tool_call_timeline`.
+- `find_documents_citing` (`opencontractserver/llms/tools/core_tools/graph_navigation.py`)
+  now derives each citing document's `corpus_id` from the bounded ranked
+  aggregate (`Min("corpus")`) instead of the separate, capped citing-clause
+  sample scan. Previously a top-`mention_count`-ranked document whose numeric
+  `document_id` sorted past the `NAV_CITING_SAMPLE_SCAN` budget got a null
+  `corpus_id` next to real `mention_count`/`document_title` data — a
+  data-integrity gap. `mention_count` and `corpus_id` are now both exact DB
+  aggregates unaffected by the snippet-scan budget.
+- `get_document_references` error envelopes now report the normalized
+  `direction` ("both" for an unrecognized value) rather than the raw
+  LLM-supplied string, so error and happy-path envelopes stay shaped alike.
+- **Fixed graph-navigation agent tools trusting LLM-supplied IDs/keys and returning a well-formed empty result instead of an error, causing agents to falsely tell users "no such citation exists".** Confirmed live, twice, with real LLMs.
+  - `opencontractserver/enrichment/authorities.py::candidate_keys` (~line 127) now also tries the `canonical_key` with every `_` replaced by `-` (real canonical keys use hyphens exclusively in their namespace prefix, e.g. `exchange-act:16`, never `exchange_act:16`; LLMs occasionally emit the underscore variant by analogy to Python-identifier conventions), and applies the existing subsection-root fallback to both the exact and normalized-underscore variants. Consumed transitively by `find_authority_target` / `read_reference_target`.
+  - `opencontractserver/llms/tools/core_tools/graph_navigation.py::find_documents_citing` (~line 300) now anchors its `canonical_key` filter through `candidate_keys(...)` (`canonical_key__in=...`) instead of an exact-match `canonical_key=...` filter, so it benefits from the same underscore-normalization and subsection-root fallback as `read_reference_target`.
+  - `opencontractserver/llms/tools/core_tools/graph_navigation.py::get_document_references` (~line 97) now resolves `document_id` via `BaseService.get_or_none(Document, document_id, user)` right after user resolution and returns an explicit `error` envelope (`outbound`/`inbound` empty, counts 0) when the id doesn't resolve to a document visible to the caller, instead of silently returning a "successful" empty-references envelope for a nonexistent/invisible/wrong-type id (e.g. a corpus_id mistakenly passed as document_id).
+- Corrected the non-streaming `agent.chat()` tool-call timeline
+  (`opencontractserver/llms/agents/pydantic_ai_agents.py::_extract_tool_call_timeline`):
+  it read `run_result.all_messages()`, which includes the `message_history`
+  `_chat_raw` forwards, so a multi-turn conversation re-counted every prior
+  turn's tool calls (turn N reporting the tool calls of turns 1..N). It now
+  reads `new_messages()` — only the current run's messages.
+- Extended the graph-navigation bad-ID guard to `find_documents_citing`
+  (`opencontractserver/llms/tools/core_tools/graph_navigation.py`): a
+  `document_id` anchor that does not resolve to a visible document now returns
+  an explicit error instead of a false-empty "nobody cites this" envelope,
+  matching the fix already applied to `get_document_references`.
+- **Baseline-vs-baseline namespace clobbering fixed (issue #2057).** Two
+  `source="baseline"` writers on the same authority prefix — the core
+  `authority_mappings.yaml` vs. a pack's mappings YAML, or two packs — previously
+  last-write-wins'd each other silently
+  (`AuthorityMappingLoader.load_namespaces`' `update_or_create` had no writer
+  partition). Every baseline `AuthorityNamespace` row is now stamped with its
+  writer origin (new nullable `baseline_origin` column, migration
+  `annotations/0101`; `"core"` for the shipped YAML / `post_migrate` seed, else
+  the pack's manifest `name`), and a load skips + warns (counted as
+  `skipped_foreign_baseline`) instead of overwriting a prefix a different origin
+  owns — first writer wins; curator `manual` rows still trump everything. The
+  `post_migrate` convergence (`opencontractserver/enrichment/_namespace_seed.py`)
+  honours the same guard, so a `migrate`/flush can no longer revert a pack-owned
+  prefix to the constants baseline. Legacy baseline rows (null origin) are
+  adopted — stamped — by the next owning load. The pack name `core` is reserved
+  (`load_authority_pack` rejects it fail-fast). Re-loading two packs that touch
+  distinct prefixes can never clobber each other. Tests:
+  `opencontractserver/tests/test_authority_mapping_loader.py::BaselineOriginGuardTests`
+  and the reseed-ownership additions in the same file.
+- **Remote-ingest worker: embedder API-key env var was wrong.** The embedder
+  service block in `scripts/remote_ingest/remote_worker.yml` /
+  `remote_worker.accel.yml` set `API_KEY`, but the embedder image reads
+  `VECTOR_EMBEDDER_API_KEY` (`compose/accelerated/embedder/main.py`) — so the key
+  was ignored, the image fell back to its built-in default, and a worker
+  configured with any other key got HTTP 401 on every embedding request. The env
+  var is renamed to `VECTOR_EMBEDDER_API_KEY` (the actual root cause) and its
+  empty fallback hardened to `${VECTOR_EMBEDDER_API_KEY:-abc123}` so a forgotten
+  export no longer sends an empty key. **Operators with a running embedder must
+  recreate (not just restart) the container** to pick up the renamed env var.
+- **Local dev: same embedder env-var fix in `local.yml`.** The `vector-embedder`
+  and `multimodal-embedder` services set the ignored `API_KEY` too; they now set
+  `VECTOR_EMBEDDER_API_KEY` sourced from the matching Django-side var
+  (`VECTOR_`/`MULTIMODAL_EMBEDDER_API_KEY` in `.envs/.local/.django`) so an
+  overridden key stays in sync on both sides instead of silently mismatching.
+- **Tests: `test.yml`'s `vector-embedder` service was missing the same env var.**
+  The `multimodal-embedder` block in `test.yml` was updated to pass
+  `VECTOR_EMBEDDER_API_KEY`, but the `vector-embedder` block (`test.yml` lines
+  7-16) was left without it — the test suite only worked because the embedder
+  image's hardcoded `abc123` default happened to match the test env's
+  `VECTOR_EMBEDDER_API_KEY`. Added the same `${VECTOR_EMBEDDER_API_KEY:-abc123}`
+  wiring so the test container isn't silently disconnected from the Django-side
+  key if that default is ever changed to a real key.
+- **Extraction: stop reading oversized documents just to discard them.**
+  `doc_extract_query_task` (`opencontractserver/tasks/data_extract_tasks.py`) read the entire
+  `txt_extract_file` into memory and only then checked `len(text) <= EXTRACT_FULL_TEXT_CHAR_LIMIT`.
+  A pre-read byte-size guard now skips the read when `txt_extract_file.size >
+  EXTRACT_FULL_TEXT_CHAR_LIMIT * MAX_UTF8_BYTES_PER_CHAR` (new constant in
+  `opencontractserver/constants/extraction.py`) — the byte size above which the text cannot
+  possibly fit the char budget — falling back to retrieval. In-range documents are still read and
+  filtered exactly as before; a failing/absent `.size` falls through to the read defensively.
+- **Extraction: remove spurious prompt-injection size warnings.** Dropped the
+  `warn_if_content_large(full_text, ...)` call on the (already fenced + notice-prefixed) document
+  body. Its 1000-char threshold (`UNTRUSTED_CONTENT_SIZE_WARNING_THRESHOLD`) fired on nearly every
+  real document against the 24 000-char inject budget, logging a `[PromptInjection] WARNING` per
+  cell; the warning is meant for short field values, not 24k-char bodies.
+- **Extraction: report the request budget actually in force.** `_classify_none_result` /
+  `_failure_message_for_classification` (`opencontractserver/tasks/data_extract_tasks.py`) no
+  longer hardcode `EXTRACT_AGENT_REQUEST_LIMIT` when fingerprinting a `usage_limit_exceeded`
+  None-result — they take the effective `request_limit` as an argument so classification and the
+  operator-facing message stay correct if a caller overrides the budget via `UsageLimits`. The
+  matching `UsageLimitExceeded` warning in
+  `opencontractserver/llms/agents/pydantic_ai_agents.py::_structured_response_raw` now logs the
+  resolved `UsageLimits.request_limit` rather than the hardcoded default. Tests:
+  `opencontractserver/tests/test_data_extract_failure_classification.py`,
+  `opencontractserver/tests/test_pydantic_ai_agents.py`.
+- **Extraction: distinguish an empty extraction artifact from an oversized one.**
+  `doc_extract_query_task` now logs a distinct `WARNING` when a `txt_extract_file` loads but
+  produces empty text (corrupted/empty extraction or OCR that yielded nothing), instead of
+  silently falling through to retrieval the same way the "too large to inject" skip does. Test:
+  `opencontractserver/tests/test_extract_prompt_wiring.py::test_empty_extract_file_logs_and_skips_injection`.
+- **Avoid an N+1 SELECT on artifact creation.** `ArtifactService.create` now refetches the new
+  artifact with `select_related("corpus", "creator")` before returning, so the `CreateArtifact`
+  mutation's `_artifact_to_type` serializer (which reads `a.corpus.slug`) no longer issues an extra
+  query per create.
+- **`ingest_corpus --wait` no longer stalls to timeout on a failed or deleted document.**
+  `_wait_for_processing` (`opencontractserver/corpuses/management/commands/ingest_corpus.py`)
+  waited for `free == len(doc_ids)`; a failed doc never clears its backend lock and a deleted doc
+  leaves the queryset, so either burned the full `--timeout`. It now treats a document as settled
+  once it is lock-free, failed, or missing, and reports the failed/missing counts when it continues.
+  Test: `test_wait_for_processing_settles_on_failed_and_missing_docs`.
+- **`ArtifactService.update_captions` no longer triggers an N+1 (or `SynchronousOnlyOperation`).**
+  It now refetches with `select_related("corpus", "creator")` before returning, mirroring `create`,
+  so the `UpdateArtifact` serializer's `a.corpus.slug` / `a.creator.slug` reads don't issue extra
+  queries.
+- **`SetArtifactImage` rejects non-PNG uploads.** The mutation now verifies the decoded bytes begin
+  with the PNG magic number before persisting them as `<slug>.png` at a public media URL, closing a
+  hole that accepted arbitrary binary (SVG-with-script, polyglots, executables).
+- **`reference-web` artifact template is no longer offered until its renderer exists.** It was listed
+  in the backend registry but had no frontend poster, so users could mint an artifact `/a/<slug>`
+  could never render. Removed from `ARTIFACT_TEMPLATES` (and its unused `_reference_count` /
+  `_MIN_REFERENCES` eligibility plumbing) until the poster ships.
+- **`CorpusDataStoryService.build` is request-memoized.** The corpus home fetches `corpusDataStory`
+  and `corpusArtifactTemplates` in one request and both resolve through the (expensive) datacell
+  aggregation; it now runs once per `(corpus, user)` per request instead of twice.
+- **Artifact poster PNG export handles non-ASCII captions.** `ArtifactPosterRoute` replaced the
+  legacy `unescape(encodeURIComponent(...))` idiom (removed from the WHATWG spec; breaks on accented
+  names / currency symbols) with explicit `TextEncoder` UTF-8 encoding.
+- **Runtime LLM retargeting now reaches every remote-LLM workflow (issue #2078).** Audit of the pluggable LLM framework found five workflows that silently bypassed the canonical model-resolution chain (per-call → per-agent → per-corpus → `PipelineSettings.default_llm` → Django settings), pinning them to deploy-time env values or compile-time constants even after a superuser retargeted the install in System Settings:
+  - `opencontractserver/tasks/data_extract_tasks.py` — structured extraction resolved `model_override or DEFAULT_EXTRACT_MODEL`, so the constant outranked every configured tier. New `_aresolve_extract_model()` walks override → `Corpus.preferred_llm` → `PipelineSettings.default_llm` → `settings.DEFAULT_LLM` → `DEFAULT_EXTRACT_MODEL` (terminal fallback; unconfigured installs behave identically). The Anthropic temperature guard (issue #1381) now tracks the *resolved* family.
+  - `opencontractserver/tasks/memory_tasks.py` — memory curation read `get_default_config().model_name` (= `settings.OPENAI_MODEL`), skipping the corpus preference and the live singleton. Now resolves via `resolve_model_spec(corpus_preferred=…, settings_default=get_default_llm_spec())`.
+  - `opencontractserver/enrichment/llm_citation_extractor.py::_abuild_model` — passed `settings_default=None`, skipping the System Settings tier.
+  - `opencontractserver/pipeline/authority_source_providers/agentic_web_locator_provider.py::_run_agent` — called `resolve_model_spec(explicit=None)` with no `settings_default`.
+  - `opencontractserver/llms/agents/core_agents.py::get_default_config` — read `settings.OPENAI_MODEL` directly, ignoring `settings.DEFAULT_LLM`; now resolves through the registry (value is normalised to `"openai:gpt-4o"` canonical form on stock installs).
+- `opencontractserver/tasks/agent_tasks.py` — corpus/thread action `execution_metadata["model"]` read a nonexistent `settings.LLMS_DEFAULT_MODEL` and always recorded `"unknown"`; it now records the agent's actually-resolved `config.model_name`.
+- `opencontractserver/tasks/doc_analysis_tasks.py` — the Claude-citation analyzer tasks (`agentic_highlighter_claude`, `pii_highlighter_claude`) are deliberately Anthropic-pinned (citations API) but had the model hardcoded; the model is now configurable per-task via `ANALYZER_KWARGS` `ANTHROPIC_MODEL` (default `CLAUDE_ANALYZER_DEFAULT_MODEL` in `opencontractserver/constants/llm.py`).
+- `opencontractserver/constants/context_guardrails.py` — added context-window entries for `claude-haiku-4` and the Ollama-supported local models (`llama3.3`, `llama3.2`, `qwen2.5`, `mistral`); an unknown 32K local model previously fell back to the 128K default, which disables compaction and produces hard context overflows after retargeting to Ollama.
+- New regression suite `opencontractserver/tests/test_llm_runtime_retargeting.py` pins per-workflow resolution against the live `PipelineSettings` singleton, hot-swap semantics (successive retargets + credential rotation without restart), and context-window coverage for every model the provider registry offers. Docs: `docs/architecture/llms/README.md` gains a "Workflow coverage" section and now documents the `PipelineSettings.default_llm` tier in the resolution chain.
+- **Defined-term extraction: cap on unique terms, not raw regex hits.**
+  `ReferenceExtractor._terms` (`opencontractserver/enrichment/extractor.py`) capped on
+  every regex hit (including duplicates skipped via `slug in seen`), so a document with
+  many repeated early definition sites (e.g. 50× `(the "Company")`) exhausted the
+  `MAX_DEFINED_TERMS` budget before later *distinct* terms were reached — silent
+  under-extraction. The cap is now on `emitted` (unique) terms; a separate, larger
+  `MAX_DEFINED_TERM_SCAN` (`= DEFINED_TERM_SCAN_MULTIPLIER * MAX_DEFINED_TERMS`, in
+  `opencontractserver/enrichment/constants.py`) bounds total hits inspected so a
+  duplicate-heavy document still terminates. This also removed an unreachable
+  `emitted >= MAX_DEFINED_TERMS` branch in the old `or` guard. Dead constants
+  `_TERM_PAREN_RE`/`_TERM_MEANS_RE` (superseded by the combined `_TERM_RE`) were deleted.
+  Regression coverage: `test_defined_term_cap_counts_unique_terms_not_raw_hits`
+  (`opencontractserver/tests/test_enrichment_extractor.py`) reproduces the exact
+  duplicate-then-distinct scenario that was previously broken, and
+  `ReferenceTypeFilterTests` (`opencontractserver/tests/test_generic_grammars.py`)
+  covers the `GenericCitationExtractor.extract(reference_types=...)` gate.
+- **Chunked ingest: fix chunk-scratch storage leak on the in-process fallback.**
+  `prepare_chunk_inputs` unconditionally writes N chunk PDFs to `default_storage`
+  (`chunk_scratch/doc_{id}/`) before returning, but `cleanup_chunk_artifacts` only ran
+  inside the chord callback (`reassemble_and_finalize`). When `ingest_doc`
+  (`opencontractserver/tasks/doc_tasks.py`) skips the chord and parses in-process, the
+  in-process path re-reads the original PDF and never touches the scratch files, so every
+  document exceeding the fan-out ceiling leaked all of its chunk PDFs on every ingest
+  (multiplied across Celery retries). The fallback branch now calls
+  `cleanup_chunk_artifacts(doc_id)` before re-parsing. Regression test:
+  `opencontractserver/tests/test_chunk_tasks.py::TestChunkTasks::test_ingest_doc_large_pdf_falls_back_when_chunk_count_exceeds_limit`.
+- **Chunked ingest: don't let a cleanup-storage exception strand a document in
+  a retry loop.** `cleanup_chunk_artifacts` only guards its own `listdir` call
+  against `(FileNotFoundError, NotADirectoryError, OSError)`
+  (`opencontractserver/pipeline/chunk_artifacts.py`); cloud storage backends
+  (S3, GCS) can raise SDK-specific exceptions (e.g.
+  `botocore.exceptions.ClientError`) that aren't `OSError` subclasses. If that
+  escaped the fallback branch in `ingest_doc`
+  (`opencontractserver/tasks/doc_tasks.py`), Celery's outer `except Exception`
+  would treat it as transient and retry — `prepare_chunk_inputs` writes the
+  same scratch files again, cleanup fails again, and the document exhausts
+  its retries without ever actually parsing. The call is now wrapped in its
+  own `try/except Exception`, logging a warning and continuing to the
+  in-process parse (a leaked scratch file is far less harmful than a document
+  that never parses). Regression test:
+  `TestChunkTasks::test_ingest_doc_fallback_survives_cleanup_exception`.
+- **Fixed a null-title crash in the corpus-home Collection Overview panel.**
+  `IntelligencePanel.tsx`'s documents-index sort comparator
+  (`frontend/src/components/corpuses/CorpusHome/intelligence/IntelligencePanel.tsx`)
+  called `a.title.localeCompare(b.title)` directly. `Document.title` is
+  `CharField(null=True, blank=True)` (`opencontractserver/documents/models.py`),
+  so a document with a `null` title (mid-ingest, or a parser that never set
+  one) threw a `TypeError` and crashed the entire panel for that corpus. The
+  render path already guarded with `doc.title || "Untitled document"`; the
+  comparator now applies the same `(a.title || "").localeCompare(b.title || "")`
+  guard. Added a regression test to `frontend/tests/IntelligencePanel.ct.tsx`
+  that mounts the panel with a null-titled document and asserts it renders
+  (rather than throwing) with the "Untitled document" fallback. (#2095)
+- **Fixed local (non-Auth0) username/password login failing with "Could not get user details from server".** In `frontend/src/views/Login.tsx`, the `LOGIN_MUTATION` `onCompleted` handler set `authToken()` *before* awaiting `resetOnAuthChange()` (Apollo's `client.clearStore()`). In non-Auth0 deployments `authInitCompleteVar` is already `true` by the time login happens (set at `AuthGate` mount), so `App.tsx`'s `GET_ME` query is gated only on `authToken()` — setting the token first let `GET_ME` start fetching immediately, racing `clearStore()`, which cancelled the in-flight request with an Apollo "store reset while query was in flight" invariant violation (issue #2104). Fixed by awaiting `resetOnAuthChange()` before flipping auth state, mirroring the ordering `AuthGate.tsx` already uses for the Auth0 login path.
+- **Fixed notification/agent-chat WebSockets always failing to connect in the Docker/nginx frontend image.** `frontend/src/components/chat/get_websockets.ts`'s `resolveWsBaseUrl()` only checked `VITE_WS_URL`/`REACT_APP_WS_URL`/`VITE_API_URL`/`REACT_APP_API_URL` via `import.meta.env`/`process.env`, none of which this codebase's deployments ever set (every sample env only sets `REACT_APP_API_ROOT_URL`, injected at container start via `window._env_` — see `frontend/env.sh`). It therefore always fell back to `window.location.host`, which for the production-style nginx image (`frontend/conf/conf.d/default.conf`) has no `/ws` proxy at all, causing `WebSocket connection to 'ws://localhost:3000/ws/...' failed` to repeat indefinitely. `getEnvVar()` now also checks `window._env_`, and `resolveWsBaseUrl()` falls back to `REACT_APP_API_ROOT_URL` before giving up to `window.location.host`.
+- Fixed a precedence-inversion regression in `BaseParser.parse_document` (`opencontractserver/pipeline/base/parser.py`): the #2115 fix let `component_settings` win over `direct_kwargs`/legacy `parser_kwargs` on key collision, but an empty-string secret placeholder in `component_settings` (explicitly allowed by the mutation layer's secret validation) could then clobber a real, truthy value seeded only into legacy `parser_kwargs` (e.g. LlamaParse's env-seeded `api_key`), silently breaking every subsequent LlamaParse ingest. `component_settings` values of `None`/`""` are now treated as "not set" and never override a truthy `direct_kwargs` value.
+- Fixed a validation gap in `UpdatePipelineSettingsMutation` (`config/graphql/pipeline_settings_mutations.py`): the #2116 `enabled_components`-vs-assigned-defaults consistency guard covered `default_embedder`/`default_file_converter` but omitted `default_reranker`, so a superuser could assign a disabled component as `default_reranker` with no validation error, silently disabling reranking at the next retrieval.
+- Added regression tests: `opencontractserver/tests/test_base_pipeline_parser.py::test_parse_document_empty_component_settings_value_does_not_clobber_direct_kwargs`; `opencontractserver/tests/test_pipeline_settings.py::EnabledComponentsMutationTestCase::test_cannot_assign_disabled_component_as_default_reranker` and `::test_widen_enabled_components_and_assign_in_same_call_succeeds`.
+- Removed the module-level `get_preferred_embedder` function from `opencontractserver/pipeline/utils.py`, dead since its only callers (`find_embedder_for_filetype`/`get_default_embedder_for_filetype`) were deleted under #2114. Added `opencontractserver/tests/test_pipeline_utils.py::TestPipelineUtils::test_get_default_embedder_unmocked` to restore the only unmocked, DB-backed coverage of `get_default_embedder()` that was lost when `test_find_embedder_for_filetype` was deleted as part of that same cleanup.
+- Tightened `frontend/tests/admin-components.ct.tsx`'s filetype-defaults select-count assertion from a `>= 6` lower bound to an exact `toHaveCount(6)` plus an explicit check that no `Embedder for * files` select exists, so a regression that re-adds the removed per-MIME Embedder column is actually caught.
+- **Fixed `component_settings` edits being silently overridden by legacy `parser_kwargs` at parse time (issue #2115).**
+  `BaseParser.parse_document` (`opencontractserver/pipeline/base/parser.py`)
+  merged `{**self.get_component_settings(), **direct_kwargs}`, so the
+  legacy/seed-only `parser_kwargs` channel (`PipelineSettings.parser_kwargs`,
+  no admin GUI editor) always won over the schema-validated,
+  superuser-GUI-editable `component_settings` channel on any key collision.
+  Several parsers seed the same field names into both channels (e.g.
+  LlamaParseParser's `result_type`/`extract_layout`/`num_workers`/`language`/
+  `verbose`), so editing them via the admin "Advanced Settings" modal had no
+  effect at parse time. Inverted the merge order to
+  `{**direct_kwargs, **self.get_component_settings()}` so `component_settings`
+  wins on collisions, while keys unique to `parser_kwargs` (e.g. LlamaParse's
+  `api_key`, a `SECRET`-type setting the mutation layer refuses to accept as
+  plaintext in `component_settings`) still pass through unchanged. Added
+  `test_parse_document_component_settings_wins_over_parser_kwargs` in
+  `opencontractserver/tests/test_base_pipeline_parser.py`.
+- **Enforced `PipelineSettings.enabled_components` at resolution time (issue #2116).**
+  `is_component_enabled`/`get_enabled_components`
+  (`opencontractserver/documents/models.py`) previously only gated the admin
+  "Component Library" checkbox UI and a same-mutation-call validation check —
+  a component unchecked there still ran at ingest if it remained assigned as
+  a MIME default. `get_preferred_parser`/`get_preferred_embedder`/
+  `get_preferred_thumbnailer` now return `None` (their existing "not
+  configured" contract) for a resolved-but-disabled path;
+  `get_preferred_enrichers` filters disabled entries out of the chain instead
+  of erroring (enrichment is already best-effort); `get_default_embedder`/
+  `get_default_reranker`/`get_default_file_converter` return `""` (their
+  existing "disabled" contract) for a disabled default. The documented
+  backward-compatible default is unchanged: an empty `enabled_components`
+  list still means "all components enabled."
+- **Closed a validation gap in `UpdatePipelineSettingsMutation`** (`config/graphql/pipeline_settings_mutations.py`):
+  the "assigned components must be a subset of `enabled_components`" check
+  previously ran only inside the `if enabled_components is not None:` branch,
+  so a call that assigned a *new* `preferred_parsers`/`preferred_embedders`/
+  `preferred_thumbnailers`/`default_embedder`/`default_file_converter` value
+  without also re-sending `enabled_components` skipped the check entirely,
+  even though a prior save had already set a non-empty `enabled_components`.
+  Extracted the subset check into `_find_disabled_but_assigned()` and run it
+  whenever any of those six fields changes in the call. Added coverage to
+  `opencontractserver/tests/test_pipeline_settings.py` — both the getter-level
+  enforcement and the mutation-level validation gap
+  (`EnabledComponentsMutationTestCase`).
+- **Promoted docling `force_ocr`/`roll_up_groups`/`llm_enhanced_hierarchy` into the admin-editable settings schema (issue #2120).**
+  `DoclingParser._parse_single_chunk_impl`
+  (`opencontractserver/pipeline/parsers/docling_parser_rest.py`) read these
+  three flags out of raw kwargs with hardcoded Python defaults; none was
+  declared on `DoclingParser.Settings`, so the schema-driven admin "Advanced
+  Settings" component-config modal never rendered them — the only way to set
+  them was a raw `updatePipelineSettings(parserKwargs: ...)` GraphQL call with
+  no UI. Added all three as proper `Settings` dataclass fields (with
+  `env_var` seeds `DOCLING_FORCE_OCR`/`DOCLING_ROLL_UP_GROUPS`/
+  `DOCLING_LLM_ENHANCED_HIERARCHY`) and switched the kwargs lookups to fall
+  back to the instance attribute (itself sourced from `Settings` at `__init__`)
+  instead of a literal, mirroring the existing `extract_images` pattern.
+- **Removed the dead, mis-keyed `PARSER_KWARGS` seed entry** for
+  `opencontractserver.pipeline.parsers.docling_parser.DoclingParser`
+  (`config/settings/base.py`) — that module has never existed (only
+  `docling_parser_rest.py` does), so `PipelineSettings.get_parser_kwargs()`'s
+  exact-class-path dict lookup could never match it; the seed has been
+  silently inert since introduction and is now fully superseded by the
+  dataclass field defaults above.
+- **Fixed: clearing a `component_settings` field in the Advanced Settings
+  modal had no effect (issue #2121).** `SystemSettings.tsx`'s
+  `handleSaveComponentSettings` skipped any field the user cleared to an
+  empty string when building the coerced values object, but then still
+  spread the OLD stored value back in via
+  `{ ...existingForComponent, ...coerced }` — so clearing a field (or
+  re-narrowing/re-widening a list-like field such as a file converter's
+  `convert_extensions`, which goes through this same generic per-field save
+  path) silently kept the stale value server-side, with no way to revert a
+  single field short of a full Reset-to-Defaults. Fixed by distinguishing an
+  explicit clear (field now empty, previously non-empty) from a no-op
+  (field already empty): for the former, the key is actively deleted from
+  the merged settings object sent to `updatePipelineSettings`, so the
+  component falls back to its `Settings` dataclass default at read time
+  instead of retaining the stale value.
+  - Test: `frontend/tests/system-settings-flows.ct.tsx` covers clearing a
+    previously-saved field and asserts the mutation is called with that key
+    absent (not present with an empty string) from `componentSettings`.
+- **Deleted the dead `THUMBNAIL_TASKS` dict** (`config/settings/base.py`) —
+  it had zero references anywhere in the codebase, and its referenced task
+  paths (`opencontractserver.tasks.doc_tasks.extract_pdf_thumbnail`/
+  `extract_txt_thumbnail`/`extract_docx_thumbnail`) do not exist as functions
+  in `doc_tasks.py`; thumbnailer resolution is handled entirely by
+  `PipelineSettings.preferred_thumbnailers` today. Updated
+  `docs/pipelines/pipeline_overview.md`'s stale "Component Registration"
+  example that still showed `THUMBNAIL_TASKS`, and fixed a leftover
+  `docling_parser.DoclingParser` (non-`_rest`, nonexistent module) example
+  path in the `ENABLED_COMPONENTS` comment.
+- **Corrected `PipelineSettings.get_component_settings()`'s docstring** (`opencontractserver/documents/models.py`):
+  it claimed a Django-settings fallback was "handled by
+  `PipelineComponentBase.get_component_settings()`", but that method
+  (`opencontractserver/pipeline/base/base_component.py`) implements no such
+  fallback — it only calls `PipelineSettings.get_full_component_settings()`
+  and returns `{}` when empty (component `Settings` dataclass defaults apply
+  from there). Reworded the docstring to stop promising a fallback mechanism
+  that isn't implemented.
+- **Removed dead GraphQL selections from the pipeline settings admin queries
+  (issue #2122).** `graphql.ts`'s `GET_PIPELINE_SETTINGS`/
+  `UPDATE_PIPELINE_SETTINGS`/`RESET_PIPELINE_SETTINGS` response selections
+  requested the top-level `parserKwargs` and `componentsWithSecrets` fields,
+  but neither was ever read anywhere in the admin component code — per-
+  component secret status is surfaced via each component's own
+  `settingsSchema.hasValue` instead. Removed both from all three documents'
+  output selections (the `UpdateComponentSecretsMutation`/
+  `DeleteComponentSecretsMutation` responses' own, actively-used
+  `componentsWithSecrets` field is untouched, as is the unrelated
+  `componentSettings` field, and the `parserKwargs` mutation *argument* is
+  preserved for future use).
+- **Corrected the Reset-to-Defaults confirmation dialog wording.**
+  `SystemSettings.tsx`'s reset modal said resetting "all pipeline settings"
+  with no further detail; this was inaccurate on two counts: it never
+  mentioned that stored secrets (component API keys and the new agent tool
+  secrets from #2117) are completely untouched by Reset, and
+  `preferred_enrichers` (#2118 above) is now included in Reset rather than
+  being an undocumented exception. Reworded to state plainly which settings
+  reset and that secrets must be cleared separately.
+- Fixed stale GraphQL/docstring descriptions left over from #2114's embedder-precedence change: `preferred_embedders` (`config/graphql/pipeline_settings_mutations.py`, `config/graphql/pipeline_types.py`, `opencontractserver/documents/models.py`) now documents that it is API-only and has no effect at ingest, and `default_embedder`'s description no longer claims a MIME-specific fallback that was removed.
+- Fixed `UpdatePipelineSettingsMutation` (`config/graphql/pipeline_settings_mutations.py`) calling `invalidate_reranker_cache()` as soon as `default_reranker` validated, before the `enabled_components` consistency check could still reject the whole mutation — a rejected call invalidated the cache for a change that was never persisted. The invalidation now runs after `settings_instance.save()`, alongside the other post-save effects.
+- Closed patch-coverage gaps flagged on PR #2126: added CT tests for `ToolSecretsPanel`'s save/delete failure and network-error branches, provider-select change, and blank-API-key save; added CT tests for `EnricherChainEditor`'s move-up/derived-display-name paths and `SystemSettings`'s null-`preferredEnrichers` fallback and clear-last-enricher-for-a-mimetype path. Extracted `EnricherChainEditor`'s reorder/append bounds-checking into `reorderChain`/`appendToChain` (`frontend/src/components/admin/system_settings/utils.ts`) with direct Vitest unit tests, since the original inline guards were only reachable from `<IconButton disabled>`/`<Button disabled>` click handlers that Playwright can't trigger.
+- Fixed `ToolSecretsPanel` (`frontend/src/components/admin/system_settings/ToolSecretsPanel.tsx`) silently resetting the web search tool's `provider` to the hardcoded "brave" default on every save. The panel's local `provider` state now seeds from the persisted `PipelineSettings.componentSettings["tool:web_search"].provider` value (threaded down from `SystemSettings.tsx`) instead of unconditionally defaulting, so rotating an API key for an already-`tavily`-configured tool no longer clobbers it back to `brave`.
+- Fixed `ToolSecretsPanel.handleSave` showing "Web search tool configured successfully" even when a superuser saves with a blank API key before the tool has ever been configured — the mutation now short-circuits with an error toast in that case, matching the existing `handleSaveSecrets` guard for Component Secrets.
+- **`config/graphql/*.py` (every GraphQL resolver and mutation) was invisible to coverage.py, silently defeating Codecov's patch-coverage check on any PR that touched it.** `setup.cfg`'s `[coverage:run] include` only ever listed `opencontractserver/*`, even though `.codecov.yml`'s `backend` flag/component explicitly declares `config/` as a backend path (and even pre-emptively ignores `config/settings/test*.py` there) — the include list was never updated as `config/graphql/` grew from Django boilerplate into the bulk of the app's mutation/resolver business logic. Added `config/*` to the include list so these files are actually instrumented and reported in `coverage.xml`.
+- **Component test suite intermittently killed mid-run by an under-provisioned global timeout.** `frontend/playwright-ct.config.ts`'s coverage-mode `globalTimeout` (30 minutes) had almost no margin left: a clean run on `main` already took ~29.4 minutes, and ordinary CI runner variance (not additional tests — the suite size was unchanged) pushed one run to 30.0 minutes, which Playwright kills mid-suite (74 tests never ran, coverage report reflected an incomplete pass). Bumped to 45 minutes.
+- **Closed the 6 lines Codecov's patch-coverage check flagged as untested in `config/graphql/pipeline_settings_mutations.py`** once the `setup.cfg` include-path gap (see the companion fragment) let Codecov actually see this file. Two were genuine coverage holes with no prior test at all — `preferred_embedders` and `preferred_thumbnailers` had no test exercising a successful merge-and-preserve-siblings update through the mutation (only a negative wrong-component-type test existed for thumbnailers). The other four were the null-as-delete-marker branches for `preferred_enrichers`, `parser_kwargs`, and `component_settings`, which only had a test for the `preferred_parsers` case. Added `test_update_preferred_embedders_merges_and_preserves_siblings`, `test_update_preferred_thumbnailers_merges_and_preserves_siblings`, and null-value-deletes-entry tests for the other three fields in `opencontractserver/tests/test_pipeline_settings.py`.
+- Closed the codecov patch-coverage gate on PR #2139 (81.70% vs. an auto target of 89.40% backend / 83.19% overall) by adding real tests for previously-untested strawberry-ported GraphQL resolver logic across 10 files: `config/graphql/action_queries.py`, `agent_types.py`, `conversation_types.py`, `conversation_mutations.py`, `corpus_queries.py`, `corpus_folder_mutations.py`, `document_mutations.py`, `core/relay.py`, `core/permissions.py`, `core/scalars.py`. New test files (`opencontractserver/tests/test_coverage_*.py`) cover connection-field filter args, FK-visibility wiring, mention resolution, mutation auth/visibility/error branches, and the custom scalar parse/coerce paths — verified line-by-line against a full-suite coverage baseline to confirm real closure (not synthetic tests written just to move a percentage). 600 of the 616 originally-uncovered lines across these files are now covered; the remaining 16 (in `conversation_mutations.py`) are proven-unreachable exception handlers under the current `graphql-relay` pin (`unbase64()` swallows malformed-base64 exceptions internally instead of raising, and `get_for_user_or_none()` already swallows `DoesNotExist`), confirmed byte-identical to the pre-migration graphene code — a pre-existing dead-code gap, not a regression, left for a follow-up cleanup decision rather than faked coverage.
+- Found (not fixed, correctly out of scope for a parity-preserving migration): `config/graphql/core/permissions.py::resolve_my_permissions` reads `model_permissions.get("can_publish_model_type", ...)` but the helper that builds that dict returns the flag under `"can_publish"` — a key-name mismatch that makes the `publish_corpus` permission-flag branch permanently dead. Confirmed pre-existing on `main`'s graphene code (predates this PR) via `git show 226a14ebd`.
+- `config/graphql/core/relay.py` / `config/graphql/corpus_types.py`: fixed a
+  CI-caught regression where `annotation.corpus` (and every other FK/relay-FK
+  field pointing at `CorpusType` — `corpus.parent`, `corpus.memoryDocument`,
+  `Analysis.analyzedCorpus`, etc.) lost its per-request cache, so each access
+  re-fired the recursive `WITH __rank_table` CTE that `Corpus`'s
+  `with_tree_fields=True` `TreeNode` registration emits
+  (`opencontractserver/tests/test_doc_annotations_prefetch_n_plus_one.py::test_corpus_tree_cte_does_not_scale_with_document_count`
+  failed 8 CTEs for 4 docs vs. the ≤4 ceiling for 1 doc).
+  - Root cause: `resolve_visible_fk` (FK traversal) and `get_node_from_global_id`
+    (the singular `corpus(id:)` / relay `node(id:)` lookup) both read the same
+    `TypeRegistryEntry.get_node` slot. `CorpusType` deliberately registers no
+    `get_node` there, because caching it would leak a stale `Corpus` object
+    across `corpus(id:)` calls that reuse one request context while
+    permissions change mid-test (`opencontractserver/tests/permissioning/test_permissioning.py`
+    drives several `corpus(id:)` queries through one shared `graphene_client`
+    while provisioning/deprovisioning perms between them). That correctly
+    fixed the top-level query, but silently starved the unrelated FK-traversal
+    call site of caching too.
+  - Fix: added a second, independent hook — `TypeRegistryEntry.get_node_for_fk`
+    / `register_type(..., get_node_for_fk=...)` — consulted only by
+    `resolve_visible_fk`, never by `get_node_from_global_id`. `CorpusType` now
+    registers its existing cached `_get_node_CorpusType` there, restoring the
+    per-request `_corpus_node_cache` for FK access while leaving the top-level
+    `corpus(id:)` query exactly as uncached as before. No schema/SDL change
+    (resolver-internal); verified against the full guard suite
+    (`test_doc_annotations_prefetch_n_plus_one`, `test_mentions`,
+    `test_singular_node_idor`, `test_fk_visibility_traversal`,
+    `test_schema_parity`, `permissioning/test_permissioning`) — 51 passed.
+- `config/graphql/core/permissions.py::resolve_my_permissions`: fixed a key-name mismatch that permanently dead-ended the `publish_{model_name}` permission grant — the resolver read `model_permissions.get("can_publish_model_type", False)`, but `get_permissions_for_user_on_model_in_app` (`config/graphql/permissioning/permission_annotator/middleware.py`) has only ever returned the flag under `"can_publish"`. Predates the strawberry migration (same typo in the graphene-era `AnnotatePermissionsForReadMixin`, `config/graphql/permissioning/permission_annotator/mixins.py`) — found via a codecov patch-coverage pass on PR #2139 and fixed here since that's the first place the branch has real test coverage (`opencontractserver/tests/test_coverage_core_permissions.py::ResolveMyPermissionsCoverageTestCase::test_real_global_publish_permission_sets_publish_permission`, a real global `publish_corpus` Django permission grant, not a mock).
+- Review follow-ups to the graphene→strawberry migration:
+  - `config/graphql/core/mutations.py`: `drf_mutation`/`drf_deletion` now pass
+    `group="mutate"` to `graphql_ratelimit`. The decorator was applied to a
+    `lambda`, so it derived the rate-limit cache group from `func.__name__`
+    (`"<lambda>"`), splitting the ~9 DRF-routed mutations (`updateAnnotation`,
+    `deleteNote`, `createCorpus`, `updateCorpus`, `deleteCorpusAction`,
+    `updateDocument`, `deleteDocument`, `deleteExport`, `deleteExtract`) into a
+    separate write bucket and roughly doubling a user's combined write budget.
+    They now share the single `"mutate"` fixed-window counter, matching the
+    graphene baseline and every hand-ported mutation.
+  - `config/graphql/core/relay.py::get_node_from_global_id`: the `entry.get_node`
+    hook path is now wrapped in the same `(ValueError, TypeError, OverflowError)`
+    guard the default queryset path already had, so a malformed pk reaching an
+    `int(pk)` hook (e.g. `researchReport(id: base64("ResearchReportType:xyz"))`)
+    returns the unified IDOR-safe not-found instead of surfacing a raw
+    `ValueError`.
+  - `opencontractserver/tests/test_security_hardening.py`: added
+    `TestServedSchemaExecutesValidationRules`, which drives a too-deep query and
+    an introspection query through `schema.execute_sync` (the real
+    `AddValidationRules` extension path). The pre-existing depth/introspection
+    tests only call graphql-core's `validate(..., validation_rules)` against the
+    exported list, so they would keep passing even if `AddValidationRules` were
+    dropped from the schema's `extensions` (depth-limiting / prod
+    introspection-blocking silently disabled on the endpoint). This closes that
+    coverage gap.
+  - `config/settings/base.py`: removed the dead `ALLOW_GRAPHQL_DEBUG` setting —
+    its only consumer, `graphene_django.debug.DjangoDebugMiddleware`, was deleted
+    with the graphene stack.
+  - Corrected the stale relay/`MessageType` note in
+    `config/graphql/core/relay.py` and `docs/architecture/graphql_strawberry_migration.md`,
+    which described singular node resolution as unfiltered-by-pk for
+    `MessageType`/`chatMessage`; the migration's own IDOR fix registered a
+    permission-aware `get_node` hook, and the doc now documents the
+    `resolve_visible_fk` FK-traversal path as well.
+- `config/graphql/schema.py`: collapsed the ~44 hand-copied
+  `_extra_types += [v for v in vars(_module).values() if hasattr(v,
+  "__strawberry_definition__")]` blocks (one per ported module, ~190 lines) into
+  a single loop over an explicit `_extra_type_modules` list, per review
+  feedback on PR #2139. Behavior-identical (same modules, same iteration order,
+  same filter) — confirmed by `test_schema_parity.py`'s golden-SDL diff, which
+  still passes with zero drift.
+- Follow-up fixes to the graphene→strawberry migration surfaced by CI:
+  - Restored `opencontractserver/pipeline/embedders/test_embedder.py`, which was
+    deleted as collateral in an earlier migration commit while
+    `config/settings/test.py` still names it as the default embedder. The pytest
+    suite masked the breakage (a session-autouse fixture disconnects the
+    document post-save signals), but the live `frontend-e2e` `runserver` fires
+    `calculate_embedding_for_doc_text` eagerly on the structural `Readme.CAML`
+    document that corpus creation seeds, so `createCorpus` returned HTTP 500 and
+    the corpus/routing/threads E2E specs failed.
+  - `.pre-commit-config.yaml`: the `mypy` hook's `additional_dependencies` now
+    ship `strawberry-graphql==0.320.3` (replacing the removed
+    `graphene-django==3.2.3`) so the hook's isolated env can import the
+    `strawberry.ext.mypy_plugin` referenced by `mypy.ini`.
+  - Applied the repo's standard `pyupgrade`/`black`/`isort` formatting to the
+    generated strawberry schema modules and the migration-touched test files so
+    the `pre-commit` linter job passes; schema-shape parity is unchanged.
+- Further follow-up fixes to the graphene→strawberry migration, found via a live
+  GUI smoke test and a targeted diff sweep:
+  - Restored three per-field relay connection `max_limit` overrides that the
+    port silently dropped (all three call `resolve_django_connection(...)`
+    without the graphene original's `max_limit=` kwarg, so each fell back to
+    the global 100-record cap):
+    - `documentRelationships` (`config/graphql/document_queries.py`) — needs
+      `DOCUMENT_RELATIONSHIP_QUERY_MAX_LIMIT` (500) for the Table of Contents /
+      document-relationships panel, which broke ("Requesting 500 records...
+      exceeds the `first` limit of 100 records") for any corpus with more than
+      100 relationship rows.
+    - `annotations` (`config/graphql/annotation_queries.py`) — needs
+      `DOCUMENT_ANNOTATION_INDEX_LIMIT` (500) for the Document Annotation Index.
+    - `extracts` (`config/graphql/extract_queries.py`) — needs
+      `EXTRACT_LIST_MAX_PAGE_SIZE` (20, the PR #1602 pagination-stuck-page
+      ceiling); lower than the 100 default so it didn't manifest as a visible
+      bug, but the deliberate page-size cap was gone.
+  - `config/graphql/document_types.py`: re-exposed `DocumentType._assert_user_can_read`
+    as a class attribute (`staticmethod` delegating to the existing ported
+    module-level function) — the graphene original was a bound method callable
+    as `DocumentType._assert_user_can_read(doc, info)`, which
+    `opencontractserver/tests/test_document_type_read_permission.py` calls
+    directly; the port kept the logic but only as a private module function,
+    breaking that call convention (`AttributeError`).
+  - `opencontractserver/tests/test_file_url_prewarm.py`: updated to import
+    `FileUrlPrewarmExtension` (the strawberry `SchemaExtension` the port
+    correctly replaced the graphene-era `FileUrlPrewarmMiddleware` with) instead
+    of the deleted class name; behavior/`_prewarm` signature unchanged.
+  - `opencontractserver/tests/test_mentions.py`: fixed a pre-existing (not
+    migration-related) test-fixture bug — `conversation_type="THREAD"` used the
+    wrong case (`ConversationTypeChoices.THREAD.value` is the lowercase
+    `"thread"`; Django doesn't validate `choices=` on `.save()`, so the
+    mismatched value persisted silently). This made
+    `ConversationQuerySet.visible_to_user`'s `conversation_type=` check miss the
+    row entirely for non-creator viewers, independent of `is_public`/context
+    inheritance. Fixed to use the `ConversationTypeChoices.THREAD` enum, and
+    made the test conversation `is_public=True` so both viewers in
+    `test_permission_enforcement_corpus` can reach the message (the test
+    exercises `mentionedResources`' per-viewer corpus filtering, not message
+    visibility itself).
+  - `config/settings/base.py`: removed a dead, commented-out
+    `JWT_ALLOW_ANY_HANDLER` setting pointing at the deleted
+    `config.graphql.jwt_overrides` module.
+  - `opencontractserver/tests/test_pipeline_component_queries.py`: this test
+    class overwrites `opencontractserver/pipeline/embedders/test_embedder.py`
+    with dummy component code in `setUpClass` and previously `os.remove()`'d it
+    in `tearDownClass` — but that path is the real, permanent `TestEmbedder`
+    named as `DEFAULT_EMBEDDER` in `config/settings/test.py`, not a scratch
+    file. Any full-suite run that reached this test class left the shared
+    default embedder module permanently missing for the remainder of the run
+    (across all xdist workers, which share one checkout), cascading into ~90
+    unrelated failures (`ValueError: get_embedder() resolved no embedder_path`)
+    across agent/pydantic-ai/vector-store/extract tests. This is the same
+    file already restored once as CI collateral damage
+    (`changelog.d/2139-strawberry-migration-ci.fixed.md`) — that fix addressed
+    the symptom; this one backs up and restores the file's real content around
+    the test class instead of deleting it, fixing the root cause.
+- **Corpus groups: silent membership data loss on edit.**
+  `opencontractserver/corpuses/services/corpus_groups.py::CorpusGroupService.update_group`
+  replaced membership wholesale via `group.corpora.set(submitted)`. Because
+  `CorpusGroupType.corpora` is per-viewer filtered by
+  `get_group_corpora_visible_to_user`, the edit form can only ever seed the
+  members the caller can currently READ — so if a member became invisible to
+  the editor after being added (its owner made it private), any unrelated save
+  (e.g. a title-only edit) silently destroyed that membership. The editor could
+  not see the member, no field exposed the true membership count (`totalCount`
+  is filtered too), and the M2M row was unrecoverable. `update_group` now
+  replaces only the caller-visible slice: final membership is
+  `(members the caller cannot READ) ∪ (submitted, caller-readable set)`.
+  Adding remains gated by `_resolve_member_corpora`, so an unreadable corpus
+  still cannot be smuggled in, and removing a visible member is unchanged.
+  Regression tests in `opencontractserver/tests/test_corpus_groups.py`; rule
+  documented in `docs/permissioning/consolidated_permissioning_guide.md`.
+- Restored the header user menu and the anonymous login button on deployments running without Auth0. `useNavMenu` (`frontend/src/components/layout/useNavMenu.ts`) passed `useAuth0().isLoading` through unguarded, but without a mounted `Auth0Provider` that hook returns a default context whose `isLoading` is permanently `true`. `NavMenu.tsx` gates its whole auth surface on the flag — `hideAuth`, `hideUserMenu`, and the `{!user && !isLoading}` login button — so with `REACT_APP_USE_AUTH0=false` the avatar dropdown (Exports, Profile, Corpus Groups, Logout, and the superuser-only settings entries) *and* the sign-in button were all invisible, leaving no way to reach them from the header. `isLoading` is now guarded with `REACT_APP_USE_AUTH0` exactly as `App.tsx` already does for the same reason — and as `App.tsx`'s own comment incorrectly claimed `useNavMenu` was already doing. Found while smoke-testing the corpus-group GUI (#2141) against a local password-login instance.
+- **Tightened deep-research citation discipline (#2180, #2181, #2182, #2183).**
+  Added a `## Citation discipline` section to the deep-research system prompt
+  (`build_deep_research_system_prompt` in
+  `opencontractserver/research/constants.py`) that instructs the agent to: anchor
+  the passage whose own words support a claim and never a bare section header —
+  reaching for `search_exact_text_as_sources` to pull a pinpoint anchor (#2180);
+  cite the document that actually *contains* the language, following any
+  incorporation-by-reference / cross-reference hop to its source before anchoring
+  (#2181); leave task/prompt-derived background *uncited* rather than forcing a
+  corpus anchor onto it (#2182); and state each claim exactly once inside a
+  single `<cite>` tag, never as a plain sentence followed by a cited restatement
+  (#2183).
+- **Added a finalize-time weak-citation lint (#2180).** `_render_citations`
+  (`opencontractserver/research/services/research_reports.py`) now tags each
+  citation with `anchor_is_header`, and `ResearchReportService.finalize` records
+  a concise warning (surfaced in the report's UI warning chips) when a footnote
+  resolves to a section header instead of a supporting passage. Detection keys on
+  the anchor's **annotation label** (`RESEARCH_HEADER_ANCHOR_LABELS`:
+  `OC_SECTION` + the LlamaParse heading labels `Title` / `Section Header` /
+  `Heading` / `Page Header`, matched case-/separator-insensitively) — *not* on
+  `Annotation.structural`, which the parsing pipeline sets on the entire layout
+  layer (body paragraphs, tables, sentence chunks) and which the bookmark-derived
+  OC_SECTION headers are `structural=False` for; keying on it would both flood
+  false positives and miss the real #2180 headers. The lint is observational — it
+  never rewrites report prose.
+- **Confirmed the report composer is not the source of the #2183 duplication.**
+  The finalize path emits the agent's `markdown_body` verbatim (cite-rendered)
+  and the salvage path renders each finding exactly once; the observed doubling
+  was agent-authored prose (a plain sentence joined to a near-identical cited
+  restatement), now addressed by the prompt rule above. New regression tests
+  (`test_finalize_renders_each_claim_once`,
+  `test_compose_salvage_body_renders_each_finding_once`) lock in single-render
+  behavior so a future composer change can't reintroduce it.
+- **Deep research: verify quoted passages against the cited source at finalize (#2189).** Steered to quote the passages it cites, the deep-research agent was fabricating quotation-marked strings that occur nowhere in the corpus yet were attached to real annotation anchors, so a report *looked* rigorously cited but wasn't. `ResearchReportService.finalize` now runs every quoted passage inside a `<cite>` span through `_verify_quoted_spans` (`opencontractserver/research/services/research_reports.py`): each quote is checked against the `raw_text` of that span's cited annotation(s) — normalized (whitespace/case) exact substring, with a `difflib` longest-contiguous-block fuzzy fallback (`RESEARCH_QUOTE_MATCH_THRESHOLD`, 0.92) for trivial drift. A quote that does not match is demoted to plain paraphrase (its quotation marks are stripped, prose and footnote preserved) and a warning is appended to `report.warnings`. Straight, curly, and mismatched-pair quotes are all matched; a quote whose cited anchor has no `raw_text` (textless anchor, deleted row, or non-retrieved id) is demoted rather than passed through silently. Short quoted strings (`< RESEARCH_QUOTE_MIN_WORDS`, defined terms / scare-quotes) are left untouched. Runs on both the normal and salvage finalize bodies. The deep-research system prompt's "Citation discipline" section (`build_deep_research_system_prompt`) gains a rule that quotation marks are for verbatim copies only.
+- **Deep research: the report no longer renders twice, and cite spans stop quoting themselves** (closes #2200). Post-#2192/#2193 runs emitted the whole report inline with raw `<cite>` spans, then a stub `## Sources` line, then the entire report again in footnote form — because `finalize()` post-processed only `markdown_body` while the agent passed the full report as `executive_summary` too, and the summary was never cite-rendered. `ResearchReportService.finalize` (`opencontractserver/research/services/research_reports.py`) now composes ONE document (summary + body) and runs the citation pipeline over it exactly once, so a `<cite>` tag anywhere is rendered instead of leaking. `<cite ids="1,2"/>` is now a first-class cite form (`_CITE_SPAN_RE`, `_render_citations`) and is what the system prompt tells the agent to prefer.
+
+  Guards that close the doubling, all in `research_reports.py`:
+
+  - `_sanitize_agent_markdown` strips agent-authored `## Executive Summary` / `## Sources` scaffolding — the system owns both headings and renders the footnote table itself.
+  - `_summary_duplicates_body` drops a summary that merely restates the body.
+  - `_verify_cite_spans` collapses a span whose inner text is a verbatim copy of the sentence it decorates (the successor of #2183's sentence doubling) to the self-closing marker form, so the claim renders once with a trailing footnote.
+
+  Nothing is dropped silently. `finalize` counts and warns for each of: a stripped Sources/References section, a dropped duplicate summary, a lossy echo collapse, and a report where *nothing* survives composition — which previously stored an empty document that looked like a successful run. Each helper's docstring carries the calibration and its known limitations; the warning text is the reader-facing half.
+
+  `_strip_scaffold_headings` is nesting-aware, so a subsection inside the scaffolding (`## Sources` → `### By Document`) goes with it rather than leaking an orphan. Its fence handling follows CommonMark on both axes — a fence closes only on its own character *and* on a run at least as long as the opening — so neither a stray `~~~` nor a literal ``` ``` ``` line inside a ```` ```` ```` block ends the block early. The two halves fail quiet in opposite directions (scaffolding left unstripped, versus a section skip that swallows the rest of the document), so both are pinned by test.
+
+  Fence spans are resolved up front over the whole document, independently of what is being skipped, because interleaving the two states fails in both directions: tracking fences during a skip let one unbalanced ``` in the scaffolding suspend heading detection permanently, so the section never ended and the report's tail vanished; suspending them during a skip let a heading-shaped line inside a fenced block end the skip early and leak the rest of the scaffolding. An opener with no closer is treated as a stray artifact rather than as running to end of document — the CommonMark reading, but the wrong one for LLM-authored markdown, where honouring it silently costs the remainder of the report.
+
+  Heading matching is EXACT, not fuzzy. The set enumerates the variants a report generator reaches for (`Works Cited`, `Reference List`, `Sources Cited`, singular `Citation`/`Reference`/`Footnote`, `Endnotes`, `Works Consulted`, `Summary`), because a title just outside it reproduced the bug under a different name — while a token-overlap rule would delete substantive sections such as `Sources of Supply Risk` or `References to Prior Agreements` along with everything under them.
+- `requirements/base.txt:85` — pinned `mcp` to `>=1.28.1,<2` (was unbounded).
+  Dependabot's `mcp>=2.0.0` bump (#2207) hit `pip`'s resolver as
+  `resolution-too-deep`: `pydantic-ai-slim[mcp]`'s `fastmcp-slim` dependency
+  caps `mcp<2.0` across its entire published range, so the unbounded pin was
+  resolving to 1.x only by transitive accident. `mcp` 2.0 is also a breaking
+  rewrite — `mcp.server.lowlevel.Server` drops decorator-based handler
+  registration (`@mcp_server.list_resources()` etc.) in favor of `on_*=`
+  constructor kwargs with a new `(ctx, params)` handler signature — which
+  `opencontractserver/mcp/server.py` does not yet speak (10 registration
+  sites across `create_mcp_server()` and `create_scoped_mcp_server()`), so
+  forcing the bump would fail at ASGI import time, not just in CI. PR #2207
+  is left open/unmerged; revisit the `mcp` 2.x migration as its own scoped
+  task once `fastmcp-slim` ships v2 support.
+- `opencontractserver/worker_uploads/views.py:94` — `djangorestframework-stubs`
+  3.17.1 widened `request.data`'s type to `dict[str, Any] | list[Any]`
+  (matching DRF's real behavior for bulk JSON array payloads), which surfaced
+  a `union-attr` mypy error on `request.data.get(...)`. This view only accepts
+  `MultiPartParser`, so `request.data` is always dict-like at runtime; added
+  an `isinstance` narrowing consistent with the existing dict check two lines
+  below rather than suppressing the type error.
+- Fixed sideloaded authority corpora silently dropping every provider-authored
+  relationship when the target corpus owned no canonical-key prefix.
+  `_reconcile_imported_authority_metadata`
+  (`opencontractserver/tasks/import_tasks_v2.py`) reconciles typed metadata and
+  promotes `custom_meta["relationships"]` into `AuthorityRelationship` only for
+  documents whose prefix is bound to the corpus being imported, and returns
+  immediately when the corpus has no bound prefix at all. Found on a
+  ten-corpus deployment where only one corpus declared `authority_prefixes`:
+  the other nine imported cleanly and promoted nothing — 154 of 396 declared
+  edges stayed stranded in document metadata, with no error and no failing
+  import. `docs/guides/authoring-authority-packs.md` now states the rule as a
+  requirement rather than an option, and the failure mode with it.
+- Fixed `@`-mentioning an agent in the live chat frequently not routing to it.
+  The mention attaches a `delegate_to_<slug>` tool to the corpus conductor, but
+  the tool's description was the target agent's own description, which carries
+  no routing intent; the conductor weighed it against its own retrieval tools
+  and usually answered locally, producing a single-corpus answer that reads
+  exactly like a delegated one. `build_delegation_tool`
+  (`opencontractserver/llms/tools/delegation_tools.py`) now leads the
+  description with the mention and the instruction to call the tool, and
+  appends the agent's description as context. **Behaviour change:**
+  `test_delegation_tools.py::test_tool_description_is_agent_description` is
+  replaced by
+  `test_tool_description_states_the_mention_and_carries_agent_description`.
+- Fixed `@`-mentions typed in the live chat never being persisted.
+  `link_message_to_resources` was called from the GraphQL and MCP message paths
+  but not from the WebSocket path, so `ChatMessage.mentioned_agents` (and the
+  mentioned user/corpus/document relations) stayed empty for every live-chat
+  message — including turns where delegation demonstrably fired.
+  `CoreConversationManager.store_user_message`
+  (`opencontractserver/llms/agents/core_agents.py`) now links them best-effort.
+- Fixed the Corpus Groups page hiding every group the viewer did not create.
+  `CorpusGroupManagement.tsx` hard-coded `mine: true`, so a public or shared
+  group — whose whole purpose is to be named in a cross-corpus query — was
+  invisible to the collaborators it exists for. The page now lists every
+  visible group, adds an Owner column, and shows edit/delete only to the owner
+  (the mutations were already permission-gated server-side).
+- **The `PipelineSettings` singleton now survives a `TransactionTestCase`
+  flush, fixing a 600s test-suite deadlock.** Migration
+  `0031_add_pipeline_settings` seeds the singleton with a one-shot `RunPython`,
+  so its row lives outside any test transaction. Django's `flush` — run on
+  every `TransactionTestCase` teardown — truncates
+  `documents_pipelinesettings` along with every other table, and with
+  `serialized_rollback` disabled (the default) nothing restored it. Under
+  `pytest -n 4 --dist loadscope`, any `TransactionTestCase` running before an
+  embedder-touching test on the same worker left the install with **no**
+  singleton for the rest of that worker's session.
+
+  Because `PipelineSettings.get_instance()` re-creates the row lazily, the
+  absence did not fail loudly — it deadlocked. An `async` test under Django's
+  `TestCase` reaches `get_embedder` → `get_default_embedder_path` →
+  `get_instance` on the asgiref executor thread, which holds its own DB
+  connection; that connection cannot see the main thread's uncommitted row, so
+  it issued a competing `INSERT` and blocked on the test transaction's lock
+  while the main thread was parked in `AsyncToSync.__call__` waiting for the
+  executor. Neither side could advance until `pytest-timeout` fired at 600s,
+  and the hang left `unittest.mock.patch` decorators un-exited, cascading into
+  every later test in the class sharing the patched target. Observed as 5
+  failures in `test_core_agents.py::TestCoreAgentFactoriesDefaults` (two
+  600.01s timeouts plus three `'Mocked default prompt'` assertion errors).
+
+  Fixed with an idempotent `post_migrate` receiver
+  (`opencontractserver/documents/_pipeline_settings_seed.py`, connected in
+  `documents/apps.py`) that re-seeds the singleton after each flush and repairs
+  reused/poisoned CI volumes at DB setup — mirroring the existing
+  `enrichment/_namespace_seed.py` convergence for `AuthorityNamespace`. Like
+  that sibling, it falls back to the global app registry when `post_migrate` is
+  emitted without an `apps` kwarg, which is exactly how `flush` emits it.
+  Regression test: `opencontractserver/tests/test_pipeline_settings_flush_reseed.py`.
+- `opencontractserver/llms/model_factory.py::build_agent_model` — both
+  DB-credential fallback branches (`_construct_model` raising a recoverable
+  error, or returning `None`) returned the un-rewritten `spec`, silently
+  dropping the `openai-responses:` prefix computed for the GPT-5.6 family.
+  A DB-configured install (System Settings model picker) hitting a recoverable
+  construction error would re-trigger the exact 400 the Responses-API redirect
+  exists to prevent. Both branches now preserve the redirect.
+- `opencontractserver/enrichment/grammars.py` — `_ERCOT_GUIDE_RE` was missing
+  `re.IGNORECASE` (present on its sibling patterns `_PUCT_TAC_RE` and
+  `_ERCOT_REVISION_RE`), silently under-extracting lowercase/mixed-case guide
+  headers (e.g. from scanned-document running text).
+- `frontend/src/components/widgets/modals/StartResearchModal.tsx` — the
+  corpus-group picker query destructured only `data`, so a failed
+  `GET_CORPUS_GROUP_OPTIONS` load silently omitted the picker with no
+  indication anything went wrong. Now surfaces the error inline via the
+  shared `ErrorMessage` widget, consistent with `PacksTab.tsx`.
+- **Deep research audit log / findings scratchpad no longer lose a concurrent
+  append.** `ResearchReportService.append_tool_call` and `append_finding`
+  (`opencontractserver/research/services/research_reports.py`) did a non-atomic
+  `refresh_from_db` → append → `save()`. Every tool call now routes through
+  `append_tool_call` via `_audited` (`opencontractserver/tasks/research_tasks.py`),
+  and `reap_stalled_research` can re-enqueue a RUNNING report while the original
+  worker is still writing — so the later `save()` clobbered the earlier append,
+  silently dropping an audit entry and undercounting the `calls_made` that feeds
+  the step-budget notice. Both now do the read-modify-write under
+  `select_for_update()` inside `transaction.atomic()`.
+- **Authority packs sharing a directory basename no longer collide in
+  `sys.modules`.** `opencontractserver/pipeline/registry.py` keyed each pack's
+  synthetic import namespace on the pack directory's basename alone, while
+  `authority_pack_dirs()` de-duplicates by *resolved path*. Two different packs
+  reached through different `AUTHORITY_PACK_ROOTS` entries but sharing a
+  basename both landed on `_authority_pack.<name>`, and
+  `_ensure_synthetic_package` re-pointed the first pack's package at the second
+  pack's directory — silently resolving the first pack's provider names to the
+  other pack's code, and moving the `__module__`-based host-ownership checks in
+  `authority_source_hosts` onto the wrong pack. New `_pack_namespaces()` keeps
+  the plain basename when unique and appends a short path digest on collision,
+  with a warning.
+- **A publisher-sidecar storage error no longer aborts an entire pack import.**
+  `_attach_publisher_original_file` at `opencontractserver/tasks/import_tasks_v2.py:540`
+  sat ahead of the `try` that gives every other per-document step in
+  `_import_document_with_annotations` its failure isolation, so one document's
+  storage error propagated out and killed the whole run instead of skipping that
+  document. It now returns the same `(None, {})` the outer handler does, honouring
+  the caller's documented "accept partial state on failure" contract on every path.
+- **Obligation finding cards rendered a blank heading.**
+  `frontend/src/components/corpuses/CorpusHome/intelligence/embeds/ResearchFindingsEmbed.tsx`
+  read `card.owed_by` for the obligation-card heading, a field
+  `ObligationCard` (`opencontractserver/enrichment/finding_cards.py`) has never
+  had — the stored card is that model's `model_dump()`, which serialises
+  `responsible_party`. Every real obligation card therefore rendered an empty
+  `<h4>` in production. The component tests stayed green because they
+  hand-authored mock payloads carrying `owed_by` and never asserted the heading
+  at all. Fixed the field, added heading assertions on BOTH card shapes, and
+  added `CardFieldContractTests` in `opencontractserver/tests/test_finding_cards.py`
+  to pin the two models' full field-name sets against the TypeScript interface
+  that consumes them, so the next rename fails a test instead of a page. The
+  agent-facing "either/or" error at `research_tasks.py` also named the
+  nonexistent `owed_by` as a parameter; corrected to `responsible_party`.
+- **An obligor the evidence never names now renders as such.** The backend
+  marks (rather than refuses) an obligation whose `responsible_party` is not
+  named in its cited passages via `obligor_grounded=False`; the embed dropped
+  the flag, so an inferred attribution looked identical to a grounded one.
+- **`finalize_once` only refused a COMPLETED report**
+  (`opencontractserver/research/services/research_reports.py`). CANCELLED and
+  FAILED are equally "the run already ended", and `reap_stalled_research` can
+  put a second worker on one report — so a salvage finalize could overwrite a
+  row the other worker had just marked CANCELLED by soft time limit, or FAILED
+  with a traceback, producing a COMPLETED report still carrying the other
+  worker's `error_message` after the user was notified the run was cancelled.
+  Now guards on `is_terminal`.
+- **The salvage path still emitted the legacy `budget_exhausted` warning**
+  (`opencontractserver/tasks/research_tasks.py`) beside the structured
+  `terminal_reason`. Warnings render verbatim to the user
+  (`ResearchReportDetail.tsx`), so a run that blew the STEP budget — or simply
+  stopped — showed a chip claiming the token budget was gone directly next to
+  the reason saying otherwise. Only `terminal_reason` is recorded now.
+- **`requires_responses_api` matched model-name prefixes unanchored**
+  (`opencontractserver/llms/model_factory.py`), so a hypothetical `gpt-5.60-…`
+  would have been routed to the Responses API on the strength of the `gpt-5.6`
+  prefix. The match is now anchored on `-` / `.` or whole-name equality.
+- `_compose_salvage_body`'s zero-findings fallback still read "before the
+  research budget was exhausted" — the same mislabel removed from the warnings
+  above, one layer down, on a body composed for *every* non-finalize ending.
+  Now names the ending generically and leaves the specific cause to the
+  `terminal_reason` in the executive summary it sits beside.
+- **Authority pack install no longer reports a committed install as failed.**
+  `_install_plan` (`opencontractserver/enrichment/services/authority_pack_service.py`)
+  commits taxonomy/corpora/relationships in one `transaction.atomic()` block and
+  then runs the reactive relink; `install()` re-runs `preflight_path` afterwards
+  to report fresh state. Both steps are post-commit, and an exception in either
+  surfaced as `ok=False` (relink: uncaught, propagating out of the resolver;
+  refresh: caught by the `(CommandError, OSError, UnicodeError)` tuple) for a
+  pack that was already in the database. The idempotent retry then silently
+  no-ops, so the operator's view and the database never reconcile. Both now
+  degrade to `post_commit_warnings` carried on `AuthorityPackInstallResult` —
+  surfaced in the GraphQL mutation `message` + `result.warnings`, and printed by
+  `load_authority_pack`. The refresh failure falls back to the approved
+  pre-install plan rather than returning nothing.
+- **Concurrent first install of the same authority pack returns a clean
+  refusal.** `_preflight_corpus_identities` reads without a lock, so two
+  installs can both see "no such corpus" and then collide inside
+  `bootstrap_authority_corpus`'s `get_or_create(slug=…, creator=…)`. The
+  resulting `IntegrityError` was outside `install()`'s caught-exception tuple
+  and escaped raw. It is now caught on its own and returned as
+  `CONCURRENT_INSTALL_MESSAGE`; the loser's atomic block rolls back, so nothing
+  of its attempt survives and a retry converges.
+- **A gate fault no longer wedges an `AuthorityFrontier` row in `in_progress`.**
+  `AuthorityDiscoveryService.discover_and_bootstrap` marks the row in-flight
+  before fetching; the fetch and bootstrap stretches each had a fault handler
+  but the gate stretch (approval fingerprint → `AuthorityGateService.evaluate` →
+  audit record) did not. Since `dequeue_queued` only returns `queued` rows, a
+  stranded row was invisible to every later crawl until an admin reset it by
+  hand, and the exception also aborted the whole `crawl_authorities_service`
+  batch. That stretch now has its own handler that marks the row `failed` with
+  an audit record — deliberately separate from the bootstrap handler, which
+  builds its record from a `decision` that is not yet bound there.
+- **`AuthorityGateService._verify_rich_publisher_evidence` catches broadly and
+  fails closed.** Its `except (KeyError, TypeError, ValueError)` let an
+  unlisted exception type from a provider's `verify_publisher_evidence`
+  override (an in-pack provider is free to raise `AttributeError`/`IndexError`
+  off a malformed evidence payload) escape the gate entirely. The catch is now
+  `Exception` + `logger.exception`; the return is still `False`, so a broken
+  verifier can only ever refuse a record, never admit an unverified one.
+- **`PipelineComponentRegistry` construction is thread-safe.**
+  `__new__`/`__init__`'s check-then-act was unsynchronised and `get_registry()`'s
+  `lru_cache` does not serialise the wrapped call on a miss, so two threads
+  racing on first access could both enter discovery — which walks the
+  filesystem, `exec_module`s every in-pack authority provider, and mutates the
+  process-global `sys.modules` — while the second thread sailed past the
+  `_initialized` flag (set *before* discovery) and read component tuples that
+  were still empty. Construction and `reset_registry()` now hold a class-level
+  `threading.RLock`; re-entrant same-thread access from a pack module's import
+  behaves exactly as before.
+- **Authority Console no longer presents a half-landed pack install as an
+  unqualified success.** `PackPreflightModal.tsx` toasted `result.message` with
+  `toast.success` whenever `ok` was true — which is exactly the case for a
+  post-commit warning. It now branches on `result.warnings` and uses
+  `toast.warning`, so a relink that died after the pack committed reads as a
+  warning rather than green. `InstallAuthorityPackOutputs.result` is typed for
+  the keys the client reads instead of `unknown`.
+- **Closed a corpus-group slug-enumeration oracle in the deep-research kickoff
+  tool.** `opencontractserver/llms/tools/research_tools.py::_load_group`
+  resolved `corpus_group_slug` with an unfiltered
+  `CorpusGroup.objects.filter(slug=...)`. No unauthorized access followed —
+  `ResearchReportService.start` still refused the run — but the two failure
+  modes *replied differently*: a nonexistent slug returned the tool's
+  not-found string while a real-but-invisible one fell through to `start()`'s
+  `PermissionError` text, letting a caller enumerate every group slug in the
+  install. Now routed through `CorpusGroupService.get_group_by_ref`, matching
+  the sibling `core_tools/multi_corpus.py::_resolve_group_corpora` and
+  CLAUDE.md's services-layer rule, and both cases return one refusal.
+- **`finalize_report` can no longer compose a report twice under concurrency.**
+  The guard in `opencontractserver/tasks/research_tasks.py` was
+  `refresh_from_db` + status check, i.e. check-then-act: pydantic-ai can
+  dispatch parallel tool calls, and `reap_stalled_research` can put a second
+  worker on the same report, so two callers could both observe RUNNING before
+  either committed COMPLETED and both compose — the exact double-composition
+  the guard exists to prevent. New `ResearchReportService.finalize_once` runs
+  the check and the composition as one critical section under
+  `select_for_update`, the same treatment `append_finding` / `append_tool_call`
+  already receive. The salvage path in `_run_deep_research_async` uses it too,
+  so a late salvage can no longer overwrite a genuine report committed by
+  another worker.
+- **Incremental reimport now records a terminal row for an unchanged,
+  source-less document.** `opencontractserver/tasks/import_tasks_v2.py`
+  returned early for a document matched by `canonical_key` whose content was
+  unchanged and whose source is not reingestable (the NUL-placeholder members
+  the V2 exporter writes for text/markdown documents), skipping the `DONE`
+  `PendingDocumentAnnotations` row that `_reingest_document_with_deferred_remap`
+  creates for the documents it converges. The document was therefore invisible
+  to `finalize_corpus_import_relationships`: the corpus-level coordination row
+  could not reach `DONE` on its account and `expected_doc_count` undercounted.
+  Re-shipping a pack containing an unchanged markdown member is the ordinary
+  case that hit this. (The row's `id_map` is empty for the same reason the
+  converged path's is — relationship endpoints landing on unchanged documents
+  remain tracked in issue #2220.)
+- Fixed: the admin settings panel
+  (`frontend/src/components/admin/GlobalSettingsPanel.tsx`, `/admin/settings`)
+  had a navigation card for Authority Sources (`/admin/authorities`) but none for
+  the Enrichment Runner, so `/admin/enrichment` — whose route is registered in
+  `App.tsx` and whose page links "Back to Admin Settings" — was unreachable from
+  the GUI (only by typing the URL). Added an "Enrichment Runner" card linking to
+  `/admin/enrichment`, placed alongside Authority Sources. Regression test in
+  `frontend/tests/admin-components.ct.tsx`.
+- **Authority namespace re-seed no longer clobbers curator edits.** The
+  `post_migrate` convergence in `opencontractserver/enrichment/_namespace_seed.py`
+  (`ensure_seeded` → `seed`) ran on every production `migrate` and every test
+  flush and `update_or_create`d every shipped-prefix `AuthorityNamespace`
+  unconditionally — silently reverting a curator's `source="manual"` console edits
+  (display_name / jurisdiction / authority_type / aliases) and re-forcing
+  `is_global=True` on the next deploy, defeating the Authority Console's headline
+  "a re-load can no longer clobber a curator's runtime edits" guarantee. The seed
+  now honours the same source-ownership partition as
+  `AuthorityMappingLoader.load_namespaces` (skip `source="manual"` and
+  corpus-linked rows), guarded on the `source` column's presence so the historical
+  0082/0085/0086/0090 seed states are unaffected. Regression tests in
+  `test_authority_mapping_loader.py::NamespaceReseedOwnershipTests`.
+- **`authority_mappings` reader rejects self-referential equivalences.**
+  `enrichment/data/mappings.py::iter_equivalences` now raises `ValueError` for a
+  `from_key == to_key` pair (matching the DB `CheckConstraint`) instead of
+  counting it into `total` and then silently dropping it in the loader.
+- **Removed dead code in the authority crawl.** The per-jurisdiction-cap parking
+  in `crawl_authorities_service.py` now routes through the previously-unused
+  `_park_for_cap` helper (DRY; behaviour-preserving).
+- **Closed five open-vocabulary authority-discovery gaps surfaced by an S-1 smoke
+  test (refines the Phase 2–5 chain #1998–#2001).**
+  - *Popular-name fragmentation* — `opencontractserver/enrichment/grammars.py`
+    `_bare_acts` now canonicalises a recognised Act through the registry's
+    `AUTHORITY_PREFIX` alias table (stripping any year and a leading
+    "U.S."/"United States" qualifier), so every spelling of "the Securities
+    Exchange Act of 1934" collapses to one `exchange-act` key instead of
+    fragmenting into distinct `act:<slug>` rows. Unknown Acts keep the
+    open-vocabulary `act:<slug>` fallback.
+  - *Whole-act dead-ends* — `enrichment/authorities.py::find_authority_target`
+    gained a whole-act fallback: a section-less authority key (e.g.
+    `exchange-act`) resolves to a representative document of that body of law,
+    so a bare "the Exchange Act" citation links into the existing authority
+    corpus instead of stranding as a wanted/unsupported frontier entry. The
+    reactive relink (`EnrichmentService.relink_corpora_for_keys`) pre-filter was
+    widened to match exact (colon-less) keys, not only `prefix:` startswith
+    forms, so whole-act keys are not silently skipped on cross-corpus converge.
+  - *Lost classification* — `enrichment/constants.py::classify_prefix` now
+    classifies the grammar's federal-statute meta-prefixes (`act`, `publ`,
+    `stat`) as `(us-federal, statute)`, so `AuthorityFrontier` rows and
+    governance-graph ghost nodes are no longer left `(None, None)`.
+  - *Persisted taxonomy* — `EnrichmentWriter` (`enrichment/writer.py`) now
+    classifies every `CorpusReference` at persist time via a shared
+    `classify_canonical_key` ladder (candidate → `AuthorityNamespace` →
+    `classify_prefix`, batched to avoid N+1) and heals pre-existing `(None,
+    None)` rows on re-apply; `discover()` reuses the same ladder so the stored
+    web and the inventory never disagree.
+  - *apply/discover asymmetry* — `EnrichmentService.apply` now defaults to
+    registry **plus** the open-vocabulary grammar tier (matching `discover`), so
+    the standard enrichment path persists the open-vocab authorities into the
+    frontier and governance graph (pass `extra_tiers=[]` for a registry-only
+    pass; the LLM tier stays opt-in).
+- Fixed a fresh-database migration break introduced by adding the `created_by`
+  column to `AuthorityKeyEquivalence`: data migration
+  `0092_load_authority_mappings_baseline` called the *live*-model
+  `AuthorityMappingLoader.load()`, whose ORM now `SELECT`s `created_by_id`
+  before migration 0094 creates that column. The migration now snapshots the
+  loader's equivalence upsert against the historical model (`apps.get_model`) —
+  identical end state, no live-model column drift — as the migration's own note
+  always anticipated. Already-applied databases are unaffected (the migration
+  does not re-run).
+- Hardened authority-mapping resolution + the source-ownership partition:
+  - `AuthorityMappingLoader.load` now skips *any* pre-existing equivalence whose
+    `source` is not `baseline` (not just `manual`), so a baseline reload can
+    never clobber an importer-owned `uslm` / `popular_name` row — matching the
+    documented "a writer never overwrites another source's row" invariant
+    (`opencontractserver/enrichment/services/authority_mapping_loader.py`). The
+    loader summary key is renamed `skipped_manual → skipped_owned`.
+  - `AuthorityDiscoveryService._provider_for` now composes the equivalence hop
+    *and* the prefix rewrite rules over a single ordered candidate set (direct →
+    equivalence → rewrite → equivalence+rewrite), so it resolves an equivalence
+    that points into a rewriteable key — symmetric with `find_authority_target`
+    — and the equivalence query is now `order_by`-ed so the counterpart chosen
+    for a one-to-many key is deterministic
+    (`opencontractserver/enrichment/services/authority_discovery_service.py`).
+- **Authority crawl now bridges popular-name citations to their statutory
+  equivalents instead of marking them `unsupported`.** Filings cite domain keys
+  (`exchange-act:10`, `securities-act:2`) but the source providers only
+  `can_handle` positive-law canonical keys (`usc-*`, `cfr-*`, `fedreg`). The
+  curated `AuthorityKeyEquivalence` table (e.g. `exchange-act:10 → usc-15:78j`)
+  was consulted only *after* ingest (the relink seam), so the frontier row was
+  marked `unsupported` before the equivalence could help — every popular-name
+  citation died at provider selection.
+  `AuthorityDiscoveryService._provider_for` (`opencontractserver/enrichment/services/authority_discovery_service.py`)
+  now returns a `fetch_key`: when no provider handles the domain key directly,
+  it resolves a provider-supported `AuthorityKeyEquivalence` counterpart and
+  fetches/verifies under that (the existing post-ingest relink then upgrades the
+  original domain-key EXTERNAL references). `discover_and_bootstrap` locates and
+  gate-verifies against `fetch_key`; the frontier row keeps its own
+  `canonical_key` identity. Tests: `test_authority_discovery.py::ProviderForEquivalenceBridgeTests`.
+  - Scope/known gap: this covers authorities with curated equivalences
+    (Exchange Act, Securities Act → 15 U.S.C.). `sec-rule:*` (→ 17 C.F.R. 230/240),
+    `irc:*` (→ 26 U.S.C.), and state law like `dgcl:*` still have no provider
+    coverage and remain `unsupported` — follow-up work (equivalence seeds or a
+    dedicated provider).
+- Fixed two rendering bugs in auto-generated corpus CAML articles (`Readme.CAML`) that surfaced on freshly-branded corpora:
+  - **Raw block text leak** (e.g. `corpus-stats` rendering as a stray `- documents | Documents` / `- annotations | Annotations` / `::::` bullet list). `@os-legal/caml`'s depth-specific tokenizer cannot close a `::::` block fence placed at the top level (outside a `::: chapter`), so it leaked the block body — including the literal `::::` — as prose. Added `frontend/src/components/corpuses/caml/normalizeCamlSource.ts` (`normalizeCamlSource` / `parseCamlArticle`), which wraps stray top-level block fences in a synthetic chapter before parsing, and wired it into `CorpusArticleView.tsx` and `CamlArticleEditor.tsx`. This repairs already-stored articles at render time as well as new ones.
+  - **Collapsed content column** (prose wrapping one word per line; CTA buttons wrapping mid-word, e.g. "Contact" / "Us"). `CamlArticleFrame.tsx` capped every section to `readingMeasure` (720px) while `@os-legal/caml-react` styles dark/gradient chapters full-bleed via `padding: 3rem calc((100% - 720px) / 2 + 2rem)`, whose percentage resolves against the wider article width — so on wide viewports the horizontal padding collapsed the capped section's content box toward zero. Neutralized the full-bleed padding with a flat gutter (`CamlArticleFrame.tsx`).
+- Hardened the CAML Article Writer prompt (`opencontractserver/corpuses/caml_authoring.py`) to require every `::::` block be nested inside a `::: chapter`, reducing mis-nested LLM output at the source; propagated to existing databases via `agents/migrations/0016_update_caml_article_writer_prompt.py`.
+- Fixed unreadable (dark-on-dark) text on dark-themed corpus CAML article chapters. `frontend/src/components/corpuses/caml/CamlArticleFrame.tsx`'s long-form reading layer hardcoded dark slate text colors scoped to `article > section` (`p`/`li` → `slate[800]`, `h2`/`h3` → `slate[900]`, `h4`–`h6` → `slate[800]`). Those selectors carry an extra element over `@os-legal/caml-react`'s hashed prose/heading classes, so they outranked the library's theme-aware colors and the dark `ChapterSection`'s light `color`, rendering every heading, paragraph, and list item dark-on-dark — effectively invisible — on `theme: dark` / gradient chapters (e.g. an auto-branded corpus's "Key Findings" section). Removed the hardcoded colors so prose follows the library's `ProseContainer` (`proseText` on light / `darkProse` on dark) and headings/list items inherit the section color; the reading layer still owns measure, vertical rhythm, and heading hierarchy. Light chapters render identically. Regression test: `frontend/tests/CamlArticleFrameContrast.ct.tsx`.
+- Backend CI: fixed the recurring `AuthorityNamespace` seed-test failures
+  (`test_authority_namespace.py::AuthorityNamespaceSeedTests` and
+  `test_enrichment_discovery.py::DiscoveryTests::test_grammar_tier_finds_open_vocabulary_authorities`).
+  The shipped namespaces are seeded by the one-shot `RunPython` migrations
+  (`0082`/`0085`), so the rows live outside any test's transaction. Django's
+  `flush` — run on every `TransactionTestCase` teardown — truncates
+  `annotations_authoritynamespace` along with every other table
+  (`serialized_rollback` is `False` by default), so under
+  `pytest -n auto --dist loadscope` any `TransactionTestCase` running before
+  these plain-`TestCase` tests on the same worker left them reading an empty
+  registry. An idempotent `post_migrate` receiver
+  (`opencontractserver/enrichment/_namespace_seed.py::ensure_seeded`, wired in
+  `opencontractserver/annotations/apps.py`) re-seeds the rows after every
+  `post_migrate`. `migrate` emits that signal with an `apps` kwarg but `flush`
+  emits it without one, so — like Django's own `create_contenttypes` /
+  `create_permissions` receivers — the receiver now falls back to the global
+  app registry instead of bailing when `apps` is absent, which is the
+  flush-path emission that actually has to restore the rows. The seed stays a
+  no-op on freshly-seeded and production databases.
+- **Corpus "Annotations" tab: structural annotations showed "Unknown Document" and produced broken deep links.**
+  Structural annotations carry `document_id=NULL` and reach their document only
+  through the shared `StructuralAnnotationSet`. Two bugs combined to break the
+  corpus annotation cards for them:
+  (1) **The document never resolved at all.** `AnnotationType` relied on
+  graphene-django's auto-generated FK field for `document`, whose resolver
+  (`graphene_django/converter.py`) reads the raw `document_id` column and
+  short-circuits to `None` when it is NULL — so `AnnotationType.resolve_document`
+  was never invoked for structural annotations and every card rendered the
+  frontend's "Unknown Document" fallback. Fixed by declaring `document` as an
+  explicit `graphene.Field` on `AnnotationType` (`config/graphql/annotation_types.py`)
+  so the custom resolver always runs (lazy type ref avoids the
+  `annotation_types`↔`document_types` import cycle).
+  (2) **Once resolving, it picked the wrong document.** A `StructuralAnnotationSet`
+  is deduplicated by content hash and shared across the standalone import source
+  AND every corpus-isolated copy (potentially in other corpuses), so the unscoped
+  `structural_set.documents.first()` returned an arbitrary, non-corpus-local
+  document — breaking the deep link. Fixed with a new
+  `AnnotationService.structural_document_prefetch(corpus_id, document_id)`
+  (`opencontractserver/annotations/services/annotation_service.py`) that scopes
+  `structural_set__documents` to the queried corpus (via `path_records`, ordered
+  by slug for determinism), wired into `resolve_annotations`
+  (`config/graphql/annotation_queries.py`) and the `resolve_semantic_search`
+  re-fetch (`config/graphql/search_queries.py`). Mirrors the corpus-scoped lookup
+  already used by `opencontractserver/mcp/tools.py::search_corpus`.
+  No added per-row queries (one scoped prefetch replaces the previous unscoped
+  one); the semantic-search path also sheds a latent per-row N+1.
+  Frontend: `CorpusAnnotationCards` falls back to the opened corpus when building
+  the deep link (`frontend/src/components/annotations/CorpusAnnotationCards.tsx`),
+  so structural annotations (whose `corpus` is null) open in the corpus context
+  (`/d/<user>/<corpus>/<doc>`) instead of standalone. Regression test:
+  `opencontractserver/tests/test_corpus_cards_structural_document_resolution.py`.
+- **Corpus "Select All" now selects every matching document, not just the
+  loaded page.** The folder/corpus document grid is virtualized, so "Select All"
+  used to read `currentViewDocumentIds` — only the documents the paginated query
+  had loaded — meaning a follow-up "Remove from corpus" silently left the
+  unloaded documents behind. `handleSelectAll`
+  (`frontend/src/components/corpuses/folders/FolderDocumentBrowser.tsx`) now
+  fetches the complete id set for the current filters via a new lightweight
+  `corpusDocumentIds` query (`config/graphql/document_queries.py`,
+  descendant-aware folder scoping reusing `DocumentFilter`) and the toolbar's
+  "X of N" count uses the connection's real `totalCount` instead of the loaded
+  page length.
+- **Sidebar folder document counts now refresh after every delete.** Several
+  corpus delete/move/import paths evicted the `documents` connection but forgot
+  `corpusFolders`, leaving the folder-tree badges (`documentCount` /
+  `descendantDocumentCount` in `FolderTreeSidebar`) stale until reload. A shared
+  `evictCorpusDocumentCaches` helper (`frontend/src/graphql/cacheEvictions.ts`)
+  now evicts `documents`, `corpusFolders`, `corpusDocumentIds`, and
+  `deletedDocumentsInCorpus` together, and is wired into the per-card remove
+  (`CorpusDocumentCards`), bulk remove (`RemoveDocumentsModal`), folder delete
+  (`DeleteFolderModal`), move-to-folder (`FolderDocumentBrowser`), and bulk
+  import (`BulkImportModal`) paths.
+- **Reconciled `CorpusVote` migration state with the model** (migration
+  `corpuses/0057`): migration `0049` created the three `CorpusVote` indexes
+  with explicit names (`corpuses_co_corpus__vote_idx`, …) while the model
+  declares them unnamed (Django auto-hashed names), and the `backend_lock`
+  field's `db_index=True` was missing from migration state. The drift made
+  `makemigrations --check` fail on every branch. Operations are three
+  Postgres `ALTER INDEX … RENAME` calls plus one index-state alter — no data
+  changes.
+- **`find_citable_passages(document_id=…)` could never match in an authority
+  corpus.** `AnnotationService.search_corpus_annotation_text` filtered
+  `document_id` directly, but structural annotations carry `document_id=None`
+  and reach their document through `structural_set` — so every document-scoped
+  lookup reported "no passage contains X". The failure is silent: a research
+  agent retries with shorter and shorter phrases until its token budget is
+  gone. Observed: twelve consecutive misses, including for "Form" and
+  "application", ending in a salvage report with zero findings. Same root cause
+  as the document-less cross-corpus hits fixed earlier in
+  `llms/tools/core_tools/multi_corpus.py`.
+- **`gpt-4.1` was sized as an 8K-context model.** `MODEL_CONTEXT_WINDOWS` falls
+  back to longest-prefix matching, so every unlisted `gpt-4*` name inherited the
+  bare `gpt-4` entry (8,192) — a ~128x under-estimate for a model holding ~1M.
+  Compaction sized itself against the fiction and
+  `get_remaining_context_budget` reported a nearly-exhausted budget to an agent
+  that had barely started. The gpt-4.1 family is now listed explicitly, with a
+  note on the ordering hazard.
+- **`search_across_group` fan-out is bounded.** `k` is per corpus, so `k=10`
+  over a ten-member group returned 100 passages in one tool result — and the
+  whole history is resent on every later model call. One run burned 2.03M
+  cumulative input tokens across 11 tool calls. `k` is now capped per corpus
+  and the total row count ceilinged, with an explicit note when hits are
+  dropped.
+- **Deep-research tool calls are recorded.** `append_tool_call` existed, was
+  tested, and was never called, so every report carried an empty audit log and
+  the Run details tab had nothing to show. Research closures are now wrapped so
+  each call logs its tool, summarised arguments and result shape.
+- **Citable anchors were confined to the anchor corpus.** `find_citable_passages`
+  searched only the run's own corpus, so on a group-scoped run the agent could
+  see a sibling corpus through `search_across_group` and still never obtain a
+  quotable anchor from it — every kept citation resolved to the anchor by
+  construction, which reads as "the group was not used". It now fans across the
+  group's visible corpora (per-corpus permission filtering, merged
+  tightest-passage-first).
+- Deep research: a run is capped at `request_limit = report.max_steps` MODEL
+  REQUESTS as well as at a token budget, and the agent could not see that
+  counter. A run that walked into it was cut off before it could call
+  `finalize_report`, and the salvage composition that replaced its report body
+  silently dropped work the agent had recorded nowhere else (observed: exactly
+  60 of 60 permitted requests, and a salvaged body that dropped two of the four
+  ramp steps the task asked it to walk). Every tool return now carries a
+  step-budget notice past `DEEP_RESEARCH_STEP_BUDGET_WARN_RATIO`, and a
+  finalize-now notice past `DEEP_RESEARCH_STEP_BUDGET_FINAL_RATIO`
+  (`opencontractserver/research/constants.py::build_step_budget_notice`,
+  attached in `research_tasks.py::_audited` — the one place every tool call
+  passes through). `ResearchReportService.append_tool_call` now returns the new
+  log length, which is the running count it warns from.
+- Deep research: every ending that was not an explicit `finalize_report` was
+  recorded as the single warning `budget_exhausted`, which reads as "ran out of
+  context" and was taken to mean it. It covers three unrelated endings — the
+  token budget, the step budget, and an agent that simply stopped — and the
+  report kept no evidence of which, because `CoreAgent.chat()` swallows the
+  framework exception (so there is no traceback in the worker log either). A
+  run cut off at the step limit was diagnosed as a context runaway on that
+  basis, and the compaction ratio was tuned in response to a limit it cannot
+  move. Reports now also carry `terminal_reason: …`
+  (`research_tasks.py::_terminal_reason`), and `CoreAgent.chat()` puts
+  `error_type` in its response metadata — parity with the streaming wrapper,
+  which already did.
+- **Default corpus article now composes the governance graph** — the canonical
+  CAML intelligence block (`opencontractserver/corpuses/caml_intelligence.py`,
+  `CAML_INTELLIGENCE_BLOCK` + `CAML_INTELLIGENCE_MARKERS`) predated the
+  reference web and only embedded `insight-panel` / `document-graph` /
+  `ask-across-docs`. A corpus created with LLM auto-branding disabled (the
+  `CORPUS_AUTO_BRANDING_ENABLED=False` kill-switch path) therefore got a
+  structural default article with **no governance graph and no "Map the
+  reference web" bootstrap CTA** — the reference web was unreachable from the
+  corpus home. The block now includes `[component:governance-graph]` ("How
+  this collection is wired to the law") between the insight panel and the
+  document graph, mirroring `CorpusIntelligenceOverview`'s composition; the
+  marker tuple addition also makes `ensure_intelligence_block` /
+  `backfill_intelligence_block` aware of it. Discovered while recording the
+  corpus-creation→enrichment demo. Test updated:
+  `opencontractserver/tests/test_caml_intelligence_block.py`.
+- `config/settings/base.py`: routed `extract_thumbnail`, `ingest_doc`, `remap_pending_annotations`, and `set_doc_lock_state` to a new dedicated `doc_parse` Celery queue, separate from `convert_document_to_pdf` (still on the default `celery` queue). Previously every stage of the per-document ingest chain shared one queue; on a `.doc`-heavy bulk corpus, conversion tasks for every document get enqueued up front while a document's later-stage tasks only appear once its own conversion finishes, so the flood of cheap conversion tasks statistically starved the actual parsing/embedding work — observed on a 220K-document bulk ingest at a ~190:1 completion ratio (`convert_document_to_pdf` vs. `ingest_doc`) even after doubling worker concurrency. `compose/local/django/celery/worker/start` and `compose/production/django/celery/worker/start` updated to subscribe to `doc_parse` alongside `celery`/`worker_uploads` — required so standard (non-bulk) document uploads keep processing under the new routing instead of stalling on an unconsumed queue. Ops docs updated to match the new routing: `docs/upload_methods/worker_celery_setup.md` (queue table, TL;DR worker command, verification and symptom sections now cover `doc_parse`), plus the `-Q` queue lists in `worker_uploads.md`, `remote_ingest_worker.md`, and `upload_methods/index.md` — the previous text told self-hosted operators that `-Q celery,worker_uploads` was sufficient, which under the new routing would leave every document silently stuck mid-chain with nothing consuming `doc_parse`.
+- **Document index showed a previously-viewed document's sections until the
+  network caught up.** The top-level `annotations` Relay field policy
+  (`frontend/src/graphql/cache.ts`) keyed its cache list with
+  `ContextAwareRelayStylePaginationKeyArgsFunction`, which returned only the
+  field name/alias and ignored every filter argument. As a result the corpus
+  annotation list, the card grid, and the document index
+  (`GET_DOCUMENT_ANNOTATION_INDEX`) all collapsed into a single Relay list, so
+  with `fetchPolicy: "cache-first"` the index served whichever document was
+  opened last (e.g. "only 3 OC_SECTION refs from the old doc") until the
+  network response replaced it. The key function now folds the filter
+  arguments into the cache key — excluding the Relay pagination cursors
+  (`first`/`last`/`before`/`after`) so genuine infinite-scroll pages of one
+  filter set still merge — isolating each document/corpus/label into its own
+  list. Also fixed the latent alias bug in the same function: `field.alias` is
+  a GraphQL `NameNode`, so it now reads `.value` instead of stringifying the
+  node to `"[object Object]"`. Regression tests added in
+  `frontend/src/graphql/__tests__/cache.test.ts`.
+- **Mobile "Sections" sheet loaded nothing for indexed documents.**
+  `MobileSectionsSheet` (`frontend/src/components/knowledge_base/document/layouts/mobile/MobileSectionsSheet.tsx`)
+  read the *structural* annotation set (`structural=true`), but the document
+  index is built from `OC_SECTION` annotations, which the enricher marks
+  `structural=false` (`opencontractserver/pipeline/enrichers/pdf_outline_enricher.py`).
+  Those sets are disjoint, so an OC_SECTION-indexed document rendered an empty
+  mobile sheet while the desktop "Index" tab was full. The sheet now loads the
+  same `GET_DOCUMENT_ANNOTATION_INDEX` query the desktop tab uses (a flat,
+  page-ordered jump list with the mobile-native styling preserved), gated on
+  the sheet being open so the fetch stays lazy. `MobileDocumentLayout` now
+  threads `documentId`/`corpusId` to the sheet. Tests updated:
+  `frontend/tests/MobileSectionsSheet.{ct,harness}.tsx`,
+  `frontend/tests/MobileDocumentLayout.harness.tsx`, and
+  `frontend/tests/MobileDocumentKnowledgeBase.ct.tsx`.
+- **Corpus enrichment job list no longer triggers a "Network error" toast.**
+  `GET_CORPUS_ANALYSES` (`frontend/src/graphql/queries.ts`) queried
+  `analyses(corpusId:, status_Exact:)` with `$corpusId: ID!` / `$statusExact:
+  String`, but the `AnalysisFilter` exposes `analyzedCorpusId` (a `String`,
+  Relay-id-decoded server-side) and `status` (the `AnalyzerAnalysisStatusChoices`
+  enum, not `status_Exact`). The query failed GraphQL validation on every corpus
+  page that renders `CorpusEnrichmentCard` (via `useEnrichmentJobs`), surfacing
+  the global Apollo error-link "Network error. Please check your connection and
+  try again." toast. Corrected the argument names and variable types; the live
+  job-list query now succeeds (200) with no toast.
+- **Enrichment reference web — denormalization hardening (5 fixes).**
+  - `DocumentRelationship` rollups are now a *reconciled projection* of resolved
+    doc→doc `CorpusReference` rows: `EnrichmentWriter._reconcile_document_graph`
+    (`opencontractserver/enrichment/writer.py`) rebuilds the doc-graph edges on
+    every run — stale enrichment-owned edges (recognized by the `analysis_id`
+    marker in `data`) are pruned, missing ones created, and user-authored rows
+    are never deleted or shadowed. Previously an edge whose backing reference
+    disappeared survived forever (orphaned doc-graph edges after re-runs).
+  - `link_url` slug drift is now repaired: the cross-corpus linking pass
+    (`EnrichmentService._link_external` →
+    `_restamp_mention_links`, `opencontractserver/enrichment/services/enrichment_service.py`)
+    recomputes the canonical `/d/{creator}/{corpus}/{doc}` path for **every**
+    resolved LAW/DOCUMENT reference from current slugs, instead of stamping only
+    newly-resolved refs. A corpus rename no longer leaves mention links 404ing
+    forever. Result dicts gain `links_restamped`.
+  - Defined-term definition sites are mention-only: the writer no longer creates
+    `CorpusReference` rows for `DEFINED_TERM` (the `OC_REF_TERM` annotation
+    already carries `term:<slug>` in its `data`; a definition site has no
+    target). Rows return when usage→definition linking lands.
+  - `CorpusReference.save()` now enforces the `reference_type` ↔ mention-label
+    invariant (`opencontractserver/annotations/models.py`): the column
+    denormalizes the mention's `OC_REF_*` label for indexing, and a row where
+    the two disagree raises `ValidationError`. Query-free on the writer's hot
+    path (uses in-memory relations).
+  - New partial unique constraint `uniq_corpusref_source_type_nullkey`
+    (`annotations/0079`): Postgres treats NULLs as distinct, so the existing
+    (source_annotation, reference_type, canonical_key) constraint never guarded
+    keyless rows against concurrent duplication. Migration dedupes existing
+    keyless rows before adding the constraint.
+- **Enrichment analyzer tests fail on freshly migrated DBs (pre-existing).**
+  The `analyzer/0009`+`0013` data migrations auto-sync the corpus-analyzer row
+  during `migrate`, so `test_enrichment_analyzer_integration.py`'s local
+  `_make_analysis` helper collided with the pre-synced row on the `task_name`
+  unique constraint (6/7 tests failed on any `--create-db` run). The converge
+  logic now lives once in `EnrichmentService.get_or_create_analyzer()` and the
+  test helper reuses it; the clean-slate auto-sync test clears the pre-synced
+  row explicitly.
+- **Enrichment mention links no longer 404** — the writer and
+  `link_external_references` wrote `link_url` as `/corpus/{id}/document/{id}`,
+  a shape no frontend route serves (it falls into the `*` catch-all → 404).
+  They now emit the canonical slug path
+  `/d/{corpus.creator.slug}/{corpus.slug}/{document.slug}` via the new
+  `opencontractserver/utils/frontend_paths.py::document_in_corpus_path`
+  helper (mirrors the frontend's `buildCanonicalPath`); cross-corpus law
+  links point into the authority corpus. Links with missing slugs are
+  skipped rather than written broken.
+- **`@corpus_analyzer_task` no longer marks a retrying Analysis FAILED**
+  (`opencontractserver/shared/decorators.py`) — `celery.exceptions.Retry`
+  extends `Exception`, so the wrapper's failure branch stamped
+  `Analysis.status=FAILED` before the retry ran. `Retry` is now re-raised
+  untouched, mirroring `doc_analyzer_task`; regression test pins the
+  RUNNING status surviving a retry.
+- **Enrichment perf**: OC_SECTION lookups batched to one query per corpus
+  (was one per document), and `link_external_references` collapses O(N)
+  row-by-row saves into two `bulk_update` calls (refs + mentions).
+- `EnrichmentWriter._ensure_corpus_reference()` (`opencontractserver/enrichment/writer.py`): a `CorpusReference` row persisted as `UNRESOLVED` (its target couldn't be found at write time) was never upgraded to `RESOLVED` by a later run that *does* find the target — `get_or_create`'s lookup key (`source_annotation`, `reference_type`, `canonical_key`) doesn't include the resolution outcome, so a re-apply silently re-fetched the stale unresolved row instead of updating it. This meant an in-memory "N resolved" count could diverge from what actually persisted (a run could report resolutions with zero new/updated `CorpusReference` rows to show for it). Added a forward-only heal — mirroring the existing jurisdiction/authority_type heal in the same method — that upgrades `target_document_id`/`target_annotation_id`/`resolution_status`/`confidence`/`normalized_data` on an existing `UNRESOLVED` row once a later run resolves it; an already-`RESOLVED` row is never downgraded. A new `WriteResult.references_resolved` counter (also surfaced in `EnrichmentService.apply`'s result) surfaces how many existing rows were healed, distinct from `references_created` (brand-new rows).
+- **Extraction: restore dropped `Column` constraint fields.** `Column.instructions`,
+  `must_contain_text`, and `limit_to_label` are GraphQL-settable, persisted, cloned, and
+  diffed, but the marvin→doc-agent rewrite (commit `184903f62`) stopped feeding them to the
+  extraction LLM — so per-column guidance/scoping had zero effect. `doc_extract_query_task`
+  (`opencontractserver/tasks/data_extract_tasks.py`) now folds all three back into the prompt
+  the agent runs, and the dead `get_column_extraction_params` helper (zero callers) was
+  removed. Regression test: `opencontractserver/tests/test_extract_prompt_wiring.py`.
+- **Extraction: cap runaway agent tool-looping.** With no request budget, a weak model
+  could make dozens-to-hundreds of redundant `similarity_search` calls on a hard or absent
+  value before pydantic-ai gave up — observed at **100 tool calls / 770 KB message logs /
+  ~100 s per cell**, surfacing as `failure_mode=tool_loop_no_output`. The structured run
+  (`opencontractserver/llms/agents/pydantic_ai_agents.py::_structured_response_raw`) now
+  applies a default request ceiling — `UsageLimits(request_limit=EXTRACT_AGENT_REQUEST_LIMIT)`
+  (=20, in `opencontractserver/constants/llm.py`), tightening pydantic-ai's own default of 50
+  — via `run_kwargs.setdefault(...)` so any caller may override it per call (e.g. a
+  corpus-wide structured analytic that legitimately needs more round-trips) and so the
+  explicit value can never collide with a pass-through `usage_limits` into a duplicate-keyword
+  `TypeError`.
+- Structured extraction now records a distinct `failure_mode=usage_limit_exceeded`
+  when a run trips `EXTRACT_AGENT_REQUEST_LIMIT` instead of mislabelling the
+  budget hit as `tool_loop_no_output`/`no_final_response`. `_structured_response_raw`
+  (`opencontractserver/llms/agents/pydantic_ai_agents.py`) catches
+  `UsageLimitExceeded` explicitly and logs it as a named condition (mirroring the
+  streaming `chat()` path), and `_classify_none_result`
+  (`opencontractserver/tasks/data_extract_tasks.py`) recognises the budget
+  fingerprint from the captured message history. Lets operators tell a too-tight
+  request budget from a genuine runaway loop.
+- Fixed a latent footgun in `_structured_response_raw`: an explicit
+  `usage_limits=None` passed by a caller no longer silently disables the request
+  budget (the prior `setdefault` left the `None` in place); the default cap is now
+  applied whenever the resolved value is `None`.
+### Fixed
+
+- **Corpus/folder document-list query no longer signs the same media URLs on
+  every request.** Each document edge selects four file-URL fields
+  (`pdfFile`, `txtExtractFile`, `pawlsParseFile`, `icon`); on GCS with IAM
+  signBlob (Workload Identity, no local signing key) every `FieldFile.url` is a
+  network round trip, so an N-document page fanned out to ~N×4 serialized
+  signing calls (a ~7.8s corpus-folder query in production). The existing
+  per-request memo in `config/graphql/optimized_file_resolvers.py` couldn't
+  help — a list query never resolves the same `(document, field)` twice. Added
+  a cross-request shared cache (Redis in prod) keyed by storage blob name (a
+  signed URL is not user-specific), so each blob is signed at most once per
+  `FILE_URL_SHARED_CACHE_TTL` window and served from cache for every subsequent
+  request and user. New setting `FILE_URL_SHARED_CACHE_TTL` in
+  `config/settings/base.py` (default: half the signed-URL lifetime, capped at
+  6h; `0` for LOCAL storage, which keeps the prior per-request-only behavior).
+  Cache failures degrade gracefully to a fresh sign.
+- **Trimmed the corpus/folder document-list query overfetch.** `GET_DOCUMENTS`
+  (`frontend/src/graphql/queries.ts`) selected `txtExtractFile` and
+  `pawlsParseFile` signed URLs that no list consumer reads (the document-detail
+  loader fetches them on open via its own query), so the corpus folder view was
+  signing two extra URLs per document for nothing. Removed both fields, halving
+  the cold-path signing fan-out (now `pdfFile` + `icon` only). Verified no
+  `GET_DOCUMENTS` consumer reads the dropped fields.
+- **Concurrent signing for document-list pages.** New
+  `FileUrlPrewarmMiddleware` (`config/graphql/file_url_prewarm.py`) intercepts a
+  resolved `documents` connection and signs the page's *requested* file URLs in
+  a thread pool (`FILE_URL_SIGN_CONCURRENCY`, default 16), warming the request
+  cache so the per-node resolvers return without serial `signBlob` round trips.
+  Collapses an N-deep serial signing chain into ~N/concurrency; no-op unless
+  `FILE_URL_SHARED_CACHE_TTL > 0`.
+- **Bounded the corpus-folder first page.** `CorpusDocumentCards` now passes an
+  explicit `limit` (`DEFAULT_LIST_PAGE_SIZE`, 20) to `GET_DOCUMENTS`; previously
+  the initial query was unbounded and graphene returned up to
+  `RELAY_CONNECTION_MAX_LIMIT` (100) documents, signing pdf+icon URLs for all of
+  them on the first paint. Subsequent pages already loaded at the same size via
+  `fetchMore`.
+- **Lazy `pdfFile` on the document cards.** `pdfFile` is no longer fetched (and
+  signed) for every card; `GET_DOCUMENTS` drops it and the download action
+  resolves the signed URL on click via `useLazyPdfUrl` + the new
+  `GET_DOCUMENT_PDF_URL` query. Backward-compatible — callers whose query still
+  supplies `pdfFile` skip the lazy fetch; the download button now gates on
+  `PDF_MIME_TYPE` (`frontend/src/components/documents/{ModernDocumentItem,DocumentItem}.tsx`).
+- `finalize_report` is documented as terminal — "once you call it, the run
+  ends" — but nothing enforced it, and a second call is not a no-op. It re-runs
+  composition, so the stored report becomes the LATER body while both passes'
+  warnings accumulate. Observed live: a run finalized twice 25 seconds apart
+  and its report carried each warning twice, the two passes disagreeing about
+  how many sentences had lost their citations (5, then 3) — a reader cannot
+  tell that is one report composed twice rather than two distinct problems. The
+  tool now refuses a second call once the report is COMPLETED
+  (`research_tasks.py`). `ResearchReportService.finalize` itself stays
+  non-idempotent on purpose: the salvage path depends on finalizing a report
+  the agent never finished. A test pins that service behaviour so the guard is
+  not later removed as redundant.
+- **Full-text search recall for natural-language queries** (`opencontractserver/llms/vector_stores/core_vector_stores.py`, `_run_fts_query`). The FTS arm built its query with `plainto_tsquery` (via `SearchQuery`'s default), which ANDs every lexeme — so a multi-concept question like *"What are the main risks or obligations across these documents?"* matched **no** annotation (no single row contains all terms) and the arm returned zero rows. When a corpus has no embeddings, hybrid search degraded to that empty FTS arm and the agent answered "I found nothing." `_run_fts_query` now OR-combines per-token `plainto_tsquery` sub-queries, so any term match qualifies while `SearchRank` still ranks annotations matching more terms higher. Per-token `plainto` safely elides stopwords without raising a tsquery syntax error (no manual stopword list or raw-tsquery escaping). This is the single FTS entry point for the hybrid, fts-only, and `global_search` paths, so the recall fix applies across all of them. Measured on a 53-document SEC-filing corpus: the example question went from 0 → 8 full-text matches. Regression test: `test_hybrid_search.py::TestHybridSearch::test_fts_matches_natural_language_query_spanning_annotations`.
+- **`governanceGraph` crashed on real data** — `GovernanceGraphService` used
+  `.only("id", "title", "custom_meta")` on a `Document` queryset, but the
+  Document default manager bakes in `select_related("parent", ...)` and Django
+  forbids deferring a traversed field ("Field Document.parent cannot be both
+  deferred and traversed"). Switched to `values_list`
+  (`opencontractserver/enrichment/services/governance_graph_service.py`).
+  Found by live smoke testing against the 134-document S-1 corpus.
+### Fixed
+
+- **`corpusStats` no longer errors on a blank corpus id.** `resolve_corpus_stats`
+  (`config/graphql/corpus_queries.py`) decoded an empty/garbage global id to a
+  non-numeric pk and ran `filter(id="")`, which raised `Field 'id' expected a
+  number but got ''` inside the open request transaction (aborting it for
+  subsequent queries — the source of cascading `current transaction is aborted`
+  errors). A malformed id is now treated like a not-found / not-visible corpus
+  and returns zeroed stats with no GraphQL error.
+- **AnnotationLabel `myPermissions` now inherits from its LabelSet.**
+  `AnnotationLabel` carries no django-guardian object-permission tables (the
+  LabelSet is the permissioned entity that governs its labels), but
+  `AnnotatePermissionsForReadMixin.resolve_my_permissions`
+  (`config/graphql/permissioning/permission_annotator/mixins.py`) assumed every
+  type exposes a `{model}userobjectpermission_set` accessor and raised
+  `'AnnotationLabel' object has no attribute
+  'annotationlabeluserobjectpermission_set'` (caught + error-logged) on every
+  annotation-label node. `AnnotationLabelType` now resolves `my_permissions` by
+  inheriting the caller's permissions across the LabelSet(s) that include the
+  label (mapping `*_labelset` → `*_annotationlabel`; public/`read_only` labels
+  are always readable). The generic mixin is also hardened: both
+  `resolve_my_permissions` and `resolve_object_shared_with` now fall back
+  cleanly (via `get_users_permissions_for_obj` / empty list) for any
+  guardian-less model instead of crashing and spamming the logs.
+- **GraphQL spec validation restored on the served endpoint (security).**
+  ``GraphQLView(validation_rules=[DepthLimit…])`` REPLACED graphql-core's
+  spec rule set (that is ``validate()``'s semantics for an explicit rules
+  list), silently disabling every standard GraphQL validation — unknown
+  arguments/fields and variable-type checks — in all environments. Invalid
+  queries executed with the bogus parts ignored, which let ~26 invalid
+  frontend documents ship unnoticed (several backing silently-broken
+  features). ``config/graphql/schema.py`` now builds
+  ``[*specified_rules, DepthLimitValidationRule(, DisableIntrospection)]``,
+  pinned by ``test_security_hardening.TestServedValidationRulesIncludeSpecRules``.
+  Every shipped frontend document is now swept in CI by
+  ``opencontractserver/tests/architecture/test_frontend_graphql_documents.py``
+  (ad-hoc: ``scripts/validate_frontend_graphql.py``; the sweep strips Apollo
+  ``@client`` selections and skips fragment-only/interpolated documents).
+- **All 26 invalid frontend documents repaired**, including features that
+  could never have worked: ``deleteMetadataColumn`` and ``updateFieldset``
+  were called by the UI but did not exist server-side (both now implemented
+  in ``config/graphql/extract_mutations.py`` via the BaseService
+  get_or_none/require_permission pattern with IDOR-unified messages);
+  ``GET_CORPUS_CHAT_MESSAGES`` used a misspelled argument + relay shape on a
+  plain list field (corpus chat history always loaded empty objects);
+  ``tokenAuth`` was schema-conditional on ``USE_AUTH0`` (now always the
+  ``WithUser`` payload, so the login document validates everywhere); the
+  document-by-id redirect selected the nonexistent ``DocumentType.corpus``
+  (corpus context now sourced from the route's slug resolution where it
+  exists — the previous mock-only field meant graph-node click-throughs
+  always landed on standalone paths); dead ``ADD_DOCUMENT_TO_CORPUS``
+  removed; plus variable-type (ID!/String!, JSONString/GenericScalar,
+  String/enum) and payload-field corrections across vote, thread-moderation,
+  research-report, TOC and corpus-list documents.
+- **Presigned file URLs no longer outlive their signatures.** The AWS
+  settings branch derived the shared file-URL cache lifetime from
+  ``_AWS_EXPIRY`` (the stored objects' HTTP CacheControl max-age, 7 days)
+  instead of the presign lifetime (``AWS_QUERYSTRING_EXPIRE``, 1 hour), so
+  redis served dead 403 pdf/pawls/txt links for up to 5 hours.
+  ``AWS_QUERYSTRING_EXPIRE`` is now explicit, the cache TTL derives from it,
+  and ``clamp_shared_url_cache_ttl`` (``opencontractserver/utils/files.py``)
+  enforces TTL ≤ half the signature lifetime even against env overrides.
+- **3-minute analysis-annotation responses fixed.**
+  ``UserFeedbackQuerySet.visible_to_user`` expressed annotation-inherited
+  visibility as ``commented_annotation_id__in=<visible-annotations
+  subquery>`` — an uncorrelated ``IN`` materialized over the entire
+  annotations table on every evaluation (~0.8s each; 216 pagination counts
+  made ``GetAnnotationsForAnalysis`` take ~176s for a 108-mention document).
+  Rewritten as a correlated ``Exists`` pinned to the feedback row's
+  annotation id — identical semantics (permissioning invariant suites pass),
+  measured 176s → 2.3s. Shape pinned by
+  ``test_feedback.TestVisibilityQueryShape``.
+- **Home-tab corpus chat overflowed the viewport, leaving the composer slightly offscreen.**
+  Starting a chat from the corpus **Home** tab (clicking the inline chat bar,
+  typing a query, and pressing Enter) expanded `CorpusQueryView` into its
+  immersive chat layout, which sizes the chat container to
+  `calc(100dvh - var(--oc-navbar-height, 4.5rem))` with the input pinned to the
+  bottom (`frontend/src/views/CorpusQueryView.tsx:28,362-394`). However,
+  `Corpuses.tsx` only stripped `CardLayout`'s default outer padding for the
+  dedicated **Chats** tab (`frontend/src/views/Corpuses.tsx:1716`), so on the
+  Home tab that full-height container was wrapped in `CardLayout`'s default
+  padding (`~0.75rem` per side on desktop,
+  `frontend/src/components/layout/CardLayout.tsx:122-135`). The extra `~1.5rem`
+  of vertical padding pushed the total height past the viewport, leaving the
+  pinned chat input partially clipped at the bottom and requiring a slight
+  scroll. Reaching the same chat "from the chat list" (Chats tab) worked only
+  because that tab's padding was already zeroed. Fix: zero `CardLayout`'s outer
+  padding for the `home` tab as well as `chats`
+  (`frontend/src/views/Corpuses.tsx:1716`), since both are viewport-bounded
+  immersive layouts. This also removes a previously-invisible phantom overflow
+  on the Home dashboard (its `position: fixed` chat bar and `overflow: hidden`
+  content had hidden the same `~1.5rem` page scroll). The landing/details/article
+  views center their own `max-width` content with internal padding, so they are
+  unaffected by losing the thin outer frame.
+### Fixed
+
+- **Documents no longer get stranded in "processing" after an ingest-pipeline
+  failure.** The document-ingest Celery chain (`extract_thumbnail → ingest_doc →
+  remap_pending_annotations → set_doc_lock_state`) carried no error callback, so
+  if any task *raised* (a worker OOM/SIGKILL mid-task, a lost broker message, or
+  a DB error inside `_mark_document_failed`) the chain halted before
+  `set_doc_lock_state` could finalize status — leaving the document at
+  `processing_status=PROCESSING` + `backend_lock=True`, which the frontend
+  renders as "processing" forever (`ModernDocumentItem.tsx`:
+  `isProcessing = status != FAILED && backendLock`). Three layers of hardening:
+  - **Fail fast on permanent docling failures** — `docling_parser_rest.py` now
+    classifies a `5xx` whose body is a docling `ConversionStatus.FAILURE` /
+    `ConversionError` (a malformed PDF, e.g. "could not find the
+    page-dimensions") as **non-transient**, so it fails on the first attempt
+    instead of exhausting retries. This kills the retry storm that overloaded
+    the parser service (the 503 cascade) during bulk imports.
+  - **link_error on the ingest chains** — new
+    `mark_doc_failed_on_chain_error` task is attached via `link_error` to the
+    chains in `documents/signals.py` and `retry_document_processing`
+    (`tasks/doc_tasks.py`); a raised chain failure now marks the document FAILED
+    immediately (idempotent — won't clobber an already-terminal state).
+  - **Periodic reconciliation sweep** — new `reconcile_stuck_documents`
+    Celery-beat task (`tasks/doc_tasks.py`, scheduled every 5 min in
+    `CELERY_BEAT_SCHEDULE`) reclaims any `PROCESSING` + locked document whose
+    `processing_started` is older than `DOCUMENT_PROCESSING_STALE_MINUTES`
+    (default 30) and marks it FAILED via `_mark_document_failed`, covering the
+    silent failure modes (hard worker kills / lost messages) that never surface
+    as an exception. New setting `DOCUMENT_PROCESSING_STALE_MINUTES` in
+    `config/settings/base.py`.
+- `ingest_corpus` management command silently dropped files whose extension wasn't in a hardcoded `{.pdf, .txt, .docx, .xlsx, .pptx}` allowlist, even when a file converter (e.g. Gotenberg) was configured to convert them to PDF — most visibly, legacy `.doc` files were skipped even though the pipeline can ingest them. The command's extension gate now unions in `get_convertible_extensions()` (`opencontractserver/pipeline/utils.py`), matching the eligibility check the REST upload path already uses (`resolve_convertible_upload`). File: `opencontractserver/corpuses/management/commands/ingest_corpus.py`.
+- **Ingestion Monitor mobile horizontal scrolling** (`frontend/src/components/admin/IngestionMonitor.tsx`): the admin Ingestion Monitor page was unusable on mobile — its wide tables could not be scrolled horizontally and the page overflowed the viewport. The page `Container` is a flex item of the column-direction `#AppContainer`, whose default `align-items: stretch` does not shrink an item below the intrinsic width of its content. A wide `ScrollableTableWrapper` therefore blew the whole page out past the viewport, and because `body` has `overflow-x: hidden` the overflow was clipped and unreachable — the inner table's `overflow-x: auto` never engaged because the wrapper itself had grown wider than the screen. Added `width: 100%` to the `Container` so it clamps to the viewport (the `max-width: 1280px` cap/centering on desktop is unchanged), restoring the per-table horizontal scroll on mobile. The component test wrapper (`frontend/tests/IngestionMonitorTestWrapper.tsx`) now reproduces the real `AppShell` flex-column ancestry so the regression is actually exercised, and the mobile test (`frontend/tests/IngestionMonitor.ct.tsx`) asserts genuine scrollability (`scrollWidth > clientWidth`, `clientWidth <= viewport`, `scrollLeft` moves) rather than only the `overflow-x` style.
+- `local.yml`: added `mem_limit` + `restart: unless-stopped` to the remaining previously-uncapped services (`django`/`flower` via the shared anchor, `postgres`, `redis`, `gotenberg`, `multimodal-embedder`, `docxodus-parser`, `privacy_filter`, `celerybeat`, and the profile-gated `frontend`). An earlier commit on this branch capped only the four heaviest services (docling-parser, warp-ingest, vector-embedder, celeryworker — see the `local-compose-mem-limits` fragment); with those four individually bounded but everything else uncapped, aggregate memory demand across the uncapped services under heavy concurrent load (a parallelized bulk-enrichment run plus a large Celery backlog drain) still exhausted host RAM/swap badly enough to hang the machine and require a hard reboot — a per-container cap on a subset of services doesn't bound the sum across the rest. All Docker-managed services in `local.yml` now have an individual ceiling.
+- `local.yml`: added `mem_limit` caps (`docling-parser` 4g, `warp-ingest` 6g, `vector-embedder` 4g, `celeryworker` 6g) and `restart: unless-stopped` to the same four services. A sustained bulk-ingest run left `warp-ingest` growing to ~5.7GB with no per-container memory cap anywhere in `local.yml`, driving host-wide OOM (kernel OOM-killer took down unrelated desktop processes). The caps contain any future runaway growth to a single container's cgroup; the restart policy brings that container back automatically if the cap is ever legitimately hit, instead of leaving the pipeline stuck on a dead service.
+- Chunked-parse storage helpers (`opencontractserver/pipeline/chunk_artifacts.py`) now return the *actual* key from `default_storage.save(...)` instead of the pre-computed key, so backends that rewrite the key on collision (S3 unique-key mode, `FileSystemStorage` name clashes) no longer hand downstream tasks a dangling key. The exists()-then-delete() pattern was also replaced with a TOCTOU-free `_delete_quietly` helper.
+- `BaseChunkedParser.reassemble_and_finalize` (`opencontractserver/pipeline/base/chunked_parser.py`) now cleans up scratch artifacts in a `finally` block, so a failure inside `save_parsed_data` no longer orphans chunk files under `chunk_scratch/doc_{id}/`. Covered by a new regression test.
+- **Inline citations now render on PDF documents.** The enrichment writer
+  (`opencontractserver/enrichment/writer.py`) projected nothing visible on
+  PDFs: it stored every reference mention as a `SPAN_LABEL` char-offset
+  annotation, which the PDF viewer (token-indexed PAWLs renderer) cannot
+  paint — citations showed in the References panel but never inline on the
+  filings themselves. Mentions on PDF documents are now projected onto PAWLs
+  token bounding boxes via PlasmaPDF (`TOKEN_LABEL`, real page numbers
+  instead of the hardcoded `page=1`), with the char span preserved in
+  `data.char_span` for dedupe. Projection handles real-ingest drift between
+  `txt_extract_file` and the PAWLs text via whitespace-insensitive
+  ordinal-occurrence remapping (covers hard line-wraps and see-quoted SECTION
+  refs whose raw text extends left of the span start) and falls back to the
+  span representation when the mention text genuinely is not in the PAWLs
+  text. Re-running enrichment upgrades pre-fix span mentions **in place**
+  (same row — `CorpusReference`/`Relationship` FKs survive), so a corpus
+  re-enrich is also the backfill.
+- **Shared span→token projection utility.** The format-aware document-text
+  loader and the PlasmaPDF span projection moved from private helpers in
+  `opencontractserver/utils/extraction_grounding.py` to
+  `opencontractserver/utils/span_projection.py`
+  (`load_document_text_and_layer`, `project_span_to_token_annotation`);
+  datacell grounding and the enrichment writer now share one implementation.
+- **Reference-mention merge fixed and made usable.**
+  `useReferenceMentions` (frontend): (1) the analyses discovery query used
+  `analyses(corpusId:)` — an argument that does not exist in the schema and
+  was silently ignored (see validation gap below), so the hook swept every
+  enrichment analysis platform-wide; it now uses the real
+  `analyzedCorpusId` filter. (2) The per-analysis fetch used a `useLazyQuery`
+  handle re-executed in a loop, whose promise was observed never settling —
+  replaced with `client.query`. (3) The fetch now uses a lean
+  `GET_REFERENCE_MENTIONS_FOR_ANALYSIS` selection: the previous full
+  selection (per-annotation userFeedback / relationships / document / corpus)
+  measured **~176s** server-side for 108 mentions vs ~0s for the lean one.
+  Net effect: inline cites appear within seconds of opening a PDF.
+- **Known issues surfaced during this work (deliberately NOT fixed here):**
+  (1) `GraphQLView(validation_rules=[DepthLimit…])` REPLACES graphql-core's
+  spec rule set, so standard GraphQL validation (unknown arguments/fields,
+  variable types) is disabled on the served endpoint; ~34 shipped frontend
+  documents currently fail spec validation (`scripts/validate_frontend_graphql.py`
+  enumerates them) — restoring `[*specified_rules, …]` must land with those
+  query fixes (documented in `config/graphql/schema.py`). (2) Presigned file
+  URLs are cached for `FILE_URL_SHARED_CACHE_TTL=21600`s while
+  `AWS_QUERYSTRING_EXPIRE` defaults to 3600s — cached links 403 for hours.
+  (3) `Document.update_summary`'s docstring claims it updates
+  `md_summary_file` but it only writes a revision, so intelligence-panel
+  summary coverage stays 0%. (4) `add_document`-triggered agent actions
+  re-fire on agent-authored document writes (runaway agent loop / unbounded
+  LLM spend).
+- **Pre-computed `myPermissions` now mirror the structural-write break-glass.** `AnnotationService.get_document_annotations` masked structural rows' `_can_update`/`_can_delete` to `False` for everyone — under-reporting for superusers, whose structural writes are allowed by the break-glass in `AnnotationManager.user_can` (a stale comment claimed superusers were "handled upstream", which stopped being true with scoped admin access 2026-05). `RelationshipService.get_document_relationships` had no structural mask at all — over-reporting doc+corpus write permissions on structural relationships for normal users. Both services now mask structural rows to `user.is_superuser`. Tests: `opencontractserver/tests/permissioning/test_structural_mypermissions_breakglass.py`.
+- **Consolidated permissioning guide audited against the GraphQL + service layers** (`docs/permissioning/consolidated_permissioning_guide.md`): corrected the Discussion-Thread moderation rules (EDIT permission on corpus/document does NOT grant moderation; `CorpusModerator` with a non-empty permissions list does; `Corpus.user_can_moderate` divergence documented per #1450), the `DocumentActionsService` permission bullets (no superuser branch — the old `_check_document_permission` "User is superuser" list contradicted scoped admin access), anonymous conversation visibility (THREADs inherit public corpus/document context), the `get_users_permissions_for_obj` group-permission default (`True`, not `False`), Pitfall 1 (`allAnnotations` without `corpusId` returns structural-only, not empty), CorpusCategory management (superuser-gated GraphQL mutations exist alongside Django Admin), and the agent section (`ws/agent-chat/` URL, awaited `_check_user_permissions`, real test-file paths, issue #820 fault-tolerance split). Renamed every stale `*QueryOptimizer` reference to the current per-app services and dead `opencontractserver/<app>/query_optimizer.py` paths to `opencontractserver/<app>/services/…`. Documented previously-missing behavior: the issue #1682 `get_corpus_documents` vs `get_corpus_documents_visible_to_user` dual semantics, the `opencontracts.E001` system check (dual enforcement + scan-scope nuance), `BaseService.filter_visible_qs`, and reference-table rows for Note / UserFeedback / Embedding / CorpusAction / Notification.
+- **Stale "superuser bypass" code comments removed** (scoped admin access 2026-05 left contradicting docstrings behind): `PermissionQuerySet.visible_to_user` + `BaseVisibilityManager` + `PermissionManager` (`opencontractserver/shared/`), `ChatMessageQuerySet.visible_to_user` (`opencontractserver/conversations/models.py`), `get_annotation_images_with_permission` (`opencontractserver/llms/tools/image_tools.py`), and `DocumentRelationshipService.user_has_permission` (`opencontractserver/documents/services/relationships.py`). Also fixed CLAUDE.md's pitfall #2 (`ConversationQueryOptimizer` → `ConversationService`).
+- **Interactive chat now honors `AgentConfiguration.preferred_llm` (the
+  per-agent model override).** `config/websocket/consumers/unified_agent_conversation.py`
+  `_initialize_agent` built the agent-factory kwargs without
+  `agent_preferred_llm`, so the WebSocket chat path silently fell back to the
+  corpus / install-wide default model even when the selected agent pinned a
+  model — diverging from the Celery (`opencontractserver/tasks/agent_tasks.py`)
+  and delegation (`opencontractserver/llms/tools/delegation_tools.py`) paths,
+  which already thread it. Now the consumer passes
+  `agent_kwargs["agent_preferred_llm"] = self.agent_config.preferred_llm` (when
+  set) into `agents.for_document`/`for_corpus`, which the factory treats as the
+  top-of-chain override. Regression tests:
+  `UnifiedAgentConsumerAgentLlmTestCase` in
+  `opencontractserver/tests/websocket/test_unified_agent_consumer.py`.
+- **`updatePipelineSettings` now rejects cross-stage component assignments.**
+  `validate_component_mapping` (`config/graphql/pipeline_settings_mutations.py`)
+  only checked registry membership, so a raw GraphQL call could assign e.g. a
+  parser class as a `preferred_thumbnailers`/`preferred_embedders`/`preferred_parsers`
+  entry. Registry membership is insufficient: the wrong component type has no
+  `.generate_thumbnail` / `.embed_text` and blows up at ingest with an
+  `AttributeError`, marking every affected document FAILED. The validator now
+  takes an expected `ComponentType` and rejects the mismatch up front (mirroring
+  the stricter guard already applied to `default_file_converter`). The GUI
+  dropdowns can never produce this, but the API previously accepted it. Test:
+  `test_update_preferred_thumbnailer_rejects_wrong_component_type`.
+- **`updatePipelineSettings` silently wiped sibling MIME-type/component entries.**
+  Setting one MIME type's preferred parser (e.g. assigning `application/pdf` to
+  a new parser) replaced the entire `preferred_parsers` mapping wholesale,
+  silently dropping every other MIME type's parser/thumbnailer/enricher
+  assignment (and likewise for `parser_kwargs` / `component_settings`, keyed
+  per component class path). Fixed by shallow-merging the incoming mapping
+  over the existing one for all six mapping fields
+  (`config/graphql/pipeline_settings_mutations.py`); the JSON-size guard now
+  checks the merged result so repeated small updates can't accumulate past the
+  cap. An explicit `null` value for a key is a delete marker (drops that key
+  from the merged result) — required by the admin System Settings GUI's
+  "-- Unassigned --" filetype-default option and enricher-chain removal
+  (`frontend/src/components/admin/SystemSettings.tsx` `handleAssign` /
+  `handleAssignEnrichers`), which now send only the single changed MIME type
+  instead of resubmitting the full mapping. Also removed a duplicate,
+  narrower "assigned components must stay enabled" check left over from a
+  concurrent merge — the broader `_find_disabled_but_assigned` check (added
+  for issue #2116) already supersedes it and is now the sole implementation,
+  fixed to read the merged `settings_instance` state instead of the raw
+  per-call request args. Added regression coverage in
+  `opencontractserver/tests/test_pipeline_settings.py` and
+  `frontend/tests/system-settings-flows.ct.tsx`.
+- **`components_with_secrets` no longer leaks agent-tool secret keys.** Component
+  secrets and agent-tool secrets (e.g. `tool:web_search`) share one encrypted
+  store on `PipelineSettings`. The GraphQL resolver and the
+  update/reset/component-secret mutations built the component list from raw
+  `get_secrets().keys()`, so `tool:`-prefixed keys leaked into the admin
+  Component Library's per-component secret indicators. Added
+  `PipelineSettings.get_components_with_secrets()`
+  (`opencontractserver/documents/models.py`) — the inverse of
+  `get_tools_with_secrets()` — and routed `config/graphql/pipeline_queries.py`
+  and the four mutation return sites through it. Tests:
+  `test_get_components_with_secrets_excludes_tool_keys`,
+  `test_pipeline_settings_query_excludes_tool_secret_keys`.
+- In-run history compaction dropped `ThinkingPart`s from responses that also
+  carried a `ToolCallPart`. OpenAI's Responses API treats the two as one unit
+  and rejects the request outright — *"Item 'fc_…' of type 'function_call' was
+  provided without its required 'reasoning' item: 'rs_…'"* — so a deep-research
+  run on a GPT-5.6 model died with a 400 after 38 tool calls and nothing
+  recorded. Chat Completions tolerates the split, which is why this stayed
+  invisible until the endpoint moved.
+  `llms/history_processors.py::_shrink_message` now keeps reasoning on any
+  response that called a tool. Written as an invariant rather than a
+  per-provider switch: reasoning that produced a tool call is part of that
+  call's record, and dropping half a pair is not a saving. Reasoning-only
+  responses still shed their thinking, which is where most of the context
+  saving was. Two pre-existing tests changed fixtures — every response
+  `_make_pair` builds carries a tool call, so the drop is now demonstrated on a
+  reasoning-only response; their original intent (older thinking goes, recent
+  thinking stays) is unchanged.
+- `reEmbedCorpus` can now finish a migration it started. `reembed_corpus`
+  (`opencontractserver/tasks/corpus_tasks.py`) writes `preferred_embedder`
+  *before* queueing work and caps each dispatch at `MAX_REEMBED_TASKS_PER_RUN`
+  (500 batches × `EMBEDDING_BATCH_SIZE` = 50k annotations), so any corpus larger
+  than that cap ended its first run already labelled with the new embedder while
+  most of its annotations still carried the old one. The mutation's no-op guard
+  compared only the embedder path, so every retry answered *"Corpus already uses
+  this embedder. No re-embedding needed."* with `ok: true` — leaving the corpus
+  permanently half-migrated, its unembedded tail invisible to vector search, and
+  nothing anywhere reporting a problem. Observed live on a 77k-annotation corpus
+  that stopped at 38% and could not be resumed through any API or UI path.
+  The guard now also requires zero outstanding annotations, via the new
+  `CorpusService.count_annotations_missing_embeddings`
+  (`opencontractserver/corpuses/services/corpus_service.py`), and a resumed run
+  reports how many annotations remain
+  (`config/graphql/corpus_mutations.py::_mutate_ReEmbedCorpus`). Regression
+  tests: `opencontractserver/tests/test_embedder_management.py::TestReEmbedCorpusResume`.
+- **References never render a link their audience cannot follow (no 404s).**
+  The reference-link pass (`EnrichmentService._link_external`) now resolves
+  against the citing corpus's *audience floor* — anonymous for a public corpus
+  (so only public authorities may link), the creator otherwise — and is
+  bidirectional: it promotes an EXTERNAL ref whose target is audience-visible to
+  RESOLVED, and **demotes** a RESOLVED ref back to EXTERNAL (clearing its
+  mention `link_url`) when the target authority is no longer audience-visible
+  (e.g. an authority corpus goes private). Previously a public corpus could
+  render clickable links into a private authority corpus, which 404'd for every
+  non-owner viewer. `_restamp_mention_links` now mirrors each mention's
+  `link_url` onto its ref's resolution state (set when resolved, cleared when
+  not). `apply()` / `relink_corpora_for_keys` report a `links_demoted` count.
+- **Document references panel surfaces resolution state clearly.**
+  `DocumentReferencesPanel.tsx` replaces the faint "cited, not yet ingested"
+  italic note with per-row status chips — a teal "Linked" chip on resolved rows
+  and an amber "Awaiting source" chip (clock icon, with a tooltip explaining the
+  authority isn't ingested yet) on unresolved law citations — plus a
+  "N linked · M awaiting" breakdown in the Cites header.
+- `calculate_embeddings_for_relationship_batch`'s explicit-embedder-path now batches wire calls through `embed_texts_batch()` (via the new shared `_batch_embed_items` helper, also used by `calculate_embeddings_for_annotation_batch`) instead of one HTTP round-trip per relationship. The per-relationship loop assumed "structural subtree groups are small relative to annotations," which doesn't hold for parsers that emit one relationship per non-leaf heading node (e.g. Warp-Ingest's `OC_SUBTREE_GROUP` rows) — on real documents this was adding several seconds of serial per-document overhead during ingest. File: `opencontractserver/tasks/embeddings_task.py`.
+- `relationships.csv` import created duplicate `DocumentRelationship` rows on
+  re-import (`opencontractserver/tasks/import_tasks.py::_create_document_relationships`
+  used a blind `create`). Now `get_or_create` on the edge's natural identity
+  (source, target, corpus, label, type) — mirroring the enrichment writer's
+  graph-rollup semantics — so relationships-only patch ZIPs and re-run batches
+  are idempotent; duplicates count as `relationships_skipped`.
+- `ResearchReport.tool_call_log` recorded only the tools `research_tasks.py`
+  builds as closures. Every tool from the agent's DEFAULT toolset —
+  `similarity_search`, `list_documents`, `ask_document`, the reference-graph
+  tools — was invisible, so the log held roughly half of what a run did and the
+  Run details tab presented that half as the whole. Ten runs were read off that
+  log as having retrieved only by exact phrase and never once by meaning, and a
+  prompt was rewritten on the strength of it; the worker log showed those same
+  runs embedding query after query, which only `similarity_search` does. An
+  instrument that cannot see a tool reports that the tool was never used.
+  `research_tasks.py::_audit_default_toolset` now wraps the resolved toolset
+  after the agent is built (`FunctionSchema.call` resolves `self.function` at
+  call time, so replacing it intercepts every later invocation). Verified live:
+  a run's log now opens `similarity_search: 4, find_citable_passages: 2` where
+  the same run previously showed the phrase tool alone.
+- Deep research: the closures built in `research_tasks.py` were audited
+  **twice**. They are handed to the agent factory as caller tools and land in
+  the same resolved toolset `_audit_default_toolset` walks, so every
+  `record_finding` / `find_citable_passages` / `finalize_report` call wrote two
+  audit rows — visible as `finalize_report: 2` on runs that can only call it
+  once. Not cosmetic: the step-budget counter reads the log length, so a run at
+  27 real tool calls was told "54 of 60 used" and pushed to finalize with half
+  its budget unspent.
+  The first attempt at a guard did not work. It marked an attribute on this
+  module's wrapper, but the factory RE-WRAPS caller tools, so the callable
+  reachable at `Tool.function_schema.function` is the factory's wrapper and
+  carries no marker; the unit test passed only because it placed our wrapper
+  there directly. The skip is now by NAME (`already_audited`), which does not
+  depend on surviving a wrapper we do not control, with the attribute check
+  kept as a second line of defence. Any tool-count comparison spanning commits
+  `e50015cc4`–`c61ce1b7e` mixes the two counting regimes.
+- Deep research: across twenty runs of a group-scoped question the agent called
+  `search_across_group` **zero** times. It searched the anchor corpus, got
+  hits, and stopped — which was reasonable, because nothing told it the anchor
+  held 2 documents out of the group's 354, or that the utility corpus the
+  question is about was one of the nine it never opened. Knowing the tool
+  existed was not enough. The mission prompt now states the group's shape —
+  corpus count, total documents, and how many the anchor holds — counted
+  through `CorpusGroupService.get_group_corpora_visible_to_user` with the
+  report creator's permissions so it never advertises a corpus the caller
+  cannot read (`research_tasks.py::_describe_group_scale`,
+  `research/constants.py::build_deep_research_system_prompt`). The tool's own
+  description was also rebalanced: it opened with two sentences of cost warning
+  about `k`, which is a good way to make a model avoid a tool entirely.
+- **Deep-research report body: `## Sources` footnotes now deep-link to the cited annotation.**
+  In the research report detail view the rendered report body's footnote
+  definitions (e.g. *"page 41 annotation 395149 — …"*) were plain text, so a
+  reader could not click through to the source — only the separate Citations
+  tab carried links. The footnote definitions in the body are now click-to-source
+  targets that navigate to the cited document with the cited annotation selected
+  (`?ann=<global id>`), mirroring the Citations tab.
+  - `frontend/src/views/ResearchReportDetail.tsx`: extracted the per-citation
+    deep-link logic into a shared `buildCitationHref` helper (used by both the
+    Citations tab rows and the new footnote links so they stay in lock-step),
+    built a `footnote → href` map keyed by the backend's `[^n]` number, and
+    passed a custom `li` renderer to the body markdown that upgrades footnote
+    definitions (`<li id="user-content-fn-n">`) into client-side-routed links.
+    The annotation's canonical global ID is taken from the server's
+    `fullSourceAnnotationList` (typename `ServerAnnotationType`), never
+    reconstructed from the raw PK.
+  - `frontend/src/components/knowledge_base/markdown/SafeMarkdown.tsx`: now
+    accepts an optional `components` override (forwarded to ReactMarkdown) so a
+    caller can customise specific nodes without weakening the shared
+    `urlTransform` safety gate.
+- Deep research: the mission prompt told the agent to DISCOVER by meaning and
+  then PIN the exact language with `find_citable_passages`. That is two
+  retrievals per finding, and it halved the card yield — across ten runs the
+  agent spent up to 42 calls on phrase lookups (which were *hitting*, not
+  missing) and filed two or three cards before its step budget ran down, where
+  the run that made only four phrase calls filed seven. The prompt now says
+  what is actually true: every search hit carries its `annotation_id`, which IS
+  the cite handle, so no second lookup is needed to cite it, and
+  `find_citable_passages` is for when you know the exact words and search has
+  not surfaced them (`research/constants.py::build_deep_research_system_prompt`).
+- Fixed agents dating their own analysis from training data. Nothing in the
+  stack told an agent what "now" is, so a persona asking it to "state the
+  analysis date" got one invented: a July-2026 question answered over 2026
+  authorities was reported "as of June 2024" — substantively right and
+  immediately untrustworthy. `agent_factory._inject_temporal_grounding` now
+  appends a computed block to every agent's system prompt (research timestamp,
+  and corpus currency read from stamped `retrieved_at` source metadata when the
+  corpus has it), forbids inferring an "as of" date, and forces apart the two
+  date pairs temporal legal questions turn on: the date asked about vs the date
+  researched, and when an authority was **approved** vs when it became
+  **effective**.
+- Fixed cross-corpus search hits carrying no citable identity. Authority
+  corpora annotate structurally — every annotation has `document_id=None` and
+  reaches its document through a shared `StructuralAnnotationSet` — so
+  `search_across_corpora` returned hits with no document at all, and answers
+  cited "paragraph p.0" rather than a rule section. Hits now resolve their
+  document and carry `canonical_key`, `section`, `authority_weight`,
+  `instrument_type`, `publisher`, `status`, `effective_from` / `effective_until`,
+  `version_label` and `source_url`.
+- **Version-correctness (load-bearing):** a structural set is shared by every
+  sibling in a version tree, so resolution goes through the *current*
+  `DocumentPath` in the searched corpus. Taking the set's first document would
+  cite a superseded rule as current — precisely the error separate current and
+  historical corpora exist to prevent.
+- The DFW orchestrator persona now cites from those fields, ranks sources by
+  `authority_weight` (controlling rule vs implementing notice vs evidentiary
+  lineage) instead of listing them flat, and quotes the computed research
+  timestamp rather than stating an "as of" date.
+- **`uploadDocument` crashed with a Python `TypeError` when `customMeta` was omitted.**
+  `UploadDocument.custom_meta` is declared `required=False` in the GraphQL
+  schema, but the resolver had no Python default for it, so a caller whose
+  query didn't include `customMeta` at all (graphene only passes arguments a
+  query actually names) got `missing 1 required positional argument:
+  'custom_meta'` instead of a clean response. Fixed by defaulting
+  `custom_meta=None` in `UploadDocument.mutate`
+  (`config/graphql/document_mutations.py`), matching the sibling
+  `UploadDocumentsZip` mutation's existing pattern. Added regression coverage
+  in `opencontractserver/tests/test_document_uploads.py`.
+- **Content re-imports dropped a path's ingestion lineage**
+  (`opencontractserver/documents/versioning.py::import_document`, update
+  branch): re-importing a document at the same corpus path created the new
+  current `DocumentPath` with empty `ingestion_source` / `external_id` /
+  `ingestion_metadata`, while move, delete, and restore all carry those
+  fields forward — so a durable `external_id` stamped by an earlier import
+  was silently lost on upversion. The update branch now inherits the three
+  lineage fields from the previous path version unless the caller supplies
+  fresh values. Also hardened the customs enrichment namespace match to be
+  case-insensitive (`CROSS:H022844` was stored verbatim but silently ignored
+  at resolution time —
+  `opencontractserver/enrichment/resolver.py::document_identity_candidates`).
+- **Fixed env-configurable zip-import limits being silently frozen to their
+  defaults in production.** `opencontractserver/constants/zip_import.py` read
+  every limit (`ZIP_MAX_FILE_COUNT`, `ZIP_MAX_TOTAL_SIZE_BYTES`,
+  `ZIP_MAX_SINGLE_FILE_SIZE_BYTES`, `ZIP_MAX_FOLDER_COUNT`,
+  `ZIP_MAX_SIDECAR_SIZE_BYTES`, `ZIP_DOCUMENT_BATCH_SIZE`,
+  `BULK_UPLOAD_OWNER_CACHE_TTL_SECONDS`, …) via a *module-level*
+  `getattr(settings, …)`. Because `config/settings/base.py` imports from
+  `opencontractserver.constants.*` at the top of the settings module, the
+  constants package `__init__` — which eagerly `import *`-ed `zip_import` —
+  executed *while settings was still mid-load*, so each limit bound to its
+  hard-coded default before `base.py` defined the env-driven value and froze
+  there for the life of the process. ConfigMap/`env` overrides of any `ZIP_*`
+  limit were therefore permanently inert (these are the zip-bomb / resource-
+  exhaustion / path-length security limits, so an operator tightening them got
+  the shipped defaults instead). The limits are now read lazily at call time
+  through `get_*()` accessors (mirroring the sibling
+  `opencontractserver/constants/zip_export.py`), `DEFAULT_*` constants hold the
+  fallbacks, and `zip_import` is no longer barrel-imported by
+  `opencontractserver/constants/__init__.py` — so settings/`env` overrides are
+  honoured at runtime. Consumers updated to call the accessors:
+  `opencontractserver/utils/zip_security.py`,
+  `opencontractserver/tasks/import_tasks.py`,
+  `opencontractserver/document_imports/services.py`. Regression test:
+  `opencontractserver/tests/test_constants.py::TestZipImportConstants::test_accessors_reflect_settings_overrides`.
 - **Ugly white line in PDF annotation highlights when the bounding box is hidden (2026-06).**
   `SelectionInfo` (the annotation label container) in
   `frontend/src/components/annotator/display/components/Containers.tsx`
@@ -398,6 +3502,1906 @@ None}`) and `config/settings/test_integration.py` (`{"address": REDIS_URL,
 
 ### Added
 
+
+- **Deep-research durable context management: living plan + agent memory + crash recovery.**
+  The deep-research agent could exhaust its context window on long
+  investigations and fail without a graceful recovery path. It now has a
+  durable working surface that survives both in-run context compaction (the
+  system prompt is never compacted) and a worker restart:
+  - **Living plan** — `ResearchReport.plan` (new field). `update_research_plan` /
+    `get_research_plan` tools let the agent maintain a high-level plan that is
+    re-injected at the top of the system prompt on *every* run. Clamped to
+    `MAX_RESEARCH_PLAN_CHARS` (head-preserving truncation).
+  - **Memory store** — `ResearchReport.memory` (new JSON field). `write_memory`
+    (replace/append), `read_memory`, `list_memory`, `delete_memory`, and a
+    grep-like `search_memory` (scans memory entries *and* recorded findings)
+    let the agent offload far more than fits in context. Bounded by per-key,
+    per-value, key-count, and total-store caps
+    (`opencontractserver/research/constants.py`), surfaced to the model as
+    operational error strings (cap violations raise `ResearchMemoryLimitExceeded`;
+    malformed input raises the `ResearchMemoryError` base) rather than crashing
+    the job.
+  - **Resume after crash** — a worker that picks up a report already in
+    `RUNNING` now resumes instead of restarting: `mark_started(resuming=True)`
+    preserves the original `started_at`, and `build_recovery_digest` primes the
+    system prompt with the plan, a tail digest of findings, and the memory
+    index. New periodic task `reap_stalled_research` (beat: every 5 min)
+    re-enqueues RUNNING reports whose `last_progress_at` is colder than
+    `DEEP_RESEARCH_STUCK_THRESHOLD_SECONDS` via `ResearchReportService.resume`
+    (single `pk__in` fetch, no N+1).
+  - Files: `opencontractserver/research/models.py` (+migrations
+    `0002_researchreport_plan_memory`, `0003_rename_researchreport_indexes`),
+    `.../research/constants.py`, `.../research/services/research_reports.py`,
+    `opencontractserver/tasks/research_tasks.py`, `config/settings/base.py`
+    (beat entry). Tests:
+    `opencontractserver/tests/research/test_research_memory.py`.
+- **Live, DB-configurable LLM provider credentials & endpoints.**
+  LLM providers (`opencontractserver/pipeline/llm_providers/*.py`) are now
+  full pipeline components with a nested `Settings` dataclass carrying an
+  encrypted `api_key` (`SECRET`) and, where applicable, a `base_url`
+  (`OPTIONAL`) — built via the new `llm_api_key_field` / `llm_base_url_field`
+  helpers on `BaseLLMProvider` (`opencontractserver/pipeline/base/llm_provider.py`).
+  Superusers can set or rotate a provider's API key and point it at a custom /
+  OpenAI-compatible endpoint **live in System Settings → Pipeline Components**,
+  with no environment-variable change or redeploy. Credentials are stored (key
+  encrypted) in the `PipelineSettings` singleton, reusing the existing Fernet
+  secret machinery and GraphQL secret mutations — no schema migration required.
+  - New resolver `opencontractserver/llms/model_factory.py`
+    (`build_agent_model` / `abuild_agent_model`) implements **DB-wins /
+    env-fallback**: when a provider has DB-configured credentials it builds a
+    concrete pydantic-ai model with an explicit `Provider(api_key=…,
+    base_url=…)`; otherwise it returns the bare `"{provider}:{model}"` spec
+    string so pydantic-ai resolves the credential from the environment exactly
+    as before. Any construction failure degrades to the env-fallback string,
+    so a misconfiguration can never break the chat path. Adding a new provider
+    branch is signposted at the fall-through warning.
+  - Wired into all five `make_pydantic_ai_agent` call sites — document, corpus
+    and structured-output agents (`opencontractserver/llms/agents/pydantic_ai_agents.py`)
+    plus the memory-curation tasks (`opencontractserver/tasks/memory_tasks.py`).
+  - Frontend: the System Settings component library renders the generic
+    secret/config panel from each component's `settingsSchema`, so provider
+    `api_key`/`base_url` editing surfaces automatically; updated the "API key"
+    badge tooltip in
+    `frontend/src/components/admin/system_settings/ComponentLibrary.tsx` to
+    reflect live configurability.
+  - `_construct_model` handles only `google-gla` (AI-Studio, API-key auth);
+    `google-vertex` uses service-account ADC credentials rather than an API key,
+    so it falls through to the env-fallback path instead of being grouped with
+    `google-gla`.
+  - Tests: `opencontractserver/tests/test_llm_model_factory.py` covers provider
+    settings-schema extraction, DB-wins/env-fallback resolution, construction
+    failure degradation, and the GraphQL-facing secret status surface.
+- **Materialised install-wide statistics (`SystemStats`).** A new singleton
+  model (`opencontractserver/users/models.py`) holds pre-computed headline
+  counts (active users, documents with an active path, corpuses, non-structural
+  annotations, conversations, chat messages), refreshed hourly by the
+  `refresh_system_stats` Celery beat task
+  (`opencontractserver/tasks/stats_tasks.py`;
+  `SYSTEM_STATS_REFRESH_INTERVAL_SECONDS` in
+  `opencontractserver/constants/stats.py`). Surfaced via the GraphQL
+  `systemStats` query (`config/graphql/stats_queries.py`) so dashboards/landing
+  tiles read one indexed row instead of running full-table `COUNT`s on every
+  page load. These are GLOBAL (not permission-scoped) counts. The count
+  definitions live in one place (`SystemStats.compute_values()`) and are shared
+  by the telemetry heartbeat (`telemetry_tasks.send_usage_heartbeat`) so the two
+  can never drift. Migration: `users/0031_systemstats.py`.
+- **Discover search is now hybrid (text + semantic) across every category, plus a new Documents category.**
+  The Discover view (`frontend/src/views/DiscoverSearchResults.tsx`) previously
+  reused the `*ForMention` autocomplete resolvers and `conversations`/`corpuses`
+  list fields, which were substring/FTS-only and searched a narrow field set.
+  New dedicated, relevance-ranked resolvers in
+  `config/graphql/discover_queries.py` (`DiscoverSearchQueryMixin`, registered
+  in `config/graphql/queries.py`) back each category with a **hybrid** search
+  that fuses a text arm (substring + PostgreSQL full-text) with a semantic arm
+  (pgvector cosine similarity over existing embeddings) via Reciprocal Rank
+  Fusion:
+  - `discoverAnnotations` — substring + FTS + vector.
+  - `discoverDocuments` — **new Discover category** (title/description + doc
+    embedding); surfaced as a new "Documents" tab in the UI.
+  - `discoverNotes` — now uses FTS (see `Note.search_vector` below) + vector,
+    not just `LIKE`.
+  - `discoverCorpuses` — matches collection title/description **and**
+    collections whose contained documents/annotations match the query.
+  - `discoverDiscussions` — now searches thread **message bodies**, not just the
+    thread title, plus vector; scoped to THREADs (CHATs excluded).
+  Each resolver permission-filters through `BaseService.filter_visible` before
+  either arm runs; the semantic arm degrades gracefully to text-only when no
+  embedder is configured or content is not yet embedded. Backend tests:
+  `opencontractserver/tests/test_discover_search_graphql.py`. Frontend queries:
+  `DISCOVER_ANNOTATIONS` / `DISCOVER_DOCUMENTS` / `DISCOVER_NOTES` /
+  `DISCOVER_CORPUSES` / `DISCOVER_DISCUSSIONS` in `frontend/src/graphql/queries.ts`;
+  component test updated in `frontend/tests/DiscoverSearchResults.ct.tsx`.
+- **`Note.search_vector` full-text column (migration `annotations/0076`).**
+  Adds a trigger-maintained `tsvector` (built from `title` + `content`) and a
+  GIN index to `Note`, mirroring `Annotation.search_vector` (migration 0063).
+  This gives note search stemming + ranking and an index instead of the prior
+  unindexed `LIKE '%…%'` sequential scan. Model change in
+  `opencontractserver/annotations/models.py`. `NoteType`
+  (`config/graphql/annotation_types.py`) excludes the new `search_vector` field —
+  graphene-django cannot convert a `SearchVectorField` and would otherwise raise
+  at schema-import time.
+- **Deferred annotation import: re-anchor producer annotations onto the final PAWLs layer.**
+  Bulk-ZIP / scraper / sidecar producers ship _dumb-anchor_ annotations — PDF
+  `page`+`bbox` or text char-span (`start`/`end`) plus `rawText`, with no PAWLs
+  or token indices (which go stale the moment the document is re-parsed). The
+  document is created through the **normal** parser pipeline; producer
+  annotations are persisted in a new `PendingDocumentAnnotations` model
+  (`opencontractserver/documents/models.py`, migration `documents/0041`) and
+  re-anchored after ingest.
+  - `remap_pending_annotations` (`opencontractserver/tasks/doc_tasks.py`) now
+    runs as a standard step in the post_save ingest chain
+    (`extract_thumbnail → ingest_doc → remap_pending_annotations →
+    set_doc_lock_state`, `opencontractserver/documents/signals.py`) and bails in
+    a single indexed query when a document has no pending rows (the common case).
+    Document creation and the pending row are wrapped in one
+    `transaction.atomic()` so the chain's `on_commit` dispatch fires only after
+    the row is committed (closes a latent race). `_remap_one_pending_row`
+    likewise wraps annotation creation + status/`id_map` save in one atomic block
+    so a failed status save can't leave duplicate annotations behind on retry,
+    and it processes **all** PENDING rows for a document, not just the first.
+  - `anchor_annotations` (`opencontractserver/utils/annotation_anchoring.py`)
+    re-derives token indices from bbox + `rawText` against the freshly-parsed
+    PAWLs; `_anchor_pdf` is multi-page. A `legacy_annotation_to_dumb_anchor`
+    adapter normalises legacy baked-`annotation_json` exports through the same
+    path (dropping their stale token indices). `structural=True` and
+    unrecognised/compact-v2 `annotation_json` are **reported as dropped, never
+    silently lost**, each with a distinct reason. Remapped token annotations are
+    stored in the canonical compact v2 `annotation_json` encoding via
+    `compact_annotation_json`.
+  - Annotations that cannot be confidently anchored, or whose label does not
+    resolve in the corpus labelset, are dropped and reported on the pending row
+    (`dropped: true` + reason; `dropped` / `label_unresolved` counts). If the
+    producer asked for annotations but **nothing landed** — whether every
+    annotation failed to anchor outright (geometry miss + `rawText` not found)
+    or anchored-then-dropped on an unresolved label — the row is marked `FAILED`
+    rather than a silent `DONE`. A pending row with no resolvable corpus logs an
+    explicit warning so an empty labelset isn't mistaken for a bad `labels.json`.
+    `PendingDocumentAnnotations` gains an `updated_at` column and a Django admin
+    registration for visibility into stuck/failed rows.
+  - A standalone validator `validate_dumb_anchor_sidecar`
+    (`opencontractserver/utils/validate_export.py`) checks a producer's sidecar
+    against its `labels.json` before zipping (including the span-label-must-be-
+    `TOKEN_LABEL` import gotcha), and is **also run inline during the bulk-ZIP
+    import** (`opencontractserver/tasks/import_tasks.py`) — when the producer
+    ships a `labels.json` alongside a dumb-anchor sidecar — so a malformed
+    sidecar fails fast at import time: the pending row is persisted `FAILED` with
+    the validation errors in its `report` instead of draining through the Celery
+    queue to surface only as a post-ingest remap failure. (Imports without a
+    `labels.json`, where labels resolve from the corpus labelset, skip the
+    pre-flight and are re-anchored as before.) Shared PAWLs token-matching
+    helpers
+    (region selection, page-text tokenisation, fuzzy title matching, bounds
+    union) were extracted to `opencontractserver/utils/pdf_token_matching.py`
+    and are shared by the PDF outline enricher and the re-anchoring code.
+  The full-V2 / single-document corpus-export import path (which ships
+  self-consistent PAWLs + indices) is deliberately unchanged.
+- Add `AuthorityDiscoveryService` (`opencontractserver/enrichment/services/authority_discovery_service.py`): registry-driven orchestrator that selects a public-domain provider, fetches statute text, bootstraps an authority corpus, and runs an equivalence-aware cross-corpus relink so act-section citations (e.g. `exchange-act:10(b)`) upgrade from `EXTERNAL` to `RESOLVED` once the corresponding USC document lands.
+- Extend `find_authority_target` (`opencontractserver/enrichment/authorities.py`) with an `AuthorityKeyEquivalence` hop so subsection act-section citations (e.g. `exchange-act:10(b)`) resolve to the equivalent USC document (e.g. `usc-15:78j`) in a single call.
+- Add curated Exchange Act and Securities Act ↔ USC-15 equivalence seed (`opencontractserver/enrichment/data/authority_key_equivalence_seed.py`) with 19 verified pairs, applied via data migration `0087_seed_authority_key_equivalence`.
+- **AgenticWebLocatorProvider** (Phase 4): opt-in, lowest-priority (9999) universal
+  fallback that uses a bounded tool-using LLM agent to locate official public-domain
+  authority text when no deterministic provider can handle a canonical key.
+  Located at `opencontractserver/pipeline/authority_source_providers/agentic_web_locator_provider.py`.
+  Key properties: `enabled=False` (opt-in per deployment); `requires_approval=True` so
+  results are parked at `pending_approval` by the Phase 3 gate and never auto-ingested;
+  the agent receives only the normalised citation + jurisdiction (never document text,
+  for privacy); its fetch tool routes every URL through `safe_fetch_text` (SSRF-safe,
+  non-allowlisted hosts return a `[blocked: ...]` string rather than raising so the
+  agent loop survives). Agent construction follows the Phase 2 (`LLMCitationExtractor`)
+  pattern: `resolve_model_spec` → `abuild_agent_model` → `make_pydantic_ai_agent`
+  with `output_type=_LocatorOutput`, `tools=[...]`; result accessor is `result.output`.
+  Covered by 17 unit + integration tests in `opencontractserver/tests/test_agentic_web_locator.py`;
+  all mock `_run_agent` so no LLM calls or network requests are made in CI.
+- Extended `AuthorityFrontier.DISCOVERY_STATE_CHOICES` (`opencontractserver/annotations/models.py`) with three Phase-4 gate outcomes: `"blocked_license"` (license not public-domain), `"unlocated"` (fetched text did not verify against the requested key), and `"pending_approval"` (found, awaiting human approval). All fit within the existing `max_length=32`.
+- Generated migration `0088_authorityfrontier_gate_states` (choices-only AlterField, DB no-op).
+- Extended `AuthorityFrontierService.mark()` (`opencontractserver/enrichment/services/authority_frontier_service.py`) with a `candidate_record: dict | None = None` keyword argument. When provided, it appends the record to `row.candidate_sources` (append-only audit trail; earlier attempts are never overwritten) and includes `"candidate_sources"` in `update_fields`.
+- Added tests in `opencontractserver/tests/test_authority_frontier.py`: append-only audit trail, no-op when `candidate_record` is omitted, and acceptance of the three new `discovery_state` values.
+- Add `AuthorityGateService` verify+license gate (`opencontractserver/enrichment/services/authority_gate_service.py`) that runs after `provider.fetch()` and before `bootstrap_authority_corpus`, enforcing public-domain license, source-domain allowlist, and canonical-key/heading match verification. Non-OK verdicts are recorded as `candidate_sources` audit entries on the `AuthorityFrontier` row.
+- Add `priority`, `requires_approval`, `enabled` ClassVars to `BaseAuthoritySourceProvider` for deterministic provider ordering and opt-in control.
+- Relax `_provider_for` in `AuthorityDiscoveryService` to sort by `priority` and remove inline license check (gate is now the single license authority).
+- Empty-sections result from a provider now records `unlocated` (via gate) rather than `failed`, giving a more precise audit trail.
+- Added `opencontractserver/constants/safe_http.py` with `PUBLIC_DOMAIN_SOURCE_HOSTS` allowlist (5 gov hosts), `ALLOWED_SCHEMES`, `MAX_REDIRECTS`, `CONNECT_TIMEOUT_SECONDS`, `READ_TIMEOUT_SECONDS`, and `MAX_RESPONSE_BYTES` (500 MB) constants.
+- Added `opencontractserver/utils/safe_http.py` with `SSRFValidationError`, `host_on_allowlist()`, `_assert_public_ip()` (rejects any private/loopback/link-local/multicast/reserved/unspecified address from ANY resolved A/AAAA record), `validate_url()`, `safe_fetch_bytes()` (manual redirect loop re-validating every hop, streamed size cap, timeouts via httpx), and `safe_fetch_text()` (UTF-8 wrapper).
+- Added `opencontractserver/tests/test_safe_http.py` (24 tests, no DB) covering: scheme rejection, host allowlist rejection, private-IP rejection (loopback/RFC-1918/link-local/IPv6), redirect re-validation (private target rejected), Content-Length cap, streamed-bytes cap, and happy-path round-trips.
+- Add `CrawlAuthoritiesService.crawl()` BFS engine
+  (`opencontractserver/enrichment/services/crawl_authorities_service.py`):
+  seeds the `AuthorityFrontier` from Wanted Authorities (depth 0), then
+  iterates dequeue → discover_and_bootstrap → re-extract outbound cites →
+  seed depth+1.  Stops on four hard bounds: `max_authorities`,
+  `token_budget`, `per_jurisdiction_cap` (parks blocked rows at
+  `deferred_cap`), and `min_demand` floor.  Returns a full summary dict
+  with `stop_reason`, `outcomes`, `blocked_by_bound`, `per_jurisdiction`,
+  and `frontier_residual` — no silent truncation.
+- Add `crawl_authorities` Celery task (`@corpus_analyzer_task`) in
+  `opencontractserver/tasks/corpus_analysis_tasks.py`: wraps
+  `CrawlAuthoritiesService.crawl()` with the analyzer-framework lifecycle
+  (RUNNING → COMPLETED/FAILED) and exposes all bound parameters with
+  per-field defaults from `C.CRAWL_DEFAULT_*`.
+- Add `CrawlAuthoritiesService` to the enrichment services `__init__.py`
+  (`opencontractserver/enrichment/services/__init__.py`).
+- Add comprehensive test coverage in
+  `opencontractserver/tests/test_crawl_authorities.py`: idempotency
+  (zero duplicate frontier rows on recrawl, ingested rows skipped,
+  child seeding idempotent) and bounds termination (max_authorities,
+  min_demand, max_depth, per_jurisdiction_cap, token_budget, no-silent-
+  truncation summary invariant).
+- Add `crawl_authorities` / `acrawl_authorities` agent tool and `crawl_authorities` `ToolDefinition` (approval-gated, `requires_corpus=True`, `requires_write_permission=True`) that calls the existing `CrawlAuthoritiesService.crawl` BFS engine. Registered at all four sites: `core_tools/corpus_references.py`, `core_tools/__init__.py` exports, `tool_registry.py` `AVAILABLE_TOOLS`, and `FUNCTION_MAP`.
+- Extend `GovernanceGraphService.build` to derive `jurisdiction` and `authority_type` for `doc_nodes` (via `classify_prefix(authority)`) and `jurisdiction`, `authority_type`, and `discovery_state` for `ghost_nodes` (batch-fetched from `AuthorityFrontier` in a single queryset to avoid N+1).
+- Add `jurisdiction`, `authority_type`, and `discovery_state` fields to `GovernanceGraphNodeType` (all nullable strings) and map them in both node branches of `resolve_governance_graph`.
+- **Authority discovery: municipal citation grammar (Tier-2a, issue #1995).**
+  The reference-enrichment engine now detects municipal-code and ordinance
+  citations, completing the federal/state/municipal trio deliberately deferred
+  from Phase 1 (#1990). Two layers, mirroring the established state-code table +
+  bare-act open-vocabulary pattern:
+  - **Known municipal codes** — a new `MUNICIPAL_CODE_ABBREVIATIONS` table
+    (`opencontractserver/enrichment/abbreviations.py`) maps exact code names
+    (e.g. "San Francisco Municipal Code", "S.F. Mun. Code", "N.Y.C. Admin.
+    Code", "Houston Code of Ordinances") to a `muni-<city-slug>` canonical-key
+    prefix, the full hierarchical jurisdiction (`us-ca-san-francisco`), and
+    `authority_type=municipal-ordinance`, at `_CONF_MUNICIPAL` (0.8). Adding a
+    city is a data edit, never a grammar change.
+  - **Open-vocabulary shape grammar** — `GenericCitationExtractor` now matches
+    `[City] Municipal Code § N`, `Mun. Code §`, `Code of Ordinances §`, and
+    `Ordinance No. N` forms for cities outside the table
+    (`opencontractserver/enrichment/grammars.py`), keyed under the SAME
+    `muni-<city-slug>` namespace (jurisdiction left `None` — free text reveals a
+    city but not its state) at `_CONF_MUNICIPAL_GENERIC` (0.6). A captured city
+    therefore shares its prefix with any table entry for the same city, so the
+    two never fragment, and adding the city to the table later upgrades existing
+    mentions instead of orphaning them.
+  - **Precision guards** (held to the federal/state bar): a `§`/`Section`/`Sec.`
+    + number anchor is mandatory (so prose like "the city adopted a new
+    Municipal Code" never matches); the code phrase must be capitalised
+    (lowercase "municipal code" is excluded); "Administrative Code" is kept out
+    of the open-vocab grammar so "Texas Administrative Code" (a STATE
+    regulation) is never mis-tagged municipal; the table pass claims its span so
+    a known code never double-emits with its generic shadow; and every municipal
+    confidence is calibrated below structured federal cites (< 0.9).
+  - `classify_prefix` (`opencontractserver/enrichment/constants.py`) recognises
+    the `muni` / `muni-<city>` prefix family by shape, so a municipal key is
+    never stranded at `(None, None)` authority_type in the frontier or
+    governance graph. No migration or `AuthorityNamespace` seed is required
+    (table candidates carry their taxonomy on the candidate, exactly like the
+    state codes). Tests: golden cross-municipality corpus, false-positive
+    guards, confidence calibration, OCR tolerance, and dedup in
+    `opencontractserver/tests/test_generic_grammars.py`,
+    `test_abbreviations.py`, `test_enrichment_classification_constants.py`.
+- Added frontend tests for the corpus-enrichment runner UI to close the PR 2008
+  patch-coverage gap: `frontend/tests/EnrichmentJobList.ct.tsx` covers every
+  `EnrichmentJobList` status/result/elapsed/label branch (52% → 100% lines),
+  `frontend/tests/AdminEnrichment.ct.tsx` covers the page's superuser access
+  gates and shell (40% → 88%), and
+  `frontend/src/components/admin/enrichment/__tests__/useEnrichmentJobs.test.ts`
+  exercises the `ANALYSIS_COMPLETE` → `refetch()` notification path (review
+  item T-1) — matching corpus, missing-corpus fallback, mismatched corpus, and
+  non-analysis notification types.
+- `AuthorityKeyEquivalence` now has a DB-level `CheckConstraint`
+  (`authority_key_equiv_no_self_reference`, migration `annotations/0098`)
+  forbidding self-referential rows (`from_key == to_key`). The
+  `AuthorityKeyEquivalenceService` already rejected identical keys in Python, but
+  a direct ORM insert / admin action / data import bypassed that guard and a
+  self-row would let `find_authority_target` "hop" a key onto itself. The
+  constraint makes the invariant unbypassable
+  (`opencontractserver/annotations/models.py`); covered by
+  `test_db_constraint_rejects_self_referential_row`
+  (`opencontractserver/tests/test_authority_mapping_crud.py`). Run `migrate` on
+  deploy.
+- **Admin GUI for the per-corpus LLM (Singleton registry).** The
+  `Corpus.preferred_llm` override was fully plumbed in the backend
+  (`resolve_model_spec` chain, `UpdateCorpusMutation`, `CorpusType`) but had no
+  frontend surface — it could only be set via the GraphQL console or Django
+  shell. Added a **Language Model** card to the Corpus Settings panel
+  (`frontend/src/components/corpuses/CorpusSettings.tsx`) backed by a new shared
+  `LlmModelPicker` component (`frontend/src/components/common/LlmModelPicker.tsx`),
+  which the admin System Settings screen now also consumes (de-duplicating its
+  inline provider/model chip list). The picker lists registered providers and
+  their suggested models from two new secret-free, `@login_required` queries
+  (`GET_LLM_PROVIDERS`, `GET_SYSTEM_DEFAULT_LLM` in `frontend/src/graphql/queries.ts`),
+  and when the corpus has no override it shows the inherited install-wide
+  default so users understand "leave empty = inherit". Threaded `preferredLlm`
+  through `RESOLVE_CORPUS_BY_SLUGS_FULL`, the `UPDATE_CORPUS` mutation, and the
+  `CorpusType`/`RawCorpusType` TypeScript types. Empty input clears the override
+  (backend normalises `""` → `NULL`).
+- **Bulk PDF import driver** (`scripts/bulk_import/oc_bulk_import.py`, with `README.md` and `tests/`) — a resumable, client-side CLI for loading very large local PDF trees (100K+ files) into a corpus. It packs files into right-sized ZIP batches (under the server's file/size/folder import caps), submits them through the existing `POST /api/imports/zip-to-corpus/` endpoint (mirroring the local folder tree and running the normal parse pipeline), and records progress in a SQLite ledger so crashes/`Ctrl-C` never lose work. Re-runs are idempotent because re-importing the same relative path upversions rather than duplicating. The driver paces itself against the live corpus parse backlog (`documentStats.processingCount`) since the server has no built-in backpressure, and reconciles completion by corpus document count (the `zip-to-corpus` `job_id` is not pollable). Operational tuning — notably disabling `ADD_DOCUMENT` CorpusActions during the load to avoid a per-document analysis fan-out, and raising `DOCUMENT_PROCESSING_STALE_MINUTES` so the stuck-document reconciler does not false-fail a deep backlog — is documented in the README and `docs/test_scripts/bulk_import_200k.md`.
+- **Bulk import on Auth0 deployments via worker tokens.** The `/api/imports/zip-to-corpus/`, `/api/imports/documents/`, and `/api/imports/chunked/*` endpoints now also accept a `CorpusAccessToken` presented as `Authorization: WorkerKey <token>`, with the same trust model as `/api/worker-uploads/`: the corpus is taken from the token binding (a mismatched `corpus_id` is rejected 403), the usage-cap and `visible_to_user` gates are skipped, and imported documents are owned by the corpus creator. The JWT path is unchanged. This lets the bulk-import CLI authenticate on Auth0 backends (where the `tokenAuth` flow does not), via `--worker-token` / `OC_WORKER_TOKEN`.
+- **Chunked transport in the bulk-import CLI.** Large ZIP batches and oversize (≥100 MB) single files now upload through the existing chunked endpoints (`start` → parts → `complete`), so they stream past reverse-proxy body limits and the server's in-memory buffer. Oversize single files preserve their nested folder via a new `add_to_folder_path` on the single-document import path.
+- **Authority packs (Phase 1, seed-based).** A drop-in bundle format that stands
+  up a jurisdiction's body-of-law as data on the existing Authority architecture
+  — no bespoke app. Adds the generic `load_authority_pack` management command
+  (`opencontractserver/corpuses/management/commands/load_authority_pack.py`),
+  which reads a `pack.yaml` manifest and idempotently (1) loads the pack's
+  `authority_mappings` YAML into `AuthorityNamespace` via
+  `AuthorityMappingLoader.load_all(path=…)`, (2) bootstraps one authority corpus
+  per legal area from a JSON section spec via `bootstrap_authority_corpus`, and
+  (3) writes each area's persona into `Corpus.corpus_agent_instructions`.
+  `--path` accepts any directory, so out-of-tree packs load identically. Ships a
+  reference **Bolivia** pack
+  (`opencontractserver/enrichment/data/authority_packs/bolivia/`) with the
+  five-prefix taxonomy (`jurisdiction: bo`), a seeded `constitucional` corpus
+  (CPE articles), and a Spanish persona — repackaging PR #1305 (@jseborga) as
+  data rather than a standalone app. The live-fetch source provider is deferred
+  to Phase 2 (#2054), since the Bolivian publishers are listing-page, not
+  key-addressable. Design: `docs/architecture/proposals/0002-authority-packs.md`;
+  tests: `opencontractserver/tests/test_authority_pack.py`.
+- **Authority discovery providers (Phase 2 of the Authority Packs proposal, closes #2054).**
+  Added `BaseAuthorityDiscoveryProvider`
+  (`opencontractserver/pipeline/base/base_authority_discovery_provider.py`): unlike
+  the citation-KEYED `BaseAuthoritySourceProvider`, a discovery provider crawls a
+  publisher's index/listing page(s) for documents nobody has cited yet and lists
+  candidates (`DiscoveryCandidate`: canonical_key + url + metadata) without
+  fetching or ingesting them. Mirrors the existing `locate`/`fetch` split as
+  `_fetch_index_impl` (I/O, SSRF-gated via `safe_fetch_text`) /
+  `_parse_index_impl` (pure). `discover_candidates()` is bounded by
+  `enrichment.constants.DISCOVERY_DEFAULT_MAX_CANDIDATES` /
+  `DISCOVERY_MAX_MAX_CANDIDATES`, de-dupes by canonical_key across pages, records
+  per-URL fetch failures (including SSRF rejections) in `skipped_index_urls`
+  rather than aborting the whole run, and refuses to run unless
+  `license == "public-domain"`.
+- Added one reference implementation, `ListingIndexDiscoveryProvider`
+  (`opencontractserver/pipeline/authority_discovery_providers/listing_index_provider.py`):
+  a config-driven, jurisdiction-agnostic regex+template crawler — a publisher
+  supplies a `ListingIndexRule` (link regex + canonical-key template), not new
+  code. Illustrated/tested against a synthetic, Gaceta-Oficial-*shaped* fixture
+  (Bolivia is the proposal's motivating case), not a verified live scraper.
+- Added `AuthorityFrontierService.seed_from_discovery`
+  (`opencontractserver/enrichment/services/authority_frontier_service.py`): the
+  idempotent frontier-seeding entrypoint for discovery candidates, mirroring
+  `seed_child_keys`'s contract exactly — a `canonical_key` that already has a
+  row (any depth/state) is skipped, so re-running never duplicates rows and
+  never resets an in-flight row's `discovery_state`.
+- Extended the pipeline registry (`opencontractserver/pipeline/registry.py`) to
+  auto-discover `BaseAuthorityDiscoveryProvider` subclasses the same way as
+  `BaseAuthoritySourceProvider` — core `authority_discovery_providers/` package
+  plus in-pack `<pack>/discovery_providers/*.py` — via a generalized
+  `_discover_pack_component_classes` helper (replacing the source-provider-only
+  `_discover_pack_provider_classes`). New `ComponentType.AUTHORITY_DISCOVERY_PROVIDER`
+  and `get_all_authority_discovery_providers_cached()`.
+- Added the `discover_authority_candidates` management command
+  (`opencontractserver/annotations/management/commands/discover_authority_candidates.py`)
+  as the operator entrypoint (`--index-url` / `--link-pattern` /
+  `--canonical-key-template` / `--prefix` / `--max-candidates` / `--dry-run`) —
+  no admin UI, by design (deferred alongside Phase 3/4 scheduling and
+  multi-corpus orchestration).
+- **Multi-corpus retrieval: `CorpusGroup` + `search_across_corpora` (issue #2056**, = proposal 0002 Phase 4 / #1444 Phase B**)**. A single orchestrator agent can now fan a semantic query out across N corpora and synthesize a unified answer with per-corpus citations.
+  - `CorpusGroup` model (`opencontractserver/corpuses/models.py`): a named bundle of corpora (`corpora` M2M, unique auto-generated `slug`, optional `default_agent` FK binding an orchestrator `AgentConfiguration`), with full django-guardian object-level permissions (`CorpusGroupUserObjectPermission` / `CorpusGroupGroupObjectPermission`) and the standard `BaseOCModel` visibility surface. Registered in Django admin.
+  - `CorpusGroupService` (`opencontractserver/corpuses/services/corpus_groups.py`): canonical service-layer entry point — IDOR-safe lookup by pk or slug, group CRUD, and `get_group_corpora_visible_to_user`, which resolves the group's `corpora` M2M at **call time** (never a config-time snapshot) intersected with `Corpus.objects.visible_to_user`, so membership changes apply on the next query and a private corpus inside a shared group is never searched for a user who cannot READ it.
+  - `asearch_across_corpora` agent tool (`opencontractserver/llms/tools/core_tools/multi_corpus.py`, registry name `search_across_corpora`): searches each visible member corpus with its own `CoreAnnotationVectorStore` / `preferred_embedder`, returns hits **grouped per corpus** (scores from different embedding spaces are never merged) with per-hit `annotation_id` / `document_id` / `page` metadata for citations. Per-corpus failures are isolated (issue #820 contract); per-call corpus count, per-corpus `k`, and per-hit snippet length are bounded via `opencontractserver/constants/tools.py`.
+  - Orchestrator wiring over the existing `ws/agent-chat/` transport (no new transport): `UnifiedAgentConsumer._initialize_agent` now threads an **explicitly-selected** agent's (`?agent_id=...`) `system_instructions` and `available_tools` into the agent factory (slug-resolved default agents intentionally keep the factory's context-derived prompt), and `build_delegation_tool` threads `available_tools` into @mention sub-agents — closing the gap where `AgentConfiguration.available_tools` only took effect for Celery corpus actions.
+  - GraphQL surface: `corpusGroups` / `corpusGroup` queries and `createCorpusGroup` / `updateCorpusGroup` / `deleteCorpusGroup` mutations (`config/graphql/corpus_group_mutations.py`), all routed through the service layer; `CorpusGroupType.corpora` lists only viewer-visible members. Malformed global ids return the uniform "Malformed id argument" / not-found envelopes — `_decode_pks` treats an empty decoded pk as malformed, since `graphql_relay.from_global_id` never raises on garbage input (it partition-decodes to an empty pk, which previously leaked a raw Django field error through the create mutation). Review hardening: `CorpusGroupType.default_agent` is gated per-viewer (`resolve_default_agent` via `AgentConfigurationService.get_agent_by_id`) so a private/corpus-scoped agent never leaks its `system_instructions` through a shared group; non-numeric decoded pks fall through to the uniform "Corpora not found" failure instead of a raw int-coercion error; explicit-slug collisions return a friendly "already exists" message via a savepoint-scoped IntegrityError catch; the update mutation now distinguishes a malformed TARGET id (IDOR-uniform not-found) from malformed ARGUMENT ids ("Malformed id argument", matching create).
+  - Tests: `opencontractserver/tests/test_corpus_groups.py` (service visibility, call-time membership, tool IDOR + fault isolation + clamps, GraphQL permission boundaries), `CorpusGroupAuthorizationInvariantsTestCase` in `test_authorization_invariants.py`, plus consumer/delegation threading tests.
+- **One-command multi-YAML taxonomy merge (issue #2057).**
+  `manage.py load_authority_mappings --include-packs` now converges the shipped
+  core baseline **plus every installed authority pack's mappings YAML** (in-tree
+  `authority_packs/` + `AUTHORITY_PACK_PATHS`) in one idempotent run, each file
+  stamped with its writer origin (`AuthorityMappingLoader.load_installed`,
+  reusing `authority_pack_config.iter_pack_mapping_files` — now public and
+  yielding the parsed manifest — for pack discovery). Core loads first, so on a
+  same-prefix collision the shipped baseline wins and the pack's claim is
+  skipped + warned, mirroring the shape-rules/abbreviations merge rule.
+  Per-origin summaries (including `skipped_foreign_baseline`) are printed for
+  both commands (`load_authority_mappings`, `load_authority_pack`). Docs:
+  "Prefix ownership" section in `docs/guides/authoring-authority-packs.md`;
+  gap 7 closed in `docs/architecture/proposals/0002-authority-packs.md` §7.
+  Tests: `test_authority_mapping_loader.py::LoadInstalledTests` +
+  command tests.
+- **New ops doc: Celery configuration for worker uploads.**
+  `docs/upload_methods/worker_celery_setup.md` documents the queues
+  (`celery,worker_uploads`), the mandatory single Beat scheduler, scaling/HA,
+  and the env-overridable knobs (`WORKER_UPLOAD_BATCH_SIZE`,
+  `WORKER_UPLOAD_STALE_MINUTES`, …) a target instance must run so worker uploads
+  actually drain. Linked from `mkdocs.yml`, the worker-uploads REST doc, and the
+  remote-ingest-worker doc. Covers the #1 silent failure (uploads accepted but
+  no worker on `worker_uploads` → documents never created).
+- **Corpus home: editorial redesign, data story, and shareable Artifact posters.**
+  The default corpus home (the CAML article) is rebuilt as an editorial
+  *Collection Overview*, joined by a derived data story and a shareable-poster
+  system:
+  - **Collection Overview** — `IntelligencePanel` rebuilt into a restrained
+    metric band (documents, pages, law references) plus a numbered documents
+    index with per-doc one-line descriptions and page-weight bars
+    (`frontend/src/components/corpuses/CorpusHome/intelligence/IntelligencePanel.tsx`).
+  - **Data story** — new `CollectionDataStory` component + `CorpusDataStoryService`
+    (`opencontractserver/corpuses/services/data_story.py`, GraphQL
+    `corpusDataStory`): document-type composition, effective-date timeline, and
+    value ranking derived from the default *Collection Profile* extract; each
+    facet self-hides when its data is absent. Intelligence setup now installs the
+    Collection Profile fieldset + an `add_document` action that keeps the
+    per-document profile growing as documents arrive
+    (`CorpusIntelligenceSetupService._setup_structured_profile`).
+  - **Artifact posters** — new `Artifact` model (migration `corpuses/0058`) +
+    `ArtifactService` + GraphQL (`artifactBySlug` / `corpusArtifacts` /
+    `corpusArtifactTemplates` with data-gated eligibility; `createArtifact` /
+    `updateArtifact` / `setArtifactImage`). Templates are a renderer registry —
+    adding one needs no migration. A `/a/<slug>` route renders a template
+    full-bleed with download-PNG and copy-link; the first template is a d3
+    `SpendingBeeswarm` (time × value). Visibility is corpus-as-gate; **creation
+    is authenticated-only** (`ArtifactService.create` rejects anonymous callers,
+    the mutations are `@login_required`, and `Artifact.creator` is non-null).
+  - **Tooling** — `ingest_corpus` management command: folder → corpus → import
+    (parse + embed) → optional `--wait` / `--enrich` / `--public`.
+  - Tests: `opencontractserver/tests/test_artifact_service.py`,
+    `opencontractserver/tests/test_intelligence_setup.py`,
+    `frontend/tests/IntelligencePanel.ct.tsx`,
+    `frontend/tests/CamlIntelligenceEmbeds.ct.tsx`.
+- **Admin GUI for agent tool secrets, e.g. `tool:web_search` (issue #2117).**
+  `UpdateToolSecretsMutation`/`DeleteToolSecretsMutation`
+  (`config/graphql/pipeline_settings_mutations.py`),
+  `PipelineSettingsType.tools_with_secrets`, and
+  `WebSearchTool.is_configured()` gating
+  (`opencontractserver/llms/tools/web_search_tools.py`) were fully implemented
+  backend-side, but the frontend never selected `toolsWithSecrets` and had no
+  GraphQL documents or UI for either mutation — the only way to configure the
+  web search tool's provider/API key was a raw GraphQL call. Added:
+  - `toolsWithSecrets` to `GET_PIPELINE_SETTINGS`, and new
+    `UPDATE_TOOL_SECRETS`/`DELETE_TOOL_SECRETS` documents
+    (`frontend/src/components/admin/system_settings/graphql.ts`).
+  - New standalone `ToolSecretsPanel.tsx`: a "Web Search Tool" card with a
+    Configured/Not-configured status indicator, a Provider select (`brave`/
+    `tavily`, mirroring `opencontractserver.constants.web_search.SUPPORTED_PROVIDERS`
+    — see `WEB_SEARCH_PROVIDERS` in `frontend/src/assets/configurations/constants.ts`),
+    a password-type API key input, and a Save / Remove Configuration (with
+    inline confirm) action pair — mirroring the existing component-secrets
+    modal's input/status-chip conventions. Mounted in `SystemSettings.tsx`
+    below the Filetype Defaults / Enrichment Chains sections.
+  - Tests: new `frontend/tests/tool-secrets-panel.ct.tsx` covering the
+    not-configured empty state, save with correct mutation variables, and
+    delete-after-confirm.
+- **Admin GraphQL/GUI surface for `PipelineSettings.preferred_enrichers` (issue #2118).**
+  The per-MIME-type ORDERED LIST of enricher class paths has been a real,
+  executed runtime field since the Enrichers stage shipped
+  (`opencontractserver/pipeline/base/parser.py::_run_enrichment_stage`,
+  `opencontractserver/pipeline/utils.py::run_enrichers`, and
+  `PipelineSettings.get_preferred_enrichers`), but had zero API/GUI surface:
+  no field on `PipelineSettingsType`, no `updatePipelineSettings` argument,
+  not restored by `resetPipelineSettings`, and no admin editor — the only way
+  to configure it was a direct DB write. Added:
+  - `preferred_enrichers` to `PipelineSettingsType`
+    (`config/graphql/pipeline_types.py`) and an `enrichers` list to
+    `PipelineComponentsType`, wired through `resolve_pipeline_components`
+    (`config/graphql/pipeline_queries.py`) exactly like the existing
+    `rerankers` field, including the non-superuser "configured components"
+    visibility filter.
+  - `preferred_enrichers` argument + `validate_enricher_mapping` (mime ->
+    ORDERED LIST, unlike the existing mime -> single-path
+    `validate_component_mapping`) on `UpdatePipelineSettingsMutation`
+    (`config/graphql/pipeline_settings_mutations.py`), rejecting non-list
+    values and non-`ENRICHER` component types.
+  - `ResetPipelineSettingsMutation` now also restores `preferred_enrichers`
+    from Django's `PREFERRED_ENRICHERS` setting — previously the one
+    DB-backed pipeline field Reset-to-Defaults silently skipped.
+  - New `EnricherChainEditor.tsx`
+    (`frontend/src/components/admin/system_settings/`): a dedicated per-MIME
+    chain editor (ordered list + up/down/remove/add), separate from the
+    existing `StageType`/`STAGE_CONFIG` `<select>` machinery since enrichers
+    are a list per MIME type, not a single class path. Mounted in
+    `SystemSettings.tsx` below Filetype Defaults.
+  - Tests: `opencontractserver/tests/test_pipeline_settings.py` (mutation
+    validation, round-trip, reset-restores-default, `pipelineComponents`
+    surfacing) and `frontend/tests/system-settings-flows.ct.tsx` (add/remove/
+    reorder chain interactions).
+- **Per-agent LLM picker on both agent-management admin surfaces (issue #2119).**
+  `AgentConfiguration.preferred_llm` was fully wired on the backend
+  (`config/graphql/agent_mutations.py`, `AgentConfigurationService`) but had no
+  GUI — the only way to set it was raw GraphQL. Both the global
+  (`frontend/src/components/admin/GlobalAgentManagement.tsx`) and corpus-scoped
+  (`frontend/src/components/corpuses/CorpusAgentManagement.tsx`) agent
+  create/edit forms now embed the existing `LlmModelPicker`
+  (`frontend/src/components/common/LlmModelPicker.tsx`), the same
+  provider-aware model-spec control already used for the System Settings
+  install-wide default and `Corpus.preferred_llm`. The corpus-scoped form also
+  surfaces the corpus's own `preferredLlm` as the "inherited" fallback hint
+  when the caller has it on hand (wired from `CorpusSettings.tsx`).
+  - GraphQL: `preferredLlm` added to `GET_GLOBAL_AGENTS`
+    (`global_agent_management.graphql.ts`) and `GET_CORPUS_AGENTS`
+    (`graphql/queries.ts`); `$preferredLlm`/`$clearPreferredLlm` added to both
+    create/update mutation pairs (`global_agent_management.graphql.ts`,
+    `graphql/mutations.ts`), matching the args already accepted by
+    `CreateAgentConfigurationMutation`/`UpdateAgentConfigurationMutation`.
+  - Contract: on create, an empty field sends `preferredLlm: null` (no
+    override, matching `preferred_llm or None` in
+    `AgentConfigurationService.create_agent`). On update, a non-empty value
+    sends `preferredLlm: <value>`; clearing a previously-set override sends
+    `clearPreferredLlm: true` with `preferredLlm` omitted — never an
+    empty-string `preferredLlm`, which fails the model's validation. Leaving
+    an already-empty field untouched sends neither (no-op), per
+    `AgentConfigurationService.update_agent`'s `clear_preferred_llm=True` /
+    `preferred_llm is not None` branching.
+  - `frontend/src/types/graphql-api.ts`: added `preferredLlm` to
+    `AgentConfigurationType` (hand-maintained; this repo has no active
+    GraphQL codegen script).
+  - Tests: new CT coverage in `frontend/tests/CorpusAgentManagement.ct.tsx`
+    and `frontend/tests/global-agent-management.ct.tsx` for picker visibility,
+    submit-with-value, and clear-with-`clearPreferredLlm`; existing mutation
+    mocks across `admin-components.ct.tsx`,
+    `CorpusAgentManagement.ct.tsx`, and `global-agent-management.ct.tsx`
+    updated to match the new query/mutation shapes exactly.
+- **User-facing Corpus Groups management GUI (#2141).**
+  `CorpusGroup` (multi-corpus retrieval, #2134/#2056) previously had a complete
+  backend — model, `CorpusGroupService`, GraphQL queries + mutations, and the
+  `search_across_corpora` agent tool — but the only way to create or manage a
+  group was Django admin, which is superuser-only. Any signed-in user can now
+  manage the groups they own from the app: **avatar dropdown → Corpus Groups**
+  (new un-gated item in `frontend/src/components/layout/NavMenu.tsx`
+  `userMenuItems`) opens the new top-level route `/corpus-groups`
+  (`frontend/src/App.tsx`), rendering
+  `frontend/src/components/corpus_groups/CorpusGroupManagement.tsx`. The panel
+  supports full CRUD over a group's title, slug (auto-generated when blank),
+  description, `is_public`, member corpora and bound `default_agent`, driven by
+  the `createCorpusGroup` / `updateCorpusGroup` / `deleteCorpusGroup` mutations
+  in `config/graphql/corpus_group_mutations.py`.
+  - Two reusable pickers in `frontend/src/components/widgets/selectors/`:
+    `CorpusMultiSelect.tsx` (async debounced multi-select over corpora the user
+    can READ, seeded from already-selected options so an edit form's chips are
+    never blank) and `AgentConfigurationSelect.tsx` (async single-select over
+    active agent configurations; clearing it drives `clearDefaultAgent: true`).
+  - The list is scoped server-side to the viewer's own groups by a new `mine`
+    argument on the `corpusGroups` connection
+    (`config/graphql/corpus_queries.py::q_corpus_groups`), backed by
+    `config/graphql/filters.py::CorpusGroupFilter`. The `mine` / `is_public` /
+    `shared_with_me` trio was extracted out of `CorpusFilter` into a shared
+    `OwnershipScopeFilterMixin` in the same file (behaviour-preserving —
+    `CorpusFilter`'s generated arguments are unchanged). The filter only ever
+    narrows the already-visibility-scoped queryset returned by
+    `CorpusGroupService.list_visible_groups`, so no Tier-0 permission call moves
+    inline and `opencontracts.E001` stays green. Golden SDL regenerated
+    (`config/graphql/schema.graphql`).
+  - There is no superuser gate and no instance-wide listing, preserving the
+    "superuser is a normal user for data" invariant pinned by
+    `CorpusGroupAuthorizationInvariantsTestCase::test_superuser_has_no_blanket_data_access`.
+    Member-corpus visibility is unchanged and still enforced at call time by
+    `CorpusGroupService.get_group_corpora_visible_to_user`: a member corpus the
+    caller cannot READ is never searched or disclosed.
+  - **Removed** the `CorpusGroupAdmin` registration from
+    `opencontractserver/corpuses/admin.py` — the GUI is now the single
+    management surface, and the admin form was superuser-only and wrote straight
+    to the model rather than through `CorpusGroupService`.
+  - Docs: new `docs/features/corpus_groups.md` (nav entry under **Features**);
+    the CorpusGroup section of
+    `docs/permissioning/consolidated_permissioning_guide.md` gained the
+    user-facing-surface paragraph. Tests:
+    `frontend/tests/CorpusGroupManagement.ct.tsx` plus `mine`-scoping coverage
+    in the backend corpus-group suite.
+- **Deep research: finalize verifies that a cited passage SUPPORTS its sentence** (closes #2201). `_verify_cite_spans` (`opencontractserver/research/services/research_reports.py`) generalizes the #2189 quote verifier from "is this quote verbatim" to "does the source say this": a cited sentence must share at least `RESEARCH_CLAIM_SUPPORT_MIN_COVERAGE` of its content words with the annotation(s) it cites, or the citation is stripped, the prose survives as uncited analysis, and `report.warnings` records it. This is a deterministic lexical floor — no LLM call or embedding round-trip at finalize — and it kills both anchoring failures from #2201: a one-word mention span cited for a whole sentence, and prompt-derived background decorated with a loosely-related entity anchor.
+
+  - **Scope.** A span's claim is its inner text, or for a marker the text back to the previous span or sentence boundary — so in a compound sentence each anchor answers for its own clause, and a claim carries forward across consecutive markers (`… <cite ids="1"/> <cite ids="2"/>`) rather than passing as a whitespace fragment.
+  - **Polarity guard.** Word overlap is blind to negation, so "the tenant is NOT liable" scored like a faithful paraphrase of "the tenant is liable" — the highest-stakes misattribution in legal text. Above `RESEARCH_CLAIM_INVERSION_COVERAGE`, disagreement about a negation marker strips the citation; the high gate keeps it off honest paraphrase that negates lexically ("prohibited", "except"). Prefixed negation counts too (`RESEARCH_SUPPORT_NEGATION_PREFIXES`) — contracts write "non-cancelable" as readily as "shall not be cancelled".
+  - **`No.` is not a negation.** The bare marker "no" is skipped when it carries an abbreviating period, since "No." also spells the citation-number abbreviation ("Exhibit No. 4", "Schedule No. A-1"), which was stripping valid citations. Keying on the period rather than a following digit covers lettered references and leaves "no 30-day cure period" intact.
+  - **One code path for both cite forms.** An empty or whitespace-only wrapping span (`<cite ids="1"></cite>`) asserts nothing, so it is normalised to the marker form. Left as-is it skipped the echo check and fell through to the carried-over claim, letting a sentence stand that the marker form on the same text correctly rejects.
+  - **Digits count.** Digit-bearing tokens are exempt from the content-word length floor, which had been dropping "10" and "5%" from both sides of the ratio.
+
+  `_claim_is_supported` is the single seam for swapping in an entailment call later; claims under `RESEARCH_CLAIM_SUPPORT_MIN_WORDS` words are accepted unchecked, since a fragment has too few content words for a ratio to mean anything. Its docstring records what the floor deliberately does not catch, and the known limitations (union polarity across multi-anchor spans, lexical-negation over-strip) are pinned by test rather than left implicit.
+
+- **Deep research: `find_citable_passages` replaces `search_exact_text_as_sources` in the agent's toolset.** The prompt's #2180 rule told the agent to pull a pinpoint anchor with `search_exact_text_as_sources` and cite it — impossible, because that tool returns synthetic *negative* annotation ids that `record_finding` rejects and `finalize` drops. The agent burned a 3M-token run hunting for an id it could never obtain.
+
+  Retrieval — not `record_finding` — is the gate on what may be cited. `finalize` seeds `cited_ids` from the composed document as well as from findings, then intersects with `retrieved_annotation_ids`. Gating on findings alone dropped a citation the agent pasted straight from a retrieval, which is exactly what `find_citable_passages` and the prompt invite it to do: silently for a short claim, and for a longer one under a "not supported by the passage it cited" warning naming the wrong cause, since an id outside the set hydrates no anchor text and so cannot support anything. The closed citation graph is unchanged — an id retrieval never surfaced is still refused, and since every retrieval tool is permission-filtered, that intersection is also what keeps a citation inside what the run's creator may read. Both directions are pinned.
+
+  The new closure (`opencontractserver/tasks/research_tasks.py`) is backed by `AnnotationService.search_corpus_annotation_text` (`opencontractserver/annotations/services/annotation_service.py`): it returns the real corpus annotations containing a phrase, tightest (most pinpoint) first, each with a ready-to-paste `cite` handle, and registers them in the run's citation accumulator. Visibility is delegated wholesale to `get_corpus_annotations`, so it adds no permission logic of its own, and `search_exact_text_as_sources` is dropped from `DEEP_RESEARCH_READ_ONLY_TOOLS`. `limit` is an ordinary cap there — `limit=0` yields no rows, negative is treated as zero — with the "never show an empty page for a phrase that did match" rule owned by the deep-research tool, which floors its own argument; a shared service method that quietly turned 0 into 1 was a footgun for the next caller. Header-labelled annotations are excluded via the new `exclude_label_texts` argument, passed as `RESEARCH_HEADER_ANCHOR_LABEL_VARIANTS` — the label set expanded across separator spellings, because the warning path folds separators in Python while the retrieval filter compares in SQL with `iexact` and folds only case; passing the base set left a label stored as `Section_Header` flagged as a header yet still offered as citable, reintroducing #2180 silently for whichever parser spells it that way. The point is that the cheap citation path can never hand back a bare `ITEM 1A. RISK FACTORS` as a "citable passage" — keyed on the label, never on `Annotation.structural`, which marks the parser's whole layout layer.
+- **`manage.py install_authority_pack`** (`opencontractserver/corpuses/management/commands/install_authority_pack.py`):
+  one-command fetch+install of authority packs from the new out-of-tree pack registry
+  ([Open-Source-Legal/authority-packs](https://github.com/Open-Source-Legal/authority-packs), CC BY-SA 4.0 —
+  first catalog entry: the Fort Worth, Texas pack, 147 verbatim law sections). Downloads the registry
+  tarball (`--repo`/`--ref` overrides; `--tarball` for air-gapped installs), safely extracts the requested
+  pack (tarfile `data` filter + pack-name slug validation + compressed and uncompressed size caps) into the new `AUTHORITY_PACK_INSTALL_DIR`
+  (default `<root>/.authority_packs`, gitignored), and delegates validation/install to `load_authority_pack`.
+  `authority_pack_dirs()` (`opencontractserver/pipeline/registry.py`) now scans the install dir as an
+  implicit bundle root, so fetched packs are discoverable with zero env-var wiring. Also adds
+  `AUTHORITY_PACK_REGISTRY_URL` (`config/settings/base.py`) and an "Installing from the pack registry"
+  section in `docs/guides/authoring-authority-packs.md`. Packs stay out of the platform repo by policy:
+  deployments install only the jurisdictions they want, and pack content licensing (share-alike CC) stays
+  separate from the MIT platform license.
+- **Hardware-accelerated, auto-detecting parser + embedder images** for local /
+  remote-worker deployments (`compose/accelerated/`). Each image picks the best
+  compute device available at startup (CUDA · ROCm · Intel XPU · Intel NPU via
+  OpenVINO · CPU). The common deployment remains CPU-safe, while vendor GPU
+  overlays require the selected vector-embedder accelerator and make that
+  service fail instead of silently degrading:
+  - `compose/accelerated/accel_detect.py` — runtime hardware probe + device
+    routing; `entrypoint.sh` applies it. Docling → torch device (cuda/xpu/cpu);
+    embedder → OpenVINO GPU (then NPU) or vendor torch, falling back to CPU only
+    in the common CPU-safe deployment.
+  - `embedder/` — OpenVINO-backed sentence-transformers image with a static-shape
+    **NPU engine** (`ov_npu.py`) whose output is numerically identical to the
+    reference (mean cosine 1.0). The accelerator *family* for the torch fallback
+    is a build-arg (`ACCEL=auto|cpu|xpu|cuda|rocm`).
+  - `docling/` — Docling image rebuilt on the chosen torch wheel
+    (`ACCEL=`), with an integrated-GPU `mem_get_info` compatibility shim
+    (`sitecustomize.py`).
+  - `accel.override.yml` plus explicit CPU, Intel, NVIDIA, and AMD overlays --
+    vendor-correct image selection and device passthrough without editing YAML;
+    Intel NPU passthrough is an optional additional overlay.
+  - `compose/accelerated/bench_embed.py` — correctness-gated, reproducible
+    baseline/candidate throughput benchmark with a configurable 25× gate;
+    `bench_parse.py` measures Docling separately.
+  - `scripts/remote_ingest/remote_worker.accel.yml` — opt-in GPU override for the
+    remote-ingest worker bundle, so the off-cluster workstation runs parse +
+    embed on its GPU.
+  Measured on an Intel Lunar Lake reference host: the optimized OpenVINO GPU
+  embedder reached 817.59 texts/s versus 16.64 texts/s for the production CPU
+  image at batch 100 / concurrency 3 (49.13×, minimum cosine 0.9999989). Docling
+  on the *integrated* GPU remains a wash (~1.05×), so benchmark parser and
+  embedder performance separately. See `compose/accelerated/README.md`.
+- **Agentic reference-graph traversal ("contracts-as-codebase").** Added four
+  read-only agent tools that let document and corpus agents *walk* the
+  already-materialised reference graph one hop at a time, instead of relying on
+  semantic retrieval alone:
+  `get_document_references` (what a document cites / what cites it),
+  `read_reference_target` (open a cited statute/contract and read its text),
+  `find_documents_citing` (who relies on an authority/document), and
+  `get_reference_neighborhood` (the local governance graph). Implemented in
+  `opencontractserver/llms/tools/core_tools/graph_navigation.py`; registered in
+  `opencontractserver/llms/tools/tool_registry.py` (new `ToolCategory.GRAPH`)
+  and wired into both agent factories in
+  `opencontractserver/llms/agents/pydantic_ai_agents.py`. The tools route
+  exclusively through the enrichment service layer (`CorpusReferenceService`,
+  `GovernanceGraphService`, `enrichment.authorities.find_authority_target`), so
+  they inherit `MIN(document, corpus)` visibility. Document/corpus agent
+  instructions (`config/settings/base.py`) gained a find→traverse→read loop
+  nudge. Caps live in `opencontractserver/enrichment/constants.py` (`NAV_*`).
+- **Traversal A/B benchmark harness.** Added
+  `opencontractserver/benchmarks/traversal_benchmark.py` and the
+  `manage.py benchmark_traversal` command to compare "heavy RAG"
+  (`similarity_search` only) vs "RAG + traversal" on real corpus questions,
+  reporting tokens, tool-call counts, latency and authority-grounding — the
+  instrument for later deciding, with data, whether eager indexing still earns
+  its keep. Fixtures in
+  `opencontractserver/benchmarks/fixtures/traversal_questions.yaml`; run steps
+  in `docs/test_scripts/traversal_benchmark.md`.
+- **Authority-backfill workflow: production entry points, reactive re-link,
+  wanted-authorities queue.** The enrichment engine's `AuthorityCorpusBootstrapper`
+  previously had no production caller, nothing reacted when an authority corpus
+  landed, and the only view of missing authorities was the governance graph's
+  ghost nodes. Now:
+  - **Wanted-authorities queue** — `CorpusReferenceService.wanted_authorities(user, corpus_id=None)`
+    (`opencontractserver/enrichment/services/corpus_reference_service.py`)
+    aggregates EXTERNAL law references by authority prefix (subsection keys
+    rolled up to their section root via `candidate_keys`), ranked by mention
+    volume with per-key corpus counts. Exposed as the `wantedAuthorities(corpusId?)`
+    GraphQL query (`config/graphql/annotation_queries.py`, types in
+    `annotation_types.py`) and the corpus-scoped read-only agent tool
+    `list_wanted_authorities`.
+  - **Reactive re-link** — `EnrichmentService.relink_corpora_for_keys(keys)`
+    finds every corpus holding EXTERNAL law refs satisfiable by the
+    just-bootstrapped keys and re-runs the linking pass per corpus **as that
+    corpus's creator**, preserving visibility semantics (a private authority
+    resolves only corpora whose creators can see it — no leak). Per-corpus
+    failures are logged and counted without aborting the sweep.
+  - **Bootstrap entry points** — new composite
+    `bootstrap_authority_corpus(...)` (`opencontractserver/enrichment/authorities.py`)
+    wraps the bootstrapper with optional `make_public` (publishes the corpus;
+    `Corpus.save` propagates to documents) and reactive re-link (default on).
+    Exposed two ways, both routing through the composite: the approval-gated
+    agent tool `bootstrap_authority_corpus` (sections as
+    `{key, heading, text, source_url?}` dicts, validated) and the
+    `bootstrap_authority` management command
+    (`opencontractserver/corpuses/management/commands/bootstrap_authority.py`,
+    JSON spec file, `--public`, `--no-relink`, `--corpus-id`).
+  - Tests: `opencontractserver/tests/test_enrichment_backfill.py` (service
+    aggregation, root-key rollup, visibility, relink incl. private-authority
+    no-leak and subsection→root matching, composite flags, command happy-path
+    + malformed-spec rejection, GraphQL incl. malformed-ID guard) and registry/
+    function coverage in `test_enrichment_tools.py`.
+- **Authority Console architecture doc.** Added
+  `docs/architecture/authority-console.md` — an as-built reference for the unified
+  Authority Console (PR #2037, issue #1997 management layer): the `/admin/authority`
+  tabs and routes, the `AuthorityNamespace`-as-spine model (string-join `detail()`,
+  the `source` baseline/manual ownership marker + loader skip, `created_by`),
+  `AuthorityNamespaceService` / `AuthoritySourceProviderService` / the
+  `AuthorityFrontierService` action verbs over the single `mark()` primitive, the
+  one `is_authority_admin` gate, the GraphQL surface, migrations 0099/0100, and a
+  Design notes section preserving the chosen architecture and five settled design
+  decisions. Wired into the mkdocs `Architecture` nav after Reference-Web Enrichment.
+- **Refreshed sibling docs.** Updated `docs/architecture/reference-web-enrichment.md`
+  and `docs/guides/ingesting-authorities.md` to name the merged-in tabs (the
+  standalone "enrichment runner" → **Runs tab**; the "authority-sources monitor" →
+  **Queue tab**) and point at the committed
+  `authorities--console-queue--with-data.png` screenshot, replacing references to the
+  deleted standalone panels.
+- Added open-vocabulary authority detection (Tier-2a): generic citation-shape
+  grammars (`opencontractserver/enrichment/grammars.py`) now recognise US Code,
+  CFR, Federal Register, Public Law, state, and municipal citations plus named
+  Acts outside the built-in registry, classified by jurisdiction/authority type.
+  New `discover_authorities` agent tool and `EnrichmentService.discover()`
+  surface them; the trusted registry tier wins on overlap so existing behaviour
+  is unchanged.
+- Authority key equivalences are now maintained in a single declarative
+  `opencontractserver/enrichment/data/authority_mappings.yaml`, loaded idempotently
+  by `AuthorityMappingLoader` / `manage.py load_authority_mappings` (and a
+  re-runnable data migration) as `source="baseline"`. The loader is source-scoped —
+  it never clobbers a runtime `source="manual"` override. Closing an "unsupported"
+  authority (e.g. `irc:401 → usc-26:401`, `exchange-act:10d → usc-15:78j-4`) is now
+  a one-line YAML edit + reload instead of a hand-written migration. Adds the
+  `baseline` source choice to `AuthorityKeyEquivalence`.
+- Added Tier-2b LLM detection pass to the authority-discovery enrichment pipeline.
+  `EnrichmentService.discover(use_llm=True)` runs `LLMCitationExtractor` after the
+  grammar tier; high-confidence (≥0.7) LLM citations merge into the main rollup with
+  `detection_tier == "llm"`, low-confidence ones (needs_review=True) surface in a new
+  `review_candidates` list and are never auto-promoted. `apply()` also strips
+  `needs_review` detections so they cannot become persistent `CorpusReference` rows
+  without human review. The `discover_authorities` LLM tool now accepts `use_llm=False`
+  (default) to opt-in to the extra pass.
+- Extended the declarative `authority_mappings.yaml` into the full "configure &
+  maintain" surface for legal authority mappings:
+  - **Namespaces collapsed into the YAML** — `prefixes:` now drives the
+    `AuthorityNamespace` registry *and* the in-memory
+    `AUTHORITY_PREFIX` / `PREFIX_CLASSIFICATION` / `PREFIX_DISPLAY_NAME` maps in
+    `enrichment.constants` (derived at import from the pure reader
+    `enrichment/data/mappings.py`), replacing the three hand-maintained dicts as
+    the source of truth. `AuthorityMappingLoader.load_namespaces()` /
+    `load_all()` upsert global registry rows idempotently (migration 0093),
+    skipping corpus-linked namespaces.
+  - **Runtime CRUD + admin panel** — superuser-only
+    `AuthorityKeyEquivalenceService` (forced `source="manual"`, `created_by`
+    provenance, `prefix:section` key-grammar validation, manual-only
+    edit/delete) behind GraphQL `authorityKeyEquivalences` connection +
+    `authorityMappingStats` + create/update/delete mutations, surfaced as a new
+    `/admin/authority-mappings` React panel. Adds a nullable `created_by` FK to
+    `AuthorityKeyEquivalence` (migration 0094).
+  - **Auto-derivation** — `manage.py import_popular_name_table` harvests
+    `stat: ↔ usc:` bridges (`source="popular_name"`) from the OLRC popular-name
+    table, and the US Code provider now parses each ingested section's USLM
+    `<sourceCredit>` to upsert `publ:`/`stat: ↔ usc:` bridges
+    (`source="uslm"`). A shared source-scoped writer guarantees no importer ever
+    overwrites a row owned by a different source.
+  - **Prefix rewrite rules** — optional `rewrite_rules:` (e.g.
+    `irc:N → usc-26:N`) are evaluated as a fallback in `_provider_for` *and*
+    `find_authority_target` after explicit per-key equivalences (per-key wins),
+    previewable via `manage.py preview_rewrite_rule` before going live.
+- **Authority packs can now ship their own source provider.** The pipeline
+  registry discovers `BaseAuthoritySourceProvider` subclasses from
+  `<pack>/providers/*.py` — both for in-tree packs under
+  `opencontractserver/enrichment/data/authority_packs/` and for out-of-tree pack
+  directories listed in the new `AUTHORITY_PACK_PATHS` setting (env var). A pack's
+  scraper now lives *with* its authority, so copying the pack directory to another
+  OpenContracts install brings the provider with it — no more dropping a `.py` into
+  core's `pipeline/authority_source_providers/` package
+  (`opencontractserver/pipeline/registry.py`, `config/settings/base.py`). Provider
+  modules are imported by file path under a collision-free synthetic module name;
+  an import failure is logged and skipped, never crashing registry build. Secrets
+  stay in the `PipelineSettings` encrypted vault (keyed by provider class path),
+  never in pack files.
+- **Duplicate authority-provider prefixes now warn at registry build.** Two
+  providers claiming the same `supported_prefixes` family (e.g. a pack provider
+  shadowing a core one) previously registered silently; `_provider_for` then
+  resolved them non-deterministically by priority-then-discovery-order. The
+  registry now logs a warning identifying both claimants.
+- **Authority packs can declare their own SSRF source hosts.** A scraping pack
+  lists the hosts it fetches from in `pack.yaml` (`source_hosts: [...]`); those are
+  read from every installed pack (in-tree under `authority_packs/` or on the
+  `AUTHORITY_PACK_PATHS` setting) and unioned with the hardcoded
+  `PUBLIC_DOMAIN_SOURCE_HOSTS` baseline at runtime, so a fetching pack is portable
+  as a directory without editing `constants/safe_http.py`. The union is injected
+  into the pure `safe_http` util via a registered provider
+  (`register_allowlist_provider`) so the util never imports the enrichment layer;
+  every pack-added host is logged. The SSRF mechanism is unchanged (HTTPS-only,
+  public-IP, per-redirect-hop revalidation, size caps) — a pack only widens *which*
+  hosts are reachable, and only once installed (the install is the trust decision).
+  `AuthorityGateService` now consults the same effective allowlist as the fetch.
+  `load_authority_pack` validates `source_hosts` shape fail-fast. New module
+  `opencontractserver/enrichment/services/authority_source_hosts.py`; tests in
+  `test_authority_source_hosts.py`.
+- **Authority packs can carry their jurisdiction's citation vocabulary.** A pack's
+  authority-mappings YAML may now declare two optional sections — `shape_rules:`
+  (classify a numbered prefix family, e.g. `bo-ley-<n>`, without a core edit) and
+  `abbreviations:` (`state`/`municipal` Bluebook abbreviations the Tier-2a
+  extractor matches). They are read from every installed pack (in-tree +
+  `AUTHORITY_PACK_PATHS`) and merged onto the shipped Python baseline at runtime
+  (`classify_prefix` consults pack shape rules; `GenericCitationExtractor` merges
+  pack abbreviations), so a jurisdiction's citation vocabulary travels *with* the
+  pack — the baseline always wins a collision (a pack extends, never overrides).
+  Malformed entries are logged + skipped at runtime and rejected fail-fast by
+  `load_authority_pack`. New module
+  `opencontractserver/enrichment/services/authority_pack_config.py`; tests in
+  `test_authority_pack_taxonomy.py`. The shared `authority_type` vocabulary and the
+  citation-*form* parsing grammars remain core (shared vocabulary / parsing logic,
+  not per-authority config).
+- Added a jurisdiction + authority-type taxonomy to the reference-enrichment
+  engine: `CorpusReference` now carries `jurisdiction`/`authority_type`
+  (`opencontractserver/annotations/models.py`), a new `AuthorityNamespace`
+  registry table is seeded from the static authority map, and
+  `authority_alias_registry` reads it so new bodies of law need no code change.
+  Foundation for open-vocabulary authority discovery.
+- **Bulk import: annotation-to-annotation relationships, richer annotation metadata, and cross-batch document relationships.**
+  Closes long-standing gaps in what the bulk-ZIP / dumb-anchor sidecar format
+  could express. Builds on the deferred-remap pipeline (the producer-id →
+  new-annotation `id_map` it already persisted is now consumed end-to-end).
+  - **Annotation-to-annotation relationships in sidecars.** A dumb-anchor
+    sidecar may now carry a top-level `relationships` list
+    (`relationshipLabel` + `source_annotation_ids` / `target_annotation_ids`
+    referencing the sidecar's own annotation `id`s — e.g. `OC_PARENT_CHILD`,
+    `OC_SUBTREE_GROUP`). `import_zip_with_folder_structure`
+    (`opencontractserver/tasks/import_tasks.py`) persists them verbatim onto the
+    `PendingDocumentAnnotations` payload (and counts them in the new
+    `sidecar_relationships_found` result field) instead of the old
+    drop-and-warn. After ingest, `remap_pending_annotations`
+    (`opencontractserver/tasks/doc_tasks.py`, `_wire_pending_relationships`)
+    wires them in the **same atomic block** as the annotation import, using the
+    `import_annotations` `id_map` to resolve endpoints (int/str-id tolerant) and
+    auto-creating each `RELATIONSHIP_LABEL` via `corpus.ensure_label_and_labelset`
+    (mirroring the `relationships.csv` path). An edge whose endpoints did not
+    survive anchoring is **dropped and reported** on the row (`relationships` /
+    `relationships_dropped` counts), never silently lost.
+  - **`link_url` + `data` survive the re-anchor.** `anchor_annotations`
+    (`opencontractserver/utils/annotation_anchoring.py`) now carries the OC_URL
+    click-through `link_url` and the structured `data` sidecar (e.g. the geocoded
+    `OC_COUNTRY`/`OC_STATE`/`OC_CITY` `{canonical_name, lat, lng, …}` payload)
+    verbatim through PDF, span, and legacy-adapter anchoring; `import_annotations`
+    (`opencontractserver/utils/importing.py`) persists `data` onto
+    `Annotation.data` (it already handled `link_url`). `OpenContractsAnnotationPythonType`
+    gains an optional `data` field.
+  - **Cross-batch document relationships.** A `relationships.csv` endpoint that
+    matches no file in the current ZIP now falls back to a document already in
+    the corpus (`build_existing_corpus_path_map`, gated by
+    `CorpusDocumentService.get_corpus_documents` so only documents the importing
+    user can access are eligible). The phase runs whenever a `relationships.csv`
+    is present — even for a ZIP that contains *only* the CSV — so separately
+    imported batches can be wired together; the in-import map takes precedence
+    over the corpus fallback.
+  - **Validation.** `validate_dumb_anchor_sidecar`
+    (`opencontractserver/utils/validate_export.py`) now validates the
+    `relationships` list (label present; non-empty source/target id lists; every
+    endpoint references an annotation declared in the sidecar) and type-checks
+    optional `link_url` (string) / `data` (object) on annotations.
+  Span annotations still import as `TOKEN_LABEL`-typed labels (the deliberate
+  importer constraint is unchanged), and `structural=true` / exact-geometry
+  pinning remain re-derived by the parser by design.
+- Every corpus's `Readme.CAML` now composes the live corpus-intelligence overview by default ("structural default, narrative override"). A canonical, fixed-text "intelligence block" — three CAML component embeds (`insight-panel`, `document-graph`, `ask-across-docs`) that fetch live data at view time — is defined in `opencontractserver/corpuses/caml_intelligence.py` (`CAML_INTELLIGENCE_BLOCK`, `ensure_intelligence_block`, `build_default_readme_caml`, `has_intelligence_block`).
+- Added a deterministic, non-LLM default README path: `CorpusService.ensure_readme_caml_default()` (`opencontractserver/corpuses/services/corpus_service.py`) creates a structural `Readme.CAML` (title + description + intelligence block) when a corpus has none, or appends the block to an existing article only if absent (idempotent, never clobbers author narrative).
+- Wired the deterministic default into corpus creation (`config/graphql/corpus_mutations.py` `CreateCorpusMutation`) so a corpus created without LLM auto-branding still gets a structural `Readme.CAML`. A shared gate `corpus_readme_will_be_auto_branded()` (`opencontractserver/corpuses/services/branding.py`, also used by the `post_save` branding signal in `opencontractserver/corpuses/signals.py`) ensures the structural default and the LLM branding README never both fire on the same corpus.
+- The LLM auto-branding README flow (`branding.py` `_generate_readme`) now post-processes the agent's article through `ensure_readme_caml_default()` so the intelligence block is present even if the agent omits the markers.
+- Added the idempotent, re-runnable management command `python manage.py backfill_intelligence_block` (`--dry-run` supported) to backfill the block across all existing corpora — appending where missing and creating a structural README where none exists. The command only creates/updates `Readme.CAML` documents; it never deletes anything.
+- **Corpus Intelligence as CAML embeds (Phase 1)** (`frontend/src/components/corpuses/CorpusHome/intelligence/embeds/`, `frontend/src/components/corpuses/caml/CamlEmbedContext.tsx`, `frontend/src/utils/camlComponentRegistry.ts`). The insight panel, document graph, and ask-across-docs chips are now registered as CAML component embeds — `[component:insight-panel]`, `[component:document-graph]`, `[component:ask-across-docs]` — so a `Readme.CAML` article can compose the intelligence overview inline instead of it being confined to the non-article landing. A new `CamlEmbedContext` supplies the ambient corpus id plus the article's chat/explore callbacks, so authors don't paste a global id and `ask-across-docs` feeds the article's existing floating chat rather than adding a second chat affordance (`CorpusArticleView` and the `CamlArticleEditor` preview provide the context). Shared building blocks (`SuggestedQuestions`, `DocumentGraphLive`) are extracted so the embeds and the landing-fallback `CorpusIntelligenceOverview` reuse one implementation. Tests: `camlComponentRegistry.test.ts` (markers resolve to the embeds) and `CamlIntelligenceEmbeds.ct.tsx` (context wiring + ask routing).
+- **Auto-generate a corpus logo and `Readme.CAML` article on creation.** When a
+  corpus is created without an uploaded icon, a `post_save` signal
+  (`opencontractserver/corpuses/signals.py`) dispatches a best-effort branding
+  task (`generate_corpus_branding` in `opencontractserver/tasks/corpus_tasks.py`).
+  The orchestrator (`opencontractserver/corpuses/services/branding.py`) runs a
+  corpus-scoped LLM agent that researches the title/description via `web_search`
+  and writes the `Readme.CAML` article through `update_corpus_description`, then
+  generates a square logo via the OpenAI Images API
+  (`opencontractserver/utils/image_generation.py`) with a deterministic PIL
+  "monogram" fallback when image generation is disabled/unconfigured, persisting
+  it through the new creator-gated `CorpusService.update_icon`.
+  Opt-out is layered: the install-wide `CORPUS_AUTO_BRANDING_ENABLED` /
+  `CORPUS_LOGO_GENERATION_ENABLED` settings, the per-corpus
+  `Corpus.auto_branding_enabled` flag (exposed on `CorpusSerializer` /
+  `CorpusType`), uploading an icon at creation, and personal "My Documents"
+  corpora are always skipped. Branding never blocks corpus creation. Migration
+  `corpuses/0056_corpus_auto_branding_enabled`.
+- **"Empty Corpus" action — move every document to Trash and remove all folders
+  in one step.** Addresses "no easy way to empty everything". New
+  `emptyCorpus(corpusId)` mutation (`config/graphql/document_mutations.py`)
+  delegates to `DocumentLifecycleService.empty_corpus`
+  (`opencontractserver/corpuses/services/lifecycle.py`), which soft-deletes all
+  active documents (recoverable from the trash until it is emptied) and deletes
+  the folder tree; it requires corpus DELETE permission. Surfaced as a guarded,
+  confirmation-modal "Empty Corpus" toolbar action (`EmptyCorpusModal`,
+  `FolderToolbar`), shown only to users with delete permission
+  (`canDeleteCorpusAtom`).
+- **New `corpusDocumentIds` GraphQL query** returns the global IDs of every
+  document matching a corpus/folder/search filter, ignoring pagination. It backs
+  the document grid's "Select All" so bulk actions cover the full result set, and
+  reuses `DocumentFilter` so its scoping matches the paginated `documents`
+  connection exactly (including descendant-aware folder filtering).
+- **Run corpus reference-enrichment (and the bounded authority crawl) from the UI,
+  with live job-status tracking.** A new `runCorpusEnrichment` GraphQL mutation
+  (`config/graphql/enrichment_mutations.py`) dispatches the enrichment and/or crawl
+  `@corpus_analyzer_task`s through the existing analyzer framework, configurable per run
+  (reference types, an opt-in cost-gated LLM detection tier via a new `use_llm` input on
+  `corpus_reference_enrichment`, and crawl bounds). It requires corpus **UPDATE**
+  permission (enrichment writes references; crawl publishes authority documents) — an
+  opt-in `require_corpus_update` gate on `AnalysisLifecycleService.start_document_analysis`.
+  Each run is an `Analysis` row with the managed `RUNNING→COMPLETED/FAILED` lifecycle; an
+  `Analysis` `post_save` signal (scoped to the enrichment/crawl analyzers) emits a
+  `Notification` (new `Notification.analysis` FK + `ANALYSIS_RUNNING` type) that broadcasts
+  over the existing notification WebSocket. Two frontend surfaces share the same components:
+  a superuser `/admin/enrichment` panel (any corpus) and a "Reference enrichment" card on
+  the Corpus Intelligence home (gated on `CAN_UPDATE`). The job list
+  (`EnrichmentJobList` + `useEnrichmentJobs`) refetches live on `ANALYSIS_*` notifications,
+  shows status badges + parsed run summaries, and surfaces optimistic RUNNING rows on
+  dispatch (superseded by the authoritative fetched row); the Run button is disabled while
+  a CREATED/QUEUED/RUNNING job exists for the corpus. `AnalysisFilter` gained an
+  `analyzer__task_name` (`analyzer_TaskName_In`) filter to scope the list to enrichment/crawl
+  analyses.
+- **Agent tools for managing documents as files in a corpus: search, rename, delete (move already existed).**
+  Rounds out the corpus file-management toolset in
+  `opencontractserver/llms/tools/core_tools/documents.py` so an LLM agent can
+  treat a corpus like a filesystem. All three route through the canonical
+  corpus service layer and mirror the human surfaces' permissioning:
+  - `search_corpus_documents` — **read-only** discovery. Case-insensitive match
+    against each document's title AND its corpus path; returns
+    `document_id`/`title`/`path`/`folder`/`file_type`/`is_deleted`. Filters by
+    `MIN(document_permission, corpus_permission)` via
+    `CorpusDocumentService.get_corpus_documents_visible_to_user`, so a private
+    document never leaks through a merely-readable corpus. Supports `folder_id`,
+    `include_deleted`, and a capped `limit` (default 25, max 200 —
+    `CORPUS_FILE_SEARCH_DEFAULT_LIMIT`/`_MAX_LIMIT` in
+    `opencontractserver/constants/tools.py`).
+  - `rename_document` — **write + approval gated**. Changes only the filename
+    (last path segment); the document stays in its folder (use `move_document`
+    to change folders). Names are sanitised — characters other than
+    letters/digits/`-_.` (including slashes) collapse to `_`, so a rename can
+    never traverse directories — and the current extension is preserved when the
+    new name omits one (`report.pdf` → `Q3_Summary.pdf`). Backed by a new
+    `FolderDocumentService.rename_document` (requires corpus UPDATE) that reuses
+    the same TOCTOU-safe successor-path machinery as moves
+    (`CorpusPathService._create_successor_path_with_retry`).
+  - `delete_document` — **write + approval gated**. Soft-deletes to the
+    restorable corpus trash via `DocumentLifecycleService.soft_delete_document`
+    (requires corpus DELETE); nothing is permanently erased.
+  Registered in `opencontractserver/llms/tools/tool_registry.py` (CORPUS
+  category, `requires_corpus=True`; write tools additionally
+  `requires_write_permission`/`requires_approval`) and re-exported from
+  `opencontractserver/llms/tools/core_tools/__init__.py`. On a corpus agent the
+  LLM picks the `document_id`; on a document agent it is pinned to the current
+  document (standard `build_inject_params_for_context` injection).
+- **`sanitize_corpus_filename` helper (`opencontractserver/shared/utils.py`).**
+  Extracts the corpus-filename sanitisation that was duplicated inline in
+  `Corpus.add_document` and the text-document import tool into one canonical
+  function; `_derive_path_from_title`
+  (`opencontractserver/llms/tools/core_tools/text_document_import.py`) and the
+  new `rename_document` service now share it. Also hoisted the listing-tool
+  `limit` clamp into a shared `clamp_limit`
+  (`opencontractserver/llms/tools/core_tools/_helpers.py`), reused by the
+  extract/analyzer discovery tools.
+- **Tests:** `opencontractserver/tests/test_corpus_file_tools.py` covers search
+  (title/path match, folder filter, trash inclusion, limit cap, IDOR, and the
+  MIN document-visibility rule), rename (extension preservation, sanitisation,
+  no-op, conflict disambiguation, permission/IDOR failures), delete
+  (soft-delete to trash, permission/IDOR failures), and async-wrapper smoke
+  coverage.
+- **Corpus Intelligence home (Phase 1).** The corpus landing now opens with a
+  composed "God's-eye view" so an everyday user immediately experiences
+  large-scale document intelligence on collections they already have access to.
+  It fuses three existing capabilities into one surface
+  (`frontend/src/components/corpuses/CorpusHome/intelligence/`):
+  an insight-framed metrics panel (`IntelligencePanel` — documents, citation
+  density, summary coverage, dominant labels), a visual document-relationship
+  graph (`DocumentGraphGlimpse` — documents as nodes, relationships as edges,
+  rendered with a deterministic d3-force layout — no new dependency), and
+  one-click cross-document questions wired to the existing corpus agent
+  (`CorpusIntelligenceOverview`). Composed into the default landing via
+  `CorpusHome/CorpusLandingView.tsx`, reusing the existing `onChatSubmit` /
+  `onViewDetails` callbacks (no routing changes).
+- Two new permission-aware GraphQL resolvers back the home, both routed through
+  the service layer (`DocumentRelationshipService`, `BaseService.filter_visible`)
+  in `config/graphql/corpus_queries.py`: `corpusDocumentGraph(corpusId, limit)`
+  returns degree-ranked document nodes + labeled edges (capped via
+  `CORPUS_DOCUMENT_GRAPH_MAX_NODES`), and `corpusIntelligenceAggregates(corpusId)`
+  returns label distribution + summary coverage. A private document inside a
+  shared corpus stays hidden from users without document-level READ. New types
+  live in `config/graphql/corpus_types.py`; new constants in
+  `opencontractserver/constants/stats.py`. Tests:
+  `opencontractserver/tests/test_corpus_intelligence.py` (resolvers, limit
+  truncation, permission filtering, malformed-id handling, and structural-label
+  distinct counting) and component tests
+  `frontend/tests/DocumentGraphGlimpse.ct.tsx`,
+  `frontend/tests/IntelligencePanel.ct.tsx`,
+  `frontend/tests/CorpusIntelligenceOverview.ct.tsx`.
+  Review hardening: the label-distribution query now counts with
+  `distinct=True` (the `structural_set` M2M join otherwise inflates structural
+  labels by the number of docs sharing a set) and keeps `visible_docs` as a
+  queryset subquery instead of materialising every id; both resolvers resolve
+  the corpus with a single `.first()` query. The `IntelligencePanel` gates its
+  first load behind shimmer skeletons (no flash of zeros) and sanitises
+  user-supplied annotation-label colors before interpolating them into CSS via
+  the new `safeCssColor` (`frontend/src/utils/colorUtils.ts`); the document
+  graph's `NOTES`/`RELATIONSHIP` strings move to
+  `DOCUMENT_RELATIONSHIP_TYPES` in
+  `frontend/src/assets/configurations/constants.ts`.
+- **One-click collection-intelligence setup** — the orchestration layer the
+  enrichment pieces were missing: nothing previously composed the
+  deterministic reference web with the LLM document enrichment at corpus
+  setup, so new corpora landed with unreadable document indexes (raw import
+  metadata as descriptions, 0% summary coverage) until each action was
+  manually added from the Action Library and batch-run.
+  - `CorpusIntelligenceSetupService`
+    (`opencontractserver/corpuses/services/intelligence_setup.py`):
+    idempotent composite that installs the reference-enrichment
+    `add_document` action + starts the first weave, clones the
+    *Document Description Updater* and *Document Summary Generator*
+    templates (bundle pinned in
+    `opencontractserver/constants/corpus_actions.py`
+    `INTELLIGENCE_SETUP_TEMPLATE_NAMES`), and batch-runs each over every
+    document already in the corpus. Re-running converges: existing action
+    rows are reused, already-run documents are skipped, an in-flight
+    reference analysis is not duplicated.
+  - GraphQL: `setupCorpusIntelligence` mutation +
+    `corpusIntelligenceSetupStatus` query
+    (`config/graphql/corpus_mutations.py`, `corpus_queries.py`,
+    `corpus_types.py`); `createCorpus` now returns `objId` so follow-up
+    mutations can chain off creation.
+  - Frontend: `IntelligenceSetupBanner`
+    (`frontend/src/components/corpuses/CorpusHome/intelligence/`) renders a
+    setup CTA inside `IntelligencePanel` (so both the intelligence overview
+    and the `insight-panel` CAML embed surface it) and hides once the bundle
+    is installed; the New Corpus modal gains a default-on "Set up collection
+    intelligence" opt-in that chains the mutation after creation
+    (`CorpusModal.tsx`, `views/Corpuses.tsx`).
+  - Tests: `opencontractserver/tests/test_intelligence_setup.py` (service +
+    GraphQL), `frontend/tests/IntelligenceSetupBanner.ct.tsx`.
+- Surfaced corpus re-embedding in the UI. `updateCorpus` refuses to change
+  `preferredEmbedder` once a corpus holds documents (issue #437) and directs the
+  caller to the `reEmbedCorpus` mutation — which had no frontend control, so the
+  error named an API the UI never exposed and the only way out of the dialog was
+  to restore the original embedder. `CorpusModal` now shows an inline migration
+  prompt when the embedder selection changes on an existing corpus, with a
+  **Re-embed corpus** action that calls `reEmbedCorpus` and reports its result
+  (`frontend/src/components/corpuses/CorpusModal.tsx`,
+  `frontend/src/graphql/mutations.ts::RE_EMBED_CORPUS`). Covered by
+  `frontend/tests/CorpusModalReEmbed.ct.tsx`.
+- **Corpus reference enrichment agent.** A corpus-scoped agent tool pair that
+  crawls a corpus, inventories explicit references, and persists them — proven
+  on a real 55-document S-1 corpus (348 references created).
+  - New deterministic engine in `opencontractserver/enrichment/`
+    (`extractor.py`, `resolver.py`, `writer.py`, `services/`): regex/grammar
+    extraction of law citations (`Section 145 of the Delaware General
+    Corporation Law` → canonical key `dgcl:145`), document/exhibit references,
+    internal section references, and defined-term definition sites
+    (`(the "Company")` / `"Change of Control" means …` → `term:company` /
+    `term:change-of-control`, opt-in and capped); resolution to in-corpus target
+    documents and OC_SECTION annotations.
+  - New `CorpusReference` model (`opencontractserver/annotations/models.py`,
+    migration `annotations/0078_corpusreference`): a first-class
+    cross-document / cross-corpus / external-law connection with an indexed
+    `canonical_key` join key (`target_corpus` anticipates future cross-corpus
+    linking). Within-document section links continue to use `Relationship`;
+    every reference also gets a mention `Annotation` (law payloads stored in
+    `Annotation.data`, resolved document links in `Annotation.link_url` as
+    in-app site-relative paths).
+  - Two agent tools (`opencontractserver/llms/tools/core_tools/corpus_references.py`,
+    registered in `tool_registry.py`): `scan_corpus_references` (read-only
+    inventory) and `apply_corpus_reference_enrichment`
+    (`requires_approval=True`, `requires_write_permission=True`) — the
+    CAML-style scan → approval-gated apply pattern. Enrichment is idempotent.
+  - Read-only GraphQL `corpusReferences(corpusId)` query
+    (`config/graphql/annotation_types.py`, `annotation_queries.py`), visibility
+    scoped to corpus READ via `CorpusReferenceService`.
+  - Resolved document/exhibit references additionally roll up to
+    `DocumentRelationship` rows (`enrichment/writer.py`), feeding the corpus
+    document graph. Mention dedup is by (document, label, span start) so a
+    growing alias registry cannot duplicate mentions.
+- **Authority corpora + cross-corpus law linking.**
+  - `opencontractserver/enrichment/authorities.py`: `AuthorityCorpusBootstrapper`
+    materialises statute sections as keyed text documents
+    (`Document.custom_meta.canonical_key`, e.g. `dgcl:145`), idempotently
+    (skip / version-up on amendment / self-healing restamp after concurrent
+    pipeline saves). `find_authority_target` resolves citations with
+    subsection→section fallback (`dgcl:122(17)` → `dgcl:122`), visibility- and
+    current-version-aware.
+  - `EnrichmentService.link_external_references` upgrades EXTERNAL law
+    citations to RESOLVED cross-corpus links (`target_corpus`/`target_document`
+    + in-app `link_url` on the mention); runs automatically inside `apply()`
+    and is re-runnable as new authority corpora appear.
+  - Data-driven authority alias registry: `authority_alias_registry(user)`
+    merges static defaults with `custom_meta.authority_aliases` declared by
+    authority corpora — adding a body of law is a bootstrap call, zero code.
+- **Citation grammar coverage** (`enrichment/extractor.py`): suffix form
+  ("Section 145 of the DGCL"), prefix form ("Securities Act Section 4(a)(5)"),
+  statute-internal relative form ("§ 251 of this title", keyed via the
+  document's own authority context), and bare SEC rules ("Rule 506(b)",
+  "Rule 144A", "Rule 10b-5" → `sec-rule:*`).
+- **Analyzer framework: corpus-scoped analyzers.**
+  - New `@corpus_analyzer_task` decorator (`shared/decorators.py`) — the
+    corpus-scoped sibling of `@doc_analyzer_task`: runs once per Analysis,
+    owns its own writes, wrapper manages the Analysis lifecycle
+    (RUNNING/COMPLETED/FAILED, timestamps, result/error messages).
+  - `get_corpus_analyzer_task_by_name` / `get_analyzer_task_by_name`
+    (`utils/celery_tasks.py`); `run_task_name_analyzer` dispatches
+    corpus-scoped analyzers as a single task (no per-doc fan-out); analyzer
+    auto-sync and the `analyzer.W001` check cover both flavours.
+  - Enrichment adapter task
+    (`opencontractserver/tasks/corpus_analysis_tasks.py`) registers the engine
+    as a real task-based Analyzer (dispatchable via `CorpusAction`), attaching
+    to the framework-created Analysis instead of creating its own.
+- **Demo pipeline** (`demo/`, untracked zips excluded): authority seed JSONs
+  with real statutory text (DGCL, Securities Act, Exchange Act, IRC, ICA,
+  SEC Rules — 17 C.F.R.), bootstrap/import/export scripts, and a standalone
+  D3 governance-graph visualization (`governance_graph.html`).
+- New deterministic customs/trade grammar family in the enrichment engine's Tier-2a grammar tier (`opencontractserver/enrichment/grammars.py`), so CBP CROSS-style corpora enrich through the standard `EnrichmentService.apply` path and every existing trigger (the `corpus_reference_enrichment` analyzer task, the ADD_DOCUMENT corpus action installed by `setupCorpusIntelligence` / `ingest_corpus --enrich`, the `runCorpusEnrichment` mutation, and the agent tools) — no bespoke service or management command. Two families, shapes ported from crossfeed's golden-tested CROSS extractor:
+  - **HTS tariff codes** (`grammars.py::_hts`) → `REF_LAW` citations keyed `htsus:<code>` into the new `htsus` authority prefix (`opencontractserver/enrichment/data/authority_mappings.yaml`), gated on a document-level HTSUS cue with anchored-vs-contextual per-mention confidence so ordinary corpora's dotted decimals are never mined.
+  - **Title-identifier document citations** (CBP ruling numbers, `grammars.py::_document_identifier_citations`) → `REF_DOCUMENT` citations resolved against sibling document titles by `ReferenceResolver` (`opencontractserver/enrichment/resolver.py`). Activates only on corpora whose titles are predominantly identifier-shaped (`constants.DOC_IDENTIFIER_TITLE_GATE_*`); titles are canonicalized via `constants.document_identifier_from_title` (extension-stripped, so materialized-filename titles like `A83482.doc` resolve); a ruling's self-identifying header mention is dropped at resolution; citations to rulings not yet in the corpus persist `UNRESOLVED` and heal to `RESOLVED` on the automatic re-apply when the sibling lands.
+- **Global authority-sources monitor** (`/admin/authorities`, superuser-only) —
+  a read-only, instance-wide view of the `AuthorityFrontier` discovery queue:
+  the crawl/ingestion state of every wanted section-root canonical key (cited
+  law) across all corpora. Two lenses over one table — clickable state-count
+  chips (operational monitor: queued / in_progress / discovered / ingested /
+  failed / unsupported / blocked_license / unlocated / pending_approval /
+  deferred_cap) and a `-mention_count` default order (ingestion backlog:
+  most-cited-but-not-ingested) — with jurisdiction / type / provider filters and
+  a canonical-key search. Closes the gap where authority-source ingestion status
+  was only visible per-corpus (on reference-web ghost nodes); triggering still
+  lives in the per-corpus `/admin/enrichment` runner.
+  - Backend (`config/graphql/`): `AuthorityFrontierNode` (relay connection,
+    superuser-gated `get_queryset`, backlog-first order), `AuthorityFrontierFilter`
+    (explicit `CharFilter`s so `discovery_state`/`authority_type` are plain
+    `String` args — not the model's `choices` enum — matching the chips' raw
+    values), and `authorityFrontier` + `authorityFrontierStats` queries on the
+    annotations `Query`; aggregation routed through
+    `AuthorityFrontierService.admin_state_counts`.
+  - Frontend: `AuthoritySourcesMonitor.tsx` (reuses the Ingestion Monitor admin
+    shell), `GET_AUTHORITY_FRONTIER` + `GET_AUTHORITY_FRONTIER_STATS`, the
+    `/admin/authorities` route, and an "Authority Sources" card on the
+    `/admin/settings` grid.
+  - Tests: `test_authority_frontier_query.py` (gating, filters, default order,
+    facet-aware stats) and `AuthoritySourcesMonitor.ct.tsx` (chips, rows,
+    chip-driven filtering, access-denied, empty state).
+- **Optional pre-parse file-to-PDF converter pipeline stage powered by Gotenberg.** New pipeline component family (`file_converter`): `BaseFileConverter` (`opencontractserver/pipeline/base/file_converter.py`) + `GotenbergFileConverter` (`opencontractserver/pipeline/file_converters/gotenberg_converter.py`), which converts every extension Gotenberg's LibreOffice route supports *except* the natively-parsed formats (pdf, txt, docx, md) — so `.doc`, `.rtf`, `.odt`, `.ppt(x)`, `.xls`, `.html`, iWork formats, etc. become PDFs before parsing, while `.docx` keeps its native parser path. Highlights:
+  - New `convert_document_to_pdf` Celery task at the head of both ingest chains (`documents/signals.py`, `tasks/doc_tasks.py::retry_document_processing`) so thumbnails and parsers see the converted PDF; failures mark the document FAILED with the real conversion error and halt the chain (`FileConversionError` carries the transient/permanent retry contract).
+  - Original uploads are preserved: `Document.original_file` / `original_file_type` keep a reference to the pre-conversion blob (no byte copy); `pdf_file` is replaced with the converted PDF, `file_type` flips to `application/pdf`, and `pdf_file_hash` is refreshed (migration `documents/0043_add_file_converter_support.py`).
+  - Admin selection + configuration: `PipelineSettings.default_file_converter` (empty = disabled), exposed via GraphQL (`pipelineComponents.fileConverters`, `pipelineSettings.defaultFileConverter`, `updatePipelineSettings(defaultFileConverter:)` with converter-type validation) and the `/system_settings` admin UI (new File Converter row + picker modal, Component Library stage with schema-driven `service_url` / `request_timeout` / `convert_extensions` settings).
+  - Converter-aware upload acceptance: `resolve_convertible_upload` (`opencontractserver/pipeline/utils.py`) admits configured extensions through `import_document_for_user`, `DocumentService.validate_file_type`, and both zip-import paths; extension list is admin-configurable via the converter's `convert_extensions` setting (empty = all supported).
+  - New `gotenberg` service (`gotenberg/gotenberg:8`) in `local.yml` and `production.yml` (bridge-only at `http://gotenberg:3000`, `required: false` dependency), with `GOTENBERG_SERVICE_URL` / `GOTENBERG_CONVERTER_TIMEOUT` / `DEFAULT_FILE_CONVERTER` settings in `config/settings/base.py`.
+  - Security posture: convertible uploads are stored with an inert `application/octet-stream` `file_type` (never a browser-renderable type) so there is no stored-XSS window before conversion; the pre-conversion source blob is retained on the internal-only `Document.original_file` field (excluded from `DocumentType`). The Gotenberg/LibreOffice SSRF surface (LibreOffice can fetch remote resources referenced by a document) is documented in `docs/pipelines/pipeline_overview.md` — restrict the `gotenberg` container's egress in sensitive deployments; it needs no outbound access.
+  - Converter-aware upload UI: new `convertibleExtensions` GraphQL query drives the upload modal's accepted-format set (`UploadModal`/`FileDropZone`) so convertible formats are actually selectable, summarized rather than enumerated.
+  - Original-file provenance travels with corpus copies (`Corpus.add_document`) and corpus forks (`fork_tasks.py`), keeping the pre-conversion blob referenced for delete-time GC.
+  - Tests in `opencontractserver/tests/test_file_converters.py`; docs in `docs/pipelines/pipeline_overview.md` (File Converters section).
+- **Reference-web graph explorer** — the "Explore the full graph" link on the
+  corpus governance/reference-web glimpse now opens a dedicated, deep-linkable
+  full-screen explorer (`?view=graph`) instead of dumping the user on the corpus
+  documents list. New view `GovernanceGraphExplorer.tsx` renders the same
+  deterministic bipartite layout as the glimpse (filings above, the law on a
+  pinned shelf below) at full scale, adding d3-zoom pan/zoom, a control rail
+  (text search + filing/statute/cited-not-ingested layer toggles + per–body-of-law
+  filters that dim rather than reflow, for spatial stability), and a node-detail
+  drawer that surfaces jurisdiction, authority type, frontier crawl status, and
+  the node's citations with click-through into the document.
+  - Extracted the glimpse's intricate force-layout geometry into a shared,
+    behaviour-preserving `frontend/src/utils/governanceGraphLayout.ts`
+    (`computeGovernanceLayout` + label helpers) consumed by both the glimpse and
+    the explorer — single source of truth, pixel-identical glimpse output.
+  - `GET_GOVERNANCE_GRAPH` now also selects the already-available
+    `jurisdiction`, `authorityType`, and `discoveryState` node fields.
+  - Added `view=graph` to the corpus-home view whitelist (`cache.ts`,
+    `CentralRouteManager`, `navigationUtils.updateDetailViewParam`) and repointed
+    every "Explore the full graph" callback (`CorpusHome`, `CorpusLandingView`,
+    article/CAML embeds) at it.
+- **`governanceGraph` GraphQL query** — the corpus-scoped reference web in
+  node-link form, the in-app successor to `demo/export_governance_graph.py`
+  (first integration step from #1976's callout). Nodes are documents (filing
+  primaries, exhibits, statute sections) plus "ghost" nodes for law citations
+  with no visible target document; edges are mention-weighted `LAW` (resolved,
+  possibly cross-corpus), `LAW_EXTERNAL` (rolled up to the citation's section
+  root), and `DOCUMENT` (`DocumentRelationship` rollups).
+  - Graph assembly lives in
+    `opencontractserver/enrichment/services/governance_graph_service.py`;
+    the resolver (`config/graphql/annotation_queries.py`) only encodes relay
+    ids — no inline Tier-0 (E001 green).
+  - Visibility: corpus READ gates the query (invisible corpus → empty graph);
+    every surfaced document is independently READ-checked — invisible source
+    documents drop their edges, invisible target documents degrade to external
+    ghost nodes so titles never leak, and only READ-visible target corpora are
+    listed (pinned by `opencontractserver/tests/test_governance_graph.py`).
+  - Node lists are degree-capped at `GOVERNANCE_GRAPH_MAX_NODES` (200,
+    `opencontractserver/constants/stats.py`) with full-graph counts +
+    `truncated` flag, mirroring `corpusDocumentGraph`'s contract.
+- **Enrichment now persists references incrementally ("in-flight") instead of in
+  one bulk write at the end of a run.** `EnrichmentService.apply`
+  (`opencontractserver/enrichment/services/enrichment_service.py`) writes each
+  document's references as detection completes, marked `is_provisional` (new
+  `CorpusReference.is_provisional` field, migration
+  `annotations/0090_corpusreference_is_provisional` — schema-only, default
+  `False` so every existing row is finalized). On success the run flips its own
+  rows finalized in one atomic update keyed on `created_by_analysis`; a run that
+  dies mid-flight (e.g. a Celery worker warm-shutdown) leaves its rows
+  provisional, and the writer's claim rule (`EnrichmentWriter._ensure_corpus_reference`)
+  lets the next successful run reclaim + finalize them — so a long LLM pass that
+  is interrupted at minute *N* no longer loses all *N* minutes of work. The crawl
+  seed (`AuthorityFrontierService.seed_from_wanted_authorities` via
+  `CorpusReferenceService.wanted_authorities(finalized_only=True)`) acts on
+  finalized references only, while the References panel / governance graph surface
+  in-flight rows (`isProvisional` exposed on `CorpusReferenceType`). Design:
+  `docs/superpowers/specs/2026-06-17-in-flight-authority-detection-design.md`.
+- New guide **Ingesting Authorities & Adding Providers**
+  (`docs/guides/ingesting-authorities.md`, in the mkdocs **Guides** nav section):
+  runnable procedures for ingesting a provider-supported authority source
+  (surgical shell via `AuthorityDiscoveryService.discover_and_bootstrap`, a
+  bounded `CrawlAuthoritiesService.crawl`, and the `/admin/enrichment` runner UI)
+  and for adding a new `BaseAuthoritySourceProvider` to flip an authority from
+  `unsupported` to supported (contract, skeleton, registry/allowlist/license
+  gotchas, and the `AuthorityKeyEquivalence` / agentic-locator no-code
+  alternatives). Cross-linked from the reference-web architecture doc. Adds two
+  CT-generated documentation screenshots — the enrichment runner with the
+  authority crawl enabled and advanced bounds expanded
+  (`EnrichmentRunner.ct.tsx`), and the authority-sources monitor filtered to the
+  `unsupported` state (`AuthoritySourcesMonitor.ct.tsx`). The mkdocs **Guides**
+  section also adopts the previously unlisted CAML import guide.
+- **Admin "Ingestion Monitor" dashboard for diagnosing ingestion & import failures.**
+  A new superuser-only page at `/admin/ingestion` (linked from the Admin
+  Settings hub) surfaces ingestion and import health without exposing any
+  document contents:
+  - **Document Ingestion tab** — per-document parsing-pipeline status across
+    all users (owner username/email, title, MIME type, file size, page count,
+    `processing_status`, elapsed time, and the truncated `processing_error`),
+    plus the worker/pipeline upload queue (`WorkerDocumentUpload`) with its
+    own status filter.
+  - **Import Batches tab** — corpus-export ZIP re-import runs
+    (`PendingCorpusImport`) enriched with per-run **% documents failed**
+    (aggregated from `PendingDocumentAnnotations`), batch start time and
+    status; plus bulk document-zip import sessions (`ChunkedUploadSession`)
+    with upload progress.
+  - Each list is independently status-filterable and paginated (Prev/Next).
+  - Backend: new superuser-gated GraphQL fields `adminDocumentIngestion`,
+    `adminWorkerUploads`, `adminCorpusImports`, `adminBulkImportSessions`
+    (`config/graphql/ingestion_admin_queries.py` +
+    `config/graphql/ingestion_admin_types.py`), routed through the service
+    layer (`opencontractserver/documents/services/ingestion_admin.py`,
+    `WorkerDocumentUploadService.list_all_for_admin`,
+    `document_imports.services.list_chunked_sessions_for_admin`). New
+    `BaseService.clamp_pagination` helper and `ADMIN_INGESTION_*` constants
+    (`opencontractserver/constants/document_processing.py`).
+  - Frontend: `frontend/src/components/admin/IngestionMonitor.tsx`, route in
+    `App.tsx`, card in `GlobalSettingsPanel`, `formatDuration` util, and table
+    width/page-size constants.
+  - Tests: `opencontractserver/tests/test_ingestion_admin_queries.py`,
+    `frontend/tests/IngestionMonitor.ct.tsx`.
+- Document-identifier citations now resolve through **durable identity**, not
+  display titles: per-document canonical identifiers derive from
+  `DocumentPath.external_id` (`cross:` namespace, case-insensitive) → active
+  corpus-path basename stem → title stem, shared by the resolver's index, its
+  self-mention drop, and the grammar's corpus-shape gate
+  (`opencontractserver/enrichment/resolver.py::document_identity_candidates`,
+  threaded through `EnrichmentService._build_detection`). The official CROSS
+  export titles documents with human-readable SUBJECTS, so the previous
+  title-only index left every citation into such corpora unresolvable and the
+  grammar gate closed. Ambiguous identities (two documents claiming one
+  number) are reported and left unresolved instead of resolved to whichever
+  document claimed the index slot first.
+- New series-token legacy citation grammar
+  (`constants.LEGACY_DOC_IDENTIFIER_CITE_RE`): legacy CBP rulings have BARE
+  zero-padded numeric ruling numbers cited as "HRL 087392" / "HQ 084665" —
+  invisible to the prefixed shape. Measured on a 500-document official-export
+  slice: 707 instances, no false positives (six digits required — 5 digits
+  after "NY" is a ZIP code in 148/149 sampled instances; bare numbers without
+  a series token are still never mined). Identifier citations and identities
+  meet on one canonical key (`constants.canonical_document_identifier`:
+  prefixed verbatim, bare digits zero-stripped). On the real 10K
+  official-export benchmark this recovers 9,377 citation candidates and
+  5,007 resolved graph edges that the prefixed-only grammar missed entirely.
+- ZIP import metadata (`meta.csv`) accepts an optional `external_id` column
+  (`opencontractserver/utils/metadata_file_parser.py`), stored verbatim on
+  `DocumentPath.external_id` by `import_zip_with_folder_structure` (new
+  `external_ids_applied` counter; values beyond the 512-char field limit are
+  rejected per-row with a warning, never truncated).
+- `EnrichmentWriter` span fallback emits the canonical text-span shape —
+  `page=0` no-page sentinel (`constants/annotations.py::SPAN_NO_PAGE`) plus
+  anchored `text`, built once in
+  `opencontractserver/utils/span_projection.py::span_annotation_payload` —
+  and re-applying enrichment heals pre-fix `page=1`/text-less span mentions
+  in place.
+- Added a rendered Markdown view for markdown documents, with a **Rendered /
+  Raw** toggle (`MarkdownDocumentViewer.tsx`). Markdown is a `text/…` subtype,
+  so these documents fell into the plain-text branch of `DocumentViewer` and
+  displayed their own source — `# Heading`, `- **Corpus:**` — which is exactly
+  wrong for what produces them: saved chat answers, research reports and CAML
+  articles are written to be read. The renderer is the same
+  `MarkdownMessageRenderer` the chat uses, so a saved answer looks in the
+  document viewer the way it looked in the conversation it came from.
+- The toggle is not cosmetic: **Raw is the annotator**. Span annotations need
+  character offsets into the source text, so annotating has to happen against
+  the raw document; Rendered is the default because reading is the common case.
+  The routing check runs before `isTextFileType` — reorder them and every
+  markdown document silently reverts to showing source, which is what the new
+  `DocumentViewer filetype routing` test guards.
+- Obligation finding cards now have an attribution gate: a material card whose
+  cited passages never name its `responsible_party` is refused at
+  `record_finding` with an actionable message, rather than reaching the report
+  (`opencontractserver/tasks/research_tasks.py::_build_obligation_card`, backed
+  by `research/services/research_reports.py::party_named_in_passages`). This is
+  the defect two adversarial reviewers found independently on the same report,
+  from opposite directions — "the passage supports the $50,000/MW figure but
+  does not itself specify who must post it" and "duties the ILLE bears are at
+  times assigned to the TSP". Both are one failure, and it survives every other
+  check: the obligation is real, the citation is real, and only the obligor is
+  imported from somewhere else. Word-overlap over the claim cannot see it,
+  because the claim scores fine on everything except the one word that matters.
+  Acronyms are matched alongside content words, so a defined term (`TSP`,
+  `ILLE`) below the length floor still grounds a card. `cited_passages` is a
+  required parameter of `_build_finding_card` on purpose — a default would let
+  a caller skip the gate by forgetting an argument.
+- **A second finding-card shape for project readiness.** The existing card is
+  built around a half-open effective interval and answers "which process
+  governed on date X". A readiness question — which requirements apply, which
+  forms are needed, what is still unknown — has no interval, and forcing it
+  through the regime shape pushed the substance back into prose. `record_finding`
+  now also accepts `obligation`, `owed_by`, `form_reference` and `deadline`; the
+  two shapes are validated separately, cannot be mixed in one call, and carry a
+  `kind` discriminator. Rendered by the existing CAML embed
+  (`ResearchFindingsEmbed`).
+- **The card schema is now the one the tool validates through.**
+  `opencontractserver/enrichment/finding_cards.py` had become an orphan — it
+  defined `FindingCard`/`FindingSet` that nothing but its own tests imported,
+  while `record_finding` built a parallel dict by hand. It now defines
+  `RegimeCard` and `ObligationCard`, and `record_finding` constructs through
+  them, so the field list has exactly one definition. The tool keeps its own
+  guard clauses for their *messages*: an agent told "unresolved_qualifications
+  cannot be empty; if nothing is unresolved, say so explicitly" recovers, where
+  a pydantic type error usually just gets retried.
+- OpenAI's GPT-5.6 family (Sol / Terra / Luna) is now selectable and works.
+  Registered in `OpenAIProvider.supported_models` with a 1M context window in
+  `constants/context_guardrails.py` — the window is explicit for the same
+  reason every `gpt-4.*` entry is, since an unlisted name falls to the 128K
+  default and would size a 1M-window model at an eighth of its budget, moving
+  when a deep-research run compacts. These models also reject function tools on
+  `/v1/chat/completions` whenever `reasoning_effort` is set, so
+  `model_factory.requires_responses_api` routes them to `/v1/responses`
+  automatically, on both the DB-credential and env-credential paths. Automatic
+  rather than operator-configured: the names appear in the System Settings LLM
+  picker, and choosing one would otherwise 400 every agent in the install with
+  an explanation visible only in a worker log.
+- Deep research: `terminal_reason` clamped provider errors at 200 characters,
+  which cut OpenAI's 400 mid-sentence and dropped the half that mattered —
+  "…not supported for gpt-5.6-luna in /v1/chat/completions. To use function
+  tools," stopped exactly before the remedy. Raised to 600.
+- Added overlap-aware PDF page-chunk splitting foundation (`opencontractserver/utils/pdf_splitting.py`): `PageChunk` and `calculate_page_chunks_with_overlap()`, with `calculate_page_chunks()` now delegating to it (behavior-preserving). Added a `supports_chunking` capability flag to parser base classes (`opencontractserver/pipeline/base/parser.py`, `chunked_parser.py`) so the ingestion orchestrator can introspect chunking support. Phase 1 of the chunked-parser redesign; no production behavior change yet.
+- Chunked PDF parsing now fans out across Celery workers (issue #1960). Large documents are split into page-range chunks parsed by independent `parse_document_chunk` tasks that write results to storage; a `reassemble_and_save_chunks` chord callback streams those results back one at a time and persists. `ingest_doc` dispatches the chord via `self.replace` for large docs (non-eager); small docs, non-chunking parsers, and eager mode keep the synchronous in-process path. New: `opencontractserver/pipeline/chunk_artifacts.py`, `opencontractserver/pipeline/base/chunk_reassembler.py` (incremental `ChunkReassembler`), `opencontractserver/tasks/chunk_tasks.py`. Bounds memory to one chunk in flight per worker and one chunk result at a time in the reassembler. Chunk tasks re-load parser kwargs from the DB, so no secrets traverse the broker; permanent parse errors fail fast (no retry) while transient errors retry via Celery.
+- PDF chunking Phase 3 (issue #1961): chunked parsing now uses **overlap windows** so structure spanning a chunk boundary survives. `BaseChunkedParser` (`opencontractserver/pipeline/base/chunked_parser.py`) splits each chunk over an overlap-extended parse range via `calculate_page_chunks_with_overlap(..., overlap=chunk_overlap)` (new `chunk_overlap` knob, default `DEFAULT_CHUNK_OVERLAP=2` in `opencontractserver/constants/document_processing.py`; `DoclingParser` exposes it as the `DOCLING_CHUNK_OVERLAP` pipeline setting). Each chunk's reassembly offset is its parse-range `start` (so local page `i` maps to global page `start+i`), superseding the Phase-1 placeholder note that suggested `core_start`. `ChunkReassembler` (`opencontractserver/pipeline/base/chunk_reassembler.py`) now dedupes overlap pages by global index (keep-first), dedupes annotations by a chunk-independent content signature (label + global page geometry), and **re-links** cross-boundary relationship endpoints and `parent_id` references onto the surviving canonical IDs — replacing the previous `c{idx}_`-prefix severing that orphaned cross-chunk references. Residual orphans (a reference spanning more pages than the configured overlap) are logged + metered (`metric=chunk_reassembly_orphan_refs`) but never fatal. Covered by a service-level golden-equivalence gate (`opencontractserver/tests/test_chunked_parser.py::TestChunkedOverlapGoldenEquivalence`) proving a chunked-with-overlap parse reproduces the single-shot PAWLs, annotations, and relationships, plus reassembler-level dedup/re-link tests in `test_chunk_reassembler.py`. Hardening: `ChunkReassembler.finalize()` is now guarded against a second call (the in-place id-remap is single-use); the annotation dedup signature normalizes `rawText` whitespace so the same span surviving in two chunks still collapses; `_dedupe_pages` logs (`metric=chunk_reassembly_page_missing_index`) when a PAWLs page lacks an `index`; and the `overlap >= max_pages_per_chunk` error in `calculate_page_chunks_with_overlap` (plus a `BaseChunkedParser` docstring note) now tells subclasses with a small `max_pages_per_chunk` to pin `chunk_overlap = 0`.
+- **Admin GUI control for the install-wide post-retrieval reranker
+  (`PipelineSettings.default_reranker`).** The backend has persisted, validated,
+  cache-busted and *read* this setting at runtime for reranking
+  (`opencontractserver/llms/vector_stores/core_vector_stores.py`
+  `_get_reranker`), but the admin Pipeline Configuration surface never exposed
+  it — `GET_PIPELINE_SETTINGS`/`UPDATE_PIPELINE_SETTINGS` omitted the field and
+  there was no widget, so an operator could only change it via a raw GraphQL
+  call or DB edit. Added a "Default Reranker" picker to
+  `frontend/src/components/admin/system_settings/FiletypeDefaults.tsx` (mirroring
+  the File Converter / Default LLM rows; empty = reranking disabled), wired
+  `defaultReranker` through `graphql.ts` (query + `UPDATE`/`RESET` mutations) and
+  surfaced the registered rerankers via a new `pipelineComponents.rerankers`
+  selection. Also filled in the previously-omitted `defaultLlm`/`defaultReranker`
+  fields on the `UPDATE`/`RESET` mutation return selections. Verified end-to-end
+  against a live stack (set → persisted to DB → revert). Covered by
+  `frontend/tests/system-settings-flows.ct.tsx`.
+- **Governance Graph panel** — the reference web, rendered on the Corpus
+  Intelligence home. A bipartite d3-force composition (deterministic, seeded,
+  no animation loop): filing documents cluster in an upper band (connected
+  components over DOCUMENT edges drive per-cluster hues; swarm clusters spread
+  into wide constellations), statute sections pin to an authority-grouped "law
+  shelf" below with staggered citation-head labels and authority captions, and
+  mention-weighted amber citation arcs sweep between the layers (dashed slate
+  for citations without an in-system target). Scale-aware rendering (degree-
+  gated shelf labels, thinned edges, abbreviated captions) keeps 200-node
+  corpora legible. Hover focuses a node's incident edges; clicking any
+  document/statute node navigates to its canonical page — across corpora.
+  - `GovernanceGraphGlimpse` / `GovernanceGraphLive` / `GovernanceGraphEmbed`
+    (`frontend/src/components/corpuses/CorpusHome/intelligence/`), registered
+    as the `governance-graph` CAML embed and composed into
+    `CorpusIntelligenceOverview`; layout + palette vocabulary in
+    `frontend/src/assets/configurations/constants.ts`.
+- **One-click reference-web bootstrap** — the panel's empty state offers
+  "Map the reference web": discovers the corpus-reference-enrichment analyzer
+  by task name, starts an immediate corpus analysis (`startAnalysisOnDoc`),
+  installs an `add_document` CorpusAction so the web grows with the corpus,
+  and polls until the first weave lands ("Weaving the reference web…").
+- **References side panel** in the document viewer — a new "References" tab
+  (`frontend/src/components/knowledge_base/document/DocumentReferencesPanel.tsx`)
+  shows one document's slice of the web: **Cites** (outbound, grouped by
+  canonical key with mention counts — "SEC Rule § 144 ×26" — ghost rows noted
+  "cited, not yet ingested") and **Cited by** (inbound, grouped by source
+  document). Resolved rows navigate to the cited statute/exhibit via the
+  mention's canonical link; inbound rows resolve the source document by id
+  (`frontend/src/hooks/useNavigateToDocumentById.ts`, shared with the graph).
+- **`corpusReferences(documentId:)` filter** — restricts the reference listing
+  to rows touching one document on either side (the single-fetch shape the
+  References panel needs); `config/graphql/annotation_queries.py`.
+- **The document References panel badges in-flight references "In progress".**
+  `frontend/src/components/knowledge_base/document/DocumentReferencesPanel.tsx`
+  now selects the `isProvisional` field (exposed on `CorpusReferenceType`) and
+  renders an indigo "In progress" chip on any reference written by an enrichment
+  run that is still in flight — taking precedence over its preliminary
+  Linked / Awaiting-source state until the run finalizes. The "Cites" header
+  summary counts it as in-progress (not linked/awaiting) to match.
+- **Manually (re)generate a corpus icon via an agent.** A new
+  `regenerate_corpus_icon` agent tool
+  (`opencontractserver/llms/tools/core_tools/corpus_branding.py`) re-runs the
+  corpus logo generator on demand, so a user can ask the corpus chat agent to
+  give a collection a fresh icon at any time — not just at creation. It reuses
+  the auto-branding primitives (`_build_logo_prompt` + `agenerate_logo_image`
+  with the deterministic PIL monogram fallback) through a new public helper
+  `aregenerate_corpus_logo` in `opencontractserver/corpuses/services/branding.py`
+  and persists through the creator-gated `CorpusService.update_icon`. An optional
+  `additional_instructions` argument lets the agent steer the look (e.g. "use
+  blue tones and a gavel motif"); the hint is sanitised and length-capped
+  (`CORPUS_LOGO_ADDITIONAL_INSTRUCTIONS_MAX_CHARS`) before being folded into the
+  image prompt. The tool is registered in `tool_registry.py` (alias
+  `generate_corpus_icon`), `requires_approval` + `requires_corpus` +
+  `requires_write_permission`, creator-only, and is wired into the interactive
+  corpus agent's authenticated toolset
+  (`opencontractserver/llms/agents/pydantic_ai_agents.py`) alongside
+  `update_corpus_description`. Unlike the create-time path it deliberately
+  overwrites an existing icon and ignores `auto_branding_enabled` (a manual
+  regeneration is an explicit request). Tests:
+  `opencontractserver/tests/test_corpus_icon_tool.py`.
+- **Remote-ingest pre-processing / enrichment stage.** The remote-ingest worker
+  (`scripts/remote_ingest/`) can now run pluggable enrichers that CALCULATE and
+  INJECT extra artifacts onto each document after parsing and before
+  embedding+upload, so injected annotations are embedded and ingested like the
+  parser's own:
+  - `scripts/remote_ingest/enrichers.py` — an `EnricherContext` (exposes the
+    parsed export + text, plus correctness helpers `find_token_matches(regex)`
+    and `token_annotation(label, match)` that build a valid `annotation_json`),
+    an `Enrichment` result type (structured `custom_meta`, `title`/`description`,
+    `doc_labels`, injected `annotations`, `relationships`, label definitions),
+    a dotted-path loader (`--enricher module:callable` / `OC_ENRICHERS`), and
+    `validate_enrichment()` which enforces the worker-upload correctness rules
+    (valid token indices, label definitions present, unique ids, resolvable
+    relationship references) so a buggy enricher fails the document loudly
+    instead of shipping a broken annotation.
+  - `scripts/remote_ingest/example_enrichers.py` — three runnable examples
+    (filename → `custom_meta`, detected dates → TOKEN_LABEL annotations,
+    content → DOC_TYPE_LABEL).
+  - Driver wiring (`oc_remote_ingest.py`): enrichment runs in `_process_one`
+    before embedding (injected annotations get embedded) and folds into the
+    worker-upload metadata; new `--enricher` flag / `OC_ENRICHERS` env.
+- **Worker-upload accepts structured document metadata.** Added an optional
+  `custom_meta` field to `WorkerDocumentUploadMetadataType`
+  (`opencontractserver/types/dicts.py`); `_process_single_upload`
+  (`opencontractserver/worker_uploads/tasks.py`) now writes it to
+  `Document.custom_meta` (on both the standalone doc and the corpus-isolated
+  copy) and the serializer validates it is a JSON object. Previously worker
+  uploads could attach categorical metadata only via `doc_labels`; arbitrary
+  structured metadata (jurisdiction, parsed dates, contract number, …) now
+  round-trips.
+- **Remote-ingest enrichment can set TYPED corpus metadata (Column/Datacell), not
+  just the freeform `custom_meta` field.** The enrichment stage can now populate
+  the document metadata system (`Fieldset` → `Column` → `Datacell` — the UI's
+  document-metadata grid, successor to legacy "metadata annotations"):
+  - `MetadataService.upsert_document_metadata(corpus, document, user, column_name,
+    data_type, value, validation_config=None)`
+    (`opencontractserver/extracts/services/metadata.py`) — internal ingestion
+    entry point that get-or-creates a manual-entry `Column` in the corpus metadata
+    schema (auto-creating the `corpus.metadata_schema` `Fieldset`) and
+    update_or_creates the `extract=NULL` `Datacell` (`data={"value": value}`),
+    type-validated by `Datacell.clean()`. Reuses the same model path as the
+    `SetMetadataValue` GraphQL mutation.
+  - Worker-upload accepts a `metadata` list on `WorkerDocumentUploadMetadataType`
+    (`opencontractserver/types/dicts.py`, new `WorkerMetadataFieldType`);
+    `_process_single_upload` (`opencontractserver/worker_uploads/tasks.py`) sets
+    each value via the service; the serializer validates entry shape + data_type.
+    A value that violates its column's `data_type` fails the upload instead of
+    silently landing a bad value.
+  - Driver: `Enrichment.metadata` + `metadata_field(name, value, data_type=…)`
+    (`scripts/remote_ingest/enrichers.py`) with client-side type validation
+    (`validate_enrichment`) mirroring the server rules; example enrichers updated
+    to emit typed metadata (`Contract Number`/`Revision`/`Category` STRING,
+    `Effective Date` DATE, `Contract Type` CHOICE). The freeform `custom_meta`
+    path remains available for non-schema data.
+- **Remote-ingest worker: offload parsing + enrichment to off-cluster hosts.**
+  Added a driver and Docker bundle (`scripts/remote_ingest/`) that run the FULL
+  ingestion pipeline (Docling parse + embeddings) on a remote workstation and
+  stream fully-processed, faithfully-mirrored documents to a target instance via
+  the worker-upload REST API (`/api/worker-uploads/documents/`) — no access to
+  the target's database required. Because the worker runs the same Docling
+  microservice image and the same `DoclingParser` code, the PAWLs token layer,
+  structural annotations and embeddings are identical to an in-cluster
+  ingestion (faithful by construction). Components:
+  - `scripts/remote_ingest/oc_remote_ingest.py` — resumable per-document driver
+    (SQLite ledger; `plan`/`run`/`verify`/`status` subcommands; thread-pool
+    concurrency; back-pressure against the target's worker-upload backlog;
+    bounded retry/backoff honouring `429 Retry-After`).
+  - `scripts/remote_ingest/remote_worker.yml` + `worker-entrypoint.sh` — a
+    self-contained bundle (docling-parser + vector-embedder + worker) the remote
+    host brings up with a few commands.
+  - `config/settings/remote_worker.py` — a lean Django settings module that
+    points at a throwaway SQLite file so the worker needs no Postgres/Redis. The
+    parse path is database-free; settings are sourced from `DOCLING_*` /
+    `EMBEDDINGS_*` env vars.
+  - `opencontractserver/worker_uploads/management/commands/mint_worker_token.py`
+    — one-command server-side setup: creates/reuses a worker account and prints a
+    one-time corpus-scoped `CorpusAccessToken`.
+  - `BaseChunkedParser.parse_pdf_bytes()`
+    (`opencontractserver/pipeline/base/chunked_parser.py`) — a new database-free
+    entry point that turns raw PDF bytes into an `OpenContractDocExport` (chunk
+    split → parse → reassemble → image extraction) without reading a `Document`
+    row, so the parser can be driven headlessly. `_parse_document_impl` now
+    fetches the PDF bytes and delegates to it (behaviour unchanged).
+  See `scripts/remote_ingest/README.md`.
+- A research report now warns when a finding card gives the same date for
+  approval and effectiveness (`ResearchReportService.finalize`). A regulator
+  approving an instrument is a different event from the instrument taking
+  effect, and the gap between them is exactly the window a reader needs when
+  asking which regime governed a given day — the card keeps the two in separate
+  fields so a conflation is visible. Flagged rather than refused: the two
+  genuinely coincide often enough that blocking the card would be wrong.
+- **Finding cards are an outcome of deep research, not a separate feature.**
+  `record_finding` (`opencontractserver/tasks/research_tasks.py`) now takes
+  optional structured fields — `as_of_date`, `applicable_process`,
+  `authority_status`, a half-open `effective_interval`, the cited authority's
+  effective date, `confidence` and `unresolved_qualifications` — validated
+  all-or-nothing so a half-filled card can never be stored. They ride in the
+  existing `ResearchReport.findings` JSON; no new model, mutation or endpoint.
+  The schema lives in `opencontractserver/enrichment/finding_cards.py`.
+- **Anachronistic citations are refused.** A card whose cited authority takes
+  effect after the date it is cited for is rejected with an error telling the
+  agent to find the version in force instead. A run had cited the revised
+  Planning Guide (effective 2026-07-11) as the authority for 2026-07-10.
+- **Reports open with the takeaway.** `ResearchReportService.finalize` emits a
+  `[component:research-findings]` CAML marker above the prose when a run
+  recorded any card, rendered by a new embed in the existing CAML component
+  registry. Executive summary and report body were already produced by
+  `finalize_report`.
+- **Deep research can target a Corpus Group** (`ResearchReport.corpus_group`,
+  migration `research.0005`). `start_deep_research` takes an optional
+  `corpus_group_slug`; a group the caller cannot see is refused rather than
+  silently narrowed. A new `search_across_group` closure fans retrieval over
+  the group's visible corpora and registers each hit's annotation id into the
+  citation whitelist, preserving the closed-citation-graph invariant that a
+  plain `search_across_corpora` tool would have broken.
+- **Group-scoped runs are told the cross-corpus tool exists.** The mission
+  section read "explore the corpus" and never mentioned `search_across_group`,
+  so the first group-scoped run answered from the anchor corpus alone — the tool
+  was wired up and never called. `build_deep_research_system_prompt` now takes
+  `corpus_group_title` and states that `similarity_search` sees only the anchor
+  while `search_across_group` reaches the group.
+- **`unresolved_qualifications` cannot be empty on a card.** A blank list is
+  indistinguishable from a field nobody filled in, so "we looked and found none"
+  and "we never looked" rendered identically. An explicit statement is now
+  required either way.
+- **Cross-corpus hits are truncated** to `RESEARCH_CITABLE_PASSAGE_PREVIEW_CHARS`
+  like `find_citable_passages`. Full text per hit multiplies by the group's
+  member count; the first cross-corpus run exhausted its token budget and
+  finalised as a salvage composition.
+- Group-scoped deep research is now reachable from the interface.
+  `startResearchReport` takes an optional `corpusGroupId`
+  (`config/graphql/research_mutations.py`), and the corpus Research tab's
+  **Start research** modal offers a group picker
+  (`frontend/src/components/widgets/modals/StartResearchModal.tsx`, backed by
+  `GET_CORPUS_GROUP_OPTIONS`). The capability already existed in
+  `ResearchReportService.start` and in the chat agent's `start_deep_research`
+  tool, so the only way to widen a run past the anchor corpus was to ask the
+  agent in chat — the explicit kickoff path could not do it at all. A group the
+  caller cannot see is REFUSED rather than ignored: a silently narrowed run
+  produces a report that reads as group-wide and is not. Golden SDL
+  regenerated; gate covered by
+  `opencontractserver/tests/research/test_research_start_mutation.py`.
+- Added a per-message **Save to My Documents** control on finished assistant
+  chat messages, backed by the `saveMessageToWorkspace` GraphQL mutation. A
+  chat answer previously left no durable artifact — unlike a research report it
+  is not stored anywhere, so once the thread scrolled away the analysis was
+  only recoverable by re-reading the conversation. The message is filed into
+  the caller's private `My Documents` corpus as a markdown document, with an
+  optional folder (created on demand) and an optional title that defaults to
+  the message's first meaningful line. A provenance header records the source
+  corpus, conversation and date. Saving the same title again versions the file
+  in place rather than duplicating it.
+- The mutation is **visibility-gated**, matching the discussion-permissions
+  model in `docs/permissioning/consolidated_permissioning_guide.md`: anyone who
+  can READ the conversation may keep a copy (strictly weaker than editing,
+  which stays creator-or-moderator), the lookup goes through
+  `BaseService.filter_visible` so an invisible message is indistinguishable
+  from a nonexistent one, and the copy always lands in the **saver's** own
+  corpus — the message author never gains access to it. Pinned by tests for
+  the reader-can-save, stranger-cannot, and copy-lands-in-the-savers-workspace
+  cases.
+- Fixed corpus document counts reading zero for a workspace holding generated
+  artifacts. `Corpus.document_count()` and the annotated subquery in
+  `config/graphql/corpus_queries.py::_corpus_count_subqueries` both excluded
+  **all** `text/markdown`, which was equivalent while a corpus's only markdown
+  was its CAML landing article — but a personal workspace holding saved chat
+  answers or research reports then reported "0 documents" while listing files.
+  Both now exclude only the CAML article, via a single shared predicate
+  (`CAML_ARTICLE_DOCUMENT_PATH_Q`) so the list and detail views cannot drift
+  apart. The Collection Intelligence panel had the same defect from the other
+  direction — `GET_CORPUS_COLLECTION_DOCS` omitted `includeCaml`, so its
+  headline metric read "0 DOCUMENTS" and "No documents in this collection yet"
+  — and now passes the flag like the other corpus views.
+- The global **Authority Sources** monitor (`/admin/authorities`) can now
+  **run discovery on a selected subset** of the queue, not just observe it.
+  Select queued `AuthorityFrontier` rows (per-row checkboxes + a header
+  "select all in current filter") and trigger authority discovery on exactly
+  those rows — closing the gap where the only trigger was the corpus-bound
+  enrichment runner.
+  - Backend: new superuser-only `runAuthorityDiscovery(frontierIds: [ID!]!)`
+    mutation (`config/graphql/enrichment_mutations.py`) → fire-and-forget
+    `discover_selected_authorities` Celery task
+    (`opencontractserver/tasks/corpus_tasks.py`) →
+    `CrawlAuthoritiesService.discover_selected`
+    (`opencontractserver/enrichment/services/crawl_authorities_service.py`),
+    which loops `discover_and_bootstrap` over the chosen rows **depth-0** (no
+    seed-from-wanted, no child seeding). Corpus-agnostic — no `Analysis` row.
+  - `AuthorityFrontierNode` gains `ingestable` / `predictedProvider`
+    (`config/graphql/annotation_types.py`) so the monitor shows which rows a
+    provider can actually handle and warns when a selection includes
+    no-provider rows (they record `unsupported`).
+  - Frontend (`AuthoritySourcesMonitor.tsx`): selection + sticky action bar
+    ("N selected", no-provider warning, Run discovery), a Provider/ingestable
+    indicator column, and live polling that reflects each row's
+    `discovery_state` as the run settles.
+- **Authority Console — Phase 1 (namespace management API).** Added a runtime
+  management surface for `AuthorityNamespace` (the registry of bodies of law whose
+  aliases drive Tier-1 citation extraction), which previously had **no** GraphQL,
+  admin, or GUI surface and was editable only by hand-editing
+  `authority_mappings.yaml` + re-running the loader. New
+  `AuthorityNamespaceService` (`opencontractserver/enrichment/services/authority_namespace_service.py`)
+  provides superuser-gated create / update / delete / `set_aliases` plus faceted
+  `stats` and a string-joined `detail` projection that assembles one authority's
+  namespace + aliases + in/out key-equivalences + discovery-frontier rows +
+  reference demand (joined colon-anchored on `"<prefix>:"` / `authority=prefix`,
+  since the authority models have no FKs between them). Exposed via
+  `authorityNamespaces` (relay connection), `authorityNamespaceStats`,
+  `authorityNamespaceDetail(prefix)`, and `create/update/setAliases/delete
+  AuthorityNamespace` mutations (`config/graphql/authority_namespace_mutations.py`).
+- **Single authority-admin permission gate.** New
+  `opencontractserver/enrichment/services/authority_permissions.py::is_authority_admin`
+  is now the one definition every authority surface funnels through; repointed the
+  inline `is_superuser` checks on `AuthorityFrontierNode` / `AuthorityKeyEquivalenceNode`
+  `get_queryset`, `AuthorityKeyEquivalenceService`, `AuthorityFrontierService.admin_state_counts`,
+  and `RunAuthorityDiscoveryMutation` to it (single seam to widen the role later).
+- **Unified Authority Console (frontend, `/admin/authority`).** New superuser-only
+  console (`frontend/src/components/admin/authority/`) that becomes the single front
+  door for managing legal authorities, replacing the three flat-sibling admin cards
+  (Authority Sources / Authority Mappings / Enrichment Runner) with one tabbed shell.
+  Phase 1 ships the **Registry** tab — a faceted, searchable master list of bodies of
+  law with an inline "new authority" create form — and a single-**authority detail**
+  view that joins, in one place, the namespace header (editable display name /
+  jurisdiction / type / advisory provider-license, with the registry-resolved
+  "effective provider" shown alongside), an inline **alias editor**, and read-only
+  **relationships** (key-equivalences), **discovery-queue** rows, and **reference**
+  demand. Reuses the existing design-system chrome via extracted shared primitives
+  (`FacetedStatsChips`, `useFacetedRelayList`, console chrome/tones) so there is zero
+  visual drift and no duplicated styling. The remaining concerns (relationship
+  editing, the discovery queue, scrapers/credentials, runs) are absorbed into real
+  tabs in later phases; until then their tab opens the existing standalone panel.
+
+### Fixed
+- **Loader no longer clobbers admin-edited namespaces.** `AuthorityNamespace`
+  gained a `source` ownership marker (`baseline`/`manual`, migration
+  `annotations/0099`) mirroring `AuthorityKeyEquivalence.source`;
+  `AuthorityMappingLoader.load_namespaces` now skips `source="manual"` rows, so a
+  re-load of `authority_mappings.yaml` can no longer silently overwrite a
+  curator's runtime edits to a shipped body of law (the loader previously
+  `update_or_create`d every non-corpus-linked global prefix). Also added
+  `AuthorityNamespace.created_by` for edit provenance.
+- **Authority Console — Phase 3 backend (frontier action verbs).** Added
+  superuser-gated admin row-actions for the `AuthorityFrontier` discovery queue:
+  `requeue` / `reset` / `reroute` / `approve` / `delete_rows` on
+  `AuthorityFrontierService`, each a thin wrapper over the single `mark()`
+  transition primitive, exposed as GraphQL mutations
+  (`config/graphql/authority_frontier_mutations.py`:
+  `requeue/reset/reroute/approve/deleteAuthorityFrontier`).
+
+### Fixed
+- **`mark()` can now clear fields, fixing the requeue constraint trap.** The
+  `AuthorityFrontierService.mark()` primitive gained `clear_document` /
+  `clear_error` / `clear_provider` / `set_provider` kwargs (previously it could
+  only *set* `ingested_document`/`last_error`). An admin **requeue** of an
+  already-ingested row now moves it back to `queued` while clearing
+  `ingested_document` — without this, the `frontier_queued_no_ingested_doc`
+  CheckConstraint would reject the save. This also un-sticks `deferred_cap` rows
+  (the silent backlog): a requeued row becomes `dequeue_queued`-able again.
+  `reroute` validates the target provider against the registered provider class
+  names before re-queuing. Set/clear kwargs are guarded as mutually exclusive.
+- **Authority Console — Phase 4 (scrapers visibility + dead-state retirement).**
+  Added a read surface for the authority **source providers** (the "scrapers"):
+  `AuthoritySourceProviderService.list_providers` + the `authoritySourceProviders`
+  GraphQL query expose the auto-discovered providers (US Code / eCFR / Federal
+  Register / agentic web locator) with their supported prefixes, license,
+  priority, `enabled` / `requires_approval` flags, and a `has_credentials` flag
+  derived from the existing encrypted-secrets vault — surfaced read-only in the
+  console's new **Scrapers** tab. The providers previously had no DB row and no
+  API surface at all (fully invisible to operators). Credentials remain edited
+  through the single existing component-secrets vault (System Settings), not a
+  parallel store.
+
+### Removed
+
+- **Removed the bulk-ZIP `skip_pipeline` inline-application path.** With deferred
+  remap (#1910) sidecar documents flow through the standard parser pipeline, so
+  `import_zip_with_folder_structure` (`opencontractserver/tasks/import_tasks.py`)
+  no longer needs to apply annotations inline. Deleted the
+  `if skip_pipeline and sidecar_data:` branch, the `_apply_sidecar_annotations`
+  and `_validate_sidecar_schema` helpers (plus the `_ANNOTATION_REQUIRED_KEYS` /
+  `_RELATIONSHIP_REQUIRED_KEYS` constants) and the now-unused imports. The
+  always-zero `annotation_sidecars_processed` result key was replaced by
+  `pending_annotation_docs`. `create_document_from_export_data`
+  (`opencontractserver/utils/importing.py`) is retained — it is still used by the
+  V2 corpus importer (`opencontractserver/tasks/import_tasks_v2.py`).
+- **Removed the registry-bypassing `SimpleLLMClient`** (`opencontractserver/llms/client.py`)
+  and its `LLM_CLIENT_PROVIDER` / `LLM_CLIENT_MODEL` / `LLM_CLIENT_TEMPERATURE`
+  / `LLM_CLIENT_MAX_TOKENS` settings. It was an OpenAI-only chat wrapper that
+  hardcoded `gpt-4o-mini` and never consulted the LLM Singleton registry; its
+  sole production caller (conversation-title generation) now uses the
+  registry-backed `agenerate_text`. The dead-code `SimpleLLMClient` typing tests
+  were dropped and the `docs/architecture/llms/README.md` "SimpleLLMClient"
+  section now documents `agenerate_text` instead.
+  **Operator note:** the `LLM_CLIENT_PROVIDER` / `LLM_CLIENT_MODEL` /
+  `LLM_CLIENT_TEMPERATURE` / `LLM_CLIENT_MAX_TOKENS` environment variables are no
+  longer read and are silently ignored if still set — remove them from your
+  `.env` / ConfigMap. The install-wide default LLM is now configured at runtime
+  via `PipelineSettings.default_llm` (System Settings UI) with `DEFAULT_LLM` /
+  `OPENAI_MODEL` as the env fallback.
+- **Removed the dead `Artifact.is_public` override surface (docstring/behavior
+  mismatch flagged in a post-merge review of #2077).** The `Artifact` model's
+  docstring (`opencontractserver/corpuses/models.py`) claimed visibility was
+  "corpus-as-gate OR `is_public`", but no read path ever implemented the
+  `is_public` branch: `ArtifactService._corpus_readable`
+  (`opencontractserver/corpuses/services/artifact_service.py`) — the sole gate
+  used by `get_by_slug`, `list_for_corpus`, `update_captions`, `set_image` —
+  checks only the source corpus's visibility. `ArtifactService.create`'s
+  `is_public: bool = True` parameter was passed straight to
+  `Artifact.objects.create(...)` but never consulted by anything, and the
+  `CreateArtifact` GraphQL mutation didn't even expose it as an argument.
+  Not exploitable (the code was already more restrictive than documented,
+  never less), but a footgun: a future change that "fixed" the code to match
+  the documented OR-semantic would have silently reopened an IDOR (a
+  public-flagged artifact on a private corpus leaking that corpus's data to
+  anyone with the artifact's slug). Removed the `is_public` parameter from
+  `ArtifactService.create` and its `Artifact.objects.create(...)` kwarg, the
+  `is_public` field from `ArtifactType` (`config/graphql/corpus_types.py`) and
+  `_artifact_to_type` (`config/graphql/corpus_queries.py`), and the `isPublic`
+  field from the `ArtifactNode` interface/queries in
+  `frontend/src/graphql/queries.ts` (fetched but never branched on by any
+  component). Corrected the three docstrings that repeated the OR-semantic
+  claim to state the actual corpus-as-gate-ONLY behavior. Note: the
+  `is_public` *column* itself is inherited from `BaseOCModel` (every
+  BaseOCModel subclass — Document, Corpus, Annotation, etc. — has its own copy
+  via abstract-base inheritance) and is used generically by
+  `BaseVisibilityManager`/`visible_to_user()` elsewhere in the system; dropping
+  it from the database would require decoupling `Artifact` from `BaseOCModel`
+  entirely, which is out of scope here, so the column stays present but is no
+  longer read, set, or documented as meaningful for `Artifact` specifically. No
+  migration was needed. (#2095)
+- **Removed the per-MIME "Embedder" GUI control from admin Filetype Defaults (issue #2114).**
+  `PipelineSettings.preferred_embedders` was editable per-MIME-type via
+  `frontend/src/components/admin/system_settings/FiletypeDefaults.tsx`, but it
+  had zero effect at ingest: `_apply_dual_embedding_strategy`
+  (`opencontractserver/tasks/embeddings_task.py`) always resolves the single
+  global `default_embedder`. Wiring per-MIME resolution into the real ingest
+  path was deliberately rejected — that "default" embedding backs a shared,
+  cross-corpus vector index, and letting different MIME types resolve to
+  different embedder classes/dimensions there would fragment it. Removed the
+  Embedder column/stage from `FiletypeDefaults.tsx`/`types.ts`/`config.ts`
+  (embedders remain configurable via the global "Default Embedder" picker and
+  listable in the Component Library) and deleted the dead resolvers
+  `find_embedder_for_filetype`/`get_default_embedder_for_filetype`
+  (`opencontractserver/pipeline/utils.py`), which had no live production
+  caller — the only consumer, `get_embedder()`
+  (`opencontractserver/utils/embeddings.py`), never received a `mimetype`
+  argument from any real call site. `preferred_embedders` remains a valid,
+  GraphQL-API-only field (query/mutation unchanged) for anyone who wants to
+  set it directly; it is simply no longer editable through the admin GUI.
+- Removed the standalone, unregistered `opencontractserver/enrichment/services/customs_ruling_citation_service.py` (added by commit `5c445aa27` on this branch, never wired into `opencontractserver/enrichment/services/__init__.py`'s `__all__`/auto-discovery), its `opencontractserver/corpuses/management/commands/enrich_customs_rulings.py` management command, and their test file (`opencontractserver/tests/test_customs_ruling_citation_service.py`). Superseded by the grammar-tier customs/trade detection already shipped on `main` (`opencontractserver/enrichment/grammars.py`, `opencontractserver/enrichment/data/authority_mappings.yaml`'s `htsus` prefix), which runs through the standard `EnrichmentService.apply` path and every existing trigger instead of a bespoke service. Keeping both would have shipped two competing, unregistered implementations of the same feature.
+- Removed the now-dead `ensure_aiohttp_vcr_compat()` aiohttp/vcrpy compat shim
+  (`opencontractserver/utils/vcr_replay.py`) and its call sites in `conftest.py`
+  and `maybe_vcr_cassette()`. The shim restored
+  `aiohttp.streams.AsyncStreamReaderMixin`, a symbol aiohttp 3.14 removed and
+  vcrpy 8.1.1's aiohttp stub subclassed at import time (issue #1920). vcrpy
+  8.2.0 fixed the stub upstream (kevin1024/vcrpy#996) — `MockStream` no longer
+  inherits the mixin — so the shim has been a no-op since the pin moved to
+  8.2.1. Verified empirically against `vcrpy==8.3.0` + `aiohttp==3.14.1`:
+  entering a cassette with no shim applied succeeds. The `aiohttp>=3.13,<3.14`
+  cap this was paired with had already been lifted. The
+  `EnsureAiohttpVcrCompatTests` shim unit tests are replaced by
+  `VcrCassetteEntryTests` in `opencontractserver/tests/test_vcr_replay.py`,
+  which keeps the meaningful regression guard: entering a cassette (and thus
+  lazily importing `vcr/stubs/aiohttp_stubs.py`) must not raise. Closes #2140.
+- **Retired the dead `discovered` / `resolved` AuthorityFrontier states**
+  (migration `annotations/0100`). No production code path ever assigned them
+  (discovery jumps `in_progress → ingested`; the resolution outcome lives on the
+  relink result / `Analysis`, not the frontier row), so they were a
+  dead-vocabulary trap in `DISCOVERY_STATE_CHOICES`; removed from the model and
+  the frontend state-tone vocab.
+- Added `WorkspaceService`
+  (`opencontractserver/corpuses/services/workspace.py`) for filing generated
+  artifacts into a user's personal `My Documents` corpus. It binds the three
+  primitives that already existed — `Corpus.get_or_create_personal_corpus`,
+  `CorpusFolder`, and `documents/versioning.py::import_document` — and is
+  deliberately narrow: save only, since the workspace is an ordinary corpus and
+  the corpus/folder/lifecycle services already own move, delete and list. Saves
+  are idempotent by path, so re-saving versions the file in place rather than
+  duplicating it. Generated titles are treated as untrusted input: separators
+  are stripped so a title cannot invent a folder level, and dot runs are
+  collapsed so a traversal segment cannot reach a corpus V2 export ZIP. See
+  `docs/architecture/user-workspace-storage.md`.
+- Completed deep-research reports are now filed in their creator's workspace as
+  `Research Reports/<slug>.md`, with a provenance header (source corpus,
+  generated date, report link) so the file explains itself outside the app. The
+  saved document is linked from `ResearchReport.workspace_document` and exposed
+  on the GraphQL type as `workspaceDocument`. The save runs outside
+  `finalize`'s atomic block and swallows its errors — the report is already
+  COMPLETED and cost minutes of model time, so a failed file write must not
+  turn a successful run into a failed one. Markdown documents skip the ingest
+  chain (no parsing, thumbnailing or annotations), but the `DocumentPath`
+  signal still queues a document-level text embedding, so a saved report has no
+  annotation-level chunks for passage retrieval yet can surface in
+  document-level similarity search — and each save costs one embedding call.
+- Fixed the corpus document list hiding markdown documents. `documents(
+  inCorpusWithId:)` excludes `text/markdown` unless a caller passes
+  `includeCaml: true` (a default aimed at extractors and analyzers), and
+  `GET_CORPUS_DOCUMENTS_FOR_TOC` / `DocumentTableOfContents.tsx` did not — so a
+  report filed in `My Documents` existed in the database while the list a user
+  opens to find it rendered "No Documents". `RunCorpusActionModal` deliberately
+  still omits the flag, since a corpus action should not offer to run over a
+  CAML article.
+- **"Reingest & remap" is now the default for user-facing V2/V3 corpus-export
+  import (opt-out).** A `reingest_and_remap` flag, threaded through
+  `import_corpus_export_for_user` → `import_corpus` → `import_corpus_v2` →
+  `import_corpus_v2_from_bytes` → `_import_corpus` →
+  `_import_document_with_annotations`, re-parses each imported document through
+  the *current* pipeline instead of trusting the export's baked PAWLs /
+  structural layer. Per document it: drops the exported structural annotations
+  (skips `import_structural_annotation_set`), re-ingests from the raw source
+  bytes via `corpus.import_content(..., backend_lock=True)` so the standard
+  post-save chain regenerates PAWLs + structural annotations, and defers the
+  surviving non-structural annotations into a `PendingDocumentAnnotations` row
+  for `remap_pending_annotations` to re-anchor (`tasks/import_tasks_v2.py`,
+  `_reingest_document_with_deferred_remap`). The opt-out boundary is the
+  **user-facing service** `import_corpus_export_for_user`, which now defaults
+  `reingest_and_remap=True` — the REST `CorpusExportImportView` and the
+  chunked-upload completion path both reingest by default; pass `False` to trust
+  the export's baked layer. The lower-level tasks keep the flag **off** by
+  default (explicit opt-in), so `fork_corpus` and direct/programmatic callers are
+  unchanged. No per-request REST field or frontend toggle this iteration.
+- **Asynchronous corpus-relationship fan-in.** New `PendingCorpusImport`
+  coordination model (`documents/models.py`, migration `documents/0042`) holds
+  a reingest run's corpus-level relationships and an `expected_doc_count`. An
+  exactly-once `_maybe_finalize_corpus_import(run_id)`
+  (`select_for_update(skip_locked=True)` claim) is triggered from both the
+  post-loop in `_import_corpus` and from `remap_pending_annotations`
+  (`tasks/doc_tasks.py`), and dispatches `finalize_corpus_import_relationships`
+  once every document's remap has recorded its `id_map`. The finalizer
+  aggregates the per-document maps, rebuilds the `(text, label_type)` label
+  lookup, and calls the existing `_import_v2_relationships`. The task is
+  retry-safe (accepts `FINALIZING`/`FAILED` re-entry; wiring + `DONE` flip in
+  one transaction so a crash rolls partial writes back).
+- **Source-less documents fall back to the baked import.** Reingest re-parses a
+  document from its original source bytes, but the V2 exporter only preserves
+  those for documents with a real `pdf_file` (PDFs / binaries) — text, markdown
+  and other source-less docs ship a single-NUL placeholder (`etl.py`), with their
+  content carried only in the baked `content` / `pawls_file_content`. In reingest
+  mode `_import_document_with_annotations` now peeks the source bytes
+  (`_source_is_reingestable`) and, for a placeholder, imports the doc's baked
+  layer instead of feeding `\x00` to the parser (which previously stuck the doc
+  in an ingest retry loop). The fallback still records a DONE
+  `PendingDocumentAnnotations` row carrying the doc's `id_map`, so cross-document
+  relationships touching a source-less doc are still wired by the fan-in.
+- **Fixed: compact-v2 PDF annotations are now anchorable on reingest.**
+  `legacy_annotation_to_dumb_anchor` (`utils/annotation_anchoring.py`) now
+  accepts the compact-v2 `annotation_json` shape (`{"v": 2, "p": {page: {"b":
+  [top, left, right, bottom], "t": ...}}}`) the V2/V3 exporter actually emits,
+  in addition to the legacy verbose `{page: {"bounds": ...}}` shape. Without
+  this, every PDF annotation in a real corpus export was silently dropped when
+  fed through the remap machinery.
+- **Wanted-authorities panel** — the missing-law backlog, surfaced. A new
+  card (`WantedAuthoritiesCard` / `WantedAuthoritiesLive` in
+  `frontend/src/components/corpuses/CorpusHome/intelligence/`) renders
+  beneath the governance graph inside `GovernanceGraphLive`, so every surface
+  that shows the graph — the Corpus Intelligence overview and the
+  `[component:governance-graph]` CAML article embed — also shows
+  the `wantedAuthorities` GraphQL backlog: which bodies of law the collection
+  cites that aren't in the library yet, ranked by citation demand, with the
+  most-cited sections as dashed "ghost" chips (`DGCL § 262 ×11`) echoing the
+  graph's cited-not-yet-ingested vocabulary. Renders nothing at all when the
+  backlog is empty — an empty backlog is not news. Query + types in
+  `frontend/src/graphql/queries.ts` (`GET_WANTED_AUTHORITIES`); row cap in
+  `frontend/src/assets/configurations/constants.ts`
+  (`WANTED_AUTHORITIES_MAX_ROWS`); component tests in
+  `frontend/tests/WantedAuthorities.ct.tsx`.
+- **Warp-Ingest PDF parser (REST microservice).** Added an alternative PDF
+  parser based on [Warp-Ingest](https://github.com/Open-Source-Legal/Warp-Ingest),
+  a deterministic, rule-based parser (pdfplumber + optional RapidOCR, no GPU)
+  that renders straight to the OpenContracts export format.
+  - New parser `opencontractserver/pipeline/parsers/warp_ingest_parser.py::WarpIngestParser`
+    (auto-discovered by the pipeline registry). Follows the Docling REST pattern
+    but is non-chunked: it sends the whole PDF to Warp-Ingest's `POST /api/parse?render_format=opencontracts`
+    (multipart), authenticates via the `X-API-Key` header (leaving `Authorization`
+    free for Cloud Run IAM), unwraps the `result` payload, and classifies
+    timeout/connection/5xx as transient vs 4xx as permanent `DocumentParsingError`s.
+    A configurable `max_file_size_mb` cap (default 200, env
+    `WARP_INGEST_MAX_FILE_SIZE_MB`) bounds per-worker memory before buffering the
+    file, and the user-controlled `document.title` is sanitized before it becomes
+    the multipart filename.
+  - Settings wired in `config/settings/base.py` (`WARP_INGEST_PARSER_SERVICE_URL`,
+    `WARP_INGEST_API_KEY`, `WARP_INGEST_PARSER_TIMEOUT`) with the shared
+    request-timeout constant `WARP_INGEST_PARSER_REQUEST_TIMEOUT_SECONDS` in
+    `opencontractserver/constants/document_processing.py`; documented in the
+    sample `.django` env files.
+  - `local.yml` / `production.yml` define a `warp-ingest` service running the
+    official `ghcr.io/open-source-legal/warp-ingest` image behind an opt-in
+    `warp-ingest` compose profile (Docling stays the default PDF parser).
+  - Docs: `docs/pipelines/warp_ingest_parser.md` (linked from the pipeline
+    overview + mkdocs nav) and an end-to-end smoke-test script at
+    `docs/test_scripts/warp_ingest_parser_smoke_test.md`. Unit tests:
+    `opencontractserver/tests/test_doc_parser_warp_ingest.py`.
 - **Admin management of registered LLMs in System Settings.** Superusers can
   now view, enable/disable, and pick a system-wide default for the registered
   LLM providers from the admin **System Settings → Pipeline Configuration**
@@ -906,6 +5910,431 @@ geocoded}` is written to `Annotation.data`. Non-geographic labels are
 
 ### Security
 
+
+- Permissioning audit follow-ups from issue #1986 (filter/check parity + safe
+  error handling):
+  - **Anonymous chat-message visibility now follows the conversation
+    bifurcation (item 2).** `ChatMessageQuerySet.visible_to_user`
+    (`opencontractserver/conversations/models.py`) previously filtered the
+    anonymous branch on `conversation__is_public=True` alone, which exposed a
+    public **CHAT**'s messages even though `ConversationQuerySet.visible_to_user`
+    keeps the conversation itself hidden from anonymous users (anonymous can
+    only see THREADs). The branch now delegates to
+    `Conversation.objects.visible_to_user`, so message visibility inherits the
+    single-source-of-truth CHAT/THREAD rules — no public-CHAT message leak, and
+    messages in context-inherited public-resource threads are correctly visible.
+  - **Conversation and chat-message querysets now honour group-level READ
+    grants (item 3).** `ConversationQuerySet` / `ChatMessageQuerySet`
+    `visible_to_user` consulted only the USER object-permission tables. Because
+    `ConversationManager.user_can(READ)` / `ChatMessageManager.user_can(READ)`
+    route back through `visible_to_user`, a group-only READ grant was both
+    invisible in lists AND denied by `user_can(READ)` — even though non-READ
+    writes (via `_default_user_can`) honoured the same group grant. Both
+    querysets now join the `*groupobjectpermission` tables (mirroring
+    `BaseVisibilityManager`), closing the same group-grant gap PR #1985 fixed for
+    annotations / relationships / extracts.
+  - **`BaseVisibilityManager.visible_to_user` no longer swallows unexpected
+    errors (item 4).** The guardian-lookup fallback caught
+    `(ImportError, Exception)` — equivalent to a bare `except Exception` — so any
+    error silently degraded the queryset to creator/public filtering,
+    under-disclosing guardian-granted rows while hiding the defect
+    (`opencontractserver/shared/Managers.py`). The catch is narrowed to
+    `(ImportError, LookupError)` so a genuinely-absent permission table still
+    falls back gracefully, but programming/database errors now propagate.
+- Hardened the authority SSRF-safe fetch path in response to PR #2000 review:
+  - `opencontractserver/constants/safe_http.py`: lowered the default
+    `MAX_RESPONSE_BYTES` cap from 500 MB to **50 MB** so a single fetch can no
+    longer OOM a constrained worker; added a dedicated
+    `OLRC_TITLE_ZIP_MAX_BYTES` (200 MB) that only the US Code title-ZIP loader
+    (`us_code_provider._load_title_xml`) passes as an explicit `max_bytes=`
+    override.
+  - `federal_register_provider._fetch_impl`: routed step 2 (document JSON) through
+    `safe_fetch_bytes` instead of redirect-following `requests.get`, closing an
+    SSRF gap where the FR API response could redirect step 2 to a private/internal
+    host. Every redirect hop is now re-validated against the allowlist +
+    public-IP check; an off-allowlist hop raises and is not swallowed.
+  - `agentic_web_locator_provider`: documented that prompt-injection
+    sanitization is intentionally ASCII-only (every bidi/zero-width/homoglyph
+    vector lies above U+007E and is already stripped) and extracted the logic
+    into `_sanitize_for_prompt`; `_fetch_impl` now also rejects a `found=True`
+    result whose body text is blank/whitespace.
+- `RunCorpusEnrichmentMutation` (`config/graphql/enrichment_mutations.py`) now
+  validates the relay global-id type prefix: a well-formed id of the wrong type
+  (e.g. `DocumentType:<pk>`) is rejected with the same generic
+  "not found / no permission" message instead of letting the bare numeric pk
+  flow into `start_document_analysis(corpus_pk=...)` and relying solely on the
+  downstream visibility filter. Covered by
+  `test_enrichment_run_mutation.test_rejects_wrong_global_id_type`.
+- **DNS-pinned `safe_fetch_bytes` connections to close the DNS-rebind TOCTOU window (`opencontractserver/utils/safe_http.py`).** `_assert_public_ip` previously validated a host's resolved address(es) and discarded them, so `safe_fetch_bytes` handed httpx the bare hostname — httpx/httpcore would then resolve DNS again, independently, at connect time. A resolver that returned a public address during validation and a private one moments later (a DNS rebind) would have connected past the SSRF guard. `_assert_public_ip` now returns the validated addresses instead of `None`; `safe_fetch_bytes` connects to the FIRST validated address via a new `_DNSPinnedTransport` (an `httpx.HTTPTransport` subclass that rewrites the request URL's host to the pinned IP while keeping the original hostname as the TLS SNI/certificate-verification name and the `Host` header, so certificate validation and vhost routing are unaffected). Each redirect hop gets its own fresh pin — a new host reached via redirect is never pinned to a previous hop's address. `validate_url` keeps its existing signature/behavior (host-only return) for callers that issue their own request afterward (e.g. `federal_register_provider.py`'s step 1, which uses raw `requests` and is documented as not covered by this pin). Regression tests in `opencontractserver/tests/test_safe_http.py` (`TestDNSPinning`, `TestDNSPinningPerHopIndependence`) intercept at the real `httpcore` connection layer and simulate a rebind (first `getaddrinfo` call returns a public address, any further call returns a private one); they fail against the pre-fix code, proving the fix. Closes #2048.
+- **Closed a CGNAT SSRF gap in the authority-source fetch guard (issue #2026).**
+  `opencontractserver/utils/safe_http.py::_assert_public_ip` rejected resolved
+  addresses via the `ipaddress` property denylist (`is_private` / `is_loopback`
+  / `is_link_local` / `is_multicast` / `is_reserved` / `is_unspecified`), but
+  RFC 6598 Carrier-Grade NAT shared address space (`100.64.0.0/10`) is
+  classified as **neither** private **nor** reserved **nor** global on current
+  CPython — verified `is_private == is_reserved == is_global == False` on 3.11
+  and 3.12 — so a host resolving into that block would have passed validation
+  and been fetched. It is now rejected explicitly and version-independently via
+  a `_CGNAT_NETWORK` membership check, with the CIDR pinned in
+  `opencontractserver/constants/safe_http.py::CGNAT_SHARED_ADDRESS_SPACE_CIDR`.
+  The `.gov` host allowlist already made exploitation hard in practice (an
+  attacker would need an allowlisted host to resolve into the block), but the
+  IP guard is defence-in-depth and is also reachable by callers that pass a
+  custom `allowlist`. Regression coverage in
+  `opencontractserver/tests/test_safe_http.py` rejects the CGNAT block and
+  proves the adjacent public addresses (`100.63.255.255`, `100.128.0.0`) still
+  pass.
+- **Closed an IPv4-mapped IPv6 bypass of the same guard.** `_assert_public_ip`
+  now unwraps an IPv4-mapped IPv6 address (`::ffff:a.b.c.d`) to its embedded
+  IPv4 before the property/CGNAT checks. On CPython 3.11 the IPv6
+  `is_private` / `_CGNAT_NETWORK` checks do not reflect the mapped IPv4 for the
+  CGNAT-mapped form, so a resolver returning `::ffff:100.64.0.1` would have
+  slipped past every check; unwrapping makes the guard version-independent for
+  the mapped forms of private/loopback/link-local/CGNAT addresses. The CGNAT
+  membership test is additionally guarded by `isinstance(ip, IPv4Address)` so a
+  native IPv6 address is skipped rather than relying on `IPv6Address in
+  IPv4Network` returning `False` (true only on CPython 3.11+; 3.10 raises
+  `TypeError`). Covered by parametrized regressions in `test_safe_http.py`
+  (mapped forms rejected; public native IPv6 passes). Other IPv6-embedded-IPv4
+  forms (NAT64 `64:ff9b::/96` + RFC 8215 `64:ff9b:1::/48`, 6to4 `2002::/16`,
+  Teredo `2001:0::/32`, deprecated IPv4-compatible `::/96`) need no special
+  handling — CPython already flags those whole prefixes `is_private`/
+  `is_reserved` on 3.11 and 3.12 — and `test_ipv6_embedded_ipv4_tunnels_rejected`
+  now pins that coverage so a future Python change couldn't silently open the
+  hole.
+- **Strip per-service credentials on cross-host redirects in `safe_fetch_bytes`.**
+  Request headers are now dropped of `Authorization` / `Cookie` /
+  `Proxy-Authorization` (`CROSS_HOST_STRIPPED_HEADERS`) when a redirect crosses to
+  a different host (RFC 9110 §15.4). httpx — unlike browsers / `requests` —
+  forwards request headers verbatim across origins, so without this a future
+  caller passing a `.gov` API credential could leak it from one allowlisted host
+  to another (e.g. `ecfr.gov` → `federalregister.gov`) while following a redirect.
+  No current caller passes credentials, so this is forward-looking hardening; the
+  default `User-Agent` is preserved across the hop. The cross-origin test compares
+  `netloc` (host **and** port), so a same-host/different-port redirect
+  (`ecfr.gov` → `ecfr.gov:9000`, a different service) also strips. Covered by
+  `TestSafeFetchBytesCredentialStripping` (cross-host, cross-port, same-host).
+- **`_assert_public_ip` now fails CLOSED on an empty DNS result.**
+  `socket.getaddrinfo` can return an empty list **without** raising `gaierror` on
+  some resolver configs; the per-address loop would then be a no-op and the host
+  declared safe (fail-open) while httpx still resolves independently at connect
+  time. It now raises `SSRFValidationError` when no addresses resolve. Covered by
+  `test_empty_getaddrinfo_rejected`.
+- **Redirect-loop robustness in `safe_fetch_bytes`.** The hop check now keys off
+  `r.has_redirect_location` rather than `r.is_redirect` — in httpx `is_redirect`
+  is true for *any* 3xx, so a `304 Not Modified` (or any non-`Location` 3xx) was
+  treated as a redirect, resolved `Location: ""` back to the current URL, and
+  looped to the redirect cap with a misleading "exceeded N redirects". A present-
+  but-empty `Location:` now fails fast with a clear error, and a negative
+  `Content-Length` (e.g. `-1`, which parsed cleanly and slipped the `> max_bytes`
+  guard) is rejected as malformed. None are SSRF bypasses (the loop is bounded
+  and the streamed-bytes cap is the real backstop), but they remove wasted hops
+  and misleading diagnostics under server misbehaviour. Covered by
+  `test_empty_location_header_rejected`, `test_non_location_3xx_not_followed_as_redirect`,
+  and `test_negative_content_length_raises`.
+- **Extraction: fence the per-column constraint fields against prompt injection.**
+  `Column.instructions`, `must_contain_text`, and `limit_to_label` are user-settable via the
+  `CreateColumn` / `UpdateColumn` GraphQL mutations (only `@login_required`) and were
+  concatenated raw into the extraction prompt — a prompt-injection vector. `doc_extract_query_task`
+  (`opencontractserver/tasks/data_extract_tasks.py`) now wraps each value with
+  `fence_user_content` (which also escapes any attempt to break out of the `<user_content>`
+  fence) under `UNTRUSTED_CONTENT_NOTICE`, so the values stay readable to the model as guidance
+  while injected directives/role-reassignments are neutralized. The notice is emitted exactly
+  once even when both column constraints and the full document text are fenced. Regression tests:
+  `opencontractserver/tests/test_extract_prompt_wiring.py` (fencing, fence-breakout escaping,
+  single-notice).
+- **Gate Artifact caption/image edits on corpus visibility.**
+  `ArtifactService.update_captions` and `ArtifactService.set_image`
+  (`opencontractserver/corpuses/services/artifact_service.py`) fetched the artifact by slug alone,
+  so a known/guessed slug could let a user mutate an artifact in a corpus they cannot read — out of
+  step with the corpus-as-gate model the read paths (`get_by_slug`) already enforce. Both write
+  methods now reject when `_corpus_readable` is false, before the creator/UPDATE check, so a
+  private-corpus artifact is indistinguishable from a nonexistent one. Tests:
+  `opencontractserver/tests/test_artifact_service.py`.
+- **Close an active-job oracle in `RunCorpusEnrichmentMutation`.** The
+  duplicate-job guard (`AnalysisLifecycleService.active_analysis_exists`) previously
+  ran before any corpus permission check, so a caller with no READ access to a
+  corpus could still learn whether it had an active enrichment/crawl job by
+  comparing the "already queued or running" message against the generic
+  not-found/no-permission message. `config/graphql/enrichment_mutations.py` now
+  runs an explicit `CorpusService.get_or_none(Corpus, corpus_pk, user, request=...)`
+  visibility gate immediately after the relay-ID decode and before any
+  corpus-specific branching, returning the same IDOR-safe generic message for
+  both "corpus not visible" and "corpus visible, no active job" — closing the
+  oracle without weakening the existing TOCTOU-safe duplicate-job lock. Also adds
+  missing test coverage for the crawl-branch duplicate-job guard (previously only
+  the enrichment branch was tested) and replaces a raw `"COMPLETED"` status
+  literal with `JobStatus.COMPLETED.value` in
+  `opencontractserver/tests/test_enrichment_run_mutation.py`.
+- **Secure the corpus enrichment / authority-crawl runner (`RunCorpusEnrichmentMutation`).**
+  `config/graphql/enrichment_mutations.py` now gates the dispatch mutation behind rate
+  limiting (`RateLimits.AI_ANALYSIS`), an authority-admin gate on the LLM detection tier,
+  crawl-bound validation (`max_depth` capped at the new `CRAWL_MAX_ALLOWED_DEPTH`; the
+  expensive `max_authorities` / `per_jurisdiction_cap` / `token_budget` capped at their safe
+  defaults), and a per-corpus duplicate-job guard. The duplicate-job guard is now TOCTOU-safe:
+  the check-and-create runs inside one `transaction.atomic()` holding a `select_for_update`
+  lock on the corpus row (new `AnalysisLifecycleService.lock_corpus_for_dispatch` and
+  `active_analysis_exists` in
+  `opencontractserver/analyzer/services/analysis_lifecycle_service.py`), so two concurrent
+  requests for the same corpus can no longer both read "no active job" and double-dispatch.
+  `min_demand` carries only a floor (a higher value is *more* selective and cheaper, never a
+  resource risk), matching the crawl analyzer input schema. The duplicate-job ORM query moved
+  out of `config/graphql/` into the service layer per the service-layer invariant. Regression
+  coverage: `opencontractserver/tests/test_enrichment_run_mutation.py`.
+- **Close data-loss and IDOR gaps in `CorpusReference` visibility filters.**
+  `CorpusReferenceService.visible_to_user` / `visible_to_user_by_source`
+  (`opencontractserver/enrichment/services/corpus_reference_service.py`) filtered
+  source/target annotations with `__document__in=visible_documents`. Because `Annotation.document` is
+  NULL for structural annotations in shared sets and NULL is never a member of an `__in` list, every
+  structural-annotation-sourced/targeted reference — including the corpus owner's own — was silently
+  dropped from `corpusReferences`, `wanted_authorities`, and the governance graph. NULL-document
+  guards now retain them. Separately, the filters checked only the source/target annotation's
+  *document*, so an annotation whose document was public but whose **corpus** was private leaked its
+  FK; the filters now enforce `MIN(document, corpus)` on both `source_annotation__corpus` and
+  `target_annotation__corpus` (NULL-safe) via shared `_source_visible_q` / `_target_visible_q`
+  builders, with `_build_visibility_querysets` evaluated once per call. The authority crawler's
+  frontier-seed query (`crawl_authorities_service.py`), a canonical-key-only consumer, now uses
+  `for_corpus_by_source` so a reference to an unseen target is ghosted/seeded rather than silently
+  dropped — matching the governance graph. Tests cover the structural-annotation, source-corpus and
+  target-corpus IDOR, and guardian-grant paths in
+  `opencontractserver/tests/test_corpus_reference_model.py`.
+- **Cap user/LLM-triggered `crawl_authorities` runs at the service layer.**
+  `CrawlAuthoritiesService.crawl` (`opencontractserver/enrichment/services/crawl_authorities_service.py`)
+  now sanitizes its own bounds, so both the LLM-tool path
+  (`opencontractserver/llms/tools/core_tools/corpus_references.py`) and the Celery-task path are
+  protected by one load-bearing guard instead of the tool path alone. Two clamp-polarity bugs are
+  fixed: a negative/zero `token_budget` no longer clamps to `0` (the "unbounded" sentinel that
+  disabled the budget check) — non-positive requests map to `CRAWL_DEFAULT_TOKEN_BUDGET` and
+  positive ones clamp to `CRAWL_MAX_TOKEN_BUDGET`; and `per_jurisdiction_cap` now floors at
+  `CRAWL_MIN_PER_JURISDICTION_CAP` (1) instead of `0`, which had parked every dequeued row at
+  `deferred_cap` and silently halted the whole crawl. The redundant second `_sanitize_bounds`
+  call in the tool wrapper is removed (the service owns sanitization), and the `frontier_drained`
+  diagnostic count is scoped to the run's `canonical_keys` so a scope-restricted crawl no longer
+  inflates `blocked_by_bound["min_demand_or_depth"]` with QUEUED rows from other concurrent runs.
+  The numeric clamp helper moved to a reusable `opencontractserver/utils/numbers.py::clamp_int`
+  (distinct from `clamp_limit`), and the corpus-scoping `crawl_keys` set is now unconditional —
+  the dead `else None` fallback that would have silently re-opened the crawl to the global frontier
+  is gone.
+  Tests: `opencontractserver/tests/test_crawl_authorities_security.py` (incl. a Celery-task-path
+  clamp regression), `opencontractserver/tests/test_numbers_utils.py`.
+  Review follow-up: the Celery task's `input_schema` (`opencontractserver/tasks/corpus_analysis_tasks.py`)
+  now declares `maximum` for `max_authorities`, `per_jurisdiction_cap`, and `token_budget` (mirroring
+  the existing `max_depth` maximum), so schema consumers can see the same hard caps the service
+  clamp enforces. The stale `token_budget <= 0 means "unbounded"` loop comment is corrected — after
+  `_sanitize_bounds` the value is always `>= 1` on this capped path. Security tests that previously
+  exercised only `_sanitize_bounds` in isolation (empty `queued_keys`, bypassing the BFS loop) now
+  seed a real `QUEUED` row so the loop body actually runs; `test_crawl_keys_updated_when_scoped_crawl_ingests_and_seeds_children`
+  now seeds a non-empty outbound citation so `crawl_keys` growth is exercised end-to-end (a second
+  BFS iteration reaches the newly-seeded child key), rather than being a no-op assertion.
+- Authority enrichment now enforces **document-level** visibility on every user-facing entry point. `EnrichmentService.discover`, `EnrichmentService.scan`, and `EnrichmentService.apply` (`opencontractserver/enrichment/services/enrichment_service.py`) load their document set through `_load`, which always routes via `CorpusDocumentService.get_corpus_documents_visible_to_user` (the `MIN(corpus, document)` semantic) instead of the corpus-as-gate loader. A user who can read a corpus but lacks READ on a private document inside it no longer has that document scanned by the LLM citation extractor / grammar tier, surfaced through `discover`'s `review_candidates` or `scan`'s verbatim `raw_text` samples, or — most importantly — persisted by `apply` into `Annotation` / `CorpusReference` / `DocumentRelationship` rows (the durable form of the leak). Regression tests for all three surfaces (plus positive controls proving the corpus owner is unaffected) in `opencontractserver/tests/test_enrichment_llm_integration.py`.
+- The exclusion is no longer silent: `scan` / `discover` / `apply` each report a `documents_excluded_by_visibility` count and emit a `logger.WARNING` when the caller's `creator_id` (the agent tools pass the conversation user, not necessarily the corpus owner) lacks per-document READ on some documents — so `apply` marking the `Analysis` `COMPLETED` over a truncated document set is auditable rather than a permanent, invisible gap in coverage (`EnrichmentService._document_visibility_audit`). `scan` and `apply` now also return `documents_total_in_corpus` alongside the exclusion count (mirroring `discover`), and `excluded` is clamped to `max(0, total_in_corpus - len(documents))` so a document removed from the corpus between the two unsynchronized queries backing the audit can't surface a nonsensical negative exclusion count. `apply`'s internal `documents_total` variable is renamed to `documents_visible_to_caller` (it always held the MIN-filtered count, not the corpus total) so its progress log can't be misread as covering the whole corpus. The WARNING path is now pinned by `assertLogs` in `opencontractserver/tests/test_enrichment_llm_integration.py::test_apply_uses_document_visibility_for_shared_corpus`, and the negative-clamp guard has a dedicated regression test (`test_document_visibility_audit_clamps_negative_exclusion`).
+- **Metadata columns: authorize deletion against the parent corpus, not the child `Column`.**
+  `DeleteMetadataColumn` (`config/graphql/extract_mutations.py`) previously gated on
+  `require_permission(column, DELETE)`, so a user holding a direct creator/`Column`-level DELETE
+  grant could delete a corpus-scoped metadata column — cascade-deleting its `Datacell` values —
+  without holding corpus-level DELETE. Metadata schemas are corpus-scoped objects, so the
+  destructive check now runs against the parent corpus (`require_permission(corpus, DELETE)`).
+  The column lookup stays READ-gated through the service layer
+  (`BaseService.get_or_none(Column, …)`, mirroring `CreateMetadataColumn`/`UpdateMetadataColumn`),
+  and the response is the same unified "not found or no permission" message whether the column is
+  missing or invisible (IDOR-safe). Regression tests:
+  `opencontractserver/tests/test_metadata_columns_graphql.py::DeleteMetadataColumnTestCase`
+  (column-DELETE-without-corpus-DELETE is refused; corpus-DELETE-without-column-DELETE succeeds).
+- **Stop structural annotations leaking a private document via their shared structural set.**
+  `StructuralAnnotationSet` rows are content-hash deduplicated and therefore shared across
+  documents AND owners, so resolving a structural annotation's `document` field through the
+  unscoped set (`structural_set.documents.first()`) could surface a private copy owned by
+  another user. `AnnotationType.resolve_document`
+  (`config/graphql/annotation_types.py`) now resolves only documents the requesting user may
+  READ: the structural prefetch is gated at build time in
+  `AnnotationService.structural_document_prefetch`
+  (`opencontractserver/annotations/services/annotation_service.py`), which now requires a
+  `user` (keyword-only) and intersects candidates with `Document.objects.visible_to_user(user)`;
+  the degraded DB fallback (now `AnnotationService.resolve_structural_document_fallback`)
+  applies `BaseService.filter_visible_qs` and returns `None` outright when the annotation
+  carries no `corpus_id` to scope against, rather than risking a cross-corpus pick. The
+  non-structural (`document_id`) path returns the already `select_related`-cached FK (no
+  per-row query, via `AnnotationService.resolve_owned_document` when not cached) and the
+  structural path trusts the once-per-page user-scoped prefetch — including an *empty*
+  prefetch result, which is a definitive "nothing visible in this context" and is now
+  returned directly instead of falling through to a redundant, identically-scoped DB query.
+  `SemanticSearchResultType.resolve_document`
+  (`config/graphql/social_types.py`) delegated its raw-FK access to the same gated resolver,
+  closing the convenience field's bypass. Regression tests:
+  `opencontractserver/tests/test_corpus_cards_structural_document_resolution.py`, including a
+  corpus-scoped-prefetch variant with a captured-query-count assertion guarding against a
+  silent N+1 regression in the `_prefetched_objects_cache` detection. Consolidates the fix
+  from the closed duplicate PR #2088.
+- **Bound memory use on the remaining unguarded ZIP-member reads flagged in PR #2090 review.**
+  The reingest source-read guard in that PR left three sibling, equally user-reachable reads
+  unbounded:
+  - `process_documents_zip` (bulk document ZIP upload, `opencontractserver/tasks/import_tasks.py`)
+    had NO size check at all before `ZipExtFile.read()` — a crafted member of any declared size
+    could force an unbounded in-memory allocation. It now reads through the new
+    `read_zip_member_bounded()` helper (`opencontractserver/utils/zip_security.py`), bounded by
+    `ZIP_MAX_SINGLE_FILE_SIZE_BYTES`.
+  - `import_zip_with_folder_structure` (folder-structure import, same file) had two unguarded
+    reads: the `labels.json` sidecar (no size check at all) and each document member (declared-size
+    pre-checked via `validate_zip_for_import`, but the actual read was still unbounded — a crafted
+    member whose declared `file_size` under-reports its true content could bypass that check). Both
+    now route through `read_zip_member_bounded()`.
+  - `_read_sidecar` (annotation sidecar JSON) already had a pre-read declared-size check, but the
+    actual read (`sidecar_handle.read()`) was unbounded, so the same declared-size-lie bypass
+    applied. The read is now bounded to `ZIP_MAX_SIDECAR_SIZE_BYTES + 1` bytes.
+  `read_zip_member_bounded()` checks the declared size first (cheap rejection), then performs the
+  real read with `read(max_bytes + 1)` so the amount of memory allocated is capped regardless of
+  what the zip's central-directory metadata claims — mirroring the pattern
+  `import_tasks_v2._read_guarded_source_bytes` already used for the reingest path.
+  Also clarifies the `MAX_CORPUS_REINGEST_SOURCE_BYTES` settings comment
+  (`config/settings/base.py`): despite the name, the guard covers the baked-import path too, and
+  setting it to `0` blocks importing any document via the V2 importer, not just reingest-mode ones.
+- **Bound the last unguarded ZIP-member read in the V2 importer: the `data.json` manifest.**
+  `import_corpus_v2_from_bytes` (`opencontractserver/tasks/import_tasks_v2.py`) read the manifest —
+  the very first member the importer opens, before any per-document guard runs — with an unbounded
+  `ZipExtFile.read()`. A crafted `data.json` entry with a high compression ratio (classic zip-bomb
+  pattern) could force an unbounded allocation independent of `MAX_DOCUMENT_IMPORT_SIZE_BYTES`
+  (which only bounds the compressed upload size). It now routes through `read_zip_member_bounded()`,
+  bounded by the new `MAX_CORPUS_MANIFEST_SIZE_BYTES` setting (default 512 MiB, backed by
+  `DEFAULT_MAX_CORPUS_MANIFEST_SIZE_BYTES` in `opencontractserver/constants/document_processing.py`;
+  same negative-disables-the-guard sentinel convention as `MAX_CORPUS_REINGEST_SOURCE_BYTES`).
+- **Consolidated the three hand-rolled bounded-read implementations onto one.** `read_zip_member_bounded()`
+  (`opencontractserver/utils/zip_security.py`) now accepts `max_bytes: int | None`, with `None` as the
+  "unbounded" sentinel. `import_tasks_v2._read_guarded_source_bytes` and `import_tasks._read_sidecar`
+  — which each re-implemented the same declared-size-check-then-bounded-read-then-post-read-guard
+  shape (with subtly different exception handling that had already drifted once between commits) —
+  are now thin wrappers around the shared helper, so a future change to the read strategy only needs
+  to happen in one place.
+- **Bound the two remaining unguarded ZIP-member reads in the folder-structure importer: `meta.csv` and `relationships.csv`.**
+  `parse_metadata_file` (`opencontractserver/utils/metadata_file_parser.py`) and
+  `parse_relationship_file` (`opencontractserver/utils/relationship_file_parser.py`), both invoked
+  from `import_zip_with_folder_structure` (`opencontractserver/tasks/import_tasks.py`), still read
+  their member with a raw, unbounded `ZipExtFile.read()` after the rest of this PR's hardening pass.
+  Unlike ordinary document members, `meta.csv`/`relationships.csv` are special-cased out of
+  `validate_zip_for_import`'s per-member declared-size check entirely (`is_metadata_file`/
+  `is_relationship_file` short-circuit the loop before the size check runs), so a crafted entry with a
+  high compression ratio (or a large declared size) was never rejected pre-read either — the exact
+  vulnerability class this PR set out to close. Both now route through `read_zip_member_bounded()`,
+  bounded by `ZIP_MAX_SINGLE_FILE_SIZE_BYTES`, matching the treatment already given to `labels.json`
+  and per-document reads in the same function. Regression tests:
+  `test_zip_import_integration.py::TestMetadataFileImport::test_oversized_metadata_file_rejected_not_read_unbounded`,
+  `test_zip_import_integration.py::TestRelationshipFileImport::test_oversized_relationship_file_rejected_not_read_unbounded`.
+- **Bound memory use when reingesting corpus-export ZIP members — on both the reingest and baked
+  paths.** User-facing V2 corpus-export imports default to reingest mode, where
+  `_import_document_with_annotations` (`opencontractserver/tasks/import_tasks_v2.py`) previously did
+  an unbounded `ZipExtFile.read()` on each document member — a crafted ZIP could force Celery
+  workers to allocate memory proportional to the uncompressed member. A single shared choke point,
+  `_read_guarded_source_bytes`, now (1) skips the read when the central-directory `file_size`
+  exceeds the new `MAX_CORPUS_REINGEST_SOURCE_BYTES` setting (256 MiB default, backed by
+  `DEFAULT_MAX_CORPUS_REINGEST_SOURCE_BYTES` in `opencontractserver/constants/document_processing.py`);
+  (2) performs a bounded read of `limit + 1` bytes so memory is capped even if the metadata lies;
+  (3) treats a member it cannot read safely (a lied-down `file_size` trips CRC validation, or the
+  post-read length guard catches a `ZIP_STORED` lie) as unreadable, returning `None`; and (4)
+  catches a missing member (`KeyError`) so one absent file falls back gracefully instead of aborting
+  the corpus import.
+- **Close the baked-import bypass of the source-size guard.** When the reingest peek rejected an
+  over-size member, `_import_document_with_annotations` previously fell through to the baked-import
+  block and re-opened the *same* member with `import_zip.open(doc_filename)` (no size limit),
+  streaming the whole entry into storage — fully defeating the guard on every size-rejected member
+  (reingest defaults on at the user-facing service boundary). The baked block now reads through the
+  same `_read_guarded_source_bytes` choke point and skips the document when the source is rejected,
+  so an over-size member is refused on both paths.
+- **`MAX_CORPUS_REINGEST_SOURCE_BYTES` disable is now a negative sentinel, not `0`.** Previously the
+  guard short-circuited on a falsy `0`, so an operator zeroing the value to *harden* silently
+  removed all protection (the read became `read(-1)`, unbounded). Parsing in `config/settings/base.py`
+  now maps a negative value to `None` (guard disabled, intentional escape hatch); `0` is a literal
+  zero-byte limit that rejects every non-empty member. Tests:
+  `opencontractserver/tests/test_import_v2_reingest_remap.py::TestSourceReingestability`.
+- Closed a systematic cross-boundary information-disclosure regression in the
+  graphene→strawberry migration: **singular to-one FK object fields lost their
+  per-row visibility filter.** graphene-django auto-converted a FK whose target
+  type overrode `get_queryset` into a permission-filtered resolver
+  (`convert_field_to_djangomodel` → `target.get_node`), so an invisible FK
+  target resolved to `null`. The strawberry port declared these as plain
+  getattr fields, leaking the target row's fields across a permission boundary.
+  Added `config/graphql/core/relay.py::resolve_visible_fk` (applies the target
+  type's registered `get_node`/`get_queryset` hook) and routed the affected
+  **nullable** FK fields through it, restoring the graphene contract. Fields
+  fixed include the confirmed-exploitable cross-boundary edges —
+  `AnnotationType.corpus`, `RelationshipType.corpus`/`document`,
+  `CorpusReferenceType.targetDocument`/`targetCorpus`/`targetAnnotation`,
+  `ConversationType.chatWithCorpus`/`chatWithDocument`,
+  `MessageType.sourceDocument`, `DocumentType.parent`/`sourceDocument`,
+  `CorpusType.parent`/`memoryDocument` — plus the lower-severity theoretical
+  edges on `agent_types`/`extract_types`/`social_types`/`user_types`/
+  `research_types`/`document_types` for consistency.
+- `config/graphql/document_types.py::_get_queryset_DocumentPathType`: the
+  **non-null** `DocumentPathType.document` FK cannot resolve to `null`, so its
+  leak (DocumentPath membership is corpus-as-gate — a public/shared corpus
+  lists paths for its *private* documents too) is closed at the list level by
+  adding a `document_id__in=<visible documents>` MIN(document, corpus) filter,
+  the same semantic `CorpusType.documents` uses (issue #1682).
+- FK edges whose source-row visibility already implies READ on the target
+  (e.g. `NoteType.corpus`/`document`, `DocumentRelationshipType.*`, corpus-gated
+  `*.corpus`, same-parent `parent`) are left as fast plain fields — filtering
+  them is a no-op that only adds per-row queries.
+- Regression coverage: `opencontractserver/tests/test_fk_visibility_traversal.py`
+  pins both branches of `resolve_visible_fk`, the DocumentPath MIN filter, and an
+  end-to-end schema query (`CorpusType.parent` → `null` for a non-owner).
+- Closed an IDOR regression introduced by the graphene→strawberry migration:
+  the singular "fetch one object by global Relay ID" query fields resolve
+  through `config/graphql/core/relay.py::get_node_from_global_id`, which — when
+  the target type is registered without a `get_node`/`get_queryset` hook — falls
+  back to an UNFILTERED `model._default_manager.get(pk=...)`. Thirteen
+  model-backed types had lost the permission filtering their graphene resolvers
+  performed, letting any caller (anonymous included, for `chatMessage`) fetch
+  private rows by forging `base64("<Type>:<id>")`:
+  `relationship`, `annotationLabel`, `labelset`, `chatMessage`, `fieldset`,
+  `column`, `datacell`, `analyzer`, `gremlinEngine`, `agent`, `badge`,
+  `userexport`, `userimport`, and `assignment`. Each type now registers a
+  permission-aware `get_node` hook mirroring the graphene resolver
+  (`BaseService.get_or_none` / `filter_visible` / the owning service;
+  `assignment` keeps its deprecated superuser-or-participant gate). Added
+  `opencontractserver/tests/test_singular_node_idor.py` — a structural guard
+  asserting every type resolved via `get_node_from_global_id` carries a hook
+  (mechanically prevents recurrence) plus a behavioral non-owner-denied check.
+- `config/graphql/views.py::GraphQLView.dispatch` now also catches DRF
+  `AuthenticationFailed` (raised by `ApiKeyBackend` for a malformed/unknown/
+  inactive API key when `USE_API_KEY_AUTH=True`) and returns a GraphQL-style
+  `{"errors": [...]}` 200, matching the graphene middleware's behaviour instead
+  of surfacing an unhandled 500 (auth now runs in `get_context`, before query
+  execution's try/except).
+- `config/graphql/user_mutations.py`: added rate limiting to `tokenAuth` and `updateMe`, the only two mutation resolvers in the strawberry-ported GraphQL layer with none (flagged by PR #2139 review). `tokenAuth` is IP-keyed under `RateLimits.AUTH_LOGIN` (`5/m`, the same category already guarding the Django-admin login view in `config/admin_auth/views.py`) — GraphQL login was previously an unthrottled credential-stuffing surface. `updateMe` uses the standard `WRITE_LIGHT` user-tier rate, matching every other write mutation in the codebase. Both apply the existing per-module "rate-limit gate function invoked from within the mutate body" pattern (see `_write_light_rate_gate` in `annotation_mutations.py`), since the strawberry mutate stubs take `payload_cls` as their first positional argument rather than `(root, info, ...)`.
+- Fixed 5 open CodeQL code scanning alerts:
+  - **#89 (high, clear-text logging of sensitive information)**: `_mutate_UpdateComponentSecretsMutation` (`config/graphql/pipeline_settings_mutations.py:1288-1294`) logged the joined list of user-supplied secret *key names* on every update. Since a secret's key is an arbitrary superuser-supplied string (`validate_secrets_input` only bounds its length/type, not its content), a value could be pasted into the key field and land in plaintext logs. Now logs only the count of updated keys.
+  - **#79-#82 (medium, information exposure through an exception)**: `compose/accelerated/embedder/main.py`'s `/embeddings/image` and `/embeddings/image/batch` handlers returned raw exception text (`str(e)`) to the HTTP client on both the `ValueError` and generic `Exception` branches (lines 186, 188, 242, 244), which can leak internal details (file/library internals, driver/CUDA errors) from image decoding or inference failures. Handlers now log the full exception server-side via `app.logger` and return fixed, generic error messages to the client.
+- **Resolved open Dependabot security alerts in frontend dependency chains.**
+  - `frontend`: forced `esbuild` to `>=0.28.1` via a `resolutions` entry
+    (`frontend/package.json`) — Vite 7.3.x still pins `esbuild@^0.27.0`, which
+    leaves the resolved version exposed to the high-severity Deno binary
+    integrity RCE (`NPM_CONFIG_REGISTRY`) and the low-severity Windows dev-server
+    arbitrary file read advisories. Build and `tsc` verified green on 0.28.1.
+  - `frontend`: bumped `react-router-dom` to `^6.30.4` (lockfile now resolves
+    `react-router@6.30.4`), patching the medium-severity protocol-relative
+    same-origin open-redirect (`//`-prefixed path) advisory.
+  - `cloudflare-og-worker`: added an `esbuild: ">=0.28.1"` `overrides` entry so
+    the worker's transitive `esbuild` (was 0.27.3) picks up the same patch;
+    typecheck and the 93 worker tests pass on 0.28.1.
+- Resolved 9 open Dependabot npm alerts. `frontend/package.json`: `react-router-dom` `^7.18.1` → `^7.18.2` (pulls in patched `react-router@7.18.2`, GHSA-qwww-vcr4-c8h2, alert #177); `resolutions.js-yaml` `^4.3.0` → `^4.3.1` (GHSA-5p4m-2wfm-xmqj, alert #175); `resolutions.postcss` `^8.5.10` → `^8.5.23` (GHSA-fxqj-rqcc-2cmp / GHSA-r28c-9q8g-f849, alerts #174 & #164); added `resolutions.react-router: ^7.18.2` to force the transitive package explicitly. `cloudflare-og-worker/package.json`: `overrides.undici` `>=7.24.0` → `>=8.9.0` (GHSA-m8rv-5g2x-5cg5, GHSA-jr45-8vmc-qm54, GHSA-v3r7-h72x-cjcm, GHSA-8xcm-r25x-g524, GHSA-4cwx-7wf7-3272, alerts #166–170); added `overrides.nanoid: >=3.3.17` (GHSA-2v37-7h3g-55p8, transitive via `vitest > vite > postcss`) after `npm audit` surfaced it during the reinstall — it wasn't yet a GitHub alert for this manifest.
+- **Resolved outstanding frontend Dependabot/`yarn audit` vulnerabilities.** `frontend/package.json` / `frontend/yarn.lock`:
+  - Upgraded `react-router-dom` 6.30.4 → 7.18.1, fixing two open-redirect advisories with no available 6.x patch ([GHSA-jjmj-jmhj-qwj2](https://github.com/advisories/GHSA-jjmj-jmhj-qwj2), [GHSA-wrjc-x8rr-h8h6](https://github.com/advisories/GHSA-wrjc-x8rr-h8h6)). The app already ran with the `v7_startTransition`/`v7_relativeSplatPath` future flags enabled, so the only code change needed was dropping the now-default `future` prop from the two `<BrowserRouter>` instances in `frontend/src/index.tsx` (that prop no longer exists on v7's `BrowserRouter` type). `react-router` (the transitive SSR-hydration dependency) is unaffected since this app only uses Declarative Mode (`BrowserRouter`/`Routes`, no data router/loaders).
+  - Bumped the `resolutions` overrides for transitive build/test-tooling dependencies pulled in via `@graphql-codegen/cli` and `nyc`: `js-yaml` 4.2.0 → `^4.3.0` ([GHSA-52cp-r559-cp3m](https://github.com/advisories/GHSA-52cp-r559-cp3m)), `immutable` → `>=5.1.8` ([GHSA-v56q-mh7h-f735](https://github.com/advisories/GHSA-v56q-mh7h-f735), [GHSA-xvcm-6775-5m9r](https://github.com/advisories/GHSA-xvcm-6775-5m9r)), added `brace-expansion` → `>=5.0.7` ([GHSA-f886-m6hf-6m8v](https://github.com/advisories/GHSA-f886-m6hf-6m8v), [GHSA-3jxr-9vmj-r5cp](https://github.com/advisories/GHSA-3jxr-9vmj-r5cp), [GHSA-jxxr-4gwj-5jf2](https://github.com/advisories/GHSA-jxxr-4gwj-5jf2)) and `@graphql-codegen/cli/yaml` → `>=2.8.3` ([GHSA-48c2-rrv3-qjmp](https://github.com/advisories/GHSA-48c2-rrv3-qjmp)).
+  - `yarn audit` reports 0 vulnerabilities (was 20 advisories across 6 packages). `cloudflare-og-worker` and all `requirements/*.txt` (checked via `pip-audit`) were already clean.
+- **Bumped the Django container base image** (`compose/local/django/Dockerfile`, `compose/production/django/Dockerfile`): `PYTHON_VERSION` 3.12.7-slim-bookworm → 3.12.13-slim-bookworm. The pinned patch was 6 releases stale; 3.12.13 is a security-only release covering, among others, an SSL module use-after-free and an expat/XML memory-amplification fix. `compose/production/postgres` (`pgvector/pgvector:0.8.5-pg15`) and `compose/production/traefik` (`traefik:v3.7.8`) — the repo's other two Dependabot-tracked Docker images — were already on their latest published tags.
+- Bumped `js-yaml` from 4.1.1 to 4.2.0 in `frontend/package.json`/`frontend/yarn.lock` to fix [GHSA-h67p-54hq-rp68](https://github.com/advisories/GHSA-h67p-54hq-rp68) (CVE-2026-53550), a quadratic-complexity denial-of-service in merge-key (`<<`) handling triggered by repeated aliases in a merge sequence. Resolves Dependabot alert #138. `js-yaml` is only pulled in transitively by build tooling (not imported from `frontend/src`); `yarn build`/`tsc`/`lint` all pass unchanged.
+- **Redact SECRET-typed parser settings from the parser log line.**
+  `BaseParser.parse_document` (`opencontractserver/pipeline/base/parser.py`)
+  logged the merged component settings at INFO **without** redaction, so any
+  `SettingType.SECRET` field returned by `get_component_settings()` (decrypted) —
+  e.g. `LlamaParseParser`/`WarpIngestParser`'s `api_key` — was written to logs in
+  plaintext on every parse. It now runs the same `redact_sensitive_kwargs()` pass
+  the embedder/post-processor/enricher base classes already apply to their
+  equivalent log line, so secrets are masked as `***`.
+- **Relationship privacy recursion implemented (closes the Phase-C deferral from issue #1655).** `RelationshipManager.user_can` and `RelationshipManager.visible_to_user` (`opencontractserver/shared/Managers.py`) now enforce `created_by_analysis` / `created_by_extract` source permissions exactly like annotations: non-creators need the requested permission on the source Analysis/Extract in addition to the doc+corpus MIN. Previously a user with doc+corpus grants could see and write analysis-/extract-private relationships through the manager surfaces. The recursion logic is shared with `AnnotationManager` via the new module-level `_source_privacy_recursion_passes`. Parity pinned by new fixtures/tests in `opencontractserver/tests/permissioning/test_authorization_invariants.py` (`RelationshipAuthorizationInvariantsTestCase` — the old `test_no_privacy_widening_via_created_by_analysis` sentinel that documented the deferral is replaced by real privacy invariants) and `opencontractserver/tests/permissioning/test_relationship_privacy_scoping.py`.
+- **Extracts locked down to never be anonymous-visible.** `ExtractService.get_visible_extracts` / `check_extract_permission` (`opencontractserver/extracts/services/extract_service.py`) previously exposed `is_public` extracts in public corpora to anonymous callers (drift copied from the analysis service, reachable through the un-gated `extracts` GraphQL resolver), contradicting the documented "Extract — never" anonymous contract. A new `ExtractManager` (`opencontractserver/extracts/models.py`) denies anonymous users on both `visible_to_user` and `user_can` so the rule holds at the manager layer too (e.g. agent tools listing extracts). User-visible consequence: anonymous viewers of a public corpus now see `totalExtracts: 0` in `corpusStats` (the resolver's counts are per-viewer by contract). Two legacy tests that pinned the old semantic were updated to the agreed behavior: `test_query_optimizer_methods.py::test_get_visible_extracts_anonymous_only_public` (now `..._anonymous_sees_nothing`) and `test_stats.py::test_public_corpus_stats_query` (anonymous branch). New coverage: `opencontractserver/tests/permissioning/test_extract_anonymous_lockdown.py`.
+- **Group-granted analysis/extract permissions now unlock private rows in list queries.** The `created_by_*` privacy gates in `AnnotationQuerySet.visible_to_user` (`opencontractserver/shared/QuerySets.py`), `AnnotationService.get_document_annotations` / `get_corpus_annotations`, and `RelationshipService.get_document_relationships` consulted only the USER object-permission tables, so a viewer whose source grant arrived via a Django group passed `user_can` (which resolves group grants by default) but never saw the rows in lists — a filter/check parity drift. All gates now route through the new shared builders in `opencontractserver/utils/source_visibility.py`, which join the group object-permission tables; the exclusion shape itself is also consolidated there as `apply_source_privacy_gate(qs, user)` (one home instead of six call-site copies), and the gate carries the same authenticated creator exemption as the queryset disjunct — without it the service listings were the odd surface out for relationships (both manager surfaces honoured a creator who lost source access while the document view hid the row). Two more drifts in the same parity class were closed in the builders: (a) `Extract.is_public` — the inline gates omitted the flag for extracts (while honouring it for analyses) even though `user_can`'s recursion grants READ on public sources; `visible_extracts_for` now includes `is_public` on the authenticated branch (no practical exposure today: no user-facing flow sets the flag); (b) grant shape — the inline gates matched ANY guardian row on the source, so an `update_analysis`-only grantee saw private rows in lists while failing `user_can(READ)` (which resolves the read codename); the builders now filter `permission__codename="read_analysis"` / `"read_extract"`. Tests: `test_source_visibility_group_grants.py` + new invariant fixtures incl. `test_public_extract_source_passes_both_surfaces` and `test_update_only_source_grant_does_not_unlock_lists`.
+- **Anonymous privacy leak in corpus-wide annotation listing fixed.** `AnnotationService.get_corpus_annotations` applied the `created_by_*` privacy exclusion only to authenticated users — anonymous viewers of a public corpus could see analysis-/extract-private annotations on public documents. The exclusion now applies unconditionally (anonymous resolves to public-analyses-only / no extracts via `source_visibility`). Regression pins: `opencontractserver/tests/permissioning/test_privacy_gate_regressions.py`.
+- **Privacy gate added to three aggregate/listing surfaces that skipped it** (2026-06 audit review rounds): `AnnotationService.get_label_distribution_for_corpus` (powers the user-facing `corpusIntelligenceAggregates` label panel — leaked label names/counts of private-source annotations; now takes a REQUIRED keyword-only `user` (omission is a `TypeError`, never a silent under-count)), `RelationshipService.get_relationship_summary` (leaked counts of private relationships into the document-type summary), and `RelationshipService.get_corpus_relationships` (the MCP corpus listing exposed private relationships; its corpus-as-gate document scope is retained deliberately per issue #1682 — MCP is a pipeline-facing caller — and now documented inline). Tests: `test_privacy_gate_regressions.py`.
+- **`ExtractService.get_visible_extracts` filter/check parity with `check_extract_permission`** (pre-existing drift tightened while hardening the file): the listing consulted only USER-level guardian rows (any codename) on the extract leg and a `codename__contains="read"` substring match on the corpus leg, while the single-object check resolves both through `user_can` (group grants + exact read codename). The listing now joins `ExtractGroupObjectPermission` / `CorpusGroupObjectPermission` and matches `read_extract` / `read_corpus` exactly; the sibling `AnalysisService.get_visible_analyses` carried the identical drift (user-table-only Exists + `codename__contains="read"` corpus leg) and received the same fix. Tests: `ExtractListingGrantParityTestCase` in `test_extract_anonymous_lockdown.py` and `test_analysis_listing_grant_parity.py`.
 - **SmartLabelListMutation IDOR fix** (`config/graphql/smart_label_mutations.py`)
   — the mutation fetched a corpus by raw PK (`Corpus.objects.get(pk=...)`) and
   returned its labelset's labels with **no corpus-READ gate**, so any
@@ -3394,8 +8823,6 @@ document_title, corpus_id, page, similarity_score}` candidates capped at
 - **Test for `skip_pipeline=True` with `meta.csv` metadata** (Closes #1131): New test `test_skip_pipeline_applies_metadata_from_csv` verifies that pipeline-skipped documents correctly receive title and description overrides from `meta.csv`.
 - **Per-sidecar JSON size limit** (Closes #1131): Added `ZIP_MAX_SIDECAR_SIZE_BYTES` constant (10 MB default) in `opencontractserver/constants/zip_import.py`. Sidecars exceeding this limit are skipped with an error, preventing oversized JSON from consuming excessive memory during import (`opencontractserver/tasks/import_tasks.py`).
 
-## [Unreleased] - 2026-03-18
-
 ### Added
 
 - **`COMMUNITY_STATS_CACHE_TTL` env var for community stats caching** (`config/graphql/social_queries.py`, `opencontractserver/constants/community_stats.py`): The `communityStats` GraphQL resolver now caches results using Django's cache framework with a configurable TTL (default 1 hour). This avoids re-running 7+ COUNT queries on every landing page load. Cache is keyed by user type (anonymous vs authenticated) and optional corpus scope. Also includes an N+1 fix using `in_bulk()` for badge distribution and a subquery optimization in `resolve_corpus_categories`.
@@ -3423,8 +8850,6 @@ document_title, corpus_id, page, similarity_score}` candidates capped at
   - Documented the duplicate-header-dropping assumption when converting ASGI header lists to dicts in `get_user_agent_from_scope()` and `get_claimed_client_ip_from_scope()`
   - Added async telemetry tests for `arecord_mcp_tool_call`, `arecord_mcp_resource_read`, and `arecord_mcp_request` (`opencontractserver/tests/test_mcp_extended.py`)
   - Added tests for User-Agent truncation and empty-string slug filtering
-
-## [Unreleased] - 2026-03-15
 
 ### Breaking Changes
 

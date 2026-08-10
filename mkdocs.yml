@@ -49,6 +49,7 @@ nav:
       - System Requirements: requirements.md
       - Acknowledgements: acknowledgements.md
   - Releases:
+      - v3.0.0: releases/v3.0.0.md
       - v3.0.0.b4: releases/v3.0.0.b4.md
       - v3.0.0.b3: releases/v3.0.0.b3.md
       - v3 Upgrade Guide: migrations/v3_upgrade_guide.md
