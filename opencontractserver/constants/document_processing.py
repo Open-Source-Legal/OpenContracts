@@ -104,11 +104,19 @@ EMBEDDING_BATCH_SIZE = 100
 # the local microservice caps at MICROSERVICE_EMBEDDER_MAX_BATCH_SIZE).
 # Must be <= MICROSERVICE_EMBEDDER_MAX_BATCH_SIZE for the microservice
 # embedder; the system check in documents/checks.py validates this.
-EMBEDDING_API_BATCH_SIZE = 50
+EMBEDDING_API_BATCH_SIZE = 32
 
 # Maximum number of texts accepted by MicroserviceEmbedder.embed_texts_batch().
 # Exceeding this raises ValueError rather than silently truncating.
-MICROSERVICE_EMBEDDER_MAX_BATCH_SIZE = 100
+#
+# Sized for the *worst* realistic input, not the average. The CPU-only
+# microservice embeds ~100 short sentences in ~25s, but authority-corpus text
+# (whole ordinance sections, statute chapters) is far longer per row, and a
+# batch of 100 of those overruns the HTTP read timeout. A timed-out batch is
+# worse than a slow one: the client retries the whole batch, so the work is
+# redone from scratch and the queue stops draining. Smaller batches bound that
+# blast radius.
+MICROSERVICE_EMBEDDER_MAX_BATCH_SIZE = 32
 
 # Validation that EMBEDDING_API_BATCH_SIZE <= MICROSERVICE_EMBEDDER_MAX_BATCH_SIZE
 # is enforced via a Django system check in documents/checks.py (documents.E001)
@@ -120,7 +128,13 @@ EMBEDDER_SINGLE_REQUEST_TIMEOUT_SECONDS = 30
 
 # HTTP request timeout (seconds) for batch embedding calls.
 # Larger than the single timeout because batches process multiple texts.
-EMBEDDER_BATCH_REQUEST_TIMEOUT_SECONDS = 60
+#
+# Must exceed the slowest realistic batch, not the typical one. At 60s a batch
+# of long legal sections on a CPU-only embedder times out, and because the
+# client retries the whole batch (3 attempts) the queue burns ~3 minutes per
+# task while making no progress — a large ingest can stop draining entirely.
+# Better to let a slow batch finish once than to redo it three times.
+EMBEDDER_BATCH_REQUEST_TIMEOUT_SECONDS = 300
 
 # Character-count guard for OpenAI embedding input. The hosted /embeddings
 # endpoint caps input at 8192 tokens per text; truncating on the char side
