@@ -190,6 +190,49 @@ the 859 unembedded corpus-123 annotations are `OC_REF_LAW` citation markers
 created by enrichment ("ORDINANCE NO. 25384-03-2022"), not document text
 chunks. The document chunks were fully embedded for both runs.
 
+### Third run — same corpus, stronger model (2026-08-10)
+
+The install default is **`gpt-4.1`** (`OPENAI_MODEL`). Re-running the identical
+gate with a per-call override to **`gpt-5.6-terra`** — no change to the corpus,
+the pack, the persona, or the index — moves the result from **6/10 to 9/10**.
+
+Retrieval behaviour is the story:
+
+| | gpt-4.1 | gpt-5.6-terra |
+|---|---|---|
+| total semantic searches, 10 questions | **8** | **66** |
+| questions with zero searches | 2 (Q4, Q9) | **0** |
+
+The tool-call omission is entirely a model-capability artefact. Every question
+now searches; Q7 searched 33 times, Q1 ten times.
+
+Fixed by the model swap:
+
+- **Q4 drywall** — now "if the drywall replacement totals 16 square feet or more
+  on any wall or ceiling, a building permit is required." Exactly right.
+- **Q8 inspections** — now returns the real Fort Worth sequence with numbers
+  (105 Stakeout, 405/420/430 plumbing underground, 205/240 electrical, 115
+  Foundation, 108 Wall Sheathing …), staged by construction phase.
+- **Q9 HOA solar** — now cites **Tex. Prop. Code § 202.010** and enumerates the
+  reasonable-restriction exceptions. The gpt-4.1 run cited *California* Civil
+  Code § 714 to a Texas homeowner.
+
+The answers also got *more* accurate than the ground truth in this file: Q5 adds
+rafters/ridge boards and the roofing-layer limit; Q6 adds shed setbacks by
+height and the 75-ft front-property-line rule; Q10 supplies the NEC adopting
+ordinance (26721-02-2024, eff. 2024-03-01).
+
+**Q3 (own electrical) is the one remaining miss, and it fails honestly.** It
+answers "the materials reviewed do not contain a general owner-occupant
+exemption" rather than inventing one — correct, because `tx-occ:1305.003(a)(6)`
+lives in corpus 122 and no citation edge reaches it. This is the genuine
+reachability gap; it is not a model problem and the model swap did not and
+could not fix it.
+
+**Conclusion: run this corpus on a current reasoning model.** On `gpt-4.1` the
+agent silently answers from priors and produces confidently wrong,
+wrong-jurisdiction guidance — the most dangerous failure mode for this use case.
+
 ### Diagnosis of the four failures
 
 The failures are not random. **Every one of them has its answer in an authority
