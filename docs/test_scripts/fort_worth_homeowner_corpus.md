@@ -132,6 +132,55 @@ Fee figures must always be flagged verify-with-Development-Services: the
 codified tables (§§ 109, 119) are law, but the published Development Fees
 Schedule is revised more often.
 
+## Recorded run — 2026-08-09 (corpus 123, pack at 23d044b)
+
+**6 of 10 pass on substance. 4 fail by falling back to general knowledge.**
+Scored on substance, not on citation formatting — the agent cites by quoting a
+source snippet more often than by section number.
+
+| # | Result | Notes |
+|---|---|---|
+| 1 water heater | **pass** | "changing, moving or repairing plumbing, including water heaters … requires a plumbing permit"; homeowner may do the work; inspection required |
+| 2 fence | **partial** | Correctly Fort-Worth-specific (front yard 4 ft, open design, 50% density, no chain link) but gave a 6 ft solid-fence permit threshold where § 105.2 exempts to 7 ft — two city sources disagree; worth reconciling |
+| 3 own electrical | **FAIL** | Generic "depends on your state, county" — never reached `tx-occ:1305.003(a)(6)`. The single most important homeowner question |
+| 4 drywall | **FAIL** | Generic; missed the 16 sq ft threshold that is in the ingested Nuts & Bolts guide |
+| 5 re-roof | **pass** | Exactly right: shingles only → no permit; replacing decking/sheathing → permit. Matches the § 105.2 boundary |
+| 6 shed | **pass** | "All storage sheds require a building permit, regardless of size" — correct, and contradicts the common under-200-sq-ft assumption |
+| 7 contractor registration | **pass** | Homeowner may pull their own permit, no contractor registration number, proof of ownership required |
+| 8 inspections | **FAIL** | Asked for more detail and listed generic inspection types instead of the Fort Worth 105/115/110/100 sequence |
+| 9 HOA solar | **FAIL** | Generic "many states have solar rights acts"; never reached `tx-prop:202.010` |
+| 10 code editions | **pass** | Correct list from city sources |
+
+### Diagnosis of the four failures
+
+The failures are not random. **Every one of them has its answer in an authority
+corpus rather than in corpus 123's own documents** — electrical exemption in
+`tx-occ`, solar in `tx-prop`, the inspection sequence in `fw-admin-code` §110.
+Q4 is the partial exception (the 16 sq ft rule *is* in an ingested PDF).
+
+A corpus agent retrieves over its own chunks. It reaches an authority corpus
+only through a resolved reference edge (`read_reference_target`), and only 20 of
+875 references resolved — **none into `tx-occ` or `tx-prop`, because the city's
+permit guides do not cite the Occupations or Property Code at all.** The
+statutes are correctly installed and directly resolvable
+(`find_authority_target("tx-occ:1301.051", user)` returns the section), but
+nothing in the document corpus points at them, so the agent never traverses to
+them.
+
+This is an architecture gap, not a pack defect: the authority corpora need to be
+*reachable* from the conversational corpus by something other than a citation
+edge. The candidates, in the order worth trying:
+
+1. Put corpora 119–123 in a **corpus group** so the agent can search across them.
+2. Use **@mention delegation** to the authority corpus agents — note the prior
+   finding that a mention only *offers* a delegate tool; plain phrasing silently
+   answers from one corpus.
+3. Seed the homeowner corpus with a short "how the law fits together" document
+   that cites the key statutes, giving enrichment an edge to resolve.
+
+Re-run this gate after any of those before claiming the corpus answers
+"can I do the work myself" correctly.
+
 ## Cleanup
 
 ```bash
