@@ -1,347 +1,1011 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/acknowledgements/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/GCP_STORAGE_SETUP/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/philosophy/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/acknowledgements/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/quick_start/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/philosophy/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/requirements/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/quick_start/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/analyzer_framework/backend/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/requirements/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/analyzer_framework/frontend/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/agents/location_tagger/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/api/smart-label-mutations/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/analyzer_framework/backend/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/architecture/PDF-data-layer/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/analyzer_framework/frontend/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/architecture/analyzers/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/api/smart-label-mutations/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/architecture/asynchronous-processing/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/architecture/FRONTEND_VERSIONING_UI_PLAN/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/architecture/embeddings_creation_and_retrieval/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/architecture/PDF-data-layer/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/architecture/opencontract-corpus-actions/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/architecture/agent_corpus_actions_design/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/architecture/components/Data-flow-diagram/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/architecture/analyzers/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/architecture/components/annotator/current-state/document-knowledge-base-features/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/architecture/asynchronous-processing/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/architecture/components/annotator/current-state/extract-selection-flow/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/architecture/authority-console/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/architecture/components/annotator/current-state/how-annotations-are-created/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/architecture/bulk-import/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/architecture/components/annotator/current-state/how-search-works/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/architecture/corpus-export-format-spec/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/architecture/components/annotator/current-state/overview/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/architecture/corpus_auto_branding/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/architecture/components/annotator/current-state/scroll-to-annotation-flow/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/architecture/corpus_export_import_v2/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/architecture/components/annotator/current-state/state-management/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/architecture/corpus_forking/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/architecture/components/annotator/current-state/virtualized-rendering/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/architecture/deep-linking/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/architecture/data_model/annotation_json/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/architecture/discovery_system/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/architecture/llms/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/architecture/document_annotation_index/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/architecture/websocket/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/architecture/document_corpus_lifecycle/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/architecture/websocket/backend/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/architecture/document_versioning/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/architecture/websocket/frontend/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/architecture/dual_tree_implementation_plan/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/architecture/websocket/protocol/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/architecture/embeddings_creation_and_retrieval/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/configuration/add-users/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/architecture/global_embeddings_implementation_plan/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/configuration/choose-an-authentication-backend/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/architecture/graphql_strawberry_migration/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/configuration/choose-and-configure-docker-stack/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/architecture/multimodal-embeddings/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/configuration/choose-storage-backend/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/architecture/opencontract-corpus-actions/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/configuration/configure-admin-users/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/architecture/pawls-format/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/configuration/frontend-configuration/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/architecture/pdf-loading-optimization-plan/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/corpus_actions/intro_to_corpus_actions/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/architecture/query_permission_patterns/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/deployment/docker-gpu-setup/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/architecture/querying_annotations_on_versioned_docs/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/development/documentation/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/architecture/reference-web-enrichment/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/development/environment/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/architecture/reference-web-versioning/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/development/frontend-notes/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/architecture/rich_mentions/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/development/generating-new-graphql-schema/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/architecture/sharing/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/development/test-suite/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/architecture/social-media-previews/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/embedders/minn_modernbert_embedder/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/architecture/structural_vs_non_structural_annotations/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/embedders/modernbert_embedder/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/architecture/user-workspace-storage/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/extract_and_retrieval/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/architecture/user_handles/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/extract_and_retrieval/api_reference/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/architecture/components/Data-flow-diagram/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/extract_and_retrieval/corpus_queries/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/architecture/components/annotator/current-state/document-knowledge-base-features/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/extract_and_retrieval/data_extraction/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/architecture/components/annotator/current-state/extract-selection-flow/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/extract_and_retrieval/vector_stores/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/architecture/components/annotator/current-state/how-annotations-are-created/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/frontend/corpus-and-document-selection/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/architecture/components/annotator/current-state/how-search-works/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/frontend/corpus-optional-features/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/architecture/components/annotator/current-state/overview/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/frontend/document_rendering_and_annotation/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/architecture/components/annotator/current-state/scroll-to-annotation-flow/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/frontend/read_only_mode_inventory/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/architecture/components/annotator/current-state/sidebar-and-zoom/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/frontend/routing_system/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/architecture/components/annotator/current-state/state-management/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/frontend/search_rendering/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/architecture/components/annotator/current-state/virtualized-rendering/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/frontend/datagrid/rendering_custom_cells/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/architecture/data_model/annotation_json/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/metadata/metadata_api_examples/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/architecture/data_model/documents_and_annotations/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/metadata/metadata_fields/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/architecture/llms/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/metadata/metadata_frontend_requirements/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/architecture/proposals/0002-authority-packs-bolivia-spec/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/metadata/metadata_overview/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/architecture/proposals/0002-authority-packs/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/permissioning/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/architecture/websocket/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/permissioning/consolidated_permissioning_guide/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/architecture/websocket/backend/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/permissioning/corpus_optional_features/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/architecture/websocket/frontend/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/permissioning/read_only_mode/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/architecture/websocket/protocol/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/permissioning/testing_permissions/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/benchmarks/legalbench_rag_results/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/pipelines/docling_parser/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/commenting_system/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/pipelines/nlm_ingest_parser/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/commenting_system/IMPLEMENTATION_GUIDE/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/pipelines/pipeline_overview/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/commenting_system/LEADERBOARD_IMPLEMENTATION/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/walkthrough/add-and-edit-notes/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/commenting_system/backend_architecture/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/walkthrough/key-concepts/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/commenting_system/graphql_api/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/walkthrough/step-1-add-documents/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/commenting_system/moderation/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/walkthrough/step-2-create-labelset/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/commenting_system/notifications/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/walkthrough/step-3-create-a-corpus/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/commenting_system/testing/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/walkthrough/step-4-create-text-annotations/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/commenting_system/voting_and_reputation/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/walkthrough/step-5-create-doc-type-annotations/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/configuration/authentication/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/walkthrough/step-6-search-and-filter-by-annotations/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/configuration/choose-and-configure-docker-stack/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/walkthrough/step-7-query-corpus/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/configuration/choose-storage-backend/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/walkthrough/step-8-data-extract/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/configuration/frontend-configuration/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/walkthrough/step-9-corpus-actions/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/corpus_actions/intro_to_corpus_actions/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/walkthrough/advanced/configure-annotation-view/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/coverage/frontend-roi-ranking/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/walkthrough/advanced/export-import-corpuses/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/credits/geonames/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/walkthrough/advanced/extraction_tutorial/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/deployment/performance_tuning/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/walkthrough/advanced/fork-a-corpus/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/development/2026-05-31-mcp-knowledge-tool-ux-design/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/walkthrough/advanced/generate-graphql-schema-files/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/development/2026-05-31-mcp-knowledge-tool-ux-plan/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/walkthrough/advanced/pawls-token-format/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/development/2026-06-06-v2-import-reingest-remap/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/walkthrough/advanced/register-doc-analyzer/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/development/architecture_invariants/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
-         <loc>https://jsv4.github.io/OpenContracts/walkthrough/advanced/write-your-own-extractors/</loc>
-         <lastmod>2025-08-25</lastmod>
+         <loc>https://open-source-legal.github.io/OpenContracts/development/documentation/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/development/e2e_vcr/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/development/environment/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/development/frontend-notes/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/development/generating-new-graphql-schema/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/development/rate-limiting-summary/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/development/rate-limiting/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/development/screenshots/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/development/test-suite/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/extract_and_retrieval/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/extract_and_retrieval/api_reference/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/extract_and_retrieval/benchmarking/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/extract_and_retrieval/corpus_queries/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/extract_and_retrieval/data_extraction/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/extract_and_retrieval/vector_stores/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/features/agent_mentions_implementation_plan/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/features/badge_system/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/features/corpus_folders_api_reference/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/features/corpus_folders_implementation/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/features/corpus_groups/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/features/document_versioning/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/frontend/any-baseline/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/frontend/auth_flow/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/frontend/corpus-and-document-selection/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/frontend/corpus-optional-features/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/frontend/discussions/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/frontend/doc-data-query-optimizations/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/frontend/document_rendering_and_annotation/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/frontend/layout-architecture/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/frontend/mobile-document-knowledge-base-design/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/frontend/mobile-document-knowledge-base-plan/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/frontend/os-legal-style-migration-guide/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/frontend/read_only_mode_inventory/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/frontend/real-time-notifications/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/frontend/routing_system/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/frontend/search_rendering/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/frontend/datagrid/rendering_custom_cells/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/guides/authoring-authority-packs/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/guides/building-document-imports-with-caml/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/guides/ingesting-authorities/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/manual-test-scripts/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/manual-test-scripts/upload-modal/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/mcp/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/metadata/metadata_api_examples/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/metadata/metadata_fields/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/metadata/metadata_frontend_requirements/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/metadata/metadata_overview/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/migrations/v3_upgrade_guide/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/permissioning/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/permissioning/consolidated_permissioning_guide/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/permissioning/corpus_optional_features/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/permissioning/mention_permissioning_spec/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/permissioning/read_only_mode/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/permissioning/testing_permissions/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/pipelines/docling_parser/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/pipelines/llamaparse_parser/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/pipelines/multimodal_embedder/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/pipelines/pipeline_configuration/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/pipelines/pipeline_overview/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/pipelines/warp_ingest_parser/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/plans/2026-02-16-readme-redesign-design/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/plans/2026-02-16-screenshot-lifecycle-design/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/plans/2026-02-16-screenshot-lifecycle/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/plans/2026-02-17-corpus-action-screenshots-design/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/plans/2026-02-18-manual-corpus-action-trigger-design/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/plans/2026-02-18-unified-action-creation-design/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/plans/2026-02-27-redis-integration-tests-design/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/plans/2026-02-27-redis-integration-tests-plan/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/plans/2026-03-02-corpus-home-mobile-cleanup-design/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/plans/2026-03-02-corpus-home-mobile-cleanup/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/plans/2026-03-02-corpus-landing-improvements-design/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/plans/2026-03-02-corpus-landing-improvements/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/plans/2026-03-04-corpus-action-templates-design/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/plans/2026-03-04-corpus-action-templates/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/plans/2026-03-07-pr1063-coverage-and-fixes/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/plans/2026-03-10-pr1086-rjsf-removal-fixes/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/plans/corpus_action_trail_design/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/plans/documentation_alignment_review/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/plans/image-token-architecture/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/plans/image-token-implementation-plan/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/plans/issue-677-document-discussions-ui/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/plans/metadata-fork-implementation/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/plans/moderation-features-plan/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/plans/phase-3-unified-image-tokens/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/plans/tool-write-permission-filtering/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/plans/websocket-permission-tests/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/refactor_plans/2026-05-19-service-layer-centralization-design/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/refactor_plans/2026-05-19-service-layer-phase1-foundation-plan/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/refactor_plans/2026-05-21-phase3-split-annotations-query-optimizer/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/refactor_plans/2026-05-21-service-layer-phase2-corpus-services-plan/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/refactor_plans/2026-05-22-service-layer-phase2bc-corpus-service-and-caller-migration/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/refactor_plans/2026-05-23-service-layer-phase5-gap-models-plan/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/refactor_plans/2026-05-23-test-suite-speedup-A1-B1/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/refactor_plans/issue_835_remove_corpus_documents_m2m/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/releases/v3.0.0.b3/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/releases/v3.0.0.b4/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/releases/v3.0.0/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/superpowers/plans/2026-05-03-websocket-auth-handshake/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/superpowers/plans/2026-05-11-pii-scan-and-annotate-tool/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/superpowers/plans/2026-05-13-rich-mention-agent-delegation/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/superpowers/plans/2026-05-19-phase-f-authorization-invariants-docs/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/superpowers/plans/2026-05-27-pydantic-ai-history-processors/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/superpowers/plans/2026-05-31-scope-admin-data-access/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/superpowers/plans/2026-06-07-pdf-chunking-pipeline-phase1/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/superpowers/plans/2026-06-08-pdf-chunking-pipeline-phase2/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/superpowers/plans/2026-06-09-corpus-reference-enrichment/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/superpowers/plans/2026-06-14-authority-discovery-phase-0-1/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/superpowers/plans/2026-07-20-event-impact-gui/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/superpowers/specs/2026-05-01-empty-auth-header-csrf-403-design/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/superpowers/specs/2026-05-03-websocket-auth-handshake-design/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/superpowers/specs/2026-05-11-pii-scan-and-annotate-tool-design/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/superpowers/specs/2026-05-13-rich-mention-agent-delegation-design/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/superpowers/specs/2026-05-27-pydantic-ai-history-processors-design/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/superpowers/specs/2026-05-31-scope-admin-data-access-design/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/superpowers/specs/2026-06-07-pdf-chunking-pipeline-design/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/superpowers/specs/2026-06-09-caml-composed-intelligence-design/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/superpowers/specs/2026-06-09-corpus-reference-enrichment-agent-design/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/superpowers/specs/2026-06-14-open-vocabulary-authority-discovery-design/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/superpowers/specs/2026-07-19-user-facing-corpus-groups-gui-design/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/superpowers/specs/2026-07-20-event-impact-gui-design/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/telemetry/Backend/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/telemetry/Frontend/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/test_scripts/anonymous-ephemeral-chat-e2e/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/test_scripts/batch_run_corpus_action/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/test_scripts/bootstrap-corpus-and-artifacts/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/test_scripts/bulk_import_200k/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/test_scripts/corpus_reference_enrichment/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/test_scripts/geographic_annotations_smoke/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/test_scripts/llm_runtime_config/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/test_scripts/location_tagger_end_to_end/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/test_scripts/pii_scanner_analyzer_smoke/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/test_scripts/regenerate_structural_test_data_fixture/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/test_scripts/traversal_benchmark/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/test_scripts/warp_ingest_parser_smoke_test/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/test_scripts/websocket-auth-handshake/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/test_scripts/websocket-e2e-spec/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/typing/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/upload_methods/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/upload_methods/annotated_document_import/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/upload_methods/annotation_side_effects/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/upload_methods/bulk_zip_import/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/upload_methods/corpus_export_import/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/upload_methods/remote_ingest_worker/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/upload_methods/single_upload/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/upload_methods/supported_formats/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/upload_methods/worker_celery_setup/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/upload_methods/worker_uploads/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/walkthrough/add-and-edit-notes/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/walkthrough/key-concepts/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/walkthrough/step-1-add-documents/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/walkthrough/step-2-create-labelset/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/walkthrough/step-3-create-a-corpus/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/walkthrough/step-4-create-text-annotations/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/walkthrough/step-5-create-doc-type-annotations/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/walkthrough/step-6-search-and-filter-by-annotations/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/walkthrough/step-7-query-corpus/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/walkthrough/step-8-data-extract/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/walkthrough/step-9-corpus-actions/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/walkthrough/advanced/configure-annotation-view/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/walkthrough/advanced/export-import-corpuses/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/walkthrough/advanced/extraction_tutorial/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/walkthrough/advanced/fork-a-corpus/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/walkthrough/advanced/generate-graphql-schema-files/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/walkthrough/advanced/pawls-token-format/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/walkthrough/advanced/register-doc-analyzer/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/walkthrough/advanced/write-your-own-extractors/</loc>
+         <lastmod>2026-08-10</lastmod>
+    </url>
+    <url>
+         <loc>https://open-source-legal.github.io/OpenContracts/worker_uploads/walkthrough/</loc>
+         <lastmod>2026-08-10</lastmod>
     </url>
 </urlset>
