@@ -1,0 +1,118 @@
+WHICH LAW APPLIES — A FORT WORTH HOMEOWNER'S MAP
+
+Prepared for this corpus on 2026-08-10. This is an orientation document written
+to connect the City of Fort Worth's permit guidance to the statutes and
+ordinances behind it. It is not a City of Fort Worth publication. Every rule it
+states is cited; read the cited section, and confirm anything that matters with
+Fort Worth Development Services before you build.
+
+Three different questions get tangled together whenever someone asks "do I need
+a permit?" They have three different answers, from three different bodies of
+law, and an answer to one is not an answer to another.
+
+
+1. MAY I BUILD IT HERE? — ZONING
+
+Whether a structure is allowed on your lot, and where it may sit, comes from the
+Fort Worth Zoning Ordinance (City Code Appendix A). Setbacks, lot coverage,
+accessory-building placement, fence height and materials, and home occupations
+all live there.
+
+Dimensional limits depend on your zoning district, and the one-family districts
+differ from each other. Fort Worth Zoning Ordinance Section 4.704 sets the
+standards for the A-7.5 One-Family district; Fort Worth Zoning Ordinance
+Section 4.705 does the same for A-5, and Fort Worth Zoning Ordinance
+Section 4.703 for A-10. Find your district before relying on any number.
+
+If a project does not comply, the route is a variance or a special exception
+before the Board of Adjustment under the review procedures in Chapter 3 of the
+Fort Worth Zoning Ordinance. Non-compliance is rarely the end of the road.
+
+Zoning approval is not a permit, and a permit does not cure a zoning violation.
+
+
+2. DO I NEED A PERMIT? — THE BUILDING ADMINISTRATIVE CODE
+
+Permits, fees, inspections and enforcement come from the Fort Worth Building
+Administrative Code, adopted by Fort Worth Code of Ordinances Section 7-1.
+
+Fort Worth Building Administrative Code Section 105 governs permits, and
+Section 105.2 carries the list of work exempt from permit. That list is closed:
+if the work is not on it, it is not exempt. Three consequences people get wrong:
+
+  - There is no general small-accessory-building exemption. A storage shed is
+    not exempt merely for being small.
+  - Fences are exempt up to seven feet (open wire without slats, eight feet) —
+    but zoning still governs height and placement, especially in a front yard.
+  - The roof exemption covers replacing material above, but NOT including, the
+    decking, lathing or sheathing. Touch the decking and the exemption ends.
+
+An exemption from a permit is never an exemption from the code. Exempt work
+still has to be built to code.
+
+Fees are set by Fort Worth Building Administrative Code Section 109 and the fee
+tables at Fort Worth Building Administrative Code Section 119. The City also
+publishes a Development Fees Schedule that is revised more often than the
+ordinance, so confirm any dollar figure before relying on it.
+
+Inspections are governed by Fort Worth Building Administrative Code
+Section 110. Contractor registration and city licensing are governed by
+Fort Worth Building Administrative Code Section 118.
+
+
+3. MAY I DO THE WORK MYSELF? — TEXAS TRADE LICENSING
+
+This is state law, and the two homeowner exemptions are NOT the same shape.
+Conflating them is the most common and most consequential error.
+
+PLUMBING. Section 1301.051 of the Texas Occupations Code provides that a
+property owner is not required to be licensed under that chapter to perform
+plumbing in the property owner's homestead. It is not conditioned on municipal
+regulation.
+
+ELECTRICAL. Section 1305.003 of the Texas Occupations Code is narrower. Its
+exemption reaches work in or on a dwelling by a person who owns and resides in
+it only where that work is "not specifically regulated by a municipal
+ordinance." A city ordinance can therefore take this exemption away, so Fort
+Worth's own electrical rules must be checked before relying on it.
+
+AIR CONDITIONING AND REFRIGERATION. Chapter 1302 of the Texas Occupations Code
+governs air conditioning and refrigeration contractors.
+
+Neither exemption waives a permit and neither waives an inspection. Licensing,
+permitting and inspection are three separate requirements, and satisfying one
+says nothing about the others. "Homestead" is also a real limit: these
+exemptions do not reach rental property, a house being built for sale, or work
+on someone else's home.
+
+
+4. WHAT MY HOA CAN AND CANNOT FORBID — TEXAS PROPERTY CODE
+
+Deed restrictions and homeowners-association rules sit on top of everything
+above and can be stricter than the city's rules. The legislature has limited
+what an association may prohibit.
+
+Section 202.010 of the Texas Property Code restricts a property owners'
+association from prohibiting a solar energy device, though it preserves certain
+reasonable conditions. The general rules on construction and enforcement of
+restrictive covenants are in Chapter 202 of the Texas Property Code, and
+Chapter 209 of the Texas Property Code is the Texas Residential Property Owners
+Protection Act.
+
+No corpus holds your association's covenants. Read your own.
+
+
+5. WHICH CODES FORT WORTH HAS ADOPTED
+
+The adopted editions are of mixed vintage; assuming "2021 everything" is wrong.
+
+The 2021 International Residential Code is adopted by Fort Worth Code of
+Ordinances Section 7-61, with Fort Worth's local amendments at Fort Worth Code
+of Ordinances Section 7-62. The 2021 International Building Code is adopted by
+Fort Worth Code of Ordinances Section 7-46. The energy code is the 2015
+International Energy Conservation Code, adopted by Fort Worth Code of
+Ordinances Section 7-41. Electrical work is governed by the 2023 National
+Electrical Code with local amendments.
+
+Where Fort Worth has not amended a model-code section, the base code governs
+and this corpus will be silent — silence means no local amendment, not no rule.

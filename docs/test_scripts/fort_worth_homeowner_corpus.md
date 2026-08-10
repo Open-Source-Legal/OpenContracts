@@ -233,6 +233,45 @@ could not fix it.
 agent silently answers from priors and produces confidently wrong,
 wrong-jurisdiction guidance — the most dangerous failure mode for this use case.
 
+### Fourth run — reachability closed, 10/10 (2026-08-10)
+
+The remaining Q3 miss was closed by giving enrichment an edge to resolve. Two
+changes, both using existing machinery:
+
+1. **A seed document** — "Which Law Applies — A Fort Worth Homeowner's Map",
+   ingested through `import_document_for_user` — that legitimately cites the
+   governing statutes and ordinances. The corpus previously contained *no*
+   document citing the Occupations or Property Code, so there was no edge for
+   the agent to traverse.
+2. **Section-form equivalences.** The LLM tier slugifies the whole citation and
+   converts the section number's dots to dashes, so "Section 1301.051 of the
+   Texas Occupations Code" arrives as
+   `act:section-1301-051-of-the-texas-occupations-code` — a *different* key from
+   the chapter-form rows already in the pack, and the one carrying the operative
+   text. Added for §§ 1301.051, 1301.052, 1301.053, 1305.003 and 202.010.
+
+After re-running enrichment: `law_references_linked` +3, resolved references
+28 → 31.
+
+**Q3 now passes — and corrects the ground truth in this file.** The controlling
+rule is not the Texas exemption but **Fort Worth Building Administrative Code
+§ 105.10**, which is precisely the "municipal ordinance" that
+§ 1305.003(a)(6) defers to. Verified verbatim in the pack source:
+
+> "Building permits may be issued to a property owner who wishes to do Building,
+> Mechanical, Plumbing or Electrical work in a building owned and occupied by
+> them solely as their primary residence … This provision only permits the
+> homeowner to work on that part of the electrical system that occurs after, but
+> does not include, the first main breaker behind the electrical meter."
+
+The agent returns exactly this, with the load-side limit, the sole-primary-
+residence condition, the homestead-exemption/proof-of-ownership evidence, and
+cites `BAC §§ 105.1, 105.10, 118.1, 110.1, 110.3.5, 110.4–110.5.1`.
+
+Lesson worth keeping: the gate's ground truth was itself incomplete. Q3 was
+scored a fail against a Texas-statute answer when a better, more local answer
+existed in the corpus the whole time.
+
 ### Applied fix
 
 `preferred_llm` is now pinned on corpora 119–123 so the behaviour does not
