@@ -17,3 +17,8 @@
     `docker/metadata-action` tag patterns now derive from a single `BUILD_TAG`
     (dispatch input, else the released tag) so a dispatched re-publish emits
     byte-identical image tags to the release event it stands in for.
+  - Image provenance on a dispatched re-publish: `docker/metadata-action`
+    derives its sha-suffixed tag and `org.opencontainers.image.revision` label
+    from `github.sha`, which on a dispatch is the default branch rather than the
+    tag being built. Both now come from the actually-checked-out commit. No
+    change on a release event, where the two are the same commit.

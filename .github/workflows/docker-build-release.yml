@@ -50,6 +50,18 @@ jobs:
         with:
           ref: ${{ env.BUILD_TAG }}
 
+      # `github.sha` is the *dispatched* ref (the default branch) on a
+      # workflow_dispatch, not the tag being built — so the metadata action's
+      # sha-suffixed tag and `image.revision` label would both name a commit
+      # whose tree is not what shipped. Resolve the checked-out commit instead.
+      # On a release event this is identical to `github.sha`.
+      - name: Resolve built commit
+        id: rev
+        run: |
+          set -euo pipefail
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "short=$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
@@ -74,7 +86,12 @@ jobs:
             type=semver,pattern={{version}},value=${{ env.BUILD_TAG }}
             type=semver,pattern={{major}}.{{minor}},value=${{ env.BUILD_TAG }}
             type=semver,pattern={{major}},value=${{ env.BUILD_TAG }}
-            type=sha,prefix=${{ env.BUILD_TAG }}-
+            type=raw,value=${{ env.BUILD_TAG }}-${{ steps.rev.outputs.short }}
+          # Override the auto-derived revision, which metadata-action takes from
+          # `github.sha` — wrong for a dispatched re-publish (see "Resolve built
+          # commit" above). Custom labels win over the generated ones.
+          labels: |
+            org.opencontainers.image.revision=${{ steps.rev.outputs.sha }}
 
       # Django gets a two-step build: first build+load locally so the image
       # is on the daemon for the size-budget gate, then `docker push` each
