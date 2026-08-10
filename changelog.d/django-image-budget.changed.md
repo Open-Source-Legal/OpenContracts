@@ -7,7 +7,9 @@
   `ghcr.io/.../opencontractserver_django:v3.0.0` was never published while
   frontend, postgres, and traefik were. Two changes:
   - `DJANGO_IMAGE_BUDGET_BYTES` raised 1.5 GiB → 3 GiB, leaving ~25% headroom
-    over the measured size so the gate still catches a real regression.
+    over the measured size so the gate still catches a real regression. This is
+    a stopgap so releases can publish; the regression itself is tracked in
+    issue #2236.
   - New `workflow_dispatch` trigger taking an existing `tag` input. A `release`
     event runs the workflow file *as it existed at the tag*, so re-running a
     failed release build can never pick up a workflow fix; dispatching from the
