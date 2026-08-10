@@ -233,6 +233,23 @@ could not fix it.
 agent silently answers from priors and produces confidently wrong,
 wrong-jurisdiction guidance — the most dangerous failure mode for this use case.
 
+### Applied fix
+
+`preferred_llm` is now pinned on corpora 119–123 so the behaviour does not
+depend on the install default:
+
+```bash
+docker compose -f local.yml -p opencontracts exec -T django python manage.py shell -c "
+from opencontractserver.corpuses.models import Corpus
+for cid in (119,120,121,122,123):
+    c = Corpus.objects.get(id=cid); c.preferred_llm = 'gpt-5.6-terra'
+    c.save(update_fields=['preferred_llm'])"
+```
+
+The field normalises to `openai:gpt-5.6-terra`. Verified with **no** per-call
+override: the HOA-solar question now issues a search and cites Tex. Prop. Code
+§ 202.010, where the install default had produced California Civil Code § 714.
+
 ### Diagnosis of the four failures
 
 The failures are not random. **Every one of them has its answer in an authority
