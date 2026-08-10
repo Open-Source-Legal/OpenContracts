@@ -151,6 +151,45 @@ source snippet more often than by section number.
 | 9 HOA solar | **FAIL** | Generic "many states have solar rights acts"; never reached `tx-prop:202.010` |
 | 10 code editions | **pass** | Correct list from city sources |
 
+### Second run — full embedding coverage (2026-08-09 23:47)
+
+Re-run after all four authority corpora reached 100% embedding coverage
+(they were only ~10-20% embedded during the first run). **All four failures
+reproduced identically.** Indexing was never the cause.
+
+Counting retrieval calls per question (`Embedding text with MicroserviceEmbedder`
+in the log is proof of a semantic search — a phrase lookup embeds nothing) splits
+the failures cleanly:
+
+| Question | searches | outcome |
+|---|---|---|
+| Q4 drywall | **0** | never searched; answered from model priors |
+| Q9 HOA solar | **0** | never searched; cited **California Civil Code § 714** to a Texas homeowner |
+| Q3 own electrical | 1 | searched, got results, still answered generically |
+| Q8 inspections | 1 | searched, got results, still answered generically |
+
+All other questions: 1 search each. Zero "no results from either arm" across the
+whole run — when the agent searched, retrieval returned something.
+
+**So there are two distinct defects, not one:**
+
+1. **Tool-call omission (Q4, Q9).** The agent skips retrieval entirely and
+   answers from priors. Q4's answer ("16 sq ft") is *in* the corpus; Q9's
+   generic answer is actively wrong for Texas. The persona says "answer from
+   these documents" but nothing *forces* a search. Fix is prompt/tool discipline
+   — require a retrieval call before answering, or make the search tool
+   mandatory on first turn.
+2. **Grounding dilution (Q3, Q8).** Retrieval ran and returned results, and the
+   model still produced generic text. Q8's inspection numbers exist in four
+   corpus documents, so this is ranking/weighting rather than coverage. Q3's
+   operative text (`tx-occ:1305.003`) lives in corpus 122 and is genuinely
+   unreachable — see the reachability note below.
+
+The earlier hypothesis that incomplete embeddings caused Q4/Q8 was **wrong**:
+the 859 unembedded corpus-123 annotations are `OC_REF_LAW` citation markers
+created by enrichment ("ORDINANCE NO. 25384-03-2022"), not document text
+chunks. The document chunks were fully embedded for both runs.
+
 ### Diagnosis of the four failures
 
 The failures are not random. **Every one of them has its answer in an authority
