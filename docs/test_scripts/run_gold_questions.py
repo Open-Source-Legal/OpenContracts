@@ -7,6 +7,7 @@ Runs inside the django container:
 Each question records the answer plus the authority keys the agent actually
 cited, so a reviewer can check the citation, not just the prose.
 """
+
 import asyncio
 import json
 import os
@@ -18,28 +19,36 @@ MODEL = os.environ.get("GOLD_MODEL") or None
 RESULTS_PATH = os.environ.get("GOLD_OUT", "/tmp/gold_results.json")
 
 QUESTIONS = [
-    ("Q1-water-heater",
-     "I want to replace my water heater myself. Do I need a permit, and am I "
-     "allowed to do the work myself?"),
-    ("Q2-fence-height",
-     "How tall can I build a fence at my house, and do I need a permit for it?"),
-    ("Q3-own-electrical",
-     "Can I do my own electrical work in the house I own and live in?"),
-    ("Q4-drywall",
-     "Do I need a permit to replace drywall in a bedroom?"),
-    ("Q5-reroof",
-     "Do I need a permit to re-roof my house?"),
-    ("Q6-shed",
-     "Can I put up a storage shed in my back yard without a permit?"),
-    ("Q7-contractor-registration",
-     "Do I have to hire a registered contractor, or can I pull the permit "
-     "myself as the homeowner?"),
-    ("Q8-inspections",
-     "What inspections will my project need, and how do I schedule them?"),
-    ("Q9-hoa-solar",
-     "My HOA says I cannot install solar panels. Can they stop me?"),
-    ("Q10-code-editions",
-     "Which editions of the building codes has Fort Worth actually adopted?"),
+    (
+        "Q1-water-heater",
+        "I want to replace my water heater myself. Do I need a permit, and am I "
+        "allowed to do the work myself?",
+    ),
+    (
+        "Q2-fence-height",
+        "How tall can I build a fence at my house, and do I need a permit for it?",
+    ),
+    (
+        "Q3-own-electrical",
+        "Can I do my own electrical work in the house I own and live in?",
+    ),
+    ("Q4-drywall", "Do I need a permit to replace drywall in a bedroom?"),
+    ("Q5-reroof", "Do I need a permit to re-roof my house?"),
+    ("Q6-shed", "Can I put up a storage shed in my back yard without a permit?"),
+    (
+        "Q7-contractor-registration",
+        "Do I have to hire a registered contractor, or can I pull the permit "
+        "myself as the homeowner?",
+    ),
+    (
+        "Q8-inspections",
+        "What inspections will my project need, and how do I schedule them?",
+    ),
+    ("Q9-hoa-solar", "My HOA says I cannot install solar panels. Can they stop me?"),
+    (
+        "Q10-code-editions",
+        "Which editions of the building codes has Fort Worth actually adopted?",
+    ),
 ]
 
 KEY_RE = re.compile(
@@ -74,13 +83,15 @@ async def main() -> None:
         except Exception as exc:  # surface, never swallow
             answer = f"ERROR: {type(exc).__name__}: {exc}"
         print(answer, flush=True)
-        results.append({
-            "id": qid,
-            "question": question,
-            "answer": answer,
-            "keys_cited": sorted(set(KEY_RE.findall(answer))),
-            "citations": sorted(set(m.group(0) for m in CITE_RE.finditer(answer))),
-        })
+        results.append(
+            {
+                "id": qid,
+                "question": question,
+                "answer": answer,
+                "keys_cited": sorted(set(KEY_RE.findall(answer))),
+                "citations": sorted({m.group(0) for m in CITE_RE.finditer(answer)}),
+            }
+        )
 
     with open(RESULTS_PATH, "w") as fh:
         json.dump(results, fh, indent=2)
@@ -88,8 +99,10 @@ async def main() -> None:
     print(f"\n\n{'#'*78}\nSUMMARY (model={MODEL or 'install default'})\n{'#'*78}")
     for r in results:
         status = "ERR " if r["answer"].startswith("ERROR:") else "ok  "
-        print(f"{status}{r['id']:28} cites={len(r['citations']):>2} "
-              f"keys={len(r['keys_cited'])}")
+        print(
+            f"{status}{r['id']:28} cites={len(r['citations']):>2} "
+            f"keys={len(r['keys_cited'])}"
+        )
 
 
 asyncio.run(main())
