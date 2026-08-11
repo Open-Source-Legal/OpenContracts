@@ -1401,7 +1401,8 @@ class TestMicroserviceEmbedderHardening(unittest.TestCase):
 
     - shared ``requests.Session`` with urllib3 retry + connection pool
     - bumped ``embed_max_concurrent_sub_batches`` to fill gunicorn workers
-    - ``api_batch_size`` pinned to the service-side cap
+    - ``api_batch_size`` kept well below the service-side cap to bound
+      worst-case batch latency on a CPU-only embedder
 
     These knobs collectively determine how aggressive (and how robust)
     we are against the local sentence-transformer microservice; the
