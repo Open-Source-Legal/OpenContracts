@@ -119,10 +119,11 @@ class MicroserviceEmbedder(BaseEmbedder):
         FileTypeEnum.DOCX,
     ]
 
-    # The local microservice caps batch size at MICROSERVICE_EMBEDDER_MAX_BATCH_SIZE
-    # (server-side env var ``MAX_TEXTS_PER_BATCH``, default 100). Raising
-    # past it causes the service to 400 with "exceeds maximum"; pin
-    # api_batch_size to the cap so we use the full per-call capacity.
+    # MICROSERVICE_EMBEDDER_MAX_BATCH_SIZE is deliberately kept well below the
+    # server-side cap (env var ``MAX_TEXTS_PER_BATCH``, default 100) — it is
+    # sized to bound worst-case per-batch latency/retry blast radius on a
+    # CPU-only embedder, not to max out per-call capacity. See the constant's
+    # docstring in constants/document_processing.py.
     api_batch_size = MICROSERVICE_EMBEDDER_MAX_BATCH_SIZE
 
     # The reference deployment runs gunicorn with --workers 2, so up to

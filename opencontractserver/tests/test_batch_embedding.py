@@ -1410,11 +1410,14 @@ class TestMicroserviceEmbedderHardening(unittest.TestCase):
     """
 
     def test_api_batch_size_matches_service_cap(self):
-        """``api_batch_size`` must equal the service-side MAX_TEXTS_PER_BATCH cap.
+        """``api_batch_size`` must equal MICROSERVICE_EMBEDDER_MAX_BATCH_SIZE.
 
-        Sending a larger batch trips a 400 from the service ("exceeds
-        maximum"); pinning to the cap uses the full per-call capacity
-        without ever asking for more than the service will accept.
+        The constant is set well below the service-side MAX_TEXTS_PER_BATCH
+        cap (default 100) to bound worst-case batch latency on a CPU-only
+        embedder, not to max out per-call capacity — but the two must still
+        move together, since ``embed_texts_batch`` enforces the constant as
+        a hard ceiling and a drift here would silently under- or over-size
+        every batch request.
         """
         from opencontractserver.constants.document_processing import (
             MICROSERVICE_EMBEDDER_MAX_BATCH_SIZE,

@@ -56,7 +56,7 @@ Per-embedder overrides:
 | Embedder | `api_batch_size` | `embed_max_concurrent_sub_batches` | Rationale |
 |---|---:|---:|---|
 | `OpenAIEmbedder` | 256 | 4 | OpenAI accepts 2048 inputs / ~8M tokens per call; ~96K tokens at 256×typical paragraph fits comfortably. 4 in-flight sub-batches stay inside Tier-1 RPM (3000/min). |
-| `MicroserviceEmbedder` | 100 (= service cap) | 2 | Gunicorn `--workers 2` in the reference deployment; matching saturates without queueing. |
+| `MicroserviceEmbedder` | 32 (< service cap of 100) | 2 | Gunicorn `--workers 2` in the reference deployment saturates concurrency without queueing; batch size is kept below the service cap to bound worst-case batch latency/retry blast radius on a CPU-only embedder — see `MICROSERVICE_EMBEDDER_MAX_BATCH_SIZE`. |
 
 `calculate_embeddings_for_annotation_batch` now reads
 `embedder.api_batch_size` (with `EMBEDDING_API_BATCH_SIZE` as a fallback
@@ -158,8 +158,8 @@ at dispatch time: one batch task per embedder path, sub-batched by
 | Constant | Default | When to raise | When to lower |
 |---|---:|---|---|
 | `EMBEDDING_BATCH_SIZE` | 100 | Big-doc corpora (>256 annotations/doc); unlocks parallel sub-batch path | Memory-pressured workers |
-| `EMBEDDING_API_BATCH_SIZE` (fallback) | 50 | Embedders without an explicit override | — |
-| `MICROSERVICE_EMBEDDER_MAX_BATCH_SIZE` | 100 | Set in tandem with the service-side `MAX_TEXTS_PER_BATCH` env var; raising one without the other 400s | — |
+| `EMBEDDING_API_BATCH_SIZE` (fallback) | 32 | Embedders without an explicit override | Must stay <= `MICROSERVICE_EMBEDDER_MAX_BATCH_SIZE` (enforced by `documents.E001`) |
+| `MICROSERVICE_EMBEDDER_MAX_BATCH_SIZE` | 32 | Kept well below the service-side `MAX_TEXTS_PER_BATCH` cap (100) on purpose — bounds worst-case batch latency/retry blast radius on a CPU-only embedder | Raising it trades that safety margin for fewer HTTP round-trips |
 | `OpenAIEmbedder.api_batch_size` | 256 | Tier 4+ (10M+ TPM); could go to 512 | Tight rate limits; halve to 128 |
 | `OpenAIEmbedder.embed_max_concurrent_sub_batches` | 4 | Tier 4+ (10K+ RPM); 8 is safe | Tier 1 if seeing 429s in steady state |
 | `OpenAIEmbedder.OPENAI_CLIENT_MAX_RETRIES` | 8 | Hostile rate-limit environments | Fail-fast deployments |

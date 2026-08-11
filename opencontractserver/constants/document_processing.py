@@ -134,6 +134,15 @@ EMBEDDER_SINGLE_REQUEST_TIMEOUT_SECONDS = 30
 # client retries the whole batch (3 attempts) the queue burns ~3 minutes per
 # task while making no progress — a large ingest can stop draining entirely.
 # Better to let a slow batch finish once than to redo it three times.
+#
+# Tradeoff: this is a per-attempt read timeout, and the shared session's
+# urllib3 Retry (read=3, see sent_transformer_microservice.py) sits *under*
+# Celery's own autoretry (max_retries=3). A genuinely hung (not just slow)
+# microservice can now tie up a worker for up to ~300s x 3 x 4 in the worst
+# case, vs. ~3 minutes at the old 60s ceiling. Accepted for now because the
+# common failure mode this fixes (slow-but-succeeds) is far more frequent
+# than a truly hung service; revisit with a Celery soft_time_limit if that
+# changes.
 EMBEDDER_BATCH_REQUEST_TIMEOUT_SECONDS = 300
 
 # Character-count guard for OpenAI embedding input. The hosted /embeddings
