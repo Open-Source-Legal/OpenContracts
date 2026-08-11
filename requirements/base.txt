@@ -6,7 +6,7 @@ celery==5.6.3  # pyup: < 6.0  # https://github.com/celery/celery
 flower==2.0.1  # https://github.com/mher/flower
 django-celery-beat==2.9.0  # https://github.com/celery/django-celery-beat
 pyjwt==2.13.0  # https://github.com/jpadilla/pyjwt
-cryptography==49.0.0  # https://github.com/pyca/cryptography
+cryptography==50.0.0  # https://github.com/pyca/cryptography
 pydantic==2.*
 typing-extensions==4.*  # https://github.com/python/typing_extensions
 requests>=2.34.2,<3  # https://requests.readthedocs.io/en/latest/
