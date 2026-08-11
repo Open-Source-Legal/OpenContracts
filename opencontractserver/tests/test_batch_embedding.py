@@ -1429,6 +1429,25 @@ class TestMicroserviceEmbedderHardening(unittest.TestCase):
             MICROSERVICE_EMBEDDER_MAX_BATCH_SIZE,
         )
 
+    def test_tuned_batch_size_and_timeout_values(self):
+        """Pin the tuned constants so a well-intentioned revert fails loudly.
+
+        These are the two numbers that fixed the retry-storm/queue-stall
+        issue: a batch cap of 32 (down from 100) and a read timeout of
+        300s (up from 60). The relationship checks above (e.g.
+        ``test_api_batch_size_matches_service_cap``) would still pass if
+        both regressed back to their old values in lockstep, since they
+        only compare the constants to each other, not to a known-good
+        number.
+        """
+        from opencontractserver.constants.document_processing import (
+            EMBEDDER_BATCH_REQUEST_TIMEOUT_SECONDS,
+            MICROSERVICE_EMBEDDER_MAX_BATCH_SIZE,
+        )
+
+        self.assertEqual(MICROSERVICE_EMBEDDER_MAX_BATCH_SIZE, 32)
+        self.assertEqual(EMBEDDER_BATCH_REQUEST_TIMEOUT_SECONDS, 300)
+
     def test_concurrency_matches_gunicorn_workers(self):
         """``embed_max_concurrent_sub_batches`` lines up with gunicorn --workers.
 
