@@ -1401,7 +1401,8 @@ class TestMicroserviceEmbedderHardening(unittest.TestCase):
 
     - shared ``requests.Session`` with urllib3 retry + connection pool
     - bumped ``embed_max_concurrent_sub_batches`` to fill gunicorn workers
-    - ``api_batch_size`` pinned to the service-side cap
+    - ``api_batch_size`` kept well below the service-side cap to bound
+      worst-case batch latency on a CPU-only embedder
 
     These knobs collectively determine how aggressive (and how robust)
     we are against the local sentence-transformer microservice; the
@@ -1410,11 +1411,14 @@ class TestMicroserviceEmbedderHardening(unittest.TestCase):
     """
 
     def test_api_batch_size_matches_service_cap(self):
-        """``api_batch_size`` must equal the service-side MAX_TEXTS_PER_BATCH cap.
+        """``api_batch_size`` must equal MICROSERVICE_EMBEDDER_MAX_BATCH_SIZE.
 
-        Sending a larger batch trips a 400 from the service ("exceeds
-        maximum"); pinning to the cap uses the full per-call capacity
-        without ever asking for more than the service will accept.
+        The constant is set well below the service-side MAX_TEXTS_PER_BATCH
+        cap (default 100) to bound worst-case batch latency on a CPU-only
+        embedder, not to max out per-call capacity — but the two must still
+        move together, since ``embed_texts_batch`` enforces the constant as
+        a hard ceiling and a drift here would silently under- or over-size
+        every batch request.
         """
         from opencontractserver.constants.document_processing import (
             MICROSERVICE_EMBEDDER_MAX_BATCH_SIZE,
@@ -1424,6 +1428,25 @@ class TestMicroserviceEmbedderHardening(unittest.TestCase):
             MicroserviceEmbedder.api_batch_size,
             MICROSERVICE_EMBEDDER_MAX_BATCH_SIZE,
         )
+
+    def test_tuned_batch_size_and_timeout_values(self):
+        """Pin the tuned constants so a well-intentioned revert fails loudly.
+
+        These are the two numbers that fixed the retry-storm/queue-stall
+        issue: a batch cap of 32 (down from 100) and a read timeout of
+        300s (up from 60). The relationship checks above (e.g.
+        ``test_api_batch_size_matches_service_cap``) would still pass if
+        both regressed back to their old values in lockstep, since they
+        only compare the constants to each other, not to a known-good
+        number.
+        """
+        from opencontractserver.constants.document_processing import (
+            EMBEDDER_BATCH_REQUEST_TIMEOUT_SECONDS,
+            MICROSERVICE_EMBEDDER_MAX_BATCH_SIZE,
+        )
+
+        self.assertEqual(MICROSERVICE_EMBEDDER_MAX_BATCH_SIZE, 32)
+        self.assertEqual(EMBEDDER_BATCH_REQUEST_TIMEOUT_SECONDS, 300)
 
     def test_concurrency_matches_gunicorn_workers(self):
         """``embed_max_concurrent_sub_batches`` lines up with gunicorn --workers.
