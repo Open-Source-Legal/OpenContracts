@@ -36,6 +36,10 @@ DOCUMENT_PERSONA = "Read this document like a paralegal. ALWAYS say PLANTAIN."
 class SystemPromptAssemblyTestCase(TestCase):
     """Persona resolution and computed context, assembled in the right order."""
 
+    user: User
+    corpus: Corpus
+    document: Document
+
     @classmethod
     def setUpTestData(cls):
         cls.user = User.objects.create_user(username="prompt-user", password="x")
