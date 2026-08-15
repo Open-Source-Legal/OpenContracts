@@ -1414,6 +1414,39 @@ result = await agent.structured_response(
 )
 ```
 
+#### System Prompt Assembly (two stages — never append to `system_prompt` early)
+
+The prompt a model actually receives is assembled in two stages, and the order
+is load-bearing:
+
+1. **Queue** — `UnifiedAgentFactory` computes context blocks at creation time
+   (corpus memory, then temporal grounding) and queues them on
+   `AgentConfig.computed_context` via `add_computed_context()`
+   (`llms/agents/agent_factory.py::_inject_corpus_memory`,
+   `::_inject_temporal_grounding`).
+2. **Resolve** — the core factories call
+   `AgentConfig.resolve_system_prompt(default_factory)`
+   (`llms/agents/core_agents.py::AgentConfig`) from
+   `CoreDocumentAgentFactory.create_context` /
+   `CoreCorpusAgentFactory.create_context`. It resolves the persona — the
+   caller's `system_prompt` if one was supplied, else
+   `get_default_system_prompt()` (which reads
+   `Corpus.corpus_agent_instructions` / `.document_agent_instructions`, falling
+   back to the `DEFAULT_*_AGENT_INSTRUCTIONS` settings) — and only then appends
+   the queued blocks, in queue order.
+
+**Rule**: computed context goes through `add_computed_context()`. Never write it
+into `config.system_prompt` directly. `system_prompt is None` *is* the signal
+that the caller supplied no prompt and the configured persona must be resolved;
+appending to the field consumes that signal before it is read. That is exactly
+how issue #2247 silently discarded every configured corpus/document persona —
+the agent ran on the temporal-grounding block alone, which is short enough to
+look like a plausible system prompt rather than an empty one.
+
+`resolve_system_prompt()` drains the queue, so it is idempotent and cannot
+duplicate a block. Regression coverage:
+`opencontractserver/tests/test_agent_system_prompt_assembly.py`.
+
 #### PydanticAI Pitfalls
 
 **`instructions` vs `system_prompt` — Use `instructions` for Agent System Prompts**
@@ -2085,7 +2118,8 @@ The framework has two levels of configuration:
 | `similarity_top_k` | `int` | `10` | Number of similar results to retrieve in vector searches |
 | `streaming` | `bool` | `True` | Enable/disable streaming responses |
 | `verbose` | `bool` | `True` | Enable verbose logging for debugging |
-| `system_prompt` | `Optional[str]` | `None` | Custom system prompt; replaces default if provided |
+| `system_prompt` | `Optional[str]` | `None` | Custom system prompt; replaces the configured persona if provided. `None` means "resolve the persona" — see [System Prompt Assembly](#system-prompt-assembly-two-stages--never-append-to-system_prompt-early) |
+| `computed_context` | `list[str]` | `[]` | Factory-computed blocks (memory, temporal grounding) appended *after* persona resolution; queue with `add_computed_context()` |
 | `temperature` | `float` | `0.7` | LLM temperature (0.0-2.0); lower = more deterministic |
 | `max_tokens` | `Optional[int]` | `None` | Maximum tokens in response; `None` uses model default |
 | `stream_update_freq` | `int` | `50` | Token interval for database updates during streaming |

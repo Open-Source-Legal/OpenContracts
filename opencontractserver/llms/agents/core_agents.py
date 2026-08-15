@@ -313,6 +313,53 @@ class AgentConfig:
     # per-request via UnifiedAgentFactory, never shared across sessions.
     _approval_bypass_allowed: bool = False
 
+    # Blocks the stack computes at agent-creation time (temporal grounding,
+    # corpus memory, …) that belong at the *end* of the system prompt.
+    #
+    # They are queued here rather than concatenated straight onto
+    # ``system_prompt`` because ``system_prompt is None`` is the signal that
+    # the caller supplied no prompt and the corpus/document persona should be
+    # resolved instead.  Writing computed text into the field consumed that
+    # signal before it was read, so every configured
+    # ``corpus_agent_instructions`` / ``document_agent_instructions`` persona
+    # was silently discarded and the agent ran on the computed blocks alone
+    # (issue #2247).  Queue with :meth:`add_computed_context`; drain with
+    # :meth:`resolve_system_prompt`.
+    computed_context: list[str] = field(default_factory=list)
+
+    def add_computed_context(self, block: str) -> None:
+        """Queue a computed block for append-after-default-resolution.
+
+        Always use this instead of mutating ``system_prompt`` directly — a
+        direct append destroys the "caller supplied nothing" signal that
+        persona resolution depends on.
+        """
+        if block:
+            self.computed_context.append(block)
+
+    def resolve_system_prompt(self, default_factory: Callable[[], str]) -> None:
+        """Finalise ``system_prompt`` into the value the model will receive.
+
+        Resolves the persona default when the caller supplied no prompt, then
+        appends every queued computed block in the order it was added.
+
+        Idempotent: the queue is drained, so a repeated call is a no-op and
+        can never duplicate a computed block.
+
+        Args:
+            default_factory: Produces the persona/system prompt to use when
+                the caller passed none.  Called lazily so the (potentially
+                expensive) default is not built for callers that supplied
+                their own prompt.
+        """
+        if self.system_prompt is None:
+            self.system_prompt = default_factory()
+        if self.computed_context:
+            self.system_prompt = (self.system_prompt or "") + "".join(
+                self.computed_context
+            )
+            self.computed_context = []
+
 
 @dataclass
 class DocumentAgentContext:
@@ -1091,11 +1138,13 @@ class CoreDocumentAgentFactory:
                 # Fall back to default embedder when no corpus available
                 config.embedder_path = getattr(settings, "DEFAULT_EMBEDDER", None)
 
-        # Set default system prompt if not provided
-        if config.system_prompt is None:
-            config.system_prompt = CoreDocumentAgentFactory.get_default_system_prompt(
+        # Resolve the persona (caller prompt, else corpus/settings default) and
+        # only then fold in the computed blocks queued by the factory.
+        config.resolve_system_prompt(
+            lambda: CoreDocumentAgentFactory.get_default_system_prompt(
                 document, corpus_obj
             )
+        )
 
         return DocumentAgentContext(corpus=corpus_obj, document=document, config=config)
 
@@ -1159,11 +1208,11 @@ class CoreCorpusAgentFactory:
 
         documents: list[Document] = await sync_to_async(_load_corpus_documents)()
 
-        # Set default system prompt if not provided
-        if config.system_prompt is None:
-            config.system_prompt = CoreCorpusAgentFactory.get_default_system_prompt(
-                corpus_obj
-            )
+        # Resolve the persona (caller prompt, else corpus/settings default) and
+        # only then fold in the computed blocks queued by the factory.
+        config.resolve_system_prompt(
+            lambda: CoreCorpusAgentFactory.get_default_system_prompt(corpus_obj)
+        )
 
         # Use corpus preferred embedder if not specified
         if config.embedder_path is None:

@@ -19,17 +19,25 @@ from opencontractserver.llms.agents.agent_factory import (
     _corpus_current_through,
     _inject_temporal_grounding,
 )
+from opencontractserver.llms.agents.core_agents import AgentConfig
 from opencontractserver.users.models import User
 
 
-class _Config:
-    """Minimal stand-in for ``AgentConfig`` (only ``system_prompt`` is read)."""
-
-    def __init__(self, system_prompt: str | None = "BASE."):
-        self.system_prompt = system_prompt
-
-
 class TemporalGroundingTestCase(TestCase):
+    """Grounding is queued as computed context and folded in at resolution.
+
+    These tests drive the *real* ``AgentConfig`` rather than a stand-in: a
+    stand-in exposing only ``system_prompt`` is how the injector and the
+    persona-default resolution drifted apart unnoticed (issue #2247).
+    """
+
+    @staticmethod
+    def _ground(config: AgentConfig, corpus=None) -> str:
+        """Inject grounding and return the finalised system prompt."""
+        async_to_sync(_inject_temporal_grounding)(config, corpus)
+        config.resolve_system_prompt(lambda: "DEFAULT PERSONA.")
+        return config.system_prompt or ""
+
     def setUp(self):
         self.user = User.objects.create_user(username="temporal-user", password="x")
         self.corpus = Corpus.objects.create(
@@ -56,27 +64,44 @@ class TemporalGroundingTestCase(TestCase):
         return document
 
     def test_injects_a_computed_research_timestamp(self):
-        config = _Config()
+        prompt = self._ground(AgentConfig(system_prompt="BASE."), self.corpus)
+
+        self.assertIn("BASE.", prompt)
+        self.assertIn("Research performed at:", prompt)
+        self.assertIn(str(timezone.now().year), prompt)
+
+    def test_grounding_does_not_consume_the_default_prompt_signal(self):
+        """Grounding must not stand in for an unresolved persona (issue #2247).
+
+        The injector used to append straight onto ``system_prompt``, which
+        made it non-``None`` before the factories read ``system_prompt is
+        None`` as "the caller supplied nothing, use the configured persona" —
+        so every configured persona was silently dropped.
+        """
+        config = AgentConfig(system_prompt=None)
         async_to_sync(_inject_temporal_grounding)(config, self.corpus)
 
-        self.assertIn("BASE.", config.system_prompt)
-        self.assertIn("Research performed at:", config.system_prompt)
-        self.assertIn(str(timezone.now().year), config.system_prompt)
+        self.assertIsNone(config.system_prompt)
+        self.assertTrue(config.computed_context)
+
+        config.resolve_system_prompt(lambda: "DEFAULT PERSONA.")
+        prompt = config.system_prompt or ""
+        self.assertIn("DEFAULT PERSONA.", prompt)
+        # Both injections landed, persona first, grounding after.
+        self.assertLess(
+            prompt.index("DEFAULT PERSONA."), prompt.index("Research performed at:")
+        )
 
     def test_forbids_inventing_an_as_of_date(self):
-        config = _Config()
-        async_to_sync(_inject_temporal_grounding)(config, self.corpus)
+        prompt = self._ground(AgentConfig(system_prompt="BASE."), self.corpus)
 
-        prompt = config.system_prompt
         self.assertIn("no other knowledge of the current date", prompt)
         self.assertIn("training data", prompt)
 
     def test_separates_approval_from_effectiveness(self):
         """`approved_on != effective_from` is the invariant temporal questions turn on."""
-        config = _Config()
-        async_to_sync(_inject_temporal_grounding)(config, self.corpus)
+        prompt = self._ground(AgentConfig(system_prompt="BASE."), self.corpus)
 
-        prompt = config.system_prompt
         self.assertIn("APPROVED", prompt)
         self.assertIn("EFFECTIVE", prompt)
         self.assertIn("the date the question asks about", prompt)
@@ -89,24 +114,21 @@ class TemporalGroundingTestCase(TestCase):
         currency = async_to_sync(_corpus_current_through)(self.corpus)
         self.assertEqual(currency, "2026-07-26T18:38:19+00:00")
 
-        config = _Config()
-        async_to_sync(_inject_temporal_grounding)(config, self.corpus)
-        self.assertIn("Corpus current through: 2026-07-26", config.system_prompt)
+        prompt = self._ground(AgentConfig(system_prompt="BASE."), self.corpus)
+        self.assertIn("Corpus current through: 2026-07-26", prompt)
 
     def test_omits_currency_rather_than_inventing_one(self):
         """Most corpora carry no retrieval metadata; silence beats a guess."""
         self._add_document(None)
 
         self.assertIsNone(async_to_sync(_corpus_current_through)(self.corpus))
-        config = _Config()
-        async_to_sync(_inject_temporal_grounding)(config, self.corpus)
-        self.assertNotIn("Corpus current through", config.system_prompt)
+        prompt = self._ground(AgentConfig(system_prompt="BASE."), self.corpus)
+        self.assertNotIn("Corpus current through", prompt)
         # The research timestamp is unconditional, though.
-        self.assertIn("Research performed at:", config.system_prompt)
+        self.assertIn("Research performed at:", prompt)
 
     def test_never_blocks_agent_creation(self):
         """Grounding is additive context; a failure must not break the agent."""
-        config = _Config()
 
         class _Exploding:
             id = 1
@@ -114,12 +136,11 @@ class TemporalGroundingTestCase(TestCase):
             def _get_active_documents(self, include_caml=False):
                 raise RuntimeError("db down")
 
-        async_to_sync(_inject_temporal_grounding)(config, _Exploding())
+        prompt = self._ground(AgentConfig(system_prompt="BASE."), _Exploding())
         # Still grounded on the timestamp, just without corpus currency.
-        self.assertIn("Research performed at:", config.system_prompt)
-        self.assertNotIn("Corpus current through", config.system_prompt)
+        self.assertIn("Research performed at:", prompt)
+        self.assertNotIn("Corpus current through", prompt)
 
     def test_works_without_a_corpus(self):
-        config = _Config()
-        async_to_sync(_inject_temporal_grounding)(config, None)
-        self.assertIn("Research performed at:", config.system_prompt)
+        prompt = self._ground(AgentConfig(system_prompt="BASE."), None)
+        self.assertIn("Research performed at:", prompt)
