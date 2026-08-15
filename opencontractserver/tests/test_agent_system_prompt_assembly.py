@@ -142,8 +142,18 @@ class SystemPromptAssemblyTestCase(TestCase):
         self.assertIsNone(config.system_prompt)
 
         config.resolve_system_prompt(lambda: "PERSONA.")
-        self.assertEqual(config.system_prompt, "PERSONA.<FIRST><SECOND>")
+        self.assertEqual(config.system_prompt, "PERSONA.\n\n<FIRST>\n\n<SECOND>")
         self.assertEqual(config.computed_context, [])
+
+    def test_blocks_are_separated_without_relying_on_caller_discipline(self):
+        """A block that supplies no leading newlines must not run into its
+        neighbour — the queue delimits, the block only carries content."""
+        config = AgentConfig(system_prompt="PERSONA.   \n\n")
+        config.add_computed_context("\n\n<PADDED>\n")
+        config.add_computed_context("<BARE>")
+
+        config.resolve_system_prompt(lambda: "unused")
+        self.assertEqual(config.system_prompt, "PERSONA.\n\n<PADDED>\n\n<BARE>")
 
     def test_resolve_is_idempotent(self):
         config = AgentConfig(system_prompt=None)
@@ -152,7 +162,7 @@ class SystemPromptAssemblyTestCase(TestCase):
         config.resolve_system_prompt(lambda: "PERSONA.")
         config.resolve_system_prompt(lambda: "OTHER PERSONA.")
 
-        self.assertEqual(config.system_prompt, "PERSONA.<BLOCK>")
+        self.assertEqual(config.system_prompt, "PERSONA.\n\n<BLOCK>")
 
     def test_default_factory_is_not_called_when_a_prompt_was_supplied(self):
         config = AgentConfig(system_prompt="CALLER PROMPT.")
@@ -166,6 +176,7 @@ class SystemPromptAssemblyTestCase(TestCase):
     def test_empty_blocks_are_not_queued(self):
         config = AgentConfig(system_prompt="BASE.")
         config.add_computed_context("")
+        config.add_computed_context("   \n  ")
 
         self.assertEqual(config.computed_context, [])
         config.resolve_system_prompt(lambda: "PERSONA.")

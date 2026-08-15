@@ -1433,7 +1433,9 @@ is load-bearing:
    `get_default_system_prompt()` (which reads
    `Corpus.corpus_agent_instructions` / `.document_agent_instructions`, falling
    back to the `DEFAULT_*_AGENT_INSTRUCTIONS` settings) — and only then appends
-   the queued blocks, in queue order.
+   the queued blocks, in queue order, each separated by a blank line. Blocks
+   are stripped on the way in and delimited on the way out, so an injector
+   carries content only and cannot run its block into its neighbour's.
 
 **Rule**: computed context goes through `add_computed_context()`. Never write it
 into `config.system_prompt` directly. `system_prompt is None` *is* the signal

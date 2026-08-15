@@ -334,12 +334,12 @@ class AgentConfig:
         direct append destroys the "caller supplied nothing" signal that
         persona resolution depends on.
 
-        Blocks are concatenated with no separator, so each one must
-        self-delimit: open with whatever blank lines it needs to stand apart
-        from whatever precedes it (both current injectors do — the memory
-        formatter emits a leading ``\\n\\n``, and the temporal block opens on
-        two empty lines).
+        Blocks are stored stripped and rejoined with a blank line at resolve
+        time, so a block never has to supply its own leading newlines to stand
+        apart from what precedes it — and can't run into it by forgetting to.
+        Whitespace-only blocks are dropped.
         """
+        block = block.strip()
         if block:
             self.computed_context.append(block)
 
@@ -347,7 +347,8 @@ class AgentConfig:
         """Finalise ``system_prompt`` into the value the model will receive.
 
         Resolves the persona default when the caller supplied no prompt, then
-        appends every queued computed block in the order it was added.
+        appends every queued computed block in the order it was added, each
+        separated by a blank line.
 
         Idempotent: both the persona and the queue are consumed on the first
         call, so a repeated call cannot duplicate a computed block or re-run
@@ -362,9 +363,9 @@ class AgentConfig:
         if self.system_prompt is None:
             self.system_prompt = default_factory()
         if self.computed_context:
-            self.system_prompt = (self.system_prompt or "") + "".join(
-                self.computed_context
-            )
+            base = (self.system_prompt or "").rstrip()
+            blocks = "\n\n".join(self.computed_context)
+            self.system_prompt = f"{base}\n\n{blocks}" if base else blocks
             self.computed_context = []
 
 
