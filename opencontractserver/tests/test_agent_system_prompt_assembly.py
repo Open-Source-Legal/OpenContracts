@@ -16,17 +16,25 @@ prompt rather than on the field round-tripping through the DB.
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+from asgiref.sync import sync_to_async
 from django.conf import settings
-from django.test import TestCase
+from django.test import TestCase, TransactionTestCase
 
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
-from opencontractserver.llms.agents.agent_factory import _inject_temporal_grounding
+from opencontractserver.llms.agents.agent_factory import (
+    UnifiedAgentFactory,
+    _inject_temporal_grounding,
+)
 from opencontractserver.llms.agents.core_agents import (
     AgentConfig,
     CoreCorpusAgentFactory,
     CoreDocumentAgentFactory,
 )
+from opencontractserver.llms.types import AgentFramework
 from opencontractserver.users.models import User
 
 CORPUS_PERSONA = "You are a helpful assistant. ALWAYS say BANANA."
@@ -181,3 +189,76 @@ class SystemPromptAssemblyTestCase(TestCase):
         self.assertEqual(config.computed_context, [])
         config.resolve_system_prompt(lambda: "PERSONA.")
         self.assertEqual(config.system_prompt, "BASE.")
+
+
+@pytest.mark.serial
+class SystemPromptThroughPublicFactoryTestCase(TransactionTestCase):
+    """The persona must survive the *real* entry point, not just its pieces.
+
+    Every other test here drives the injectors and ``create_context``
+    directly.  The bug lived in how ``UnifiedAgentFactory`` *sequences* them —
+    build config, inject memory, inject grounding, then create the context —
+    so a reordering there, or a fresh ``config.system_prompt`` mutation added
+    inside the factory itself, would slip past all of them.  This test goes
+    through the public entry point that production uses.
+
+    ``TransactionTestCase`` + ``serial``: the factory makes async ORM calls
+    that need fresh DB connections, which do not survive ``TestCase``'s
+    transaction isolation.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="e2e-prompt-user", password="x")
+        self.corpus = Corpus.objects.create(
+            title="E2E Persona Corpus",
+            creator=self.user,
+            is_public=True,
+            corpus_agent_instructions=CORPUS_PERSONA,
+            preferred_embedder="test/embedder/persona",
+        )
+
+    async def _corpus_agent_prompt(self) -> str:
+        """Build a corpus agent through the real factory; return its prompt.
+
+        ``PydanticAIAgent`` is patched at the seam the rest of the suite uses,
+        so no LLM is constructed — everything up to and including persona
+        resolution still runs for real.
+        """
+        with patch(
+            "opencontractserver.llms.agents.pydantic_ai_factory.PydanticAIAgent"
+        ) as mock_agent_cls:
+            instance = MagicMock()
+            instance.toolsets = []
+            instance.run = AsyncMock()
+            mock_agent_cls.return_value = instance
+
+            agent = await UnifiedAgentFactory.create_corpus_agent(
+                corpus=self.corpus.id,
+                framework=AgentFramework.PYDANTIC_AI,
+                user_id=self.user.id,
+            )
+        return agent.config.system_prompt or ""
+
+    async def test_corpus_persona_reaches_the_prompt_through_the_factory(self):
+        prompt = await self._corpus_agent_prompt()
+
+        self.assertIn(CORPUS_PERSONA, prompt)
+        # The computed block still lands, and still lands last.
+        self.assertIn("Research performed at:", prompt)
+        self.assertLess(
+            prompt.index(CORPUS_PERSONA), prompt.index("Research performed at:")
+        )
+
+    async def test_persona_edit_changes_the_prompt(self):
+        """The symptom that made this bug unmeasurable: editing the persona
+        produced no change in what the agent received."""
+        before = await self._corpus_agent_prompt()
+
+        self.corpus.corpus_agent_instructions = "ALWAYS say KUMQUAT instead."
+        await sync_to_async(self.corpus.save)()
+
+        after = await self._corpus_agent_prompt()
+
+        self.assertIn("ALWAYS say KUMQUAT instead.", after)
+        self.assertNotIn(CORPUS_PERSONA, after)
+        self.assertNotEqual(before, after)
