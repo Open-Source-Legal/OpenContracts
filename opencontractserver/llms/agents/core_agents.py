@@ -333,6 +333,12 @@ class AgentConfig:
         Always use this instead of mutating ``system_prompt`` directly — a
         direct append destroys the "caller supplied nothing" signal that
         persona resolution depends on.
+
+        Blocks are concatenated with no separator, so each one must
+        self-delimit: open with whatever blank lines it needs to stand apart
+        from whatever precedes it (both current injectors do — the memory
+        formatter emits a leading ``\\n\\n``, and the temporal block opens on
+        two empty lines).
         """
         if block:
             self.computed_context.append(block)
@@ -343,8 +349,9 @@ class AgentConfig:
         Resolves the persona default when the caller supplied no prompt, then
         appends every queued computed block in the order it was added.
 
-        Idempotent: the queue is drained, so a repeated call is a no-op and
-        can never duplicate a computed block.
+        Idempotent: both the persona and the queue are consumed on the first
+        call, so a repeated call cannot duplicate a computed block or re-run
+        ``default_factory``.
 
         Args:
             default_factory: Produces the persona/system prompt to use when
