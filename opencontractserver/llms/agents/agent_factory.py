@@ -190,7 +190,14 @@ async def _inject_temporal_grounding(config, corpus_obj=None) -> None:
                 "effective date for what applied on a given day).",
             ]
         )
-        config.system_prompt = (config.system_prompt or "") + "\n".join(lines)
+        # Stash rather than concatenate. Writing straight to ``system_prompt``
+        # makes it non-None, and both agent factories resolve their default
+        # prompt with ``if config.system_prompt is None`` — so injecting here
+        # silently discarded ``Corpus.corpus_agent_instructions`` (and the
+        # document equivalent) on every agent. The persona was stored, synced,
+        # and never sent. ``_apply_computed_preamble`` appends this after the
+        # default has been resolved.
+        config.computed_preamble = (config.computed_preamble or "") + "\n".join(lines)
     except Exception:
         logger.warning("Failed to inject temporal grounding", exc_info=True)
 

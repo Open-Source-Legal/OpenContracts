@@ -275,6 +275,16 @@ class AgentConfig:
     streaming: bool = True
     verbose: bool = True
     system_prompt: Optional[str] = None
+    # Computed preamble (temporal grounding, corpus memory) that must be
+    # appended to the FINAL prompt, whether that prompt came from the caller or
+    # from the corpus/document default.
+    #
+    # It cannot simply be concatenated onto ``system_prompt`` at injection time:
+    # doing so makes the field non-None, and the default-prompt resolution in
+    # the agent factories keys off ``system_prompt is None``. Appending first
+    # therefore silently suppressed ``Corpus.corpus_agent_instructions`` for
+    # every corpus agent — the persona was configured, stored, and never sent.
+    computed_preamble: Optional[str] = None
     temperature: float = 0.7
     max_tokens: Optional[int] = None
     # NEW ➜ frequency (in tokens) for interim DB updates during streaming
@@ -1022,6 +1032,21 @@ class CoreAgentBase(ABC):
                 logger.exception("Stream observer raised an exception")
 
 
+def _apply_computed_preamble(config: "AgentConfig") -> None:
+    """Append computed context (temporal grounding, memory) to the final prompt.
+
+    Called AFTER the default system prompt has been resolved, so that the
+    "was a prompt supplied?" signal — ``system_prompt is None`` — survives long
+    enough to be read. Injecting computed context directly into
+    ``system_prompt`` at build time is what previously suppressed every
+    corpus's ``corpus_agent_instructions``.
+    """
+    preamble = getattr(config, "computed_preamble", None)
+    if preamble:
+        config.system_prompt = (config.system_prompt or "") + preamble
+        config.computed_preamble = None
+
+
 class CoreDocumentAgentFactory:
     """Factory for creating document agents with framework-agnostic configuration."""
 
@@ -1096,6 +1121,7 @@ class CoreDocumentAgentFactory:
             config.system_prompt = CoreDocumentAgentFactory.get_default_system_prompt(
                 document, corpus_obj
             )
+        _apply_computed_preamble(config)
 
         return DocumentAgentContext(corpus=corpus_obj, document=document, config=config)
 
@@ -1164,6 +1190,7 @@ class CoreCorpusAgentFactory:
             config.system_prompt = CoreCorpusAgentFactory.get_default_system_prompt(
                 corpus_obj
             )
+        _apply_computed_preamble(config)
 
         # Use corpus preferred embedder if not specified
         if config.embedder_path is None:
