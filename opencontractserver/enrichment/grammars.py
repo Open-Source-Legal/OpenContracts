@@ -149,6 +149,31 @@ _MUNI_ORDINANCE_RE = re.compile(
 # CROSS-rulings acquisition project's deterministic, golden-tested extractor).
 # Requires at least heading.subheading (XXXX.XX) so bare 4-digit numbers
 # (years, quantities) are never mined.
+# Case-reporter citations — "569 F.3d 326", "139 S. Ct. 2400", "347 U.S. 483".
+#
+# A citation SHAPE, which is why it lives here and not in the Tier-1 registry
+# extractor: it is recognisable without knowing which body of case law (if any)
+# is installed, exactly like the HTS family above.
+#
+# Anchored on the REPORTER rather than on a party name. "X v. Y" fires on
+# ordinary prose and on captions, and the key it would produce is a guess at
+# which surname the target corpus used. A reporter citation is unambiguous and
+# positionally exact.
+#
+# Volume/page are bounded to 4 digits so a run of numbers cannot be mined, and
+# the reporter alternation is closed — an unlisted reporter yields nothing
+# rather than a speculative key.
+_REPORTERS = (
+    r"U\.\s?S\.|S\.\s?Ct\.|L\.\s?Ed\.\s?(?:2d)?|"  # Supreme Court
+    r"F\.\s?Supp\.\s?(?:2d|3d)?|"  # District
+    r"F\.\s?(?:2d|3d|4th)|"  # Circuits
+    r"F\.\s?App'?x|Fed\.\s?Cl\.|B\.\s?R\.|T\.\s?C\."  # Appendix, specialty
+)
+_REPORTER_RE = re.compile(
+    r"\b(?P<vol>\d{1,4})\s+(?P<rep>" + _REPORTERS + r")\s+(?P<page>\d{1,4})\b"
+)
+
+
 _HTS_TEXT_RE = re.compile(r"\b\d{4}\.\d{2}(?:\.\d{2,4})?(?:\.\d{2})?\b")
 # Document-level gate: the dotted-code shape alone is far too generic to run on
 # every corpus ("1234.56" is also a dollar amount), so HTS candidates are only
@@ -421,6 +446,37 @@ def _hts(text: str) -> Iterator[Candidate]:
         )
 
 
+def _case_reporters(text: str) -> Iterator[Candidate]:
+    """US case-reporter citations -> ``usreporter:<vol>-<reporter>-<page>``.
+
+    A REF_LAW citation like any other, so it inherits the whole downstream
+    (CorpusReference rows, discover() inventory, ghost nodes, and cross-corpus
+    linking if a case-law authority corpus is bootstrapped under a prefix that
+    maps to these keys).
+
+    Not document-gated: unlike a bare dotted decimal, "569 F.3d 326" cannot
+    plausibly be anything other than a citation, so there is no ambiguity for a
+    document-level cue to resolve.
+    """
+    for m in _REPORTER_RE.finditer(text):
+        reporter = re.sub(r"[^a-z0-9]", "", m.group("rep").lower())
+        cite = f"{m.group('vol')}-{reporter}-{m.group('page')}"
+        yield _cand(
+            m.start(),
+            m.end(),
+            m.group(0),
+            f"{C.CASE_REPORTER_PREFIX}:{cite}",
+            C.JURISDICTION_US_FEDERAL,
+            C.AUTHORITY_TYPE_CASE,
+            extra={
+                "section": cite,
+                "reporter": " ".join(m.group("rep").split()),
+                "volume": m.group("vol"),
+                "page": m.group("page"),
+            },
+        )
+
+
 def _document_identifier_citations(text: str) -> Iterator[Candidate]:
     """Identifier document citations (e.g. CBP ruling numbers).
 
@@ -656,6 +712,7 @@ class GenericCitationExtractor:
             out.extend(_puct_texas_admin_code(text))
             out.extend(_ercot_authorities(text))
             out.extend(_hts(text))
+            out.extend(_case_reporters(text))
             out.extend(_bare_acts(text))
             out.extend(self._states(text))
             # Municipal: table pass first (high-precision, full jurisdiction),
