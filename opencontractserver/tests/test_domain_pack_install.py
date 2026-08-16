@@ -537,3 +537,102 @@ class DomainPackInstallTests(TestCase):
             "nothing may be materialised when a required pack would not install",
         )
         self.assertFalse(CorpusGroup.objects.filter(slug="test-group").exists())
+
+    # ---- manifest-supplied strings that become filesystem paths --------- #
+    def test_requires_pack_name_must_be_a_plain_slug(self):
+        """`requires[].pack` is a path component, and one of its uses is rmtree.
+
+        The `name` field was guarded and this one was not — the same class of
+        bug, one field over. `Path.__truediv__` does not collapse `..`, so
+        `install_root / "../../../../var/lib/x"` resolves outside the install
+        root, and `materialise_pack` deletes whatever is at `dest` before
+        moving onto it.
+        """
+        self._base_pack("alpha", [("alpha-one", "aa", ["aa:1"])])
+        self._domain(
+            "testdomain",
+            {
+                "schema_version": 1,
+                "name": "testdomain",
+                "title": "T",
+                "requires": [{"pack": "../../../../tmp/evil", "reason": "r"}],
+                "corpus_group": {"slug": "test-group", "title": "G"},
+                "orchestrator": {
+                    "instructions_file": "orchestrator.txt",
+                    "tools": ["search_across_corpora"],
+                },
+            },
+            "use test-group",
+        )
+        with self.assertRaises(CommandError) as ctx:
+            self._run(self._tarball())
+        self.assertIn("slug", str(ctx.exception))
+
+    def test_materialise_pack_refuses_a_traversing_name_itself(self):
+        """The destructive primitive validates for itself.
+
+        Callers are expected to check their input, but `materialise_pack` is
+        where the rmtree lives, so it must not depend on every present and
+        future caller having remembered.
+        """
+        from opencontractserver.corpuses.management.commands.install_authority_pack import (  # noqa: E501
+            materialise_pack,
+        )
+
+        victim = self.root / "victim"
+        victim.mkdir()
+        (victim / "keep.txt").write_text("must survive", encoding="utf-8")
+
+        staged_pack = self.root / "staged-pack"
+        staged_pack.mkdir()
+        (staged_pack / "pack.yaml").write_text("name: x", encoding="utf-8")
+
+        with self.assertRaises(CommandError):
+            materialise_pack(staged_pack, f"../../{victim.name}")
+        self.assertTrue(
+            (victim / "keep.txt").is_file(), "a refused name must delete nothing"
+        )
+
+    def test_duplicate_requires_entries_do_not_half_install(self):
+        """`pack_dirs` is a dict and deduped silently; the install loop did not.
+
+        Naming a pack twice installed it, then failed on the second pass looking
+        for a directory that had already been moved — with the first pack's
+        corpora committed and the wiring never reached.
+        """
+        self._base_pack("alpha", [("alpha-one", "aa", ["aa:1"])])
+        self._domain(
+            "testdomain",
+            {
+                "schema_version": 1,
+                "name": "testdomain",
+                "title": "T",
+                "requires": [
+                    {"pack": "alpha", "reason": "r"},
+                    {"pack": "alpha", "reason": "again"},
+                ],
+                "corpus_group": {"slug": "test-group", "title": "G"},
+                "orchestrator": {
+                    "instructions_file": "orchestrator.txt",
+                    "tools": ["search_across_corpora"],
+                },
+            },
+            "use test-group",
+        )
+        self._run(self._tarball())
+        self.assertEqual(
+            CorpusGroup.objects.get(slug="test-group").corpora.count(),
+            1,
+            "a pack named twice installs once and the wiring still lands",
+        )
+
+    def test_missing_corpus_group_slug_is_refused(self):
+        """An absent slug used to create a group literally named 'None'.
+
+        Every malformed domain pack would then converge onto that one group.
+        """
+        tarball = self._standard_registry(corpus_group={"title": "no slug here"})
+        with self.assertRaises(CommandError) as ctx:
+            self._run(tarball)
+        self.assertIn("corpus_group.slug", str(ctx.exception))
+        self.assertFalse(CorpusGroup.objects.filter(slug="None").exists())

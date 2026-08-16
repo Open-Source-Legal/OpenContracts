@@ -38,7 +38,6 @@ installer must not trust its input.
 from __future__ import annotations
 
 import json
-import re
 import tarfile
 import tempfile
 from io import StringIO
@@ -54,13 +53,17 @@ from django.db import transaction
 from opencontractserver.constants.tools import MULTI_CORPUS_SEARCH_MAX_CORPORA
 from opencontractserver.corpuses.management.commands.install_authority_pack import (
     MAX_EXTRACTED_BYTES,
+    PACK_NAME_RE,
     _download_tarball,
     _tarball_url,
     _top_prefix,
     materialise_pack,
 )
 
-DOMAIN_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+# A domain pack name and a base pack name have the same grammar and the same
+# reason for it — both become path components. One constant, imported, rather
+# than two identical regexes that could drift apart.
+DOMAIN_NAME_RE = PACK_NAME_RE
 DOMAINS_DIR = "domains"
 
 # Tools a domain pack may grant its orchestrator. Closed on purpose, and
@@ -200,11 +203,28 @@ class Command(BaseCommand):
                     "approval status live."
                 )
 
-            required = [
-                str(r["pack"])
-                for r in (manifest.get("requires") or [])
-                if isinstance(r, dict) and r.get("pack")
-            ]
+            # Deduplicated, order preserved. `pack_dirs` below is a dict and
+            # would dedupe silently while the install loop iterated the raw
+            # list — so a domain pack naming the same base pack twice would
+            # install it, then fail on the second pass looking for a directory
+            # that had already been moved, with the first pack's corpora already
+            # committed. That is the partial install C1 exists to prevent.
+            required: list[str] = []
+            for entry in manifest.get("requires") or []:
+                if not isinstance(entry, dict) or not entry.get("pack"):
+                    raise CommandError(f"malformed `requires` entry: {entry!r}")
+                name_ = str(entry["pack"])
+                # Same reasoning as the `name` check above, and the same class
+                # of bug: this value becomes a path component, and one of its
+                # uses is an rmtree. Validated here as well as in
+                # `materialise_pack` so the refusal names the manifest field.
+                if not PACK_NAME_RE.match(name_):
+                    raise CommandError(
+                        f"requires[].pack {name_!r} must be a plain slug — it is "
+                        "used as a filesystem path component"
+                    )
+                if name_ not in required:
+                    required.append(name_)
             if not required:
                 raise CommandError("domain.yaml declares no `requires`")
 
@@ -264,17 +284,32 @@ class Command(BaseCommand):
             # shape_rules, abbreviations and in-pack providers are read from the
             # directory at runtime, and the temp dir is gone by then. Loading a
             # pack is not installing it.
-            for pack_name in required:
+            for position, pack_name in enumerate(required, start=1):
                 self.stdout.write(f"\n--- base pack: {pack_name}")
-                dest = materialise_pack(staged / pack_name, pack_name, self.stdout)
-                pack_dirs[pack_name] = dest
-                call_command(
-                    "load_authority_pack",
-                    path=str(dest),
-                    creator=options["creator"],
-                    public=options["public"],
-                    stdout=self.stdout,
-                )
+                try:
+                    dest = materialise_pack(staged / pack_name, pack_name, self.stdout)
+                    pack_dirs[pack_name] = dest
+                    call_command(
+                        "load_authority_pack",
+                        path=str(dest),
+                        creator=options["creator"],
+                        public=options["public"],
+                        stdout=self.stdout,
+                    )
+                except CommandError as exc:
+                    # Each base pack loads in its own transaction, so the ones
+                    # before this are installed and stay. Say so — the bare
+                    # error from load_authority_pack leaves the operator unable
+                    # to tell a partial install from a no-op, and the install is
+                    # idempotent (C6) so a re-run recovers.
+                    done = ", ".join(required[: position - 1]) or "none"
+                    raise CommandError(
+                        f"base pack {pack_name!r} ({position} of {len(required)}) "
+                        f"failed to install: {exc}\n"
+                        f"  already installed and left in place: {done}\n"
+                        "  the wiring was not created; re-run once the pack is "
+                        "corrected — installs converge."
+                    ) from exc
 
             self._wire(manifest, pack_dirs, domain_dir, options)
 
@@ -314,6 +349,10 @@ class Command(BaseCommand):
                 or {}
             )
             for corpus in data.get("corpora") or []:
+                if not isinstance(corpus, dict):
+                    raise CommandError(
+                        f"malformed corpus entry in pack.yaml: {corpus!r}"
+                    )
                 slug = str(corpus.get("slug") or "")
                 if slug and slug not in excluded:
                     members.append(slug)
@@ -328,6 +367,10 @@ class Command(BaseCommand):
                 or {}
             )
             for corpus in manifest.get("corpora") or []:
+                if not isinstance(corpus, dict):
+                    raise CommandError(
+                        f"malformed corpus entry in pack.yaml: {corpus!r}"
+                    )
                 spec_rel = corpus.get("spec")
                 if not spec_rel:
                     continue
@@ -398,8 +441,18 @@ class Command(BaseCommand):
         """
         violations: list[str] = []
 
-        # C2 — the group must fit the platform's cross-corpus search cap.
+        # C2 — the group must exist and must fit the platform's search cap.
+        # An absent slug used to reach `get_or_create(slug=str(None))` and
+        # create a group literally named "None", which every malformed domain
+        # pack would then share.
         group = manifest.get("corpus_group") or {}
+        group_slug = str(group.get("slug") or "")
+        if not group_slug:
+            violations.append(
+                "C2: domain.yaml declares no corpus_group.slug — without a group "
+                "there is no cross-corpus retrieval, which is the whole point of "
+                "the layer"
+            )
         members, _ = self._member_slugs(pack_dirs, group)
         if len(members) > MULTI_CORPUS_SEARCH_MAX_CORPORA:
             violations.append(
@@ -427,6 +480,9 @@ class Command(BaseCommand):
         # extracts, still folds, and still resolves to nothing.
         keys = self._section_keys(pack_dirs)
         for row in manifest.get("equivalences") or []:
+            if not isinstance(row, dict):
+                violations.append(f"C4: malformed equivalence row {row!r}")
+                continue
             frm, to = str(row.get("from_key", "")), str(row.get("to_key", ""))
             if not frm or not to:
                 violations.append(f"C4: malformed equivalence row {row!r}")

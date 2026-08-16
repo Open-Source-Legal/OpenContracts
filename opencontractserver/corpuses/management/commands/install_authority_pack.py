@@ -115,6 +115,16 @@ def materialise_pack(staged_pack: Path, pack: str, stdout=None) -> Path:
     failing at install time — which is why this is shared rather than
     reimplemented per command.
     """
+    # `pack` is used as a path component twice below, and one of those uses is
+    # an rmtree. `Path.__truediv__` does not collapse or reject `..`, so a value
+    # like "../../../../var/lib/x" resolves outside the install root and would
+    # delete whatever is there. Callers are expected to validate their input,
+    # but this is the destructive primitive — it validates for itself rather
+    # than trusting every present and future caller to have done it.
+    if not PACK_NAME_RE.match(pack):
+        raise CommandError(
+            f"Pack name {pack!r} is not a plain slug; refusing to use it as a path"
+        )
     if not (staged_pack / "pack.yaml").is_file():
         raise CommandError(
             f"Extracted pack {pack!r} is missing pack.yaml; refusing to install"
