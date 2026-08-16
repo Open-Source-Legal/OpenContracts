@@ -40,4 +40,16 @@ jobs:
           branch: "cla-signatures"
           # Automated dependency-bump PRs (Dependabot) aren't a human agreeing
           # to anything — exempt them rather than block routine bumps.
-          allowlist: dependabot[bot]
+          #
+          # `claude` is the commit identity Claude Code's cloud/background
+          # agent uses when it pushes directly to `claude/*` branches (see
+          # CLAUDE.md's "Never credit Claude" rule — that governs interactive
+          # sessions; this is the separate cloud-agent identity). Copyright in
+          # those commits vests in whoever directed the tool — the repo
+          # maintainer, who has already signed (see signatures/version1/cla.json
+          # on the cla-signatures branch) — not in the automation account
+          # itself, so it isn't a third party asserting authorship and doesn't
+          # need its own signature. Exact username, no wildcard: a `claude*`
+          # pattern would also allowlist any future unrelated `claude-...`
+          # account on this legal gate.
+          allowlist: dependabot[bot],claude
