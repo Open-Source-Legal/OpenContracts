@@ -15,8 +15,6 @@ Covers:
 11. Agent factory memory injection (_inject_corpus_memory)
 """
 
-from dataclasses import dataclass
-from typing import Optional
 from unittest.mock import AsyncMock, patch
 
 from asgiref.sync import async_to_sync
@@ -51,6 +49,7 @@ from opencontractserver.conversations.models import (
     MessageTypeChoices,
 )
 from opencontractserver.corpuses.models import Corpus
+from opencontractserver.llms.agents.core_agents import AgentConfig
 from opencontractserver.users.models import User
 
 
@@ -895,22 +894,26 @@ class TestAsuggestMemoryUpdate(TransactionTestCase):
 # ---------------------------------------------------------------------------
 
 
-@dataclass
-class _FakeConfig:
-    """Minimal stand-in for AgentConfig in tests."""
-
-    system_prompt: Optional[str] = "You are an assistant."
-
-
 class TestInjectCorpusMemory(TestCase):
-    """Test _inject_corpus_memory() from agent_factory.py."""
+    """Test _inject_corpus_memory() from agent_factory.py.
+
+    Driven through the real ``AgentConfig``: memory is queued as computed
+    context and folded into the prompt by ``resolve_system_prompt`` once the
+    persona default has been resolved (issue #2247).
+    """
+
+    @staticmethod
+    def _resolved(config: AgentConfig) -> str:
+        """Finalise *config* the way the core factories do and return the prompt."""
+        config.resolve_system_prompt(lambda: "DEFAULT PERSONA.")
+        return config.system_prompt or ""
 
     def test_memory_found_appends_to_prompt(self):
         from opencontractserver.llms.agents.agent_factory import (
             _inject_corpus_memory,
         )
 
-        config = _FakeConfig(system_prompt="Base prompt.")
+        config = AgentConfig(system_prompt="Base prompt.")
         fake_corpus = type("FakeCorpus", (), {"id": 1})()
 
         with (
@@ -926,18 +929,46 @@ class TestInjectCorpusMemory(TestCase):
         ):
             async_to_sync(_inject_corpus_memory)(fake_corpus, config)
 
-        prompt = config.system_prompt
-        assert prompt is not None
+        prompt = self._resolved(config)
         self.assertIn("## Corpus Memory", prompt)
         self.assertIn("- insight", prompt)
         self.assertTrue(prompt.startswith("Base prompt."))
+
+    def test_memory_does_not_consume_the_default_prompt_signal(self):
+        """Memory must not stand in for an unresolved persona (issue #2247)."""
+        from opencontractserver.llms.agents.agent_factory import (
+            _inject_corpus_memory,
+        )
+
+        config = AgentConfig(system_prompt=None)
+        fake_corpus = type("FakeCorpus", (), {"id": 5})()
+
+        with (
+            patch(
+                "opencontractserver.agents.memory.get_memory_for_injection",
+                new_callable=AsyncMock,
+                return_value="## Patterns\n\n- insight",
+            ),
+            patch(
+                "opencontractserver.agents.memory.format_memory_for_prompt",
+                return_value="\n\n## Corpus Memory\n- insight\n",
+            ),
+        ):
+            async_to_sync(_inject_corpus_memory)(fake_corpus, config)
+
+        # The "caller supplied no prompt" signal survives the injection.
+        self.assertIsNone(config.system_prompt)
+
+        prompt = self._resolved(config)
+        self.assertTrue(prompt.startswith("DEFAULT PERSONA."))
+        self.assertIn("## Corpus Memory", prompt)
 
     def test_empty_memory_no_op(self):
         from opencontractserver.llms.agents.agent_factory import (
             _inject_corpus_memory,
         )
 
-        config = _FakeConfig(system_prompt="Base prompt.")
+        config = AgentConfig(system_prompt="Base prompt.")
         fake_corpus = type("FakeCorpus", (), {"id": 2})()
 
         with (
@@ -953,14 +984,14 @@ class TestInjectCorpusMemory(TestCase):
         ):
             async_to_sync(_inject_corpus_memory)(fake_corpus, config)
 
-        self.assertEqual(config.system_prompt, "Base prompt.")
+        self.assertEqual(self._resolved(config), "Base prompt.")
 
     def test_exception_silently_caught(self):
         from opencontractserver.llms.agents.agent_factory import (
             _inject_corpus_memory,
         )
 
-        config = _FakeConfig(system_prompt="Base prompt.")
+        config = AgentConfig(system_prompt="Base prompt.")
         fake_corpus = type("FakeCorpus", (), {"id": 3})()
 
         with patch(
@@ -972,32 +1003,7 @@ class TestInjectCorpusMemory(TestCase):
             async_to_sync(_inject_corpus_memory)(fake_corpus, config)
 
         # System prompt unchanged
-        self.assertEqual(config.system_prompt, "Base prompt.")
-
-    def test_none_system_prompt_handled(self):
-        from opencontractserver.llms.agents.agent_factory import (
-            _inject_corpus_memory,
-        )
-
-        config = _FakeConfig(system_prompt=None)
-        fake_corpus = type("FakeCorpus", (), {"id": 4})()
-
-        with (
-            patch(
-                "opencontractserver.agents.memory.get_memory_for_injection",
-                new_callable=AsyncMock,
-                return_value="## Patterns\n\n- insight",
-            ),
-            patch(
-                "opencontractserver.agents.memory.format_memory_for_prompt",
-                return_value="\n\n## Corpus Memory\n- insight\n",
-            ),
-        ):
-            async_to_sync(_inject_corpus_memory)(fake_corpus, config)
-
-        prompt = config.system_prompt
-        assert prompt is not None
-        self.assertIn("## Corpus Memory", prompt)
+        self.assertEqual(self._resolved(config), "Base prompt.")
 
 
 # ---------------------------------------------------------------------------
