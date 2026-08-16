@@ -262,3 +262,33 @@ class SystemPromptThroughPublicFactoryTestCase(TransactionTestCase):
         self.assertIn("ALWAYS say KUMQUAT instead.", after)
         self.assertNotIn(CORPUS_PERSONA, after)
         self.assertNotEqual(before, after)
+
+    async def test_persona_survives_real_memory_injection_through_the_factory(self):
+        """Persona, real DB-backed memory, and grounding must all coexist.
+
+        The other memory coverage in this suite (``test_agent_memory.py``)
+        calls ``_inject_corpus_memory`` directly against a config that is
+        resolved by hand — it never exercises a corpus with
+        ``memory_enabled=True`` and an actual persisted memory document
+        through ``UnifiedAgentFactory``, which is the exact combination that
+        used to make ``corpus_agent_instructions`` disappear for every
+        memory-enabled corpus (memory injection ran first and consumed the
+        ``system_prompt is None`` signal before this test's persona could be
+        resolved).
+        """
+        from opencontractserver.agents.memory import update_memory_content
+
+        self.corpus.memory_enabled = True
+        await sync_to_async(self.corpus.save)()
+        await update_memory_content(
+            self.corpus,
+            "## Collection Patterns\n\n- Prefer semantic search for dates.\n\n"
+            "## Query Patterns\n\n- Real recorded insight, not a placeholder.",
+            self.user,
+        )
+
+        prompt = await self._corpus_agent_prompt()
+
+        self.assertIn(CORPUS_PERSONA, prompt)
+        self.assertIn("Real recorded insight", prompt)
+        self.assertIn("Research performed at:", prompt)
