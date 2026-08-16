@@ -197,7 +197,27 @@ async def _inject_temporal_grounding(config, corpus_obj=None) -> None:
         # document equivalent) on every agent. The persona was stored, synced,
         # and never sent. ``_apply_computed_preamble`` appends this after the
         # default has been resolved.
-        config.computed_preamble = (config.computed_preamble or "") + "\n".join(lines)
+        block = "\n".join(lines)
+        if config.system_prompt is None:
+            # No prompt yet, so the default has not been resolved. Writing
+            # straight to ``system_prompt`` here makes it non-None, and both
+            # agent factories resolve their default with
+            # ``if config.system_prompt is None`` — which is what silently
+            # discarded ``Corpus.corpus_agent_instructions`` (and the document
+            # equivalent) on every agent. Stash instead; the factories call
+            # ``_apply_computed_preamble`` once the default is in place.
+            #
+            # getattr, not attribute access: callers may pass any config-like
+            # object, and an AttributeError here is swallowed by the except
+            # below — which would drop temporal grounding entirely and silently.
+            config.computed_preamble = (
+                getattr(config, "computed_preamble", None) or ""
+            ) + block
+        else:
+            # A prompt is already present — caller-supplied, or already
+            # resolved — so there is no "was one supplied?" signal left to
+            # protect. Append directly: the long-standing behaviour.
+            config.system_prompt += block
     except Exception:
         logger.warning("Failed to inject temporal grounding", exc_info=True)
 
