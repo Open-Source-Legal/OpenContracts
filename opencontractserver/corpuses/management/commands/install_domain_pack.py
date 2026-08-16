@@ -59,6 +59,7 @@ from opencontractserver.corpuses.management.commands.install_authority_pack impo
     _top_prefix,
     materialise_pack,
 )
+from opencontractserver.enrichment.data.mappings import is_valid_canonical_key
 
 # A domain pack name and a base pack name have the same grammar and the same
 # reason for it — both become path components. One constant, imported, rather
@@ -475,6 +476,26 @@ class Command(BaseCommand):
                     f"cannot grant (known: {', '.join(sorted(GRANTABLE_TOOLS))})"
                 )
 
+        # C3 — `preferred_llm` too. `AgentConfiguration.save()` validates it and
+        # raises Django's ValidationError, which is NOT a CommandError and so is
+        # caught nowhere: a typo'd model spec would install every base pack and
+        # then surface as a bare traceback from inside the wiring. Checked here
+        # instead, where it costs nothing and fails before the first write.
+        preferred_llm = (manifest.get("orchestrator") or {}).get("preferred_llm")
+        if preferred_llm:
+            from opencontractserver.llms.llm_registry import (
+                LLMProviderNotRegistered,
+                validate_model_spec,
+            )
+
+            try:
+                validate_model_spec(str(preferred_llm))
+            except (ValueError, LLMProviderNotRegistered) as exc:
+                violations.append(
+                    f"C3: orchestrator preferred_llm {preferred_llm!r} is not "
+                    f"usable on this platform: {exc}"
+                )
+
         # C4 — every equivalence target must name a section that exists. A row
         # pointing at nothing is a silent no-op after install: the citation still
         # extracts, still folds, and still resolves to nothing.
@@ -487,6 +508,18 @@ class Command(BaseCommand):
             if not frm or not to:
                 violations.append(f"C4: malformed equivalence row {row!r}")
                 continue
+            # Format as well as existence. Checking only that `to_key` resolves
+            # left the sibling half unguarded: a `from_key` missing its colon is
+            # non-empty and differs from `to_key`, so it passed preflight and was
+            # rejected only at write time by `upsert_equivalence` — after every
+            # base pack had been installed. Same predicate the writer uses, so
+            # the two cannot disagree.
+            for label, key in (("from_key", frm), ("to_key", to)):
+                if not is_valid_canonical_key(key):
+                    violations.append(
+                        f"C4: equivalence {label} {key!r} is not a well-formed "
+                        "'<prefix>:<section>' canonical key"
+                    )
             if frm == to:
                 violations.append(f"C4: equivalence row maps {frm!r} onto itself")
             elif to not in keys:
@@ -523,6 +556,12 @@ class Command(BaseCommand):
             if slug not in found:
                 unmet.append(f"C2: corpus {slug!r} was not created by its base pack")
 
+        # Unreachable once `_preflight` has run: it counts the same slugs from
+        # the files, and `corpora` can only be a subset of them. Kept because
+        # this is the count that actually reaches `group.corpora.set()`, and
+        # what the cap protects is the group — a future refactor that widened
+        # membership here without touching the preflight would otherwise
+        # reintroduce the silent truncation with nothing to catch it.
         if len(corpora) > MULTI_CORPUS_SEARCH_MAX_CORPORA:
             raise CommandError(
                 f"C2: the group would hold {len(corpora)} corpora but "
@@ -629,10 +668,13 @@ class Command(BaseCommand):
             elif outcome == SKIPPED_OWNED:
                 skipped_owned += 1
             elif outcome == SKIPPED_INVALID:
-                # _preflight rejects malformed and self-mapping rows, so this is
-                # unreachable — counted as unmet rather than as converged so a
-                # divergence between the two validators can never be reported as
-                # a successful install.
+                # _preflight now applies `is_valid_canonical_key` — the same
+                # predicate the writer uses — so reaching this means the two
+                # have diverged. Counted as unmet rather than as converged, so
+                # such a divergence can never be reported as a clean install.
+                # (The earlier comment here claimed the branch was unreachable
+                # while preflight checked only key EXISTENCE, not key FORMAT;
+                # it was reachable, and the claim hid the gap.)
                 unmet.append(
                     f"C4: equivalence row {row['from_key']} -> {row['to_key']} "
                     "was rejected by the shared upsert after passing preflight"

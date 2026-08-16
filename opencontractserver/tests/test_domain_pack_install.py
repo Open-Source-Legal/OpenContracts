@@ -650,3 +650,47 @@ class DomainPackInstallTests(TestCase):
             self._run(tarball)
         self.assertIn("corpus_group.slug", str(ctx.exception))
         self.assertFalse(CorpusGroup.objects.filter(slug="None").exists())
+
+    def test_malformed_from_key_fails_before_any_write(self):
+        """C4 checked that `to_key` RESOLVES and not that either key is WELL-FORMED.
+
+        A `from_key` missing its colon is non-empty and differs from `to_key`, so
+        it passed preflight and was rejected only at write time by
+        `upsert_equivalence` — after every base pack had been installed. The
+        sibling half of a check I had already written, missed the same way as
+        the traversal guard.
+        """
+        tarball = self._standard_registry(
+            equivalences=[{"from_key": "no-colon-here", "to_key": "aa:1"}]
+        )
+        with self.assertRaises(CommandError) as ctx:
+            self._run(tarball)
+        message = str(ctx.exception)
+        self.assertIn("C4", message)
+        self.assertIn("canonical key", message)
+        self.assertFalse(
+            (self.install_dir / "alpha").exists(),
+            "a file-decidable failure must not install anything first",
+        )
+
+    def test_unusable_preferred_llm_fails_before_any_write(self):
+        """`AgentConfiguration.save()` raises Django's ValidationError, not CommandError.
+
+        Nothing catches it, so a typo'd model spec installed every base pack and
+        then surfaced as a bare traceback from inside the wiring — the one
+        remaining path that produced a stack trace instead of a diagnosis.
+        """
+        tarball = self._standard_registry(
+            orchestrator={
+                "instructions_file": "orchestrator.txt",
+                "tools": ["search_across_corpora"],
+                "preferred_llm": "not-a-registered-provider:nope",
+            }
+        )
+        with self.assertRaises(CommandError) as ctx:
+            self._run(tarball)
+        self.assertIn("preferred_llm", str(ctx.exception))
+        self.assertFalse(
+            (self.install_dir / "alpha").exists(),
+            "the base packs must not be installed before this is caught",
+        )
