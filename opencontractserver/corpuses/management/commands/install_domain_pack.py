@@ -37,6 +37,7 @@ installer must not trust its input.
 
 from __future__ import annotations
 
+import json
 import re
 import tarfile
 import tempfile
@@ -55,10 +56,24 @@ from opencontractserver.corpuses.management.commands.install_authority_pack impo
     _download_tarball,
     _tarball_url,
     _top_prefix,
+    materialise_pack,
 )
 
 DOMAIN_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 DOMAINS_DIR = "domains"
+
+# Tools a domain pack may grant its orchestrator. Closed on purpose, and
+# mirrored in the registry's validate_domain.py: C3 says an install FAILS if the
+# platform cannot grant a declared tool, and the alternative to failing is an
+# agent that silently never calls a misspelled tool — indistinguishable from the
+# model choosing not to.
+GRANTABLE_TOOLS = frozenset(
+    {
+        "search_across_corpora",
+        "ask_document",
+        "search_exact_text",
+    }
+)
 
 
 class Command(BaseCommand):
@@ -156,6 +171,25 @@ class Command(BaseCommand):
                 or {}
             )
 
+            # `domain` came off the command line and is regex-checked; the
+            # manifest's own `name` is registry-supplied and was not. It is used
+            # to build the orchestrator slug AND the path the instructions are
+            # read from, so an unchecked value like "../../../../etc" resolves
+            # that read outside the pack — and the traversal guard below cannot
+            # catch it, because the guard derives its root from the same field
+            # and moves with the attack. A tarball is attacker-shaped input.
+            name = str(manifest.get("name") or "")
+            if not DOMAIN_NAME_RE.match(name):
+                raise CommandError(
+                    f"domain.yaml `name` {name!r} must be a slug of the same form "
+                    "as the directory name"
+                )
+            if name != domain:
+                raise CommandError(
+                    f"domain.yaml `name` {name!r} does not match its directory "
+                    f"{domain!r}"
+                )
+
             # C7 — refuse authority smuggled into the composition layer. The
             # validator checks this too; an installer must not trust its input.
             if manifest.get("prefixes") or (domain_dir / "specs").exists():
@@ -182,33 +216,78 @@ class Command(BaseCommand):
                     f"C1: required base pack(s) not in registry: {', '.join(missing)}"
                 )
 
+            # Where each pack's files live. Rebound to the install dir once the
+            # packs are materialised, because materialising MOVES them out of the
+            # extraction tree and every later read would otherwise hit a path
+            # that no longer exists.
+            pack_dirs = {name: staged / name for name in required}
+
             self.stdout.write(f"\nDomain: {manifest.get('title') or domain}")
             self.stdout.write(f"  requires: {', '.join(required)}")
 
+            # Everything decidable from the FILES is decided before anything is
+            # written, for --check and for a real install alike. A preflight that
+            # only runs under --check is a preflight the install path never gets.
+            violations = self._preflight(manifest, pack_dirs)
+
             if options["check"]:
-                self._report_plan(manifest, staged, required)
+                self._report_plan(manifest, pack_dirs)
+                if violations:
+                    # Exit non-zero. A --check that prints an error and returns
+                    # success is worse than no --check: it is a gate that reports
+                    # "fine" for the failure it exists to find.
+                    raise CommandError(
+                        f"{len(violations)} install-contract assertion(s) would be "
+                        "unmet. No changes were written.\n  " + "\n  ".join(violations)
+                    )
                 self.stdout.write("\nNo changes were written.")
                 return
+
+            if violations:
+                raise CommandError(
+                    f"{len(violations)} install-contract assertion(s) unmet; "
+                    "refusing to install. Nothing was written.\n  "
+                    + "\n  ".join(violations)
+                )
 
             if not options["creator"]:
                 raise CommandError("--creator is required to install")
 
             # --- base packs first ---------------------------------------- #
+            #
+            # Each is MATERIALISED into the install dir and then loaded from
+            # there, exactly as `install_authority_pack` does — never loaded
+            # straight from the extraction temp dir. The database gets the
+            # sections and the taxonomy either way, but the pack's source_hosts,
+            # shape_rules, abbreviations and in-pack providers are read from the
+            # directory at runtime, and the temp dir is gone by then. Loading a
+            # pack is not installing it.
             for pack_name in required:
                 self.stdout.write(f"\n--- base pack: {pack_name}")
+                dest = materialise_pack(staged / pack_name, pack_name, self.stdout)
+                pack_dirs[pack_name] = dest
                 call_command(
                     "load_authority_pack",
-                    path=str(staged / pack_name),
+                    path=str(dest),
                     creator=options["creator"],
                     public=options["public"],
+                    stdout=self.stdout,
                 )
 
-            self._wire(manifest, staged, required, options)
+            self._wire(manifest, pack_dirs, domain_dir, options)
+
+            self.stdout.write(
+                self.style.WARNING(
+                    "\nRestart web/worker processes to pick up the base packs' "
+                    "grammar-tier taxonomy extensions and in-pack providers "
+                    "(pack config is cached per process)."
+                )
+            )
 
     # ------------------------------------------------------------------ #
-    def _report_plan(self, manifest, staged: Path, required: list[str]) -> None:
+    def _report_plan(self, manifest, pack_dirs: dict[str, Path]) -> None:
         group = manifest.get("corpus_group") or {}
-        members, excluded = self._member_slugs(staged, required, group)
+        members, excluded = self._member_slugs(pack_dirs, group)
         self.stdout.write(
             f"  corpus group: {group.get('slug')} " f"({len(members)} member corpora)"
         )
@@ -217,29 +296,19 @@ class Command(BaseCommand):
                 f"    excluded (reachable without the group): "
                 f"{', '.join(sorted(excluded))}"
             )
-        if len(members) > MULTI_CORPUS_SEARCH_MAX_CORPORA:
-            self.stdout.write(
-                self.style.ERROR(
-                    f"  C2: {len(members)} corpora exceeds "
-                    f"MULTI_CORPUS_SEARCH_MAX_CORPORA={MULTI_CORPUS_SEARCH_MAX_CORPORA}; "
-                    "cross-corpus search would silently drop the overflow"
-                )
-            )
         orch = manifest.get("orchestrator") or {}
         self.stdout.write(f"  orchestrator tools: {', '.join(orch.get('tools') or [])}")
         self.stdout.write(
             f"  cross-pack equivalences: " f"{len(manifest.get('equivalences') or [])}"
         )
 
-    def _member_slugs(self, staged: Path, required: list[str], group: dict):
+    def _member_slugs(self, pack_dirs: dict[str, Path], group: dict):
         """Corpus slugs every required base pack contributes, minus exclusions."""
         excluded = {str(s) for s in (group.get("exclude_corpora") or [])}
         members: list[str] = []
-        for pack_name in required:
+        for pack_dir in pack_dirs.values():
             data = (
-                yaml.safe_load(
-                    (staged / pack_name / "pack.yaml").read_text(encoding="utf-8")
-                )
+                yaml.safe_load((pack_dir / "pack.yaml").read_text(encoding="utf-8"))
                 or {}
             )
             for corpus in data.get("corpora") or []:
@@ -248,20 +317,106 @@ class Command(BaseCommand):
                     members.append(slug)
         return members, excluded
 
+    def _section_keys(self, pack_dirs: dict[str, Path]) -> set[str]:
+        """Every authority key the required base packs actually define."""
+        keys: set[str] = set()
+        for pack_dir in pack_dirs.values():
+            manifest = (
+                yaml.safe_load((pack_dir / "pack.yaml").read_text(encoding="utf-8"))
+                or {}
+            )
+            for corpus in manifest.get("corpora") or []:
+                spec_rel = corpus.get("spec")
+                if not spec_rel:
+                    continue
+                spec_path = pack_dir / str(spec_rel)
+                if not spec_path.is_file():
+                    continue
+                try:
+                    spec = json.loads(spec_path.read_text(encoding="utf-8"))
+                except json.JSONDecodeError:
+                    continue
+                for section in spec.get("sections") or []:
+                    key = section.get("key")
+                    if key:
+                        keys.add(str(key))
+        return keys
+
+    # ------------------------------------------------------------------ #
+    def _preflight(self, manifest, pack_dirs: dict[str, Path]) -> list[str]:
+        """Contract assertions decidable from the FILES, before anything is written.
+
+        These used to be split: C2 was reported by ``--check`` as styled text
+        that did not affect the exit code, and C4 was named in this module's
+        docstring but never actually checked. Both are the same defect in
+        different clothes — a gate that cannot fail. They are one list now, and
+        both entry points refuse on it.
+        """
+        violations: list[str] = []
+
+        # C2 — the group must fit the platform's cross-corpus search cap.
+        group = manifest.get("corpus_group") or {}
+        members, _ = self._member_slugs(pack_dirs, group)
+        if len(members) > MULTI_CORPUS_SEARCH_MAX_CORPORA:
+            violations.append(
+                f"C2: the group would hold {len(members)} corpora but "
+                f"MULTI_CORPUS_SEARCH_MAX_CORPORA={MULTI_CORPUS_SEARCH_MAX_CORPORA}. "
+                "search_across_corpora would search the first N by id and silently "
+                "drop the rest — which drops the most recently added corpora. "
+                "Reduce the group with corpus_group.exclude_corpora, or raise the cap."
+            )
+
+        # C3 — a tool the platform cannot grant is a tool the agent will never
+        # call, which is indistinguishable from the model declining to.
+        tools = [
+            str(t) for t in ((manifest.get("orchestrator") or {}).get("tools") or [])
+        ]
+        for tool in tools:
+            if tool not in GRANTABLE_TOOLS:
+                violations.append(
+                    f"C3: orchestrator declares tool {tool!r}, which this platform "
+                    f"cannot grant (known: {', '.join(sorted(GRANTABLE_TOOLS))})"
+                )
+
+        # C4 — every equivalence target must name a section that exists. A row
+        # pointing at nothing is a silent no-op after install: the citation still
+        # extracts, still folds, and still resolves to nothing.
+        keys = self._section_keys(pack_dirs)
+        for row in manifest.get("equivalences") or []:
+            frm, to = str(row.get("from_key", "")), str(row.get("to_key", ""))
+            if not frm or not to:
+                violations.append(f"C4: malformed equivalence row {row!r}")
+                continue
+            if frm == to:
+                violations.append(f"C4: equivalence row maps {frm!r} onto itself")
+            elif to not in keys:
+                violations.append(
+                    f"C4: equivalence to_key {to!r} names no section in any "
+                    "required base pack"
+                )
+        return violations
+
     # ------------------------------------------------------------------ #
     @transaction.atomic
-    def _wire(self, manifest, staged: Path, required: list[str], options) -> None:
+    def _wire(
+        self, manifest, pack_dirs: dict[str, Path], domain_dir: Path, options
+    ) -> None:
         """Create the group, the orchestrator and the cross-pack equivalences."""
         from opencontractserver.agents.models import AgentConfiguration
-        from opencontractserver.annotations.models import AuthorityKeyEquivalence
         from opencontractserver.corpuses.models import Corpus, CorpusGroup
+        from opencontractserver.enrichment.services.authority_equivalence_ingest import (
+            CREATED,
+            SKIPPED_INVALID,
+            SKIPPED_OWNED,
+            upsert_equivalence,
+        )
 
         user = get_user_model().objects.get(username=options["creator"])
         unmet: list[str] = []
 
         # --- C2 reachability ------------------------------------------- #
         group_spec = manifest.get("corpus_group") or {}
-        wanted, excluded = self._member_slugs(staged, required, group_spec)
+        wanted, excluded = self._member_slugs(pack_dirs, group_spec)
         corpora = list(Corpus.objects.filter(slug__in=wanted))
         found = {c.slug for c in corpora}
         for slug in wanted:
@@ -297,8 +452,12 @@ class Command(BaseCommand):
         rel = orch.get("instructions_file")
         instructions = ""
         if rel:
-            path = (staged / DOMAINS_DIR / manifest["name"] / str(rel)).resolve()
-            root = (staged / DOMAINS_DIR / manifest["name"]).resolve()
+            # `domain_dir` is built from the command-line domain name, which is
+            # regex-checked and matched against the manifest's own `name` in
+            # handle(). Deriving the root from the manifest here would let the
+            # manifest move the root and the guard together.
+            root = domain_dir.resolve()
+            path = (root / str(rel)).resolve()
             if not str(path).startswith(str(root) + "/") or not path.is_file():
                 unmet.append(f"C3: orchestrator instructions_file unreadable: {rel}")
             else:
@@ -334,43 +493,78 @@ class Command(BaseCommand):
             f"tools={tools}, {len(instructions):,} chars of instructions"
         )
 
-        # --- C4 resolution ----------------------------------------------- #
+        # --- cross-pack equivalences -------------------------------------- #
+        #
+        # Written through the shared upsert rather than the ORM directly. That
+        # is not a style preference — a bare `update_or_create(from_key=...)`
+        # was wrong three ways against this model:
+        #
+        #   * the unique constraint is on the PAIR (from_key, to_key), so one
+        #     from_key may legitimately have several targets. Keying the upsert
+        #     on from_key alone rewrites the target of an existing row, and
+        #     raises MultipleObjectsReturned once a second target exists.
+        #   * it bypasses the source-ownership guard, so a curator's `manual`
+        #     row is silently overwritten AND relabelled `baseline` — the exact
+        #     clobber the guard exists to prevent.
+        #   * it is the filter-then-write race the shared upsert holds a
+        #     select_for_update against.
+        #
+        # C4 (every to_key resolves) is checked in _preflight, before anything
+        # here has run.
         rows = manifest.get("equivalences") or []
-        written = 0
+        created_rows = converged = skipped_owned = 0
         for row in rows:
-            frm, to = str(row.get("from_key", "")), str(row.get("to_key", ""))
-            if not frm or not to:
-                unmet.append(f"C4: malformed equivalence row {row!r}")
-                continue
-            AuthorityKeyEquivalence.objects.update_or_create(
-                from_key=frm,
+            outcome = upsert_equivalence(
+                from_key=str(row["from_key"]),
+                to_key=str(row["to_key"]),
                 # "baseline" = shipped, loader-managed — the same class as a
                 # base pack's own rows, which is what these are.
-                defaults={
-                    "to_key": to,
-                    "source": "baseline",
-                    "note": str(row.get("note") or "")[:255],
-                    "created_by": user,
-                },
+                source="baseline",
+                confidence=1.0,
+                note=str(row.get("note") or "") or None,
             )
-            written += 1
-        self.stdout.write(f"cross-pack equivalences: {written} row(s) converged")
+            if outcome == CREATED:
+                created_rows += 1
+                converged += 1
+            elif outcome == SKIPPED_OWNED:
+                skipped_owned += 1
+            elif outcome == SKIPPED_INVALID:
+                # _preflight rejects malformed and self-mapping rows, so this is
+                # unreachable — counted as unmet rather than as converged so a
+                # divergence between the two validators can never be reported as
+                # a successful install.
+                unmet.append(
+                    f"C4: equivalence row {row['from_key']} -> {row['to_key']} "
+                    "was rejected by the shared upsert after passing preflight"
+                )
+            else:
+                converged += 1
+        self.stdout.write(
+            f"cross-pack equivalences: {converged} row(s) converged "
+            f"({created_rows} created)"
+            + (
+                f", {skipped_owned} left to their existing owner"
+                if skipped_owned
+                else ""
+            )
+        )
 
         # --- C5 honesty --------------------------------------------------- #
         if unmet:
             for item in unmet:
                 self.stdout.write(self.style.ERROR(f"  UNMET {item}"))
             raise CommandError(
-                f"{len(unmet)} install-contract assertion(s) unmet — rolling back. "
-                "A domain pack that installs partially is the failure this layer "
-                "exists to prevent.\n  " + "\n  ".join(unmet)
+                f"{len(unmet)} install-contract assertion(s) unmet — rolling back "
+                "the wiring. The base packs were installed in their own "
+                "transactions and remain; re-run once the domain pack is "
+                "corrected.\n  " + "\n  ".join(unmet)
             )
 
         self.stdout.write(
             self.style.SUCCESS(
                 f"\nDomain {manifest['name']!r} installed: "
-                f"{len(required)} base pack(s), {group.corpora.count()} corpora in "
-                f"group {group.slug!r}, orchestrator {agent.slug!r}, {written} "
+                f"{len(pack_dirs)} base pack(s), {group.corpora.count()} corpora in "
+                f"group {group.slug!r}, orchestrator {agent.slug!r}, {converged} "
                 "cross-pack equivalence(s)."
             )
         )

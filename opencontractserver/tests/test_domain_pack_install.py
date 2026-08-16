@@ -21,7 +21,7 @@ import yaml
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from opencontractserver.agents.models import AgentConfiguration
 from opencontractserver.annotations.models import AuthorityKeyEquivalence
@@ -43,6 +43,14 @@ class DomainPackInstallTests(TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.root = Path(self._tmp.name)
+
+        # Installing a base pack MOVES its directory into the install dir, which
+        # is a real path on the deployment. Redirect it per-test so a test run
+        # never writes into the developer's actual pack cache.
+        self.install_dir = self.root / "install-dir"
+        override = override_settings(AUTHORITY_PACK_INSTALL_DIR=str(self.install_dir))
+        override.enable()
+        self.addCleanup(override.disable)
 
     # ---- fixture helpers ------------------------------------------------ #
     def _base_pack(self, name: str, corpora: list[tuple[str, str, list[str]]]) -> None:
@@ -334,4 +342,173 @@ class DomainPackInstallTests(TestCase):
                 )
             ),
             ["alpha-one"],
+        )
+
+    # ---- installing a base pack is more than loading it ----------------- #
+    def test_base_packs_are_materialised_into_the_install_dir(self):
+        """A domain install must INSTALL its base packs, not merely load them.
+
+        Loading writes the sections and the taxonomy to the database. But three
+        things are read from the pack DIRECTORY at runtime, not from the
+        database — ``source_hosts`` (unioned into the SSRF allowlist),
+        ``shape_rules``/``abbreviations`` (the pack's citation vocabulary), and
+        in-pack provider modules. The install dir is an implicit discovery root
+        (``pipeline.registry.authority_pack_dirs``).
+
+        Loading straight from the extraction temp dir therefore produced a pack
+        that looked fully installed and had silently lost all three, with
+        nothing failing at install time. Asserting on the database alone cannot
+        see it, so this asserts on the filesystem.
+        """
+        self._run(self._standard_registry())
+        landed = self.install_dir / "alpha"
+        self.assertTrue(
+            (landed / "pack.yaml").is_file(),
+            "required base pack must be discoverable after install, not left "
+            "in a temporary directory that is deleted on exit",
+        )
+        self.assertTrue((landed / "specs" / "alpha-one.json").is_file())
+
+    def test_wiring_still_reads_pack_files_after_they_are_moved(self):
+        """Materialising MOVES the pack; later reads must follow it.
+
+        Regression guard for the obvious way to implement the fix: compute the
+        group members from the staged path, then move the directory out from
+        under it. The group would come out empty and the install would still
+        report success.
+        """
+        self._run(self._standard_registry())
+        self.assertEqual(
+            CorpusGroup.objects.get(slug="test-group").corpora.count(),
+            2,
+            "group membership is derived from pack.yaml, which has moved",
+        )
+
+    # ---- --check must be able to fail ----------------------------------- #
+    def test_check_fails_on_a_plan_that_would_violate_the_contract(self):
+        """C5 — a preflight that cannot fail is worse than no preflight.
+
+        The cap violation used to print an ERROR-styled line and return 0, so
+        `--check` reported success for exactly the plan it exists to reject —
+        and the real install then wrote every base pack before failing in the
+        wiring.
+        """
+        tarball = self._standard_registry(
+            equivalences=[{"from_key": "bb:1", "to_key": "zz:404"}]
+        )
+        with self.assertRaises(CommandError) as ctx:
+            self._run(tarball, check=True)
+        self.assertIn("C4", str(ctx.exception))
+        self.assertFalse(CorpusGroup.objects.filter(slug="test-group").exists())
+
+    def test_unresolvable_equivalence_target_fails_before_any_write(self):
+        """C4 — a row pointing at nothing is a no-op nobody would ever notice.
+
+        The citation still extracts, still folds onto the target key, and still
+        resolves to nothing. This was named in the module docstring as
+        "re-checked here" and was not checked at all.
+        """
+        tarball = self._standard_registry(
+            equivalences=[{"from_key": "bb:1", "to_key": "aa:999"}]
+        )
+        with self.assertRaises(CommandError) as ctx:
+            self._run(tarball)
+        self.assertIn("aa:999", str(ctx.exception))
+        self.assertFalse(CorpusGroup.objects.filter(slug="test-group").exists())
+        self.assertFalse(
+            (self.install_dir / "alpha").exists(),
+            "C1/C5: nothing may be written when a file-decidable check fails",
+        )
+
+    def test_ungrantable_orchestrator_tool_is_refused(self):
+        """C3 — 'if the platform cannot grant a declared tool, the install FAILS'.
+
+        A misspelled tool name was previously stored verbatim on the agent. The
+        agent then never calls it, which is indistinguishable from the model
+        choosing not to — the failure mode C3 exists to make loud.
+        """
+        tarball = self._standard_registry(
+            orchestrator={
+                "instructions_file": "orchestrator.txt",
+                "tools": ["search_across_corpora", "search_all_corpora"],
+            }
+        )
+        with self.assertRaises(CommandError) as ctx:
+            self._run(tarball)
+        message = str(ctx.exception)
+        self.assertIn("C3", message)
+        self.assertIn("search_all_corpora", message)
+
+    def test_manifest_name_must_match_its_directory(self):
+        """The instructions path is built from `name`, so `name` is a path input.
+
+        The traversal guard derived its root from the same field it was
+        guarding, so it moved with the attack and always passed: a manifest
+        naming itself `../../../../etc` would read an arbitrary file into the
+        orchestrator's system prompt.
+        """
+        self._base_pack("alpha", [("alpha-one", "aa", ["aa:1"])])
+        self._domain(
+            "testdomain",
+            {
+                "schema_version": 1,
+                "name": "../../../../etc",
+                "title": "T",
+                "requires": [{"pack": "alpha", "reason": "r"}],
+                "corpus_group": {"slug": "test-group", "title": "G"},
+                "orchestrator": {
+                    "instructions_file": "passwd",
+                    "tools": ["search_across_corpora"],
+                },
+            },
+            "use test-group",
+        )
+        with self.assertRaises(CommandError) as ctx:
+            self._run(self._tarball())
+        self.assertIn("name", str(ctx.exception))
+        self.assertFalse(CorpusGroup.objects.filter(slug="test-group").exists())
+
+    # ---- equivalences go through the shared, ownership-aware writer ------ #
+    def test_a_curators_manual_row_is_never_clobbered(self):
+        """Source ownership: the loader owns `baseline` and nothing else.
+
+        The bare `update_or_create(from_key=...)` this replaced overwrote a
+        curator's `manual` row AND relabelled it `baseline` — silently
+        redirecting a mapping somebody had deliberately set.
+        """
+        AuthorityKeyEquivalence.objects.create(
+            from_key="bb:1",
+            to_key="aa:2",
+            source="manual",
+            created_by=self.owner,
+        )
+        self._run(self._standard_registry())
+
+        rows = set(
+            AuthorityKeyEquivalence.objects.filter(from_key="bb:1").values_list(
+                "to_key", "source"
+            )
+        )
+        self.assertIn(
+            ("aa:2", "manual"),
+            rows,
+            "a manual row must survive a domain install untouched",
+        )
+        self.assertIn(("aa:1", "baseline"), rows, "the pack's own row still lands")
+
+    def test_a_from_key_may_carry_more_than_one_target(self):
+        """The unique constraint is on the PAIR, so one from_key may fan out.
+
+        Keying the upsert on from_key alone raised MultipleObjectsReturned as
+        soon as a second target existed — a crash mid-install, after the base
+        packs were already written.
+        """
+        AuthorityKeyEquivalence.objects.create(
+            from_key="bb:1", to_key="aa:2", source="baseline"
+        )
+        self._run(self._standard_registry())
+        self.assertEqual(
+            AuthorityKeyEquivalence.objects.filter(from_key="bb:1").count(),
+            2,
+            "both targets coexist; neither overwrites the other",
         )
