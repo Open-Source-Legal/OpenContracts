@@ -41,6 +41,7 @@ import json
 import re
 import tarfile
 import tempfile
+from io import StringIO
 from pathlib import Path
 
 import yaml
@@ -229,6 +230,7 @@ class Command(BaseCommand):
             # written, for --check and for a real install alike. A preflight that
             # only runs under --check is a preflight the install path never gets.
             violations = self._preflight(manifest, pack_dirs)
+            violations += self._preflight_base_packs(pack_dirs, options)
 
             if options["check"]:
                 self._report_plan(manifest, pack_dirs)
@@ -341,6 +343,48 @@ class Command(BaseCommand):
                     if key:
                         keys.add(str(key))
         return keys
+
+    # ------------------------------------------------------------------ #
+    def _preflight_base_packs(self, pack_dirs: dict[str, Path], options) -> list[str]:
+        """C1 — every required base pack must *install*, not merely be present.
+
+        Checking that ``pack.yaml`` exists is not what C1 says. A pack that is
+        present but invalid passes that check, fails partway down the install
+        loop, and leaves packs 1..N-1 written — the partial install that reports
+        nothing useful, which is the failure this layer exists to prevent.
+
+        This is cheap enough that there is no tradeoff to weigh: measured at
+        ~4s of work for a 978-section pack against ~0.6s per section to install
+        it, so preflighting every pack costs well under 1% of the install it
+        guards. `load_authority_pack --check` writes nothing and raises on an
+        invalid pack.
+        """
+        if not options["creator"]:
+            # --check without a creator: the plan is still worth printing, but
+            # say plainly that this assertion was not evaluated rather than let
+            # a clean run imply it passed.
+            self.stdout.write(
+                "  (C1 pack validity not checked — pass --creator to preflight "
+                "each base pack)"
+            )
+            return []
+
+        violations: list[str] = []
+        for pack_name, pack_dir in pack_dirs.items():
+            sink = StringIO()
+            try:
+                call_command(
+                    "load_authority_pack",
+                    path=str(pack_dir),
+                    creator=options["creator"],
+                    check=True,
+                    stdout=sink,
+                )
+            except CommandError as exc:
+                violations.append(
+                    f"C1: base pack {pack_name!r} would not install: {exc}"
+                )
+        return violations
 
     # ------------------------------------------------------------------ #
     def _preflight(self, manifest, pack_dirs: dict[str, Path]) -> list[str]:

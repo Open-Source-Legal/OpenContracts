@@ -512,3 +512,28 @@ class DomainPackInstallTests(TestCase):
             2,
             "both targets coexist; neither overwrites the other",
         )
+
+    def test_present_but_invalid_base_pack_fails_before_any_write(self):
+        """C1 says every required pack INSTALLS, not that its pack.yaml exists.
+
+        Checking for the file is the adjacent measurement: a malformed pack
+        passes it, then fails partway down the install loop with the packs
+        before it already written. Preflighting each pack costs well under 1%
+        of the install it guards, so there is no tradeoff to weigh.
+        """
+        tarball = self._standard_registry()
+        # Rebuild the registry with alpha's spec corrupted.
+        (self.root / "registry" / "alpha" / "specs" / "alpha-one.json").write_text(
+            json.dumps({"sections": [{"heading": "no key", "text": "t"}]}),
+            encoding="utf-8",
+        )
+        tarball = self._tarball()
+
+        with self.assertRaises(CommandError) as ctx:
+            self._run(tarball)
+        self.assertIn("C1", str(ctx.exception))
+        self.assertFalse(
+            (self.install_dir / "alpha").exists(),
+            "nothing may be materialised when a required pack would not install",
+        )
+        self.assertFalse(CorpusGroup.objects.filter(slug="test-group").exists())
