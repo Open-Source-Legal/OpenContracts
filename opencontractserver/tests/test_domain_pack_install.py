@@ -211,12 +211,26 @@ class DomainPackInstallTests(TestCase):
         self.assertIn("installed", out.lower())
 
     def test_check_writes_nothing(self):
-        """--check reports the plan without touching the database."""
+        """--check reports the plan without touching the database OR the disk.
+
+        The filesystem half is not redundant. This test predates materialising,
+        and installing now MOVES pack directories into the install dir — so
+        "writes nothing" acquired a second meaning that nothing asserted. The C1
+        preflight added later runs `load_authority_pack --check` per pack, which
+        does not materialise; if it ever did, or if a future preflight reached
+        for `materialise_pack` to get a stable path, `--check` would start
+        moving packs out of the extraction tree while still printing "No changes
+        were written".
+        """
         out = self._run(self._standard_registry(), check=True)
         self.assertIn("No changes were written", out)
         self.assertFalse(CorpusGroup.objects.filter(slug="test-group").exists())
         self.assertFalse(
             AgentConfiguration.objects.filter(slug="testdomain-orchestrator").exists()
+        )
+        self.assertFalse(
+            self.install_dir.exists() and any(self.install_dir.iterdir()),
+            "--check must not materialise anything into the install dir",
         )
 
     def test_install_is_idempotent(self):
