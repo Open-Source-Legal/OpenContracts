@@ -23,11 +23,13 @@ from django.contrib.auth import get_user_model
 from django.test import TransactionTestCase
 
 from opencontractserver.corpuses.models import Corpus
+from opencontractserver.documents.models import Document
 from opencontractserver.llms import agents
 
 User = get_user_model()
 
 SENTINEL = "SENTINEL-corpus-instructions-must-survive-to-the-prompt"
+DOC_SENTINEL = "SENTINEL-document-instructions-must-survive-to-the-prompt"
 
 
 class AgentInstructionsReachPromptTests(TransactionTestCase):
@@ -38,10 +40,28 @@ class AgentInstructionsReachPromptTests(TransactionTestCase):
         self.corpus = Corpus.objects.create(
             title="Instruction corpus", creator=self.user
         )
+        self.document = Document.objects.create(
+            title="Instruction document", creator=self.user, is_public=True
+        )
+        self.corpus.add_document(document=self.document, user=self.user)
 
     def _prompt(self, **kwargs) -> str:
         async def build():
             agent = await agents.for_corpus(
+                corpus=self.corpus.id,
+                user_id=self.user.id,
+                streaming=False,
+                persist=False,
+                **kwargs,
+            )
+            return agent.config.system_prompt or ""
+
+        return asyncio.run(build())
+
+    def _document_prompt(self, **kwargs) -> str:
+        async def build():
+            agent = await agents.for_document(
+                document=self.document.id,
                 corpus=self.corpus.id,
                 user_id=self.user.id,
                 streaming=False,
@@ -104,3 +124,66 @@ class AgentInstructionsReachPromptTests(TransactionTestCase):
         prompt = self._prompt()
         self.assertTrue(prompt.strip(), "a prompt is always built")
         self.assertNotIn(SENTINEL, prompt)
+
+    def test_document_instructions_are_in_the_prompt(self):
+        """The same bug, via ``CoreDocumentAgentFactory.create_context``.
+
+        ``document_agent_instructions`` resolves through the same
+        ``if config.system_prompt is None`` branch as the corpus persona, but
+        the pre-fix regression tests here only exercised ``agents.for_corpus``
+        — a document agent hitting the identical order-dependent bug would not
+        have been caught.
+        """
+        self.corpus.document_agent_instructions = DOC_SENTINEL
+        self.corpus.save()
+
+        prompt = self._document_prompt()
+        self.assertIn(
+            DOC_SENTINEL,
+            prompt,
+            "configured document instructions must reach the system prompt",
+        )
+        self.assertIn(
+            "Temporal grounding",
+            prompt,
+            "computed context must still be appended after the default resolves",
+        )
+
+    def test_corpus_instructions_survive_memory_injection(self):
+        """The same bug, reached via ``_inject_corpus_memory``.
+
+        ``_inject_corpus_memory`` runs before ``_inject_temporal_grounding`` and
+        used to write straight to ``config.system_prompt`` whenever the corpus
+        had memory content — making ``system_prompt`` non-``None`` before the
+        default-resolution check ran, for every ``memory_enabled=True`` corpus.
+        """
+        from opencontractserver.agents.memory import update_memory_content
+
+        self.corpus.corpus_agent_instructions = SENTINEL
+        self.corpus.memory_enabled = True
+        self.corpus.save()
+
+        async def build():
+            await update_memory_content(
+                self.corpus,
+                "## Collection Patterns\n\n- Prefer semantic search for dates.\n\n"
+                "## Query Patterns\n\n- Real recorded insight, not a placeholder.",
+                self.user,
+            )
+            agent = await agents.for_corpus(
+                corpus=self.corpus.id,
+                user_id=self.user.id,
+                streaming=False,
+                persist=False,
+            )
+            return agent.config.system_prompt or ""
+
+        prompt = asyncio.run(build())
+        self.assertIn(
+            SENTINEL,
+            prompt,
+            "corpus instructions must survive memory injection reaching "
+            "system_prompt first",
+        )
+        self.assertIn("Real recorded insight", prompt)
+        self.assertIn("Temporal grounding", prompt)

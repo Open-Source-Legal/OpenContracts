@@ -64,8 +64,14 @@ async def _user_has_write_permission(
 async def _inject_corpus_memory(corpus_obj, config) -> None:
     """Inject corpus memory into the agent's system prompt if available.
 
-    Reads the memory document for the given corpus and appends the
-    formatted memory content to ``config.system_prompt``.  Silently
+    Reads the memory document for the given corpus and stashes the formatted
+    memory content onto ``config.computed_preamble`` (applied after default
+    resolution by ``_apply_computed_preamble``) rather than writing straight to
+    ``config.system_prompt``.  Writing directly here made ``system_prompt``
+    non-``None`` before ``CoreCorpusAgentFactory.create_context`` /
+    ``CoreDocumentAgentFactory.create_context`` resolved their default —
+    silently discarding ``corpus_agent_instructions`` for every memory-enabled
+    corpus, the same failure mode ``_inject_temporal_grounding`` had. Silently
     logs and skips on any failure so agent creation is never blocked.
 
     Note: ``query=config.system_prompt`` is used as the relevance signal
@@ -82,7 +88,8 @@ async def _inject_corpus_memory(corpus_obj, config) -> None:
 
     Args:
         corpus_obj: The Corpus instance (must have ``memory_enabled=True``).
-        config: The AgentConfig whose ``system_prompt`` will be mutated.
+        config: The AgentConfig whose ``system_prompt`` (or ``computed_preamble``,
+            if the default has not resolved yet) will be mutated.
     """
     try:
         from opencontractserver.agents.memory import (
@@ -94,9 +101,14 @@ async def _inject_corpus_memory(corpus_obj, config) -> None:
             corpus_obj, query=config.system_prompt or ""
         )
         if memory_content:
-            config.system_prompt = (
-                config.system_prompt or ""
-            ) + format_memory_for_prompt(memory_content)
+            block = format_memory_for_prompt(memory_content)
+            if config.system_prompt is None:
+                # getattr, not attribute access: see _inject_temporal_grounding.
+                config.computed_preamble = (
+                    getattr(config, "computed_preamble", None) or ""
+                ) + block
+            else:
+                config.system_prompt += block
     except Exception:
         logger.warning(
             "Failed to inject corpus memory for corpus %s",
@@ -199,14 +211,6 @@ async def _inject_temporal_grounding(config, corpus_obj=None) -> None:
         # default has been resolved.
         block = "\n".join(lines)
         if config.system_prompt is None:
-            # No prompt yet, so the default has not been resolved. Writing
-            # straight to ``system_prompt`` here makes it non-None, and both
-            # agent factories resolve their default with
-            # ``if config.system_prompt is None`` — which is what silently
-            # discarded ``Corpus.corpus_agent_instructions`` (and the document
-            # equivalent) on every agent. Stash instead; the factories call
-            # ``_apply_computed_preamble`` once the default is in place.
-            #
             # getattr, not attribute access: callers may pass any config-like
             # object, and an AttributeError here is swallowed by the except
             # below — which would drop temporal grounding entirely and silently.

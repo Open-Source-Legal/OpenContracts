@@ -900,6 +900,7 @@ class _FakeConfig:
     """Minimal stand-in for AgentConfig in tests."""
 
     system_prompt: Optional[str] = "You are an assistant."
+    computed_preamble: Optional[str] = None
 
 
 class TestInjectCorpusMemory(TestCase):
@@ -974,7 +975,15 @@ class TestInjectCorpusMemory(TestCase):
         # System prompt unchanged
         self.assertEqual(config.system_prompt, "Base prompt.")
 
-    def test_none_system_prompt_handled(self):
+    def test_none_system_prompt_stashes_to_computed_preamble(self):
+        """When no prompt has been resolved yet, memory stashes rather than sets.
+
+        Writing straight to ``config.system_prompt`` here would make it
+        non-``None`` before ``CoreCorpusAgentFactory.create_context`` /
+        ``CoreDocumentAgentFactory.create_context`` resolve their default —
+        silently discarding ``corpus_agent_instructions`` for every
+        memory-enabled corpus. See ``_apply_computed_preamble``.
+        """
         from opencontractserver.llms.agents.agent_factory import (
             _inject_corpus_memory,
         )
@@ -995,9 +1004,13 @@ class TestInjectCorpusMemory(TestCase):
         ):
             async_to_sync(_inject_corpus_memory)(fake_corpus, config)
 
-        prompt = config.system_prompt
-        assert prompt is not None
-        self.assertIn("## Corpus Memory", prompt)
+        self.assertIsNone(
+            config.system_prompt,
+            "the 'was a default resolved?' signal must survive memory injection",
+        )
+        preamble = config.computed_preamble or ""
+        self.assertIn("## Corpus Memory", preamble)
+        self.assertIn("- insight", preamble)
 
 
 # ---------------------------------------------------------------------------
