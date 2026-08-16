@@ -694,3 +694,50 @@ class DomainPackInstallTests(TestCase):
             (self.install_dir / "alpha").exists(),
             "the base packs must not be installed before this is caught",
         )
+
+    def test_overlong_equivalence_note_fails_before_any_write(self):
+        """`note` is CharField(255) and the shared upsert does not truncate.
+
+        The bare `update_or_create` this replaced sliced the note to `[:255]`;
+        switching to `upsert_equivalence` dropped that without replacing it, so
+        an over-long note became a raw Postgres DataError raised mid-wiring,
+        after every base pack was installed. Invisible in this pack's own data,
+        whose longest note is 107 characters — which is exactly why it needs a
+        test rather than an eyeball.
+
+        Rejected rather than truncated: a silently shortened note no longer says
+        what its author wrote.
+        """
+        tarball = self._standard_registry(
+            equivalences=[{"from_key": "bb:1", "to_key": "aa:1", "note": "x" * 300}]
+        )
+        with self.assertRaises(CommandError) as ctx:
+            self._run(tarball)
+        self.assertIn("300 chars", str(ctx.exception))
+        self.assertFalse((self.install_dir / "alpha").exists())
+
+    def test_exclude_corpora_naming_an_unknown_corpus_is_refused(self):
+        """An exclusion is a claim; one about nothing is a typo with consequences.
+
+        The corpus the author meant to exclude silently stays in the group, and
+        the group can then exceed the cap it was trimmed to fit.
+        """
+        tarball = self._standard_registry(
+            corpus_group={
+                "slug": "test-group",
+                "title": "G",
+                "exclude_corpora": ["alpha-tow"],  # typo for alpha-two
+            }
+        )
+        with self.assertRaises(CommandError) as ctx:
+            self._run(tarball)
+        self.assertIn("alpha-tow", str(ctx.exception))
+
+    def test_corpus_group_slug_must_be_a_slug(self):
+        """The orchestrator names this in prose and passes it to the tool."""
+        tarball = self._standard_registry(
+            corpus_group={"slug": "Not A Slug", "title": "G"}
+        )
+        with self.assertRaises(CommandError) as ctx:
+            self._run(tarball)
+        self.assertIn("corpus_group.slug", str(ctx.exception))

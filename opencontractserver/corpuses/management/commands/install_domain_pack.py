@@ -38,6 +38,7 @@ installer must not trust its input.
 from __future__ import annotations
 
 import json
+import re
 import tarfile
 import tempfile
 from io import StringIO
@@ -66,6 +67,14 @@ from opencontractserver.enrichment.data.mappings import is_valid_canonical_key
 # than two identical regexes that could drift apart.
 DOMAIN_NAME_RE = PACK_NAME_RE
 DOMAINS_DIR = "domains"
+
+# Corpus-group slugs allow hyphens but not underscores (pack names allow both).
+SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+
+# AuthorityKeyEquivalence.note is CharField(max_length=255); Postgres rejects
+# anything longer with a DataError. Checked here rather than truncated, because
+# a silently shortened note is a note that no longer says what its author wrote.
+MAX_EQUIVALENCE_NOTE = 255
 
 # Tools a domain pack may grant its orchestrator. Closed on purpose, and
 # mirrored in the registry's validate_domain.py: C3 says an install FAILS if the
@@ -454,7 +463,29 @@ class Command(BaseCommand):
                 "there is no cross-corpus retrieval, which is the whole point of "
                 "the layer"
             )
-        members, _ = self._member_slugs(pack_dirs, group)
+        elif not SLUG_RE.match(group_slug):
+            # The orchestrator has to name this slug in prose and the tool takes
+            # it as an argument, so a value with spaces or punctuation is a
+            # tool call nobody can make.
+            violations.append(
+                f"C2: corpus_group.slug {group_slug!r} must be a slug — the "
+                "orchestrator names it in its instructions and passes it to "
+                "search_across_corpora"
+            )
+
+        members, excluded_slugs = self._member_slugs(pack_dirs, group)
+
+        # An exclusion is a CLAIM that a corpus is reachable without the group.
+        # One naming a corpus no required pack contributes is a claim about
+        # nothing — most likely a typo, which silently leaves the corpus that
+        # was meant to be excluded in the group.
+        contributed = set(self._member_slugs(pack_dirs, {})[0])
+        for slug in sorted(excluded_slugs - contributed):
+            violations.append(
+                f"C2: exclude_corpora names {slug!r}, which no required base "
+                "pack contributes — an exclusion that excludes nothing"
+            )
+
         if len(members) > MULTI_CORPUS_SEARCH_MAX_CORPORA:
             violations.append(
                 f"C2: the group would hold {len(members)} corpora but "
@@ -520,6 +551,12 @@ class Command(BaseCommand):
                         f"C4: equivalence {label} {key!r} is not a well-formed "
                         "'<prefix>:<section>' canonical key"
                     )
+            note = str(row.get("note") or "")
+            if len(note) > MAX_EQUIVALENCE_NOTE:
+                violations.append(
+                    f"C4: equivalence note for {frm!r} is {len(note)} chars; the "
+                    f"column holds {MAX_EQUIVALENCE_NOTE}"
+                )
             if frm == to:
                 violations.append(f"C4: equivalence row maps {frm!r} onto itself")
             elif to not in keys:
