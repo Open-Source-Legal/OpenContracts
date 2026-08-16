@@ -263,6 +263,50 @@ class SystemPromptThroughPublicFactoryTestCase(TransactionTestCase):
         self.assertNotIn(CORPUS_PERSONA, after)
         self.assertNotEqual(before, after)
 
+    async def test_document_persona_reaches_the_prompt_through_the_factory(self):
+        """The document-agent counterpart to the corpus-agent factory test above.
+
+        ``UnifiedAgentFactory.create_document_agent`` has its own
+        inject-then-create-context sequencing, separate from
+        ``create_corpus_agent``'s. Nothing else in this suite drives it
+        through the real public entry point — ``test_document_persona_reaches_
+        the_system_prompt`` in ``SystemPromptAssemblyTestCase`` calls
+        ``CoreDocumentAgentFactory.create_context`` directly, which would not
+        catch a regression introduced inside ``create_document_agent`` itself
+        (e.g. a fresh direct ``config.system_prompt +=`` added ahead of
+        ``create_context``, reproducing issue #2247 for documents only).
+        """
+        self.corpus.document_agent_instructions = DOCUMENT_PERSONA
+        await sync_to_async(self.corpus.save)()
+        original = await Document.objects.acreate(
+            title="E2E Persona Doc", creator=self.user, is_public=True
+        )
+        document, _, _ = await sync_to_async(self.corpus.add_document)(
+            document=original, user=self.user
+        )
+
+        with patch(
+            "opencontractserver.llms.agents.pydantic_ai_factory.PydanticAIAgent"
+        ) as mock_agent_cls:
+            instance = MagicMock()
+            instance.toolsets = []
+            instance.run = AsyncMock()
+            mock_agent_cls.return_value = instance
+
+            agent = await UnifiedAgentFactory.create_document_agent(
+                document=document.id,
+                corpus=self.corpus.id,
+                framework=AgentFramework.PYDANTIC_AI,
+                user_id=self.user.id,
+            )
+        prompt = agent.config.system_prompt or ""
+
+        self.assertIn(DOCUMENT_PERSONA, prompt)
+        self.assertIn("Research performed at:", prompt)
+        self.assertLess(
+            prompt.index(DOCUMENT_PERSONA), prompt.index("Research performed at:")
+        )
+
     async def test_persona_survives_real_memory_injection_through_the_factory(self):
         """Persona, real DB-backed memory, and grounding must all coexist.
 
