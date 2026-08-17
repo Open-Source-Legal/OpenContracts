@@ -296,7 +296,7 @@ See `frontend/src/components/auth/AuthGate.test.tsx` for test examples.
 
 ## Related Documentation
 
-- [Authentication Pattern](../frontend/src/docs/AUTHENTICATION_PATTERN.md) - Detailed AuthGate pattern documentation
+- [Authentication Pattern](../../frontend/src/docs/AUTHENTICATION_PATTERN.md) - Detailed AuthGate pattern documentation
 - [Routing System](./routing_system.md) - How routing works with auth
 - [Apollo Cache](../architecture/apollo_cache.md) - Cache management details
 
