@@ -16,6 +16,7 @@ import tarfile
 import tempfile
 from io import StringIO
 from pathlib import Path
+from unittest import mock
 
 import yaml
 from django.contrib.auth import get_user_model
@@ -25,7 +26,10 @@ from django.test import TestCase, override_settings
 
 from opencontractserver.agents.models import AgentConfiguration
 from opencontractserver.annotations.models import AuthorityKeyEquivalence
-from opencontractserver.corpuses.models import CorpusGroup
+from opencontractserver.corpuses.management.commands.install_domain_pack import (
+    Command as DomainPackCommand,
+)
+from opencontractserver.corpuses.models import Corpus, CorpusGroup
 
 User = get_user_model()
 
@@ -741,3 +745,430 @@ class DomainPackInstallTests(TestCase):
         with self.assertRaises(CommandError) as ctx:
             self._run(tarball)
         self.assertIn("corpus_group.slug", str(ctx.exception))
+
+    # ---- argument and manifest validation, before anything is staged ---- #
+    def test_tarball_path_must_exist(self):
+        """A --tarball pointing at nothing is refused before any fetch."""
+        with self.assertRaises(CommandError) as ctx:
+            self._run(str(self.root / "no-such-file.tar.gz"))
+        self.assertIn("--tarball not found", str(ctx.exception))
+
+    def test_no_domain_and_no_list_is_refused(self):
+        out = StringIO()
+        with self.assertRaises(CommandError) as ctx:
+            call_command("install_domain_pack", creator="domainowner", stdout=out)
+        self.assertIn("Provide a domain name, or --list", str(ctx.exception))
+
+    def test_invalid_domain_name_is_refused(self):
+        out = StringIO()
+        with self.assertRaises(CommandError) as ctx:
+            call_command(
+                "install_domain_pack", "Not A Slug", creator="domainowner", stdout=out
+            )
+        self.assertIn("Invalid domain name", str(ctx.exception))
+
+    def test_list_domains_lists_available_and_writes_nothing(self):
+        tarball = self._standard_registry()
+        out = StringIO()
+        call_command(
+            "install_domain_pack", tarball=tarball, list_domains=True, stdout=out
+        )
+        self.assertIn("testdomain", out.getvalue())
+        self.assertFalse(CorpusGroup.objects.filter(slug="test-group").exists())
+
+    def test_domain_not_found_lists_whats_available(self):
+        tarball = self._standard_registry()
+        out = StringIO()
+        with self.assertRaises(CommandError) as ctx:
+            call_command(
+                "install_domain_pack",
+                "nosuchdomain",
+                tarball=tarball,
+                creator="domainowner",
+                stdout=out,
+            )
+        message = str(ctx.exception)
+        self.assertIn("not found in registry", message)
+        self.assertIn("testdomain", message)
+
+    def test_manifest_name_not_equal_to_directory_is_refused(self):
+        """Distinct from the traversal-guard test above: here `name` is a
+        well-formed slug that simply differs from the directory it lives in.
+        """
+        self._base_pack("alpha", [("alpha-one", "aa", ["aa:1"])])
+        self._domain(
+            "testdomain",
+            {
+                "schema_version": 1,
+                "name": "otherdomain",
+                "title": "T",
+                "requires": [{"pack": "alpha", "reason": "r"}],
+                "corpus_group": {"slug": "test-group", "title": "G"},
+                "orchestrator": {"instructions_file": "orchestrator.txt", "tools": []},
+            },
+            "test-group",
+        )
+        with self.assertRaises(CommandError) as ctx:
+            self._run(self._tarball())
+        self.assertIn("does not match its directory", str(ctx.exception))
+
+    def test_malformed_requires_entry_is_refused(self):
+        self._domain(
+            "testdomain",
+            {
+                "schema_version": 1,
+                "name": "testdomain",
+                "title": "T",
+                "requires": ["alpha"],
+                "corpus_group": {"slug": "test-group", "title": "G"},
+                "orchestrator": {"instructions_file": "orchestrator.txt", "tools": []},
+            },
+            "test-group",
+        )
+        with self.assertRaises(CommandError) as ctx:
+            self._run(self._tarball())
+        self.assertIn("malformed `requires` entry", str(ctx.exception))
+
+    def test_empty_requires_is_refused(self):
+        self._domain(
+            "testdomain",
+            {
+                "schema_version": 1,
+                "name": "testdomain",
+                "title": "T",
+                "requires": [],
+                "corpus_group": {"slug": "test-group", "title": "G"},
+                "orchestrator": {"instructions_file": "orchestrator.txt", "tools": []},
+            },
+            "test-group",
+        )
+        with self.assertRaises(CommandError) as ctx:
+            self._run(self._tarball())
+        self.assertIn("declares no `requires`", str(ctx.exception))
+
+    def test_creator_required_to_install(self):
+        """Also covers the --check-without-creator preflight notice: this
+        path runs `_preflight_base_packs` (which skips C1 with no creator to
+        preflight as) before the --creator gate is checked.
+        """
+        tarball = self._standard_registry()
+        out = StringIO()
+        with self.assertRaises(CommandError) as ctx:
+            call_command(
+                "install_domain_pack", "testdomain", tarball=tarball, stdout=out
+            )
+        self.assertIn("--creator is required to install", str(ctx.exception))
+        self.assertIn("C1 pack validity not checked", out.getvalue())
+
+    def test_check_report_shows_excluded_corpora(self):
+        tarball = self._standard_registry(
+            corpus_group={
+                "slug": "test-group",
+                "title": "G",
+                "exclude_corpora": ["alpha-two"],
+            }
+        )
+        out = self._run(tarball, check=True)
+        self.assertIn("excluded", out)
+        self.assertIn("alpha-two", out)
+
+    # ---- staging: fetch path and the extraction size cap ----------------- #
+    def test_stage_fetches_from_the_registry_url_when_no_tarball_is_given(self):
+        """Without --tarball, the registry is fetched via --repo/--ref."""
+        tarball = self._standard_registry()
+
+        def fake_download(url, dest):
+            Path(dest).write_bytes(Path(tarball).read_bytes())
+
+        with mock.patch(
+            "opencontractserver.corpuses.management.commands.install_domain_pack."
+            "_download_tarball",
+            side_effect=fake_download,
+        ) as mocked:
+            out = StringIO()
+            call_command(
+                "install_domain_pack",
+                "testdomain",
+                repo="https://example.invalid/registry.git",
+                creator="domainowner",
+                stdout=out,
+            )
+        mocked.assert_called_once()
+        self.assertTrue(CorpusGroup.objects.filter(slug="test-group").exists())
+
+    def test_stage_refuses_a_registry_that_expands_past_the_extraction_cap(self):
+        tarball = self._standard_registry()
+        with mock.patch(
+            "opencontractserver.corpuses.management.commands.install_domain_pack."
+            "MAX_EXTRACTED_BYTES",
+            1,
+        ):
+            with self.assertRaises(CommandError) as ctx:
+                self._run(tarball)
+        self.assertIn("bytes; refusing", str(ctx.exception))
+
+    # ---- a base pack failing the REAL install, after preflight passed ---- #
+    def test_a_base_pack_failing_after_preflight_reports_whats_already_in(self):
+        """Each base pack loads in its own transaction; the ones before a
+        failure are installed and stay. The error must say so, and say the
+        install converges on re-run — the bare error from
+        `load_authority_pack` cannot tell an operator a partial install from
+        a no-op.
+        """
+        self._base_pack("alpha", [("alpha-one", "aa", ["aa:1"])])
+        self._base_pack("beta", [("beta-one", "cc", ["cc:1"])])
+        self._domain(
+            "testdomain",
+            {
+                "schema_version": 1,
+                "name": "testdomain",
+                "title": "T",
+                "requires": [
+                    {"pack": "alpha", "reason": "r"},
+                    {"pack": "beta", "reason": "r"},
+                ],
+                "corpus_group": {"slug": "test-group", "title": "G"},
+                "orchestrator": {"instructions_file": "orchestrator.txt", "tools": []},
+            },
+            "test-group",
+        )
+        tarball = self._tarball()
+        real_call_command = call_command
+
+        def flaky(name, *args, **kwargs):
+            if (
+                name == "load_authority_pack"
+                and not kwargs.get("check")
+                and str(kwargs.get("path", "")).endswith("beta")
+            ):
+                raise CommandError("beta exploded")
+            return real_call_command(name, *args, **kwargs)
+
+        with mock.patch(
+            "opencontractserver.corpuses.management.commands.install_domain_pack."
+            "call_command",
+            side_effect=flaky,
+        ):
+            with self.assertRaises(CommandError) as ctx:
+                self._run(tarball)
+        message = str(ctx.exception)
+        self.assertIn("beta", message)
+        self.assertIn("already installed and left in place: alpha", message)
+        self.assertIn("installs converge", message)
+        self.assertFalse(CorpusGroup.objects.filter(slug="test-group").exists())
+
+    # ---- pack.yaml is registry-authored, not domain-pack-authored, but an
+    # installer must not trust ANY of its input -------------------------- #
+    def test_member_slugs_rejects_a_malformed_corpus_entry(self):
+        pack_dir = self.root / "malformed-pack"
+        pack_dir.mkdir()
+        (pack_dir / "pack.yaml").write_text(
+            yaml.safe_dump({"name": "malformed-pack", "corpora": ["not-a-dict"]}),
+            encoding="utf-8",
+        )
+        with self.assertRaises(CommandError) as ctx:
+            DomainPackCommand()._member_slugs({"malformed-pack": pack_dir}, {})
+        self.assertIn("malformed corpus entry", str(ctx.exception))
+
+    def test_section_keys_rejects_a_malformed_corpus_entry(self):
+        """The sibling check in `_section_keys` — same defect, different method."""
+        pack_dir = self.root / "malformed-pack-2"
+        pack_dir.mkdir()
+        (pack_dir / "pack.yaml").write_text(
+            yaml.safe_dump({"name": "malformed-pack-2", "corpora": ["not-a-dict"]}),
+            encoding="utf-8",
+        )
+        with self.assertRaises(CommandError) as ctx:
+            DomainPackCommand()._section_keys({"malformed-pack-2": pack_dir})
+        self.assertIn("malformed corpus entry", str(ctx.exception))
+
+    def test_section_keys_skips_entries_it_cannot_read(self):
+        """A corpus with no spec, a missing spec file, or unparsable JSON is
+        skipped rather than crashing the C4 preflight — only a well-formed
+        spec contributes keys.
+        """
+        pack_dir = self.root / "partial-pack"
+        (pack_dir / "specs").mkdir(parents=True)
+        (pack_dir / "specs" / "good.json").write_text(
+            json.dumps({"sections": [{"key": "gp:1"}]}), encoding="utf-8"
+        )
+        (pack_dir / "specs" / "bad.json").write_text("not json{{{", encoding="utf-8")
+        (pack_dir / "pack.yaml").write_text(
+            yaml.safe_dump(
+                {
+                    "name": "partial-pack",
+                    "corpora": [
+                        {"slug": "no-spec"},
+                        {"slug": "missing-file", "spec": "specs/missing.json"},
+                        {"slug": "bad-json", "spec": "specs/bad.json"},
+                        {"slug": "good", "spec": "specs/good.json"},
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        keys = DomainPackCommand()._section_keys({"partial-pack": pack_dir})
+        self.assertEqual(keys, {"gp:1"})
+
+    # ---- `_wire`'s own backstops, reached directly since `_preflight` -----
+    # normally catches these first (see the comments on each guard) ------- #
+    def test_wire_reports_a_corpus_never_created_by_its_base_pack(self):
+        pack_dir = self.root / "orphan-pack"
+        pack_dir.mkdir()
+        (pack_dir / "pack.yaml").write_text(
+            yaml.safe_dump(
+                {"name": "orphan-pack", "corpora": [{"slug": "ghost-corpus"}]}
+            ),
+            encoding="utf-8",
+        )
+        domain_dir = self.root / "registry" / "domains" / "testdomain"
+        domain_dir.mkdir(parents=True)
+        (domain_dir / "orchestrator.txt").write_text("hi", encoding="utf-8")
+        manifest = {
+            "name": "testdomain",
+            "corpus_group": {"slug": "ghost-group", "title": "G"},
+            "orchestrator": {"instructions_file": "orchestrator.txt", "tools": []},
+            "equivalences": [],
+        }
+        options = {"creator": "domainowner", "public": False, "check": False}
+        with self.assertRaises(CommandError) as ctx:
+            DomainPackCommand(stdout=StringIO())._wire(
+                manifest, {"orphan-pack": pack_dir}, domain_dir, options
+            )
+        message = str(ctx.exception)
+        self.assertIn("ghost-corpus", message)
+        self.assertIn("was not created by its base pack", message)
+        self.assertFalse(CorpusGroup.objects.filter(slug="ghost-group").exists())
+
+    def test_wire_still_refuses_an_over_cap_group_if_preflight_is_bypassed(self):
+        """Defense in depth: named in the code's own comment as unreachable
+        while `_preflight` runs first — kept so a future refactor that widens
+        membership in `_wire` without touching `_preflight` still cannot
+        silently truncate the group.
+        """
+        from opencontractserver.constants.tools import (
+            MULTI_CORPUS_SEARCH_MAX_CORPORA,
+        )
+
+        over = MULTI_CORPUS_SEARCH_MAX_CORPORA + 1
+        slugs = [f"cap-{i}" for i in range(over)]
+        for slug in slugs:
+            Corpus.objects.create(title=slug, slug=slug, creator=self.owner)
+
+        pack_dir = self.root / "cap-pack"
+        pack_dir.mkdir()
+        (pack_dir / "pack.yaml").write_text(
+            yaml.safe_dump(
+                {"name": "cap-pack", "corpora": [{"slug": s} for s in slugs]}
+            ),
+            encoding="utf-8",
+        )
+        domain_dir = self.root / "registry" / "domains" / "capdomain"
+        domain_dir.mkdir(parents=True)
+        (domain_dir / "orchestrator.txt").write_text("hi", encoding="utf-8")
+        manifest = {
+            "name": "capdomain",
+            "corpus_group": {"slug": "cap-group", "title": "G"},
+            "orchestrator": {"instructions_file": "orchestrator.txt", "tools": []},
+            "equivalences": [],
+        }
+        options = {"creator": "domainowner", "public": False, "check": False}
+        with self.assertRaises(CommandError) as ctx:
+            DomainPackCommand(stdout=StringIO())._wire(
+                manifest, {"cap-pack": pack_dir}, domain_dir, options
+            )
+        message = str(ctx.exception)
+        self.assertIn("C2", message)
+        self.assertIn("silently drop", message)
+        self.assertFalse(CorpusGroup.objects.filter(slug="cap-group").exists())
+
+    # ---- wiring: the orchestrator's instructions file and preferred_llm -- #
+    def test_unreadable_instructions_file_fails_wiring(self):
+        tarball = self._standard_registry(
+            orchestrator={"instructions_file": "does-not-exist.txt", "tools": []}
+        )
+        with self.assertRaises(CommandError) as ctx:
+            self._run(tarball)
+        self.assertIn("instructions_file unreadable", str(ctx.exception))
+        self.assertFalse(CorpusGroup.objects.filter(slug="test-group").exists())
+
+    def test_valid_preferred_llm_is_applied_to_the_orchestrator(self):
+        tarball = self._standard_registry(
+            orchestrator={
+                "instructions_file": "orchestrator.txt",
+                "tools": ["search_across_corpora"],
+                "preferred_llm": "gpt-4o",
+            }
+        )
+        self._run(tarball)
+        agent = AgentConfiguration.objects.get(slug="testdomain-orchestrator")
+        self.assertEqual(agent.preferred_llm, "openai:gpt-4o")
+
+    # ---- the shared, ownership-aware equivalence writer, from this side -- #
+    def test_matching_manual_row_is_skipped_not_recreated(self):
+        AuthorityKeyEquivalence.objects.create(
+            from_key="bb:1", to_key="aa:1", source="manual", created_by=self.owner
+        )
+        out = self._run(self._standard_registry())
+        self.assertIn("left to their existing owner", out)
+        row = AuthorityKeyEquivalence.objects.get(from_key="bb:1", to_key="aa:1")
+        self.assertEqual(row.source, "manual")
+
+    def test_writer_rejection_after_preflight_passed_is_reported_not_swallowed(self):
+        """Defensive: if the writer's validity check ever diverges from
+        preflight's own, that divergence must surface as an unmet assertion
+        rather than a silent skip counted as a clean install.
+        """
+        from opencontractserver.enrichment.services.authority_equivalence_ingest import (  # noqa: E501
+            SKIPPED_INVALID,
+        )
+
+        tarball = self._standard_registry()
+        with mock.patch(
+            "opencontractserver.enrichment.services.authority_equivalence_ingest."
+            "upsert_equivalence",
+            return_value=SKIPPED_INVALID,
+        ):
+            with self.assertRaises(CommandError) as ctx:
+                self._run(tarball)
+        message = str(ctx.exception)
+        self.assertIn("rejected by the shared upsert after passing preflight", message)
+        self.assertFalse(CorpusGroup.objects.filter(slug="test-group").exists())
+
+    # ---- equivalence-row shape validation (C4) ---------------------------- #
+    def test_malformed_equivalence_row_is_refused(self):
+        tarball = self._standard_registry(equivalences=["not-a-dict"])
+        with self.assertRaises(CommandError) as ctx:
+            self._run(tarball)
+        self.assertIn("malformed equivalence row", str(ctx.exception))
+
+    def test_equivalence_row_missing_a_key_is_refused(self):
+        tarball = self._standard_registry(equivalences=[{"to_key": "aa:1"}])
+        with self.assertRaises(CommandError) as ctx:
+            self._run(tarball)
+        self.assertIn("malformed equivalence row", str(ctx.exception))
+
+    def test_equivalence_row_mapping_onto_itself_is_refused(self):
+        tarball = self._standard_registry(
+            equivalences=[{"from_key": "aa:1", "to_key": "aa:1"}]
+        )
+        with self.assertRaises(CommandError) as ctx:
+            self._run(tarball)
+        self.assertIn("onto itself", str(ctx.exception))
+
+    # ---- the authority-pack-loader guard `materialise_pack` owns itself -- #
+    def test_materialise_pack_refuses_a_pack_missing_its_manifest(self):
+        """The pack.yaml guard inside `materialise_pack` itself, not just its
+        caller's own pre-check — the guard that fires if that promise from a
+        caller is ever broken.
+        """
+        from opencontractserver.corpuses.management.commands.install_authority_pack import (  # noqa: E501
+            materialise_pack,
+        )
+
+        staged_pack = self.root / "pack-without-manifest"
+        staged_pack.mkdir()
+
+        with self.assertRaises(CommandError) as ctx:
+            materialise_pack(staged_pack, "pack-without-manifest")
+        self.assertIn("missing pack.yaml", str(ctx.exception))
