@@ -62,6 +62,13 @@ class CaseReporterGrammarTests(SimpleTestCase):
             assert len(cands) == 1, text
             assert cands[0].canonical_key == f"{C.CASE_REPORTER_PREFIX}:{key}"
 
+    def test_bare_federal_reporter_first_series(self):
+        """Bare 'F.' (1st series, 1880-1924) is its own reporter, distinct
+        from F.2d/3d/4th and never swallowed by the F. Supp. branch."""
+        cands = self._cites("Standard Oil Co. v. United States, 160 F. 903 (1908)")
+        assert len(cands) == 1
+        assert cands[0].canonical_key == f"{C.CASE_REPORTER_PREFIX}:160-f-903"
+
     def test_spacing_variants_normalise_to_one_key(self):
         """'S. Ct.' and 'S.Ct.' are the same reporter."""
         a = self._cites("139 S. Ct. 2400")

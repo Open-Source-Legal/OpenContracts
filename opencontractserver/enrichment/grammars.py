@@ -166,7 +166,7 @@ _MUNI_ORDINANCE_RE = re.compile(
 _REPORTERS = (
     r"U\.\s?S\.|S\.\s?Ct\.|L\.\s?Ed\.\s?(?:2d)?|"  # Supreme Court
     r"F\.\s?Supp\.\s?(?:2d|3d)?|"  # District
-    r"F\.\s?(?:2d|3d|4th)|"  # Circuits
+    r"F\.\s?(?:2d|3d|4th)?|"  # Circuits (bare "F." is 1st series, 1880-1924)
     r"F\.\s?App'?x|Fed\.\s?Cl\.|B\.\s?R\.|T\.\s?C\."  # Appendix, specialty
 )
 _REPORTER_RE = re.compile(
