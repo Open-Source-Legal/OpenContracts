@@ -95,6 +95,51 @@ def _top_prefix(names: list[str]) -> str:
     return next(iter(tops))
 
 
+def materialise_pack(staged_pack: Path, pack: str, stdout=None) -> Path:
+    """Move an extracted pack into ``AUTHORITY_PACK_INSTALL_DIR``; return its path.
+
+    Loading a pack into the database is only half of installing it. The install
+    dir is an implicit discovery root (``pipeline.registry.authority_pack_dirs``),
+    and three things are read from the pack DIRECTORY at runtime rather than from
+    the database:
+
+      * ``source_hosts`` — unioned into the SSRF allowlist, so a pack that
+        fetches from a live source can only reach it while its directory is
+        discoverable. "Installing the pack IS the trust decision."
+      * ``shape_rules`` and ``abbreviations`` — the pack's citation vocabulary,
+        merged into ``classify_prefix`` and the Tier-2a grammar.
+      * in-pack provider modules, which register with the pipeline registry.
+
+    A caller that loads straight from a temporary extraction directory gets the
+    sections and the taxonomy rows and silently loses all three, with nothing
+    failing at install time — which is why this is shared rather than
+    reimplemented per command.
+    """
+    # `pack` is used as a path component twice below, and one of those uses is
+    # an rmtree. `Path.__truediv__` does not collapse or reject `..`, so a value
+    # like "../../../../var/lib/x" resolves outside the install root and would
+    # delete whatever is there. Callers are expected to validate their input,
+    # but this is the destructive primitive — it validates for itself rather
+    # than trusting every present and future caller to have done it.
+    if not PACK_NAME_RE.match(pack):
+        raise CommandError(
+            f"Pack name {pack!r} is not a plain slug; refusing to use it as a path"
+        )
+    if not (staged_pack / "pack.yaml").is_file():
+        raise CommandError(
+            f"Extracted pack {pack!r} is missing pack.yaml; refusing to install"
+        )
+    install_root = Path(settings.AUTHORITY_PACK_INSTALL_DIR).expanduser()
+    install_root.mkdir(parents=True, exist_ok=True)
+    dest = install_root / pack
+    if dest.exists():
+        if stdout is not None:
+            stdout.write(f"Replacing previously fetched pack at {dest}")
+        shutil.rmtree(dest)
+    shutil.move(str(staged_pack), str(dest))
+    return dest
+
+
 class Command(BaseCommand):
     help = (
         "Fetch an authority pack from the pack registry repo into "
@@ -222,19 +267,7 @@ class Command(BaseCommand):
                     member.name = member.name[len(prefix) + 1 :]
                     tar.extract(member, path=staged, filter="data")
 
-            staged_pack = staged / pack
-            if not (staged_pack / "pack.yaml").is_file():
-                raise CommandError(
-                    f"Extracted pack {pack!r} is missing pack.yaml; refusing to install"
-                )
-
-            install_root = Path(settings.AUTHORITY_PACK_INSTALL_DIR).expanduser()
-            install_root.mkdir(parents=True, exist_ok=True)
-            dest = install_root / pack
-            if dest.exists():
-                self.stdout.write(f"Replacing previously fetched pack at {dest}")
-                shutil.rmtree(dest)
-            shutil.move(str(staged_pack), str(dest))
+            dest = materialise_pack(staged / pack, pack, self.stdout)
             self.stdout.write(self.style.SUCCESS(f"Pack materialised at {dest}"))
 
         if options["fetch_only"]:
