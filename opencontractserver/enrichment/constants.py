@@ -54,6 +54,18 @@ SEC_RULE_PREFIX = "sec-rule"
 # classifies via PREFIX_CLASSIFICATION.
 HTSUS_PREFIX = "htsus"
 
+# Canonical-key prefix for US case-reporter citations ("569 F.3d 326"). Like
+# HTSUS_PREFIX this is a SHAPE-level prefix, not a body of law: the grammar
+# recognises the citation form without knowing which court, jurisdiction or
+# case-law corpus (if any) is installed.
+#
+# Deliberately NOT the prefix a case-law pack binds to its own corpus. Packs key
+# opinions however they like — by party name, docket, or slug — and map the
+# reporter form to their own key with one ``equivalences`` row, exactly as they
+# already do for every other surface form. Emitting a pack's key from core would
+# bake one pack's naming convention into the grammar.
+CASE_REPORTER_PREFIX = "usreporter"
+
 # --- Title-identifier document citations (customs-ruling grammar) ---------- #
 # CBP CROSS-style corpora are "title-as-identifier" shaped: each document's
 # title IS an external identifier (a ruling number like ``H022844`` or
