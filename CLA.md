@@ -139,3 +139,9 @@ timestamp, and this document's version) is recorded in
 [`signatures/version1/cla.json`](signatures/version1/cla.json). You only
 need to sign once — the bot recognizes returning contributors
 automatically on later pull requests.
+
+Commits authored by maintainer-operated automation accounts (currently
+`dependabot[bot]` and `claude`, Claude Code's cloud-agent commit identity)
+are exempt from signing: copyright in those commits vests in whoever
+directed the tool, not in the automation account, so they aren't a third
+party asserting authorship.

@@ -64,13 +64,17 @@ async def _user_has_write_permission(
 async def _inject_corpus_memory(corpus_obj, config) -> None:
     """Inject corpus memory into the agent's system prompt if available.
 
-    Reads the memory document for the given corpus and appends the
-    formatted memory content to ``config.system_prompt``.  Silently
-    logs and skips on any failure so agent creation is never blocked.
+    Reads the memory document for the given corpus and queues the formatted
+    memory content on ``config.computed_context``, which
+    :meth:`AgentConfig.resolve_system_prompt` appends to the system prompt
+    once the persona default has been resolved.  Silently logs and skips on
+    any failure so agent creation is never blocked.
 
     Note: ``query=config.system_prompt`` is used as the relevance signal
     for section selection.  The user's actual question would be a better
-    signal, but it is not available at factory-creation time.
+    signal, but it is not available at factory-creation time.  At this point
+    ``system_prompt`` holds the caller-supplied prompt, or ``None`` when the
+    caller supplied none and the persona default has yet to be resolved.
 
     **Security / prompt-injection warning**: Memory content is a user-editable
     markdown Document.  Any corpus member can modify it via the UI, which means
@@ -82,7 +86,7 @@ async def _inject_corpus_memory(corpus_obj, config) -> None:
 
     Args:
         corpus_obj: The Corpus instance (must have ``memory_enabled=True``).
-        config: The AgentConfig whose ``system_prompt`` will be mutated.
+        config: The AgentConfig whose computed context will be extended.
     """
     try:
         from opencontractserver.agents.memory import (
@@ -94,9 +98,7 @@ async def _inject_corpus_memory(corpus_obj, config) -> None:
             corpus_obj, query=config.system_prompt or ""
         )
         if memory_content:
-            config.system_prompt = (
-                config.system_prompt or ""
-            ) + format_memory_for_prompt(memory_content)
+            config.add_computed_context(format_memory_for_prompt(memory_content))
     except Exception:
         logger.warning(
             "Failed to inject corpus memory for corpus %s",
@@ -155,6 +157,10 @@ async def _inject_temporal_grounding(config, corpus_obj=None) -> None:
     date pairs that temporal legal questions turn on — the date the question
     asks about versus the date the research ran, and when an authority was
     *approved* versus when it became *effective*.
+
+    The block is queued on ``config.computed_context`` rather than appended to
+    ``config.system_prompt``; the core factories fold it in after resolving the
+    persona default (see :meth:`AgentConfig.resolve_system_prompt`).
     """
     from django.utils import timezone
 
@@ -190,7 +196,7 @@ async def _inject_temporal_grounding(config, corpus_obj=None) -> None:
                 "effective date for what applied on a given day).",
             ]
         )
-        config.system_prompt = (config.system_prompt or "") + "\n".join(lines)
+        config.add_computed_context("\n".join(lines))
     except Exception:
         logger.warning("Failed to inject temporal grounding", exc_info=True)
 

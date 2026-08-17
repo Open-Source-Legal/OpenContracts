@@ -450,6 +450,43 @@ volume-mount it (pack *content* persists in the database, but the grammar tier
 re-reads taxonomy extensions from disk at process start). The usual restart
 rule applies after install.
 
+### Installing several packs as one assembly (domain packs)
+
+A pack is **one body of law** — one publisher, one update cadence, one
+provenance story, one approval status. An answer that needs several of them
+needs something a pack manifest cannot express: a `CorpusGroup` so cross-corpus
+retrieval reaches every member, an orchestrator agent bound to it describing how
+those bodies of law interact, and the equivalence rows that exist only because
+two packs are installed together (two bodies of law sharing a CFR title, for
+instance — an alias maps the whole title to one prefix, so a citation to the
+other one resolves to nothing).
+
+That set is a **domain pack**: `domains/<name>/domain.yaml` in the same
+registry, naming the base packs it requires and carrying no authority text of
+its own.
+
+```bash
+docker compose -f local.yml run --rm django python manage.py \
+  install_domain_pack --list
+docker compose -f local.yml run --rm django python manage.py \
+  install_domain_pack <name> --creator <username> --check    # plan only
+docker compose -f local.yml run --rm django python manage.py \
+  install_domain_pack <name> --creator <username> --public
+```
+
+It installs every required base pack exactly as `install_authority_pack` would
+— including materialising each into `AUTHORITY_PACK_INSTALL_DIR`, which the
+runtime needs — then creates the group, the orchestrator and the cross-pack
+rows in one transaction.
+
+The install contract (C1–C7) lives in the registry's `DOMAIN_PACKS.md` so both
+sides build to one spec. Two consequences worth knowing before authoring one:
+everything decidable from the files is decided **before anything is written**,
+on the `--check` path and the install path alike; and a group larger than
+`MULTI_CORPUS_SEARCH_MAX_CORPORA` is an error rather than a truncation, because
+`search_across_corpora` would otherwise search the first N *by id* and silently
+drop the most recently added corpora.
+
 ## Installing a sideloaded pack
 
 This is the normal path. The pack lives in its own repository; the install
