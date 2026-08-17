@@ -847,9 +847,8 @@ class DomainPackInstallTests(TestCase):
         self.assertIn("declares no `requires`", str(ctx.exception))
 
     def test_creator_required_to_install(self):
-        """Also covers the --check-without-creator preflight notice: this
-        path runs `_preflight_base_packs` (which skips C1 with no creator to
-        preflight as) before the --creator gate is checked.
+        """A plain install missing --creator refuses cleanly, with no
+        --check-flavoured preflight hint muddying the actual error.
         """
         tarball = self._standard_registry()
         out = StringIO()
@@ -858,7 +857,24 @@ class DomainPackInstallTests(TestCase):
                 "install_domain_pack", "testdomain", tarball=tarball, stdout=out
             )
         self.assertIn("--creator is required to install", str(ctx.exception))
+        self.assertNotIn("C1 pack validity not checked", out.getvalue())
+
+    def test_check_without_creator_shows_the_c1_skip_notice(self):
+        """--check without --creator still reports the plan; it says plainly
+        that C1 (pack validity) was not evaluated rather than let a clean run
+        imply it passed.
+        """
+        tarball = self._standard_registry()
+        out = StringIO()
+        call_command(
+            "install_domain_pack",
+            "testdomain",
+            tarball=tarball,
+            check=True,
+            stdout=out,
+        )
         self.assertIn("C1 pack validity not checked", out.getvalue())
+        self.assertIn("No changes were written", out.getvalue())
 
     def test_check_report_shows_excluded_corpora(self):
         tarball = self._standard_registry(
@@ -956,6 +972,15 @@ class DomainPackInstallTests(TestCase):
         self.assertIn("already installed and left in place: alpha", message)
         self.assertIn("installs converge", message)
         self.assertFalse(CorpusGroup.objects.filter(slug="test-group").exists())
+        self.assertTrue(
+            (self.install_dir / "alpha").exists(),
+            "the pack that actually installed must stay in place",
+        )
+        self.assertFalse(
+            (self.install_dir / "beta").exists(),
+            "a pack that materialised but never loaded must not leave its "
+            "source_hosts live in the SSRF-allowlist discovery root",
+        )
 
     # ---- pack.yaml is registry-authored, not domain-pack-authored, but an
     # installer must not trust ANY of its input -------------------------- #
@@ -1155,6 +1180,23 @@ class DomainPackInstallTests(TestCase):
         with self.assertRaises(CommandError) as ctx:
             self._run(tarball)
         self.assertIn("onto itself", str(ctx.exception))
+
+    def test_equivalence_key_whitespace_is_stripped_before_validation(self):
+        """Preflight validates the same stripped value `upsert_equivalence`
+        writes. Without stripping first, a manifest row with incidental
+        whitespace (an easy slip in YAML block-scalar indentation) fails
+        preflight's `is_valid_canonical_key` — which anchors at the start of
+        the string — even though the writer would have accepted it.
+        """
+        tarball = self._standard_registry(
+            equivalences=[{"from_key": " bb:1 ", "to_key": "aa:1", "note": "n"}]
+        )
+        self._run(tarball)
+        self.assertTrue(
+            AuthorityKeyEquivalence.objects.filter(
+                from_key="bb:1", to_key="aa:1"
+            ).exists()
+        )
 
     # ---- the authority-pack-loader guard `materialise_pack` owns itself -- #
     def test_materialise_pack_refuses_a_pack_missing_its_manifest(self):

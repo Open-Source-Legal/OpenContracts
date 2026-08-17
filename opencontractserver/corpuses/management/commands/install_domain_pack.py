@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import tarfile
 import tempfile
 from io import StringIO
@@ -80,7 +81,10 @@ MAX_EQUIVALENCE_NOTE = 255
 # mirrored in the registry's validate_domain.py: C3 says an install FAILS if the
 # platform cannot grant a declared tool, and the alternative to failing is an
 # agent that silently never calls a misspelled tool — indistinguishable from the
-# model choosing not to.
+# model choosing not to. Names are hand-kept in sync with the actual tool
+# registry (opencontractserver/llms/tools/tool_registry.py) rather than
+# imported from it, because that registry exposes far more than domain packs
+# should ever be allowed to grant.
 GRANTABLE_TOOLS = frozenset(
     {
         "search_across_corpora",
@@ -296,6 +300,7 @@ class Command(BaseCommand):
             # pack is not installing it.
             for position, pack_name in enumerate(required, start=1):
                 self.stdout.write(f"\n--- base pack: {pack_name}")
+                dest = None
                 try:
                     dest = materialise_pack(staged / pack_name, pack_name, self.stdout)
                     pack_dirs[pack_name] = dest
@@ -312,6 +317,16 @@ class Command(BaseCommand):
                     # error from load_authority_pack leaves the operator unable
                     # to tell a partial install from a no-op, and the install is
                     # idempotent (C6) so a re-run recovers.
+                    #
+                    # This pack's own directory is removed rather than left
+                    # materialised: pipeline discovery unions `source_hosts`
+                    # from every directory it finds in the install root into
+                    # the SSRF allowlist regardless of DB-load state, so a pack
+                    # that materialised but never loaded would otherwise leave
+                    # its hosts live in the trust boundary until the next
+                    # re-run overwrites it.
+                    if dest is not None:
+                        shutil.rmtree(dest, ignore_errors=True)
                     done = ", ".join(required[: position - 1]) or "none"
                     raise CommandError(
                         f"base pack {pack_name!r} ({position} of {len(required)}) "
@@ -413,13 +428,18 @@ class Command(BaseCommand):
         invalid pack.
         """
         if not options["creator"]:
-            # --check without a creator: the plan is still worth printing, but
-            # say plainly that this assertion was not evaluated rather than let
-            # a clean run imply it passed.
-            self.stdout.write(
-                "  (C1 pack validity not checked — pass --creator to preflight "
-                "each base pack)"
-            )
+            # This method runs unconditionally, before `--check` is even
+            # branched on, so a real install missing `--creator` reaches here
+            # too — and would otherwise print a `--check`-flavoured hint on a
+            # run that isn't a `--check` at all, moments before the actual
+            # "--creator is required to install" refusal. Only `--check`
+            # without a creator is the case where the plan is still worth
+            # printing but this assertion plainly was not evaluated.
+            if options["check"]:
+                self.stdout.write(
+                    "  (C1 pack validity not checked — pass --creator to "
+                    "preflight each base pack)"
+                )
             return []
 
         violations: list[str] = []
@@ -535,7 +555,12 @@ class Command(BaseCommand):
             if not isinstance(row, dict):
                 violations.append(f"C4: malformed equivalence row {row!r}")
                 continue
-            frm, to = str(row.get("from_key", "")), str(row.get("to_key", ""))
+            # Stripped exactly as `upsert_equivalence` strips before validating
+            # — a manifest row with leading/trailing whitespace (an easy slip
+            # in YAML block-scalar indentation) must not be refused here and
+            # then accepted by the writer, or vice versa.
+            frm = str(row.get("from_key", "")).strip()
+            to = str(row.get("to_key", "")).strip()
             if not frm or not to:
                 violations.append(f"C4: malformed equivalence row {row!r}")
                 continue
