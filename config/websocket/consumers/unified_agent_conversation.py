@@ -660,7 +660,32 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
         config_tools: list[Any] = []
         if self.agent_config and self.agent_config_id:
             if self.agent_config.system_instructions:
-                agent_kwargs["system_prompt"] = self.agent_config.system_instructions
+                # ``system_instructions_mode`` decides whether these instructions
+                # REPLACE the context-derived persona (the historical default)
+                # or EXTEND it.
+                #
+                # EXTEND exists because the two behaviours here were asymmetric:
+                # instructions replaced while tools merged, so attaching a tool
+                # to a corpus agent cost you the persona that knows the corpus.
+                # The only workaround was to paste the whole persona into
+                # ``system_instructions``, duplicating it into a second row that
+                # drifts from the corpus silently.
+                #
+                # EXTEND rides ``extra_system_context``, which the factory drains
+                # through ``AgentConfig.resolve_system_prompt`` AFTER resolving
+                # the persona — the mechanism added for issue #2247 for exactly
+                # this "append without consuming the persona signal" case.
+                # Setting ``system_prompt`` here instead would consume the
+                # "caller supplied nothing" signal and discard the persona, which
+                # is the bug #2247 was.
+                if self.agent_config.system_instructions_mode == "EXTEND":
+                    agent_kwargs["extra_system_context"] = (
+                        self.agent_config.system_instructions
+                    )
+                else:
+                    agent_kwargs["system_prompt"] = (
+                        self.agent_config.system_instructions
+                    )
             # Tool identifier strings resolve via ``ToolFunctionRegistry`` in
             # ``api._resolve_tools`` and MERGE with the factory's default
             # tool set (see the Note in this method's docstring).
