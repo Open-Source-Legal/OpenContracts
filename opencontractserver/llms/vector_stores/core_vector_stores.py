@@ -53,6 +53,28 @@ def _is_async_context() -> bool:
         return False
 
 
+def _diagnostics_enabled() -> bool:
+    """True when a diagnostic expensive enough to measure is worth computing.
+
+    ``_safe_queryset_info`` runs ``COUNT(*)`` over the annotation table, and
+    Python evaluates a logging call's ARGUMENTS before deciding whether the
+    level is enabled. So ``_logger.debug(await _safe_queryset_info(qs, ...))``
+    pays for the count on every search and then discards the string, and the
+    ``_logger.info`` variants paid for it AND emitted it in production.
+
+    Guarding on the level makes the whole class of diagnostics free when it is
+    off, which is the normal case. Call sites now read
+
+        if _diagnostics_enabled():
+            _logger.debug(await _safe_queryset_info(qs, "..."))
+
+    and every ``_safe_queryset_info`` / ``queryset.query`` site in this module
+    is guarded this way — the count is not the only eagerly-evaluated
+    diagnostic here, stringifying ``queryset.query`` compiles the SQL.
+    """
+    return _logger.isEnabledFor(logging.DEBUG)
+
+
 async def _safe_queryset_info(queryset, description: str) -> str:
     """Safely log queryset/list information in both sync and async contexts.
 
@@ -252,9 +274,11 @@ class CoreAnnotationVectorStore(BaseVectorStore):
         queryset = Annotation.objects.select_related(
             "annotation_label", "document", "corpus"
         ).all()
-        _logger.info(
-            await _safe_queryset_info(queryset, "Initial: Total annotations in DB")
-        )
+        if _diagnostics_enabled():
+            # NOTE: this one counts the ENTIRE annotation table, unfiltered.
+            _logger.debug(
+                await _safe_queryset_info(queryset, "Initial: Total annotations in DB")
+            )
 
         active_filters = Q()
 
@@ -436,9 +460,10 @@ class CoreAnnotationVectorStore(BaseVectorStore):
         # Apply accumulated document/corpus scope filters if any were added
         if active_filters != Q():  # Check if any conditions were actually added
             queryset = queryset.filter(active_filters)
-            _logger.info(
-                await _safe_queryset_info(queryset, "After document/corpus scoping")
-            )
+            if _diagnostics_enabled():
+                _logger.debug(
+                    await _safe_queryset_info(queryset, "After document/corpus scoping")
+                )
         else:
             _logger.info(
                 "No document/corpus scope filters applied (e.g., "
@@ -450,11 +475,12 @@ class CoreAnnotationVectorStore(BaseVectorStore):
         # ------------------------------------------------------------------ #
         if self.must_have_text:
             queryset = queryset.filter(raw_text__icontains=self.must_have_text)
-            _logger.info(
-                await _safe_queryset_info(
-                    queryset, f"After must_have_text='{self.must_have_text}' filter"
+            if _diagnostics_enabled():
+                _logger.debug(
+                    await _safe_queryset_info(
+                        queryset, f"After must_have_text='{self.must_have_text}' filter"
+                    )
                 )
-            )
 
         # -------------------------------------------------------------- #
         # Visibility rules
@@ -484,14 +510,16 @@ class CoreAnnotationVectorStore(BaseVectorStore):
             # non-structural annotations explicitly made public.
             visibility_q = Q(structural=True) | Q(structural=False, is_public=True)
 
-        _logger.debug(f"Applying visibility filter: {visibility_q}")
         queryset = queryset.filter(visibility_q)
-        _logger.debug(f"Query after visibility filter: {queryset.query}")
-        _logger.info(
-            await _safe_queryset_info(
-                queryset, "Annotations after visibility filtering"
+        if _diagnostics_enabled():
+            _logger.debug("Applying visibility filter: %s", visibility_q)
+            # ``queryset.query`` compiles the SQL, so it is not free either.
+            _logger.debug("Query after visibility filter: %s", queryset.query)
+            _logger.debug(
+                await _safe_queryset_info(
+                    queryset, "Annotations after visibility filtering"
+                )
             )
-        )
 
         # ------------------------------------------------------------------ #
         # Content modality filtering
@@ -510,13 +538,15 @@ class CoreAnnotationVectorStore(BaseVectorStore):
                 # content_modalities__contains checks if array contains the value
                 modality_q |= Q(content_modalities__contains=[modality])
             queryset = queryset.filter(modality_q)
-            _logger.info(
-                await _safe_queryset_info(
-                    queryset, f"After modalities={self.modalities} filter"
+            if _diagnostics_enabled():
+                _logger.debug(
+                    await _safe_queryset_info(
+                        queryset, f"After modalities={self.modalities} filter"
+                    )
                 )
-            )
 
-        _logger.debug("Generated SQL query: %s", queryset.query)
+        if _diagnostics_enabled():
+            _logger.debug("Generated SQL query: %s", queryset.query)
 
         return queryset
 
@@ -538,7 +568,8 @@ class CoreAnnotationVectorStore(BaseVectorStore):
                 # Generic filter fallback
                 queryset = queryset.filter(**{f"{key}__icontains": value})
 
-        _logger.debug(f"After metadata filters: {queryset.query}")
+        if _diagnostics_enabled():
+            _logger.debug("After metadata filters: %s", queryset.query)
         return queryset
 
     # ------------------------------------------------------------------ #
@@ -927,7 +958,8 @@ class CoreAnnotationVectorStore(BaseVectorStore):
                 embedder_path=self.embedder_path,
                 top_k=first_stage_top_k,
             )
-            _logger.debug(_safe_queryset_info_sync(queryset, "After vector search"))
+            if _diagnostics_enabled():
+                _logger.debug(_safe_queryset_info_sync(queryset, "After vector search"))
         else:
             # Fallback to standard filtering with limit
             if vector is None:
@@ -940,7 +972,10 @@ class CoreAnnotationVectorStore(BaseVectorStore):
                 )
 
             queryset = base_queryset[:first_stage_top_k]
-            _logger.debug(_safe_queryset_info_sync(queryset, "After limiting results"))
+            if _diagnostics_enabled():
+                _logger.debug(
+                    _safe_queryset_info_sync(queryset, "After limiting results")
+                )
 
         # Execute query and convert to results
         _logger.debug("Fetching annotations from database")
@@ -1572,7 +1607,10 @@ class CoreAnnotationVectorStore(BaseVectorStore):
                     top_k=first_stage_top_k,
                 )
             )()
-            _logger.debug(await _safe_queryset_info(queryset, "After vector search"))
+            if _diagnostics_enabled():
+                _logger.debug(
+                    await _safe_queryset_info(queryset, "After vector search")
+                )
         else:
             # Fallback to standard filtering with limit
             if vector is None:
@@ -1585,7 +1623,10 @@ class CoreAnnotationVectorStore(BaseVectorStore):
                 )
 
             queryset = base_queryset[:first_stage_top_k]
-            _logger.debug(await _safe_queryset_info(queryset, "After limiting results"))
+            if _diagnostics_enabled():
+                _logger.debug(
+                    await _safe_queryset_info(queryset, "After limiting results")
+                )
 
         # Execute query and convert to results
         _logger.debug("Fetching annotations from database")
