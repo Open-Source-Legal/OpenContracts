@@ -27,6 +27,7 @@ from __future__ import annotations
 import logging
 from unittest.mock import patch
 
+from asgiref.sync import async_to_sync
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 
@@ -42,6 +43,7 @@ from opencontractserver.llms.vector_stores.core_vector_stores import (
     VectorSearchQuery,
 )
 from opencontractserver.pipeline.utils import get_default_embedder_path
+from opencontractserver.types.enums import ContentModality
 
 User = get_user_model()
 
@@ -89,6 +91,7 @@ class DiagnosticsAreGatedTests(TestCase):
                 structural=True,
                 structural_set=self.structural_set,
                 page=1,
+                content_modalities=[ContentModality.TEXT.value],
             )
             # The DEFAULT embedder path, so the vector lands in the column the
             # store reads back; a made-up path stores the row and then matches
@@ -172,3 +175,136 @@ class DiagnosticsAreGatedTests(TestCase):
 
         self.assertEqual(quiet, verbose)
         self.assertTrue(quiet, "search returned nothing; the comparison proves nothing")
+
+    def test_must_have_text_modalities_and_metadata_diagnostics_run_at_debug(
+        self,
+    ) -> None:
+        """The must_have_text / modalities / metadata-filter guards also defer.
+
+        The three tests above only exercise the default (no ``must_have_text``,
+        no ``modalities``, no ``filters``) path through ``_build_base_queryset``
+        and ``_apply_metadata_filters``. Those guarded call sites live behind
+        their own ``if <condition>:`` blocks, so a search that never sets
+        these options never reaches the diagnostics guard at all — proving
+        nothing about it either way.
+        """
+        store = CoreAnnotationVectorStore(
+            user_id=self.user.id,
+            corpus_id=self.corpus.id,
+            document_id=None,
+            check_corpus_deletion=False,
+            must_have_text="paragraph",
+            modalities=[ContentModality.TEXT.value],
+        )
+        query = VectorSearchQuery(
+            query_embedding=_constant_vector(384, 0.5),
+            similarity_top_k=10,
+            filters={"label": "Paragraph"},
+        )
+
+        logger = logging.getLogger(VECTOR_STORE_LOGGER)
+        previous = logger.level
+        logger.setLevel(logging.DEBUG)
+        try:
+            with self.assertLogs(VECTOR_STORE_LOGGER, level=logging.DEBUG) as logs:
+                found = [result.annotation.id for result in store.search(query)]
+        finally:
+            logger.setLevel(previous)
+
+        self.assertTrue(
+            found, "search returned nothing; the assertions below are vacuous"
+        )
+        joined = "\n".join(logs.output)
+        for expected in (
+            "After must_have_text=",
+            "After modalities=",
+            "After metadata filters",
+        ):
+            self.assertIn(
+                expected, joined, f"{expected!r} diagnostic never ran at DEBUG"
+            )
+
+    def test_vector_only_mode_fallback_diagnostics_run_at_debug(self) -> None:
+        """``mode='vector'`` with no usable embedding still defers, not deletes.
+
+        Every other test here searches in the default hybrid mode, which
+        never reaches ``_run_vector_only_sync``'s standard-filtering fallback
+        (no embedding, no text) at all.
+        """
+        store = CoreAnnotationVectorStore(
+            user_id=self.user.id,
+            corpus_id=self.corpus.id,
+            document_id=None,
+            check_corpus_deletion=False,
+        )
+        query = VectorSearchQuery(
+            query_embedding=None,
+            query_text=None,
+            similarity_top_k=10,
+            mode="vector",
+        )
+
+        logger = logging.getLogger(VECTOR_STORE_LOGGER)
+        previous = logger.level
+        logger.setLevel(logging.DEBUG)
+        try:
+            with self.assertLogs(VECTOR_STORE_LOGGER, level=logging.DEBUG) as logs:
+                found = [result.annotation.id for result in store.search(query)]
+        finally:
+            logger.setLevel(previous)
+
+        self.assertTrue(
+            found, "search returned nothing; the assertion below is vacuous"
+        )
+        self.assertIn(
+            "After limiting results",
+            "\n".join(logs.output),
+            "the vector-only fallback diagnostic never ran at DEBUG",
+        )
+
+    def test_async_vector_only_mode_diagnostics_run_at_debug(self) -> None:
+        """The async vector-only path defers on both its embedding and fallback arms.
+
+        ``async_search(mode="vector")`` never runs from the other tests, so
+        neither ``_async_vector_only`` branch (embedding found / fallback) is
+        otherwise exercised.
+        """
+        store = CoreAnnotationVectorStore(
+            user_id=self.user.id,
+            corpus_id=self.corpus.id,
+            document_id=None,
+            check_corpus_deletion=False,
+        )
+
+        logger = logging.getLogger(VECTOR_STORE_LOGGER)
+        previous = logger.level
+        logger.setLevel(logging.DEBUG)
+        try:
+            with_embedding = VectorSearchQuery(
+                query_embedding=_constant_vector(384, 0.5),
+                similarity_top_k=10,
+                mode="vector",
+            )
+            with self.assertLogs(
+                VECTOR_STORE_LOGGER, level=logging.DEBUG
+            ) as logs_with_embedding:
+                found = async_to_sync(store.async_search)(with_embedding)
+
+            without_embedding = VectorSearchQuery(
+                query_embedding=None,
+                query_text=None,
+                similarity_top_k=10,
+                mode="vector",
+            )
+            with self.assertLogs(
+                VECTOR_STORE_LOGGER, level=logging.DEBUG
+            ) as logs_fallback:
+                async_to_sync(store.async_search)(without_embedding)
+        finally:
+            logger.setLevel(previous)
+
+        self.assertTrue(
+            found, "search returned nothing; the assertion below is vacuous"
+        )
+        self.assertIn("After vector search", "\n".join(logs_with_embedding.output))
+        self.assertIn("After limiting results", "\n".join(logs_fallback.output))
