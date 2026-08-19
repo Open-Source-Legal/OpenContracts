@@ -61,9 +61,7 @@ class DiagnosticsAreGatedTests(TestCase):
         self.corpus = Corpus.objects.create(
             title="Diag Corpus", creator=self.user, is_public=True
         )
-        self.structural_set = StructuralAnnotationSet.objects.create(
-            creator=self.user
-        )
+        self.structural_set = StructuralAnnotationSet.objects.create(creator=self.user)
         self.doc = Document.objects.create(
             title="Diag Doc",
             creator=self.user,
@@ -113,9 +111,7 @@ class DiagnosticsAreGatedTests(TestCase):
 
     def test_no_count_diagnostics_run_when_debug_is_off(self) -> None:
         """At INFO the helper must not be CALLED — not merely not logged."""
-        with patch(
-            f"{VECTOR_STORE_LOGGER}._safe_queryset_info"
-        ) as async_info, patch(
+        with patch(f"{VECTOR_STORE_LOGGER}._safe_queryset_info") as async_info, patch(
             f"{VECTOR_STORE_LOGGER}._safe_queryset_info_sync"
         ) as sync_info:
             with self.assertLogs(VECTOR_STORE_LOGGER, level=logging.INFO):
@@ -124,7 +120,9 @@ class DiagnosticsAreGatedTests(TestCase):
                 # already-materialised lists and costs nothing).
                 logging.getLogger(VECTOR_STORE_LOGGER).info("probe")
                 found = self._search()
-        self.assertTrue(found, "search returned nothing; the assertion below is vacuous")
+        self.assertTrue(
+            found, "search returned nothing; the assertion below is vacuous"
+        )
 
         self.assertEqual(
             async_info.call_count + sync_info.call_count,
@@ -149,7 +147,9 @@ class DiagnosticsAreGatedTests(TestCase):
         finally:
             logger.setLevel(previous)
 
-        self.assertTrue(found, "search returned nothing; the assertion below is vacuous")
+        self.assertTrue(
+            found, "search returned nothing; the assertion below is vacuous"
+        )
         self.assertGreater(
             calls,
             0,

@@ -965,9 +965,7 @@ class CoreAnnotationVectorStore(BaseVectorStore):
                 top_k=first_stage_top_k,
             )
             if _diagnostics_enabled():
-                _logger.debug(
-                    _safe_queryset_info_sync(queryset, "After vector search")
-                )
+                _logger.debug(_safe_queryset_info_sync(queryset, "After vector search"))
         else:
             # Fallback to standard filtering with limit
             if vector is None:
