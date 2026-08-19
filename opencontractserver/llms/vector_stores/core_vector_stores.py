@@ -62,12 +62,6 @@ def _diagnostics_enabled() -> bool:
     pays for the count on every search and then discards the string, and the
     ``_logger.info`` variants paid for it AND emitted it in production.
 
-    Measured on a 4,679-section authority deployment (18-corpus group, warm
-    caches): three of these counts cost **12.9 s of a 16.5 s search**, 78% of
-    the total, and the most expensive was an UNFILTERED count of every
-    annotation in the database — issued once per search to log a number that
-    changes only when someone uploads a document.
-
     Guarding on the level makes the whole class of diagnostics free when it is
     off, which is the normal case. Call sites now read
 
