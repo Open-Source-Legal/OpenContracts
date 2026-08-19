@@ -280,6 +280,16 @@ class UnifiedAgentFactory:
         create_kwargs: dict[str, Any] = {}
         if "restrict_tool_names" in kwargs:
             create_kwargs["restrict_tool_names"] = kwargs.pop("restrict_tool_names")
+
+        # ``extra_system_context`` APPENDS to the persona instead of replacing
+        # it (AgentConfiguration.system_instructions_mode == "EXTEND"). Popped
+        # here so it never reaches AgentConfig as a field, and queued below
+        # through ``add_computed_context`` — the same channel corpus memory and
+        # temporal grounding use, which drains AFTER persona resolution.
+        # Assigning to ``system_prompt`` instead would consume the "caller
+        # supplied no prompt" signal and silently discard the persona, which is
+        # precisely bug #2247.
+        extra_system_context = kwargs.pop("extra_system_context", None)
         # Back-compat: `restrict_tools=True` without names does nothing useful
         kwargs.pop("restrict_tools", None)
 
@@ -348,6 +358,9 @@ class UnifiedAgentFactory:
         # --------------------------------------------------------------
         # Public corpus/document ⇒ strip approval-gated tools
         # --------------------------------------------------------------
+
+        if extra_system_context:
+            config.add_computed_context(extra_system_context)
 
         # Corpus memory injection
         if corpus_obj and getattr(corpus_obj, "memory_enabled", False):
@@ -502,6 +515,16 @@ class UnifiedAgentFactory:
         if "restrict_tool_names" in kwargs:
             create_kwargs["restrict_tool_names"] = kwargs.pop("restrict_tool_names")
 
+        # ``extra_system_context`` APPENDS to the persona instead of replacing
+        # it (AgentConfiguration.system_instructions_mode == "EXTEND"). Popped
+        # here so it never reaches AgentConfig as a field, and queued below
+        # through ``add_computed_context`` — the same channel corpus memory and
+        # temporal grounding use, which drains AFTER persona resolution.
+        # Assigning to ``system_prompt`` instead would consume the "caller
+        # supplied no prompt" signal and silently discard the persona, which is
+        # precisely bug #2247.
+        extra_system_context = kwargs.pop("extra_system_context", None)
+
         # Resolve corpus first so its ``preferred_llm`` can feed into the
         # model resolver below.
         try:
@@ -558,6 +581,9 @@ class UnifiedAgentFactory:
         # --------------------------------------------------------------
         # Public corpus/document ⇒ strip approval-gated tools
         # --------------------------------------------------------------
+
+        if extra_system_context:
+            config.add_computed_context(extra_system_context)
 
         # Corpus memory injection
         if corpus_obj and getattr(corpus_obj, "memory_enabled", False):
