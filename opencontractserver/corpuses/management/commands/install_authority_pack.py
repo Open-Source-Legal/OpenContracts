@@ -28,6 +28,7 @@ Grammar-tier pack taxonomy extensions (``abbreviations``/``shape_rules``) are
 first-time install — the command prints the reminder.
 """
 
+import logging
 import re
 import shutil
 import tarfile
@@ -37,6 +38,8 @@ from pathlib import Path
 from django.conf import settings
 from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
+
+logger = logging.getLogger(__name__)
 
 # Pack directories are addressed by name inside the install dir; constrain to a
 # conservative slug so a hostile registry listing can never traverse paths.
@@ -138,6 +141,63 @@ def materialise_pack(staged_pack: Path, pack: str, stdout=None) -> Path:
         shutil.rmtree(dest)
     shutil.move(str(staged_pack), str(dest))
     return dest
+
+
+def _report_pack_providers(pack_dir, stdout, style) -> None:
+    """Print the provider modules a pack ships, if any. Never imports them.
+
+    Installing a pack that ships ``providers/`` imports its Python into the web
+    and worker processes, so the operator should be able to see that surface
+    before the install writes anything. Reads the filesystem and, when present,
+    the OPTIONAL ``providers:`` declaration in pack.yaml — never the modules.
+    """
+    from opencontractserver.pipeline.registry import pack_component_modules
+
+    pack_dir = Path(pack_dir)
+    shipped: list[tuple[str, str]] = [
+        (subdir, py.name)
+        for subdir in ("providers", "discovery_providers")
+        for py in pack_component_modules(pack_dir, subdir)
+    ]
+    if not shipped:
+        return
+
+    stdout.write(
+        style.WARNING(
+            f"This pack ships {len(shipped)} provider module(s). Loading the pack "
+            "IMPORTS them into the web and worker processes:"
+        )
+    )
+    for subdir, name in shipped:
+        stdout.write(f"    {subdir}/{name}")
+
+    # The declaration is optional and descriptive; show it when a pack has one
+    # so the claimed prefixes are visible without reading Python.
+    try:
+        import yaml
+
+        manifest = yaml.safe_load((pack_dir / "pack.yaml").read_text()) or {}
+        for entry in manifest.get("providers") or []:
+            stdout.write(
+                f"    declares: {entry.get('class')} "
+                f"prefixes={entry.get('supported_prefixes')} "
+                f"delegates_to={entry.get('delegates_to') or '-'}"
+            )
+    except (
+        Exception
+    ) as exc:  # noqa: BLE001 - a missing/mis-parsing manifest is not fatal here
+        # load_authority_pack (called right after, on the install path) will
+        # hit and report the same malformed YAML properly; this is just the
+        # optional "declares: ..." preview, so log at debug rather than warn.
+        logger.debug("Could not read pack.yaml providers declaration: %s", exc)
+
+    if not getattr(settings, "AUTHORITY_PACK_LOAD_PROVIDERS", True):
+        stdout.write(
+            style.SUCCESS(
+                "    AUTHORITY_PACK_LOAD_PROVIDERS is off — these will NOT be "
+                "imported. The pack's text still installs and serves."
+            )
+        )
 
 
 class Command(BaseCommand):
@@ -269,6 +329,18 @@ class Command(BaseCommand):
 
             dest = materialise_pack(staged / pack, pack, self.stdout)
             self.stdout.write(self.style.SUCCESS(f"Pack materialised at {dest}"))
+
+        # Say what code this pack ships, without importing it — reporting a
+        # pack's providers by executing them would defeat the point. This runs
+        # for --fetch-only too, not just before the DB-writing install below:
+        # materialise_pack() has already placed the pack under
+        # AUTHORITY_PACK_INSTALL_DIR, an implicit discovery root
+        # (authority_pack_dirs()), so the NEXT get_registry() call in any
+        # web/worker process — independent of ever running load_authority_pack
+        # or supplying --creator — is what actually imports providers/*.py.
+        # --fetch-only alone creates that exposure, so it needs the same
+        # visibility.
+        _report_pack_providers(dest, self.stdout, self.style)
 
         if options["fetch_only"]:
             self.stdout.write(
