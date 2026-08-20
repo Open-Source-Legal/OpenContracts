@@ -11,9 +11,16 @@ defaults:
   working-directory: ./
 
 on:
+  # NOTE: no `paths-ignore` on pull_request, deliberately. The `gate` job at
+  # the bottom of this file is the one meant to be REQUIRED by `main`'s branch
+  # protection, and a workflow skipped by path filtering never reports its
+  # checks at all — the required check would hang Pending and the PR would be
+  # permanently unmergeable. So the workflow always starts on a PR; the `changes` path
+  # filter below still keeps the expensive jobs from running, and a
+  # docs-only PR costs two ubuntu-latest jobs of a few seconds each.
+  # `push` keeps its filter: branch protection does not gate pushes.
   pull_request:
     branches: [ "master", "main", "v*" ]
-    paths-ignore: [ "docs/**" ]
 
   push:
     branches: [ "master", "main", "v*" ]
@@ -279,3 +286,40 @@ jobs:
 
       - name: Tear down the Stack
         run:  docker compose -f test.yml down
+
+  gate:
+    # The job to require on `main` — this one, not `pytest`. See
+    # .github/scripts/backend_ci_gate.sh for why requiring `pytest` directly
+    # leaves a red linter mergeable (a job skipped by its own `if:` reports
+    # SUCCESS to branch protection, and a red linter skips pytest).
+    #
+    # NOT YET REQUIRED as of this commit: `main` has no `required_status_checks`
+    # object at all, so merging this job gates nothing by itself. Turn it on
+    # with .github/scripts/require_backend_ci_gate.sh --apply, and check with
+    # `gh api repos/{owner}/{repo}/branches/main/protection` whether that has
+    # happened rather than assuming this comment is current.
+    #
+    # `if: always()` is what makes this requirable: it reports on every PR,
+    # including ones where every job above it was skipped.
+    name: backend-ci-gate
+    needs: [changes, linter, pytest]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout Code Repository
+        uses: actions/checkout@v7
+
+      - name: Self-test the gate logic
+        # Runs first, and on every invocation: a gate whose own decision
+        # table has silently inverted is worse than no gate. Costs ~0.1s.
+        run: bash .github/scripts/backend_ci_gate.sh --self-test
+
+      - name: Evaluate Backend CI results
+        run: |
+          bash .github/scripts/backend_ci_gate.sh \
+            "${{ github.event_name }}" \
+            "${{ needs.changes.outputs.backend }}" \
+            "${{ needs.linter.result }}" \
+            "${{ needs.pytest.result }}"
