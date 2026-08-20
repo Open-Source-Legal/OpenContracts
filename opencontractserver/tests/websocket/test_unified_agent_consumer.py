@@ -850,6 +850,7 @@ class UnifiedAgentConsumerAgentConfigThreadingTestCase(WebsocketFixtureBaseTestC
         consumer.agent_config = SimpleNamespace(
             preferred_llm="",
             system_instructions="You are the cross-corpus orchestrator.",
+            system_instructions_mode="REPLACE",
             available_tools=["search_across_corpora"],
         )
         # ``agent_config_id`` is only set when the client passed
