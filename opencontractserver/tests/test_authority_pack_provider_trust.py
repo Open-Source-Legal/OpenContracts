@@ -37,7 +37,7 @@ _REGISTRY_LOGGER = "opencontractserver.pipeline.registry"
 
 # Writes a file when imported, so "was this module executed?" is answerable
 # independently of whether its class ended up registered.
-_PROVIDER_SRC = '''
+_PROVIDER_SRC = """
 from pathlib import Path
 
 from opencontractserver.pipeline.base.base_authority_source_provider import (
@@ -62,7 +62,7 @@ class TrustProbeSourceProvider(BaseAuthoritySourceProvider):
 
     def _fetch_impl(self, request, **kwargs):
         raise NotImplementedError
-'''
+"""
 
 
 class _PackFixture(SimpleTestCase):
@@ -164,7 +164,7 @@ class DelegationSeamTests(SimpleTestCase):
     def test_returns_a_usable_core_provider_instance(self) -> None:
         provider = get_authority_source_provider("CFRAuthoritySourceProvider")
 
-        self.assertIsNotNone(provider)
+        assert provider is not None  # narrows the Optional for the calls below
         # The thing a delegating pack provider actually needs: routing plus a
         # pure locate it can hand a translated key to.
         self.assertTrue(provider.can_handle("cfr-22:120.4"))
