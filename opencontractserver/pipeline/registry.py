@@ -228,6 +228,24 @@ def authority_pack_dirs() -> list[Path]:
     return unique
 
 
+def pack_component_modules(pack_dir: Path, subdir_name: str) -> list[Path]:
+    """Provider modules a single pack directory SHIPS, without importing any.
+
+    The single-directory primitive behind ``pack_provider_modules`` (which
+    folds this over every discovered pack) and behind
+    ``install_authority_pack``'s pre-install report, which needs just the
+    one freshly-fetched pack rather than every pack on the install. Mirrors
+    the filtering ``_discover_pack_component_classes`` applies (``*.py``, no
+    leading underscore) so every caller counts the same set.
+    """
+    component_dir = Path(pack_dir) / subdir_name
+    if not component_dir.is_dir():
+        return []
+    return [
+        py for py in sorted(component_dir.glob("*.py")) if not py.name.startswith("_")
+    ]
+
+
 def pack_provider_modules(subdir_name: str) -> list[Path]:
     """Provider modules a pack SHIPS, found without importing any of them.
 
@@ -239,14 +257,7 @@ def pack_provider_modules(subdir_name: str) -> list[Path]:
     """
     modules: list[Path] = []
     for pack_dir in authority_pack_dirs():
-        component_dir = pack_dir / subdir_name
-        if not component_dir.is_dir():
-            continue
-        modules.extend(
-            py
-            for py in sorted(component_dir.glob("*.py"))
-            if not py.name.startswith("_")
-        )
+        modules.extend(pack_component_modules(pack_dir, subdir_name))
     return modules
 
 

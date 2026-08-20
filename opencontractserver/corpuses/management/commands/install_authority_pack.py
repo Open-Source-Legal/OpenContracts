@@ -148,17 +148,14 @@ def _report_pack_providers(pack_dir, stdout, style) -> None:
     before the install writes anything. Reads the filesystem and, when present,
     the OPTIONAL ``providers:`` declaration in pack.yaml — never the modules.
     """
-    from pathlib import Path as _Path
+    from opencontractserver.pipeline.registry import pack_component_modules
 
-    pack_dir = _Path(pack_dir)
-    shipped: list[tuple[str, str]] = []
-    for subdir in ("providers", "discovery_providers"):
-        component_dir = pack_dir / subdir
-        if not component_dir.is_dir():
-            continue
-        for py in sorted(component_dir.glob("*.py")):
-            if not py.name.startswith("_"):
-                shipped.append((subdir, py.name))
+    pack_dir = Path(pack_dir)
+    shipped: list[tuple[str, str]] = [
+        (subdir, py.name)
+        for subdir in ("providers", "discovery_providers")
+        for py in pack_component_modules(pack_dir, subdir)
+    ]
     if not shipped:
         return
 
@@ -183,10 +180,8 @@ def _report_pack_providers(pack_dir, stdout, style) -> None:
                 f"prefixes={entry.get('supported_prefixes')} "
                 f"delegates_to={entry.get('delegates_to') or '-'}"
             )
-    except Exception:  # noqa: BLE001 - a missing/!parsing manifest is not fatal here
+    except Exception:  # noqa: BLE001 - a missing/mis-parsing manifest is not fatal here
         pass
-
-    from django.conf import settings
 
     if not getattr(settings, "AUTHORITY_PACK_LOAD_PROVIDERS", True):
         stdout.write(

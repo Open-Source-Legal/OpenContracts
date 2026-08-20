@@ -261,6 +261,56 @@ class InstallAuthorityPackCommandTests(TestCase):
             dirs = [p.name for p in authority_pack_dirs()]
         self.assertIn("good_pack", dirs)
 
+    # ---- pre-install provider report -------------------------------------
+    # `_report_pack_providers` — the code surface an operator sees before
+    # any DB write. `--check` exercises it without installing.
+
+    def test_pack_with_no_providers_gets_no_report(self):
+        out = self._run("good_pack", creator="packowner", check=True)
+        self.assertNotIn("provider module", out)
+
+    def test_reports_shipped_provider_modules_and_manifest_declaration(self):
+        manifest = {
+            "name": "p",
+            "corpora": [{"title": "Registry Pack A", "spec": "a.json"}],
+            "providers": [
+                {
+                    "class": "DelegatingProvider",
+                    "supported_prefixes": ["itar"],
+                    "delegates_to": "CFRAuthoritySourceProvider",
+                }
+            ],
+        }
+        pack = _minimal_pack()
+        pack["pack.yaml"] = yaml.safe_dump(manifest, allow_unicode=True)
+        pack["providers/delegating_provider.py"] = "# stub, never imported by --check"
+        self.tarball = _build_registry_tarball(
+            self.tmp / "withprovider.tar.gz", packs={"provider_pack": pack}
+        )
+
+        out = self._run("provider_pack", creator="packowner", check=True)
+
+        self.assertIn("ships 1 provider module(s)", out)
+        self.assertIn("providers/delegating_provider.py", out)
+        self.assertIn("declares: DelegatingProvider", out)
+        self.assertIn("prefixes=['itar']", out)
+        self.assertIn("delegates_to=CFRAuthoritySourceProvider", out)
+        self.assertNotIn("AUTHORITY_PACK_LOAD_PROVIDERS is off", out)
+
+    def test_reports_when_load_providers_disabled(self):
+        pack = _minimal_pack()
+        pack["providers/delegating_provider.py"] = "# stub, never imported by --check"
+        self.tarball = _build_registry_tarball(
+            self.tmp / "withprovider.tar.gz", packs={"provider_pack": pack}
+        )
+
+        with override_settings(AUTHORITY_PACK_LOAD_PROVIDERS=False):
+            out = self._run("provider_pack", creator="packowner", check=True)
+
+        self.assertIn(
+            "AUTHORITY_PACK_LOAD_PROVIDERS is off — these will NOT be imported", out
+        )
+
 
 class DownloadTarballTests(SimpleTestCase):
     """Direct tests for the network fetch helper, with `requests` mocked."""
