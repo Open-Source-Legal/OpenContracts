@@ -243,7 +243,8 @@ def pack_provider_modules(subdir_name: str) -> list[Path]:
         if not component_dir.is_dir():
             continue
         modules.extend(
-            py for py in sorted(component_dir.glob("*.py"))
+            py
+            for py in sorted(component_dir.glob("*.py"))
             if not py.name.startswith("_")
         )
     return modules
@@ -509,7 +510,9 @@ class PipelineComponentRegistry:
                     "serve their text; only re-fetch is unavailable.",
                     len(skipped),
                     subdir_name,
-                    ", ".join(sorted(p.parent.parent.name + "/" + p.name for p in skipped)),
+                    ", ".join(
+                        sorted(p.parent.parent.name + "/" + p.name for p in skipped)
+                    ),
                 )
             return []
 
@@ -1087,7 +1090,9 @@ def get_authority_source_provider(class_name: str) -> Optional[Any]:
     of breaking registry build.
     """
     registry = get_registry()
-    definition = registry.get_by_class_name(class_name) or registry.get_by_name(class_name)
+    definition = registry.get_by_class_name(class_name) or registry.get_by_name(
+        class_name
+    )
     if definition is None:
         # ``class_name`` is stored as a full dotted path; a pack author writes
         # the leaf. Accept either, and refuse an ambiguous leaf rather than
@@ -1114,7 +1119,9 @@ def get_authority_source_provider(class_name: str) -> Optional[Any]:
         return None
     try:
         return component()
-    except Exception as exc:  # pragma: no cover - defensive; a provider ctor should be trivial
+    except (
+        Exception
+    ) as exc:  # pragma: no cover - defensive; a provider ctor should be trivial
         logger.warning(
             "Could not instantiate authority source provider %r: %s", class_name, exc
         )
