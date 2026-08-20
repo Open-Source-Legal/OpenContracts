@@ -140,6 +140,63 @@ def materialise_pack(staged_pack: Path, pack: str, stdout=None) -> Path:
     return dest
 
 
+def _report_pack_providers(pack_dir, stdout, style) -> None:
+    """Print the provider modules a pack ships, if any. Never imports them.
+
+    Installing a pack that ships ``providers/`` imports its Python into the web
+    and worker processes, so the operator should be able to see that surface
+    before the install writes anything. Reads the filesystem and, when present,
+    the OPTIONAL ``providers:`` declaration in pack.yaml — never the modules.
+    """
+    from pathlib import Path as _Path
+
+    pack_dir = _Path(pack_dir)
+    shipped: list[tuple[str, str]] = []
+    for subdir in ("providers", "discovery_providers"):
+        component_dir = pack_dir / subdir
+        if not component_dir.is_dir():
+            continue
+        for py in sorted(component_dir.glob("*.py")):
+            if not py.name.startswith("_"):
+                shipped.append((subdir, py.name))
+    if not shipped:
+        return
+
+    stdout.write(
+        style.WARNING(
+            f"This pack ships {len(shipped)} provider module(s). Loading the pack "
+            "IMPORTS them into the web and worker processes:"
+        )
+    )
+    for subdir, name in shipped:
+        stdout.write(f"    {subdir}/{name}")
+
+    # The declaration is optional and descriptive; show it when a pack has one
+    # so the claimed prefixes are visible without reading Python.
+    try:
+        import yaml
+
+        manifest = yaml.safe_load((pack_dir / "pack.yaml").read_text()) or {}
+        for entry in manifest.get("providers") or []:
+            stdout.write(
+                f"    declares: {entry.get('class')} "
+                f"prefixes={entry.get('supported_prefixes')} "
+                f"delegates_to={entry.get('delegates_to') or '-'}"
+            )
+    except Exception:  # noqa: BLE001 - a missing/!parsing manifest is not fatal here
+        pass
+
+    from django.conf import settings
+
+    if not getattr(settings, "AUTHORITY_PACK_LOAD_PROVIDERS", True):
+        stdout.write(
+            style.SUCCESS(
+                "    AUTHORITY_PACK_LOAD_PROVIDERS is off — these will NOT be "
+                "imported. The pack's text still installs and serves."
+            )
+        )
+
+
 class Command(BaseCommand):
     help = (
         "Fetch an authority pack from the pack registry repo into "
@@ -281,6 +338,11 @@ class Command(BaseCommand):
             raise CommandError(
                 "--creator is required to install or preflight (or use --fetch-only)"
             )
+
+        # Say what code this pack will run, BEFORE any DB writes, and without
+        # importing it — reporting a pack's providers by executing them would
+        # defeat the point. Static file listing only.
+        _report_pack_providers(dest, self.stdout, self.style)
 
         call_command(
             "load_authority_pack",

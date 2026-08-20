@@ -228,6 +228,27 @@ def authority_pack_dirs() -> list[Path]:
     return unique
 
 
+def pack_provider_modules(subdir_name: str) -> list[Path]:
+    """Provider modules a pack SHIPS, found without importing any of them.
+
+    Used for two things that must not execute pack code: telling an operator
+    what a pack will run before they install it, and naming what was skipped
+    when loading is switched off. Mirrors the filtering
+    ``_discover_pack_component_classes`` applies (``*.py``, no leading
+    underscore) so the count is the count that matters.
+    """
+    modules: list[Path] = []
+    for pack_dir in authority_pack_dirs():
+        component_dir = pack_dir / subdir_name
+        if not component_dir.is_dir():
+            continue
+        modules.extend(
+            py for py in sorted(component_dir.glob("*.py"))
+            if not py.name.startswith("_")
+        )
+    return modules
+
+
 class ComponentType(str, Enum):
     """Types of pipeline components."""
 
@@ -472,6 +493,26 @@ class PipelineComponentRegistry:
         classes that merely happen to be in scope are ignored via the
         ``__module__`` check.
         """
+        # Loading an in-pack provider IMPORTS it into this process. That is the
+        # trust decision AUTHORITY_PACK_LOAD_PROVIDERS exists to let an operator
+        # decline; see the setting's comment in config/settings/base.py.
+        # Reported rather than silent, and reported with a count, so "I turned
+        # it off" and "this install has none" are distinguishable.
+        from django.conf import settings as _settings
+
+        if not getattr(_settings, "AUTHORITY_PACK_LOAD_PROVIDERS", True):
+            skipped = pack_provider_modules(subdir_name)
+            if skipped:
+                logger.info(
+                    "AUTHORITY_PACK_LOAD_PROVIDERS is off: skipped %d in-pack "
+                    "%s module(s) without importing them (%s). The packs still "
+                    "serve their text; only re-fetch is unavailable.",
+                    len(skipped),
+                    subdir_name,
+                    ", ".join(sorted(p.parent.parent.name + "/" + p.name for p in skipped)),
+                )
+            return []
+
         seen: set[type] = set()
         found: list[type] = []
         pack_dirs = authority_pack_dirs()
@@ -1018,6 +1059,66 @@ def get_all_authority_source_providers_cached() -> (
 ):
     """Get all registered authority source providers (cached)."""
     return get_registry().authority_source_providers
+
+
+def get_authority_source_provider(class_name: str) -> Optional[Any]:
+    """Return an INSTANCE of a registered authority source provider, by class name.
+
+    The supported seam for an in-pack provider that DELEGATES to a core one.
+
+    Most packs should not ship a scraper: core already covers the Code of
+    Federal Regulations, the U.S. Code and the Federal Register, and those
+    providers fail to fire for a pack only because of key SHAPE — the CFR
+    provider accepts ``cfr-{digits}:`` while a pack's sections are keyed
+    ``itar:``, ``ear:``, ``aeca:``. A pack already declares that translation in
+    its own equivalence rows, so the in-pack provider is a key translator plus a
+    delegation (authority-packs ``SOURCE_PROVIDERS.md``).
+
+    Doing that by importing the core class directly works, but couples every
+    such pack to an import path: a refactor of the core providers would break
+    them, and registry discovery isolates import failures by design, so the
+    breakage would be a logged warning and a provider that silently stopped
+    existing. Depending on this function instead makes the class name the
+    contract.
+
+    Returns ``None`` when no provider of that class name is registered — a pack
+    MUST handle that by declining (``can_handle`` -> False) rather than raising,
+    so an install missing a core provider degrades to "cannot re-fetch" instead
+    of breaking registry build.
+    """
+    registry = get_registry()
+    definition = registry.get_by_class_name(class_name) or registry.get_by_name(class_name)
+    if definition is None:
+        # ``class_name`` is stored as a full dotted path; a pack author writes
+        # the leaf. Accept either, and refuse an ambiguous leaf rather than
+        # picking — two providers with the same class name in different
+        # packages is exactly when silently choosing is worst.
+        matches = [
+            d
+            for d in get_all_authority_source_providers_cached()
+            if d.class_name.rsplit(".", 1)[-1] == class_name
+        ]
+        if len(matches) > 1:
+            logger.warning(
+                "Authority source provider name %r is ambiguous (%s); "
+                "delegate using the full dotted path.",
+                class_name,
+                ", ".join(sorted(d.class_name for d in matches)),
+            )
+            return None
+        if not matches:
+            return None
+        definition = matches[0]
+    component = getattr(definition, "component_class", None)
+    if component is None:
+        return None
+    try:
+        return component()
+    except Exception as exc:  # pragma: no cover - defensive; a provider ctor should be trivial
+        logger.warning(
+            "Could not instantiate authority source provider %r: %s", class_name, exc
+        )
+        return None
 
 
 def get_all_authority_discovery_providers_cached() -> (
