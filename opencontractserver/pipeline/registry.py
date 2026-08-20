@@ -1089,20 +1089,18 @@ def get_authority_source_provider(class_name: str) -> Optional[Any]:
     so an install missing a core provider degrades to "cannot re-fetch" instead
     of breaking registry build.
     """
-    registry = get_registry()
-    definition = registry.get_by_class_name(class_name) or registry.get_by_name(
-        class_name
-    )
+    # Scoped to authority source providers throughout: ``registry.get_by_name``
+    # / ``get_by_class_name`` read dicts shared by every component family
+    # (parsers, embedders, LLM providers, ...), so an unscoped lookup here
+    # could return an instance of the wrong type on a name collision.
+    providers = get_all_authority_source_providers_cached()
+    definition = next((d for d in providers if d.class_name == class_name), None)
     if definition is None:
         # ``class_name`` is stored as a full dotted path; a pack author writes
         # the leaf. Accept either, and refuse an ambiguous leaf rather than
         # picking — two providers with the same class name in different
         # packages is exactly when silently choosing is worst.
-        matches = [
-            d
-            for d in get_all_authority_source_providers_cached()
-            if d.class_name.rsplit(".", 1)[-1] == class_name
-        ]
+        matches = [d for d in providers if d.name == class_name]
         if len(matches) > 1:
             logger.warning(
                 "Authority source provider name %r is ambiguous (%s); "
