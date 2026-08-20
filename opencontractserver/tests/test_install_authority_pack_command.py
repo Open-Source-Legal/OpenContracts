@@ -311,6 +311,22 @@ class InstallAuthorityPackCommandTests(TestCase):
             "AUTHORITY_PACK_LOAD_PROVIDERS is off — these will NOT be imported", out
         )
 
+    def test_fetch_only_also_reports_shipped_providers(self):
+        """materialise_pack() places the pack under AUTHORITY_PACK_INSTALL_DIR
+        — an implicit discovery root — before --fetch-only ever checks for a
+        creator, so the exposure exists on this path too and needs the same
+        warning, with no --creator supplied at all."""
+        pack = _minimal_pack()
+        pack["providers/delegating_provider.py"] = "# stub, never imported by --check"
+        self.tarball = _build_registry_tarball(
+            self.tmp / "withprovider.tar.gz", packs={"provider_pack": pack}
+        )
+
+        out = self._run("provider_pack", fetch_only=True)
+
+        self.assertIn("ships 1 provider module(s)", out)
+        self.assertIn("providers/delegating_provider.py", out)
+
 
 class DownloadTarballTests(SimpleTestCase):
     """Direct tests for the network fetch helper, with `requests` mocked."""

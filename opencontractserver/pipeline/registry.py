@@ -522,7 +522,10 @@ class PipelineComponentRegistry:
                     len(skipped),
                     subdir_name,
                     ", ".join(
-                        sorted(p.parent.parent.name + "/" + p.name for p in skipped)
+                        sorted(
+                            f"{p.parent.parent.name}/{p.parent.name}/{p.name}"
+                            for p in skipped
+                        )
                     ),
                 )
             return []

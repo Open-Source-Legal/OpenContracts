@@ -28,6 +28,7 @@ Grammar-tier pack taxonomy extensions (``abbreviations``/``shape_rules``) are
 first-time install — the command prints the reminder.
 """
 
+import logging
 import re
 import shutil
 import tarfile
@@ -37,6 +38,8 @@ from pathlib import Path
 from django.conf import settings
 from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
+
+logger = logging.getLogger(__name__)
 
 # Pack directories are addressed by name inside the install dir; constrain to a
 # conservative slug so a hostile registry listing can never traverse paths.
@@ -180,8 +183,13 @@ def _report_pack_providers(pack_dir, stdout, style) -> None:
                 f"prefixes={entry.get('supported_prefixes')} "
                 f"delegates_to={entry.get('delegates_to') or '-'}"
             )
-    except Exception:  # noqa: BLE001 - a missing/mis-parsing manifest is not fatal here
-        pass
+    except (
+        Exception
+    ) as exc:  # noqa: BLE001 - a missing/mis-parsing manifest is not fatal here
+        # load_authority_pack (called right after, on the install path) will
+        # hit and report the same malformed YAML properly; this is just the
+        # optional "declares: ..." preview, so log at debug rather than warn.
+        logger.debug("Could not read pack.yaml providers declaration: %s", exc)
 
     if not getattr(settings, "AUTHORITY_PACK_LOAD_PROVIDERS", True):
         stdout.write(
@@ -322,6 +330,18 @@ class Command(BaseCommand):
             dest = materialise_pack(staged / pack, pack, self.stdout)
             self.stdout.write(self.style.SUCCESS(f"Pack materialised at {dest}"))
 
+        # Say what code this pack ships, without importing it — reporting a
+        # pack's providers by executing them would defeat the point. This runs
+        # for --fetch-only too, not just before the DB-writing install below:
+        # materialise_pack() has already placed the pack under
+        # AUTHORITY_PACK_INSTALL_DIR, an implicit discovery root
+        # (authority_pack_dirs()), so the NEXT get_registry() call in any
+        # web/worker process — independent of ever running load_authority_pack
+        # or supplying --creator — is what actually imports providers/*.py.
+        # --fetch-only alone creates that exposure, so it needs the same
+        # visibility.
+        _report_pack_providers(dest, self.stdout, self.style)
+
         if options["fetch_only"]:
             self.stdout.write(
                 "Fetch-only: skipping install. Run load_authority_pack --path "
@@ -333,11 +353,6 @@ class Command(BaseCommand):
             raise CommandError(
                 "--creator is required to install or preflight (or use --fetch-only)"
             )
-
-        # Say what code this pack will run, BEFORE any DB writes, and without
-        # importing it — reporting a pack's providers by executing them would
-        # defeat the point. Static file listing only.
-        _report_pack_providers(dest, self.stdout, self.style)
 
         call_command(
             "load_authority_pack",

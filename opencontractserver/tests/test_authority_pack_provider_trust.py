@@ -173,3 +173,23 @@ class DelegationSeamTests(SimpleTestCase):
     def test_unknown_provider_returns_none_rather_than_raising(self) -> None:
         """A pack must be able to decline, not crash registry build."""
         self.assertIsNone(get_authority_source_provider("NoSuchProviderClass"))
+
+    def test_ambiguous_leaf_returns_none_and_warns(self) -> None:
+        """Two packs shipping a same-named class must not be silently picked
+        between — refusing is the whole point of the leaf-collision guard."""
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            pack_dirs = []
+            for tag in ("pack_a", "pack_b"):
+                providers = base / tag / "providers"
+                providers.mkdir(parents=True)
+                (providers / "trust_probe_provider.py").write_text(_PROVIDER_SRC)
+                pack_dirs.append(base / tag)
+
+            with override_settings(AUTHORITY_PACK_PATHS=[str(p) for p in pack_dirs]):
+                with self.assertLogs(_REGISTRY_LOGGER, level="WARNING") as captured:
+                    provider = get_authority_source_provider("TrustProbeSourceProvider")
+
+        self.assertIsNone(provider)
+        messages = "\n".join(captured.output)
+        self.assertIn("is ambiguous", messages)
