@@ -1351,3 +1351,57 @@ class DomainPackInstallTests(TestCase):
                 consumer_corpus=corpus.pk,
             )
         self.assertIn("unreadable", str(ctx.exception))
+
+    # Each of the following exercises a C8 guard. A guard with no test is
+    # indistinguishable from a guard that never fires.
+
+    def test_consumer_agent_that_is_not_a_mapping_is_refused(self):
+        corpus = Corpus.objects.create(title="Docs", creator=self.owner)
+        with self.assertRaises(CommandError) as ctx:
+            self._run(
+                self._standard_registry(
+                    consumer_agent="just a string",
+                    _extra_files={"consumer.txt": self.CONSUMER_TEXT},
+                ),
+                consumer_corpus=corpus.pk,
+            )
+        self.assertIn("must be a mapping", str(ctx.exception))
+
+    def test_consumer_agent_without_instructions_file_is_refused(self):
+        corpus = Corpus.objects.create(title="Docs", creator=self.owner)
+        with self.assertRaises(CommandError) as ctx:
+            self._run(
+                self._standard_registry(
+                    consumer_agent={"mode": "EXTEND", "tools": []},
+                    _extra_files={"consumer.txt": self.CONSUMER_TEXT},
+                ),
+                consumer_corpus=corpus.pk,
+            )
+        self.assertIn("instructions_file is required", str(ctx.exception))
+
+    def test_empty_consumer_instructions_file_is_refused(self):
+        """An empty file is a likelier authoring mistake than an intentional
+        no-op, and an agent with no increment is not worth binding."""
+        corpus = Corpus.objects.create(title="Docs", creator=self.owner)
+        with self.assertRaises(CommandError) as ctx:
+            self._run(
+                self._consumer_registry(text="   \n\n  "),
+                consumer_corpus=corpus.pk,
+            )
+        self.assertIn("is empty", str(ctx.exception))
+
+    def test_consumer_agent_preferred_llm_is_threaded(self):
+        corpus = Corpus.objects.create(title="Docs", creator=self.owner)
+        self._run(
+            self._consumer_registry(
+                spec_overrides={"preferred_llm": "anthropic:claude-haiku-4-5"}
+            ),
+            consumer_corpus=corpus.pk,
+        )
+        cfg = AgentConfiguration.objects.get(slug=f"testdomain-consumer-{corpus.pk}")
+        self.assertEqual(cfg.preferred_llm, "anthropic:claude-haiku-4-5")
+
+    def test_consumer_corpus_that_does_not_exist_is_an_error(self):
+        with self.assertRaises(CommandError) as ctx:
+            self._run(self._consumer_registry(), consumer_corpus=99999999)
+        self.assertIn("does not exist", str(ctx.exception))

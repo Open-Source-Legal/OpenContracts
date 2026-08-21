@@ -1163,3 +1163,10 @@ class UnifiedAgentConsumerCorpusDefaultAgentTestCase(WebsocketFixtureBaseTestCas
         resolved = await self._consumer()._resolve_agent_config()
         assert resolved is not None
         self.assertEqual(resolved.slug, "default-corpus-agent")
+
+    async def test_no_corpus_and_no_document_resolves_nothing(self) -> None:
+        """Neither context in scope: there is nothing to resolve, and the
+        caller must not receive a default it did not ask for."""
+        consumer = self._consumer()
+        consumer.corpus_id = None
+        self.assertIsNone(await consumer._resolve_agent_config())

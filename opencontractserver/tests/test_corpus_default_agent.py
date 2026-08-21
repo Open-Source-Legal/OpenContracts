@@ -70,3 +70,13 @@ class CorpusDefaultAgentGuardTestCase(TestCase):
 
         self.corpus.refresh_from_db()
         self.assertIsNone(self.corpus.default_agent_id)
+
+    def test_pointer_at_a_nonexistent_agent_is_refused(self):
+        """``default_agent_id`` can be set without loading the row — a stale
+        pk from a fixture or a fork would otherwise persist and only surface
+        when chat tried to resolve it."""
+        self.corpus.default_agent_id = 99999999
+        with self.assertRaises(ValidationError) as ctx:
+            self.corpus.save()
+        self.assertIn("default_agent", ctx.exception.message_dict)
+        self.assertIn("does not exist", str(ctx.exception))
