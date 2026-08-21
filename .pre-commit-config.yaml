@@ -131,6 +131,15 @@ repos:
           # provider SDKs disappears from PyPI (see the mistralai 404 on
           # 2026-05-12). Keep this extras list in lockstep with base.txt.
           - pydantic-ai-slim[openai,anthropic,google,mcp]>=1.56.0,<2
+          # NOT from base.txt: anthropic is a direct requirement of
+          # requirements/analyzers/claude_highlighter.txt, which both
+          # Dockerfiles glob into the image. Mirrored here so mypy checks the
+          # same major the image ships -- without it this hook resolves
+          # anthropic transitively and independently, which is how 1.0.0
+          # turned main red with no commit touching the code. The ceiling is
+          # <1, not <2 (1.0.0 satisfies <2). Keep in lock-step with that file;
+          # migration off the 0.x line is tracked in #2273.
+          - anthropic>=0.45.2,<1
           - spacy
           - tokenizers>=0.21,<0.23
           - posthog==7.12.0
