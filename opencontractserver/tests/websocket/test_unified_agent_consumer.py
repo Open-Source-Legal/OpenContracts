@@ -839,7 +839,9 @@ class UnifiedAgentConsumerAgentConfigThreadingTestCase(WebsocketFixtureBaseTestC
     factory's context-derived prompt and tool set untouched.
     """
 
-    def _make_corpus_consumer(self, *, explicit: bool) -> UnifiedAgentConsumer:
+    def _make_corpus_consumer(
+        self, *, explicit: bool, mode: str = "REPLACE"
+    ) -> UnifiedAgentConsumer:
         consumer = UnifiedAgentConsumer()
         consumer.session_id = "test-session"
         consumer.user_id = self.user.id
@@ -850,7 +852,7 @@ class UnifiedAgentConsumerAgentConfigThreadingTestCase(WebsocketFixtureBaseTestC
         consumer.agent_config = SimpleNamespace(
             preferred_llm="",
             system_instructions="You are the cross-corpus orchestrator.",
-            system_instructions_mode="REPLACE",
+            system_instructions_mode=mode,
             available_tools=["search_across_corpora"],
         )
         # ``agent_config_id`` is only set when the client passed
@@ -874,9 +876,14 @@ class UnifiedAgentConsumerAgentConfigThreadingTestCase(WebsocketFixtureBaseTestC
             self.assertEqual(kwargs.get("tools"), ["search_across_corpora"])
 
     async def test_default_agent_keeps_factory_prompt_and_tools(self) -> None:
-        """A slug-resolved default agent must NOT override the factory's
-        context-derived prompt (e.g. ``corpus_agent_instructions``) or tools."""
-        consumer = self._make_corpus_consumer(explicit=False)
+        """A slug-resolved REPLACE default must NOT override the factory's
+        context-derived prompt (e.g. ``corpus_agent_instructions``) or tools.
+
+        REPLACE is the case the exclusion was written for: a generic default's
+        instructions would substitute for the corpus persona rather than add
+        to it.
+        """
+        consumer = self._make_corpus_consumer(explicit=False, mode="REPLACE")
         with patch(
             "config.websocket.consumers.unified_agent_conversation.agents.for_corpus"
         ) as mock_for_corpus:
@@ -885,6 +892,30 @@ class UnifiedAgentConsumerAgentConfigThreadingTestCase(WebsocketFixtureBaseTestC
             kwargs = mock_for_corpus.call_args.kwargs
             self.assertNotIn("system_prompt", kwargs)
             self.assertNotIn("tools", kwargs)
+
+    async def test_extend_default_agent_is_applied_on_the_fallback_path(self) -> None:
+        """An EXTEND default DOES reach the factory without ``?agent_id=``.
+
+        The exclusion above exists because REPLACE would clobber the corpus
+        persona. EXTEND appends instead, so there is nothing to clobber — and
+        excluding it would mean a corpus default that resolves and is then
+        silently ignored. It must arrive as ``extra_system_context``: setting
+        ``system_prompt`` would consume the "caller supplied nothing" signal
+        and discard the persona, which is the #2247 bug.
+        """
+        consumer = self._make_corpus_consumer(explicit=False, mode="EXTEND")
+        with patch(
+            "config.websocket.consumers.unified_agent_conversation.agents.for_corpus"
+        ) as mock_for_corpus:
+            mock_for_corpus.return_value = _StubAgent(lambda: iter(()))
+            await consumer._initialize_agent()
+            kwargs = mock_for_corpus.call_args.kwargs
+            self.assertEqual(
+                kwargs.get("extra_system_context"),
+                "You are the cross-corpus orchestrator.",
+            )
+            self.assertNotIn("system_prompt", kwargs)
+            self.assertEqual(kwargs.get("tools"), ["search_across_corpora"])
 
     async def test_explicit_agent_tools_merge_with_extra_tools(self) -> None:
         """Config tools come first, per-turn delegation extra_tools append."""

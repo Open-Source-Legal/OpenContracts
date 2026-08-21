@@ -140,10 +140,18 @@ class DomainPackInstallTests(TestCase):
             encoding="utf-8",
         )
 
-    def _domain(self, name: str, manifest: dict, instructions: str) -> None:
+    def _domain(
+        self,
+        name: str,
+        manifest: dict,
+        instructions: str,
+        extra_files: dict[str, str] | None = None,
+    ) -> None:
         d = self.root / "registry" / "domains" / name
         d.mkdir(parents=True, exist_ok=True)
         (d / "orchestrator.txt").write_text(instructions, encoding="utf-8")
+        for rel, body in (extra_files or {}).items():
+            (d / rel).write_text(body, encoding="utf-8")
         (d / "domain.yaml").write_text(yaml.safe_dump(manifest), encoding="utf-8")
 
     def _tarball(self) -> str:
@@ -171,11 +179,13 @@ class DomainPackInstallTests(TestCase):
                 {"from_key": "bb:1", "to_key": "aa:1", "note": "shared title"}
             ],
         }
+        extra_files = domain_overrides.pop("_extra_files", None)
         manifest.update(domain_overrides)
         self._domain(
             "testdomain",
             manifest,
             "Call search_across_corpora with corpus_group=test-group.",
+            extra_files=extra_files,
         )
         return self._tarball()
 
@@ -1214,3 +1224,130 @@ class DomainPackInstallTests(TestCase):
         with self.assertRaises(CommandError) as ctx:
             materialise_pack(staged_pack, "pack-without-manifest")
         self.assertIn("missing pack.yaml", str(ctx.exception))
+
+    # ---- C8: the consumer agent ----------------------------------------- #
+    #
+    # The orchestrator is GLOBAL and knows the domain; the consumer agent is
+    # scoped to the corpus holding the documents and needs BOTH the corpus
+    # persona and reach into the group. The pack supplies the text (the group
+    # is its own invention); the operator supplies the corpus (the pack cannot
+    # know it). Each half is useless alone, so each has its own diagnostic.
+
+    CONSUMER_TEXT = (
+        "Answer from this corpus. When the answer turns on authority, call "
+        "search_across_corpora with corpus_group=test-group."
+    )
+
+    def _consumer_registry(self, *, spec_overrides=None, text=None, **overrides) -> str:
+        spec = {
+            "instructions_file": "consumer.txt",
+            "tools": ["search_across_corpora"],
+            "mode": "EXTEND",
+        }
+        spec.update(spec_overrides or {})
+        return self._standard_registry(
+            consumer_agent=spec,
+            _extra_files={
+                "consumer.txt": text if text is not None else self.CONSUMER_TEXT
+            },
+            **overrides,
+        )
+
+    def test_consumer_agent_binds_to_the_named_corpus(self):
+        """The whole point: an installed pack yields an agent the corpus uses."""
+        corpus = Corpus.objects.create(title="Docs", creator=self.owner)
+        out = self._run(self._consumer_registry(), consumer_corpus=corpus.pk)
+
+        cfg = AgentConfiguration.objects.get(slug=f"testdomain-consumer-{corpus.pk}")
+        self.assertEqual(cfg.system_instructions_mode, "EXTEND")
+        self.assertEqual(cfg.scope, AgentConfiguration.SCOPE_CORPUS)
+        self.assertEqual(cfg.corpus_id, corpus.pk)
+        self.assertEqual(cfg.available_tools, ["search_across_corpora"])
+        self.assertIn("corpus_group=test-group", cfg.system_instructions)
+
+        corpus.refresh_from_db()
+        self.assertEqual(
+            corpus.default_agent_id,
+            cfg.pk,
+            "creating the agent without binding it is the state this exists to end",
+        )
+        self.assertIn("consumer agent", out)
+
+    def test_consumer_agent_declared_but_unbound_says_so(self):
+        """C5 — a declared capability that was not applied must be reported."""
+        out = self._run(self._consumer_registry())
+        self.assertIn("NOT bound", out)
+        self.assertIn("--consumer-corpus", out)
+        self.assertFalse(
+            AgentConfiguration.objects.filter(
+                slug__startswith="testdomain-consumer"
+            ).exists()
+        )
+
+    def test_consumer_corpus_without_a_consumer_agent_is_an_error(self):
+        """The mirror mistake: a binding with nothing to bind."""
+        corpus = Corpus.objects.create(title="Docs", creator=self.owner)
+        with self.assertRaises(CommandError) as ctx:
+            self._run(self._standard_registry(), consumer_corpus=corpus.pk)
+        self.assertIn("declares no", str(ctx.exception))
+
+    def test_consumer_agent_must_be_extend(self):
+        """REPLACE would overwrite the consuming corpus's own persona with
+        text shipped by a third party — the coupling DOMAIN_PACKS.md forbids."""
+        corpus = Corpus.objects.create(title="Docs", creator=self.owner)
+        with self.assertRaises(CommandError) as ctx:
+            self._run(
+                self._consumer_registry(spec_overrides={"mode": "REPLACE"}),
+                consumer_corpus=corpus.pk,
+            )
+        self.assertIn("C8", str(ctx.exception))
+        self.assertIn("EXTEND", str(ctx.exception))
+        corpus.refresh_from_db()
+        self.assertIsNone(corpus.default_agent_id)
+
+    def test_consumer_agent_that_never_names_the_group_slug_fails(self):
+        """Same rule the orchestrator is held to: search_across_corpora takes
+        the slug as a required argument, so an agent never told it cannot call
+        it — and that is indistinguishable from choosing not to."""
+        corpus = Corpus.objects.create(title="Docs", creator=self.owner)
+        with self.assertRaises(CommandError) as ctx:
+            self._run(
+                self._consumer_registry(text="Answer from this corpus."),
+                consumer_corpus=corpus.pk,
+            )
+        self.assertIn("never name the group slug", str(ctx.exception))
+
+    def test_ungrantable_consumer_tool_is_refused(self):
+        corpus = Corpus.objects.create(title="Docs", creator=self.owner)
+        with self.assertRaises(CommandError) as ctx:
+            self._run(
+                self._consumer_registry(
+                    spec_overrides={"tools": ["search_across_corpora", "rm_rf"]}
+                ),
+                consumer_corpus=corpus.pk,
+            )
+        self.assertIn("rm_rf", str(ctx.exception))
+
+    def test_consumer_agent_install_is_idempotent(self):
+        """C6 — re-running converges rather than duplicating."""
+        corpus = Corpus.objects.create(title="Docs", creator=self.owner)
+        tarball = self._consumer_registry()
+        self._run(tarball, consumer_corpus=corpus.pk)
+        self._run(tarball, consumer_corpus=corpus.pk)
+        self.assertEqual(
+            AgentConfiguration.objects.filter(
+                slug=f"testdomain-consumer-{corpus.pk}"
+            ).count(),
+            1,
+        )
+
+    def test_missing_consumer_instructions_file_fails(self):
+        corpus = Corpus.objects.create(title="Docs", creator=self.owner)
+        with self.assertRaises(CommandError) as ctx:
+            self._run(
+                self._consumer_registry(
+                    spec_overrides={"instructions_file": "nope.txt"}
+                ),
+                consumer_corpus=corpus.pk,
+            )
+        self.assertIn("unreadable", str(ctx.exception))

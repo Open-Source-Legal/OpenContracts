@@ -118,6 +118,20 @@ class Command(BaseCommand):
             action="store_true",
             help="Fetch and report the plan; write nothing.",
         )
+        parser.add_argument(
+            "--consumer-corpus",
+            type=int,
+            default=None,
+            help=(
+                "Primary key of the corpus that CONSUMES this domain — the one "
+                "holding the documents users ask about. Binds the pack's "
+                "`consumer_agent` to it and makes that agent the corpus's "
+                "default. Which corpus consumes a domain is an installation "
+                "fact the pack cannot know, so it is an argument and not a "
+                "manifest field. Omit it and the pack installs exactly as "
+                "before: group plus orchestrator, nothing bound."
+            ),
+        )
 
     # ------------------------------------------------------------------ #
     # fetch
@@ -694,6 +708,21 @@ class Command(BaseCommand):
             f"tools={tools}, {len(instructions):,} chars of instructions"
         )
 
+        # --- C8 consumer agent -------------------------------------------- #
+        #
+        # The orchestrator above is GLOBAL: it knows the domain but not the
+        # documents. The agent that answers a user's question is the one
+        # scoped to the corpus those documents live in, and it needs BOTH the
+        # corpus persona and the reach to call across the group.
+        #
+        # A domain pack can author the reach increment — the group slug is its
+        # own invention — but it cannot know which corpus consumes it. So the
+        # text is a manifest field and the binding is a command-line argument.
+        # Neither half is useful alone, which is why both are checked here.
+        self._wire_consumer_agent(
+            manifest, domain_dir, options, user, group, unmet, AgentConfiguration
+        )
+
         # --- cross-pack equivalences -------------------------------------- #
         #
         # Written through the shared upsert rather than the ORM directly. That
@@ -771,4 +800,149 @@ class Command(BaseCommand):
                 f"group {group.slug!r}, orchestrator {agent.slug!r}, {converged} "
                 "cross-pack equivalence(s)."
             )
+        )
+
+    # ------------------------------------------------------------------ #
+    # consumer agent (C8)
+    # ------------------------------------------------------------------ #
+    def _wire_consumer_agent(
+        self,
+        manifest,
+        domain_dir: Path,
+        options,
+        user,
+        group,
+        unmet,
+        AgentConfiguration,
+    ) -> None:
+        """Bind the pack's ``consumer_agent`` to the corpus named on the CLI.
+
+        The two halves are supplied by different parties on purpose. The pack
+        authors the instructions, because the reach they describe is the group
+        the pack itself defines. The operator names the corpus, because which
+        corpus consumes a domain is not knowable when the pack is written.
+        Supplying one without the other is a mistake in both directions, and
+        each gets its own diagnostic rather than a silent no-op.
+        """
+        from opencontractserver.corpuses.models import Corpus
+
+        spec = manifest.get("consumer_agent")
+        corpus_pk = options.get("consumer_corpus")
+
+        if spec is None and corpus_pk is None:
+            return
+        if spec is None:
+            raise CommandError(
+                "--consumer-corpus was given but this domain pack declares no "
+                "`consumer_agent`. Nothing to bind; re-run without the flag."
+            )
+        if not isinstance(spec, dict):
+            unmet.append("C8: consumer_agent must be a mapping")
+            return
+        if corpus_pk is None:
+            # C5 — a declared capability that was not applied has to be said
+            # out loud. Silence here is what made the previous arrangement
+            # reproducible only by whoever remembered to run a script.
+            self.stdout.write(
+                self.style.WARNING(
+                    "\nconsumer_agent: declared by the pack but NOT bound — pass "
+                    "--consumer-corpus <pk> to attach it to the corpus holding "
+                    "your documents. Without it this install gives you the "
+                    "group and the orchestrator only."
+                )
+            )
+            return
+
+        # EXTEND is required, not merely preferred. A REPLACE consumer agent
+        # would overwrite the consuming corpus's own persona with text shipped
+        # by a third party — which is exactly the coupling DOMAIN_PACKS.md
+        # forbids. EXTEND appends, so the corpus persona stays single-sourced
+        # on the corpus and the pack contributes only its increment.
+        mode = str(spec.get("mode") or "")
+        if mode != "EXTEND":
+            unmet.append(
+                f"C8: consumer_agent.mode must be 'EXTEND' (got {mode!r}). "
+                "REPLACE would overwrite the consuming corpus's persona with "
+                "pack-supplied text."
+            )
+            return
+
+        # Same traversal reasoning as the orchestrator's instructions_file: the
+        # root is derived from the argument-checked domain name, never from the
+        # manifest, so the manifest cannot move the root and the guard together.
+        instructions = ""
+        rel = spec.get("instructions_file")
+        if not rel:
+            unmet.append("C8: consumer_agent.instructions_file is required")
+            return
+        root = domain_dir.resolve()
+        path = (root / str(rel)).resolve()
+        if not str(path).startswith(str(root) + "/") or not path.is_file():
+            unmet.append(f"C8: consumer_agent instructions_file unreadable: {rel}")
+            return
+        instructions = path.read_text(encoding="utf-8")
+        if not instructions.strip():
+            unmet.append(f"C8: consumer_agent instructions_file is empty: {rel}")
+            return
+
+        tools = [str(t) for t in (spec.get("tools") or [])]
+        for tool in tools:
+            if tool not in GRANTABLE_TOOLS:
+                unmet.append(
+                    f"C8: consumer_agent.tools names {tool!r}, which a domain "
+                    f"pack may not grant (allowed: {', '.join(sorted(GRANTABLE_TOOLS))})"
+                )
+        # Same rule the orchestrator is held to, and the same reason: the tool
+        # takes the group slug as a required argument, so an agent never told
+        # the slug cannot call it — and that looks identical to the model
+        # deciding not to.
+        if "search_across_corpora" in tools and group.slug not in instructions:
+            unmet.append(
+                f"C8: consumer_agent declares search_across_corpora but its "
+                f"instructions never name the group slug {group.slug!r}"
+            )
+
+        corpus = Corpus.objects.filter(pk=corpus_pk).first()
+        if corpus is None:
+            raise CommandError(f"--consumer-corpus {corpus_pk} does not exist")
+
+        if unmet:
+            # Don't write a half-valid agent; handle() reports `unmet` and fails.
+            return
+
+        consumer, created = AgentConfiguration.objects.get_or_create(
+            slug=f"{manifest['name']}-consumer-{corpus.pk}",
+            defaults={
+                "name": (
+                    f"{manifest.get('title') or manifest['name']} — {corpus.title}"
+                ),
+                "creator": user,
+                "is_public": bool(options["public"]),
+            },
+        )
+        consumer.description = (
+            f"Corpus agent for {corpus.title!r}: keeps the corpus persona and "
+            f"adds reach into the {group.slug!r} group. Installed by domain "
+            f"pack {manifest['name']!r}."
+        )
+        consumer.system_instructions = instructions
+        consumer.system_instructions_mode = "EXTEND"
+        consumer.available_tools = tools
+        consumer.scope = AgentConfiguration.SCOPE_CORPUS
+        consumer.corpus = corpus
+        consumer.is_active = True
+        if spec.get("preferred_llm"):
+            consumer.preferred_llm = str(spec["preferred_llm"])
+        consumer.save()
+
+        # The binding. Without this the agent exists and is never chosen,
+        # which is the state this whole feature exists to end.
+        corpus.default_agent = consumer
+        corpus.save(update_fields=["default_agent"])
+
+        self.stdout.write(
+            f"consumer agent {consumer.slug!r}: "
+            f"{'created' if created else 'updated'}, EXTEND, tools={tools}, "
+            f"{len(instructions):,} chars appended to corpus {corpus.pk} "
+            f"({corpus.title!r}), now its default_agent"
         )

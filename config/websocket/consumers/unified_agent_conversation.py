@@ -331,12 +331,21 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
         Priority:
         1. Explicit agent_id → use that agent (gated by ``visible_to_user``)
         2. document_id present → default-document-agent
-        3. corpus_id present → default-corpus-agent
+        3. corpus_id present → ``Corpus.default_agent``, else default-corpus-agent
 
         The explicit-agent path uses ``visible_to_user`` rather than a bare
         ``aget(pk=...)`` so a caller can't load another user's private agent
         by guessing the pk. The default agents are GLOBAL/active so the
         guard isn't load-bearing for paths 2/3.
+
+        ``Corpus.default_agent`` is consulted before the global slug so a
+        corpus can carry its own default without every caller having to pass
+        ``agent_id``. It is a deliberate FK rather than a query over
+        CORPUS-scoped agents: corpora hold scoped agents for unrelated
+        purposes, and picking positionally among them would silently hand
+        chat to whichever sorted first. ``Corpus.save`` guarantees the target
+        is GLOBAL or scoped to this same corpus, so no cross-corpus leak is
+        reachable through this path.
         """
         # Priority 1: Explicit agent_id (visibility-gated)
         if self.agent_config_id:
@@ -371,8 +380,15 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
                 )
                 return None
 
-        # Priority 3: Corpus context → default corpus agent
+        # Priority 3: Corpus context → the corpus's own default, else global
         if self.corpus_id:
+            corpus_default = await self._corpus_default_agent()
+            if corpus_default is not None:
+                logger.info(
+                    f"[Session {self.session_id}] Using corpus default agent "
+                    f"{corpus_default.slug!r} for corpus {self.corpus_id}"
+                )
+                return corpus_default
             try:
                 return await AgentConfiguration.objects.aget(
                     slug="default-corpus-agent", is_active=True
@@ -383,6 +399,30 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
                     "Default corpus agent not found (slug=default-corpus-agent)"
                 )
                 return None
+
+        # Neither a document nor a corpus in scope: nothing to resolve.
+        return None
+
+    async def _corpus_default_agent(self) -> AgentConfiguration | None:
+        """``Corpus.default_agent`` for this session's corpus, if usable.
+
+        An inactive target is treated as absent rather than as an error: the
+        fallback to the global default keeps corpus chat working while an
+        operator has a corpus agent switched off, which is the behaviour a
+        deactivation is asking for.
+        """
+        from opencontractserver.corpuses.models import Corpus
+
+        def _lookup() -> AgentConfiguration | None:
+            row = (
+                Corpus.objects.filter(pk=self.corpus_id)
+                .select_related("default_agent")
+                .first()
+            )
+            agent = getattr(row, "default_agent", None)
+            return agent if (agent is not None and agent.is_active) else None
+
+        return await database_sync_to_async(_lookup)()
 
         return None
 
@@ -652,13 +692,23 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
         # Explicitly-selected agents (``?agent_id=...``) get their configured
         # persona and tool list threaded into the factory, matching the
         # delegation sub-agent path (``build_delegation_tool``) and the
-        # Celery corpus-action path (``_resolve_action_tools``). The default
-        # agents (resolved by slug fallback when no ``agent_id`` is given)
-        # intentionally do NOT override the factory's context-derived prompt
-        # (e.g. ``corpus_agent_instructions``) — their generic
-        # ``system_instructions`` would clobber the richer per-corpus persona.
+        # Celery corpus-action path (``_resolve_action_tools``).
+        #
+        # Agents resolved by FALLBACK (no ``agent_id`` given) were historically
+        # excluded outright, because a generic default's ``system_instructions``
+        # would REPLACE — and so clobber — the richer per-corpus persona. That
+        # reasoning is specific to REPLACE, which was the only mode when the
+        # guard was written. An EXTEND config appends to the context-derived
+        # prompt instead of consuming it, so the clobber it guards against
+        # cannot occur; excluding EXTEND configs here only means a corpus
+        # default is resolved and then silently ignored, which is the harder
+        # failure to diagnose. REPLACE keeps the original behaviour on the
+        # fallback path.
         config_tools: list[Any] = []
-        if self.agent_config and self.agent_config_id:
+        if self.agent_config and (
+            self.agent_config_id
+            or self.agent_config.system_instructions_mode == "EXTEND"
+        ):
             if self.agent_config.system_instructions:
                 # ``system_instructions_mode`` decides whether these instructions
                 # REPLACE the context-derived persona (the historical default)
