@@ -1099,3 +1099,67 @@ class UnifiedAgentConsumerContextExhaustionTestCase(WebsocketFixtureBaseTestCase
             await consumer.receive(json.dumps({"query": "Legacy agent query"}))
 
         self.assertTrue(stream_called)
+
+
+@override_settings(USE_AUTH0=False)
+@pytest.mark.django_db(transaction=True)
+class UnifiedAgentConsumerCorpusDefaultAgentTestCase(WebsocketFixtureBaseTestCase):
+    """Priority 3 prefers ``Corpus.default_agent`` over the global slug.
+
+    Before this field existed, a chat opened with no ``agent_id`` always
+    resolved ``default-corpus-agent``, so an AgentConfiguration scoped to the
+    corpus could never be its default however it was configured.
+
+    TransactionTestCase-backed on purpose: resolution reads the corpus on its
+    own connection, so the rows have to be committed. A plain ``TestCase``
+    wraps them in a transaction the lookup cannot see and fails with
+    "connection already closed".
+    """
+
+    def _consumer(self) -> UnifiedAgentConsumer:
+        consumer = UnifiedAgentConsumer()
+        consumer.session_id = "test-session"
+        consumer.agent_config_id = None
+        consumer.document_id = None
+        consumer.corpus_id = self.corpus.id
+        return consumer
+
+    def _scoped_agent(self, slug: str, *, active: bool = True):
+        from opencontractserver.agents.models import AgentConfiguration
+
+        agent = AgentConfiguration.objects.create(
+            name=slug,
+            slug=slug,
+            creator=self.user,
+            scope=AgentConfiguration.SCOPE_CORPUS,
+            corpus=self.corpus,
+            system_instructions="specific",
+            system_instructions_mode="EXTEND",
+            is_active=active,
+        )
+        self.corpus.default_agent = agent
+        self.corpus.save(update_fields=["default_agent"])
+        return agent
+
+    async def test_falls_back_to_the_global_slug_when_unset(self) -> None:
+        resolved = await self._consumer()._resolve_agent_config()
+        assert resolved is not None
+        self.assertEqual(resolved.slug, "default-corpus-agent")
+
+    async def test_corpus_default_wins(self) -> None:
+        await database_sync_to_async(self._scoped_agent)("corpus-default")
+        resolved = await self._consumer()._resolve_agent_config()
+        assert resolved is not None
+        self.assertEqual(resolved.slug, "corpus-default")
+
+    async def test_inactive_corpus_default_falls_back_rather_than_failing(
+        self,
+    ) -> None:
+        """Switching a corpus agent off should restore the global default, not
+        break corpus chat — that is what deactivating it is asking for."""
+        await database_sync_to_async(self._scoped_agent)(
+            "corpus-default-off", active=False
+        )
+        resolved = await self._consumer()._resolve_agent_config()
+        assert resolved is not None
+        self.assertEqual(resolved.slug, "default-corpus-agent")

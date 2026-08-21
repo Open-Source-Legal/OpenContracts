@@ -704,10 +704,17 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
         # default is resolved and then silently ignored, which is the harder
         # failure to diagnose. REPLACE keeps the original behaviour on the
         # fallback path.
+        #
+        # ``getattr`` with a default rather than a direct attribute read: the
+        # field is non-null on the model, but this attribute is also reached on
+        # objects that only stand in for one, and REPLACE is the documented
+        # default — so "absent" and "REPLACE" must behave identically. A direct
+        # read turns a partially-populated config into an AttributeError on a
+        # path that previously never touched the field at all.
         config_tools: list[Any] = []
         if self.agent_config and (
             self.agent_config_id
-            or self.agent_config.system_instructions_mode == "EXTEND"
+            or getattr(self.agent_config, "system_instructions_mode", None) == "EXTEND"
         ):
             if self.agent_config.system_instructions:
                 # ``system_instructions_mode`` decides whether these instructions
