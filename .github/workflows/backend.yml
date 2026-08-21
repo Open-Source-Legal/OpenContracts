@@ -293,11 +293,12 @@ jobs:
     # leaves a red linter mergeable (a job skipped by its own `if:` reports
     # SUCCESS to branch protection, and a red linter skips pytest).
     #
-    # NOT YET REQUIRED as of this commit: `main` has no `required_status_checks`
-    # object at all, so merging this job gates nothing by itself. Turn it on
-    # with .github/scripts/require_backend_ci_gate.sh --apply, and check with
-    # `gh api repos/{owner}/{repo}/branches/main/protection` whether that has
-    # happened rather than assuming this comment is current.
+    # Required on `main` as of 2026-08-20 (PR #2267). Note `enforce_admins` is
+    # false, so an admin can still bypass it. Re-apply or move it with
+    # .github/scripts/require_backend_ci_gate.sh --apply, and confirm the
+    # current state with
+    # `gh api repos/{owner}/{repo}/branches/main/protection`
+    # rather than assuming this comment is still accurate.
     #
     # `if: always()` is what makes this requirable: it reports on every PR,
     # including ones where every job above it was skipped.
