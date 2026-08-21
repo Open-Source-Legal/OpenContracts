@@ -277,7 +277,7 @@ class Command(BaseCommand):
             # Everything decidable from the FILES is decided before anything is
             # written, for --check and for a real install alike. A preflight that
             # only runs under --check is a preflight the install path never gets.
-            violations = self._preflight(manifest, pack_dirs)
+            violations = self._preflight(manifest, pack_dirs, domain_dir)
             violations += self._preflight_base_packs(pack_dirs, options)
 
             if options["check"]:
@@ -377,6 +377,13 @@ class Command(BaseCommand):
         self.stdout.write(
             f"  cross-pack equivalences: " f"{len(manifest.get('equivalences') or [])}"
         )
+        consumer = manifest.get("consumer_agent")
+        if isinstance(consumer, dict):
+            self.stdout.write(
+                "  consumer_agent: mode="
+                f"{consumer.get('mode')!r}, tools={', '.join(consumer.get('tools') or [])} "
+                "(pass --consumer-corpus <pk> to bind on install)"
+            )
 
     def _member_slugs(self, pack_dirs: dict[str, Path], group: dict):
         """Corpus slugs every required base pack contributes, minus exclusions."""
@@ -474,7 +481,96 @@ class Command(BaseCommand):
         return violations
 
     # ------------------------------------------------------------------ #
-    def _preflight(self, manifest, pack_dirs: dict[str, Path]) -> list[str]:
+    def _consumer_agent_violations(
+        self, spec: dict, domain_dir: Path, group_slug: str
+    ) -> tuple[list[str], str, list[str]]:
+        """The C8 checks decidable from ``spec`` and the pack's files alone.
+
+        Shared by ``_preflight`` (so ``--check`` previews them the way it
+        previews C1-C7) and ``_wire_consumer_agent`` (so the real install
+        enforces the identical rule, not a hand-kept copy of it). Excludes the
+        two checks that are NOT file-decidable — whether ``spec`` is a mapping
+        at all, and whether ``--consumer-corpus`` resolves to a real corpus —
+        which stay with their respective callers.
+        """
+        violations: list[str] = []
+
+        # EXTEND is required, not merely preferred. A REPLACE consumer agent
+        # would overwrite the consuming corpus's own persona with text shipped
+        # by a third party — which is exactly the coupling DOMAIN_PACKS.md
+        # forbids. EXTEND appends, so the corpus persona stays single-sourced
+        # on the corpus and the pack contributes only its increment.
+        mode = str(spec.get("mode") or "")
+        if mode != "EXTEND":
+            violations.append(
+                f"C8: consumer_agent.mode must be 'EXTEND' (got {mode!r}). "
+                "REPLACE would overwrite the consuming corpus's persona with "
+                "pack-supplied text."
+            )
+
+        # Same traversal reasoning as the orchestrator's instructions_file: the
+        # root is derived from the argument-checked domain name, never from the
+        # manifest, so the manifest cannot move the root and the guard together.
+        instructions = ""
+        rel = spec.get("instructions_file")
+        if not rel:
+            violations.append("C8: consumer_agent.instructions_file is required")
+        else:
+            root = domain_dir.resolve()
+            path = (root / str(rel)).resolve()
+            if not str(path).startswith(str(root) + "/") or not path.is_file():
+                violations.append(
+                    f"C8: consumer_agent instructions_file unreadable: {rel}"
+                )
+            else:
+                instructions = path.read_text(encoding="utf-8")
+                if not instructions.strip():
+                    violations.append(
+                        f"C8: consumer_agent instructions_file is empty: {rel}"
+                    )
+
+        tools = [str(t) for t in (spec.get("tools") or [])]
+        for tool in tools:
+            if tool not in GRANTABLE_TOOLS:
+                violations.append(
+                    f"C8: consumer_agent.tools names {tool!r}, which a domain "
+                    f"pack may not grant (allowed: {', '.join(sorted(GRANTABLE_TOOLS))})"
+                )
+        # Same rule the orchestrator is held to, and the same reason: the tool
+        # takes the group slug as a required argument, so an agent never told
+        # the slug cannot call it — and that looks identical to the model
+        # deciding not to.
+        if "search_across_corpora" in tools and group_slug not in instructions:
+            violations.append(
+                f"C8: consumer_agent declares search_across_corpora but its "
+                f"instructions never name the group slug {group_slug!r}"
+            )
+
+        # C3-style validation for the sibling field: `AgentConfiguration.save()`
+        # validates `preferred_llm` and raises Django's ValidationError, which
+        # is NOT a CommandError and so is caught nowhere. Checked here instead,
+        # same as the orchestrator's preferred_llm below, so a typo'd model
+        # spec fails cleanly instead of surfacing as a bare traceback.
+        preferred_llm = spec.get("preferred_llm")
+        if preferred_llm:
+            from opencontractserver.llms.llm_registry import (
+                LLMProviderNotRegistered,
+                validate_model_spec,
+            )
+
+            try:
+                validate_model_spec(str(preferred_llm))
+            except (ValueError, LLMProviderNotRegistered) as exc:
+                violations.append(
+                    f"C8: consumer_agent.preferred_llm {preferred_llm!r} is not "
+                    f"usable on this platform: {exc}"
+                )
+
+        return violations, instructions, tools
+
+    def _preflight(
+        self, manifest, pack_dirs: dict[str, Path], domain_dir: Path
+    ) -> list[str]:
         """Contract assertions decidable from the FILES, before anything is written.
 
         These used to be split: C2 was reported by ``--check`` as styled text
@@ -603,6 +699,24 @@ class Command(BaseCommand):
                     f"C4: equivalence to_key {to!r} names no section in any "
                     "required base pack"
                 )
+
+        # C8 — the consumer_agent half of the contract that IS decidable from
+        # the files: everything except whether ``--consumer-corpus`` resolves.
+        # `_wire_consumer_agent` enforces the full contract at install time,
+        # but it only runs inside `_wire`, which `handle()` never reaches
+        # under `--check`. Without this, `--check` reported "0 violations" for
+        # a manifest whose consumer_agent would hard-fail — REPLACE mode, a
+        # missing instructions_file, an ungrantable tool, an unusable
+        # preferred_llm — the moment an operator actually ran the install.
+        spec = manifest.get("consumer_agent")
+        if spec is not None:
+            if not isinstance(spec, dict):
+                violations.append("C8: consumer_agent must be a mapping")
+            else:
+                violations += self._consumer_agent_violations(
+                    spec, domain_dir, group_slug
+                )[0]
+
         return violations
 
     # ------------------------------------------------------------------ #
@@ -853,62 +967,29 @@ class Command(BaseCommand):
             )
             return
 
-        # EXTEND is required, not merely preferred. A REPLACE consumer agent
-        # would overwrite the consuming corpus's own persona with text shipped
-        # by a third party — which is exactly the coupling DOMAIN_PACKS.md
-        # forbids. EXTEND appends, so the corpus persona stays single-sourced
-        # on the corpus and the pack contributes only its increment.
-        mode = str(spec.get("mode") or "")
-        if mode != "EXTEND":
-            unmet.append(
-                f"C8: consumer_agent.mode must be 'EXTEND' (got {mode!r}). "
-                "REPLACE would overwrite the consuming corpus's persona with "
-                "pack-supplied text."
-            )
+        # The file-decidable half of the contract — mode, instructions_file,
+        # tools, search_across_corpora/group-slug, preferred_llm — is shared
+        # with `_preflight`, so `--check` previews exactly what a real install
+        # enforces here. Unreachable on a real install once `_preflight` has
+        # run — it evaluates the same `spec` from the same files — but kept
+        # (and exercised directly in
+        # `test_wire_consumer_agent_still_refuses_a_bad_mode_if_preflight_is_bypassed`)
+        # so a future refactor that calls `_wire` without `_preflight` first
+        # still cannot bind a REPLACE-mode or otherwise-invalid consumer agent.
+        violations, instructions, tools = self._consumer_agent_violations(
+            spec, domain_dir, group.slug
+        )
+        unmet.extend(violations)
+        if unmet:
+            # Don't write a half-valid agent, and don't let a DB-dependent
+            # check below (the corpus lookup) mask a manifest-authoring
+            # mistake that's already known from the files alone. handle()
+            # reports `unmet` and fails.
             return
-
-        # Same traversal reasoning as the orchestrator's instructions_file: the
-        # root is derived from the argument-checked domain name, never from the
-        # manifest, so the manifest cannot move the root and the guard together.
-        instructions = ""
-        rel = spec.get("instructions_file")
-        if not rel:
-            unmet.append("C8: consumer_agent.instructions_file is required")
-            return
-        root = domain_dir.resolve()
-        path = (root / str(rel)).resolve()
-        if not str(path).startswith(str(root) + "/") or not path.is_file():
-            unmet.append(f"C8: consumer_agent instructions_file unreadable: {rel}")
-            return
-        instructions = path.read_text(encoding="utf-8")
-        if not instructions.strip():
-            unmet.append(f"C8: consumer_agent instructions_file is empty: {rel}")
-            return
-
-        tools = [str(t) for t in (spec.get("tools") or [])]
-        for tool in tools:
-            if tool not in GRANTABLE_TOOLS:
-                unmet.append(
-                    f"C8: consumer_agent.tools names {tool!r}, which a domain "
-                    f"pack may not grant (allowed: {', '.join(sorted(GRANTABLE_TOOLS))})"
-                )
-        # Same rule the orchestrator is held to, and the same reason: the tool
-        # takes the group slug as a required argument, so an agent never told
-        # the slug cannot call it — and that looks identical to the model
-        # deciding not to.
-        if "search_across_corpora" in tools and group.slug not in instructions:
-            unmet.append(
-                f"C8: consumer_agent declares search_across_corpora but its "
-                f"instructions never name the group slug {group.slug!r}"
-            )
 
         corpus = Corpus.objects.filter(pk=corpus_pk).first()
         if corpus is None:
             raise CommandError(f"--consumer-corpus {corpus_pk} does not exist")
-
-        if unmet:
-            # Don't write a half-valid agent; handle() reports `unmet` and fails.
-            return
 
         consumer, created = AgentConfiguration.objects.get_or_create(
             slug=f"{manifest['name']}-consumer-{corpus.pk}",

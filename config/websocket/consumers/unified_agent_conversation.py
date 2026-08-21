@@ -424,8 +424,6 @@ class UnifiedAgentConsumer(AuthHandshakeMixin, AsyncWebsocketConsumer):
 
         return await database_sync_to_async(_lookup)()
 
-        return None
-
     # -------------------------------------------------------------------------
     #  Message sending
     # -------------------------------------------------------------------------

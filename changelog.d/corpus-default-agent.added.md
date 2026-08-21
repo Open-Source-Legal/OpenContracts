@@ -32,4 +32,13 @@
   one without binding it reports that it was not applied (C5) instead of
   passing silently, and the same group-slug check the orchestrator is held to
   applies here — `search_across_corpora` takes the slug as a required
-  argument, so an agent never told it cannot call it.
+  argument, so an agent never told it cannot call it. `consumer_agent.preferred_llm`
+  gets the same C3-style pre-validation as the orchestrator's, so an unusable
+  model spec fails cleanly instead of surfacing as a bare `ValidationError`
+  traceback from inside `consumer.save()`. And every part of C8 that is
+  decidable from the files — `mode`, `instructions_file`, `tools`, the
+  group-slug check, `preferred_llm` — is now previewed by `--check` too
+  (`_preflight`, shared with the real-install path via
+  `_consumer_agent_violations`), matching what C1-C7 already guaranteed;
+  previously `--check` reported "0 violations" for a `consumer_agent` that
+  would hard-fail the moment `--consumer-corpus` was supplied.
