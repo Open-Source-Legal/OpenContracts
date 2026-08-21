@@ -442,7 +442,16 @@ logic has silently inverted is worse than no gate.
   replaces the *entire* protection object, so a partial body silently drops
   the review rules and the force-push/deletion bans; and the narrower
   `PATCH .../protection/required_status_checks` returns 404 when no such
-  object exists yet.
+  object exists yet. The script **adds** — it unions the new context into
+  whatever the branch already requires and preserves `strict`, so
+
+  ```bash
+  CONTEXT=frontend-ci-gate .github/scripts/require_backend_ci_gate.sh --apply
+  ```
+
+  leaves `backend-ci-gate` required as well. Run it with no argument for a dry
+  run that prints the exact PUT body and changes nothing, or `--self-test` to
+  exercise the merge logic against synthetic protection objects.
 - **Other workflows are not safely requirable as-is.** `frontend.yml`,
   `frontend-e2e.yml`, `frontend-e2e-extract.yml`, `frontend-e2e-websocket.yml`,
   `production-stack.yml` and `redis-integration.yml` all use workflow-level
