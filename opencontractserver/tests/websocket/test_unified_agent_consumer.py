@@ -839,7 +839,9 @@ class UnifiedAgentConsumerAgentConfigThreadingTestCase(WebsocketFixtureBaseTestC
     factory's context-derived prompt and tool set untouched.
     """
 
-    def _make_corpus_consumer(self, *, explicit: bool) -> UnifiedAgentConsumer:
+    def _make_corpus_consumer(
+        self, *, explicit: bool, mode: str = "REPLACE"
+    ) -> UnifiedAgentConsumer:
         consumer = UnifiedAgentConsumer()
         consumer.session_id = "test-session"
         consumer.user_id = self.user.id
@@ -850,7 +852,7 @@ class UnifiedAgentConsumerAgentConfigThreadingTestCase(WebsocketFixtureBaseTestC
         consumer.agent_config = SimpleNamespace(
             preferred_llm="",
             system_instructions="You are the cross-corpus orchestrator.",
-            system_instructions_mode="REPLACE",
+            system_instructions_mode=mode,
             available_tools=["search_across_corpora"],
         )
         # ``agent_config_id`` is only set when the client passed
@@ -874,9 +876,14 @@ class UnifiedAgentConsumerAgentConfigThreadingTestCase(WebsocketFixtureBaseTestC
             self.assertEqual(kwargs.get("tools"), ["search_across_corpora"])
 
     async def test_default_agent_keeps_factory_prompt_and_tools(self) -> None:
-        """A slug-resolved default agent must NOT override the factory's
-        context-derived prompt (e.g. ``corpus_agent_instructions``) or tools."""
-        consumer = self._make_corpus_consumer(explicit=False)
+        """A slug-resolved REPLACE default must NOT override the factory's
+        context-derived prompt (e.g. ``corpus_agent_instructions``) or tools.
+
+        REPLACE is the case the exclusion was written for: a generic default's
+        instructions would substitute for the corpus persona rather than add
+        to it.
+        """
+        consumer = self._make_corpus_consumer(explicit=False, mode="REPLACE")
         with patch(
             "config.websocket.consumers.unified_agent_conversation.agents.for_corpus"
         ) as mock_for_corpus:
@@ -885,6 +892,30 @@ class UnifiedAgentConsumerAgentConfigThreadingTestCase(WebsocketFixtureBaseTestC
             kwargs = mock_for_corpus.call_args.kwargs
             self.assertNotIn("system_prompt", kwargs)
             self.assertNotIn("tools", kwargs)
+
+    async def test_extend_default_agent_is_applied_on_the_fallback_path(self) -> None:
+        """An EXTEND default DOES reach the factory without ``?agent_id=``.
+
+        The exclusion above exists because REPLACE would clobber the corpus
+        persona. EXTEND appends instead, so there is nothing to clobber — and
+        excluding it would mean a corpus default that resolves and is then
+        silently ignored. It must arrive as ``extra_system_context``: setting
+        ``system_prompt`` would consume the "caller supplied nothing" signal
+        and discard the persona, which is the #2247 bug.
+        """
+        consumer = self._make_corpus_consumer(explicit=False, mode="EXTEND")
+        with patch(
+            "config.websocket.consumers.unified_agent_conversation.agents.for_corpus"
+        ) as mock_for_corpus:
+            mock_for_corpus.return_value = _StubAgent(lambda: iter(()))
+            await consumer._initialize_agent()
+            kwargs = mock_for_corpus.call_args.kwargs
+            self.assertEqual(
+                kwargs.get("extra_system_context"),
+                "You are the cross-corpus orchestrator.",
+            )
+            self.assertNotIn("system_prompt", kwargs)
+            self.assertEqual(kwargs.get("tools"), ["search_across_corpora"])
 
     async def test_explicit_agent_tools_merge_with_extra_tools(self) -> None:
         """Config tools come first, per-turn delegation extra_tools append."""
@@ -1068,3 +1099,74 @@ class UnifiedAgentConsumerContextExhaustionTestCase(WebsocketFixtureBaseTestCase
             await consumer.receive(json.dumps({"query": "Legacy agent query"}))
 
         self.assertTrue(stream_called)
+
+
+@override_settings(USE_AUTH0=False)
+@pytest.mark.django_db(transaction=True)
+class UnifiedAgentConsumerCorpusDefaultAgentTestCase(WebsocketFixtureBaseTestCase):
+    """Priority 3 prefers ``Corpus.default_agent`` over the global slug.
+
+    Before this field existed, a chat opened with no ``agent_id`` always
+    resolved ``default-corpus-agent``, so an AgentConfiguration scoped to the
+    corpus could never be its default however it was configured.
+
+    TransactionTestCase-backed on purpose: resolution reads the corpus on its
+    own connection, so the rows have to be committed. A plain ``TestCase``
+    wraps them in a transaction the lookup cannot see and fails with
+    "connection already closed".
+    """
+
+    def _consumer(self) -> UnifiedAgentConsumer:
+        consumer = UnifiedAgentConsumer()
+        consumer.session_id = "test-session"
+        consumer.agent_config_id = None
+        consumer.document_id = None
+        consumer.corpus_id = self.corpus.id
+        return consumer
+
+    def _scoped_agent(self, slug: str, *, active: bool = True):
+        from opencontractserver.agents.models import AgentConfiguration
+
+        agent = AgentConfiguration.objects.create(
+            name=slug,
+            slug=slug,
+            creator=self.user,
+            scope=AgentConfiguration.SCOPE_CORPUS,
+            corpus=self.corpus,
+            system_instructions="specific",
+            system_instructions_mode="EXTEND",
+            is_active=active,
+        )
+        self.corpus.default_agent = agent
+        self.corpus.save(update_fields=["default_agent"])
+        return agent
+
+    async def test_falls_back_to_the_global_slug_when_unset(self) -> None:
+        resolved = await self._consumer()._resolve_agent_config()
+        assert resolved is not None
+        self.assertEqual(resolved.slug, "default-corpus-agent")
+
+    async def test_corpus_default_wins(self) -> None:
+        await database_sync_to_async(self._scoped_agent)("corpus-default")
+        resolved = await self._consumer()._resolve_agent_config()
+        assert resolved is not None
+        self.assertEqual(resolved.slug, "corpus-default")
+
+    async def test_inactive_corpus_default_falls_back_rather_than_failing(
+        self,
+    ) -> None:
+        """Switching a corpus agent off should restore the global default, not
+        break corpus chat — that is what deactivating it is asking for."""
+        await database_sync_to_async(self._scoped_agent)(
+            "corpus-default-off", active=False
+        )
+        resolved = await self._consumer()._resolve_agent_config()
+        assert resolved is not None
+        self.assertEqual(resolved.slug, "default-corpus-agent")
+
+    async def test_no_corpus_and_no_document_resolves_nothing(self) -> None:
+        """Neither context in scope: there is nothing to resolve, and the
+        caller must not receive a default it did not ask for."""
+        consumer = self._consumer()
+        consumer.corpus_id = None
+        self.assertIsNone(await consumer._resolve_agent_config())
