@@ -68,6 +68,10 @@ jobs:
               - 'mypy.ini'
               - 'pyproject.toml'
               - '.github/workflows/backend.yml'
+              # The gate's own scripts. A change to the thing that decides
+              # whether a merge is allowed should be validated by the full
+              # suite, not waved through as "not backend code".
+              - '.github/scripts/**'
 
   linter:
     needs: changes
