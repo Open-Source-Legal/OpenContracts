@@ -406,12 +406,23 @@ def agentic_highlighter_claude(
             ]
 
             logger.info(f"Sending request to Claude for chunk {chunk_index + 1}")
+            # No ``temperature``: the anthropic SDK removed the sampling
+            # parameters in 1.0.0, and passing one now raises TypeError before
+            # the request is even built (there is no **kwargs passthrough).
+            # The parameter is gone from the API itself on Opus 4.7+ / Sonnet 5
+            # too, so this is not a client-only shim. Determinism, where it
+            # matters, comes from the prompt — temperature never guaranteed
+            # identical outputs regardless.
             response = client.messages.create(
                 model=anthropic_model,
-                temperature=0.0,
                 max_tokens=1024,
                 system=system_directive,
                 messages=[
+                    # Kept: with ``temperature`` present mypy failed at overload
+                    # resolution and never type-checked this, so the ignore read
+                    # as unused. Dropping the kwarg lets the overload match and
+                    # surfaces the real ``list[object]`` vs content-block
+                    # mismatch underneath.
                     {"role": "user", "content": request_payload},  # type: ignore[typeddict-item]
                 ],
             )
@@ -605,10 +616,11 @@ def pii_highlighter_claude(
 
     try:
         # Create the messages request
+        # ``temperature`` removed — see the note on the other messages.create
+        # call in this module; the SDK raises TypeError on it as of 1.0.0.
         response = client.messages.create(
             model=anthropic_model,
             max_tokens=8192,
-            temperature=0,
             messages=[
                 {
                     "role": "user",
