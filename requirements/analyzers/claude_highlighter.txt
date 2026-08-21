@@ -1,1 +1,17 @@
-anthropic>=0.45.2
+# Ceiling is <1, NOT <2: anthropic 1.0.0 satisfies `<2`, so that bound would be
+# a no-op here. Resolved versions, verified:
+#     anthropic>=0.45.2        -> 1.0.0
+#     anthropic>=0.45.2,<2     -> 1.0.0     (no-op)
+#     anthropic>=0.45.2,<1     -> 0.125.0
+#
+# 1.0.0 removed the sampling parameters (`temperature`/`top_p`/`top_k`) from
+# `messages.create()` with no **kwargs passthrough, so passing one raises
+# TypeError before the request is built. It arrived unannounced because this
+# file had no upper bound and both Dockerfiles glob requirements/*/*.txt into
+# the image, with no lock file to hold a resolved set.
+#
+# This pin is a STOPGAP that freezes the 0.x line; the migration is tracked in
+# issue #2273. Keep this ceiling in lock-step with the `anthropic` entry in
+# .pre-commit-config.yaml's mypy additional_dependencies, or CI will
+# type-check against a different major than the image ships.
+anthropic>=0.45.2,<1
