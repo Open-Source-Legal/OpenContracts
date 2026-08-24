@@ -654,7 +654,8 @@ class ECCNGrammarTests(SimpleTestCase):
         """The whole reason this is Tier-2a: core must not emit ``ccl:``.
 
         ``ccl`` is the prefix one pack happens to give its CCL corpus. A pack
-        maps ``eccn:`` to its own key with an ``equivalences`` row.
+        folds ``eccn:`` keys onto its own with generated per-key
+        ``equivalences`` rows, one per ECCN.
         """
         keys = self._keys("controlled under ECCN 3A611.")
         assert not any(k.startswith("ccl:") for k in keys)

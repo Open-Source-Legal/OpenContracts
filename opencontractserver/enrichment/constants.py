@@ -74,8 +74,12 @@ CASE_REPORTER_PREFIX = "usreporter"
 # Deliberately NOT ``ccl``. That is the prefix one pack happens to give its CCL
 # corpus, and emitting it from core would hardcode that pack's naming into the
 # framework — the failure the CASE_REPORTER_PREFIX note above describes. A pack
-# carrying the CCL maps ``eccn:3a611`` to its own key with one ``equivalences``
-# row.
+# carrying the CCL folds these onto its own keys with per-key ``equivalences``
+# rows (``eccn:3a611 -> ccl:3a611``), one per ECCN — generated, exactly like
+# the ``act:eccn-*`` rows it already carries for the LLM-extracted surface
+# forms. Per-KEY is the only pack-side mechanism: prefix-level ``rewrite_rules``
+# are deliberately never loaded from packs (see ``data/mappings.py``), and a
+# core rewrite rule would hardcode ``ccl`` — the very thing this prefix avoids.
 #
 # Keys are lowercased by the shared candidate builder. That is required, not
 # incidental: ECCNs are conventionally written uppercase and authority-key

@@ -78,8 +78,8 @@ _DIVISION_NUMBER = r"[IVXLCivxlc]+"
 # NOT here. They are a citation SHAPE — the literal "ECCN" anchors the form, so
 # it is recognisable without knowing which body of law is installed — and shapes
 # belong in the Tier-2a grammars, emitting a shape-level prefix (``eccn:3a611``)
-# that a pack maps to its own key with one ``equivalences`` row. See
-# ``grammars._eccns`` and the ``ECCN_PREFIX`` note in ``constants``.
+# that a pack folds onto its own keys with generated per-key ``equivalences``
+# rows. See ``grammars._eccns`` and the ``ECCN_PREFIX`` note in ``constants``.
 
 
 # "Section 145", "Section 4(a)(2)", "Section 7(a)(2)(B)" followed by authority.

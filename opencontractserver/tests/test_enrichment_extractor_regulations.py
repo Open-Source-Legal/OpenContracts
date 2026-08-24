@@ -148,8 +148,10 @@ class ECCNStaysOutOfTier1Tests(SimpleTestCase):
     The behaviour itself is covered in ``test_generic_grammars.ECCNGrammarTests``.
     What is guarded HERE is the architectural boundary: an earlier revision of
     this work put the pattern in the registry extractor and emitted ``ccl:``,
-    which hardcodes one pack's prefix into core. A pack maps the shape-level
-    ``eccn:`` key to its own with one ``equivalences`` row instead.
+    which hardcodes one pack's prefix into core. A pack folds the shape-level
+    ``eccn:`` keys onto its own with generated per-key ``equivalences`` rows
+    instead (one per ECCN — prefix-level rewrite rules are never loaded from
+    packs).
 
     Kept as a test rather than a comment because the tempting fix — "just add
     the pattern where the other citation patterns are" — reintroduces it
