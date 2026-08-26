@@ -74,6 +74,21 @@ _PUBL_RE = re.compile(
 )
 _STAT_RE = re.compile(r"\b(?P<vol>\d+)\s+Stat\.?\s+(?P<page>\d[\d,]*)")
 
+# Congressional measures. Periods are REQUIRED (unlike _publ's tolerant
+# forms): "HR 1234" is a human-resources form number as often as a bill, and
+# lowercase "s. 987" is the UK statutory-section short form — precision wins.
+# The bare Senate form is the dangerous one: "S." also terminates "U.S." in
+# case citations (410 U.S. 113) and "n.S."-style abbreviations, so it demands
+# a clean left boundary (no word char, no '.', no '§' immediately before).
+# Resolution forms are matched by their own alternation so "H. Res. 5" never
+# half-matches as a House bill; the emitted key carries no congress number —
+# a bills pack folds hr:1234 onto hr:119-1234 with equivalence rows.
+_BILL_RES_RE = re.compile(
+    r"\b(?P<chamber>[HS])\.\s?(?:(?P<j>J)\.|(?P<con>Con)\.)?\s?Res\.\s?(?P<num>\d{1,5})\b"
+)
+_HOUSE_BILL_RE = re.compile(r"\bH\.\s?R\.\s?(?P<num>\d{1,5})\b")
+_SENATE_BILL_RE = re.compile(r"(?<![\w.§])S\.\s?(?P<num>\d{1,5})\b")
+
 # --- Texas electric / ERCOT authority shapes ------------------------------ #
 # These identifiers are structurally precise and recur across multiple grid
 # authority packs. They belong in the shared Tier-2 grammar rather than in one
@@ -365,6 +380,45 @@ def _stat(text: str) -> Iterator[Candidate]:
             key,
             C.JURISDICTION_US_FEDERAL,
             C.AUTHORITY_TYPE_STATUTE,
+        )
+
+
+def _bills(text: str) -> Iterator[Candidate]:
+    claimed: list[tuple[int, int]] = []
+    for m in _BILL_RES_RE.finditer(text):
+        chamber = m.group("chamber").lower()
+        kind = "jres" if m.group("j") else ("conres" if m.group("con") else "res")
+        claimed.append((m.start(), m.end()))
+        yield _cand(
+            m.start(),
+            m.end(),
+            m.group(0),
+            f"{chamber}{kind}:{m.group('num')}",
+            C.JURISDICTION_US_FEDERAL,
+            C.AUTHORITY_TYPE_BILL,
+        )
+    for m in _HOUSE_BILL_RE.finditer(text):
+        yield _cand(
+            m.start(),
+            m.end(),
+            m.group(0),
+            f"hr:{m.group('num')}",
+            C.JURISDICTION_US_FEDERAL,
+            C.AUTHORITY_TYPE_BILL,
+        )
+    for m in _SENATE_BILL_RE.finditer(text):
+        # The overlap guard keeps a bare-Senate match from firing inside a
+        # span the resolution alternation already claimed (e.g. reading the
+        # "S. 7"-shaped tail of text adjacent to "S. Con. Res. 7").
+        if any(start <= m.start() < end for start, end in claimed):
+            continue
+        yield _cand(
+            m.start(),
+            m.end(),
+            m.group(0),
+            f"s:{m.group('num')}",
+            C.JURISDICTION_US_FEDERAL,
+            C.AUTHORITY_TYPE_BILL,
         )
 
 
@@ -748,6 +802,7 @@ class GenericCitationExtractor:
             out.extend(_fedreg(text))
             out.extend(_publ(text))
             out.extend(_stat(text))
+            out.extend(_bills(text))
             out.extend(_puct_texas_admin_code(text))
             out.extend(_ercot_authorities(text))
             out.extend(_hts(text))

@@ -685,3 +685,82 @@ class ECCNGrammarTests(SimpleTestCase):
         assert c.jurisdiction == C.JURISDICTION_US_FEDERAL
         assert c.authority_type == C.AUTHORITY_TYPE_REGULATION
         assert c.reference_type == C.REF_LAW
+
+
+class BillVocabularyTests(SimpleTestCase):
+    def test_bill_prefixes_classify_as_federal_bills(self):
+        for prefix in (
+            "hr",
+            "s",
+            "hjres",
+            "sjres",
+            "hconres",
+            "sconres",
+            "hres",
+            "sres",
+        ):
+            assert C.classify_prefix(prefix) == (
+                C.JURISDICTION_US_FEDERAL,
+                C.AUTHORITY_TYPE_BILL,
+            ), prefix
+
+    def test_bill_is_a_registered_authority_type(self):
+        assert C.AUTHORITY_TYPE_BILL in C.ALL_AUTHORITY_TYPES
+
+    def test_proposed_weight_exists(self):
+        from opencontractserver.enrichment.authority_sources import AuthorityWeight
+
+        assert AuthorityWeight.PROPOSED.value == "PROPOSED"
+
+
+class BillGrammarTests(SimpleTestCase):
+    def setUp(self):
+        self.ex = GenericCitationExtractor()
+
+    def _keys(self, text):
+        return {c.canonical_key: c for c in self.ex.extract(text)}
+
+    def test_house_bill(self):
+        c = self._keys("as passed in H.R. 1234, the House provided")["hr:1234"]
+        assert c.jurisdiction == C.JURISDICTION_US_FEDERAL
+        assert c.authority_type == C.AUTHORITY_TYPE_BILL
+
+    def test_house_bill_spaced(self):
+        assert "hr:2" in self._keys("H. R. 2 would require")
+
+    def test_senate_bill(self):
+        assert "s:987" in self._keys("companion measure S. 987 was introduced")
+
+    def test_joint_and_concurrent_resolutions(self):
+        keys = self._keys(
+            "see H.J. Res. 44, S.J. Res. 10, H. Con. Res. 14, "
+            "S. Con. Res. 7, H. Res. 5, and S. Res. 70"
+        )
+        for expected in (
+            "hjres:44",
+            "sjres:10",
+            "hconres:14",
+            "sconres:7",
+            "hres:5",
+            "sres:70",
+        ):
+            assert expected in keys, expected
+
+    # --- guards ----------------------------------------------------------- #
+    def test_us_reports_citation_is_not_a_senate_bill(self):
+        assert "s:113" not in self._keys("Roe v. Wade, 410 U.S. 113 (1973)")
+
+    def test_usc_citation_is_not_a_senate_bill(self):
+        assert "s:987" not in self._keys("under 26 U.S.C. § 987 the rules")
+
+    def test_lowercase_uk_style_section_is_not_a_senate_bill(self):
+        assert "s:987" not in self._keys("liability arises under s. 987 of the Act")
+
+    def test_section_symbol_is_not_a_senate_bill(self):
+        keys = self._keys("see § 987 and §§ 12-14")
+        assert not any(k.startswith("s:") for k in keys)
+
+    def test_house_resolution_does_not_shadow_house_bill(self):
+        keys = self._keys("H. Res. 5 accompanied H.R. 1234")
+        assert "hres:5" in keys and "hr:1234" in keys
+        assert "hr:5" not in keys
