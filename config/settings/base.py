@@ -884,6 +884,11 @@ CELERY_BEAT_SCHEDULE = {
         "schedule": 300.0,  # every 5 minutes
         "options": {"queue": "worker_uploads"},
     },
+    "worker-uploads-drain-section-batches": {
+        "task": "opencontractserver.worker_uploads.tasks.process_pending_section_batches",
+        "schedule": 60.0,
+        "options": {"queue": "worker_uploads"},
+    },
     "memory-curate-idle-conversations": {
         "task": "opencontractserver.tasks.memory_tasks.check_conversations_for_curation",
         "schedule": MEMORY_CURATION_CHECK_INTERVAL_SECONDS,
@@ -925,6 +930,12 @@ WORKER_UPLOAD_BATCH_SIZE = int(env("WORKER_UPLOAD_BATCH_SIZE", default="50"))
 # Default: 256 MB. Set to 0 to disable the limit.
 MAX_WORKER_UPLOAD_SIZE_BYTES = int(
     env("MAX_WORKER_UPLOAD_SIZE_BYTES", default=str(256 * 1024 * 1024))
+)
+
+# Maximum JSON body size (in bytes) accepted by the authority-section batch
+# endpoint. Default: 32 MB (a batch of full bill texts). Set to 0 to disable.
+MAX_AUTHORITY_SECTION_PAYLOAD_BYTES = int(
+    env("MAX_AUTHORITY_SECTION_PAYLOAD_BYTES", default=str(32 * 1024 * 1024))
 )
 
 # Minutes before a PROCESSING upload is considered stalled and reset to PENDING.
