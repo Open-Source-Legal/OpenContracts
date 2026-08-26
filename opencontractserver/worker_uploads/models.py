@@ -187,6 +187,18 @@ class CorpusAccessToken(models.Model):
         default=0,
         help_text="Max uploads per minute. 0 means unlimited.",
     )
+    # Capability gate, DEFAULT FALSE on purpose: authority-section push can
+    # create/version-up documents and trigger relink sweeps that touch other
+    # corpora citing the bootstrapped keys — a strictly larger blast radius
+    # than plain document upload. Tokens minted before this field existed (or
+    # without the explicit flag) must NOT gain it silently.
+    can_push_authority_sections = models.BooleanField(
+        default=False,
+        help_text=(
+            "Whether this token may push authority-section batches "
+            "(bootstrap_authority_corpus) in addition to plain document uploads."
+        ),
+    )
     created = models.DateTimeField(default=timezone.now, db_index=True)
     modified = models.DateTimeField(auto_now=True)
 
@@ -215,6 +227,7 @@ class CorpusAccessToken(models.Model):
         expires_at: Optional[datetime] = None,
         rate_limit_per_minute: int = 0,
         is_active: bool = True,
+        can_push_authority_sections: bool = False,
     ) -> tuple["CorpusAccessToken", str]:
         """
         Create a new token, storing only the SHA-256 hash.
@@ -232,6 +245,7 @@ class CorpusAccessToken(models.Model):
             expires_at=expires_at,
             rate_limit_per_minute=rate_limit_per_minute,
             is_active=is_active,
+            can_push_authority_sections=can_push_authority_sections,
         )
         return token, plaintext
 

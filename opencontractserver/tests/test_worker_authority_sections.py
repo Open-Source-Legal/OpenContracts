@@ -73,7 +73,9 @@ class SectionBatchTestBase(TestCase):
 
     def setUp(self):
         self.token, self.plaintext = CorpusAccessToken.create_token(
-            worker_account=self.account, corpus=self.corpus
+            worker_account=self.account,
+            corpus=self.corpus,
+            can_push_authority_sections=True,
         )
         self.client_api = APIClient()
         self.client_api.credentials(HTTP_AUTHORIZATION=f"WorkerKey {self.plaintext}")
@@ -129,6 +131,17 @@ class TestSectionBatchEndpoint(SectionBatchTestBase):
         response = APIClient().post(ENDPOINT, _make_payload(), format="json")
         assert response.status_code == 401
 
+    def test_post_without_capability_is_403(self):
+        # A plain document-upload token (the pre-existing kind) must NOT gain
+        # the authority-section capability silently.
+        _, plaintext = CorpusAccessToken.create_token(
+            worker_account=self.account, corpus=self.corpus
+        )
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"WorkerKey {plaintext}")
+        response = client.post(ENDPOINT, _make_payload(), format="json")
+        assert response.status_code == 403
+
     @patch(
         "opencontractserver.worker_uploads.views.process_pending_section_batches.apply_async"
     )
@@ -153,7 +166,10 @@ class TestSectionBatchEndpoint(SectionBatchTestBase):
     )
     def test_rate_limit_counts_section_batches(self, mock_nudge):
         limited_token, limited_plaintext = CorpusAccessToken.create_token(
-            worker_account=self.account, corpus=self.corpus, rate_limit_per_minute=1
+            worker_account=self.account,
+            corpus=self.corpus,
+            rate_limit_per_minute=1,
+            can_push_authority_sections=True,
         )
         client = APIClient()
         client.credentials(HTTP_AUTHORIZATION=f"WorkerKey {limited_plaintext}")

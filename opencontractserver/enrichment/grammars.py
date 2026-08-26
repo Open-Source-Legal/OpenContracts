@@ -86,7 +86,10 @@ _STAT_RE = re.compile(r"\b(?P<vol>\d+)\s+Stat\.?\s+(?P<page>\d[\d,]*)")
 _BILL_RES_RE = re.compile(
     r"\b(?P<chamber>[HS])\.\s?(?:(?P<j>J)\.|(?P<con>Con)\.)?\s?Res\.\s?(?P<num>\d{1,5})\b"
 )
-_HOUSE_BILL_RE = re.compile(r"\bH\.\s?R\.\s?(?P<num>\d{1,5})\b")
+# Same left-boundary guard as the Senate form: \b alone treats a
+# preceding "." as a boundary, so "W.H.R. 5"-style adjacent
+# abbreviations would otherwise read as House bills.
+_HOUSE_BILL_RE = re.compile(r"(?<![\w.§])H\.\s?R\.\s?(?P<num>\d{1,5})\b")
 _SENATE_BILL_RE = re.compile(r"(?<![\w.§])S\.\s?(?P<num>\d{1,5})\b")
 
 # --- Texas electric / ERCOT authority shapes ------------------------------ #

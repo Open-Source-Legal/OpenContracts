@@ -238,9 +238,27 @@ class WorkerAuthoritySectionBatchView(APIView):
     def post(self, request: Request) -> Response:
         token = cast(CorpusAccessToken, request.auth)
 
+        # Capability gate (default False at mint): authority-section push has
+        # a larger blast radius than document upload (document create/version
+        # + cross-corpus relink), so a token must be minted for it explicitly.
+        if not token.can_push_authority_sections:
+            return Response(
+                {
+                    "error": "Token not authorized for authority-section push.",
+                    "detail": (
+                        "Mint the token with --allow-authority-sections to "
+                        "grant this capability."
+                    ),
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
         max_bytes = settings.MAX_AUTHORITY_SECTION_PAYLOAD_BYTES
         if max_bytes:
-            payload_size = len(json.dumps(request.data).encode())
+            # Measure the ACTUAL request body (already buffered by Django,
+            # bounded by DATA_UPLOAD_MAX_MEMORY_SIZE) — re-serializing the
+            # parsed object would be approximate and no cheaper.
+            payload_size = len(request.body)
             if payload_size > max_bytes:
                 return Response(
                     {

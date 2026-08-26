@@ -16,7 +16,11 @@
   drain task (`process_pending_section_batches`) feeds
   `bootstrap_authority_corpus` with `relink_async=True` and upserts
   equivalences under source `worker:<account>`. Target corpus always comes from
-  the token (IDOR-safe by construction); payload cap via new
+  the token (IDOR-safe by construction), and the capability is an explicit
+  off-by-default grant — `CorpusAccessToken.can_push_authority_sections`
+  (migration `worker_uploads.0006`, `mint_worker_token
+  --allow-authority-sections`) — so pre-existing document-upload tokens do not
+  silently gain the larger blast radius. Payload cap via new
   `MAX_AUTHORITY_SECTION_PAYLOAD_BYTES` setting; stalled batches recovered by
   the existing `recover_stalled_uploads` sweep; periodic drain added to
   `CELERY_BEAT_SCHEDULE`. Docs: `docs/guides/ingesting-authorities.md` Part 3.

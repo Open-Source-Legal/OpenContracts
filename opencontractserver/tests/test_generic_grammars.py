@@ -760,6 +760,12 @@ class BillGrammarTests(SimpleTestCase):
         keys = self._keys("see § 987 and §§ 12-14")
         assert not any(k.startswith("s:") for k in keys)
 
+    def test_adjacent_abbreviation_is_not_a_house_bill(self):
+        # "\b" alone treats a preceding "." as a boundary, so without the
+        # left-boundary guard "W.H.R. 5" would read as a House bill.
+        assert "hr:5" not in self._keys("per the W.H.R. 5 protocol")
+        assert "hr:1234" in self._keys("(H.R. 1234) was reported")
+
     def test_house_resolution_does_not_shadow_house_bill(self):
         keys = self._keys("H. Res. 5 accompanied H.R. 1234")
         assert "hres:5" in keys and "hr:1234" in keys

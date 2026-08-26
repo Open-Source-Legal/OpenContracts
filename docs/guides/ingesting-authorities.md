@@ -330,8 +330,11 @@ Authorization: WorkerKey <token>
 {"sections": [...], "equivalences": [{"from_key": "...", "to_key": "..."}]}
 ```
 
-- **Token**: mint with `python manage.py mint_worker_token` — the token binds
-  the batch to exactly one corpus (the payload never names a corpus).
+- **Token**: mint with `python manage.py mint_worker_token
+  --allow-authority-sections` — the token binds the batch to exactly one
+  corpus (the payload never names a corpus), and the authority-section
+  capability is an explicit, off-by-default grant: a plain document-upload
+  token gets 403 here (`CorpusAccessToken.can_push_authority_sections`).
 - **Payload**: `sections` follows the single section-spec contract
   (`opencontractserver/enrichment/authorities.py::parse_section_spec` — same
   schema as `bootstrap_authority --spec` and pack specs), validated
