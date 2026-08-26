@@ -332,3 +332,56 @@ class WorkerDocumentUpload(models.Model):
 
     def __str__(self) -> str:
         return f"WorkerDocumentUpload({self.id}, {self.status})"
+
+
+class WorkerAuthoritySectionBatch(models.Model):
+    """Staging table for authority-section spec payloads pushed by harvesters.
+
+    Same drain pattern as WorkerDocumentUpload (202 at the endpoint, batch
+    processor with SELECT ... FOR UPDATE SKIP LOCKED), but the payload is a
+    parse_section_spec-shaped JSON document ({"sections": [...],
+    "equivalences": [...]}) bound for bootstrap_authority_corpus rather than
+    a file bound for the parser pipeline.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    corpus_access_token = models.ForeignKey(
+        CorpusAccessToken,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="section_batches",
+        help_text="Token used for this batch.",
+    )
+    corpus = models.ForeignKey(
+        "corpuses.Corpus",
+        on_delete=models.CASCADE,
+        related_name="worker_section_batches",
+        help_text="Authority corpus this batch bootstraps into.",
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=UploadStatus.choices,
+        default=UploadStatus.PENDING,
+        db_index=True,
+    )
+    payload = models.JSONField(
+        help_text="Section-spec payload: {'sections': [...], 'equivalences': [...]}.",
+    )
+    report = models.JSONField(
+        default=dict,
+        help_text="Bootstrap + equivalence outcome counts after processing.",
+    )
+    error_message = models.TextField(blank=True, default="")
+    created = models.DateTimeField(default=timezone.now, db_index=True)
+    processing_started = models.DateTimeField(null=True, blank=True)
+    processing_finished = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["created"]
+        indexes = [
+            models.Index(fields=["status", "created"]),
+            models.Index(fields=["corpus", "status"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"WorkerAuthoritySectionBatch({self.id}, {self.status})"

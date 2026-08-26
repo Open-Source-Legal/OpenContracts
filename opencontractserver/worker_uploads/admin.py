@@ -3,6 +3,7 @@ from django.contrib import admin
 from opencontractserver.worker_uploads.models import (
     CorpusAccessToken,
     WorkerAccount,
+    WorkerAuthoritySectionBatch,
     WorkerDocumentUpload,
 )
 
@@ -54,3 +55,25 @@ class WorkerDocumentUploadAdmin(admin.ModelAdmin):
         "processing_finished",
     )
     raw_id_fields = ("corpus_access_token", "corpus", "result_document")
+
+
+@admin.register(WorkerAuthoritySectionBatch)
+class WorkerAuthoritySectionBatchAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "corpus",
+        "status",
+        "created",
+        "processing_started",
+        "processing_finished",
+    )
+    list_filter = ("status", "corpus")
+    # UUID search via LIKE is slow; use list_filter for corpus/status instead.
+    search_fields = ()
+    readonly_fields = (
+        "id",
+        "created",
+        "processing_started",
+        "processing_finished",
+    )
+    raw_id_fields = ("corpus_access_token", "corpus")
