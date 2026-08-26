@@ -318,6 +318,35 @@ the `Unsupported` chip count on `/admin/authority/queue` should drop.
 
 ---
 
+## Part 3 — Continuous push from an external harvester
+
+For sources that change on their own schedule (proposed legislation, eCFR
+amendments, caselaw feeds), an external harvester can push authority sections
+into a corpus continuously instead of waiting for a pack re-install:
+
+```
+POST /api/worker-uploads/authority-sections/
+Authorization: WorkerKey <token>
+{"sections": [...], "equivalences": [{"from_key": "...", "to_key": "..."}]}
+```
+
+- **Token**: mint with `python manage.py mint_worker_token` — the token binds
+  the batch to exactly one corpus (the payload never names a corpus).
+- **Payload**: `sections` follows the single section-spec contract
+  (`opencontractserver/enrichment/authorities.py::parse_section_spec` — same
+  schema as `bootstrap_authority --spec` and pack specs), validated
+  synchronously so a malformed batch is a 400 at push time. `equivalences`
+  rows are upserted under source `worker:<account>` (curator- and pack-owned
+  rows are never overwritten — see `authority_equivalence_ingest.py`).
+- **Processing**: 202 + batch id; a drain task
+  (`worker_uploads/tasks.py::process_pending_section_batches`) feeds
+  `bootstrap_authority_corpus` (idempotent: unchanged text skips, changed
+  text version-ups, metadata-only changes restamp) with an async relink of
+  citing corpora. Poll `GET /api/worker-uploads/authority-sections/<id>/`
+  for the bootstrap/equivalence report.
+- **Caps**: `MAX_AUTHORITY_SECTION_PAYLOAD_BYTES` (default 32 MB) and the
+  token's `rate_limit_per_minute` apply per batch.
+
 ## Permissions & safety recap
 
 - `runCorpusEnrichment` (and therefore the crawl) requires corpus **UPDATE**;
