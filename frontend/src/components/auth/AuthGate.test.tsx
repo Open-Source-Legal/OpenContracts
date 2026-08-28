@@ -8,6 +8,7 @@ import {
 } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import { useAuth0 } from "@auth0/auth0-react";
+import { toast } from "react-toastify";
 import { AuthGate } from "./AuthGate";
 import {
   authToken,
@@ -330,6 +331,137 @@ describe("AuthGate", () => {
       expect(localStorage.getItem(AUTH_DOMAIN_KEY)).toBe(
         "test-tenant.auth0.com"
       );
+    });
+  });
+
+  describe("Session Expiry Handling", () => {
+    it("clears stale Auth0 session and falls back to anonymous on invalid refresh token", async () => {
+      // Production scenario: refresh token expired/revoked server-side
+      // (Auth0 `fertft` — "Token could not be decoded or is missing in DB")
+      // while the localstorage cache still reports isAuthenticated=true.
+      const mockUser = { email: "test@example.com", sub: "user123" };
+      const mockLogout = vi.fn().mockResolvedValue(undefined);
+      const mockGetAccessTokenSilently = vi.fn().mockRejectedValue({
+        error: "invalid_grant",
+        message: "Unknown or invalid refresh token.",
+      });
+
+      localStorage.setItem(HAS_AUTHENTICATED_KEY, "true");
+      localStorage.setItem(AUTH_DOMAIN_KEY, "test-tenant.auth0.com");
+
+      const mockUseAuth0 = useAuth0 as MockedFunction<typeof useAuth0>;
+      mockUseAuth0.mockReturnValue({
+        ...baseAuth0Props,
+        isLoading: false,
+        isAuthenticated: true,
+        user: mockUser,
+        getAccessTokenSilently: mockGetAccessTokenSilently,
+        logout: mockLogout,
+      });
+
+      render(
+        <AuthGate useAuth0={true} audience="test-audience">
+          <div>Protected Content</div>
+        </AuthGate>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText("Protected Content")).toBeInTheDocument();
+      });
+
+      // Falls back to anonymous
+      expect(authToken()).toBe("");
+      expect(authStatusVar()).toBe("ANONYMOUS");
+      expect(userObj()).toBeNull();
+
+      // Clears the stale SDK cache locally (no redirect) so the failure
+      // doesn't replay on every subsequent page load
+      expect(mockLogout).toHaveBeenCalledWith({ openUrl: false });
+      expect(localStorage.getItem(HAS_AUTHENTICATED_KEY)).toBeNull();
+
+      // Informs the user quietly — no scary error toast
+      expect(toast.info).toHaveBeenCalled();
+      expect(toast.error).not.toHaveBeenCalled();
+    });
+
+    it("quietly clears a missing refresh token during verification", async () => {
+      // Returning user (has-authenticated flag set) whose SDK cache no longer
+      // holds a refresh token: getAccessTokenSilently throws
+      // missing_refresh_token because useRefreshTokensFallback is disabled.
+      const mockLogout = vi.fn().mockResolvedValue(undefined);
+      const mockGetAccessTokenSilently = vi.fn().mockRejectedValue({
+        error: "missing_refresh_token",
+        message:
+          "Missing Refresh Token (audience: 'test-audience', scope: 'openid')",
+      });
+
+      localStorage.setItem(HAS_AUTHENTICATED_KEY, "true");
+      localStorage.setItem(AUTH_DOMAIN_KEY, "test-tenant.auth0.com");
+
+      const mockUseAuth0 = useAuth0 as MockedFunction<typeof useAuth0>;
+      mockUseAuth0.mockReturnValue({
+        ...baseAuth0Props,
+        isLoading: false,
+        isAuthenticated: false,
+        user: undefined,
+        getAccessTokenSilently: mockGetAccessTokenSilently,
+        logout: mockLogout,
+      });
+
+      render(
+        <AuthGate useAuth0={true} audience="test-audience">
+          <div>Protected Content</div>
+        </AuthGate>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText("Protected Content")).toBeInTheDocument();
+      });
+
+      expect(authToken()).toBe("");
+      expect(authStatusVar()).toBe("ANONYMOUS");
+
+      // Cache + fast-path flag cleared so future boots skip the doomed
+      // verification round; user was never shown as logged in, so no toast
+      expect(mockLogout).toHaveBeenCalledWith({ openUrl: false });
+      expect(localStorage.getItem(HAS_AUTHENTICATED_KEY)).toBeNull();
+      expect(toast.info).not.toHaveBeenCalled();
+      expect(toast.error).not.toHaveBeenCalled();
+    });
+
+    it("still surfaces unexpected token errors and keeps the SDK cache", async () => {
+      const mockUser = { email: "test@example.com", sub: "user123" };
+      const mockLogout = vi.fn().mockResolvedValue(undefined);
+      const mockGetAccessTokenSilently = vi
+        .fn()
+        .mockRejectedValue(new Error("Network failure"));
+
+      const mockUseAuth0 = useAuth0 as MockedFunction<typeof useAuth0>;
+      mockUseAuth0.mockReturnValue({
+        ...baseAuth0Props,
+        isLoading: false,
+        isAuthenticated: true,
+        user: mockUser,
+        getAccessTokenSilently: mockGetAccessTokenSilently,
+        logout: mockLogout,
+      });
+
+      render(
+        <AuthGate useAuth0={true} audience="test-audience">
+          <div>Protected Content</div>
+        </AuthGate>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText("Protected Content")).toBeInTheDocument();
+      });
+
+      expect(authStatusVar()).toBe("ANONYMOUS");
+
+      // Transient/unknown errors must NOT wipe the cache — the session may
+      // recover on the next load — and the user still gets an error toast
+      expect(mockLogout).not.toHaveBeenCalled();
+      expect(toast.error).toHaveBeenCalled();
     });
   });
 

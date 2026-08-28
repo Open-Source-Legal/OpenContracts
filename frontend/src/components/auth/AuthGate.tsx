@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from "react";
-import { useAuth0 } from "@auth0/auth0-react";
+import { useAuth0, LogoutOptions } from "@auth0/auth0-react";
 import { useReactiveVar } from "@apollo/client";
 import {
   authToken,
@@ -49,6 +49,64 @@ function markAuthenticated(): void {
   }
 }
 
+// Error codes meaning the refresh token is dead or absent: expired past its
+// idle/absolute lifetime, revoked, lost to rotation reuse-detection, or simply
+// not in the SDK cache. Auth0 logs the exchange as `fertft` ("Token could not
+// be decoded or is missing in DB"); auth0-spa-js surfaces it as `invalid_grant`
+// ("Unknown or invalid refresh token.") or `missing_refresh_token`.
+const REFRESH_TOKEN_ERROR_CODES = ["invalid_grant", "missing_refresh_token"];
+
+// Error codes Auth0 uses for "no interactive session — user must log in".
+const SESSION_ERROR_CODES = [
+  "login_required",
+  "consent_required",
+  "interaction_required",
+];
+
+interface Auth0AuthError {
+  error?: string;
+  message?: string;
+}
+
+/** True when the failure is a dead/absent refresh token. */
+function isRefreshTokenError(error: Auth0AuthError): boolean {
+  return (
+    REFRESH_TOKEN_ERROR_CODES.includes(error?.error ?? "") ||
+    (error?.message ?? "").toLowerCase().includes("refresh token")
+  );
+}
+
+/** True for any expected "session is over, log in again" failure. */
+function isSessionExpiryError(error: Auth0AuthError): boolean {
+  return (
+    SESSION_ERROR_CODES.includes(error?.error ?? "") ||
+    (error?.message ?? "").toLowerCase().includes("login required") ||
+    isRefreshTokenError(error)
+  );
+}
+
+/**
+ * Drop the SDK's persisted state after a dead refresh token. With
+ * cacheLocation="localstorage" the stale cache entry otherwise keeps
+ * isAuthenticated=true and replays the same failed token exchange (and error
+ * toast) on every page load until the user manually logs in again.
+ * logout({ openUrl: false }) clears the local cache without redirecting;
+ * clearing the has-authenticated flag first lets the next boot take the fast
+ * anonymous path instead of re-verifying a session we know is dead.
+ */
+function clearStaleAuth0Session(
+  logout: (options?: LogoutOptions) => Promise<void>
+): void {
+  try {
+    localStorage.removeItem(HAS_AUTHENTICATED_KEY);
+  } catch {
+    // localStorage may be unavailable
+  }
+  logout({ openUrl: false }).catch((error) => {
+    console.warn("[AuthGate] Failed to clear stale Auth0 session:", error);
+  });
+}
+
 interface AuthGateProps {
   children: React.ReactNode;
   useAuth0: boolean;
@@ -80,6 +138,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({
     isAuthenticated,
     user,
     getAccessTokenSilently,
+    logout,
   } = useAuth0();
 
   // Handle Auth0 authentication
@@ -196,14 +255,16 @@ export const AuthGate: React.FC<AuthGateProps> = ({
           // Token fetch failed even though isAuthenticated was true.
           // This can happen with session issues. Fall back to anonymous
           // and let user click login if they want to authenticate.
-          const errorCode = error.error;
-          const isSessionError =
-            errorCode === "login_required" ||
-            errorCode === "consent_required" ||
-            errorCode === "interaction_required" ||
-            error.message?.toLowerCase().includes("login required");
-
-          if (isSessionError) {
+          if (isRefreshTokenError(error)) {
+            // Normal session expiry under refresh-token rotation. Clear the
+            // stale SDK cache so this doesn't replay on every page load, and
+            // tell the user why they're suddenly logged out.
+            console.log(
+              "[AuthGate] Refresh token no longer valid, clearing stale Auth0 session"
+            );
+            toast.info("Your session has expired. Please log in again.");
+            clearStaleAuth0Session(logout);
+          } else if (isSessionExpiryError(error)) {
             console.log(
               "[AuthGate] Session error, falling back to anonymous mode"
             );
@@ -323,13 +384,12 @@ export const AuthGate: React.FC<AuthGateProps> = ({
           // - Users who logged out explicitly want to be anonymous
           // - Forcing login creates poor UX
           // - Users can always click the login button if they want to authenticate
-          const errorCode = error.error;
-          const isExpectedAnonymous =
-            errorCode === "login_required" ||
-            errorCode === "consent_required" ||
-            errorCode === "interaction_required";
-
-          if (!isExpectedAnonymous) {
+          if (isRefreshTokenError(error)) {
+            // A dead refresh token is sitting in the SDK cache — clear it so
+            // future boots take the fast anonymous path instead of repeating
+            // this doomed verification.
+            clearStaleAuth0Session(logout);
+          } else if (!isSessionExpiryError(error)) {
             // Unexpected error - log it
             console.error(
               "[AuthGate] Unexpected error from getAccessTokenSilently:",
@@ -356,6 +416,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({
     isAuthenticated,
     user,
     getAccessTokenSilently,
+    logout,
     audience,
     resetOnAuthChange,
   ]);

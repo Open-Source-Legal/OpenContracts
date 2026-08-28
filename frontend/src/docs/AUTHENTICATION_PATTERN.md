@@ -97,6 +97,26 @@ export const AuthGate: React.FC<AuthGateProps> = ({
 };
 ```
 
+### Session Expiry & Stale Refresh Tokens
+
+The app uses rotating refresh tokens with `cacheLocation="localstorage"` and
+`useRefreshTokensFallback: false` (see `src/index.tsx` and
+`src/utils/Auth0ProviderWithHistory.tsx`). When Auth0 rejects the stored
+refresh token — expired past its idle/absolute lifetime, revoked, or lost to
+rotation reuse-detection (tenant log event `fertft`, surfaced by the SDK as
+`invalid_grant` "Unknown or invalid refresh token." or
+`missing_refresh_token`) — the localstorage cache would otherwise keep
+`isAuthenticated=true` and replay the same failed token exchange on every
+page load.
+
+`AuthGate` treats these as _expected_ session expiry
+(`AuthGate.tsx::isRefreshTokenError` / `clearStaleAuth0Session`): it clears
+the SDK cache locally via `logout({ openUrl: false })`, drops the
+has-authenticated fast-path flag, shows a one-time informational toast
+("Your session has expired"), and falls back to anonymous. Transient/unknown
+errors do NOT wipe the cache — the session may recover on the next load —
+and still surface an error toast.
+
 ### App.tsx Integration
 
 ```typescript
