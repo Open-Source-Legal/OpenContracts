@@ -429,6 +429,90 @@ describe("AuthGate", () => {
       expect(toast.error).not.toHaveBeenCalled();
     });
 
+    it("classifies a known refresh-token message without an error code as session expiry", async () => {
+      // Some error paths surface Auth0's message text without a structured
+      // `error` code — the message fallback must still catch the exact
+      // production string.
+      const mockUser = { email: "test@example.com", sub: "user123" };
+      const mockLogout = vi.fn().mockResolvedValue(undefined);
+      const mockGetAccessTokenSilently = vi
+        .fn()
+        .mockRejectedValue(new Error("Unknown or invalid refresh token."));
+
+      localStorage.setItem(HAS_AUTHENTICATED_KEY, "true");
+      localStorage.setItem(AUTH_DOMAIN_KEY, "test-tenant.auth0.com");
+
+      const mockUseAuth0 = useAuth0 as MockedFunction<typeof useAuth0>;
+      mockUseAuth0.mockReturnValue({
+        ...baseAuth0Props,
+        isLoading: false,
+        isAuthenticated: true,
+        user: mockUser,
+        getAccessTokenSilently: mockGetAccessTokenSilently,
+        logout: mockLogout,
+      });
+
+      render(
+        <AuthGate useAuth0={true} audience="test-audience">
+          <div>Protected Content</div>
+        </AuthGate>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText("Protected Content")).toBeInTheDocument();
+      });
+
+      expect(authStatusVar()).toBe("ANONYMOUS");
+      expect(mockLogout).toHaveBeenCalledWith({ openUrl: false });
+      expect(localStorage.getItem(HAS_AUTHENTICATED_KEY)).toBeNull();
+      expect(toast.info).toHaveBeenCalled();
+      expect(toast.error).not.toHaveBeenCalled();
+    });
+
+    it("does not wipe the session for a transient error that merely mentions the refresh token", async () => {
+      // The message fallback is deliberately narrow: an unrelated failure
+      // whose text happens to contain "refresh token" must NOT be treated
+      // as terminal session expiry — the cached session may still be valid.
+      const mockUser = { email: "test@example.com", sub: "user123" };
+      const mockLogout = vi.fn().mockResolvedValue(undefined);
+      const mockGetAccessTokenSilently = vi
+        .fn()
+        .mockRejectedValue(
+          new Error("Network error while exchanging refresh token")
+        );
+
+      localStorage.setItem(HAS_AUTHENTICATED_KEY, "true");
+      localStorage.setItem(AUTH_DOMAIN_KEY, "test-tenant.auth0.com");
+
+      const mockUseAuth0 = useAuth0 as MockedFunction<typeof useAuth0>;
+      mockUseAuth0.mockReturnValue({
+        ...baseAuth0Props,
+        isLoading: false,
+        isAuthenticated: true,
+        user: mockUser,
+        getAccessTokenSilently: mockGetAccessTokenSilently,
+        logout: mockLogout,
+      });
+
+      render(
+        <AuthGate useAuth0={true} audience="test-audience">
+          <div>Protected Content</div>
+        </AuthGate>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText("Protected Content")).toBeInTheDocument();
+      });
+
+      // Falls back to anonymous for this load, but the SDK cache and
+      // has-authenticated flag survive so the session can recover on reload
+      expect(authStatusVar()).toBe("ANONYMOUS");
+      expect(mockLogout).not.toHaveBeenCalled();
+      expect(localStorage.getItem(HAS_AUTHENTICATED_KEY)).toBe("true");
+      expect(toast.error).toHaveBeenCalled();
+      expect(toast.info).not.toHaveBeenCalled();
+    });
+
     it("still surfaces unexpected token errors and keeps the SDK cache", async () => {
       const mockUser = { email: "test@example.com", sub: "user123" };
       const mockLogout = vi.fn().mockResolvedValue(undefined);

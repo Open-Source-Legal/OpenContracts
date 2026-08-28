@@ -56,6 +56,15 @@ function markAuthenticated(): void {
 // ("Unknown or invalid refresh token.") or `missing_refresh_token`.
 const REFRESH_TOKEN_ERROR_CODES = ["invalid_grant", "missing_refresh_token"];
 
+// Fallback for errors that carry Auth0's known refresh-token failure text but
+// no structured `error` code. Deliberately narrow — matching now tears down
+// the persisted session, so a transient failure that merely *mentions* the
+// refresh token (e.g. a network error) must not match.
+const REFRESH_TOKEN_ERROR_MESSAGES = [
+  "invalid refresh token", // "Unknown or invalid refresh token."
+  "missing refresh token", // "Missing Refresh Token (audience: ..., scope: ...)"
+];
+
 // Error codes Auth0 uses for "no interactive session — user must log in".
 const SESSION_ERROR_CODES = [
   "login_required",
@@ -70,10 +79,23 @@ interface Auth0AuthError {
 
 /** True when the failure is a dead/absent refresh token. */
 function isRefreshTokenError(error: Auth0AuthError): boolean {
-  return (
-    REFRESH_TOKEN_ERROR_CODES.includes(error?.error ?? "") ||
-    (error?.message ?? "").toLowerCase().includes("refresh token")
+  if (REFRESH_TOKEN_ERROR_CODES.includes(error?.error ?? "")) {
+    return true;
+  }
+  const message = (error?.message ?? "").toLowerCase();
+  const matchedByMessage = REFRESH_TOKEN_ERROR_MESSAGES.some((fragment) =>
+    message.includes(fragment)
   );
+  if (matchedByMessage) {
+    // Fuzzier path than the explicit codes — log distinctly so a
+    // misclassification that clears the session is debuggable.
+    console.warn(
+      "[AuthGate] Classified refresh-token error by message text (no known error code):",
+      error?.error,
+      error?.message
+    );
+  }
+  return matchedByMessage;
 }
 
 /** True for any expected "session is over, log in again" failure. */
