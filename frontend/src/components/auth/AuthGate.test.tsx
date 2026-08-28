@@ -513,6 +513,136 @@ describe("AuthGate", () => {
       expect(toast.info).not.toHaveBeenCalled();
     });
 
+    it("treats a login-required message without an error code as quiet session expiry", async () => {
+      // Some SDK paths surface "Login required" as message text only —
+      // handled silently (no toast) and without touching the cache.
+      const mockUser = { email: "test@example.com", sub: "user123" };
+      const mockLogout = vi.fn().mockResolvedValue(undefined);
+      const mockGetAccessTokenSilently = vi
+        .fn()
+        .mockRejectedValue(new Error("Login required"));
+
+      localStorage.setItem(HAS_AUTHENTICATED_KEY, "true");
+      localStorage.setItem(AUTH_DOMAIN_KEY, "test-tenant.auth0.com");
+
+      const mockUseAuth0 = useAuth0 as MockedFunction<typeof useAuth0>;
+      mockUseAuth0.mockReturnValue({
+        ...baseAuth0Props,
+        isLoading: false,
+        isAuthenticated: true,
+        user: mockUser,
+        getAccessTokenSilently: mockGetAccessTokenSilently,
+        logout: mockLogout,
+      });
+
+      render(
+        <AuthGate useAuth0={true} audience="test-audience">
+          <div>Protected Content</div>
+        </AuthGate>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText("Protected Content")).toBeInTheDocument();
+      });
+
+      expect(authStatusVar()).toBe("ANONYMOUS");
+      expect(mockLogout).not.toHaveBeenCalled();
+      expect(localStorage.getItem(HAS_AUTHENTICATED_KEY)).toBe("true");
+      expect(toast.info).not.toHaveBeenCalled();
+      expect(toast.error).not.toHaveBeenCalled();
+    });
+
+    it("survives a rejected logout call while clearing the stale session", async () => {
+      // clearStaleAuth0Session's logout() promise is best-effort: a rejection
+      // must be swallowed (warn only), never crash the anonymous fallback.
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const mockUser = { email: "test@example.com", sub: "user123" };
+      const mockLogout = vi.fn().mockRejectedValue(new Error("logout failed"));
+      const mockGetAccessTokenSilently = vi.fn().mockRejectedValue({
+        error: "invalid_grant",
+        message: "Unknown or invalid refresh token.",
+      });
+
+      localStorage.setItem(HAS_AUTHENTICATED_KEY, "true");
+      localStorage.setItem(AUTH_DOMAIN_KEY, "test-tenant.auth0.com");
+
+      const mockUseAuth0 = useAuth0 as MockedFunction<typeof useAuth0>;
+      mockUseAuth0.mockReturnValue({
+        ...baseAuth0Props,
+        isLoading: false,
+        isAuthenticated: true,
+        user: mockUser,
+        getAccessTokenSilently: mockGetAccessTokenSilently,
+        logout: mockLogout,
+      });
+
+      render(
+        <AuthGate useAuth0={true} audience="test-audience">
+          <div>Protected Content</div>
+        </AuthGate>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText("Protected Content")).toBeInTheDocument();
+      });
+
+      expect(authStatusVar()).toBe("ANONYMOUS");
+      expect(mockLogout).toHaveBeenCalledWith({ openUrl: false });
+      await waitFor(() => {
+        expect(warnSpy).toHaveBeenCalledWith(
+          "[AuthGate] Failed to clear stale Auth0 session:",
+          expect.any(Error)
+        );
+      });
+
+      warnSpy.mockRestore();
+    });
+
+    it("logs unexpected verification errors without touching the cached session", async () => {
+      // isAuthenticated:false verification path with an error that is neither
+      // a refresh-token failure nor a known session-expiry code: log it,
+      // go anonymous, keep the SDK cache and flag intact.
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const mockLogout = vi.fn().mockResolvedValue(undefined);
+      const mockGetAccessTokenSilently = vi.fn().mockRejectedValue({
+        error: "server_error",
+        message: "Internal server error",
+      });
+
+      localStorage.setItem(HAS_AUTHENTICATED_KEY, "true");
+      localStorage.setItem(AUTH_DOMAIN_KEY, "test-tenant.auth0.com");
+
+      const mockUseAuth0 = useAuth0 as MockedFunction<typeof useAuth0>;
+      mockUseAuth0.mockReturnValue({
+        ...baseAuth0Props,
+        isLoading: false,
+        isAuthenticated: false,
+        user: undefined,
+        getAccessTokenSilently: mockGetAccessTokenSilently,
+        logout: mockLogout,
+      });
+
+      render(
+        <AuthGate useAuth0={true} audience="test-audience">
+          <div>Protected Content</div>
+        </AuthGate>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText("Protected Content")).toBeInTheDocument();
+      });
+
+      expect(authStatusVar()).toBe("ANONYMOUS");
+      expect(mockLogout).not.toHaveBeenCalled();
+      expect(localStorage.getItem(HAS_AUTHENTICATED_KEY)).toBe("true");
+      expect(errorSpy).toHaveBeenCalledWith(
+        "[AuthGate] Unexpected error from getAccessTokenSilently:",
+        expect.objectContaining({ error: "server_error" })
+      );
+
+      errorSpy.mockRestore();
+    });
+
     it("still surfaces unexpected token errors and keeps the SDK cache", async () => {
       const mockUser = { email: "test@example.com", sub: "user123" };
       const mockLogout = vi.fn().mockResolvedValue(undefined);
