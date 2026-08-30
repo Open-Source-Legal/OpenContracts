@@ -7,12 +7,12 @@ watchfiles==1.2.0  # https://github.com/samuelcolvin/watchfiles
 # ------------------------------------------------------------------------------
 
 mypy==2.3.1  # https://github.com/python/mypy
-django-stubs==6.0.7  # https://github.com/typeddjango/django-stubs
+django-stubs==6.1.0  # https://github.com/typeddjango/django-stubs
 pytest==9.1.1  # https://github.com/pytest-dev/pytest
 pytest-cov==7.1.0  # https://github.com/pytest-dev/pytest-cov
 pytest-xdist==3.8.0  # https://github.com/pytest-dev/pytest-xdist (parallel test execution)
 pytest-timeout==2.4.0  # https://github.com/pytest-dev/pytest-timeout (per-test hang guard in CI)
-djangorestframework-stubs==3.17.1  # https://github.com/typeddjango/djangorestframework-stubs
+djangorestframework-stubs==3.18.0  # https://github.com/typeddjango/djangorestframework-stubs
 responses==0.26.2  # https://github.com/getsentry/responses
 # Keep at >=8.2.0. Earlier releases' aiohttp stub subclasses
 # aiohttp.streams.AsyncStreamReaderMixin at import time, a symbol aiohttp 3.14
