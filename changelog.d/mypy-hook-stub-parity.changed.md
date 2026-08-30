@@ -12,8 +12,12 @@
     unify, so each variable now carries an explicit `Iterable[Any]` declaration —
     the honest common type, since every one of them is only ever fed to an `__in`
     lookup.
-  - `opencontractserver/tests/test_corpus_canonical_caml_migration.py:161`:
+  - `opencontractserver/tests/test_corpus_canonical_caml_migration.py:157`:
     `apps.get_model("corpuses", "CorpusDescriptionRevision")` is deliberately
     unresolvable (the test asserts the model was dropped), but 6.1.0's plugin
-    resolves `get_model()` string pairs at type-check time and errors on a miss.
-    Narrowly silenced with `# type: ignore[misc]` plus a comment.
+    resolves *literal* `get_model()` string pairs at type-check time and errors
+    on a miss. Whether it fires is interpreter-dependent (it does on 3.11, does
+    not on CI's 3.12), so a `# type: ignore` would itself be flagged unused on
+    one of them under `warn_unused_ignores`. The model name now lives in a
+    `str`-annotated local, denying the plugin a literal to match on either.
+    Runtime behavior and the assertion are unchanged.
