@@ -55,7 +55,21 @@ repos:
     hooks:
       - id: flake8
         args: ["--config=setup.cfg"]
-        additional_dependencies: [flake8-isort]
+        # Both pins are load-bearing, for the reason spelled out on the mypy
+        # hook below: `rev` is the only thing autoupdate bumps, and
+        # additional_dependencies are re-resolved from scratch every time the
+        # hook env is rebuilt, so an unpinned entry silently floats.
+        # flake8-isort re-implements the isort check *inside* flake8 using
+        # whatever isort it happens to resolve. Left unpinned it drifted to
+        # isort 9.x while the standalone `isort` hook above stayed on the
+        # 6.0.1 it is `rev`-pinned to. The two then disagreed about repeated
+        # `from X import (...)` statements (the shape isort 6 itself emits for
+        # aliased imports), so `isort` rewrote files into a layout `flake8`
+        # rejected as I001/I005 — CI red on an unchanged tree.
+        # isort here MUST track the `isort` hook's rev above.
+        additional_dependencies:
+          - flake8-isort==7.0.0
+          - isort==6.0.1
 
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v2.0.0
@@ -85,8 +99,8 @@ repos:
         # major breakages (e.g. pypdf 7, openai 3) for the same reason.
         additional_dependencies:
           # --- Type stubs -----------------------------------------------
-          - django-stubs==6.0.6
-          - djangorestframework-stubs==3.17.0
+          - django-stubs==6.1.0
+          - djangorestframework-stubs==3.18.0
           - types-requests==2.33.0.20260408
           - types-PyYAML==6.0.12.20260408
           # --- Django runtime (must match requirements/base.txt) --------
