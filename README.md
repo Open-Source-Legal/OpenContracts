@@ -278,7 +278,7 @@ To add a deployment-specific variant, drop a `<key>.json` file in `frontend/src/
 
 ## Documentation
 
-Browse the full documentation at [jsv4.github.io/OpenContracts](https://jsv4.github.io/OpenContracts/) or in the repo:
+Browse the full documentation at [open-source-legal.github.io/OpenContracts](https://open-source-legal.github.io/OpenContracts/) or in the repo:
 
 | Guide                                                                       | Description                          |
 | --------------------------------------------------------------------------- | ------------------------------------ |

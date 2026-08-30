@@ -96,6 +96,32 @@ class AgentConfiguration(BaseOCModel):
     system_instructions = models.TextField(
         help_text="System prompt/instructions for this agent"
     )
+    # How ``system_instructions`` combines with the prompt the agent factory
+    # derives from context (``Corpus.corpus_agent_instructions`` and friends).
+    #
+    # REPLACE is the historical behaviour and stays the default, so existing
+    # configurations are unaffected. EXTEND exists because REPLACE forces an
+    # unpleasant choice on any corpus-scoped agent: a selected agent's
+    # instructions REPLACE the corpus persona while its ``available_tools``
+    # MERGE, so attaching a tool to a corpus agent costs you the persona that
+    # knows the corpus. The only way to keep both was to paste the whole persona
+    # into this field, which duplicates it into a second row that then drifts
+    # from the corpus silently.
+    INSTRUCTIONS_MODE_CHOICES = [
+        ("REPLACE", "Replace the context-derived prompt"),
+        ("EXTEND", "Append to the context-derived prompt"),
+    ]
+    system_instructions_mode = models.CharField(
+        max_length=8,
+        choices=INSTRUCTIONS_MODE_CHOICES,
+        default="REPLACE",
+        help_text=(
+            "REPLACE (default): system_instructions replaces the prompt the "
+            "factory derives from context. EXTEND: it is appended to that "
+            "prompt, so a corpus agent keeps its corpus persona and gains "
+            "these instructions plus available_tools."
+        ),
+    )
     available_tools = models.JSONField(
         default=list,
         help_text="List of tool identifiers this agent can use (e.g., ['similarity_search', 'load_document_text'])",

@@ -34,6 +34,54 @@ class Candidate:
     detection_confidence: float = 1.0
 
 
+# Section number as it appears in a citation: "145", "4(a)(2)", "144A", and —
+# critically for REGULATIONS — dotted forms like "120.41" or "1301.051".
+#
+# The dotted alternative is not cosmetic. Without it, statute-style numbering
+# works and regulation-style numbering fails in two different ways, both silent:
+# "Section 120.10 of the ITAR" matched nothing at all (the pattern consumed
+# "120" and then required " of", finding "."), while "ITAR Section 120.41"
+# matched the PREFIX "120" and produced `itar:120` — a citation to the
+# definition of "specially designed" resolving to the Part 120 overview. Every
+# CFR-, state-admin-code- and municipal-code-style corpus has this shape.
+#
+# `(?:\.\d+)*` requires digits after each dot, so a sentence-final period is
+# never swallowed: "…Section 120.10 of the ITAR." keeps its full stop.
+_SECTION_NUMBER = r"\d+(?:\.\d+)*[A-Za-z]?(?:\([0-9a-zA-Z]+\))*"
+
+# The token introducing a section. "§" (and "§§" for ranges) is the dominant
+# form in regulatory text and was previously unmatched, so "ITAR § 120.41" and
+# "22 C.F.R. § 126.1" produced nothing. "Part" is included because part-level
+# citation is a real form for regulations ("Part 122 of the ITAR") and the
+# authority alternation gates it — "Part 3 of the Agreement" cannot match,
+# because "Agreement" is not a registered authority alias.
+_SECTION_TOKEN = r"(?:Sections?\s+|Parts?\s+|§§?\s*)"
+
+# Roman-numeral divisions ("Category XI of the United States Munitions List").
+# Kept separate from _SECTION_NUMBER so that Roman numerals can only ever match
+# behind an explicit divider word AND an authority alias — "Section I of the
+# Agreement" must not become a citation. Emitted lowercase by the shared
+# candidate builder, which is required: authority-key matching is
+# case-sensitive on the section part and the extractor lowercases, so an
+# uppercase key would be unreachable.
+#
+# Deliberately narrow: "Category" only. Roman-numeral divisions are rare, and
+# every registered alias on the install shares this pattern — widening it to
+# Title/Article/Chapter would fire against every other authority corpus
+# (dgcl, tx-occ, the fw-* family) for no demonstrated gain. Add a divider word
+# here when a corpus actually needs it, with a test that shows the citation
+# form it is meant to catch.
+_DIVISION_TOKEN = r"(?:Category|Categories)\s+"
+_DIVISION_NUMBER = r"[IVXLCivxlc]+"
+
+# NOTE: Export Control Classification Numbers ("ECCN 3A611") are deliberately
+# NOT here. They are a citation SHAPE — the literal "ECCN" anchors the form, so
+# it is recognisable without knowing which body of law is installed — and shapes
+# belong in the Tier-2a grammars, emitting a shape-level prefix (``eccn:3a611``)
+# that a pack folds onto its own keys with generated per-key ``equivalences``
+# rows. See ``grammars._eccns`` and the ``ECCN_PREFIX`` note in ``constants``.
+
+
 # "Section 145", "Section 4(a)(2)", "Section 7(a)(2)(B)" followed by authority.
 # The authority alternation is compiled per extractor instance from an alias
 # registry (static defaults + DB-declared aliases on authority corpora), so
@@ -42,7 +90,7 @@ class Candidate:
 def _compile_law_re(aliases) -> re.Pattern:
     alt = "|".join(re.escape(a) for a in sorted(aliases, key=len, reverse=True))
     return re.compile(
-        r"Section\s+(?P<sec>\d+[A-Za-z]?(?:\([0-9a-zA-Z]+\))*)\s+of\s+the\s+"
+        _SECTION_TOKEN + r"(?P<sec>" + _SECTION_NUMBER + r")\s+of\s+(?:the\s+)?"
         r"(?P<auth>" + alt + r")",
         re.IGNORECASE,
     )
@@ -50,11 +98,36 @@ def _compile_law_re(aliases) -> re.Pattern:
 
 def _compile_prefix_law_re(aliases) -> re.Pattern:
     """Form-style citations with the authority BEFORE the section:
-    "Securities Act Section 4(a)(5)", "Investment Company Act Section 3(c)"."""
+    "Securities Act Section 4(a)(5)", "Investment Company Act Section 3(c)",
+    "ITAR § 120.41", "22 C.F.R. § 126.1"."""
     alt = "|".join(re.escape(a) for a in sorted(aliases, key=len, reverse=True))
     return re.compile(
-        r"(?P<auth>" + alt + r")\s+Section\s+"
-        r"(?P<sec>\d+[A-Za-z]?(?:\([0-9a-zA-Z]+\))*)",
+        r"(?P<auth>"
+        + alt
+        + r")\s*"
+        + _SECTION_TOKEN
+        + r"(?P<sec>"
+        + _SECTION_NUMBER
+        + r")",
+        re.IGNORECASE,
+    )
+
+
+def _compile_division_re(aliases) -> re.Pattern:
+    """Roman-numeral divisions of a named authority, in either order:
+    "Category XI of the United States Munitions List", "USML Category VIII"."""
+    alt = "|".join(re.escape(a) for a in sorted(aliases, key=len, reverse=True))
+    return re.compile(
+        _DIVISION_TOKEN + r"(?P<sec>" + _DIVISION_NUMBER + r")\s+of\s+(?:the\s+)?"
+        r"(?P<auth>" + alt + r")"
+        r"|"
+        r"(?P<auth2>"
+        + alt
+        + r")\s+"
+        + _DIVISION_TOKEN
+        + r"(?P<sec2>"
+        + _DIVISION_NUMBER
+        + r")",
         re.IGNORECASE,
     )
 
@@ -127,6 +200,7 @@ class ReferenceExtractor:
         self._alias_to_prefix = {k.lower(): v for k, v in aliases.items()}
         self._law_re = _compile_law_re(self._alias_to_prefix)
         self._prefix_law_re = _compile_prefix_law_re(self._alias_to_prefix)
+        self._division_re = _compile_division_re(self._alias_to_prefix)
 
     def extract(
         self,
@@ -139,6 +213,7 @@ class ReferenceExtractor:
         if wanted is None or C.REF_LAW in wanted:
             out.extend(self._laws(text))
             out.extend(self._prefix_laws(text))
+            out.extend(self._divisions(text))
             out.extend(self._rules(text))
             if default_authority:
                 out.extend(self._relative_laws(text, default_authority))
@@ -174,6 +249,31 @@ class ReferenceExtractor:
     def _prefix_laws(self, text: str) -> Iterator[Candidate]:
         for m in self._prefix_law_re.finditer(text):
             yield self._law_candidate(m)
+
+    def _divisions(self, text: str) -> Iterator[Candidate]:
+        """Roman-numeral divisions ("Category XI of the U.S. Munitions List").
+
+        The compiled pattern carries both orders in one alternation, so exactly
+        one of the two group pairs is populated per match.
+        """
+        for m in self._division_re.finditer(text):
+            sec = m.group("sec") or m.group("sec2")
+            auth_text = m.group("auth") or m.group("auth2")
+            if not sec or not auth_text:
+                continue
+            prefix = self._alias_to_prefix[auth_text.lower()]
+            yield Candidate(
+                reference_type=C.REF_LAW,
+                start=m.start(),
+                end=m.end(),
+                raw_text=m.group(0),
+                canonical_key=f"{prefix}:{sec.lower()}",
+                normalized_data={
+                    "authority": prefix,
+                    "section": sec,
+                    "authority_text": auth_text,
+                },
+            )
 
     def _rules(self, text: str) -> Iterator[Candidate]:
         for m in _RULE_RE.finditer(text):

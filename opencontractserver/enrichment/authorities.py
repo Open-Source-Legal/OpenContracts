@@ -576,15 +576,29 @@ class AuthorityCorpusBootstrapper:
                     document_ids.append(existing.id)
                     continue
 
+            # Route the write at the EXISTING document when we have one, by
+            # passing its title. ``create_or_update_text_document`` derives the
+            # corpus path from the title, so if a section's heading changes
+            # while its key does not, passing the new heading lands the content
+            # at a NEW path and leaves the previous document current. Both then
+            # carry the same ``custom_meta.canonical_key``, and
+            # ``find_authority_target`` orders by id and takes the first — so
+            # the SUPERSEDED document wins and every citation to that key
+            # silently resolves to stale text. Observed on a real pack rebuild:
+            # 21 of 21 USML categories reported "created" rather than "updated"
+            # and kept serving their previous bodies. Version up instead, then
+            # rename the new version to the new heading.
             out = create_or_update_text_document(
                 corpus_id=corpus.id,
-                title=sec.heading,
+                # ``Document.title`` is nullable, so fall back to the heading
+                # rather than passing None into a str parameter.
+                title=(existing.title if existing is not None else None) or sec.heading,
                 content=sec.text,
                 author_id=creator_id,
                 description=f"Authority text for {sec.key}"
                 + (f" (source: {sec.source_url})" if sec.source_url else ""),
             )
-            self._stamp_key(out["document_id"], sec, aliases)
+            self._stamp_key(out["document_id"], sec, aliases, title=sec.heading)
             document_ids.append(out["document_id"])
             if out["status"] == "created":
                 created += 1
@@ -1093,7 +1107,10 @@ class AuthorityCorpusBootstrapper:
 
     @staticmethod
     def _stamp_key(
-        document_id: int, sec: AuthoritySection, aliases: list[str] | None = None
+        document_id: int,
+        sec: AuthoritySection,
+        aliases: list[str] | None = None,
+        title: str | None = None,
     ) -> None:
         doc = Document.objects.get(pk=document_id)
         meta = dict(doc.custom_meta or {})
@@ -1101,4 +1118,13 @@ class AuthorityCorpusBootstrapper:
             meta.setdefault(key, value)
         meta.update(AuthorityCorpusBootstrapper._section_metadata(sec, aliases))
         doc.custom_meta = meta
-        doc.save(update_fields=["custom_meta", "modified"])
+        fields = ["custom_meta", "modified"]
+        # A version-up is routed at the existing document's path (see the call
+        # site), so a renamed section keeps that path and needs its title
+        # updated here. The path stays on the original slug deliberately:
+        # correcting the key-to-document mapping matters, and re-pathing a
+        # document would break the very versioning continuity this preserves.
+        if title is not None and title != doc.title:
+            doc.title = title
+            fields.append("title")
+        doc.save(update_fields=fields)

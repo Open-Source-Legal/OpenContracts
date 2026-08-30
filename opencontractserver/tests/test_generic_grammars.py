@@ -627,3 +627,61 @@ class ReferenceTypeFilterTests(SimpleTestCase):
             c.canonical_key for c in self.ex.extract(self.text, reference_types=None)
         }
         assert default == explicit
+
+
+class ECCNGrammarTests(SimpleTestCase):
+    """Export Control Classification Numbers as a Tier-2a SHAPE.
+
+    "ECCN 3A611" carries no Section/Part/§ token, and the Tier-1 section-number
+    shape would take "3" and stop at the "A". Without this grammar an
+    order-of-review walk that leaves the USML has no way to cite where it landed.
+
+    It lives here rather than in the Tier-1 registry extractor because the
+    literal "ECCN" anchors it: the form is recognisable without knowing whether
+    a Commerce Control List corpus is installed, or what prefix it binds.
+    """
+
+    def setUp(self):
+        self.ex = GenericCitationExtractor()
+
+    def _keys(self, text):
+        return {c.canonical_key for c in self.ex.extract(text)}
+
+    def test_eccn_citation(self):
+        assert "eccn:3a611" in self._keys("controlled under ECCN 3A611.")
+
+    def test_emits_shape_prefix_not_a_packs_key(self):
+        """The whole reason this is Tier-2a: core must not emit ``ccl:``.
+
+        ``ccl`` is the prefix one pack happens to give its CCL corpus. A pack
+        folds ``eccn:`` keys onto its own with generated per-key
+        ``equivalences`` rows, one per ECCN.
+        """
+        keys = self._keys("controlled under ECCN 3A611.")
+        assert not any(k.startswith("ccl:") for k in keys)
+
+    def test_key_is_lowercased(self):
+        """Uppercase is the conventional spelling and the unreachable key."""
+        keys = self._keys("See ECCN 6A003 and ECCN 7E611.")
+        assert "eccn:6a003" in keys
+        assert "eccn:7e611" in keys
+        assert all(k == k.lower() for k in keys)
+
+    def test_paragraph_suffix_preserved(self):
+        assert "eccn:9a610.a" in self._keys("controlled by ECCN 9A610.a")
+
+    def test_plural_form(self):
+        assert "eccn:3a611" in self._keys("ECCNs 3A611 and 3B611 apply.")
+
+    def test_bare_alphanumeric_is_not_a_citation(self):
+        """Anchored on the literal ECCN so prose tokens cannot become keys."""
+        keys = self._keys("Model 3A611 shipped in lot 5A002 yesterday.")
+        assert not any(k.startswith("eccn:") for k in keys)
+
+    def test_metadata(self):
+        c = next(
+            c for c in self.ex.extract("ECCN 3A611") if c.canonical_key == "eccn:3a611"
+        )
+        assert c.jurisdiction == C.JURISDICTION_US_FEDERAL
+        assert c.authority_type == C.AUTHORITY_TYPE_REGULATION
+        assert c.reference_type == C.REF_LAW

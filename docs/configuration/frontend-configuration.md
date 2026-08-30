@@ -19,7 +19,7 @@ The frontend uses different environment variable prefixes depending on the deplo
 
 **How it works**: In production, the container entrypoint script writes a runtime-loaded file at `frontend/public/env-config.js` that populates `window._env_` with the `REACT_APP_*` variables converted from `OPEN_CONTRACTS_REACT_APP_*`. For example, `OPEN_CONTRACTS_REACT_APP_USE_AUTH0` becomes `window._env_.REACT_APP_USE_AUTH0` in the frontend code. The browser fetches `env-config.js` on every page load, so configuration changes do **not** require a frontend rebuild — only a container restart (or `env-config.js` regeneration) is needed.
 
-See [`frontend/public/env-config.js`](https://github.com/Open-Source-Legal/OpenContracts/blob/main/frontend/public/env-config.js) for the file structure and the [Frontend Telemetry doc](../telemetry/Frontend.md) for how the same mechanism is used to inject PostHog keys.
+See [`frontend/env.sh`](https://github.com/Open-Source-Legal/OpenContracts/blob/main/frontend/env.sh), the entrypoint script that generates it, for the file structure and the [Frontend Telemetry doc](../telemetry/Frontend.md) for how the same mechanism is used to inject PostHog keys.
 
 ## Available Configuration Options
 

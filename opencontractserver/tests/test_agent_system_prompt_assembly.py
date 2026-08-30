@@ -336,3 +336,154 @@ class SystemPromptThroughPublicFactoryTestCase(TransactionTestCase):
         self.assertIn(CORPUS_PERSONA, prompt)
         self.assertIn("Real recorded insight", prompt)
         self.assertIn("Research performed at:", prompt)
+
+
+EXTEND_INSTRUCTIONS = "REACH RULE: call search_across_corpora for case law."
+
+
+class ExtendModeAssemblyTestCase(TestCase):
+    """``system_instructions_mode = EXTEND`` must ADD to the persona, not replace it.
+
+    A selected agent's ``system_instructions`` replace the context-derived
+    prompt while its ``available_tools`` merge.  That asymmetry forces a bad
+    trade on any corpus-scoped agent — attaching a tool costs the persona that
+    knows the corpus — and the only workaround was to paste the whole persona
+    into the config, duplicating it into a second row that then drifts.
+
+    EXTEND rides ``extra_system_context``, which the factory drains through
+    ``AgentConfig.resolve_system_prompt`` *after* persona resolution.  Writing
+    into ``system_prompt`` instead would consume the "caller supplied nothing"
+    signal and silently discard the persona — which is exactly the bug the rest
+    of this module covers (#2247).  So these assert on the ASSEMBLED prompt.
+    """
+
+    user: User
+    corpus: Corpus
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_user(username="extend-user", password="x")
+        cls.corpus = Corpus.objects.create(
+            title="Extend Corpus",
+            creator=cls.user,
+            is_public=True,
+            corpus_agent_instructions=CORPUS_PERSONA,
+            preferred_embedder="test/embedder/extend",
+        )
+
+    async def test_extend_keeps_the_persona_and_appends_after_it(self):
+        config = AgentConfig(user_id=self.user.id)
+        config.add_computed_context(EXTEND_INSTRUCTIONS)
+
+        context = await CoreCorpusAgentFactory.create_context(self.corpus.id, config)
+
+        prompt = context.config.system_prompt or ""
+        self.assertIn(CORPUS_PERSONA, prompt)
+        self.assertIn(EXTEND_INSTRUCTIONS, prompt)
+        self.assertLess(
+            prompt.index(CORPUS_PERSONA),
+            prompt.index(EXTEND_INSTRUCTIONS),
+            "extended instructions must follow the persona, not precede it",
+        )
+
+    async def test_replace_still_suppresses_the_persona(self):
+        """The default must not change: REPLACE is what every existing config uses."""
+        config = AgentConfig(user_id=self.user.id, system_prompt=EXTEND_INSTRUCTIONS)
+
+        context = await CoreCorpusAgentFactory.create_context(self.corpus.id, config)
+
+        prompt = context.config.system_prompt or ""
+        self.assertIn(EXTEND_INSTRUCTIONS, prompt)
+        self.assertNotIn(CORPUS_PERSONA, prompt)
+
+    async def test_extend_composes_with_the_other_computed_blocks(self):
+        """Temporal grounding and extended instructions must both survive."""
+        config = AgentConfig(user_id=self.user.id)
+        await _inject_temporal_grounding(config, self.corpus)
+        config.add_computed_context(EXTEND_INSTRUCTIONS)
+
+        context = await CoreCorpusAgentFactory.create_context(self.corpus.id, config)
+
+        prompt = context.config.system_prompt or ""
+        for expected in (CORPUS_PERSONA, "Research performed at:", EXTEND_INSTRUCTIONS):
+            self.assertIn(expected, prompt)
+        self.assertLess(prompt.index(CORPUS_PERSONA), prompt.index(EXTEND_INSTRUCTIONS))
+
+
+class ExtraSystemContextFactoryTestCase(TransactionTestCase):
+    """``extra_system_context=`` is the kwarg EXTEND mode rides through the factory.
+
+    The tests above exercise ``add_computed_context`` directly, which predates
+    EXTEND — they would pass without it.  These drive the real factory with the
+    kwarg the consumer actually passes, which is the wiring EXTEND adds, and
+    they fail if that kwarg is dropped, renamed, or forwarded into
+    ``AgentConfig`` as a field instead of being queued.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="ctx-user", password="x")
+        self.corpus = Corpus.objects.create(
+            title="Ctx Corpus",
+            creator=self.user,
+            is_public=True,
+            corpus_agent_instructions=CORPUS_PERSONA,
+            document_agent_instructions=DOCUMENT_PERSONA,
+            preferred_embedder="test/embedder/ctx",
+        )
+        original = Document.objects.create(
+            title="Ctx Doc", creator=self.user, is_public=True
+        )
+        self.document, _, _ = self.corpus.add_document(
+            document=original, user=self.user
+        )
+
+    async def _prompt(self, *, document: bool = False, **kwargs) -> str:
+        with patch(
+            "opencontractserver.llms.agents.pydantic_ai_factory.PydanticAIAgent"
+        ) as mock_agent_cls:
+            instance = MagicMock()
+            instance.toolsets = []
+            instance.run = AsyncMock()
+            mock_agent_cls.return_value = instance
+
+            if document:
+                agent = await UnifiedAgentFactory.create_document_agent(
+                    document=self.document,
+                    corpus=self.corpus,
+                    framework=AgentFramework.PYDANTIC_AI,
+                    user_id=self.user.id,
+                    **kwargs,
+                )
+            else:
+                agent = await UnifiedAgentFactory.create_corpus_agent(
+                    corpus=self.corpus.id,
+                    framework=AgentFramework.PYDANTIC_AI,
+                    user_id=self.user.id,
+                    **kwargs,
+                )
+        return agent.config.system_prompt or ""
+
+    async def test_corpus_factory_appends_extra_system_context(self):
+        prompt = await self._prompt(extra_system_context=EXTEND_INSTRUCTIONS)
+
+        self.assertIn(CORPUS_PERSONA, prompt)
+        self.assertIn(EXTEND_INSTRUCTIONS, prompt)
+        self.assertLess(prompt.index(CORPUS_PERSONA), prompt.index(EXTEND_INSTRUCTIONS))
+
+    async def test_document_factory_appends_extra_system_context(self):
+        """Wired in BOTH factories — an agent config can be selected for a document."""
+        prompt = await self._prompt(
+            document=True, extra_system_context=EXTEND_INSTRUCTIONS
+        )
+
+        self.assertIn(DOCUMENT_PERSONA, prompt)
+        self.assertIn(EXTEND_INSTRUCTIONS, prompt)
+        self.assertLess(
+            prompt.index(DOCUMENT_PERSONA), prompt.index(EXTEND_INSTRUCTIONS)
+        )
+
+    async def test_omitting_it_changes_nothing(self):
+        prompt = await self._prompt()
+
+        self.assertIn(CORPUS_PERSONA, prompt)
+        self.assertNotIn(EXTEND_INSTRUCTIONS, prompt)
