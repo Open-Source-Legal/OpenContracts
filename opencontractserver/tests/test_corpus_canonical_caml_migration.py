@@ -157,8 +157,17 @@ class LegacyStorageDroppedTest(TestCase):
     def test_no_corpus_description_revision_model(self):
         from django.apps import apps
 
+        # Held in a `str`-annotated local rather than inlined as a literal.
+        # The whole point of this test is that the model is GONE, so the lazy
+        # reference is unresolvable by construction — but django-stubs 6.1.0's
+        # plugin resolves literal get_model() string pairs at type-check time
+        # and errors on a miss. Whether it fires varies by interpreter version,
+        # so a `# type: ignore` is itself unreliable (unused on 3.12, required
+        # on 3.11, and mypy.ini sets warn_unused_ignores). Denying the plugin a
+        # literal to match sidesteps it in both. Runtime behavior is unchanged.
+        dropped_model: str = "CorpusDescriptionRevision"
         with self.assertRaises(LookupError):
-            apps.get_model("corpuses", "CorpusDescriptionRevision")
+            apps.get_model("corpuses", dropped_model)
 
     def test_description_preview_save_override_no_longer_present(self):
         """Confirms the Corpus.save() override branch is gone — cache writes
