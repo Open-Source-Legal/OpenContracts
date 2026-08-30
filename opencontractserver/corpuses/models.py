@@ -291,6 +291,30 @@ class Corpus(InstanceUserCanMixin, TreeNode):
             "If not set, uses DEFAULT_DOCUMENT_AGENT_INSTRUCTIONS from settings."
         ),
     )
+    # The corpus-level counterpart of ``CorpusGroup.default_agent``. Without
+    # it, a chat opened against a corpus with no explicit ``agent_id`` always
+    # resolves to the GLOBAL ``default-corpus-agent`` slug, so an
+    # AgentConfiguration scoped to this corpus can never be the default no
+    # matter how it is configured.
+    #
+    # An explicit pointer rather than "pick a CORPUS-scoped agent for this
+    # corpus": corpora already carry scoped agents for unrelated purposes (the
+    # inline moderator created by ``corpus_mutations``), and a positional
+    # choice among them would silently hand corpus chat to whichever one
+    # happened to sort first.
+    default_agent = django.db.models.ForeignKey(
+        "agents.AgentConfiguration",
+        on_delete=django.db.models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="default_for_corpuses",
+        help_text=(
+            "Agent used for corpus chat when the caller names none. Must be "
+            "GLOBAL or scoped to this same corpus. Prefer "
+            "system_instructions_mode=EXTEND, which appends to this corpus's "
+            "corpus_agent_instructions rather than replacing them."
+        ),
+    )
 
     # Agent memory
     memory_enabled = django.db.models.BooleanField(
@@ -444,6 +468,39 @@ class Corpus(InstanceUserCanMixin, TreeNode):
 
                 raise ValidationError({"preferred_llm": str(exc)}) from exc
             self.preferred_llm = normalise_model_spec(self.preferred_llm)
+
+        # ``default_agent`` is what corpus chat falls back to, so a pointer at
+        # a CORPUS-scoped agent belonging to a *different* corpus would serve
+        # that corpus's private instructions to this corpus's users. Checked
+        # here rather than as a DB constraint because the condition spans two
+        # tables. Only fires when the FK is set, so ordinary saves pay nothing.
+        if self.default_agent_id:
+            from django.core.exceptions import ValidationError
+
+            from opencontractserver.agents.models import AgentConfiguration
+
+            agent = (
+                AgentConfiguration.objects.filter(pk=self.default_agent_id)
+                .values("scope", "corpus_id")
+                .first()
+            )
+            if agent is None:
+                raise ValidationError(
+                    {"default_agent": "AgentConfiguration does not exist"}
+                )
+            if (
+                agent["scope"] == AgentConfiguration.SCOPE_CORPUS
+                and agent["corpus_id"] != self.pk
+            ):
+                raise ValidationError(
+                    {
+                        "default_agent": (
+                            "a CORPUS-scoped agent may only be the default for "
+                            "the corpus it is scoped to; this one is scoped to "
+                            f"corpus {agent['corpus_id']}"
+                        )
+                    }
+                )
 
         # Ensure slug exists and is unique within creator scope
         if not self.slug or not isinstance(self.slug, str) or not self.slug.strip():

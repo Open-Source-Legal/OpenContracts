@@ -61,6 +61,13 @@ services:
       OC_LLM_VCR_MODE: ${OC_LLM_VCR_MODE-}
       OC_LLM_VCR_CASSETTE: ${OC_LLM_VCR_CASSETTE-}
       OC_LLM_VCR_DEBUG: ${OC_LLM_VCR_DEBUG-}
+      # Must resolve to the SAME value as warp-ingest's WARP_API_KEY below, and
+      # from the same variable with the same default so they cannot drift. The
+      # Django-side setting defaults to "" (config/settings/base.py), while the
+      # service defaults to "abc123" — so without this line a stock
+      # `--profile warp-ingest` stack sends an empty X-API-Key and warp-ingest
+      # 401s every PDF parse. Verified against the running service.
+      WARP_INGEST_API_KEY: ${WARP_INGEST_API_KEY:-abc123}
     ports:
       - "8000:8000"
     command: /start
@@ -304,6 +311,9 @@ services:
       OC_LLM_VCR_MODE: ${OC_LLM_VCR_MODE-}
       OC_LLM_VCR_CASSETTE: ${OC_LLM_VCR_CASSETTE-}
       OC_LLM_VCR_DEBUG: ${OC_LLM_VCR_DEBUG-}
+      # See the django service: parsing runs here, so the worker is the side
+      # that actually calls warp-ingest. Same variable, same default.
+      WARP_INGEST_API_KEY: ${WARP_INGEST_API_KEY:-abc123}
     command: /app/compose/local/django/celery/worker/start
 
 

@@ -472,7 +472,9 @@ class ExtraSystemContextFactoryTestCase(TransactionTestCase):
 
     async def test_document_factory_appends_extra_system_context(self):
         """Wired in BOTH factories — an agent config can be selected for a document."""
-        prompt = await self._prompt(document=True, extra_system_context=EXTEND_INSTRUCTIONS)
+        prompt = await self._prompt(
+            document=True, extra_system_context=EXTEND_INSTRUCTIONS
+        )
 
         self.assertIn(DOCUMENT_PERSONA, prompt)
         self.assertIn(EXTEND_INSTRUCTIONS, prompt)

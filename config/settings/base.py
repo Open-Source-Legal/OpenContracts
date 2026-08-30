@@ -1784,6 +1784,22 @@ AUTHORITY_PACK_PATHS = env.list("AUTHORITY_PACK_PATHS", default=[])
 # path. Same restart requirement as AUTHORITY_PACK_PATHS.
 AUTHORITY_PACK_ROOTS = env.list("AUTHORITY_PACK_ROOTS", default=[])
 
+# Whether to LOAD (import) provider modules shipped inside authority packs
+# (``<pack>/providers/*.py``, ``<pack>/discovery_providers/*.py``).
+#
+# Installing such a pack executes its Python in the web and worker processes.
+# That is a materially larger blast radius than ``source_hosts``, where
+# "installing the pack is the trust decision" holds because the consequence is
+# bounded to which hosts may be fetched. Extraction already refuses path
+# traversal and setuid bits (``tar.extract(..., filter="data")``); it cannot
+# refuse code.
+#
+# Default True preserves existing behaviour. An operator installing packs they
+# did not author sets this False and loses only the ability to RE-FETCH the
+# pack's text: the authority-packs contract (SOURCE_PROVIDERS.md, clause P5)
+# requires a pack to install and serve its sections with ``providers/`` deleted.
+AUTHORITY_PACK_LOAD_PROVIDERS = env.bool("AUTHORITY_PACK_LOAD_PROVIDERS", default=True)
+
 # Where `manage.py install_authority_pack` materialises packs fetched from the
 # pack registry repo. The directory is an implicit pack bundle root (scanned by
 # authority_pack_dirs() exactly like an AUTHORITY_PACK_ROOTS entry), so a

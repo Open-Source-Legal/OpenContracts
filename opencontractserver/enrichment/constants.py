@@ -66,6 +66,27 @@ HTSUS_PREFIX = "htsus"
 # bake one pack's naming convention into the grammar.
 CASE_REPORTER_PREFIX = "usreporter"
 
+# Canonical-key prefix for Export Control Classification Numbers ("ECCN
+# 3A611"). A SHAPE-level prefix for the same reason as the two above: the
+# literal "ECCN" anchors the form, so the grammar recognises it without knowing
+# whether a Commerce Control List corpus is installed or what prefix it binds.
+#
+# Deliberately NOT ``ccl``. That is the prefix one pack happens to give its CCL
+# corpus, and emitting it from core would hardcode that pack's naming into the
+# framework — the failure the CASE_REPORTER_PREFIX note above describes. A pack
+# carrying the CCL folds these onto its own keys with per-key ``equivalences``
+# rows (``eccn:3a611 -> ccl:3a611``), one per ECCN — generated, exactly like
+# the ``act:eccn-*`` rows it already carries for the LLM-extracted surface
+# forms. Per-KEY is the only pack-side mechanism: prefix-level ``rewrite_rules``
+# are deliberately never loaded from packs (see ``data/mappings.py``), and a
+# core rewrite rule would hardcode ``ccl`` — the very thing this prefix avoids.
+#
+# Keys are lowercased by the shared candidate builder. That is required, not
+# incidental: ECCNs are conventionally written uppercase and authority-key
+# matching is case-sensitive on the section part, so an uppercase key would be
+# unreachable from any real citation.
+ECCN_PREFIX = "eccn"
+
 # --- Title-identifier document citations (customs-ruling grammar) ---------- #
 # CBP CROSS-style corpora are "title-as-identifier" shaped: each document's
 # title IS an external identifier (a ruling number like ``H022844`` or
