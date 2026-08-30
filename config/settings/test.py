@@ -183,6 +183,22 @@ if env.bool("BENCHMARK_MODE", default=False):
 else:
     DEFAULT_EMBEDDER = _OC_TEST_EMBEDDER_DEFAULT
 
+# Authority packs
+# ------------------------------------------------------------------------------
+# The install dir is an implicit pack DISCOVERY root (``authority_pack_dirs()``
+# scans it like any bundle root), and its default — ``ROOT_DIR/.authority_packs``
+# — is a real fetch cache on any machine where someone has run
+# ``install_authority_pack``. Inheriting that default made every test that
+# touches pack discovery depend on what that developer happened to have
+# installed: the sideload tests' exact-set assertions failed locally while
+# passing in CI, and the SSRF allowlist union, pack catalog, and in-pack provider
+# imports were all silently environment-dependent in the same way.
+#
+# Pinned here to a path that does not exist, so the third discovery source
+# contributes nothing unless a test opts in with ``override_settings``. Tests
+# that exercise the install dir already point it at their own tmpdir.
+AUTHORITY_PACK_INSTALL_DIR = str(ROOT_DIR / ".authority_packs_test")  # noqa: F405
+
 # Auth0 settings for tests
 # ------------------------------------------------------------------------------
 # These are required for importing Auth0 modules even if USE_AUTH0 is False.

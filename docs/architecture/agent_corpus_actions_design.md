@@ -430,5 +430,5 @@ Tests covering agent task execution:
 
 - [Corpus Actions Intro](../corpus_actions/intro_to_corpus_actions.md)
 - [Document Versioning](./document_versioning.md)
-- [Agent Framework](../llms/README.md)
+- [Agent Framework](llms/README.md)
 - [Permissioning Guide](../permissioning/consolidated_permissioning_guide.md)

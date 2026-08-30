@@ -375,3 +375,91 @@ The production test environment uses:
 - **Response**: HTTP 429 "Too Many Requests" when exceeded
 
 This test setup is used in GitHub Actions CI pipeline to validate that rate limiting properly returns 429 responses in production-like environments.
+
+## How Backend CI gates a merge
+
+`main` requires exactly one status check from the `Backend CI` workflow:
+**`backend-ci-gate`**. It is not the `pytest` job, and the difference matters.
+
+### Why `pytest` is not the required check
+
+`Backend CI` has three working jobs — `changes` (a `dorny/paths-filter` run),
+`linter` (`pre-commit run --all-files` plus `mypy`), and `pytest`. `pytest` is
+gated on the linter:
+
+```yaml
+pytest:
+  needs: [changes, linter]
+  if: always() && needs.linter.result == 'success' && ...
+```
+
+So a red linter **skips** `pytest`. And [GitHub reports a job skipped by its
+own `if:` as **Success**][gh-status] to branch protection:
+
+> If a job within a workflow is skipped due to a conditional, it will report
+> its status as "Success".
+
+A required `pytest` check would therefore read green on exactly the runs where
+the linter failed and the tests never ran. That is not hypothetical — it is
+how PR #2262 ended up on `main` in a state where its own new tests had never
+been executed by CI, for about 30 hours.
+
+The mirror-image trap is workflow-level path filtering: a workflow skipped by
+`paths:`/`paths-ignore:` never reports its checks **at all**, so a required
+check on it stays *Pending* and the PR can never merge. This is why
+`backend.yml` carries `paths-ignore` on its `push` trigger only — branch
+protection does not gate pushes — while `pull_request` runs unconditionally
+and lets the `changes` job decide what work to actually do.
+
+### What the gate does
+
+`backend-ci-gate` runs with `if: always()`, so it reports on every PR, and it
+reads the other jobs' results itself:
+
+| situation | `linter` | `pytest` | gate |
+|---|---|---|---|
+| PR touches no backend paths | skipped | skipped | **allow** |
+| ordinary green PR | success | success | **allow** |
+| linter red, tests skipped | failure | skipped | **block** |
+| tests genuinely failed | success | failure | **block** |
+| tests skipped for any other reason | success | skipped | **block** |
+
+The distinction it exists to draw is *"skipped because this PR touches no
+backend code"* versus *"skipped because something upstream broke"*. The
+decision table lives in `.github/scripts/backend_ci_gate.sh` and the job runs
+`backend_ci_gate.sh --self-test` before every evaluation — a gate whose own
+logic has silently inverted is worse than no gate.
+
+### Practical notes
+
+- **A docs-only or frontend-only PR is expected to show `linter` and `pytest`
+  as skipped.** That is correct, and `backend-ci-gate` will still be green.
+- **If `backend-ci-gate` is missing from your PR**, your branch predates it.
+  Merge `main` in and it will appear.
+- **Changing branch protection**: use
+  `.github/scripts/require_backend_ci_gate.sh` rather than a hand-written
+  `gh api` call. `PUT /repos/{owner}/{repo}/branches/{branch}/protection`
+  replaces the *entire* protection object, so a partial body silently drops
+  the review rules and the force-push/deletion bans; and the narrower
+  `PATCH .../protection/required_status_checks` returns 404 when no such
+  object exists yet. The script **adds** — it unions the new context into
+  whatever the branch already requires and preserves `strict`, so
+
+  ```bash
+  CONTEXT=frontend-ci-gate .github/scripts/require_backend_ci_gate.sh --apply
+  ```
+
+  leaves `backend-ci-gate` required as well. Run it with no argument for a dry
+  run that prints the exact PUT body and changes nothing, or `--self-test` to
+  exercise the merge logic against synthetic protection objects.
+- **Other workflows are not safely requirable as-is.** `frontend.yml`,
+  `frontend-e2e.yml`, `frontend-e2e-extract.yml`, `frontend-e2e-websocket.yml`,
+  `production-stack.yml` and `redis-integration.yml` all use workflow-level
+  `paths:` filters, so requiring any of them would hang every PR their filter
+  excludes at *Pending*, permanently. Each needs the same always-runs gate job
+  before it can join the required list.
+- **`enforce_admins` is currently `false`**, so repository admins can still
+  "merge without waiting for requirements to be met". The gate is a strong
+  default, not an absolute one.
+
+[gh-status]: https://docs.github.com/en/pull-requests/reference/status-checks

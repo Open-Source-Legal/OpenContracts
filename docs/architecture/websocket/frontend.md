@@ -837,7 +837,7 @@ getThreadUpdatesWebSocket(conversationId, authToken?)
 ## Related Files
 
 - [`frontend/src/components/widgets/chat/ChatMessage.tsx`](../../../frontend/src/components/widgets/chat/ChatMessage.tsx): Message rendering component
-- [`frontend/src/components/annotator/context/ChatSourceAtom.ts`](../../../frontend/src/components/annotator/context/ChatSourceAtom.ts): Source state management
+- [`frontend/src/components/annotator/context/ChatSourceAtom.tsx`](../../../frontend/src/components/annotator/context/ChatSourceAtom.tsx): Source state management
 - [`frontend/src/components/chat/get_websockets.ts`](../../../frontend/src/components/chat/get_websockets.ts): WebSocket URL utilities
 - [`frontend/src/graphql/queries.ts`](../../../frontend/src/graphql/queries.ts): GraphQL conversation queries
 - [`frontend/src/hooks/useNetworkStatus.ts`](../../../frontend/src/hooks/useNetworkStatus.ts): Network/visibility status for reconnection

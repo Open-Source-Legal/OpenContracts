@@ -173,6 +173,17 @@ _REPORTER_RE = re.compile(
     r"\b(?P<vol>\d{1,4})\s+(?P<rep>" + _REPORTERS + r")\s+(?P<page>\d{1,4})\b"
 )
 
+# Export Control Classification Numbers — "ECCN 3A611", "ECCN 9E610.a".
+#
+# Here for the same reason as the reporter family above: anchored on the
+# literal "ECCN", so the form is recognisable without knowing whether a
+# Commerce Control List corpus exists or what prefix it binds. The anchor is
+# also what keeps it precise — a bare "3A611" in prose is not a citation.
+_ECCN_RE = re.compile(
+    r"\bECCNs?\s+(?P<code>\d[A-E]\d{3}(?:\.[a-z0-9.]+)?)",
+    re.IGNORECASE,
+)
+
 
 _HTS_TEXT_RE = re.compile(r"\b\d{4}\.\d{2}(?:\.\d{2,4})?(?:\.\d{2})?\b")
 # Document-level gate: the dotted-code shape alone is far too generic to run on
@@ -477,6 +488,34 @@ def _case_reporters(text: str) -> Iterator[Candidate]:
         )
 
 
+def _eccns(text: str) -> Iterator[Candidate]:
+    """Export Control Classification Numbers -> ``eccn:<code>``.
+
+    Structure is digit, letter A-E, three digits, optional dotted paragraph:
+    "3A611", "5A002", "9E610.a".
+
+    These need their own grammar because nothing else matches them. The Tier-1
+    section token requires "Section"/"Part"/"§" and "ECCN 3A611" has none of the
+    three; the generic number shape would take "3" and stop at the "A". So an
+    order-of-review walk that leaves the USML has no way to cite where it landed.
+
+    Anchored on the literal "ECCN" so a bare alphanumeric like "3A611" in
+    unrelated prose cannot become a citation — which is also what makes this a
+    SHAPE rather than a body of law, and so Tier-2a rather than a Tier-1 alias.
+    """
+    for m in _ECCN_RE.finditer(text):
+        code = m.group("code").lower()
+        yield _cand(
+            m.start(),
+            m.end(),
+            m.group(0),
+            f"{C.ECCN_PREFIX}:{code}",
+            C.JURISDICTION_US_FEDERAL,
+            C.AUTHORITY_TYPE_REGULATION,
+            extra={"section": code},
+        )
+
+
 def _document_identifier_citations(text: str) -> Iterator[Candidate]:
     """Identifier document citations (e.g. CBP ruling numbers).
 
@@ -713,6 +752,7 @@ class GenericCitationExtractor:
             out.extend(_ercot_authorities(text))
             out.extend(_hts(text))
             out.extend(_case_reporters(text))
+            out.extend(_eccns(text))
             out.extend(_bare_acts(text))
             out.extend(self._states(text))
             # Municipal: table pass first (high-precision, full jurisdiction),

@@ -5,7 +5,7 @@ points, represented as columns in a grid, that will be asked of every document i
 You can define complex extract schemas, including python primitives, Pydantic models (no nesting - yet) and lists.
 
 Under the hood, the extraction system uses an agent-based pipeline powered by PydanticAI that intelligently retrieves
-and processes document content. For technical details, see the [LLM Framework documentation](../../architecture/llms/README.md).
+and processes document content. For technical details, see the [LLM Framework documentation](../architecture/llms/README.md).
 
 ## Building a Datagrid
 

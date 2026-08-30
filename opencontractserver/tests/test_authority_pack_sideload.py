@@ -30,6 +30,14 @@ FIXTURE_PACK = (
 )
 
 
+# ``authority_pack_dirs()`` unions THREE sources; a test asserting an exact pack
+# set has to pin all three, not the two the sideload contract is about. The third
+# — ``AUTHORITY_PACK_INSTALL_DIR`` — defaults to a real fetch cache on a machine
+# where anyone has run ``install_authority_pack``, so leaving it alone made these
+# assertions pass in CI and fail on a developer's checkout. (``config/settings/
+# test.py`` also pins it away from that cache; stated here so the precondition is
+# visible where the assertion is.)
+@override_settings(AUTHORITY_PACK_INSTALL_DIR="")
 class AuthorityPackDiscoveryTests(TestCase):
     """``authority_pack_dirs()`` — what an install considers installed."""
 

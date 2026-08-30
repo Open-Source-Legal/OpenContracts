@@ -227,3 +227,8 @@ demo/import_zips/
 # from an external corpus, never meant to be committed)
 .pilot_data/
 .authority_packs/
+# Where config/settings/test.py points AUTHORITY_PACK_INSTALL_DIR so a
+# developer's real fetch cache above cannot leak into the test suite. Normally
+# absent; only a test that materialises a pack without overriding the setting
+# would create it.
+.authority_packs_test/
