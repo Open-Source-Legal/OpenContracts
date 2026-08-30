@@ -158,7 +158,11 @@ class LegacyStorageDroppedTest(TestCase):
         from django.apps import apps
 
         with self.assertRaises(LookupError):
-            apps.get_model("corpuses", "CorpusDescriptionRevision")
+            # The whole point of this test is that the model is GONE, so the
+            # lazy reference is unresolvable by construction. django-stubs
+            # 6.1.0's plugin resolves get_model() string pairs at type-check
+            # time and errors on a miss, which is a false positive here.
+            apps.get_model("corpuses", "CorpusDescriptionRevision")  # type: ignore[misc]
 
     def test_description_preview_save_override_no_longer_present(self):
         """Confirms the Corpus.save() override branch is gone — cache writes

@@ -1,4 +1,5 @@
 import hashlib
+from collections.abc import Iterable
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Optional, TypeVar
 
@@ -462,6 +463,11 @@ class DocumentQuerySet(PermissionQuerySet, VectorSearchViaEmbeddingMixin):
         # Query guardian permission tables directly for performance
         from django.apps import apps
 
+        # Declared up front because the two arms disagree in type: the ``try``
+        # arm yields a lazy ``values_list`` queryset, the ``except`` arm a plain
+        # empty list. Both are only ever fed to ``__in``, so ``Iterable[Any]`` is
+        # the honest common type.
+        permitted_ids: Iterable[Any]
         try:
             permission_model = apps.get_model(
                 "documents", "documentuserobjectpermission"
@@ -478,6 +484,7 @@ class DocumentQuerySet(PermissionQuerySet, VectorSearchViaEmbeddingMixin):
         # ``user_can`` yet never appears in ``visible_to_user``
         # (issue #1714). Resolved in its own ``try`` so a missing group
         # table never discards the already-resolved user-level grants.
+        group_permitted_ids: Iterable[Any]
         try:
             user_group_ids = user.groups.values_list("id", flat=True)
             group_permission_model = apps.get_model(
@@ -645,6 +652,8 @@ class AnnotationQuerySet(PermissionQuerySet, VectorSearchViaEmbeddingMixin):
         # ``values_list`` keeps each a SQL subquery.
         user_group_ids = user.groups.values_list("id", flat=True)
 
+        doc_permitted_ids: Iterable[Any]
+        doc_group_permitted_ids: Iterable[Any]
         try:
             doc_perm_model = apps.get_model("documents", "documentuserobjectpermission")
             doc_permitted_ids = doc_perm_model.objects.filter(
@@ -660,6 +669,8 @@ class AnnotationQuerySet(PermissionQuerySet, VectorSearchViaEmbeddingMixin):
             doc_permitted_ids = []
             doc_group_permitted_ids = []
 
+        corpus_permitted_ids: Iterable[Any]
+        corpus_group_permitted_ids: Iterable[Any]
         try:
             corpus_perm_model = apps.get_model("corpuses", "corpususerobjectpermission")
             corpus_permitted_ids = corpus_perm_model.objects.filter(
