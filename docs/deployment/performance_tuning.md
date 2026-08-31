@@ -210,9 +210,23 @@ change.
 # Point ingest at a separate autoscaled pool; queries stay on the warm pod.
 EMBEDDINGS_MICROSERVICE_URL=http://vector-embedder:8000          # warm queries
 EMBEDDINGS_MICROSERVICE_URL_BULK=http://vector-embedder-bulk:8000 # bulk ingest
-# then reseed PipelineSettings so the embedder singleton picks it up:
-python manage.py migrate_pipeline_settings
+# then reseed the MicroserviceEmbedder singleton so it picks up the new URL:
+python manage.py migrate_pipeline_settings --component MicroserviceEmbedder --force
 ```
+
+**Why `--force`:** `migrate_pipeline_settings` *preserves* existing
+`PipelineSettings` values on re-run unless `--force` is given
+(`migrate_pipeline_settings.py:233`). A deploy that ran the command once has
+already persisted `embeddings_microservice_url_bulk: ""` (its default), so a
+later plain `migrate_pipeline_settings` after setting the env var would keep the
+empty value and silently leave ingest on the query pool. `--component
+MicroserviceEmbedder` scopes the force to this one component so any hand-tuned
+DB settings on other components are left untouched.
+
+**Scope (v1):** the bulk pool reuses the query pool's `vector_embedder_api_key`
+and Cloud Run IAM auth — it is a separate URL, not a separately-credentialed
+deployment. If the bulk pool needs its own API key, that is not configurable
+yet.
 
 ## What's still slow (open work)
 

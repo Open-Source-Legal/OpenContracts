@@ -67,9 +67,11 @@ AUTH0_M2M_MANAGEMENT_GRANT_TYPE=client_credentials
 # ------------------------------------------------------------------------------
 EMBEDDINGS_MICROSERVICE_URL=http://vector-embedder:8000
 # Optional: dedicated pool for batch ingest embedding. Seeds the embedder's
-# embeddings_microservice_url_bulk setting (run migrate_pipeline_settings after
-# changing it). When unset, ingest uses EMBEDDINGS_MICROSERVICE_URL. Set it to
-# isolate search-query latency from ingest load.
+# embeddings_microservice_url_bulk setting. After changing it, reseed with:
+#   python manage.py migrate_pipeline_settings --component MicroserviceEmbedder --force
+# (--force is required because the command otherwise preserves the existing DB
+# value). When unset, ingest uses EMBEDDINGS_MICROSERVICE_URL. Set it to isolate
+# search-query latency from ingest load.
 # EMBEDDINGS_MICROSERVICE_URL_BULK=http://vector-embedder-bulk:8000
 DOCLING_PARSER_SERVICE_URL=http://docling-parser:8000/parse/
 
