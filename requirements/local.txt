@@ -6,13 +6,13 @@ watchfiles==1.2.0  # https://github.com/samuelcolvin/watchfiles
 # Testing
 # ------------------------------------------------------------------------------
 
-mypy==2.3.0  # https://github.com/python/mypy
-django-stubs==6.0.7  # https://github.com/typeddjango/django-stubs
+mypy==2.3.1  # https://github.com/python/mypy
+django-stubs==6.1.0  # https://github.com/typeddjango/django-stubs
 pytest==9.1.1  # https://github.com/pytest-dev/pytest
 pytest-cov==7.1.0  # https://github.com/pytest-dev/pytest-cov
 pytest-xdist==3.8.0  # https://github.com/pytest-dev/pytest-xdist (parallel test execution)
 pytest-timeout==2.4.0  # https://github.com/pytest-dev/pytest-timeout (per-test hang guard in CI)
-djangorestframework-stubs==3.17.1  # https://github.com/typeddjango/djangorestframework-stubs
+djangorestframework-stubs==3.18.0  # https://github.com/typeddjango/djangorestframework-stubs
 responses==0.26.2  # https://github.com/getsentry/responses
 # Keep at >=8.2.0. Earlier releases' aiohttp stub subclasses
 # aiohttp.streams.AsyncStreamReaderMixin at import time, a symbol aiohttp 3.14
@@ -32,7 +32,7 @@ flake8==7.3.0 # https://github.com/PyCQA/flake8
 flake8-isort==7.0.0  # https://github.com/gforcada/flake8-isort
 coverage==7.15.4  # https://github.com/nedbat/coveragepy
 black==26.5.1  # https://github.com/psf/black
-pre-commit==4.6.1  # https://github.com/pre-commit/pre-commit
+pre-commit==4.6.2  # https://github.com/pre-commit/pre-commit
 
 # Django
 # ------------------------------------------------------------------------------
