@@ -766,6 +766,16 @@ class BillGrammarTests(SimpleTestCase):
         assert "hr:5" not in self._keys("per the W.H.R. 5 protocol")
         assert "hr:1234" in self._keys("(H.R. 1234) was reported")
 
+    def test_state_abbreviation_is_not_a_federal_resolution(self):
+        # Same left-boundary trap as the bill forms: "\b" treats the "." in a
+        # state abbreviation as a boundary, so "N.H. Res. 5" / "U.S. Res. 3"
+        # would otherwise enter the FEDERAL bill graph as hres:5 / sres:3.
+        assert "hres:5" not in self._keys("adopting N.H. Res. 5 last session")
+        assert "sres:3" not in self._keys("cited in U.S. Res. 3 of that year")
+        assert "hjres:9" not in self._keys("the W.H.J. Res. 9 memorandum")
+        # The legitimate forms still extract.
+        assert "hres:5" in self._keys("(H. Res. 5) was agreed to")
+
     def test_house_resolution_does_not_shadow_house_bill(self):
         keys = self._keys("H. Res. 5 accompanied H.R. 1234")
         assert "hres:5" in keys and "hr:1234" in keys

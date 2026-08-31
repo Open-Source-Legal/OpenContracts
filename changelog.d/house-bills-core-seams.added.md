@@ -2,7 +2,9 @@
   "H.R. 1234" / "S. 987" / joint, concurrent, and simple resolution forms now
   extract as congress-unqualified shape keys (`hr:1234`, `s:987`, `hjres:44`, …)
   with guards against `U.S.` reporter citations, `U.S.C.` cites, `§` sections,
-  and UK-style lowercase `s. 987`. Packs fold these onto congress-qualified
+  UK-style lowercase `s. 987`, and state abbreviations ending in H/S
+  (`N.H. Res. 5`, `U.S. Res. 3` are not federal resolutions). Packs fold
+  these onto congress-qualified
   keys via equivalences (the ECCN pattern). New classification vocabulary:
   `AUTHORITY_TYPE_BILL`, `GRAMMAR_BILL_PREFIXES`
   (`opencontractserver/enrichment/constants.py`) and

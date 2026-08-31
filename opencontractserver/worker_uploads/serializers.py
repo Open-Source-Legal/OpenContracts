@@ -172,6 +172,12 @@ class WorkerAuthoritySectionBatchSerializer(serializers.Serializer):
                 )
             from_key = str(row.get("from_key", "")).strip()
             to_key = str(row.get("to_key", "")).strip()
+            # Normalize IN PLACE, not just for the check: the view persists
+            # validated_data as batch.payload, so stripping only locally would
+            # leave whitespace-padded keys in the stored payload that merely
+            # happen to be re-stripped by upsert_equivalence at drain time.
+            row["from_key"] = from_key
+            row["to_key"] = to_key
             if (
                 not _mappings.is_valid_canonical_key(from_key)
                 or not _mappings.is_valid_canonical_key(to_key)

@@ -83,8 +83,13 @@ _STAT_RE = re.compile(r"\b(?P<vol>\d+)\s+Stat\.?\s+(?P<page>\d[\d,]*)")
 # Resolution forms are matched by their own alternation so "H. Res. 5" never
 # half-matches as a House bill; the emitted key carries no congress number —
 # a bills pack folds hr:1234 onto hr:119-1234 with equivalence rows.
+# Same (?<![\w.§]) left-boundary guard as the bill forms below: \b alone
+# treats a preceding "." as a boundary, so a state abbreviation ending in
+# H or S ("N.H. Res. 5", "U.S. Res. 3") would otherwise read as a federal
+# House/Senate resolution.
 _BILL_RES_RE = re.compile(
-    r"\b(?P<chamber>[HS])\.\s?(?:(?P<j>J)\.|(?P<con>Con)\.)?\s?Res\.\s?(?P<num>\d{1,5})\b"
+    r"(?<![\w.§])(?P<chamber>[HS])\."
+    r"\s?(?:(?P<j>J)\.|(?P<con>Con)\.)?\s?Res\.\s?(?P<num>\d{1,5})\b"
 )
 # Same left-boundary guard as the Senate form: \b alone treats a
 # preceding "." as a boundary, so "W.H.R. 5"-style adjacent

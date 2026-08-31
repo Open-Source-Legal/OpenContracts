@@ -770,6 +770,14 @@ def process_pending_section_batches(self: Any) -> dict[str, int]:
                 relink=True,
                 relink_async=True,
             )
+            # Record the bootstrap outcome BEFORE the equivalence loop. By
+            # this point real Document rows have been created/versioned, so a
+            # later equivalence failure must not erase the evidence of that:
+            # the batch would go FAILED carrying only an equivalence error,
+            # and nothing re-queues a FAILED batch (recover_stalled_uploads
+            # only reclaims stalled PROCESSING rows). The report is saved on
+            # both the success and the failure path below.
+            batch.report = {"bootstrap": _json_safe_bootstrap_report(result)}
             eq_outcomes: dict[str, int] = {}
             for row in batch.payload.get("equivalences", []):
                 outcome = upsert_equivalence(
@@ -780,10 +788,7 @@ def process_pending_section_batches(self: Any) -> dict[str, int]:
                     note=row.get("note"),
                 )
                 eq_outcomes[outcome] = eq_outcomes.get(outcome, 0) + 1
-            batch.report = {
-                "bootstrap": _json_safe_bootstrap_report(result),
-                "equivalences": eq_outcomes,
-            }
+            batch.report["equivalences"] = eq_outcomes
             batch.status = UploadStatus.COMPLETED
             processed["completed"] += 1
         except (

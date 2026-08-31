@@ -12,7 +12,7 @@ Covers:
 """
 
 from typing import Any, ClassVar
-from unittest.mock import patch
+from unittest.mock import PropertyMock, patch
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -138,6 +138,36 @@ class TestSectionBatchEndpoint(SectionBatchTestBase):
         payload["equivalences"][0]["note"] = {"not": "a string"}
         response = self.client_api.post(ENDPOINT, payload, format="json")
         assert response.status_code == 400, response.content
+        assert not WorkerAuthoritySectionBatch.objects.exists()
+
+    @patch(
+        "opencontractserver.worker_uploads.views.process_pending_section_batches.apply_async"
+    )
+    def test_post_normalizes_equivalence_keys_into_stored_payload(self, mock_nudge):
+        payload = _make_payload()
+        payload["equivalences"][0]["from_key"] = "  hr:1  "
+        payload["equivalences"][0]["to_key"] = "hr:119-1\n"
+        response = self.client_api.post(ENDPOINT, payload, format="json")
+        assert response.status_code == 202, response.content
+        batch = WorkerAuthoritySectionBatch.objects.get(id=response.data["id"])
+        assert batch.payload["equivalences"][0]["from_key"] == "hr:1"
+        assert batch.payload["equivalences"][0]["to_key"] == "hr:119-1"
+
+    @override_settings(MAX_AUTHORITY_SECTION_PAYLOAD_BYTES=64)
+    def test_oversized_payload_rejected_on_declared_length_without_buffering(self):
+        """The Content-Length early-out must fire BEFORE request.body is read.
+
+        Reading request.body buffers the whole request into memory bounded
+        only by DATA_UPLOAD_MAX_MEMORY_SIZE, which is orders of magnitude
+        above this endpoint's own cap.
+        """
+        with patch(
+            "django.http.request.HttpRequest.body",
+            new_callable=PropertyMock,
+            side_effect=AssertionError("request.body was read before the cap"),
+        ):
+            response = self.client_api.post(ENDPOINT, _make_payload(), format="json")
+        assert response.status_code == 413, response.content
         assert not WorkerAuthoritySectionBatch.objects.exists()
 
     def test_post_without_token_is_401(self):
@@ -315,6 +345,26 @@ class TestSectionBatchDrain(SectionBatchTestBase):
         assert batch.status == UploadStatus.FAILED
         assert "capability" in batch.error_message
         assert not Document.objects.exists()
+
+    def test_drain_keeps_bootstrap_report_when_equivalence_upsert_fails(self):
+        """Documents were really created — a later equivalence failure must
+        not leave the batch reporting nothing about them."""
+        batch = self._stage()
+        with patch(
+            "opencontractserver.enrichment.services."
+            "authority_equivalence_ingest.upsert_equivalence",
+            side_effect=RuntimeError("equivalence table exploded"),
+        ):
+            result = self._drain()
+
+        assert result["failed"] == 1
+        batch.refresh_from_db()
+        assert batch.status == UploadStatus.FAILED
+        assert "equivalence table exploded" in batch.error_message
+        # The bootstrap half of the report survived.
+        assert batch.report["bootstrap"]["documents_created"] == 1
+        assert "equivalences" not in batch.report
+        assert Document.objects.filter(title="H.R. 1 — Test Bill (IH)").exists()
 
     def test_drain_fails_cleanly_when_token_deleted(self):
         batch = self._stage()

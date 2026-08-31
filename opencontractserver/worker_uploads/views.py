@@ -261,18 +261,29 @@ class WorkerAuthoritySectionBatchView(APIView):
 
         max_bytes = settings.MAX_AUTHORITY_SECTION_PAYLOAD_BYTES
         if max_bytes:
-            # Measure the ACTUAL request body (already buffered by Django,
-            # bounded by DATA_UPLOAD_MAX_MEMORY_SIZE) — re-serializing the
-            # parsed object would be approximate and no cheaper.
-            payload_size = len(request.body)
-            if payload_size > max_bytes:
-                return Response(
-                    {
-                        "error": "Payload too large.",
-                        "max_bytes": max_bytes,
-                    },
-                    status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                )
+            too_large = Response(
+                {"error": "Payload too large.", "max_bytes": max_bytes},
+                status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            )
+            # Reject on the DECLARED size first. Touching request.body forces
+            # Django to buffer the whole request into memory, bounded only by
+            # DATA_UPLOAD_MAX_MEMORY_SIZE — which this install sets to
+            # MAX_FILE_UPLOAD_SIZE_BYTES (~5 GB) for the document-import
+            # endpoints, ~165x this endpoint's own cap. Without this early-out
+            # a worker token could make us buffer gigabytes before the 32 MB
+            # guard ever runs.
+            declared = request.META.get("CONTENT_LENGTH") or 0
+            try:
+                declared_size = int(declared)
+            except (TypeError, ValueError):
+                declared_size = 0
+            if declared_size > max_bytes:
+                return too_large
+            # Content-Length is client-supplied (absent under chunked transfer
+            # encoding, and spoofable), so it is only an early-out. The check
+            # on the ACTUAL buffered body stays authoritative.
+            if len(request.body) > max_bytes:
+                return too_large
 
         # Best-effort rate limit — same non-atomic caveat as document uploads.
         if token.rate_limit_per_minute > 0:
