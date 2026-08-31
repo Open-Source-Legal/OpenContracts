@@ -1800,5 +1800,44 @@ class TestCalculateEmbeddingsForRelationshipBatch(unittest.TestCase):
         self.assertEqual(len(result["errors"]), 1)
 
 
+class TestIngestBulkPoolRouting(unittest.TestCase):
+    """Ingest leaves tag their embedder calls with use_bulk_pool=True.
+
+    The bulk-vs-query URL selection itself lives in
+    MicroserviceEmbedder._get_service_config (tested in test_batch_embedding.py);
+    these tests pin the ingest side of that contract — every text-ingest leaf
+    signals bulk intent so a configured bulk pool is actually used.
+    """
+
+    def test_create_text_embedding_tags_bulk_pool(self):
+        from opencontractserver.tasks.embeddings_task import _create_text_embedding
+
+        mock_obj = MagicMock()
+        mock_embedder = MagicMock()
+        mock_embedder.embed_text.return_value = [0.1, 0.2]
+
+        result = _create_text_embedding(
+            mock_obj, mock_embedder, "embedder.path", "hello", "document", 1
+        )
+
+        self.assertTrue(result)
+        mock_embedder.embed_text.assert_called_once_with("hello", use_bulk_pool=True)
+
+    def test_embed_relationship_tags_bulk_pool(self):
+        from opencontractserver.tasks.embeddings_task import _embed_relationship
+
+        mock_rel = MagicMock()
+        mock_rel.id = 1
+        mock_embedder = MagicMock()
+        mock_embedder.embed_text.return_value = [0.1, 0.2]
+
+        result = _embed_relationship(
+            mock_rel, mock_embedder, "embedder.path", precomputed_text="HEAD\nT1"
+        )
+
+        self.assertTrue(result)
+        mock_embedder.embed_text.assert_called_once_with("HEAD\nT1", use_bulk_pool=True)
+
+
 if __name__ == "__main__":
     unittest.main()

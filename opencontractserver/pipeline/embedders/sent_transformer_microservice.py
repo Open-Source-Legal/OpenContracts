@@ -148,6 +148,23 @@ class MicroserviceEmbedder(BaseEmbedder):
                 )
             },
         )
+        embeddings_microservice_url_bulk: str = field(
+            default="",
+            metadata={
+                "pipeline_setting": PipelineSetting(
+                    setting_type=SettingType.OPTIONAL,
+                    required=False,
+                    description=(
+                        "Optional separate microservice URL for bulk ingest "
+                        "embedding. When set, batch ingest (calls tagged with "
+                        "use_bulk_pool=True) routes here while search queries "
+                        "stay on embeddings_microservice_url; falls back to "
+                        "embeddings_microservice_url when empty."
+                    ),
+                    env_var="EMBEDDINGS_MICROSERVICE_URL_BULK",
+                )
+            },
+        )
         vector_embedder_api_key: str = field(
             default="",
             metadata={
@@ -191,9 +208,21 @@ class MicroserviceEmbedder(BaseEmbedder):
         """
         s = self.settings if self.settings is not None else self.Settings()
 
-        service_url = all_kwargs.get(
+        query_url = all_kwargs.get(
             "embeddings_microservice_url", s.embeddings_microservice_url
         )
+        # Ingest tasks tag their calls with ``use_bulk_pool=True``. When a
+        # dedicated bulk URL is configured we route those to it; otherwise (and
+        # for every query call, which never sets the flag) we stay on the
+        # always-warm query URL, so single-pool deployments are unaffected. The
+        # bulk URL lives in the same PipelineSettings singleton as the query URL
+        # rather than a separate config pathway.
+        bulk_url = all_kwargs.get(
+            "embeddings_microservice_url_bulk", s.embeddings_microservice_url_bulk
+        )
+        use_bulk_pool = bool(all_kwargs.get("use_bulk_pool", False))
+        service_url = bulk_url if (use_bulk_pool and bulk_url) else query_url
+
         api_key = all_kwargs.get("vector_embedder_api_key", s.vector_embedder_api_key)
         use_cloud_run_iam_auth = bool(
             all_kwargs.get("use_cloud_run_iam_auth", s.use_cloud_run_iam_auth)
