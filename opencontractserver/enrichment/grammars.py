@@ -91,6 +91,12 @@ _BILL_RES_RE = re.compile(
 # abbreviations would otherwise read as House bills.
 _HOUSE_BILL_RE = re.compile(r"(?<![\w.§])H\.\s?R\.\s?(?P<num>\d{1,5})\b")
 _SENATE_BILL_RE = re.compile(r"(?<![\w.§])S\.\s?(?P<num>\d{1,5})\b")
+# All three bill/resolution patterns are DELIBERATELY case-sensitive (no
+# re.IGNORECASE, unlike _PUBL_RE/PUCT/ERCOT/ECCN below). Lowercase "s. 12" is
+# the UK-style section reference the guard tests pin as a non-match, and
+# folding case would reclassify every one of them as a US Senate bill. The
+# cost is that an ALL-CAPS bill header ("H. CON. RES. 7") does not extract;
+# that is the accepted side of the trade, not an oversight to "fix".
 
 # --- Texas electric / ERCOT authority shapes ------------------------------ #
 # These identifiers are structurally precise and recur across multiple grid
@@ -400,6 +406,11 @@ def _bills(text: str) -> Iterator[Candidate]:
             C.JURISDICTION_US_FEDERAL,
             C.AUTHORITY_TYPE_BILL,
         )
+    # No `claimed` guard on the House side, unlike the Senate side below:
+    # _HOUSE_BILL_RE requires a literal "R." straight after "H.", which no
+    # resolution form produces ("H. Res.", "H.J. Res.", "H. Con. Res."), so
+    # it cannot shadow a span _BILL_RES_RE already took. Add the same guard
+    # here if a resolution variant ever puts "R." in that position.
     for m in _HOUSE_BILL_RE.finditer(text):
         yield _cand(
             m.start(),

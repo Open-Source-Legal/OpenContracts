@@ -7,7 +7,10 @@
   `AUTHORITY_TYPE_BILL`, `GRAMMAR_BILL_PREFIXES`
   (`opencontractserver/enrichment/constants.py`) and
   `AuthorityWeight.PROPOSED` (`opencontractserver/enrichment/authority_sources.py`)
-  for introduced-but-not-enacted instruments.
+  for introduced-but-not-enacted instruments. `ALL_AUTHORITY_TYPES` backs the
+  `authority_type` choices on `AuthorityFrontier`/`AuthorityNamespace`/
+  `CorpusReference`, so migration `annotations.0103` restates them (choices-only
+  `AlterField`s — no schema change) to keep migration state in sync.
 - **Authority-section push endpoint** for external harvesters:
   `POST /api/worker-uploads/authority-sections/` (+ status/list routes) accepts
   a `parse_section_spec`-shaped JSON batch (+ optional equivalence rows) under
@@ -21,7 +24,12 @@
   (migration `worker_uploads.0006`, `mint_worker_token
   --allow-authority-sections`) — so pre-existing document-upload tokens do not
   silently gain the larger blast radius. Payload cap via new
-  `MAX_AUTHORITY_SECTION_PAYLOAD_BYTES` setting; stalled batches recovered by
+  `MAX_AUTHORITY_SECTION_PAYLOAD_BYTES` setting; per-execution drain cap via
+  new `WORKER_AUTHORITY_SECTION_BATCH_CAP` (default 5, self-re-enqueues while
+  more remain, mirroring `process_pending_uploads`) so a backlog cannot
+  monopolise the `worker_uploads` queue; the token is re-validated at drain
+  time (active, unexpired, still capability-bearing), so revoking a token
+  stops batches already staged under it; stalled batches recovered by
   the existing `recover_stalled_uploads` sweep; periodic drain added to
   `CELERY_BEAT_SCHEDULE`. Docs: `docs/guides/ingesting-authorities.md` Part 3.
   This gives any external harvester (legislation feeds, eCFR watchers, caselaw

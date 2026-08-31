@@ -677,7 +677,12 @@ def process_pending_section_batches(self: Any) -> dict[str, int]:
 
     One batch at a time under SELECT ... FOR UPDATE SKIP LOCKED (batches are
     coarse units — one push can carry hundreds of sections — so per-row
-    claiming is the right granularity, unlike the document drain's batching).
+    claiming is the right granularity, unlike the document drain's batching),
+    capped at WORKER_AUTHORITY_SECTION_BATCH_CAP batches per execution with a
+    self re-enqueue while more remain. The cap is what keeps a backlog (after
+    downtime, or several harvesters pushing at once) from tying up the single
+    worker_uploads slot long enough to starve recover_stalled_uploads —
+    process_pending_uploads bounds itself the same way.
 
     Ownership mirrors the document drain: created/updated documents belong to
     the CORPUS CREATOR, not the worker service user — the token represents
@@ -693,7 +698,9 @@ def process_pending_section_batches(self: Any) -> dict[str, int]:
     )
 
     processed = {"completed": 0, "failed": 0}
-    while True:
+    cap = settings.WORKER_AUTHORITY_SECTION_BATCH_CAP
+    claimed = 0
+    while cap <= 0 or claimed < cap:
         with transaction.atomic():
             batch = (
                 # of=("self",): corpus_access_token is NULLABLE, so the
@@ -703,7 +710,9 @@ def process_pending_section_batches(self: Any) -> dict[str, int]:
                 WorkerAuthoritySectionBatch.objects.select_for_update(
                     skip_locked=True, of=("self",)
                 )
-                .select_related("corpus_access_token__worker_account", "corpus")
+                .select_related(
+                    "corpus_access_token__worker_account", "corpus__creator"
+                )
                 .filter(status=UploadStatus.PENDING)
                 .order_by("created")
                 .first()
@@ -713,12 +722,35 @@ def process_pending_section_batches(self: Any) -> dict[str, int]:
             batch.status = UploadStatus.PROCESSING
             batch.processing_started = timezone.now()
             batch.save(update_fields=["status", "processing_started"])
+        claimed += 1
         try:
             token = batch.corpus_access_token
             if token is None:
                 raise ValueError(
                     "Corpus access token was deleted before this batch drained; "
                     "re-push under a live token."
+                )
+            # Re-validate the token AT DRAIN TIME, not only at push time.
+            # Revoking a token (the normal soft-deactivate path) is how an
+            # operator stops a misbehaving harvester, and authority-section
+            # push has a strictly larger blast radius than document upload —
+            # it creates/versions documents and relinks every citing corpus.
+            # Letting already-staged batches execute past revocation would
+            # make the revocation ineffective for exactly the operation that
+            # most needs it. ``is_valid`` is the same predicate
+            # WorkerTokenAuthentication enforces on the push path (token
+            # active, account active, not expired); worker_account is
+            # select_related above, so this costs no extra query.
+            if not token.is_valid:
+                raise ValueError(
+                    "Corpus access token was revoked or expired before this "
+                    "batch drained; re-push under a live token."
+                )
+            if not token.can_push_authority_sections:
+                raise ValueError(
+                    "Corpus access token no longer carries the "
+                    "authority-section push capability; re-push under a token "
+                    "minted with --allow-authority-sections."
                 )
             creator = batch.corpus.creator
             if creator is None or not creator.is_active:
@@ -769,5 +801,14 @@ def process_pending_section_batches(self: Any) -> dict[str, int]:
                 "error_message",
                 "processing_finished",
             ]
+        )
+
+    # Yield back to the scheduler between capped runs so a large backlog can't
+    # monopolise the worker_uploads queue (mirrors process_pending_uploads).
+    if WorkerAuthoritySectionBatch.objects.filter(status=UploadStatus.PENDING).exists():
+        process_pending_section_batches.apply_async(
+            queue="worker_uploads",
+            countdown=1,  # Brief pause to avoid a tight loop
+            ignore_result=True,
         )
     return processed

@@ -349,6 +349,14 @@ Authorization: WorkerKey <token>
   for the bootstrap/equivalence report.
 - **Caps**: `MAX_AUTHORITY_SECTION_PAYLOAD_BYTES` (default 32 MB) and the
   token's `rate_limit_per_minute` apply per batch.
+  `WORKER_AUTHORITY_SECTION_BATCH_CAP` (default 5) bounds how many staged
+  batches one drain execution claims before re-enqueueing itself, so a
+  backlog can't monopolise the `worker_uploads` queue.
+- **Revocation stops staged batches**: the token is re-validated at drain
+  time, not only at push time — deactivating a token (or its worker account,
+  or clearing `can_push_authority_sections`) fails every batch that was
+  staged but not yet drained. Revoking a misbehaving harvester therefore
+  takes effect immediately rather than after its queue plays out.
 
 ## Permissions & safety recap
 

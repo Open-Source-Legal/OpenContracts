@@ -6,7 +6,9 @@ Covers:
   rate limiting, staging)
 - Status endpoint token scoping (no cross-token existence oracle)
 - Drain task: bootstrap into the token corpus, equivalence upsert outcomes,
-  failure isolation, idempotent re-push, revoked-token batches
+  failure isolation, idempotent re-push, revoked-token batches, the
+  per-invocation batch cap + self re-enqueue, and drain-time token
+  re-validation (revocation/capability loss stops staged batches)
 """
 
 from typing import Any, ClassVar
@@ -127,6 +129,17 @@ class TestSectionBatchEndpoint(SectionBatchTestBase):
         assert response.status_code == 413
         mock_nudge.assert_not_called()
 
+    @patch(
+        "opencontractserver.worker_uploads.views.process_pending_section_batches.apply_async"
+    )
+    def test_post_non_string_equivalence_note_is_rejected_400(self, mock_nudge):
+        """A non-string note must 400 at push, not fail the whole batch at drain."""
+        payload = _make_payload()
+        payload["equivalences"][0]["note"] = {"not": "a string"}
+        response = self.client_api.post(ENDPOINT, payload, format="json")
+        assert response.status_code == 400, response.content
+        assert not WorkerAuthoritySectionBatch.objects.exists()
+
     def test_post_without_token_is_401(self):
         response = APIClient().post(ENDPOINT, _make_payload(), format="json")
         assert response.status_code == 401
@@ -243,6 +256,65 @@ class TestSectionBatchDrain(SectionBatchTestBase):
         assert second.status == UploadStatus.COMPLETED
         assert second.report["bootstrap"]["documents_skipped"] == 1
         assert Document.objects.filter(title="H.R. 1 — Test Bill (IH)").count() == 1
+
+    @override_settings(WORKER_AUTHORITY_SECTION_BATCH_CAP=2)
+    @patch(
+        "opencontractserver.worker_uploads.tasks."
+        "process_pending_section_batches.apply_async"
+    )
+    def test_drain_caps_batches_per_run_and_reenqueues(self, mock_reenqueue):
+        """One execution must not drain an unbounded backlog."""
+        for _ in range(3):
+            self._stage()
+
+        result = self._drain()
+
+        assert result["completed"] == 2
+        assert (
+            WorkerAuthoritySectionBatch.objects.filter(
+                status=UploadStatus.PENDING
+            ).count()
+            == 1
+        )
+        mock_reenqueue.assert_called_once_with(
+            queue="worker_uploads", countdown=1, ignore_result=True
+        )
+
+    @patch(
+        "opencontractserver.worker_uploads.tasks."
+        "process_pending_section_batches.apply_async"
+    )
+    def test_drain_does_not_reenqueue_when_queue_is_empty(self, mock_reenqueue):
+        self._stage()
+        self._drain()
+        mock_reenqueue.assert_not_called()
+
+    def test_drain_fails_batch_when_token_revoked_after_push(self):
+        """Revoking a token must stop batches staged before the revocation."""
+        batch = self._stage()
+        self.token.is_active = False
+        self.token.save(update_fields=["is_active"])
+
+        result = self._drain()
+
+        assert result["failed"] == 1
+        batch.refresh_from_db()
+        assert batch.status == UploadStatus.FAILED
+        assert "revoked or expired" in batch.error_message
+        assert not Document.objects.exists()
+
+    def test_drain_fails_batch_when_capability_revoked_after_push(self):
+        batch = self._stage()
+        self.token.can_push_authority_sections = False
+        self.token.save(update_fields=["can_push_authority_sections"])
+
+        result = self._drain()
+
+        assert result["failed"] == 1
+        batch.refresh_from_db()
+        assert batch.status == UploadStatus.FAILED
+        assert "capability" in batch.error_message
+        assert not Document.objects.exists()
 
     def test_drain_fails_cleanly_when_token_deleted(self):
         batch = self._stage()

@@ -227,8 +227,14 @@ class WorkerAuthoritySectionBatchView(APIView):
     202 Accepted immediately. The target corpus comes from the token, never
     from the payload.
 
-    Rate limiting is best-effort with the same caveats as document uploads
-    (see WorkerDocumentUploadView).
+    Rate limiting is best-effort: the count check and subsequent create are
+    not atomic, so under concurrent burst a token holder can exceed their
+    limit by a small margin. This is acceptable because worker tokens are
+    issued to trusted internal workers, not adversarial external clients.
+    For hardened rate limiting, use a reverse proxy (e.g. nginx limit_req).
+    The capability, payload-size and rate-limit checks all run before
+    deserialization, so an oversized or malformed batch never counts against
+    the per-minute limit — same ordering as WorkerDocumentUploadView.
     """
 
     authentication_classes = [WorkerTokenAuthentication]
@@ -314,7 +320,15 @@ class WorkerAuthoritySectionBatchView(APIView):
 
 
 class WorkerAuthoritySectionBatchStatusView(RetrieveAPIView):
-    """Check the status of a specific authority-section batch."""
+    """Check the status of a specific authority-section batch.
+
+    Scoped to the REQUESTING token, not the corpus: a batch pushed under a
+    since-revoked token is no longer reportable here even by a fresh token
+    for the same corpus. That is the deliberate no-cross-token-oracle choice
+    (a miss is a 404, never a "exists but not yours"); the operational cost
+    is that a harvester which rotates its token loses the ability to poll
+    reports for batches pushed under the old one. Read those from the admin.
+    """
 
     authentication_classes = [WorkerTokenAuthentication]
     permission_classes = [IsValidWorkerToken]
@@ -330,7 +344,11 @@ class WorkerAuthoritySectionBatchStatusView(RetrieveAPIView):
 
 
 class WorkerAuthoritySectionBatchListView(ListAPIView):
-    """List authority-section batches for the authenticated token (paginated)."""
+    """List authority-section batches for the authenticated token (paginated).
+
+    Token-scoped for the same reason as the status endpoint above — see its
+    docstring for the token-rotation implication.
+    """
 
     authentication_classes = [WorkerTokenAuthentication]
     permission_classes = [IsValidWorkerToken]

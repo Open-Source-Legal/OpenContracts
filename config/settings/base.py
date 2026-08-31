@@ -926,6 +926,16 @@ CELERY_BEAT_SCHEDULE = {
 # Documents per batch when draining the staging table
 WORKER_UPLOAD_BATCH_SIZE = int(env("WORKER_UPLOAD_BATCH_SIZE", default="50"))
 
+# Authority-section batches drained per process_pending_section_batches run.
+# Deliberately far smaller than WORKER_UPLOAD_BATCH_SIZE because the unit of
+# work is much coarser — one batch can carry hundreds of sections. The task
+# re-enqueues itself while more remain, so this caps how long one execution
+# holds a worker_uploads slot, not how much is ultimately drained. Set to 0
+# to drain the whole backlog in a single execution.
+WORKER_AUTHORITY_SECTION_BATCH_CAP = int(
+    env("WORKER_AUTHORITY_SECTION_BATCH_CAP", default="5")
+)
+
 # Maximum file size (in bytes) accepted by the worker upload endpoint.
 # Default: 256 MB. Set to 0 to disable the limit.
 MAX_WORKER_UPLOAD_SIZE_BYTES = int(

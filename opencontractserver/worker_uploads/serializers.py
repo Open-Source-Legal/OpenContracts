@@ -181,6 +181,14 @@ class WorkerAuthoritySectionBatchSerializer(serializers.Serializer):
                     f"equivalences[{i}] must carry valid, distinct canonical "
                     "from_key/to_key."
                 )
+            # note lands in a TextField via upsert_equivalence; a non-string
+            # would otherwise blow up at the DB layer during the drain and
+            # fail the WHOLE batch, instead of a clean 400 at push time.
+            note = row.get("note")
+            if note is not None and not isinstance(note, str):
+                raise serializers.ValidationError(
+                    f"equivalences[{i}].note must be a string when present."
+                )
         return attrs
 
 
