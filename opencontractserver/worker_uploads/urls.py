@@ -1,6 +1,9 @@
 from django.urls import path
 
 from opencontractserver.worker_uploads.views import (
+    WorkerAuthoritySectionBatchListView,
+    WorkerAuthoritySectionBatchStatusView,
+    WorkerAuthoritySectionBatchView,
     WorkerDocumentUploadListView,
     WorkerDocumentUploadStatusView,
     WorkerDocumentUploadView,
@@ -26,5 +29,22 @@ urlpatterns = [
         "documents/<uuid:upload_id>/",
         WorkerDocumentUploadStatusView.as_view(),
         name="status",
+    ),
+    # Same ordering rule: "authority-sections/list/" must precede the
+    # "<uuid:batch_id>/" pattern.
+    path(
+        "authority-sections/",
+        WorkerAuthoritySectionBatchView.as_view(),
+        name="section-upload",
+    ),
+    path(
+        "authority-sections/list/",
+        WorkerAuthoritySectionBatchListView.as_view(),
+        name="section-list",
+    ),
+    path(
+        "authority-sections/<uuid:batch_id>/",
+        WorkerAuthoritySectionBatchStatusView.as_view(),
+        name="section-status",
     ),
 ]

@@ -884,6 +884,11 @@ CELERY_BEAT_SCHEDULE = {
         "schedule": 300.0,  # every 5 minutes
         "options": {"queue": "worker_uploads"},
     },
+    "worker-uploads-drain-section-batches": {
+        "task": "opencontractserver.worker_uploads.tasks.process_pending_section_batches",
+        "schedule": 60.0,
+        "options": {"queue": "worker_uploads"},
+    },
     "memory-curate-idle-conversations": {
         "task": "opencontractserver.tasks.memory_tasks.check_conversations_for_curation",
         "schedule": MEMORY_CURATION_CHECK_INTERVAL_SECONDS,
@@ -921,10 +926,26 @@ CELERY_BEAT_SCHEDULE = {
 # Documents per batch when draining the staging table
 WORKER_UPLOAD_BATCH_SIZE = int(env("WORKER_UPLOAD_BATCH_SIZE", default="50"))
 
+# Authority-section batches drained per process_pending_section_batches run.
+# Deliberately far smaller than WORKER_UPLOAD_BATCH_SIZE because the unit of
+# work is much coarser — one batch can carry hundreds of sections. The task
+# re-enqueues itself while more remain, so this caps how long one execution
+# holds a worker_uploads slot, not how much is ultimately drained. Set to 0
+# to drain the whole backlog in a single execution.
+WORKER_AUTHORITY_SECTION_BATCH_CAP = int(
+    env("WORKER_AUTHORITY_SECTION_BATCH_CAP", default="5")
+)
+
 # Maximum file size (in bytes) accepted by the worker upload endpoint.
 # Default: 256 MB. Set to 0 to disable the limit.
 MAX_WORKER_UPLOAD_SIZE_BYTES = int(
     env("MAX_WORKER_UPLOAD_SIZE_BYTES", default=str(256 * 1024 * 1024))
+)
+
+# Maximum JSON body size (in bytes) accepted by the authority-section batch
+# endpoint. Default: 32 MB (a batch of full bill texts). Set to 0 to disable.
+MAX_AUTHORITY_SECTION_PAYLOAD_BYTES = int(
+    env("MAX_AUTHORITY_SECTION_PAYLOAD_BYTES", default=str(32 * 1024 * 1024))
 )
 
 # Minutes before a PROCESSING upload is considered stalled and reset to PENDING.

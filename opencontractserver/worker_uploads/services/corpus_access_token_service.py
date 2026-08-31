@@ -82,6 +82,7 @@ class CorpusAccessTokenService(BaseService):
         corpus_id: Any,
         expires_at: datetime | None = None,
         rate_limit_per_minute: int = 0,
+        can_push_authority_sections: bool = False,
         request: Any = None,
     ) -> ServiceResult[tuple[CorpusAccessToken, str]]:
         """Issue a new corpus-scoped access token.
@@ -123,6 +124,7 @@ class CorpusAccessTokenService(BaseService):
             corpus=corpus,
             expires_at=expires_at,
             rate_limit_per_minute=rate_limit_per_minute,
+            can_push_authority_sections=can_push_authority_sections,
         )
         cls.log_action("Created", token, user, corpus=corpus.id)
         return ServiceResult.success((token, plaintext_key))

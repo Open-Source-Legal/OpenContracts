@@ -366,6 +366,11 @@ AUTHORITY_TYPE_CONSTITUTION = "constitution"
 AUTHORITY_TYPE_COURT_RULE = "court-rule"
 AUTHORITY_TYPE_GUIDANCE = "guidance"
 AUTHORITY_TYPE_TREATY = "treaty"
+# A proposed legislative measure (bill, resolution) — introduced but not
+# enacted. Deliberately distinct from AUTHORITY_TYPE_STATUTE: a bill is not
+# law, and conflating the two would let a corpus present proposed text with
+# a statute's classification.
+AUTHORITY_TYPE_BILL = "bill"
 ALL_AUTHORITY_TYPES = (
     AUTHORITY_TYPE_STATUTE,
     AUTHORITY_TYPE_REGULATION,
@@ -376,6 +381,7 @@ ALL_AUTHORITY_TYPES = (
     AUTHORITY_TYPE_COURT_RULE,
     AUTHORITY_TYPE_GUIDANCE,
     AUTHORITY_TYPE_TREATY,
+    AUTHORITY_TYPE_BILL,
 )
 
 # Stable canonical-key relationship vocabulary used by authority packs. These
@@ -513,6 +519,15 @@ _MUNI_PREFIX_RE = _re.compile(r"^muni(?:-[a-z0-9-]+)?$")
 # 0082) never materialises a spurious "act"/"publ"/"stat" body of law.
 GRAMMAR_STATUTE_META_PREFIXES = frozenset({"act", "publ", "stat"})
 
+# Congress-unqualified measure prefixes emitted by the Tier-2a bill grammar
+# ("H.R. 1234" -> hr:1234). A citation carries no congress number, so the
+# grammar emits the shape-level key and a bills-carrying pack folds it onto
+# its congress-qualified key (hr:119-1234) with equivalence rows — the same
+# split the ECCN grammar uses (shape-level ``eccn:`` + pack equivalences).
+GRAMMAR_BILL_PREFIXES = frozenset(
+    {"hr", "s", "hjres", "sjres", "hconres", "sconres", "hres", "sres"}
+)
+
 
 # --- Phase 3/5: AuthorityFrontier discovery-state machine ------------------ #
 # Single source of truth for the frontier state vocabulary (CLAUDE.md item 4:
@@ -587,6 +602,8 @@ def classify_prefix(prefix: str) -> tuple:
         return (JURISDICTION_US_FEDERAL, AUTHORITY_TYPE_ADMIN_RULE)
     if prefix in GRAMMAR_STATUTE_META_PREFIXES:
         return (JURISDICTION_US_FEDERAL, AUTHORITY_TYPE_STATUTE)
+    if prefix in GRAMMAR_BILL_PREFIXES:
+        return (JURISDICTION_US_FEDERAL, AUTHORITY_TYPE_BILL)
     if _MUNI_PREFIX_RE.match(prefix):
         # Jurisdiction stays None — free text reveals the city but not its state
         # (a table-keyed code supplies the full ``us-ca-san-francisco`` instead).

@@ -187,6 +187,18 @@ class CorpusAccessToken(models.Model):
         default=0,
         help_text="Max uploads per minute. 0 means unlimited.",
     )
+    # Capability gate, DEFAULT FALSE on purpose: authority-section push can
+    # create/version-up documents and trigger relink sweeps that touch other
+    # corpora citing the bootstrapped keys — a strictly larger blast radius
+    # than plain document upload. Tokens minted before this field existed (or
+    # without the explicit flag) must NOT gain it silently.
+    can_push_authority_sections = models.BooleanField(
+        default=False,
+        help_text=(
+            "Whether this token may push authority-section batches "
+            "(bootstrap_authority_corpus) in addition to plain document uploads."
+        ),
+    )
     created = models.DateTimeField(default=timezone.now, db_index=True)
     modified = models.DateTimeField(auto_now=True)
 
@@ -215,6 +227,7 @@ class CorpusAccessToken(models.Model):
         expires_at: Optional[datetime] = None,
         rate_limit_per_minute: int = 0,
         is_active: bool = True,
+        can_push_authority_sections: bool = False,
     ) -> tuple["CorpusAccessToken", str]:
         """
         Create a new token, storing only the SHA-256 hash.
@@ -232,6 +245,7 @@ class CorpusAccessToken(models.Model):
             expires_at=expires_at,
             rate_limit_per_minute=rate_limit_per_minute,
             is_active=is_active,
+            can_push_authority_sections=can_push_authority_sections,
         )
         return token, plaintext
 
@@ -332,3 +346,56 @@ class WorkerDocumentUpload(models.Model):
 
     def __str__(self) -> str:
         return f"WorkerDocumentUpload({self.id}, {self.status})"
+
+
+class WorkerAuthoritySectionBatch(models.Model):
+    """Staging table for authority-section spec payloads pushed by harvesters.
+
+    Same drain pattern as WorkerDocumentUpload (202 at the endpoint, batch
+    processor with SELECT ... FOR UPDATE SKIP LOCKED), but the payload is a
+    parse_section_spec-shaped JSON document ({"sections": [...],
+    "equivalences": [...]}) bound for bootstrap_authority_corpus rather than
+    a file bound for the parser pipeline.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    corpus_access_token = models.ForeignKey(
+        CorpusAccessToken,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="section_batches",
+        help_text="Token used for this batch.",
+    )
+    corpus = models.ForeignKey(
+        "corpuses.Corpus",
+        on_delete=models.CASCADE,
+        related_name="worker_section_batches",
+        help_text="Authority corpus this batch bootstraps into.",
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=UploadStatus.choices,
+        default=UploadStatus.PENDING,
+        db_index=True,
+    )
+    payload = models.JSONField(
+        help_text="Section-spec payload: {'sections': [...], 'equivalences': [...]}.",
+    )
+    report = models.JSONField(
+        default=dict,
+        help_text="Bootstrap + equivalence outcome counts after processing.",
+    )
+    error_message = models.TextField(blank=True, default="")
+    created = models.DateTimeField(default=timezone.now, db_index=True)
+    processing_started = models.DateTimeField(null=True, blank=True)
+    processing_finished = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["created"]
+        indexes = [
+            models.Index(fields=["status", "created"]),
+            models.Index(fields=["corpus", "status"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"WorkerAuthoritySectionBatch({self.id}, {self.status})"

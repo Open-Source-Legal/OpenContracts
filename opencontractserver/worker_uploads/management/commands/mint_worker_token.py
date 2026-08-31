@@ -68,6 +68,15 @@ class Command(BaseCommand):
             help="Uploads-per-minute cap for the token (0 = unlimited).",
         )
         parser.add_argument(
+            "--allow-authority-sections",
+            action="store_true",
+            help=(
+                "Grant the token the authority-section push capability "
+                "(bootstrap into the bound corpus + relink sweep). Off by "
+                "default — larger blast radius than document upload."
+            ),
+        )
+        parser.add_argument(
             "--expires-days",
             type=int,
             default=None,
@@ -127,6 +136,7 @@ class Command(BaseCommand):
             corpus_id=options["corpus"],
             expires_at=expires_at,
             rate_limit_per_minute=options.get("rate_limit", 0),
+            can_push_authority_sections=options.get("allow_authority_sections", False),
         )
         if not token_result.ok:
             raise CommandError(f"Could not mint token: {token_result.error}")

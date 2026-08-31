@@ -74,6 +74,35 @@ _PUBL_RE = re.compile(
 )
 _STAT_RE = re.compile(r"\b(?P<vol>\d+)\s+Stat\.?\s+(?P<page>\d[\d,]*)")
 
+# Congressional measures. Periods are REQUIRED (unlike _publ's tolerant
+# forms): "HR 1234" is a human-resources form number as often as a bill, and
+# lowercase "s. 987" is the UK statutory-section short form — precision wins.
+# The bare Senate form is the dangerous one: "S." also terminates "U.S." in
+# case citations (410 U.S. 113) and "n.S."-style abbreviations, so it demands
+# a clean left boundary (no word char, no '.', no '§' immediately before).
+# Resolution forms are matched by their own alternation so "H. Res. 5" never
+# half-matches as a House bill; the emitted key carries no congress number —
+# a bills pack folds hr:1234 onto hr:119-1234 with equivalence rows.
+# Same (?<![\w.§]) left-boundary guard as the bill forms below: \b alone
+# treats a preceding "." as a boundary, so a state abbreviation ending in
+# H or S ("N.H. Res. 5", "U.S. Res. 3") would otherwise read as a federal
+# House/Senate resolution.
+_BILL_RES_RE = re.compile(
+    r"(?<![\w.§])(?P<chamber>[HS])\."
+    r"\s?(?:(?P<j>J)\.|(?P<con>Con)\.)?\s?Res\.\s?(?P<num>\d{1,5})\b"
+)
+# Same left-boundary guard as the Senate form: \b alone treats a
+# preceding "." as a boundary, so "W.H.R. 5"-style adjacent
+# abbreviations would otherwise read as House bills.
+_HOUSE_BILL_RE = re.compile(r"(?<![\w.§])H\.\s?R\.\s?(?P<num>\d{1,5})\b")
+_SENATE_BILL_RE = re.compile(r"(?<![\w.§])S\.\s?(?P<num>\d{1,5})\b")
+# All three bill/resolution patterns are DELIBERATELY case-sensitive (no
+# re.IGNORECASE, unlike _PUBL_RE/PUCT/ERCOT/ECCN below). Lowercase "s. 12" is
+# the UK-style section reference the guard tests pin as a non-match, and
+# folding case would reclassify every one of them as a US Senate bill. The
+# cost is that an ALL-CAPS bill header ("H. CON. RES. 7") does not extract;
+# that is the accepted side of the trade, not an oversight to "fix".
+
 # --- Texas electric / ERCOT authority shapes ------------------------------ #
 # These identifiers are structurally precise and recur across multiple grid
 # authority packs. They belong in the shared Tier-2 grammar rather than in one
@@ -365,6 +394,50 @@ def _stat(text: str) -> Iterator[Candidate]:
             key,
             C.JURISDICTION_US_FEDERAL,
             C.AUTHORITY_TYPE_STATUTE,
+        )
+
+
+def _bills(text: str) -> Iterator[Candidate]:
+    claimed: list[tuple[int, int]] = []
+    for m in _BILL_RES_RE.finditer(text):
+        chamber = m.group("chamber").lower()
+        kind = "jres" if m.group("j") else ("conres" if m.group("con") else "res")
+        claimed.append((m.start(), m.end()))
+        yield _cand(
+            m.start(),
+            m.end(),
+            m.group(0),
+            f"{chamber}{kind}:{m.group('num')}",
+            C.JURISDICTION_US_FEDERAL,
+            C.AUTHORITY_TYPE_BILL,
+        )
+    # No `claimed` guard on the House side, unlike the Senate side below:
+    # _HOUSE_BILL_RE requires a literal "R." straight after "H.", which no
+    # resolution form produces ("H. Res.", "H.J. Res.", "H. Con. Res."), so
+    # it cannot shadow a span _BILL_RES_RE already took. Add the same guard
+    # here if a resolution variant ever puts "R." in that position.
+    for m in _HOUSE_BILL_RE.finditer(text):
+        yield _cand(
+            m.start(),
+            m.end(),
+            m.group(0),
+            f"hr:{m.group('num')}",
+            C.JURISDICTION_US_FEDERAL,
+            C.AUTHORITY_TYPE_BILL,
+        )
+    for m in _SENATE_BILL_RE.finditer(text):
+        # The overlap guard keeps a bare-Senate match from firing inside a
+        # span the resolution alternation already claimed (e.g. reading the
+        # "S. 7"-shaped tail of text adjacent to "S. Con. Res. 7").
+        if any(start <= m.start() < end for start, end in claimed):
+            continue
+        yield _cand(
+            m.start(),
+            m.end(),
+            m.group(0),
+            f"s:{m.group('num')}",
+            C.JURISDICTION_US_FEDERAL,
+            C.AUTHORITY_TYPE_BILL,
         )
 
 
@@ -748,6 +821,7 @@ class GenericCitationExtractor:
             out.extend(_fedreg(text))
             out.extend(_publ(text))
             out.extend(_stat(text))
+            out.extend(_bills(text))
             out.extend(_puct_texas_admin_code(text))
             out.extend(_ercot_authorities(text))
             out.extend(_hts(text))

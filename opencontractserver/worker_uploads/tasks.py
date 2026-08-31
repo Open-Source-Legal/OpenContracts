@@ -52,6 +52,7 @@ from opencontractserver.utils.structural_sets import create_structural_annotatio
 from opencontractserver.utils.subtree_groups import build_subtree_groups_for_document
 from opencontractserver.worker_uploads.models import (
     UploadStatus,
+    WorkerAuthoritySectionBatch,
     WorkerDocumentUpload,
 )
 
@@ -181,10 +182,36 @@ def recover_stalled_uploads() -> dict[str, int]:
             )
             count += updated
 
-    if count:
-        logger.info(f"recover_stalled_uploads: reset {count} stalled upload(s).")
+    # Same sweep for authority-section batches, same compare-and-swap.
+    batch_count = 0
+    with transaction.atomic():
+        stalled_batches = list(
+            WorkerAuthoritySectionBatch.objects.select_for_update(skip_locked=True)
+            .filter(
+                status=UploadStatus.PROCESSING,
+                processing_started__lt=cutoff,
+            )
+            .values_list("id", "processing_started")
+        )
 
-    return {"recovered": count}
+        for batch_id, original_started in stalled_batches:
+            updated = WorkerAuthoritySectionBatch.objects.filter(
+                id=batch_id,
+                status=UploadStatus.PROCESSING,
+                processing_started=original_started,
+            ).update(
+                status=UploadStatus.PENDING,
+                processing_started=None,
+            )
+            batch_count += updated
+
+    if count or batch_count:
+        logger.info(
+            f"recover_stalled_uploads: reset {count} stalled upload(s), "
+            f"{batch_count} stalled section batch(es)."
+        )
+
+    return {"recovered": count, "recovered_section_batches": batch_count}
 
 
 def _process_single_upload(upload_id: UUID) -> None:
@@ -625,3 +652,168 @@ def _assign_to_folder(
     if doc_path and parent:
         doc_path.folder = parent
         doc_path.save(update_fields=["folder"])
+
+
+def _json_safe_bootstrap_report(result: dict[str, Any]) -> dict[str, Any]:
+    """Strip the bootstrap result down to JSON-safe report fields.
+
+    ``document_ids`` can be large and the relink summary shape varies
+    (inline dict vs {"queued": True, "task_id": ...}); keep the counts and
+    the relink marker, drop the id list.
+    """
+    report = {k: v for k, v in result.items() if k != "document_ids"}
+    report["document_count"] = len(result.get("document_ids", []))
+    return report
+
+
+@shared_task(
+    bind=True,
+    queue="worker_uploads",
+    max_retries=0,
+    acks_late=True,
+)
+def process_pending_section_batches(self: Any) -> dict[str, int]:
+    """Drain staged authority-section batches into bootstrap_authority_corpus.
+
+    One batch at a time under SELECT ... FOR UPDATE SKIP LOCKED (batches are
+    coarse units — one push can carry hundreds of sections — so per-row
+    claiming is the right granularity, unlike the document drain's batching),
+    capped at WORKER_AUTHORITY_SECTION_BATCH_CAP batches per execution with a
+    self re-enqueue while more remain. The cap is what keeps a backlog (after
+    downtime, or several harvesters pushing at once) from tying up the single
+    worker_uploads slot long enough to starve recover_stalled_uploads —
+    process_pending_uploads bounds itself the same way.
+
+    Ownership mirrors the document drain: created/updated documents belong to
+    the CORPUS CREATOR, not the worker service user — the token represents
+    delegated write access to that corpus. relink_async=True so a large batch
+    never holds this worker while every citing corpus re-links.
+    """
+    from opencontractserver.enrichment.authorities import (
+        bootstrap_authority_corpus,
+        parse_section_spec,
+    )
+    from opencontractserver.enrichment.services.authority_equivalence_ingest import (
+        upsert_equivalence,
+    )
+
+    processed = {"completed": 0, "failed": 0}
+    cap = settings.WORKER_AUTHORITY_SECTION_BATCH_CAP
+    claimed = 0
+    while cap <= 0 or claimed < cap:
+        with transaction.atomic():
+            batch = (
+                # of=("self",): corpus_access_token is NULLABLE, so the
+                # select_related join is a LEFT OUTER JOIN and Postgres
+                # refuses FOR UPDATE on its nullable side — lock only the
+                # batch row itself.
+                WorkerAuthoritySectionBatch.objects.select_for_update(
+                    skip_locked=True, of=("self",)
+                )
+                .select_related(
+                    "corpus_access_token__worker_account", "corpus__creator"
+                )
+                .filter(status=UploadStatus.PENDING)
+                .order_by("created")
+                .first()
+            )
+            if batch is None:
+                break
+            batch.status = UploadStatus.PROCESSING
+            batch.processing_started = timezone.now()
+            batch.save(update_fields=["status", "processing_started"])
+        claimed += 1
+        try:
+            token = batch.corpus_access_token
+            if token is None:
+                raise ValueError(
+                    "Corpus access token was deleted before this batch drained; "
+                    "re-push under a live token."
+                )
+            # Re-validate the token AT DRAIN TIME, not only at push time.
+            # Revoking a token (the normal soft-deactivate path) is how an
+            # operator stops a misbehaving harvester, and authority-section
+            # push has a strictly larger blast radius than document upload —
+            # it creates/versions documents and relinks every citing corpus.
+            # Letting already-staged batches execute past revocation would
+            # make the revocation ineffective for exactly the operation that
+            # most needs it. ``is_valid`` is the same predicate
+            # WorkerTokenAuthentication enforces on the push path (token
+            # active, account active, not expired); worker_account is
+            # select_related above, so this costs no extra query.
+            if not token.is_valid:
+                raise ValueError(
+                    "Corpus access token was revoked or expired before this "
+                    "batch drained; re-push under a live token."
+                )
+            if not token.can_push_authority_sections:
+                raise ValueError(
+                    "Corpus access token no longer carries the "
+                    "authority-section push capability; re-push under a token "
+                    "minted with --allow-authority-sections."
+                )
+            creator = batch.corpus.creator
+            if creator is None or not creator.is_active:
+                raise ValueError(
+                    f"Corpus {batch.corpus_id} has no active creator; cannot "
+                    "bootstrap authority sections."
+                )
+            sections, aliases = parse_section_spec(
+                batch.payload, label=f"batch {batch.id}"
+            )
+            result = bootstrap_authority_corpus(
+                creator_id=creator.id,
+                corpus_title=batch.corpus.title,
+                corpus_id=batch.corpus_id,
+                sections=sections,
+                aliases=aliases,
+                relink=True,
+                relink_async=True,
+            )
+            # Record the bootstrap outcome BEFORE the equivalence loop. By
+            # this point real Document rows have been created/versioned, so a
+            # later equivalence failure must not erase the evidence of that:
+            # the batch would go FAILED carrying only an equivalence error,
+            # and nothing re-queues a FAILED batch (recover_stalled_uploads
+            # only reclaims stalled PROCESSING rows). The report is saved on
+            # both the success and the failure path below.
+            batch.report = {"bootstrap": _json_safe_bootstrap_report(result)}
+            eq_outcomes: dict[str, int] = {}
+            for row in batch.payload.get("equivalences", []):
+                outcome = upsert_equivalence(
+                    from_key=row["from_key"],
+                    to_key=row["to_key"],
+                    source=f"worker:{token.worker_account.name}",
+                    confidence=1.0,
+                    note=row.get("note"),
+                )
+                eq_outcomes[outcome] = eq_outcomes.get(outcome, 0) + 1
+            batch.report["equivalences"] = eq_outcomes
+            batch.status = UploadStatus.COMPLETED
+            processed["completed"] += 1
+        except (
+            Exception
+        ) as exc:  # noqa: BLE001 — batch isolation: one bad batch must not stall the queue
+            logger.exception(f"Authority-section batch {batch.id} failed")
+            batch.status = UploadStatus.FAILED
+            batch.error_message = str(exc)[:MAX_UPLOAD_ERROR_MESSAGE_LENGTH]
+            processed["failed"] += 1
+        batch.processing_finished = timezone.now()
+        batch.save(
+            update_fields=[
+                "status",
+                "report",
+                "error_message",
+                "processing_finished",
+            ]
+        )
+
+    # Yield back to the scheduler between capped runs so a large backlog can't
+    # monopolise the worker_uploads queue (mirrors process_pending_uploads).
+    if WorkerAuthoritySectionBatch.objects.filter(status=UploadStatus.PENDING).exists():
+        process_pending_section_batches.apply_async(
+            queue="worker_uploads",
+            countdown=1,  # Brief pause to avoid a tight loop
+            ignore_result=True,
+        )
+    return processed

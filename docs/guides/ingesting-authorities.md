@@ -318,6 +318,46 @@ the `Unsupported` chip count on `/admin/authority/queue` should drop.
 
 ---
 
+## Part 3 — Continuous push from an external harvester
+
+For sources that change on their own schedule (proposed legislation, eCFR
+amendments, caselaw feeds), an external harvester can push authority sections
+into a corpus continuously instead of waiting for a pack re-install:
+
+```
+POST /api/worker-uploads/authority-sections/
+Authorization: WorkerKey <token>
+{"sections": [...], "equivalences": [{"from_key": "...", "to_key": "..."}]}
+```
+
+- **Token**: mint with `python manage.py mint_worker_token
+  --allow-authority-sections` — the token binds the batch to exactly one
+  corpus (the payload never names a corpus), and the authority-section
+  capability is an explicit, off-by-default grant: a plain document-upload
+  token gets 403 here (`CorpusAccessToken.can_push_authority_sections`).
+- **Payload**: `sections` follows the single section-spec contract
+  (`opencontractserver/enrichment/authorities.py::parse_section_spec` — same
+  schema as `bootstrap_authority --spec` and pack specs), validated
+  synchronously so a malformed batch is a 400 at push time. `equivalences`
+  rows are upserted under source `worker:<account>` (curator- and pack-owned
+  rows are never overwritten — see `authority_equivalence_ingest.py`).
+- **Processing**: 202 + batch id; a drain task
+  (`worker_uploads/tasks.py::process_pending_section_batches`) feeds
+  `bootstrap_authority_corpus` (idempotent: unchanged text skips, changed
+  text version-ups, metadata-only changes restamp) with an async relink of
+  citing corpora. Poll `GET /api/worker-uploads/authority-sections/<id>/`
+  for the bootstrap/equivalence report.
+- **Caps**: `MAX_AUTHORITY_SECTION_PAYLOAD_BYTES` (default 32 MB) and the
+  token's `rate_limit_per_minute` apply per batch.
+  `WORKER_AUTHORITY_SECTION_BATCH_CAP` (default 5) bounds how many staged
+  batches one drain execution claims before re-enqueueing itself, so a
+  backlog can't monopolise the `worker_uploads` queue.
+- **Revocation stops staged batches**: the token is re-validated at drain
+  time, not only at push time — deactivating a token (or its worker account,
+  or clearing `can_push_authority_sections`) fails every batch that was
+  staged but not yet drained. Revoking a misbehaving harvester therefore
+  takes effect immediately rather than after its queue plays out.
+
 ## Permissions & safety recap
 
 - `runCorpusEnrichment` (and therefore the crawl) requires corpus **UPDATE**;

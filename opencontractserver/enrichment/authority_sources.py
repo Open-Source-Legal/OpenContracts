@@ -74,6 +74,10 @@ class AuthorityWeight(StrEnum):
     EVIDENTIARY = "EVIDENTIARY"
     ADVOCACY = "ADVOCACY"
     INFORMAL = "INFORMAL"
+    # Introduced-but-not-enacted instruments: bills, NPRMs, draft guidance.
+    # Not authority at all yet — kept distinct from INFORMAL so a corpus of
+    # proposed text is honest about WHY it carries no weight.
+    PROPOSED = "PROPOSED"
 
 
 class InstrumentType(StrEnum):

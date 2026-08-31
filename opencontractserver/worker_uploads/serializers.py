@@ -6,7 +6,10 @@ from rest_framework import serializers
 
 from opencontractserver.annotations.models import EMBEDDING_DIMENSIONS
 from opencontractserver.extracts.services.metadata import MetadataService
-from opencontractserver.worker_uploads.models import WorkerDocumentUpload
+from opencontractserver.worker_uploads.models import (
+    WorkerAuthoritySectionBatch,
+    WorkerDocumentUpload,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -135,6 +138,73 @@ class WorkerDocumentUploadStatusSerializer(serializers.ModelSerializer):
             "status",
             "corpus",
             "document_id",
+            "error_message",
+            "created",
+            "processing_started",
+            "processing_finished",
+        ]
+        read_only_fields = fields
+
+
+class WorkerAuthoritySectionBatchSerializer(serializers.Serializer):
+    """Validates the JSON body of an authority-section push.
+
+    Deep section validation delegates to ``parse_section_spec`` — the single
+    section-spec contract — so the endpoint and the authority management
+    commands accept and reject exactly the same shapes.
+    """
+
+    sections = serializers.ListField(allow_empty=False)
+    equivalences = serializers.ListField(required=False, default=list)
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        from opencontractserver.enrichment.authorities import parse_section_spec
+        from opencontractserver.enrichment.data import mappings as _mappings
+
+        try:
+            parse_section_spec({"sections": attrs["sections"]}, label="payload")
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc))
+        for i, row in enumerate(attrs["equivalences"]):
+            if not isinstance(row, dict):
+                raise serializers.ValidationError(
+                    f"equivalences[{i}] must be an object."
+                )
+            from_key = str(row.get("from_key", "")).strip()
+            to_key = str(row.get("to_key", "")).strip()
+            # Normalize IN PLACE, not just for the check: the view persists
+            # validated_data as batch.payload, so stripping only locally would
+            # leave whitespace-padded keys in the stored payload that merely
+            # happen to be re-stripped by upsert_equivalence at drain time.
+            row["from_key"] = from_key
+            row["to_key"] = to_key
+            if (
+                not _mappings.is_valid_canonical_key(from_key)
+                or not _mappings.is_valid_canonical_key(to_key)
+                or from_key == to_key
+            ):
+                raise serializers.ValidationError(
+                    f"equivalences[{i}] must carry valid, distinct canonical "
+                    "from_key/to_key."
+                )
+            # note lands in a TextField via upsert_equivalence; a non-string
+            # would otherwise blow up at the DB layer during the drain and
+            # fail the WHOLE batch, instead of a clean 400 at push time.
+            note = row.get("note")
+            if note is not None and not isinstance(note, str):
+                raise serializers.ValidationError(
+                    f"equivalences[{i}].note must be a string when present."
+                )
+        return attrs
+
+
+class WorkerAuthoritySectionBatchStatusSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = WorkerAuthoritySectionBatch
+        fields = [
+            "id",
+            "status",
+            "report",
             "error_message",
             "created",
             "processing_started",
