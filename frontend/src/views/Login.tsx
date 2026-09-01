@@ -13,6 +13,7 @@ import { User, Lock } from "lucide-react";
 import { CiteMark } from "../components/brand/CiteMark";
 import { CiteWordmark } from "../components/brand/CiteWordmark";
 import { useCacheManager } from "../hooks/useCacheManager";
+import { saveLocalAuthSession } from "../utils/localAuthSession";
 import { OS_LEGAL_COLORS } from "../assets/configurations/osLegalStyles";
 
 const PageWrapper = styled.div`
@@ -131,6 +132,7 @@ export const Login = () => {
           console.warn("[Login] Cache reset failed on login:", cacheError);
         }
 
+        saveLocalAuthSession(data.tokenAuth.token, data.tokenAuth.user);
         authToken(data.tokenAuth.token);
         userObj(data.tokenAuth.user);
         authStatusVar("AUTHENTICATED");

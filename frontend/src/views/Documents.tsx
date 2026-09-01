@@ -164,6 +164,7 @@ const DocumentIcon = () => (
 export const Documents = () => {
   const current_user = useReactiveVar(userObj);
   const backend_user = useReactiveVar(backendUserObj);
+  const is_authenticated = Boolean(current_user || backend_user);
   const show_bulk_upload_modal = useReactiveVar(showBulkUploadModal);
   const show_upload_new_documents_modal = useReactiveVar(
     showUploadNewDocumentsModal
@@ -684,7 +685,7 @@ export const Documents = () => {
                 </ViewToggleButton>
               </ViewToggle>
 
-              {current_user &&
+              {is_authenticated &&
                 (selected_document_ids.length > 0 ? (
                   <ActionButtons>
                     <Button
@@ -817,7 +818,7 @@ export const Documents = () => {
                 action={
                   activeStatusFilter === STATUS_FILTERS.ALL &&
                   !hasAdvancedFilters &&
-                  current_user ? (
+                  is_authenticated ? (
                     <Button
                       variant="primary"
                       leftIcon={<Plus size={16} />}
@@ -864,7 +865,7 @@ export const Documents = () => {
                   key: "add-to-corpus",
                   icon: <FolderOpen size={16} />,
                   label: "Add to Corpus",
-                  visible: Boolean(current_user),
+                  visible: is_authenticated,
                   onClick: () => {
                     selectedDocumentIds([contextMenu.document.id]);
                     showAddDocsToCorpusModal(true);
@@ -875,7 +876,7 @@ export const Documents = () => {
                   key: "edit",
                   icon: <Edit size={16} />,
                   label: "Edit Details",
-                  visible: Boolean(current_user),
+                  visible: is_authenticated,
                   onClick: () => {
                     editingDocument(contextMenu.document);
                     handleCloseContextMenu();
@@ -887,7 +888,7 @@ export const Documents = () => {
                   label: selected_document_ids.includes(contextMenu.document.id)
                     ? "Deselect"
                     : "Select",
-                  visible: Boolean(current_user),
+                  visible: is_authenticated,
                   onClick: () => {
                     handleSelect(contextMenu.document.id);
                     handleCloseContextMenu();
@@ -898,7 +899,7 @@ export const Documents = () => {
                   icon: <Trash2 size={16} />,
                   label: "Delete",
                   variant: "danger" as const,
-                  visible: Boolean(current_user),
+                  visible: is_authenticated,
                   onClick: () => {
                     selectedDocumentIds([contextMenu.document.id]);
                     showDeleteDocumentsModal(true);
