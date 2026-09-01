@@ -15,6 +15,14 @@
       "created_at": "2026-08-17T10:07:30Z",
       "repoId": 556553471,
       "pullRequestNo": 2254
+    },
+    {
+      "name": "angelo-lacson",
+      "id": 267470391,
+      "comment_id": 5493184489,
+      "created_at": "2026-09-01T11:24:45Z",
+      "repoId": 556553471,
+      "pullRequestNo": 2290
     }
   ]
 }
