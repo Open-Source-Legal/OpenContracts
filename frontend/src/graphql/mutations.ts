@@ -1199,8 +1199,10 @@ export interface CreateAnnotationLabelForLabelsetInputs {
 }
 
 export interface CreateAnnotationLabelForLabelsetOutputs {
-  ok?: boolean;
-  message?: string;
+  createAnnotationLabelForLabelset?: {
+    ok?: boolean;
+    message?: string;
+  } | null;
 }
 
 export const CREATE_ANNOTATION_LABEL_FOR_LABELSET = gql`

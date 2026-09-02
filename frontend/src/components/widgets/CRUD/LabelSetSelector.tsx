@@ -29,7 +29,10 @@ interface LabelSetSelectorProps {
   read_only?: boolean;
   labelSet?: LabelSetType;
   style?: Record<string, any>;
-  onChange?: (values: any) => void;
+  onChange?: (values: {
+    labelSet: string | null;
+    labelSetObj?: LabelSetType;
+  }) => void;
   /** Open dropdown upward (useful when near bottom of container) */
   upward?: boolean;
 }
@@ -60,17 +63,24 @@ export const LabelSetSelector = ({
     refetch();
   }, [search_term, refetch]);
 
+  const items = data?.labelsets?.edges ?? [];
+
   const handleChange = (value: string | null) => {
     // If user has not actually changed the labelSet, do nothing:
     if (value === labelSet?.id) return;
 
     // If user explicitly clears, value === null => labelSet null
     // Otherwise labelSet is new value (the new labelSet.id).
-    onChange?.({ labelSet: value ?? null });
+    const selectedLabelSet = value
+      ? items.find((edge) => edge.node.id === value)?.node
+      : undefined;
+    onChange?.({
+      labelSet: value ?? null,
+      labelSetObj: selectedLabelSet,
+    });
   };
 
-  let items = data?.labelsets?.edges ? data.labelsets.edges : [];
-  let options = items.map((labelsetEdge) => {
+  const options = items.map((labelsetEdge) => {
     const node = labelsetEdge.node;
     return {
       value: node.id,

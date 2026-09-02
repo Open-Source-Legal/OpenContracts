@@ -518,9 +518,18 @@ export const LabelsSection = styled.div`
   gap: 20px;
 `;
 
+export const SearchToolbar = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  max-width: 600px;
+`;
+
 export const SearchContainer = styled.div`
   position: relative;
-  max-width: 400px;
+  flex: 1;
+  min-width: 0;
 `;
 
 export const SearchInput = styled.input`
@@ -760,6 +769,7 @@ export const AddLabelButton = styled.button`
   cursor: pointer;
   transition: all 0.15s ease;
   align-self: flex-start;
+  white-space: nowrap;
 
   &:hover {
     background: ${OS_LEGAL_COLORS.surfaceHover};

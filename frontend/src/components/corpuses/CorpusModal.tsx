@@ -580,9 +580,13 @@ export const CorpusModal: React.FC<CorpusModalProps> = ({
     []
   );
 
-  const handleLabelSetChange = useCallback((values: any) => {
-    setLabelSetId(values.labelSet || null);
-  }, []);
+  const handleLabelSetChange = useCallback(
+    (values: { labelSet: string | null; labelSetObj?: LabelSetType }) => {
+      setLabelSetId(values.labelSet || null);
+      setLabelSetObj(values.labelSetObj);
+    },
+    []
+  );
 
   const handleEmbedderChange = useCallback((values: any) => {
     setPreferredEmbedder(values.preferredEmbedder || null);

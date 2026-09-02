@@ -74,6 +74,26 @@ test.describe("LabelSetSelector", () => {
     await component.unmount();
   });
 
+  test("returns the selected label set object to controlled consumers", async ({
+    mount,
+    page,
+  }) => {
+    const component = await mount(<LabelSetSelectorTestWrapper />);
+
+    await page.locator(".oc-dropdown__trigger").click();
+    await page
+      .locator(".oc-dropdown__option")
+      .filter({ hasText: "Financial Labels" })
+      .click();
+
+    await expect(component.getByTestId("selected-labelset")).toHaveText("ls-2");
+    await expect(page.locator(".oc-dropdown__value")).toContainText(
+      "Financial Labels"
+    );
+
+    await component.unmount();
+  });
+
   test("read-only mode disables dropdown", async ({ mount, page }) => {
     const component = await mount(
       <LabelSetSelectorTestWrapper read_only={true} />

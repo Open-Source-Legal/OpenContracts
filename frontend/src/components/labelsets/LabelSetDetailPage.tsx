@@ -30,6 +30,7 @@ import { getPermissions } from "../../utils/transform";
 import { getCreatorDisplay } from "../../utils/userDisplay";
 import { PermissionTypes } from "../types";
 import { OS_LEGAL_COLORS } from "../../assets/configurations/osLegalStyles";
+import { isValidHexColor, normalizeHexColor } from "../../utils/colorUtils";
 
 // Import extracted components from detail folder
 import {
@@ -89,6 +90,7 @@ import {
   OverviewActions,
   ActionButton,
   LabelsSection,
+  SearchToolbar,
   SearchContainer,
   SearchInput,
   SearchIconWrapper,
@@ -147,39 +149,15 @@ interface LabelSetDetailPageProps {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /**
- * Validates if a string is a valid hex color (3 or 6 character format)
- * Accepts with or without leading #
- */
-const isValidHexColor = (color: string): boolean => {
-  return /^#?([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(color);
-};
-
-/**
- * Expands a 3-character hex color to 6-character format
- * e.g., "abc" becomes "aabbcc"
- */
-const expandHexColor = (color: string): string => {
-  if (color.length === 3) {
-    return color
-      .split("")
-      .map((c) => c + c)
-      .join("");
-  }
-  return color;
-};
-
-/**
- * Sanitizes a color value, returning the fallback if invalid
- * Strips leading #, validates format, and expands 3-char to 6-char
+ * Sanitizes a color value for the GraphQL API. The backend requires the
+ * leading ``#`` for every accepted hex shape.
  */
 const sanitizeColor = (
   color: string | null | undefined,
   fallback: string = DEFAULT_LABEL_COLOR
 ): string => {
-  if (!color) return fallback;
-  const cleaned = color.replace("#", "");
-  if (!isValidHexColor(cleaned)) return fallback;
-  return expandHexColor(cleaned);
+  const candidate = color || fallback;
+  return normalizeHexColor(isValidHexColor(candidate) ? candidate : fallback);
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -312,7 +290,7 @@ export const LabelSetDetailPage: React.FC<LabelSetDetailPageProps> = ({
     setEditForm({
       text: label.text || "",
       description: label.description || "",
-      color: label.color || DEFAULT_LABEL_COLOR,
+      color: (label.color || DEFAULT_LABEL_COLOR).replace(/^#/, ""),
     });
   };
 
@@ -401,9 +379,17 @@ export const LabelSetDetailPage: React.FC<LabelSetDetailPageProps> = ({
         labelsetId: opened_labelset?.id ? opened_labelset.id : "",
       },
     })
-      .then(() => {
+      .then(async (result) => {
+        const payload = result.data?.createAnnotationLabelForLabelset;
+        if (!payload?.ok) {
+          toast.error(payload?.message || "Failed to create label");
+          return;
+        }
+
+        // Await the server result so the empty-state/counters cannot render
+        // stale data after the success notification.
+        await refetch();
         toast.success("Label created successfully");
-        refetch();
         handleCancelEdit();
       })
       .catch((err) => {
@@ -607,7 +593,7 @@ export const LabelSetDetailPage: React.FC<LabelSetDetailPageProps> = ({
               <LabelEditLabel>Color</LabelEditLabel>
               <ColorInput
                 type="color"
-                value={`#${editForm.color}`}
+                value={normalizeHexColor(editForm.color)}
                 onChange={(e) =>
                   setEditForm({
                     ...editForm,
@@ -615,7 +601,7 @@ export const LabelSetDetailPage: React.FC<LabelSetDetailPageProps> = ({
                   })
                 }
               />
-              <LabelColor $color={`#${editForm.color}`} />
+              <LabelColor $color={normalizeHexColor(editForm.color)} />
             </LabelEditRow>
             <LabelEditActions>
               <LabelActionButton
@@ -702,7 +688,7 @@ export const LabelSetDetailPage: React.FC<LabelSetDetailPageProps> = ({
               <LabelEditLabel>Color</LabelEditLabel>
               <ColorInput
                 type="color"
-                value={`#${editForm.color}`}
+                value={normalizeHexColor(editForm.color)}
                 onChange={(e) =>
                   setEditForm({
                     ...editForm,
@@ -710,7 +696,7 @@ export const LabelSetDetailPage: React.FC<LabelSetDetailPageProps> = ({
                   })
                 }
               />
-              <LabelColor $color={`#${editForm.color}`} />
+              <LabelColor $color={normalizeHexColor(editForm.color)} />
             </LabelEditRow>
             <LabelEditActions>
               <LabelActionButton
@@ -761,7 +747,7 @@ export const LabelSetDetailPage: React.FC<LabelSetDetailPageProps> = ({
                   <LabelEditLabel>Color</LabelEditLabel>
                   <ColorInput
                     type="color"
-                    value={`#${editForm.color}`}
+                    value={normalizeHexColor(editForm.color)}
                     onChange={(e) =>
                       setEditForm({
                         ...editForm,
@@ -769,7 +755,7 @@ export const LabelSetDetailPage: React.FC<LabelSetDetailPageProps> = ({
                       })
                     }
                   />
-                  <LabelColor $color={`#${editForm.color}`} />
+                  <LabelColor $color={normalizeHexColor(editForm.color)} />
                 </LabelEditRow>
                 <LabelEditActions>
                   <LabelActionButton
@@ -793,7 +779,9 @@ export const LabelSetDetailPage: React.FC<LabelSetDetailPageProps> = ({
                 <LabelGrip>
                   <GripIcon />
                 </LabelGrip>
-                <LabelColor $color={`#${label.color || DEFAULT_LABEL_COLOR}`} />
+                <LabelColor
+                  $color={normalizeHexColor(label.color || DEFAULT_LABEL_COLOR)}
+                />
                 <LabelContent>
                   <LabelName>{label.text}</LabelName>
                   <LabelDescription>{label.description}</LabelDescription>
@@ -821,16 +809,34 @@ export const LabelSetDetailPage: React.FC<LabelSetDetailPageProps> = ({
             )
           )}
         </LabelsList>
-
-        {/* Add button - hidden when already creating */}
-        {canUpdate && !isCreating && (
-          <AddLabelButton onClick={() => handleStartCreate(labelType)}>
-            <PlusIcon /> Add Label
-          </AddLabelButton>
-        )}
       </>
     );
   };
+
+  const renderLabelToolbar = (
+    placeholder: string,
+    labelType: LabelType,
+    hasExistingLabels: boolean
+  ) => (
+    <SearchToolbar>
+      <SearchContainer>
+        <SearchIconWrapper>
+          <SearchIcon />
+        </SearchIconWrapper>
+        <SearchInput
+          type="text"
+          placeholder={placeholder}
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+        />
+      </SearchContainer>
+      {canUpdate && hasExistingLabels && creatingLabelType !== labelType && (
+        <AddLabelButton onClick={() => handleStartCreate(labelType)}>
+          <PlusIcon /> Add Label
+        </AddLabelButton>
+      )}
+    </SearchToolbar>
+  );
 
   // Render content based on active tab
   const renderContent = () => {
@@ -893,17 +899,11 @@ export const LabelSetDetailPage: React.FC<LabelSetDetailPageProps> = ({
       case "text_labels":
         return (
           <LabelsSection>
-            <SearchContainer>
-              <SearchIconWrapper>
-                <SearchIcon />
-              </SearchIconWrapper>
-              <SearchInput
-                type="text"
-                placeholder="Search text labels..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-            </SearchContainer>
+            {renderLabelToolbar(
+              "Search text labels...",
+              LabelType.TokenLabel,
+              text_labels.length > 0
+            )}
             {renderLabelsList(
               text_label_results,
               LabelType.TokenLabel,
@@ -915,17 +915,11 @@ export const LabelSetDetailPage: React.FC<LabelSetDetailPageProps> = ({
       case "doc_labels":
         return (
           <LabelsSection>
-            <SearchContainer>
-              <SearchIconWrapper>
-                <SearchIcon />
-              </SearchIconWrapper>
-              <SearchInput
-                type="text"
-                placeholder="Search doc labels..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-            </SearchContainer>
+            {renderLabelToolbar(
+              "Search doc labels...",
+              LabelType.DocTypeLabel,
+              doc_type_labels.length > 0
+            )}
             {renderLabelsList(
               doc_label_results,
               LabelType.DocTypeLabel,
@@ -937,17 +931,11 @@ export const LabelSetDetailPage: React.FC<LabelSetDetailPageProps> = ({
       case "relationship_labels":
         return (
           <LabelsSection>
-            <SearchContainer>
-              <SearchIconWrapper>
-                <SearchIcon />
-              </SearchIconWrapper>
-              <SearchInput
-                type="text"
-                placeholder="Search relationship labels..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-            </SearchContainer>
+            {renderLabelToolbar(
+              "Search relationship labels...",
+              LabelType.RelationshipLabel,
+              relationship_labels.length > 0
+            )}
             {renderLabelsList(
               relationship_label_results,
               LabelType.RelationshipLabel,
@@ -959,17 +947,11 @@ export const LabelSetDetailPage: React.FC<LabelSetDetailPageProps> = ({
       case "span_labels":
         return (
           <LabelsSection>
-            <SearchContainer>
-              <SearchIconWrapper>
-                <SearchIcon />
-              </SearchIconWrapper>
-              <SearchInput
-                type="text"
-                placeholder="Search labels..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-            </SearchContainer>
+            {renderLabelToolbar(
+              "Search span labels...",
+              LabelType.SpanLabel,
+              span_labels.length > 0
+            )}
             {renderLabelsList(
               span_label_results,
               LabelType.SpanLabel,
