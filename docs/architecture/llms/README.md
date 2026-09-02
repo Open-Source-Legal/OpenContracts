@@ -2966,6 +2966,7 @@ Specs follow [`pydantic-ai`](https://ai.pydantic.dev)'s `"{provider_key}:{model_
 | `"anthropic:claude-opus-4-6"`           | Anthropic          | claude-opus-4-6      |
 | `"google-gla:gemini-2.0-flash"`         | Google (AI Studio) | gemini-2.0-flash     |
 | `"ollama:llama3.3"`                     | Ollama (local)     | llama3.3             |
+| `"orcarouter:orcarouter/auto"`          | OrcaRouter         | orcarouter/auto      |
 
 Bare strings (no colon — e.g. `"gpt-4o"`) are treated as `openai` models so legacy `OPENAI_MODEL` values keep working.
 
@@ -2988,6 +2989,8 @@ Resolution is **DB-wins / env-fallback**, applied by [`opencontractserver/llms/m
 
 - When a provider has a DB-configured `api_key`/`base_url`, `build_agent_model()` returns a concrete pydantic-ai model whose `Provider` carries those credentials — overriding the environment. A custom `base_url` lets you point OpenAI/Ollama at an OpenAI-compatible gateway or self-hosted server.
 - When nothing is configured (the default), it returns the bare `"{provider}:{model}"` spec string and pydantic-ai resolves the credential from the provider-native environment variable (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, …) exactly as before.
+
+**OrcaRouter** is the one exception to the env-fallback string: pydantic-ai has no native `orcarouter:` provider prefix, so a bare `"orcarouter:..."` spec would raise "Unknown model". Instead `build_agent_model()` always builds a concrete OpenAI-compatible model for OrcaRouter — using DB-configured credentials when present, otherwise `ORCAROUTER_API_KEY` (or a blank-key fallback) and the default endpoint `https://api.orcarouter.ai/v1`. This keeps the System Settings LLM picker safe: choosing an `orcarouter:` model can never produce an unresolvable spec.
 
 Any failure to build a credentialed model degrades to the env-fallback string, so a misconfiguration can never take the chat path down. The factory is invoked at every `make_pydantic_ai_agent` call site (document, corpus, and structured-output agents, plus the memory-curation tasks); it performs ORM access, so async call sites use the `abuild_agent_model()` wrapper.
 
