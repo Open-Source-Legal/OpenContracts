@@ -1911,3 +1911,18 @@ MCP_CORS_ALLOWED_ORIGINS = env.list(
 # Host; because MCP bypasses ALLOWED_HOSTS, pinning this in production is
 # recommended (e.g. MCP_PUBLIC_BASE_URL=https://contracts.opensource.legal).
 MCP_PUBLIC_BASE_URL = env.str("MCP_PUBLIC_BASE_URL", default="")
+
+# ------------------------------------------------------------------------------
+# FORECLOSURE COMPLIANCE RULESET
+# ------------------------------------------------------------------------------
+# The California foreclosure ruleset (Civ. Code § 2924 et seq.) runs as a
+# separate service — `legalis-ca-foreclosure-api`, a Rust binary — rather than
+# in-process. An FFI boundary would couple this deployment to a Rust toolchain
+# and turn the ruleset's panics into worker crashes; over HTTP it is
+# independently deployable and independently versioned.
+#
+# Endpoints consumed: GET /health, GET /v1/rules, POST /v1/evaluate.
+FORECLOSURE_API_URL = env.str(
+    "FORECLOSURE_API_URL", default="http://foreclosure-api:8090"
+)
+FORECLOSURE_API_TIMEOUT = env.int("FORECLOSURE_API_TIMEOUT", default=30)
