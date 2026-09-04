@@ -30,7 +30,7 @@ class MockEmbedder:
     is_multimodal = False
     supports_images = False
 
-    def embed_text(self, text: str) -> list[float]:
+    def embed_text(self, text: str, **kwargs) -> list[float]:
         """Return a mock embedding vector."""
         return [0.1] * 768
 
@@ -42,7 +42,7 @@ class MockCorpusEmbedder:
     is_multimodal = False
     supports_images = False
 
-    def embed_text(self, text: str) -> list[float]:
+    def embed_text(self, text: str, **kwargs) -> list[float]:
         """Return a different mock embedding vector."""
         return [0.2] * 768
 

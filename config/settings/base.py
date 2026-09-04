@@ -1189,6 +1189,13 @@ DEFAULT_PERMISSIONS_GROUP = "Public Objects Access"
 EMBEDDINGS_MICROSERVICE_URL = env(
     "EMBEDDINGS_MICROSERVICE_URL", default="http://vector-embedder:8000"
 )
+# Optional dedicated "bulk" pool for ingest embedding. This is the env binding
+# that seeds the MicroserviceEmbedder ``embeddings_microservice_url_bulk``
+# setting (via ``migrate_pipeline_settings``); the value is consumed through the
+# embedder's PipelineSettings singleton, NOT read directly here. When empty
+# (the default), batch ingest stays on EMBEDDINGS_MICROSERVICE_URL — set it only
+# to split ingest onto a separate pool while search queries stay warm.
+EMBEDDINGS_MICROSERVICE_URL_BULK = env("EMBEDDINGS_MICROSERVICE_URL_BULK", default="")
 VECTOR_EMBEDDER_API_KEY = env("VECTOR_EMBEDDER_API_KEY", default="")
 # CLIP embedder configuration (768-dimensional vectors)
 CLIP_EMBEDDER_URL = env("CLIP_EMBEDDER_URL", default="http://vector-embedder:8000")

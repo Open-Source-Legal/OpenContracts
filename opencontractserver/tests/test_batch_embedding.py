@@ -219,6 +219,35 @@ class TestBatchEmbedTextAnnotations(unittest.TestCase):
         self.assertEqual(result["failed"], 0)
         self.assertEqual(result["skipped"], 0)
 
+    def test_batch_tags_bulk_pool(self):
+        """Batch ingest tags embed_texts_batch with use_bulk_pool=True."""
+        captured: dict = {}
+
+        class RecordingBatchEmbedder(BaseEmbedder):
+            title = "Recording Batch"
+            description = "Test"
+            author = "Test"
+            dependencies = []
+            vector_size = 384
+            supported_file_types = [FileTypeEnum.TXT]
+
+            def _embed_text_impl(self, text, **all_kwargs):
+                return [0.1] * self.vector_size
+
+            def embed_texts_batch(self, texts, **kw):
+                captured.update(kw)
+                return [[0.1] * self.vector_size for _ in texts]
+
+        annots = [_make_mock_annotation(1, "Hello world")]
+        result = self._make_result()
+
+        _batch_embed_text_annotations(
+            annots, RecordingBatchEmbedder(), "test.RecordingBatchEmbedder", 50, result
+        )
+
+        self.assertEqual(result["succeeded"], 1)
+        self.assertTrue(captured.get("use_bulk_pool"))
+
     def test_empty_text_skipped(self):
         """Annotations with empty/whitespace text are skipped."""
         annots = [
@@ -711,10 +740,11 @@ class TestMicroserviceEmbedderBatch(unittest.TestCase):
 class TestMicroserviceEmbedderSingleText(unittest.TestCase):
     """Test MicroserviceEmbedder._embed_text_impl and _get_service_config."""
 
-    def _make_embedder(self, api_key="", use_cloud_run=False):
+    def _make_embedder(self, api_key="", use_cloud_run=False, bulk_url=""):
         embedder = MicroserviceEmbedder()
         embedder._settings = MicroserviceEmbedder.Settings(
             embeddings_microservice_url="http://test-service:8080",
+            embeddings_microservice_url_bulk=bulk_url,
             vector_embedder_api_key=api_key,
             use_cloud_run_iam_auth=use_cloud_run,
         )
@@ -833,6 +863,24 @@ class TestMicroserviceEmbedderSingleText(unittest.TestCase):
         """Falls back to settings when kwargs don't provide overrides."""
         embedder = self._make_embedder()
         url, headers = embedder._get_service_config({})
+        self.assertEqual(url, "http://test-service:8080")
+
+    def test_get_service_config_uses_bulk_pool_when_flagged(self):
+        """use_bulk_pool=True routes to the configured bulk URL (issue: ingest pool)."""
+        embedder = self._make_embedder(bulk_url="http://bulk-pool:9090")
+        url, _ = embedder._get_service_config({"use_bulk_pool": True})
+        self.assertEqual(url, "http://bulk-pool:9090")
+
+    def test_get_service_config_bulk_flag_without_bulk_url_falls_back(self):
+        """With the flag set but no bulk URL configured, stays on the query URL."""
+        embedder = self._make_embedder(bulk_url="")
+        url, _ = embedder._get_service_config({"use_bulk_pool": True})
+        self.assertEqual(url, "http://test-service:8080")
+
+    def test_get_service_config_ignores_bulk_url_without_flag(self):
+        """A configured bulk URL is never used for query calls (no flag)."""
+        embedder = self._make_embedder(bulk_url="http://bulk-pool:9090")
+        url, _ = embedder._get_service_config({})
         self.assertEqual(url, "http://test-service:8080")
 
 
