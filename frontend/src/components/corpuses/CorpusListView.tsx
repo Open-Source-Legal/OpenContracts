@@ -451,9 +451,10 @@ export const CorpusListView: React.FC<CorpusListViewProps> = ({
   const navigate = useNavigate();
   const currentUser = useReactiveVar(userObj);
   const backendUser = useReactiveVar(backendUserObj);
-  // Use userObj for auth check - consistent with NavMenu which gates protected items on user object
-  // Note: authToken can be out of sync with userObj in some edge cases
-  const isAuthenticated = Boolean(currentUser);
+  // Local sessions restore the token first and populate backendUser via GET_ME.
+  // Either identity proves the UI is authenticated; requiring only userObj
+  // incorrectly hides New Corpus after a page refresh.
+  const isAuthenticated = Boolean(currentUser || backendUser);
   // Ownership keys off the backend user id (the public GraphQL UserType)
   // so we don't depend on the redacted email field.
   const currentUserId = backendUser?.id;

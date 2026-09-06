@@ -5,11 +5,12 @@
  * terminating mock link that emits synthetic errors through the real
  * `errorLink`. This exercises every catch/return branch:
  *
- *  - GraphQL 401 / 403 / UNAUTHENTICATED → clears auth state + warn toast
+ *  - GraphQL 401 / UNAUTHENTICATED → clears auth state + warn toast
+ *  - GraphQL 403 → preserves the valid authenticated session
  *  - Expired-JWT message variants → warn toast + window.location.reload
  *  - Message-based unauthorized / not-authenticated detection
  *  - Non-auth GraphQL errors → logged but auth state untouched
- *  - Network 401/403 → clears auth state + warn toast
+ *  - Network 401 → clears auth state; 403 preserves it
  *  - Generic network error → error toast, auth state untouched
  */
 
@@ -146,16 +147,16 @@ describe("errorLink", () => {
       expect(reloadSpy).not.toHaveBeenCalled();
     });
 
-    it("clears auth state on 403", async () => {
+    it("preserves auth state on 403 permission denial", async () => {
       const err = new GraphQLError("Forbidden", {
         extensions: { status: 403 },
       });
 
       await runOperation(graphQLErrorLink([err]));
 
-      expect(authToken()).toBe("");
-      expect(authStatusVar()).toBe("ANONYMOUS");
-      expect(toast.warning).toHaveBeenCalledOnce();
+      expect(authToken()).toBe("test-token");
+      expect(authStatusVar()).toBe("AUTHENTICATED");
+      expect(toast.warning).not.toHaveBeenCalled();
     });
 
     it("clears auth state on UNAUTHENTICATED extension code", async () => {
@@ -244,15 +245,15 @@ describe("errorLink", () => {
       );
     });
 
-    it("clears auth state on 403 network error", async () => {
+    it("preserves auth state on 403 network permission denial", async () => {
       const netErr = Object.assign(new Error("Forbidden"), {
         statusCode: 403,
       });
 
       await runOperation(networkErrorLink(netErr));
 
-      expect(authToken()).toBe("");
-      expect(authStatusVar()).toBe("ANONYMOUS");
+      expect(authToken()).toBe("test-token");
+      expect(authStatusVar()).toBe("AUTHENTICATED");
     });
 
     it("shows network error toast for non-auth network failures", async () => {

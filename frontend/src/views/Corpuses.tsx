@@ -992,7 +992,7 @@ export const Corpuses = () => {
   };
 
   let corpus_actions: DropdownActionProps[] = [];
-  if (currentUser) {
+  if (currentUser || backendUser) {
     corpus_actions = [
       ...corpus_actions,
       {
@@ -1020,7 +1020,7 @@ export const Corpuses = () => {
   }
 
   let contract_actions: DropdownActionProps[] = [];
-  if (selected_document_ids.length > 0 && currentUser) {
+  if (selected_document_ids.length > 0 && (currentUser || backendUser)) {
     contract_actions.push({
       icon: "remove circle",
       title: "Remove Contract(s)",

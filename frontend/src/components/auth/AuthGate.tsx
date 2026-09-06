@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from "react";
-import { useAuth0, LogoutOptions } from "@auth0/auth0-react";
+import { useAuth0, LogoutOptions, User } from "@auth0/auth0-react";
 import { useReactiveVar } from "@apollo/client";
 import {
   authToken,
@@ -11,6 +11,10 @@ import { toast } from "react-toastify";
 import { ModernLoadingDisplay } from "../widgets/ModernLoadingDisplay";
 import { useCacheManager } from "../../hooks/useCacheManager";
 import { getRuntimeEnv } from "../../utils/env";
+import {
+  loadLocalAuthSession,
+  loadLocalAuthSessionUser,
+} from "../../utils/localAuthSession";
 
 // LocalStorage key to track if user has ever successfully authenticated.
 // Used to distinguish first-time visitors from returning users with expired sessions.
@@ -171,10 +175,13 @@ export const AuthGate: React.FC<AuthGateProps> = ({
     let cancelled = false;
 
     if (!useAuth0Flag) {
-      // Non-Auth0 mode: immediately mark as initialized
-      if (authStatusVar() === "LOADING") {
-        authStatusVar("ANONYMOUS");
-      }
+      // Restore a local username/password session before children mount so
+      // their first GraphQL requests include the bearer token.
+      const storedToken = loadLocalAuthSession();
+      const storedUser = loadLocalAuthSessionUser();
+      authToken(storedToken || "");
+      userObj(storedToken && storedUser ? (storedUser as User) : null);
+      authStatusVar(storedToken ? "AUTHENTICATED" : "ANONYMOUS");
       authInitCompleteVar(true);
       setAuthInitialized(true);
       return () => {

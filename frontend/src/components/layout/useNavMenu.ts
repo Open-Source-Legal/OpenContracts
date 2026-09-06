@@ -11,6 +11,7 @@ import {
 import { header_menu_items } from "../../assets/configurations/menus";
 import { useEnv } from "../hooks/UseEnv";
 import { useCacheManager } from "../../hooks/useCacheManager";
+import { clearLocalAuthSession } from "../../utils/localAuthSession";
 
 /**
  * Shared navigation menu logic for both desktop and mobile nav components.
@@ -27,11 +28,18 @@ export const useNavMenu = () => {
   } = useAuth0();
   const cache_user = useReactiveVar(userObj);
   const backendUser = useReactiveVar(backendUserObj);
+  const authStatus = useReactiveVar(authStatusVar);
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const { resetOnAuthChange } = useCacheManager();
 
-  const user = REACT_APP_USE_AUTH0 ? auth0_user : cache_user;
+  // Local login initially supplies ``cache_user`` directly. After a page
+  // refresh only the persisted JWT is restored; GET_ME then repopulates
+  // ``backendUser``. Use that canonical backend identity so the navigation
+  // does not incorrectly render "Login" for a restored session.
+  const user = REACT_APP_USE_AUTH0
+    ? auth0_user
+    : backendUser || cache_user;
   // ``useAuth0()`` must be called unconditionally (hooks rules), but without a
   // mounted Auth0Provider it returns the default context whose ``isLoading`` is
   // permanently true. Consumers gate the whole auth surface on this flag
@@ -39,7 +47,9 @@ export const useNavMenu = () => {
   // passing it through unguarded hid the entire user menu AND the login button
   // in every ``REACT_APP_USE_AUTH0=false`` deployment. Same guard App.tsx
   // applies for the same reason.
-  const isLoading = REACT_APP_USE_AUTH0 ? auth0Loading : false;
+  const isLoading = REACT_APP_USE_AUTH0
+    ? auth0Loading
+    : authStatus === "AUTHENTICATED" && !user;
   const show_export_modal = useReactiveVar(showExportModal);
 
   // Filter menu items based on authentication
@@ -83,6 +93,7 @@ export const useNavMenu = () => {
     // refetch. If this ordering is reversed, the hook would re-issue all
     // active queries with the still-valid token before it's cleared.
     // See: useRefetchOnAuthChange.ts lines 31-36.
+    clearLocalAuthSession();
     authToken("");
     userObj(null);
     authStatusVar("ANONYMOUS");
@@ -92,7 +103,9 @@ export const useNavMenu = () => {
       (error) =>
         console.warn("[useNavMenu] Cache reset failed on logout:", {
           error: error instanceof Error ? error.message : error,
-          userId: user?.sub || cache_user?.id,
+          userId: REACT_APP_USE_AUTH0
+            ? auth0_user?.sub
+            : backendUser?.id || cache_user?.id,
           timestamp: new Date().toISOString(),
         })
     );

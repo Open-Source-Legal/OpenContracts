@@ -2,11 +2,12 @@ import { onError } from "@apollo/client/link/error";
 import { toast } from "react-toastify";
 import { authToken, authStatusVar, userObj } from "./cache";
 import { notifyTransientNetworkError } from "../utils/networkNotifications";
+import { clearLocalAuthSession } from "../utils/localAuthSession";
 
 /**
  * Apollo error link that handles authentication errors and network errors.
  *
- * For 401/403 errors:
+ * For authentication errors (401/UNAUTHENTICATED/expired JWT):
  * - Switches to ANONYMOUS mode (allows browsing public content)
  * - Shows a toast notification with option to log back in
  * - Clears auth token and user object
@@ -31,10 +32,12 @@ export const errorLink = onError(
           err.message?.toLowerCase().includes("token expired") ||
           err.message?.toLowerCase().includes("jwt expired");
 
-        // Handle authentication errors (401/403) or expired tokens
+        // A 403 means the caller is authenticated but lacks permission for
+        // this operation. Do not destroy a valid persisted session because
+        // one optional query was forbidden.
+        // Handle only genuine authentication failures or expired tokens.
         if (
           statusCode === 401 ||
-          statusCode === 403 ||
           statusCode === "UNAUTHENTICATED" ||
           err.message?.toLowerCase().includes("unauthorized") ||
           err.message?.toLowerCase().includes("not authenticated") ||
@@ -51,6 +54,7 @@ export const errorLink = onError(
             );
 
             // Clear auth state
+            clearLocalAuthSession();
             authToken("");
             userObj(null);
             authStatusVar("ANONYMOUS");
@@ -72,6 +76,7 @@ export const errorLink = onError(
 
           // Switch to anonymous mode - allows user to browse public content
           // without forcing an immediate re-login
+          clearLocalAuthSession();
           authToken("");
           userObj(null);
           authStatusVar("ANONYMOUS");
@@ -101,11 +106,13 @@ export const errorLink = onError(
     if (networkError) {
       const netErr = networkError as any;
 
-      // Handle network-level authentication errors
-      if (netErr.statusCode === 401 || netErr.statusCode === 403) {
+      // A network-level 403 is authorization failure, not proof that the
+      // token is invalid. Only a 401 clears the persisted login.
+      if (netErr.statusCode === 401) {
         console.error("[Apollo Error Link] Network auth error:", networkError);
 
         // Switch to anonymous mode - allows user to browse public content
+        clearLocalAuthSession();
         authToken("");
         userObj(null);
         authStatusVar("ANONYMOUS");
