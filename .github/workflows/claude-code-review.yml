@@ -12,11 +12,28 @@ on:
 
 jobs:
   claude-review:
-    # Optional: Filter by PR author
-    # if: |
-    #   github.event.pull_request.user.login == 'external-contributor' ||
-    #   github.event.pull_request.user.login == 'new-developer' ||
-    #   github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR'
+    # Skip PRs whose head is a fork — this job cannot run there, so report
+    # "skipped" rather than a red X the contributor has no way to clear.
+    #
+    # GitHub clamps `pull_request` runs from forks: the `id-token: write`
+    # declared below is silently dropped and the secret store is withheld
+    # (`Secret source: None`). The action then fails with "Could not fetch an
+    # OIDC token. Did you remember to add `id-token: write` to your workflow
+    # permissions?", which accuses this file even though the permission is
+    # right there — see run 33611167884 on PR #2296. Approving the run does not
+    # help: that run was maintainer-approved and still got no secrets. And with
+    # GITHUB_TOKEN read-only on fork PRs, the `gh pr comment` below would fail
+    # even if authentication succeeded.
+    #
+    # Dependabot is unaffected: its branches live in this repository, so
+    # head.repo.full_name matches and the OIDC exchange works (run 33788653880).
+    #
+    # Do NOT switch this to pull_request_target to "fix" it. That runs in
+    # base-repo context with the OAuth secret and a write-capable token, while
+    # reviewing a PR means checking out untrusted head code. To review a fork
+    # PR, comment `@claude` on it instead: .github/workflows/claude.yml runs on
+    # issue_comment in base context and gates on the commenter's write access.
+    if: github.event.pull_request.head.repo.full_name == github.repository
 
     runs-on: ubuntu-latest
     permissions:
