@@ -444,7 +444,7 @@ def run_post_processors(
     processor_paths: list[str],
     zip_bytes: bytes,
     export_data: OpenContractsExportDataJsonPythonType,
-    input_kwargs: dict[str, Any] = {},
+    input_kwargs: dict[str, Any] | None = None,
 ) -> tuple[bytes, OpenContractsExportDataJsonPythonType]:
     """
     Load and run post-processors in sequence.
@@ -459,6 +459,7 @@ def run_post_processors(
             - Modified zip bytes
             - Modified export data dictionary
     """
+    input_kwargs = input_kwargs or {}
     current_zip_bytes = zip_bytes
     current_export_data = export_data
 

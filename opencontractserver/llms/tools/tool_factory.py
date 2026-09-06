@@ -175,15 +175,15 @@ class CoreTool:
 
             # Try to infer type from annotation
             if param.annotation != inspect.Parameter.empty:
-                if param.annotation == int:
+                if param.annotation is int:
                     param_info["type"] = "integer"
-                elif param.annotation == float:
+                elif param.annotation is float:
                     param_info["type"] = "number"
-                elif param.annotation == bool:
+                elif param.annotation is bool:
                     param_info["type"] = "boolean"
-                elif param.annotation == list:
+                elif param.annotation is list:
                     param_info["type"] = "array"
-                elif param.annotation == dict:
+                elif param.annotation is dict:
                     param_info["type"] = "object"
 
             properties[param_name] = param_info
