@@ -65,12 +65,10 @@ export const LabelSetSelectorTestWrapper: React.FC<WrapperProps> = ({
   const handleChange = (values: any) => {
     if (values.labelSet === null) {
       setSelectedLabelSet(undefined);
-    } else {
-      // Find the label set from the mock data to simulate a real selection
-      const found = labelsetNodes.find((ls) => ls.id === values.labelSet);
-      if (found) {
-        setSelectedLabelSet(found as unknown as LabelSetType);
-      }
+    } else if (values.labelSetObj) {
+      // Mirror CorpusModal: consumers need the selected object immediately so
+      // the controlled dropdown reflects the user's choice.
+      setSelectedLabelSet(values.labelSetObj);
     }
   };
 

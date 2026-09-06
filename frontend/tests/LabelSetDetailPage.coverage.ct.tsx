@@ -460,7 +460,7 @@ test.describe("LabelSetDetailPage – coverage", () => {
           readOnly: false,
           text: "Brand New Span",
           description: "",
-          color: "0F766E",
+          color: "#0F766E",
           myPermissions: ["READ", "UPDATE", "DELETE"],
           isPublic: false,
           analyzer: null,
@@ -477,7 +477,7 @@ test.describe("LabelSetDetailPage – coverage", () => {
           createLabelMock(LABELSET_ID, {
             text: "Brand New Span",
             description: "",
-            color: "0F766E",
+            color: "#0F766E",
             labelType: "SPAN_LABEL",
           }),
           ...labelsetQueryMocks(labelsetAfterCreate, 2),
@@ -504,6 +504,42 @@ test.describe("LabelSetDetailPage – coverage", () => {
         await expect(
           component.getByText("Brand New Span", { exact: true })
         ).toBeVisible({ timeout: 10000 });
+      }
+    );
+
+    test(
+      "keeps the create form open when the mutation reports failure",
+      { timeout: 25000 },
+      async ({ mount }) => {
+        const mocks: MockedResponse[] = [
+          ...labelsetQueryMocks(fullLabelset, 1),
+          createLabelMock(
+            LABELSET_ID,
+            {
+              text: "Rejected Label",
+              description: "",
+              color: "#0F766E",
+              labelType: "SPAN_LABEL",
+            },
+            false
+          ),
+        ];
+
+        const component = await mountPage(mount, mocks);
+        await expect(component.getByText("Coverage Label Set")).toBeVisible({
+          timeout: 10000,
+        });
+
+        await component.getByRole("button", { name: /Span Labels/i }).click();
+        await component.getByRole("button", { name: /Add Label/i }).click();
+        await component
+          .getByPlaceholder("Enter label name")
+          .fill("Rejected Label");
+        await component.getByTitle("Create").click();
+
+        await expect(
+          component.getByPlaceholder("Enter label name")
+        ).toHaveValue("Rejected Label");
       }
     );
   });
