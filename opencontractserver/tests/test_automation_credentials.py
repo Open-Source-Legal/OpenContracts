@@ -307,6 +307,32 @@ class AutomationCredentialTests(TestCase):
             ),
         )
 
+    def test_repeated_fragment_chain_does_not_repeat_scope_checks(self):
+        fragments = [
+            f"fragment F{i} on Query {{ ...F{i+1} ...F{i+1} }}" for i in range(12)
+        ]
+        fragments.append("fragment F12 on Query { corpus(id: $id) { id } }")
+        with patch(
+            "config.graphql.automation.require_scope", wraps=credentials.require_scope
+        ) as gate:
+            result = self.graphql(
+                "query($id: ID!) { ...F0 ...F0 } " + " ".join(fragments),
+                {"id": to_global_id("CorpusType", self.corpus.pk)},
+            )
+        self.assertNotIn("errors", result)
+        self.assertEqual(gate.call_count, 1)
+
+    def test_merged_fields_check_every_nested_selection(self):
+        result = self.graphql(
+            """query($id: ID!) {
+            corpus(id: $id) { id }
+            corpus(id: $id) { creator { email } }
+        }""",
+            {"id": to_global_id("CorpusType", self.corpus.pk)},
+        )
+        self.assertIn("errors", result)
+        self.assertIsNone(result["data"])
+
     def test_authority_admin_requires_principal_role_and_scope(self):
         _, token = self.mint(all_corpuses=True)
         self.login(token)

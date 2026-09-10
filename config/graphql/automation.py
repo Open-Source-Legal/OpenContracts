@@ -10,17 +10,15 @@ directives and coerced variables use graphql-core's execution helpers.
 from graphql import (
     ExecutionResult,
     GraphQLError,
-    GraphQLIncludeDirective,
-    GraphQLSkipDirective,
     get_named_type,
     get_operation_ast,
 )
+from graphql.execution.collect_fields import collect_fields
 from graphql.execution.values import (
     get_argument_values,
-    get_directive_values,
     get_variable_values,
 )
-from graphql.language import FieldNode, FragmentDefinitionNode, FragmentSpreadNode
+from graphql.language import FragmentDefinitionNode, SelectionSetNode
 from rest_framework.exceptions import PermissionDenied
 from strawberry.extensions import SchemaExtension
 
@@ -126,25 +124,13 @@ OBJECT_FIELDS = {
 }
 
 
-def _selections(selection_set, fragments, variables):
-    for node in selection_set.selections:
-        skip = get_directive_values(GraphQLSkipDirective, node, variables)
-        include = get_directive_values(GraphQLIncludeDirective, node, variables)
-        if (skip and skip["if"]) or (include and not include["if"]):
-            continue
-        if isinstance(node, FieldNode):
-            yield node
-        else:
-            fragment = (
-                fragments[node.name.value]
-                if isinstance(node, FragmentSpreadNode)
-                else node
-            )
-            yield from _selections(fragment.selection_set, fragments, variables)
-
-
-def _check(user, parent, selection_set, fragments, variables, *, root=False):
-    for node in _selections(selection_set, fragments, variables):
+def _check(user, schema, parent, selection_set, fragments, variables, *, root=False):
+    # Use execution's collector: it handles directives/type conditions and
+    # visits each named fragment once, avoiding exponential fragment expansion.
+    groups = collect_fields(schema, fragments, variables, parent, selection_set)
+    for nodes in groups.values():
+        # Validation guarantees merged fields have the same name/arguments.
+        node = nodes[0]
         name = node.name.value
         if name == "__typename":
             continue
@@ -167,13 +153,20 @@ def _check(user, parent, selection_set, fragments, variables, *, root=False):
                     require_scope(user, Scope.CORPUS_PUBLISH)
         elif parent.name == "CorpusType" and name not in CORPUS_FIELDS:
             raise PermissionDenied(DENIED)
-        if node.selection_set:
+        children = tuple(
+            child
+            for selected in nodes
+            if selected.selection_set
+            for child in selected.selection_set.selections
+        )
+        if children:
             if not root and name not in OBJECT_FIELDS.get(parent.name, set()):
                 raise PermissionDenied(DENIED)
             _check(
                 user,
+                schema,
                 get_named_type(field.type),
-                node.selection_set,
+                SelectionSetNode(selections=children),
                 fragments,
                 variables,
             )
@@ -211,6 +204,7 @@ class AutomationScopeExtension(SchemaExtension):
                         parent = schema.get_root_type(operation.operation)
                         _check(
                             user,
+                            schema,
                             parent,
                             operation.selection_set,
                             fragments,
