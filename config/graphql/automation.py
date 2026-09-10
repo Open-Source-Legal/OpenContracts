@@ -99,6 +99,9 @@ CORPUS_FIELDS = frozenset(
 
 # Explicit object-valued edges that stay inside the authorized result. All
 # other nested objects/relationships are denied, including Node traversal.
+# The root capability authorizes scalar payload fields on these DTOs/global
+# admin types. Adding a sensitive scalar there must include an access review;
+# unlike CorpusType, they do not have a per-scalar metadata allowlist.
 OBJECT_FIELDS = {
     "CorpusTypeConnection": {"edges", "pageInfo"},
     "CorpusTypeEdge": {"node"},

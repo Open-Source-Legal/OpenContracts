@@ -1122,6 +1122,9 @@ def _get_owned_session(user, upload_id, access_token=None) -> ChunkedUploadSessi
     """
     Fetch a session the requester owns, or raise a generic 404.
 
+    Automation scope denials raise DRF PermissionDenied (403) before upload
+    data is returned or changed; ownership/EDIT denials remain opaque 404s.
+
     Filtering by ``creator`` (rather than fetching then comparing) closes
     the IDOR: a cross-user id is indistinguishable from a missing one.
     """

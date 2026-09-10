@@ -40,7 +40,7 @@ def corpus_pk(value):
         if type_name == "CorpusType" and pk.isdigit():
             return int(pk)
     except (ValueError, TypeError, UnicodeError):
-        pass
+        raise PermissionDenied(DENIED) from None
     raise PermissionDenied(DENIED)
 
 
