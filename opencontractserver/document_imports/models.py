@@ -76,6 +76,13 @@ class ChunkedUploadSession(models.Model):
         help_text="User who owns this upload (enforces per-user isolation).",
     )
     kind = models.CharField(max_length=32, choices=ChunkedUploadKind.choices)
+    automation_credential = models.ForeignKey(
+        "users.AutomationCredential",
+        null=True,
+        blank=True,
+        on_delete=models.RESTRICT,
+        help_text="Automation owner; rotation preserves this identity.",
+    )
     filename = models.CharField(max_length=512)
     total_size = models.BigIntegerField(
         help_text="Expected total assembled size in bytes (declared at start)."

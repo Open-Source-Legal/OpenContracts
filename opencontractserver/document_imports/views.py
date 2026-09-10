@@ -45,6 +45,7 @@ from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
 from rest_framework.views import APIView
 
+from config.automation_auth import AutomationAuthentication
 from config.rest_jwt_auth import GraphQLJWTAuthentication
 from opencontractserver.document_imports.serializers import (
     ChunkedUploadPartSerializer,
@@ -201,14 +202,18 @@ def _corpus_result_response(result: CorpusImportResult) -> Response:
 class DocumentImportView(APIView):
     """Single-document multipart import endpoint."""
 
-    # Pinned explicitly: bearer JWT or WorkerKey only. Inheriting the global
+    # Pinned explicitly: automation, bearer JWT or WorkerKey only. Inheriting the global
     # tuple would also expose Session and Token auth on these endpoints, which
     # widens the threat model (CSRF surface, credential types) without any
     # caller needing it. The frontend ``importHttp.ts`` sends a bearer JWT;
     # programmatic callers (the bulk-import CLI) send a scoped CorpusAccessToken
     # via ``Authorization: WorkerKey <token>`` (corpus taken from the token
     # binding — see ``import_document_for_user``).
-    authentication_classes = [GraphQLJWTAuthentication, WorkerTokenAuthentication]
+    authentication_classes = [
+        AutomationAuthentication,
+        GraphQLJWTAuthentication,
+        WorkerTokenAuthentication,
+    ]
     permission_classes = [IsAuthenticated]
     throttle_classes = [DocumentImportThrottle]
     parser_classes = [MultiPartParser, FormParser]
@@ -259,12 +264,12 @@ class DocumentImportView(APIView):
 class DocumentsZipImportView(APIView):
     """Bulk zip-archive multipart import endpoint."""
 
-    # Pinned explicitly: bearer JWT only. Inheriting the global tuple
+    # Pinned explicitly: scoped automation or bearer JWT. Inheriting the global tuple
     # would also expose Session and Token auth on these endpoints, which
     # widens the threat model (CSRF surface, credential types) without
     # any caller actually needing it. The frontend ``importHttp.ts``
     # always sends ``Authorization: Bearer <jwt>``.
-    authentication_classes = [GraphQLJWTAuthentication]
+    authentication_classes = [AutomationAuthentication, GraphQLJWTAuthentication]
     permission_classes = [IsAuthenticated]
     throttle_classes = [DocumentImportThrottle]
     parser_classes = [MultiPartParser, FormParser]
@@ -310,7 +315,11 @@ class ZipToCorpusImportView(APIView):
     ``DocumentImportThrottle`` scope.
     """
 
-    authentication_classes = [GraphQLJWTAuthentication, WorkerTokenAuthentication]
+    authentication_classes = [
+        AutomationAuthentication,
+        GraphQLJWTAuthentication,
+        WorkerTokenAuthentication,
+    ]
     permission_classes = [IsAuthenticated]
     throttle_classes = [DocumentImportThrottle]
     parser_classes = [MultiPartParser, FormParser]
@@ -357,7 +366,7 @@ class CorpusExportImportView(APIView):
     by the requester.
     """
 
-    authentication_classes = [GraphQLJWTAuthentication]
+    authentication_classes = [AutomationAuthentication, GraphQLJWTAuthentication]
     permission_classes = [IsAuthenticated]
     throttle_classes = [DocumentImportThrottle]
     parser_classes = [MultiPartParser, FormParser]
@@ -434,7 +443,11 @@ def _chunked_error_response(exc: ChunkedUploadError) -> Response:
 class ChunkedUploadStartView(APIView):
     """POST /api/imports/chunked/start/ — open a chunked-upload session."""
 
-    authentication_classes = [GraphQLJWTAuthentication, WorkerTokenAuthentication]
+    authentication_classes = [
+        AutomationAuthentication,
+        GraphQLJWTAuthentication,
+        WorkerTokenAuthentication,
+    ]
     permission_classes = [IsAuthenticated]
     throttle_classes = [DocumentImportThrottle]
     parser_classes = [JSONParser]
@@ -483,7 +496,11 @@ class ChunkedUploadPartView(APIView):
     some proxies/clients are friendlier to POST for multipart bodies.
     """
 
-    authentication_classes = [GraphQLJWTAuthentication, WorkerTokenAuthentication]
+    authentication_classes = [
+        AutomationAuthentication,
+        GraphQLJWTAuthentication,
+        WorkerTokenAuthentication,
+    ]
     permission_classes = [IsAuthenticated]
     throttle_classes = [ChunkedUploadPartThrottle]
     parser_classes = [MultiPartParser, FormParser]
@@ -521,7 +538,11 @@ class ChunkedUploadPartView(APIView):
 class ChunkedUploadCompleteView(APIView):
     """POST /api/imports/chunked/<upload_id>/complete/ — reassemble + import."""
 
-    authentication_classes = [GraphQLJWTAuthentication, WorkerTokenAuthentication]
+    authentication_classes = [
+        AutomationAuthentication,
+        GraphQLJWTAuthentication,
+        WorkerTokenAuthentication,
+    ]
     permission_classes = [IsAuthenticated]
     throttle_classes = [DocumentImportThrottle]
     # ``complete`` carries no request body — the upload id comes from the URL —
@@ -551,7 +572,11 @@ class ChunkedUploadCompleteView(APIView):
 class ChunkedUploadStatusView(APIView):
     """GET /api/imports/chunked/<upload_id>/ — progress (for resuming)."""
 
-    authentication_classes = [GraphQLJWTAuthentication, WorkerTokenAuthentication]
+    authentication_classes = [
+        AutomationAuthentication,
+        GraphQLJWTAuthentication,
+        WorkerTokenAuthentication,
+    ]
     permission_classes = [IsAuthenticated]
     throttle_classes = [ChunkedUploadPartThrottle]
 

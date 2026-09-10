@@ -92,18 +92,16 @@ class ApiKeyBackend:
         model = self.get_model()
         try:
             token = model.objects.select_related("user").get(key=key)
-            logger.debug(f"Found token for user: {token.user.username}")
+            logger.debug("API credential matched actor_id=%s", token.user.pk)
         except model.DoesNotExist:
             logger.warning("Authentication failed: Invalid token")
             raise exceptions.AuthenticationFailed(_("Invalid token."))
 
         if not token.user.is_active:
-            logger.warning(
-                f"Authentication failed: Inactive user {token.user.username}"
-            )
+            logger.warning("Authentication failed: Inactive actor_id=%s", token.user.pk)
             raise exceptions.AuthenticationFailed(_("User inactive or deleted."))
 
-        logger.debug(f"Successfully authenticated user: {token.user.username}")
+        logger.info("API credential authenticated actor_id=%s", token.user.pk)
         return token.user
 
     def authenticate_header(self, request: HttpRequest) -> str:
