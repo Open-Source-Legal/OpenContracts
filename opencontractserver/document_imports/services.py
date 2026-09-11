@@ -58,6 +58,7 @@ from opencontractserver.tasks import (
     process_documents_zip,
 )
 from opencontractserver.types.enums import PermissionTypes
+from opencontractserver.users.services.automation_credentials import require_import
 from opencontractserver.utils.files import is_plaintext_content
 from opencontractserver.utils.ids import from_global_id
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
@@ -377,6 +378,11 @@ def import_document_for_user(
     ``error`` carries a user-safe message; the caller is responsible for
     mapping that to the appropriate transport response.
     """
+    require_import(
+        user,
+        "document",
+        {"add_to_corpus_id": add_to_corpus_id, "make_public": make_public},
+    )
     if (file_bytes is None) == (file_obj is None):
         raise ValueError(
             "import_document_for_user requires exactly one of file_bytes or file_obj"
@@ -530,6 +536,11 @@ def import_documents_zip_for_user(
 
     Returns :class:`ZipImportResult`. On failure, ``job_id`` is ``None``.
     """
+    require_import(
+        user,
+        "documents_zip",
+        {"add_to_corpus_id": add_to_corpus_id, "make_public": make_public},
+    )
     if user.is_usage_capped and not settings.USAGE_CAPPED_USER_CAN_IMPORT_CORPUS:
         raise DocumentImportPermissionError(
             DocumentImportPermissionError.BULK_UPLOAD_DENIED,
@@ -636,6 +647,9 @@ def import_zip_to_corpus_for_user(
     Returns :class:`ZipImportResult`. On failure, ``job_id`` is ``None``
     and ``error`` carries a user-safe message.
     """
+    require_import(
+        user, "zip_to_corpus", {"corpus_id": corpus_id, "make_public": make_public}
+    )
     if not _peek_zip_magic(zip_source):
         return ZipImportResult(
             job_id=None,
@@ -773,6 +787,7 @@ def import_corpus_export_for_user(
     :class:`DocumentImportPermissionError` so the caller can map it to a
     403 rather than a generic 400.
     """
+    require_import(user, "corpus_export", {"corpus_id": corpus_id})
     if user.is_usage_capped and not settings.USAGE_CAPPED_USER_CAN_IMPORT_CORPUS:
         raise DocumentImportPermissionError(
             DocumentImportPermissionError.BULK_UPLOAD_DENIED,
@@ -1001,6 +1016,7 @@ def start_chunked_upload(
     or :class:`DocumentImportPermissionError` (permission, 403).
     """
     metadata = dict(metadata or {})
+    require_import(user, kind, metadata)
 
     if kind not in ChunkedUploadKind.values:
         raise ChunkedUploadError(f"Unknown upload kind: {kind}")
@@ -1082,6 +1098,7 @@ def start_chunked_upload(
 
     session = ChunkedUploadSession.objects.create(
         creator=user,
+        automation_credential=getattr(user, "automation_credential", None),
         kind=kind,
         filename=filename or "upload",
         total_size=total_size,
@@ -1105,11 +1122,29 @@ def _get_owned_session(user, upload_id, access_token=None) -> ChunkedUploadSessi
     """
     Fetch a session the requester owns, or raise a generic 404.
 
+    Automation scope denials raise DRF PermissionDenied (403) before upload
+    data is returned or changed; ownership/EDIT denials remain opaque 404s.
+
     Filtering by ``creator`` (rather than fetching then comparing) closes
     the IDOR: a cross-user id is indistinguishable from a missing one.
     """
     try:
         session = ChunkedUploadSession.objects.get(id=upload_id, creator=user)
+        credential = getattr(user, "automation_credential", None)
+        if session.automation_credential_id != getattr(credential, "pk", None):
+            raise ChunkedUploadSession.DoesNotExist
+        require_import(user, session.kind, session.metadata or {})
+        if credential is not None:
+            # Recheck principal permissions before bytes, status, or completion.
+            target = (session.metadata or {}).get(
+                "corpus_id"
+                if session.kind in ("zip_to_corpus", "corpus_export")
+                else "add_to_corpus_id"
+            )
+            if normalise_optional(target) is not None:
+                corpus, _ = _resolve_corpus_for_edit(user, target)
+                if corpus is None:
+                    raise ChunkedUploadSession.DoesNotExist
         if access_token is not None:
             target_fields: dict[str, str] = {
                 ChunkedUploadKind.DOCUMENT: "add_to_corpus_id",

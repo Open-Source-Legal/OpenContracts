@@ -40,6 +40,33 @@ from opencontractserver.users.validators import UserUnicodeUsernameValidator
 logger = logging.getLogger(__name__)
 
 
+class AutomationCredential(django.db.models.Model):
+    """A revocable capability ceiling on an existing user's permissions.
+
+    ``corpus_ids=None`` explicitly permits any corpus; an empty list permits
+    none. Secrets are random 256-bit values stored only as SHA-256 digests.
+    Rotation preserves the ID so in-progress uploads retain their owner.
+    """
+
+    id = django.db.models.UUIDField(
+        primary_key=True, default=uuid.uuid4, editable=False
+    )
+    user = django.db.models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=django.db.models.CASCADE
+    )
+    name = django.db.models.CharField(max_length=100)
+    secret_hash = django.db.models.CharField(max_length=64, editable=False)
+    scopes = django.db.models.JSONField(default=list)
+    corpus_ids = django.db.models.JSONField(default=list, null=True)
+    expires_at = django.db.models.DateTimeField(null=True, blank=True)
+    revoked_at = django.db.models.DateTimeField(null=True, blank=True)
+    created_at = django.db.models.DateTimeField(default=timezone.now, editable=False)
+    rotated_at = django.db.models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f"AutomationCredential({self.pk}, actor={self.user_id})"
+
+
 class UserProfileManager(DjangoUserManager["User"]):
     """
     Custom manager for User model that implements visible_to_user pattern.
@@ -84,6 +111,9 @@ class UserProfileManager(DjangoUserManager["User"]):
 
 class User(AbstractUser):
     """Default user for OpenContractServer."""
+
+    # Request-local capability context; never persisted or copied into tasks.
+    automation_credential: AutomationCredential | None = None
 
     # Class attribute — referenced by Django admin forms (UserChangeForm,
     # UserCreationForm) directly, separate from the field validators list.
