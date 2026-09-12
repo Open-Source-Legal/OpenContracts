@@ -1,0 +1,177 @@
+# Maintained from the infra repository's releases/services.json and render-workflow.py.
+name: Production image release
+'on':
+  push:
+    branches:
+    - main
+    paths-ignore:
+    - docs/**
+    - changelog.d/**
+    - '**/*.md'
+  pull_request:
+    paths:
+    - .github/workflows/production-release.yml
+    - .github/scripts/wait-for-production-ci.py
+    - Dockerfile
+permissions:
+  contents: read
+concurrency:
+  group: production-release-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  checks:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.PRODUCTION_RELEASES_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 95
+    permissions:
+      contents: read
+      actions: read
+    steps:
+    - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      with:
+        persist-credentials: false
+    - name: Wait for successful main CI on this exact commit
+      env:
+        GH_TOKEN: ${{ github.token }}
+        REQUIRED_WORKFLOWS: '["backend.yml"]'
+      run: python3 .github/scripts/wait-for-production-ci.py
+  build:
+    if: github.event_name == 'pull_request' || vars.PRODUCTION_RELEASES_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - image: django
+          dockerfile: compose/production/django/Dockerfile
+          context: .
+          build_args: ''
+        - image: frontend
+          dockerfile: frontend/Dockerfile
+          context: frontend
+          build_args: ''
+    steps:
+    - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      with:
+        persist-credentials: false
+    - name: Free space for production images
+      run: |
+        sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+    - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+    - name: Build image before authenticating to Google Cloud
+      uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+      with:
+        context: ${{ matrix.context }}
+        file: ${{ matrix.dockerfile }}
+        load: true
+        push: false
+        platforms: linux/amd64
+        provenance: false
+        tags: release-image:${{ github.sha }}-${{ matrix.image }}
+        labels: |
+          org.opencontainers.image.revision=${{ github.sha }}
+          legal.opensource.release-component=${{ matrix.image }}
+        build-args: ${{ matrix.build_args }}
+        cache-from: type=gha,scope=production-${{ matrix.image }}
+        cache-to: type=gha,mode=max,scope=production-${{ matrix.image }}
+    - name: Enforce existing Django image size budget
+      if: matrix.image == 'django'
+      env:
+        IMAGE: release-image:${{ github.sha }}-${{ matrix.image }}
+      run: |
+        size=$(docker image inspect --format='{{.Size}}' "$IMAGE")
+        test "$size" -le 3221225472 || { echo 'Django image exceeds the existing 3 GiB release budget'; exit 1; }
+    - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093
+      with:
+        workload_identity_provider: ${{ vars.PRODUCTION_WIF_PROVIDER }}
+        service_account: ${{ vars.PRODUCTION_PUBLISHER_ACCOUNT }}
+        project_id: ${{ vars.PRODUCTION_PROJECT }}
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.PRODUCTION_RELEASES_ENABLED ==
+        'true'
+    - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.PRODUCTION_RELEASES_ENABLED ==
+        'true'
+    - name: Publish immutable image and record its digest
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.PRODUCTION_RELEASES_ENABLED ==
+        'true'
+      env:
+        REGISTRY: ${{ vars.PRODUCTION_IMAGE_REGISTRY }}
+        IMAGE: ${{ matrix.image }}
+      run: |
+        set -euo pipefail
+        test -n "$REGISTRY"
+        gcloud auth configure-docker "${REGISTRY%%/*}" --quiet
+        target="$REGISTRY/$IMAGE:$GITHUB_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+        docker tag "release-image:$GITHUB_SHA-$IMAGE" "$target"
+        docker push "$target"
+        mkdir -p release-digests
+        TARGET="$target" python3 - <<'PY'
+        import json, os, re, subprocess
+        info = json.loads(subprocess.run(['docker', 'image', 'inspect', os.environ['TARGET']], check=True, capture_output=True, text=True).stdout)[0]
+        prefix = os.environ['REGISTRY'] + '/' + os.environ['IMAGE'] + '@'
+        digest = next(d[len(prefix):] for d in info['RepoDigests'] if d.startswith(prefix))
+        assert re.fullmatch(r'sha256:[0-9a-f]{64}', digest)
+        with open('release-digests/' + os.environ['IMAGE'] + '.json', 'w') as f:
+            json.dump({'commit': os.environ['GITHUB_SHA'], 'image': os.environ['IMAGE'], 'digest': digest}, f)
+        PY
+    - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.PRODUCTION_RELEASES_ENABLED ==
+        'true'
+      with:
+        name: release-image-${{ matrix.image }}
+        path: release-digests/*.json
+        if-no-files-found: error
+        retention-days: 7
+  release:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.PRODUCTION_RELEASES_ENABLED == 'true'
+    needs:
+    - checks
+    - build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+      actions: read
+    steps:
+    - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      with:
+        persist-credentials: false
+    - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      with:
+        pattern: release-image-*
+        merge-multiple: true
+        path: release-digests
+    - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093
+      with:
+        workload_identity_provider: ${{ vars.PRODUCTION_WIF_PROVIDER }}
+        service_account: ${{ vars.PRODUCTION_PUBLISHER_ACCOUNT }}
+        project_id: ${{ vars.PRODUCTION_PROJECT }}
+    - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db
+    - name: Request production release after all builds and CI succeed
+      env:
+        PROJECT: ${{ vars.PRODUCTION_PROJECT }}
+        TOPIC: ${{ vars.PRODUCTION_RELEASE_TOPIC }}
+        EXPECTED_IMAGES: '["django", "frontend"]'
+      run: |
+        python3 - <<'PY'
+        import json, os, pathlib, re, subprocess
+        images = {}
+        for path in pathlib.Path('release-digests').glob('*.json'):
+            record = json.loads(path.read_text())
+            assert record['commit'] == os.environ['GITHUB_SHA']
+            assert record['image'] not in images
+            assert re.fullmatch(r'sha256:[0-9a-f]{64}', record['digest'])
+            images[record['image']] = record['digest']
+        assert set(images) == set(json.loads(os.environ['EXPECTED_IMAGES']))
+        assert os.environ['PROJECT'] and os.environ['TOPIC']
+        release = {'version': 1, 'repository': os.environ['GITHUB_REPOSITORY'], 'commit': os.environ['GITHUB_SHA'], 'images': images}
+        message = json.dumps({'schema': '1', 'release': json.dumps(release, separators=(',', ':'))})
+        subprocess.run(['gcloud', 'pubsub', 'topics', 'publish', os.environ['TOPIC'], '--project=' + os.environ['PROJECT'], '--message=' + message], check=True)
+        print('Release queued in Cloud Build; production rollout status is recorded there.')
+        PY
