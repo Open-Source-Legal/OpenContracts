@@ -47,7 +47,7 @@ services:
 
   # Optional parser services: start only those selected in the local mapping.
   docxodus-parser:
-    image: ghcr.io/open-source-legal/docxodus-service:1.1.0-docxodus5.4.2
+    image: ghcr.io/open-source-legal/docxodus-service:1.2.0-docxodus12.4.1
     profiles: [docxodus]
     restart: unless-stopped
 

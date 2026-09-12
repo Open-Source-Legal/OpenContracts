@@ -13,7 +13,7 @@ import { setupDocxFixture } from "./utils/docxFixture";
 test.setTimeout(60_000);
 
 test("DocxAnnotator renders DOCX content via WASM", async ({ mount, page }) => {
-  await setupDocxodusWasm(page);
+  // Load the runtime from the built assets, as the deployed frontend does.
   await setupDocxFixture(page);
 
   const component = await mount(<DocxAnnotatorTestWrapper />);
@@ -23,6 +23,7 @@ test("DocxAnnotator renders DOCX content via WASM", async ({ mount, page }) => {
 
   const content = annotator.locator(".docx-content");
   await expect(content).toBeVisible();
+  await expect(content).toContainText("Hello World");
 
   await docScreenshot(page, "annotator--docx-annotator--rendered");
 
