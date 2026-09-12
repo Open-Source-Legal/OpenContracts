@@ -1,0 +1,1 @@
+- Add main-branch production image builds and release requests, gated on successful CI, using short-lived Google Cloud authentication. Database migrations and rollouts are handled by the infrastructure release pipeline.
