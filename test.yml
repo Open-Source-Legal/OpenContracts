@@ -36,7 +36,7 @@ services:
   docxodus-parser:
     # The frontend WASM (docxodus in package.json) and this microservice
     # must use the same Docxodus version for character offset alignment.
-    image: ghcr.io/open-source-legal/docxodus-service:1.1.0-docxodus5.4.2
+    image: ghcr.io/open-source-legal/docxodus-service:1.2.0-docxodus12.4.1
     container_name: docxodus-parser
 
   django: &django

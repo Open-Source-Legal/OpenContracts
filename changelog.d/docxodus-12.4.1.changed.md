@@ -1,0 +1,2 @@
+- Upgrade the DOCX parser service and browser renderer together to Docxodus 12.4.1, pinning the published `1.2.0-docxodus12.4.1` service image in local, production, test, and remote-worker Compose stacks to keep annotation offsets aligned.
+- Include the Docxodus WASM runtime in production frontend builds and load it from the published asset path so DOCX rendering works in the deployed frontend.

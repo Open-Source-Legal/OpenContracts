@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { build } from "vite";
 import { docxodusWasmPlugin } from "../../../tooling/docxodusWasm";
 
 describe("WASM asset containment", () => {
@@ -71,5 +72,43 @@ describe("WASM asset containment", () => {
       "*"
     );
     expect(next).not.toHaveBeenCalled();
+  });
+
+  it("includes the runtime's nested files in production builds without following symlinks", async () => {
+    const root = path.join(directory, "wasm");
+    const framework = path.join(root, "_framework");
+    fs.mkdirSync(framework);
+    fs.writeFileSync(
+      path.join(framework, "dotnet.js"),
+      "export const runtime = true;"
+    );
+    fs.writeFileSync(
+      path.join(framework, "assembly.wasm"),
+      Buffer.from([0, 97, 115, 109])
+    );
+    const entry = path.join(directory, "entry.js");
+    fs.writeFileSync(entry, "console.log('built');");
+    const output = path.join(directory, "dist");
+
+    await build({
+      configFile: false,
+      logLevel: "silent",
+      plugins: [docxodusWasmPlugin(root)],
+      build: { outDir: output, rollupOptions: { input: entry } },
+    });
+
+    for (const relative of [
+      "runtime.wasm",
+      "runtimeconfig.bin",
+      "_framework/dotnet.js",
+      "_framework/assembly.wasm",
+    ]) {
+      expect(
+        fs.readFileSync(path.join(output, "docxodus-wasm", relative))
+      ).toEqual(fs.readFileSync(path.join(root, relative)));
+    }
+    expect(fs.existsSync(path.join(output, "docxodus-wasm/link.json"))).toBe(
+      false
+    );
   });
 });
