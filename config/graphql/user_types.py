@@ -440,6 +440,11 @@ def _filter_visible_transfers(
     manager's ``.all()`` yields a queryset without ``visible_to_user`` and
     the chained form fails closed. Intersecting the model-level visible set
     by ``pk`` is the supported shape for these two models.
+
+    ``request=info.context`` is threaded for API parity with the rest of this
+    module: ``filter_visible`` does not forward it yet (the Tier-2 permission
+    cache is keyed for single-object checks), so it has no effect on this
+    list filter today and starts working the day the manager API accepts it.
     """
     if related is None:
         return None
