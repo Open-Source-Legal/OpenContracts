@@ -14,12 +14,8 @@ from django.utils import timezone
 
 from config.telemetry import record_event
 from opencontractserver.tasks.doc_tasks import (
-    convert_document_to_pdf,
-    extract_thumbnail,
-    ingest_doc,
+    document_processing_steps,
     mark_doc_failed_on_chain_error,
-    remap_pending_annotations,
-    set_doc_lock_state,
 )
 from opencontractserver.tasks.embeddings_task import calculate_embedding_for_doc_text
 
@@ -96,40 +92,9 @@ def process_doc_on_create_atomic(
             )
             return
 
-        ingest_tasks = []
-
-        # Optional pre-parse conversion to PDF (no-op unless a file converter
-        # is configured in PipelineSettings AND this document's extension is
-        # in its enabled set). Runs FIRST so the thumbnail and parser both
-        # see the converted PDF.
-        ingest_tasks.append(
-            convert_document_to_pdf.si(
-                user_id=instance.creator.id,
-                doc_id=instance.id,
-            )
+        ingest_tasks = document_processing_steps(
+            user_id=instance.creator_id, doc_id=instance.id
         )
-
-        # Add the thumbnail extraction task
-        ingest_tasks.append(extract_thumbnail.si(doc_id=instance.id))
-
-        # Add the ingestion task
-        ingest_tasks.append(
-            ingest_doc.si(
-                user_id=instance.creator.id,
-                doc_id=instance.id,
-            )
-        )
-
-        # Removed embedding calculation from document creation
-        # Embeddings will now be calculated only when document is linked to a corpus
-
-        # Apply any deferred (dumb-anchor) annotations now that the parser has
-        # produced PAWLs / text. A cheap indexed no-op when the document has no
-        # pending rows — which is the common case for ordinary uploads.
-        ingest_tasks.append(remap_pending_annotations.si(doc_id=instance.id))
-
-        # Add the task to unlock the document
-        ingest_tasks.append(set_doc_lock_state.si(locked=False, doc_id=instance.id))
 
         # Update the processing_started timestamp
         instance.processing_started = timezone.now()
@@ -148,7 +113,7 @@ def process_doc_on_create_atomic(
         )
 
         record_event(
-            "document_uploaded", {"user_id": instance.creator.id, "env": settings.MODE}
+            "document_uploaded", {"user_id": instance.creator_id, "env": settings.MODE}
         )
 
 
