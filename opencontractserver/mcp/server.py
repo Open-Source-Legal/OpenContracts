@@ -794,8 +794,37 @@ def _tool_error_result(message: str) -> CallToolResult:
     )
 
 
+async def _reject_malformed_arguments(
+    name: str,
+    arguments: dict,
+    error: jsonschema.ValidationError,
+    *,
+    corpus_slug: str | None,
+) -> CallToolResult:
+    """Account for a call rejected by schema validation, then report it.
+
+    A schema failure never reaches the dispatcher, which is where per-tool
+    rate limiting and telemetry normally happen. Do both here so a malformed
+    call is billed and recorded exactly like one that fails inside the
+    dispatcher — otherwise a client could hammer a tool with deliberately
+    bad arguments without ever touching its rate-limit bucket, and
+    dashboards built on ``arecord_mcp_tool_call`` would undercount it.
+    ``_check_per_tool_rate_limit`` raises ``MCPRateLimitError`` (recording
+    the rejection itself); the caller turns that into an ``isError`` result.
+    """
+    await _check_per_tool_rate_limit(name)
+    await arecord_mcp_tool_call(
+        name,
+        success=False,
+        error_type="InputValidationError",
+        corpus_slug=corpus_slug or arguments.get("corpus_slug"),
+        document_slug=arguments.get("document_slug"),
+    )
+    return _tool_error_result(f"Input validation error: {error.message}")
+
+
 def _build_on_call_tool(
-    dispatch: ToolDispatcher, tools: list[Tool]
+    dispatch: ToolDispatcher, tools: list[Tool], *, corpus_slug: str | None = None
 ) -> Callable[[ServerRequestContext, CallToolRequestParams], Awaitable[CallToolResult]]:
     """Wrap a tool dispatcher as an ``on_call_tool`` handler.
 
@@ -805,14 +834,21 @@ def _build_on_call_tool(
     * Arguments are validated against the advertised ``inputSchema`` before
       dispatch, so a mistyped argument (``limit="ten"``) comes back as an
       ``isError`` result naming the problem instead of a ``TypeError`` deep
-      inside a handler.
+      inside a handler. Rejected calls still consume the per-tool rate-limit
+      bucket and are recorded in telemetry (``_reject_malformed_arguments``).
     * Any exception escaping the dispatcher (unknown tool, rate limit, an
       unexpected handler failure) becomes an ``isError`` result rather than a
-      JSON-RPC transport error, so LLM clients can read and react to it.
+      JSON-RPC transport error, so LLM clients can read and react to it. The
+      same net catches a ``jsonschema.SchemaError`` from a malformed tool
+      definition — ``MCPToolSchemaValidityTest`` keeps that from shipping.
 
     ``PermissionDenied`` / ``ValidationError`` / ``ObjectDoesNotExist`` never
     reach the ``except`` here — both dispatchers already convert those into a
     structured ``{"error": ...}`` payload (``_record_and_return_tool_error``).
+
+    ``corpus_slug`` is the URL-bound corpus of a scoped server (``None`` for
+    the global server, whose tools carry the slug in their arguments); it only
+    feeds telemetry for schema-rejected calls.
     """
     tools_by_name = {tool.name: tool for tool in tools}
 
@@ -821,12 +857,14 @@ def _build_on_call_tool(
     ) -> CallToolResult:
         arguments = params.arguments or {}
         tool = tools_by_name.get(params.name)
-        if tool is not None:
-            try:
-                jsonschema.validate(instance=arguments, schema=tool.input_schema)
-            except jsonschema.ValidationError as e:
-                return _tool_error_result(f"Input validation error: {e.message}")
         try:
+            if tool is not None:
+                try:
+                    jsonschema.validate(instance=arguments, schema=tool.input_schema)
+                except jsonschema.ValidationError as e:
+                    return await _reject_malformed_arguments(
+                        params.name, arguments, e, corpus_slug=corpus_slug
+                    )
             content = await dispatch(params.name, arguments)
         except Exception as e:
             return _tool_error_result(str(e))
@@ -1652,7 +1690,9 @@ def create_scoped_mcp_server(corpus_slug: str) -> Server:
         # Resource reads reuse the global handler (it validates corpus access).
         on_read_resource=_on_read_resource,
         on_list_tools=_build_on_list_tools(scoped_tools),
-        on_call_tool=_build_on_call_tool(call_tool, scoped_tools),
+        on_call_tool=_build_on_call_tool(
+            call_tool, scoped_tools, corpus_slug=corpus_slug
+        ),
     )
 
 

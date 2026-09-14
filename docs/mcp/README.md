@@ -274,7 +274,8 @@ Contract preserved from 1.x and pinned by `MCPSdkClientRoundTripTest`
 (`opencontractserver/mcp/tests/test_mcp.py`):
 
 - Tool arguments are validated against the advertised `inputSchema`; a
-  mismatch returns an `isError` result (`Input validation error: ...`).
+  mismatch returns an `isError` result (`Input validation error: ...`) and
+  still consumes the per-tool rate-limit bucket and records telemetry.
 - Exceptions escaping a dispatcher (unknown tool, rate limit) become `isError`
   results, never transport errors. Django `PermissionDenied` /
   `ValidationError` / `DoesNotExist` are structured `{"error": ...}` payloads.

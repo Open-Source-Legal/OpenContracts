@@ -7013,6 +7013,32 @@ class MCPNonScopedListToolsTest(_MCPAsyncRunMixin, TestCase):
         self.assertEqual(tool_names, set(TOOL_HANDLERS.keys()))
 
 
+class MCPToolSchemaValidityTest(TestCase):
+    """Every advertised ``inputSchema`` must itself be a valid JSON Schema.
+
+    ``_build_on_call_tool`` validates client arguments with ``jsonschema``;
+    a typo in a hand-written schema would surface at runtime as a
+    ``SchemaError`` (an ``isError`` result for every call to that tool)
+    rather than at import. Pin it here so it fails in CI instead.
+    """
+
+    def test_global_and_scoped_tool_schemas_are_valid(self):
+        import jsonschema
+
+        from opencontractserver.mcp.server import (
+            get_scoped_tool_definitions,
+            get_tool_definitions,
+        )
+
+        tools = get_tool_definitions() + get_scoped_tool_definitions("some-corpus")
+        self.assertTrue(tools)
+        for tool in tools:
+            with self.subTest(tool=tool.name):
+                schema = tool.input_schema
+                self.assertEqual(schema.get("type"), "object", tool.name)
+                jsonschema.validators.validator_for(schema).check_schema(schema)
+
+
 class MCPSdkClientRoundTripTest(_MCPAsyncRunMixin, TransactionTestCase):
     """End-to-end contract of both MCP servers against the python-sdk 2.x
     runtime.
@@ -7151,6 +7177,108 @@ class MCPSdkClientRoundTripTest(_MCPAsyncRunMixin, TransactionTestCase):
         self.assertTrue(result.is_error)
         self.assertIn("Input validation error", result.content[0].text)
         self.assertIn("integer", result.content[0].text)
+
+    def test_schema_rejection_still_rate_limits_and_records_telemetry(self):
+        """A call rejected by ``inputSchema`` validation never reaches the
+        dispatcher, so the adapter must do the per-tool rate-limit accounting
+        and telemetry itself — otherwise malformed calls would be free.
+        """
+        from unittest.mock import AsyncMock, patch
+
+        from opencontractserver.mcp.server import _mcp_asgi_scope, create_mcp_server
+
+        scope = {"type": "http", "path": "/mcp/", "client": ("127.0.0.1", 1)}
+        rate_limit = AsyncMock(return_value=(False, "", 0))
+        record = AsyncMock()
+
+        async def run_test():
+            token = _mcp_asgi_scope.set(scope)
+            try:
+                with patch(
+                    "opencontractserver.mcp.server.check_mcp_rate_limit", rate_limit
+                ), patch("opencontractserver.mcp.server.arecord_mcp_tool_call", record):
+                    return await self._with_client(
+                        create_mcp_server(),
+                        lambda c: c.call_tool(
+                            "list_documents",
+                            {"corpus_slug": self.corpus.slug, "limit": "ten"},
+                        ),
+                    )
+            finally:
+                _mcp_asgi_scope.reset(token)
+
+        result = self._run(run_test())
+        self.assertTrue(result.is_error)
+        self.assertIn("Input validation error", result.content[0].text)
+        rate_limit.assert_awaited_once_with(
+            scope, tool_name="list_documents", skip_global=True
+        )
+        record.assert_awaited_once_with(
+            "list_documents",
+            success=False,
+            error_type="InputValidationError",
+            corpus_slug=self.corpus.slug,
+            document_slug=None,
+        )
+
+    def test_schema_rejection_honors_per_tool_rate_limit(self):
+        """When the per-tool bucket is exhausted, a malformed call is rejected
+        as rate-limited (``isError``) before any validation message leaks.
+        """
+        from unittest.mock import AsyncMock, patch
+
+        from opencontractserver.mcp.server import _mcp_asgi_scope, create_mcp_server
+
+        scope = {"type": "http", "path": "/mcp/", "client": ("127.0.0.1", 1)}
+        rate_limit = AsyncMock(return_value=(True, "Rate limit exceeded", 30))
+
+        async def run_test():
+            token = _mcp_asgi_scope.set(scope)
+            try:
+                with patch(
+                    "opencontractserver.mcp.server.check_mcp_rate_limit", rate_limit
+                ), patch(
+                    "opencontractserver.mcp.server.arecord_mcp_tool_call", AsyncMock()
+                ):
+                    return await self._with_client(
+                        create_mcp_server(),
+                        lambda c: c.call_tool("list_public_corpuses", {"limit": "x"}),
+                    )
+            finally:
+                _mcp_asgi_scope.reset(token)
+
+        result = self._run(run_test())
+        self.assertTrue(result.is_error)
+        self.assertEqual(result.content[0].text, "Rate limit exceeded")
+
+    def test_scoped_schema_rejection_records_url_bound_corpus(self):
+        """Scoped tools carry no ``corpus_slug`` argument; telemetry for a
+        rejected call must still attribute it to the URL-bound corpus.
+        """
+        from unittest.mock import AsyncMock, patch
+
+        from opencontractserver.mcp.server import create_scoped_mcp_server
+
+        record = AsyncMock()
+
+        async def run_test():
+            with patch("opencontractserver.mcp.server.arecord_mcp_tool_call", record):
+                return await self._with_client(
+                    create_scoped_mcp_server(self.corpus.slug),
+                    lambda c: c.call_tool(
+                        "list_documents", {"document_slug_typo": 1, "limit": "x"}
+                    ),
+                )
+
+        result = self._run(run_test())
+        self.assertTrue(result.is_error)
+        record.assert_awaited_once_with(
+            "list_documents",
+            success=False,
+            error_type="InputValidationError",
+            corpus_slug=self.corpus.slug,
+            document_slug=None,
+        )
 
     def test_global_server_unknown_tool_is_error_result(self):
         from opencontractserver.mcp.server import create_mcp_server
