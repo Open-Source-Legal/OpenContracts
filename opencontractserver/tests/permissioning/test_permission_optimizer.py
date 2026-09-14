@@ -25,7 +25,9 @@ Coverage:
 
 from __future__ import annotations
 
+import pickle
 from concurrent.futures import ThreadPoolExecutor
+from threading import Event
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -37,11 +39,14 @@ from django.db import connections, transaction
 # spawns OS threads and needs real commits visible across connections.
 from django.test import RequestFactory, TestCase, TransactionTestCase
 
+from config.graphql.core.permissions import resolve_my_permissions
 from opencontractserver.constants.permissioning import (
     INSTANCE_PERMS_CACHE_ATTR,
     REQUEST_OPTIMIZER_ATTR,
 )
 from opencontractserver.corpuses.models import Corpus
+from opencontractserver.documents.models import Document
+from opencontractserver.shared.Managers import _apply_document_prefetches
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.permission_optimizer import (
     PermissionQueryOptimizer,
@@ -466,6 +471,126 @@ class Tier1CacheThreadSafetyTestCase(TransactionTestCase):
         self.assertFalse(
             Corpus.objects.get(pk=self.corpus.pk).user_can(reader, PermissionTypes.READ)
         )
+
+    def test_grant_replacement_expires_held_instances_and_permission_prefetches(self):
+        reader = self.readers[0]
+        doc = Document.objects.create(creator=self.creator, title="Held document")
+        for row, prefetched in ((self.corpus, False), (doc, False), (doc, True)):
+            for allowed in (False, True):
+                with self.subTest(
+                    model=type(row), prefetched=prefetched, allowed=allowed
+                ):
+                    set_permissions_for_obj_to_user(
+                        reader, row, [PermissionTypes.READ] if allowed else []
+                    )
+                    held = (
+                        _apply_document_prefetches(
+                            Document.objects.filter(pk=row.pk), reader, lightweight=True
+                        ).get()
+                        if prefetched
+                        else type(row).objects.get(pk=row.pk)
+                    )
+                    request = SimpleNamespace(user=reader)
+                    codename = f"read_{row._meta.model_name}"
+                    self.assertEqual(
+                        held.user_can(reader, PermissionTypes.READ, request=request),
+                        allowed,
+                    )
+                    self.assertEqual(
+                        codename
+                        in resolve_my_permissions(
+                            held, SimpleNamespace(context=request)
+                        ),
+                        allowed,
+                    )
+                    set_permissions_for_obj_to_user(
+                        reader,
+                        type(row).objects.get(pk=row.pk),
+                        [] if allowed else [PermissionTypes.READ],
+                    )
+                    self.assertEqual(
+                        held.user_can(reader, PermissionTypes.READ, request=request),
+                        not allowed,
+                    )
+                    self.assertEqual(
+                        codename
+                        in resolve_my_permissions(
+                            held, SimpleNamespace(context=request)
+                        ),
+                        not allowed,
+                    )
+                    with self.assertNumQueries(0):
+                        self.assertEqual(
+                            held.user_can(reader, PermissionTypes.READ), not allowed
+                        )
+
+    def test_prefetched_rollback_and_serialization_cannot_restore_a_grant(self):
+        reader = self.readers[0]
+        doc = Document.objects.create(creator=self.creator, title="Prefetched grant")
+        with transaction.atomic():
+            set_permissions_for_obj_to_user(reader, doc, [PermissionTypes.READ])
+            held = _apply_document_prefetches(
+                Document.objects.filter(pk=doc.pk), reader, lightweight=True
+            ).get()
+            restored = pickle.loads(pickle.dumps(held))
+            self.assertTrue(held.user_can(reader, PermissionTypes.READ))
+            transaction.set_rollback(True)
+        for instance in (held, restored):
+            self.assertFalse(instance.user_can(reader, PermissionTypes.READ))
+            self.assertNotIn(
+                "read_document",
+                resolve_my_permissions(
+                    instance, SimpleNamespace(context=SimpleNamespace(user=reader))
+                ),
+            )
+        set_permissions_for_obj_to_user(reader, doc, [PermissionTypes.READ])
+        rows = _apply_document_prefetches(
+            Document.objects.filter(pk=doc.pk), reader, lightweight=True
+        )
+        for instance in rows.iterator(chunk_size=1):
+            with self.assertNumQueries(0):
+                self.assertEqual(
+                    get_users_permissions_for_obj(reader, instance), {"read_document"}
+                )
+
+    def test_commit_expires_foreign_cache_reads_made_during_revocation(self):
+        reader = self.readers[0]
+        captured, resume = Event(), Event()
+
+        def read_before_and_after_commit():
+            try:
+                held = Corpus.objects.get(pk=self.corpus.pk)
+                request = SimpleNamespace(user=reader)
+                before = held.user_can(reader, PermissionTypes.READ, request=request)
+                captured.set()
+                self.assertTrue(resume.wait(15))
+                return before, held.user_can(
+                    reader, PermissionTypes.READ, request=request
+                )
+            finally:
+                connections.close_all()
+
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            try:
+                with transaction.atomic():
+                    set_permissions_for_obj_to_user(reader, self.corpus, [])
+                    pending = pool.submit(read_before_and_after_commit)
+                    self.assertTrue(captured.wait(15))
+            finally:
+                resume.set()
+            self.assertEqual(pending.result(timeout=20), (True, False))
+
+    def test_revocation_invalidates_a_prefetch_before_its_first_permission_check(self):
+        reader = self.readers[0]
+        doc = Document.objects.create(
+            creator=self.creator, title="Cold permission prefetch"
+        )
+        set_permissions_for_obj_to_user(reader, doc, [PermissionTypes.READ])
+        held = _apply_document_prefetches(
+            Document.objects.filter(pk=doc.pk), reader, lightweight=True
+        ).get()
+        set_permissions_for_obj_to_user(reader, Document.objects.get(pk=doc.pk), [])
+        self.assertFalse(held.user_can(reader, PermissionTypes.READ))
 
     def test_instance_cache_is_thread_safe_wrapper(self):
         """Warming the cache attaches the thread-safe wrapper, not a plain dict."""

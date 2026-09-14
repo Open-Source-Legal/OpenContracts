@@ -12,16 +12,15 @@ from django.db import transaction
 from guardian.shortcuts import assign_perm, remove_perm
 
 from config.graphql.permissioning.permission_annotator.middleware import combine
-from opencontractserver.constants.permissioning import INSTANCE_PERMS_CACHE_ATTR
-from opencontractserver.shared.grant_cache import (
+from opencontractserver.shared.grant_cache import (  # noqa: F401 - legacy import alias
     PermissionGrantCache as _InstancePermsCache,
 )
 from opencontractserver.shared.grant_cache import (
     cached_permission_grants,
+    invalidate_permission_grants,
 )
 from opencontractserver.shared.prefetch_attrs import (
-    user_group_perm_attr,
-    user_perm_attr,
+    permission_prefetch,
 )
 from opencontractserver.types.enums import PermissionTypes
 
@@ -130,21 +129,7 @@ def set_permissions_for_obj_to_user(
             if permission in requested:
                 assign_perm(f"{app_name}.{action}_{model_name}", user, instance)
 
-        # The cache also rejects fills that began before this invalidation.
-        instance_cache = getattr(instance, INSTANCE_PERMS_CACHE_ATTR, None)
-        if isinstance(instance_cache, _InstancePermsCache):
-            instance_cache.drop_for_user(user.id)
-        elif instance_cache is not None:
-            for key in [k for k in instance_cache if k[0] == user.id]:
-                instance_cache.pop(key, None)
-        if request is not None:
-            from opencontractserver.utils.permission_optimizer import (
-                get_request_optimizer,
-            )
-
-            get_request_optimizer(request).invalidate(
-                user_id=user.id, instance=instance
-            )
+        invalidate_permission_grants(instance, user.id, request=request)
 
 
 def get_users_group_ids(user_instance: UserModel) -> list[str | int]:
@@ -255,7 +240,7 @@ def get_users_permissions_for_obj(
 
     # Fast path: consume per-user guardian prefetches if attached. Missing attr
     # (different user, or no prefetch) falls through to the guardian path below.
-    prefetched_user_perms = getattr(instance, user_perm_attr(user.id), None)
+    prefetched_user_perms = permission_prefetch(instance, user.id)
     if prefetched_user_perms is not None:
         model_permissions_for_user = {
             perm.permission.codename for perm in prefetched_user_perms
@@ -264,9 +249,7 @@ def get_users_permissions_for_obj(
             model_permissions_for_user.add(f"read_{model_name}")
 
         if include_group_permissions:
-            prefetched_group_perms = getattr(
-                instance, user_group_perm_attr(user.id), None
-            )
+            prefetched_group_perms = permission_prefetch(instance, user.id, groups=True)
             if prefetched_group_perms is not None:
                 for perm in prefetched_group_perms:
                     model_permissions_for_user.add(perm.permission.codename)

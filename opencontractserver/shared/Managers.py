@@ -9,6 +9,7 @@ from django.db import IntegrityError
 from django.db.models import Manager, Model, Prefetch, Q, QuerySet
 
 from opencontractserver.shared.prefetch_attrs import (
+    track_permission_prefetches,
     user_group_perm_attr,
     user_perm_attr,
 )
@@ -104,6 +105,8 @@ def _apply_document_prefetches(
                 to_attr=user_group_perm_attr(user.id),
             ),
         )
+
+        queryset = track_permission_prefetches(queryset, user.id)
 
     if not lightweight:
         from opencontractserver.annotations.models import Annotation
