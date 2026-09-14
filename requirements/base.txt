@@ -81,13 +81,14 @@ posthog==7.47.1  # https://github.com/posthog/posthog-python
 # Model Context Protocol
 # ------------------------------------------------------------------------------
 mcp>=2.2.0,<3  # https://github.com/modelcontextprotocol/python-sdk
-# ^ pydantic-ai-slim[mcp] -> fastmcp-slim caps mcp<2.0 across its whole
-# published range as of 2026-08; mcp 2.0 is a breaking rewrite (decorator-based
-# handler registration on mcp.server.lowlevel.Server removed in favor of
-# on_*= constructor kwargs) that opencontractserver/mcp/server.py does not yet
-# speak. Bump this pin only alongside a migration of that file, once
-# fastmcp-slim ships v2 support (or fastmcp-slim/mcp is dropped in favor of
-# calling the v2 API directly).
+# ^ python-sdk 2.x: request handlers are registered as on_*= constructor
+# kwargs on mcp.server.Server and return typed result models; the 1.x
+# decorator API (@server.list_tools() etc.) is gone. opencontractserver/mcp/
+# server.py targets the 2.x shape (see its "MCP SDK HANDLER ADAPTERS"
+# section). The <3 cap is deliberate: 3.0 is slated to flip auth defaults
+# (AuthSettings.validate_token_resource, mandatory issuer=) — re-audit
+# server.py before widening. fastmcp-slim (via pydantic-ai-slim[mcp])
+# resolves against mcp 2.x; `pip check` on the resolved tree stays clean.
 
 # Not directly required, pinned by Snyk to avoid a vulnerability
 # ------------------------------------------------------------------------------

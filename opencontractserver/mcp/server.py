@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Any, Callable
 if TYPE_CHECKING:
     from opencontractserver.users.types import UserOrAnonymous
 
+import jsonschema
 from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.core.exceptions import (
@@ -36,11 +37,27 @@ from django.core.exceptions import (
     ValidationError,
 )
 from mcp.server import Server
+from mcp.server.lowlevel.server import ServerRequestContext
 from mcp.server.sse import SseServerTransport
 from mcp.server.stdio import stdio_server
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
-from mcp.types import Resource, ResourceTemplate, TextContent, Tool
-from pydantic import AnyUrl
+from mcp.shared.exceptions import MCPError
+from mcp.types import (
+    INVALID_PARAMS,
+    CallToolRequestParams,
+    CallToolResult,
+    ListResourcesResult,
+    ListResourceTemplatesResult,
+    ListToolsResult,
+    PaginatedRequestParams,
+    ReadResourceRequestParams,
+    ReadResourceResult,
+    Resource,
+    ResourceTemplate,
+    TextContent,
+    TextResourceContents,
+    Tool,
+)
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import Response
@@ -53,7 +70,10 @@ from config.jwt_auth.exceptions import JSONWebTokenError, JSONWebTokenExpired
 from config.jwt_utils import get_user_from_jwt_token
 from config.ratelimit.decorators import MCPRateLimitError, check_mcp_rate_limit
 from config.ratelimit.keys import get_client_ip_from_scope
-from opencontractserver.constants.mcp import MAX_THREAD_MESSAGE_LENGTH
+from opencontractserver.constants.mcp import (
+    MAX_THREAD_MESSAGE_LENGTH,
+    MCP_RESOURCE_MIME_TYPE,
+)
 
 from .resources import (
     get_annotation_resource,
@@ -489,7 +509,7 @@ async def read_resource_handler(uri: str) -> str:
     This is the handler function for MCP resource reads.
     Exposed at module level for testability.
     """
-    # Convert AnyUrl to string if needed (MCP library uses pydantic AnyUrl)
+    # Defensive: callers hand us a ``str`` (mcp 2.x) but tolerate URL objects.
     uri_str = str(uri)
 
     resource_type = "unknown"
@@ -751,280 +771,410 @@ async def call_tool_handler(name: str, arguments: dict) -> list[TextContent]:
         raise
 
 
+# =============================================================================
+# MCP SDK HANDLER ADAPTERS
+# =============================================================================
+# python-sdk 2.x registers request handlers as ``on_*=`` constructor kwargs on
+# ``mcp.server.Server``. Each handler receives ``(ctx, params)`` and returns a
+# typed result model. The adapters below bridge that shape to this module's
+# transport-agnostic dispatchers (``call_tool_handler`` / ``read_resource_handler``
+# and the scoped ``call_tool`` closure) so the global and corpus-scoped servers
+# share ONE implementation of argument validation, error wrapping and resource
+# serialisation.
+
+# ``(tool_name, arguments) -> content blocks`` — the dispatcher contract shared
+# by ``call_tool_handler`` and the scoped ``call_tool`` closure.
+ToolDispatcher = Callable[[str, dict], Awaitable[list[TextContent]]]
+
+
+def _tool_error_result(message: str) -> CallToolResult:
+    """Build the ``isError`` result shape MCP clients expect for tool failures."""
+    return CallToolResult(
+        content=[TextContent(type="text", text=message)], is_error=True
+    )
+
+
+def _build_on_call_tool(
+    dispatch: ToolDispatcher, tools: list[Tool]
+) -> Callable[[ServerRequestContext, CallToolRequestParams], Awaitable[CallToolResult]]:
+    """Wrap a tool dispatcher as an ``on_call_tool`` handler.
+
+    Preserves the two behaviours the 1.x ``@server.call_tool()`` decorator
+    used to provide for us:
+
+    * Arguments are validated against the advertised ``inputSchema`` before
+      dispatch, so a mistyped argument (``limit="ten"``) comes back as an
+      ``isError`` result naming the problem instead of a ``TypeError`` deep
+      inside a handler.
+    * Any exception escaping the dispatcher (unknown tool, rate limit, an
+      unexpected handler failure) becomes an ``isError`` result rather than a
+      JSON-RPC transport error, so LLM clients can read and react to it.
+
+    ``PermissionDenied`` / ``ValidationError`` / ``ObjectDoesNotExist`` never
+    reach the ``except`` here — both dispatchers already convert those into a
+    structured ``{"error": ...}`` payload (``_record_and_return_tool_error``).
+    """
+    tools_by_name = {tool.name: tool for tool in tools}
+
+    async def on_call_tool(
+        ctx: ServerRequestContext, params: CallToolRequestParams
+    ) -> CallToolResult:
+        arguments = params.arguments or {}
+        tool = tools_by_name.get(params.name)
+        if tool is not None:
+            try:
+                jsonschema.validate(instance=arguments, schema=tool.input_schema)
+            except jsonschema.ValidationError as e:
+                return _tool_error_result(f"Input validation error: {e.message}")
+        try:
+            content = await dispatch(params.name, arguments)
+        except Exception as e:
+            return _tool_error_result(str(e))
+        return CallToolResult(content=list(content))
+
+    return on_call_tool
+
+
+def _build_on_list_tools(
+    tools: list[Tool],
+) -> Callable[
+    [ServerRequestContext, PaginatedRequestParams | None], Awaitable[ListToolsResult]
+]:
+    """Wrap a static tool catalogue as an ``on_list_tools`` handler."""
+
+    async def on_list_tools(
+        ctx: ServerRequestContext, params: PaginatedRequestParams | None
+    ) -> ListToolsResult:
+        return ListToolsResult(tools=tools)
+
+    return on_list_tools
+
+
+def _build_on_list_resource_templates(
+    templates: list[ResourceTemplate],
+) -> Callable[
+    [ServerRequestContext, PaginatedRequestParams | None],
+    Awaitable[ListResourceTemplatesResult],
+]:
+    """Wrap a static template catalogue as an ``on_list_resource_templates`` handler."""
+
+    async def on_list_resource_templates(
+        ctx: ServerRequestContext, params: PaginatedRequestParams | None
+    ) -> ListResourceTemplatesResult:
+        return ListResourceTemplatesResult(resource_templates=templates)
+
+    return on_list_resource_templates
+
+
+async def _on_read_resource(
+    ctx: ServerRequestContext, params: ReadResourceRequestParams
+) -> ReadResourceResult:
+    """``on_read_resource`` handler shared by the global and scoped servers.
+
+    ``read_resource_handler`` returns the JSON payload as a string; this wraps
+    it in the ``TextResourceContents`` envelope. Caller-side failures (a URI
+    that matches no pattern, a corpus/document the caller cannot see, a
+    missing object) are surfaced as ``INVALID_PARAMS`` JSON-RPC errors carrying
+    the human-readable message — anything else is left to the SDK, which
+    reports a generic internal error without leaking the exception text.
+    """
+    try:
+        text = await read_resource_handler(params.uri)
+    except (ValueError, PermissionDenied, ValidationError, ObjectDoesNotExist) as e:
+        raise MCPError(INVALID_PARAMS, str(e)) from e
+    return ReadResourceResult(
+        contents=[
+            TextResourceContents(
+                uri=params.uri, text=text, mime_type=MCP_RESOURCE_MIME_TYPE
+            )
+        ]
+    )
+
+
+def get_resource_template_definitions() -> list[ResourceTemplate]:
+    """Resource URI templates advertised by the global (non-scoped) server."""
+    return [
+        ResourceTemplate(
+            uri_template="corpus://{corpus_slug}",
+            name="Public Corpus",
+            description="Access public corpus metadata and contents",
+            mime_type="application/json",
+        ),
+        ResourceTemplate(
+            uri_template="document://{corpus_slug}/{document_slug}",
+            name="Public Document",
+            description="Access public document with extracted text",
+            mime_type="application/json",
+        ),
+        ResourceTemplate(
+            uri_template="annotation://{corpus_slug}/{document_slug}/{annotation_id}",
+            name="Document Annotation",
+            description="Access specific annotation on a document",
+            mime_type="application/json",
+        ),
+        ResourceTemplate(
+            uri_template="thread://{corpus_slug}/threads/{thread_id}",
+            name="Discussion Thread",
+            description="Access public discussion thread with messages",
+            mime_type="application/json",
+        ),
+    ]
+
+
+def get_tool_definitions() -> list[Tool]:
+    """Tool catalogue advertised by the global (non-scoped) MCP server.
+
+    Keep in lockstep with ``TOOL_HANDLERS`` — ``MCPNonScopedListToolsTest``
+    pins the two registries against each other.
+    """
+    return [
+        Tool(
+            name="list_public_corpuses",
+            description=(
+                "List corpuses visible to the caller. Anonymous callers "
+                "see only public, published corpuses. Authenticated "
+                "callers additionally see private corpuses they own or "
+                "have been granted read access to. (Name retained for "
+                "backwards compatibility with existing MCP clients.)"
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "limit": {
+                        "type": "integer",
+                        "default": 20,
+                        "description": "Max results (1-100)",
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "default": 0,
+                        "description": "Pagination offset",
+                    },
+                    "search": {
+                        "type": "string",
+                        "default": "",
+                        "description": "Search filter",
+                    },
+                },
+            },
+        ),
+        Tool(
+            name="list_documents",
+            description="List documents in a corpus",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "corpus_slug": {
+                        "type": "string",
+                        "description": "Corpus identifier",
+                    },
+                    "limit": {"type": "integer", "default": 50},
+                    "offset": {"type": "integer", "default": 0},
+                    "search": {"type": "string", "default": ""},
+                },
+                "required": ["corpus_slug"],
+            },
+        ),
+        Tool(
+            name="get_document_text",
+            description="Get extracted document text in bounded slices (char_offset/max_chars)",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "corpus_slug": {
+                        "type": "string",
+                        "description": "Corpus identifier",
+                    },
+                    "document_slug": {
+                        "type": "string",
+                        "description": "Document identifier",
+                    },
+                    "char_offset": {
+                        "type": "integer",
+                        "default": 0,
+                        "description": "Start offset into the extracted text",
+                    },
+                    "max_chars": {
+                        "type": "integer",
+                        "description": "Window size; use next_offset to paginate",
+                    },
+                },
+                "required": ["corpus_slug", "document_slug"],
+            },
+        ),
+        Tool(
+            name="list_annotations",
+            description=(
+                "List/search a document's annotations (filter by page, "
+                "label_text, text_contains, structural)"
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "corpus_slug": {"type": "string"},
+                    "document_slug": {"type": "string"},
+                    "page": {
+                        "type": "integer",
+                        "description": "Filter to page number",
+                    },
+                    "label_text": {
+                        "type": "string",
+                        "description": "Filter by exact label text",
+                    },
+                    "text_contains": {
+                        "type": "string",
+                        "description": "Filter annotations whose text contains this substring",
+                    },
+                    "structural": {
+                        "type": "boolean",
+                        "description": "Filter: omit=all, true=structural only, false=human/analysis only",
+                    },
+                    "limit": {"type": "integer", "default": 100},
+                    "offset": {"type": "integer", "default": 0},
+                },
+                "required": ["corpus_slug", "document_slug"],
+            },
+        ),
+        Tool(
+            name="list_relationships",
+            description=(
+                "List labeled source→target relationships in a corpus "
+                "(or a single document) for explicit graph navigation"
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "corpus_slug": {"type": "string"},
+                    "document_slug": {
+                        "type": "string",
+                        "description": "Optional document filter (corpus-wide when omitted)",
+                    },
+                    "structural": {
+                        "type": "boolean",
+                        "description": "Filter: omit=all, true=structural only, false=human/analysis only",
+                    },
+                    "label_text": {
+                        "type": "string",
+                        "description": "Filter by exact relationship label",
+                    },
+                    "limit": {"type": "integer", "default": 50},
+                    "offset": {"type": "integer", "default": 0},
+                },
+                "required": ["corpus_slug"],
+            },
+        ),
+        Tool(
+            name="search_corpus",
+            description=(
+                "Search a corpus. Returns a ranked feed of passage and "
+                "block hits (each tagged 'type'); semantic with a text fallback"
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "corpus_slug": {"type": "string"},
+                    "query": {"type": "string", "description": "Search query"},
+                    "limit": {
+                        "type": "integer",
+                        "default": 10,
+                        "description": "Max hits (1-50)",
+                    },
+                    "granularity": {
+                        "type": "string",
+                        "enum": ["passage", "block", "both"],
+                        "default": "both",
+                        "description": (
+                            "passage = annotation hits; block = aggregated "
+                            "subtree-group hits; both = merged feed"
+                        ),
+                    },
+                    "structural": {
+                        "type": "boolean",
+                        "description": "Filter passages: omit=all, true=structural only, false=human/analysis only",
+                    },
+                },
+                "required": ["corpus_slug", "query"],
+            },
+        ),
+        Tool(
+            name="list_threads",
+            description="List discussion threads in a corpus",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "corpus_slug": {"type": "string"},
+                    "document_slug": {
+                        "type": "string",
+                        "description": "Optional document filter",
+                    },
+                    "limit": {"type": "integer", "default": 20},
+                    "offset": {"type": "integer", "default": 0},
+                },
+                "required": ["corpus_slug"],
+            },
+        ),
+        Tool(
+            name="get_thread_messages",
+            description="Get messages in a thread",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "corpus_slug": {"type": "string"},
+                    "thread_id": {"type": "integer"},
+                    "flatten": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "Return flat list",
+                    },
+                },
+                "required": ["corpus_slug", "thread_id"],
+            },
+        ),
+        Tool(
+            name="create_thread_message",
+            description="Create a new message in a thread (requires authenticated MCP session)",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "corpus_slug": {"type": "string"},
+                    "thread_id": {"type": "integer"},
+                    "content": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": MAX_THREAD_MESSAGE_LENGTH,
+                    },
+                    "parent_message_id": {"type": "integer"},
+                },
+                "required": ["corpus_slug", "thread_id", "content"],
+            },
+        ),
+    ]
+
+
+async def _on_list_no_resources(
+    ctx: ServerRequestContext, params: PaginatedRequestParams | None
+) -> ListResourcesResult:
+    """The global server exposes no concrete resources — only URI templates.
+
+    Every resource requires parameters (a corpus slug at minimum), so clients
+    discover them via ``resources/templates/list`` instead.
+    """
+    return ListResourcesResult(resources=[])
+
+
 def create_mcp_server() -> Server:
-    """Create and configure the MCP server instance."""
-    mcp_server = Server("opencontracts")
-
-    @mcp_server.list_resources()
-    async def list_resources() -> list[Resource]:
-        """List available resources (none - use templates instead)."""
-        # All resources require parameters, so we return empty list
-        # Use list_resource_templates for URI patterns
-        return []
-
-    @mcp_server.list_resource_templates()
-    async def list_resource_templates() -> list[ResourceTemplate]:
-        """List available resource URI templates."""
-        return [
-            ResourceTemplate(
-                uriTemplate="corpus://{corpus_slug}",
-                name="Public Corpus",
-                description="Access public corpus metadata and contents",
-                mimeType="application/json",
-            ),
-            ResourceTemplate(
-                uriTemplate="document://{corpus_slug}/{document_slug}",
-                name="Public Document",
-                description="Access public document with extracted text",
-                mimeType="application/json",
-            ),
-            ResourceTemplate(
-                uriTemplate="annotation://{corpus_slug}/{document_slug}/{annotation_id}",
-                name="Document Annotation",
-                description="Access specific annotation on a document",
-                mimeType="application/json",
-            ),
-            ResourceTemplate(
-                uriTemplate="thread://{corpus_slug}/threads/{thread_id}",
-                name="Discussion Thread",
-                description="Access public discussion thread with messages",
-                mimeType="application/json",
-            ),
-        ]
-
-    # Register the module-level handler with the MCP server
-    mcp_server.read_resource()(read_resource_handler)
-
-    @mcp_server.list_tools()
-    async def list_tools() -> list[Tool]:
-        """List available tools."""
-        return [
-            Tool(
-                name="list_public_corpuses",
-                description=(
-                    "List corpuses visible to the caller. Anonymous callers "
-                    "see only public, published corpuses. Authenticated "
-                    "callers additionally see private corpuses they own or "
-                    "have been granted read access to. (Name retained for "
-                    "backwards compatibility with existing MCP clients.)"
-                ),
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "limit": {
-                            "type": "integer",
-                            "default": 20,
-                            "description": "Max results (1-100)",
-                        },
-                        "offset": {
-                            "type": "integer",
-                            "default": 0,
-                            "description": "Pagination offset",
-                        },
-                        "search": {
-                            "type": "string",
-                            "default": "",
-                            "description": "Search filter",
-                        },
-                    },
-                },
-            ),
-            Tool(
-                name="list_documents",
-                description="List documents in a corpus",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "corpus_slug": {
-                            "type": "string",
-                            "description": "Corpus identifier",
-                        },
-                        "limit": {"type": "integer", "default": 50},
-                        "offset": {"type": "integer", "default": 0},
-                        "search": {"type": "string", "default": ""},
-                    },
-                    "required": ["corpus_slug"],
-                },
-            ),
-            Tool(
-                name="get_document_text",
-                description="Get extracted document text in bounded slices (char_offset/max_chars)",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "corpus_slug": {
-                            "type": "string",
-                            "description": "Corpus identifier",
-                        },
-                        "document_slug": {
-                            "type": "string",
-                            "description": "Document identifier",
-                        },
-                        "char_offset": {
-                            "type": "integer",
-                            "default": 0,
-                            "description": "Start offset into the extracted text",
-                        },
-                        "max_chars": {
-                            "type": "integer",
-                            "description": "Window size; use next_offset to paginate",
-                        },
-                    },
-                    "required": ["corpus_slug", "document_slug"],
-                },
-            ),
-            Tool(
-                name="list_annotations",
-                description=(
-                    "List/search a document's annotations (filter by page, "
-                    "label_text, text_contains, structural)"
-                ),
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "corpus_slug": {"type": "string"},
-                        "document_slug": {"type": "string"},
-                        "page": {
-                            "type": "integer",
-                            "description": "Filter to page number",
-                        },
-                        "label_text": {
-                            "type": "string",
-                            "description": "Filter by exact label text",
-                        },
-                        "text_contains": {
-                            "type": "string",
-                            "description": "Filter annotations whose text contains this substring",
-                        },
-                        "structural": {
-                            "type": "boolean",
-                            "description": "Filter: omit=all, true=structural only, false=human/analysis only",
-                        },
-                        "limit": {"type": "integer", "default": 100},
-                        "offset": {"type": "integer", "default": 0},
-                    },
-                    "required": ["corpus_slug", "document_slug"],
-                },
-            ),
-            Tool(
-                name="list_relationships",
-                description=(
-                    "List labeled source→target relationships in a corpus "
-                    "(or a single document) for explicit graph navigation"
-                ),
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "corpus_slug": {"type": "string"},
-                        "document_slug": {
-                            "type": "string",
-                            "description": "Optional document filter (corpus-wide when omitted)",
-                        },
-                        "structural": {
-                            "type": "boolean",
-                            "description": "Filter: omit=all, true=structural only, false=human/analysis only",
-                        },
-                        "label_text": {
-                            "type": "string",
-                            "description": "Filter by exact relationship label",
-                        },
-                        "limit": {"type": "integer", "default": 50},
-                        "offset": {"type": "integer", "default": 0},
-                    },
-                    "required": ["corpus_slug"],
-                },
-            ),
-            Tool(
-                name="search_corpus",
-                description=(
-                    "Search a corpus. Returns a ranked feed of passage and "
-                    "block hits (each tagged 'type'); semantic with a text fallback"
-                ),
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "corpus_slug": {"type": "string"},
-                        "query": {"type": "string", "description": "Search query"},
-                        "limit": {
-                            "type": "integer",
-                            "default": 10,
-                            "description": "Max hits (1-50)",
-                        },
-                        "granularity": {
-                            "type": "string",
-                            "enum": ["passage", "block", "both"],
-                            "default": "both",
-                            "description": (
-                                "passage = annotation hits; block = aggregated "
-                                "subtree-group hits; both = merged feed"
-                            ),
-                        },
-                        "structural": {
-                            "type": "boolean",
-                            "description": "Filter passages: omit=all, true=structural only, false=human/analysis only",
-                        },
-                    },
-                    "required": ["corpus_slug", "query"],
-                },
-            ),
-            Tool(
-                name="list_threads",
-                description="List discussion threads in a corpus",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "corpus_slug": {"type": "string"},
-                        "document_slug": {
-                            "type": "string",
-                            "description": "Optional document filter",
-                        },
-                        "limit": {"type": "integer", "default": 20},
-                        "offset": {"type": "integer", "default": 0},
-                    },
-                    "required": ["corpus_slug"],
-                },
-            ),
-            Tool(
-                name="get_thread_messages",
-                description="Get messages in a thread",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "corpus_slug": {"type": "string"},
-                        "thread_id": {"type": "integer"},
-                        "flatten": {
-                            "type": "boolean",
-                            "default": False,
-                            "description": "Return flat list",
-                        },
-                    },
-                    "required": ["corpus_slug", "thread_id"],
-                },
-            ),
-            Tool(
-                name="create_thread_message",
-                description="Create a new message in a thread (requires authenticated MCP session)",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "corpus_slug": {"type": "string"},
-                        "thread_id": {"type": "integer"},
-                        "content": {
-                            "type": "string",
-                            "minLength": 1,
-                            "maxLength": MAX_THREAD_MESSAGE_LENGTH,
-                        },
-                        "parent_message_id": {"type": "integer"},
-                    },
-                    "required": ["corpus_slug", "thread_id", "content"],
-                },
-            ),
-        ]
-
-    # Register the module-level handler with the MCP server
-    mcp_server.call_tool()(call_tool_handler)
-
-    return mcp_server
+    """Create and configure the global MCP server instance."""
+    tools = get_tool_definitions()
+    return Server(
+        "opencontracts",
+        on_list_resources=_on_list_no_resources,
+        on_list_resource_templates=_build_on_list_resource_templates(
+            get_resource_template_definitions()
+        ),
+        on_read_resource=_on_read_resource,
+        on_list_tools=_build_on_list_tools(tools),
+        on_call_tool=_build_on_call_tool(call_tool_handler, tools),
+    )
 
 
 # Create the global MCP server instance
@@ -1054,7 +1204,7 @@ def get_scoped_tool_definitions(corpus_slug: str) -> list[Tool]:
         Tool(
             name="get_corpus_info",
             description=f"Get detailed information about the '{corpus_slug}' corpus",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {},
             },
@@ -1062,7 +1212,7 @@ def get_scoped_tool_definitions(corpus_slug: str) -> list[Tool]:
         Tool(
             name="list_documents",
             description=f"List documents in the '{corpus_slug}' corpus",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {
                     "limit": {"type": "integer", "default": 50},
@@ -1074,7 +1224,7 @@ def get_scoped_tool_definitions(corpus_slug: str) -> list[Tool]:
         Tool(
             name="get_document_text",
             description="Get extracted document text in bounded slices (char_offset/max_chars)",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {
                     "document_slug": {
@@ -1100,7 +1250,7 @@ def get_scoped_tool_definitions(corpus_slug: str) -> list[Tool]:
                 "List/search a document's annotations (filter by page, "
                 "label_text, text_contains, structural)"
             ),
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {
                     "document_slug": {"type": "string"},
@@ -1132,7 +1282,7 @@ def get_scoped_tool_definitions(corpus_slug: str) -> list[Tool]:
                 f"List labeled source→target relationships in the "
                 f"'{corpus_slug}' corpus (or a single document)"
             ),
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {
                     "document_slug": {
@@ -1162,7 +1312,7 @@ def get_scoped_tool_definitions(corpus_slug: str) -> list[Tool]:
                 f"passage and block hits (each tagged 'type'); semantic with a "
                 f"text fallback"
             ),
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {
                     "query": {"type": "string", "description": "Search query"},
@@ -1191,7 +1341,7 @@ def get_scoped_tool_definitions(corpus_slug: str) -> list[Tool]:
         Tool(
             name="list_threads",
             description=f"List discussion threads in the '{corpus_slug}' corpus",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {
                     "document_slug": {
@@ -1206,7 +1356,7 @@ def get_scoped_tool_definitions(corpus_slug: str) -> list[Tool]:
         Tool(
             name="get_thread_messages",
             description="Get messages in a thread",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {
                     "thread_id": {"type": "integer"},
@@ -1227,7 +1377,7 @@ def get_scoped_tool_definitions(corpus_slug: str) -> list[Tool]:
                 "Note: corpus_slug is injected from the endpoint URL and must "
                 "not be supplied by the client."
             ),
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {
                     "thread_id": {"type": "integer"},
@@ -1281,10 +1431,10 @@ def get_scoped_resource_definitions(
     # Add corpus resource
     resources.append(
         Resource(
-            uri=AnyUrl(f"corpus://{corpus_slug}"),
+            uri=f"corpus://{corpus_slug}",
             name="Corpus",
             description=f"Access the '{corpus_slug}' corpus metadata and contents",
-            mimeType="application/json",
+            mime_type="application/json",
         )
     )
 
@@ -1295,10 +1445,10 @@ def get_scoped_resource_definitions(
     for doc in documents:
         resources.append(
             Resource(
-                uri=AnyUrl(f"document://{corpus_slug}/{doc.slug}"),
+                uri=f"document://{corpus_slug}/{doc.slug}",
                 name=f"Document: {doc.title or doc.slug}",
                 description=doc.description[:100] if doc.description else "Document",
-                mimeType="application/json",
+                mime_type="application/json",
             )
         )
 
@@ -1314,14 +1464,14 @@ def get_scoped_resource_definitions(
     for thread in threads:
         resources.append(
             Resource(
-                uri=AnyUrl(f"thread://{corpus_slug}/threads/{thread.id}"),
+                uri=f"thread://{corpus_slug}/threads/{thread.id}",
                 name=f"Thread: {thread.title or f'Thread {thread.id}'}",
                 description=(
                     thread.description[:100]
                     if thread.description
                     else "Discussion thread"
                 ),
-                mimeType="application/json",
+                mime_type="application/json",
             )
         )
 
@@ -1342,22 +1492,22 @@ def get_scoped_resource_template_definitions(
     """
     return [
         ResourceTemplate(
-            uriTemplate=f"document://{corpus_slug}/{{document_slug}}",
+            uri_template=f"document://{corpus_slug}/{{document_slug}}",
             name="Document",
             description="Access document with extracted text",
-            mimeType="application/json",
+            mime_type="application/json",
         ),
         ResourceTemplate(
-            uriTemplate=f"annotation://{corpus_slug}/{{document_slug}}/{{annotation_id}}",
+            uri_template=f"annotation://{corpus_slug}/{{document_slug}}/{{annotation_id}}",
             name="Annotation",
             description="Access specific annotation on a document",
-            mimeType="application/json",
+            mime_type="application/json",
         ),
         ResourceTemplate(
-            uriTemplate=f"thread://{corpus_slug}/threads/{{thread_id}}",
+            uri_template=f"thread://{corpus_slug}/threads/{{thread_id}}",
             name="Discussion Thread",
             description="Access discussion thread with messages",
-            mimeType="application/json",
+            mime_type="application/json",
         ),
     ]
 
@@ -1376,10 +1526,8 @@ def create_scoped_mcp_server(corpus_slug: str) -> Server:
     Returns:
         Configured MCP Server instance scoped to the corpus
     """
-    scoped_server = Server(f"opencontracts-corpus-{corpus_slug}")
-
-    # Get scoped tool handlers
     scoped_handlers = get_scoped_tool_handlers(corpus_slug)
+    scoped_tools = get_scoped_tool_definitions(corpus_slug)
 
     def _validate_corpus_sync(user: UserOrAnonymous | None = None) -> bool:
         """Synchronously validate the scoped corpus is still visible to the caller."""
@@ -1394,28 +1542,16 @@ def create_scoped_mcp_server(corpus_slug: str) -> Server:
             .exists()
         )
 
-    @scoped_server.list_resources()
-    async def list_resources() -> list[Resource]:
-        """List available concrete resources for this scoped corpus."""
+    async def on_list_resources(
+        ctx: ServerRequestContext, params: PaginatedRequestParams | None
+    ) -> ListResourcesResult:
+        """List concrete resources visible to the caller in this scoped corpus."""
         # Use sync_to_async since this queries the database
-        return await sync_to_async(get_scoped_resource_definitions)(
+        resources = await sync_to_async(get_scoped_resource_definitions)(
             corpus_slug, user=_mcp_user.get()
         )
+        return ListResourcesResult(resources=resources)
 
-    @scoped_server.list_resource_templates()
-    async def list_resource_templates() -> list[ResourceTemplate]:
-        """List available resource templates for this scoped corpus."""
-        return get_scoped_resource_template_definitions(corpus_slug)
-
-    # Resource handler - reuse the global handler (it validates corpus access)
-    scoped_server.read_resource()(read_resource_handler)
-
-    @scoped_server.list_tools()
-    async def list_tools() -> list[Tool]:
-        """List available tools for this scoped corpus."""
-        return get_scoped_tool_definitions(corpus_slug)
-
-    @scoped_server.call_tool()
     async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         """
         Execute scoped tool and return results.
@@ -1507,7 +1643,17 @@ def create_scoped_mcp_server(corpus_slug: str) -> Server:
             )
             raise
 
-    return scoped_server
+    return Server(
+        f"opencontracts-corpus-{corpus_slug}",
+        on_list_resources=on_list_resources,
+        on_list_resource_templates=_build_on_list_resource_templates(
+            get_scoped_resource_template_definitions(corpus_slug)
+        ),
+        # Resource reads reuse the global handler (it validates corpus access).
+        on_read_resource=_on_read_resource,
+        on_list_tools=_build_on_list_tools(scoped_tools),
+        on_call_tool=_build_on_call_tool(call_tool, scoped_tools),
+    )
 
 
 # =============================================================================

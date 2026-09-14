@@ -256,6 +256,32 @@ python -m opencontractserver.mcp.server
 - `config/asgi.py` - HTTP routing (`/mcp/*` and `/sse/*` → MCP app)
 - `compose/production/traefik/traefik.yml` - Production routing (Traefik)
 
+### SDK integration
+
+Both servers are `mcp.server.Server` instances from the official
+[python-sdk](https://github.com/modelcontextprotocol/python-sdk) **2.x**
+(`requirements/base.txt` pins `mcp>=2.2.0,<3`). Request handlers are passed as
+`on_*=` constructor kwargs and return typed result models; the 1.x decorator
+API no longer exists. The adapters in `server.py` (section `MCP SDK HANDLER
+ADAPTERS`: `_build_on_call_tool`, `_build_on_list_tools`,
+`_build_on_list_resource_templates`, `_on_read_resource`) are the only code
+that touches that SDK surface — `create_mcp_server` and
+`create_scoped_mcp_server` compose them over the transport-agnostic
+dispatchers (`call_tool_handler`, `read_resource_handler`, the scoped
+`call_tool` closure), so a future SDK change is a one-place edit.
+
+Contract preserved from 1.x and pinned by `MCPSdkClientRoundTripTest`
+(`opencontractserver/mcp/tests/test_mcp.py`):
+
+- Tool arguments are validated against the advertised `inputSchema`; a
+  mismatch returns an `isError` result (`Input validation error: ...`).
+- Exceptions escaping a dispatcher (unknown tool, rate limit) become `isError`
+  results, never transport errors. Django `PermissionDenied` /
+  `ValidationError` / `DoesNotExist` are structured `{"error": ...}` payloads.
+- `resources/read` returns `application/json` text contents; a URI the caller
+  cannot resolve (unknown pattern, invisible corpus) is a JSON-RPC
+  `INVALID_PARAMS` error carrying the message.
+
 ---
 
 ## Authentication

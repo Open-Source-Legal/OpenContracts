@@ -156,11 +156,12 @@ repos:
           - spacy
           - tokenizers>=0.21,<0.23
           - posthog==7.12.0
-          # Ceiling matches requirements/base.txt's runtime pin. mcp>=1.0.0
-          # (no ceiling) let this hook resolve mcp 2.x, whose SDK renamed
-          # fields/methods that opencontractserver/mcp/server.py (1.x API)
-          # doesn't have -- turning main red with no commit touching mcp.
-          - mcp>=1.28.1,<2
+          # Range matches requirements/base.txt's runtime pin exactly.
+          # opencontractserver/mcp/server.py targets the python-sdk 2.x
+          # API (on_*= handler kwargs, snake_case type fields); a hook env
+          # resolving a different major than the runtime turns main red
+          # with no commit touching mcp. Bump both pins together.
+          - mcp>=2.2.0,<3
           - argon2-cffi==25.1.0
           - cryptography==46.0.7
           - pyjwt==2.12.1
