@@ -10,9 +10,11 @@ Tests the User.visible_to_user() manager method and profile privacy settings.
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
 from django.test import TestCase
+from guardian.shortcuts import assign_perm
 
 from config.graphql.testing import Client
 from opencontractserver.conversations.models import ChatMessage, Conversation
+from opencontractserver.users.models import UserExport, UserImport
 
 User = get_user_model()
 
@@ -510,3 +512,54 @@ class UserBySlugMarkdownProfileFieldVisibilityTestCase(TestCase):
         self.assertEqual(
             data["profileLinksMarkdown"], "- [hidden](https://example.com)"
         )
+
+    def test_profile_transfers_require_their_own_read_permission(self):
+        fields = {
+            "userexportSet": UserExport,
+            "lockedUserexportObjects": UserExport,
+            "userimportSet": UserImport,
+            "lockedUserimportObjects": UserImport,
+        }
+        for model in (UserExport, UserImport):
+            private = model.objects.create(
+                name="Private", creator=self.public_owner, user_lock=self.public_owner
+            )
+            model.objects.create(
+                name="Public",
+                creator=self.public_owner,
+                user_lock=self.public_owner,
+                is_public=True,
+            )
+            model.objects.create(
+                name="Other profile", creator=self.viewer, is_public=True
+            )
+            assign_perm(f"read_{model._meta.model_name}", self.viewer, private)
+        selections = " ".join(
+            f"{field} {{ edges {{ node {{ name }} }} }}" for field in fields
+        )
+        for actor in (
+            self.public_owner,
+            self.viewer,
+            self.private_owner,
+            AnonymousUser(),
+        ):
+            result = self._client_as(actor).execute(
+                "query($slug: String!) { userBySlug(slug: $slug) { "
+                + selections
+                + " } }",
+                variables={"slug": self.public_owner.slug},
+            )
+            self.assertIsNone(result.get("errors"))
+            for field, model in fields.items():
+                with self.subTest(actor=actor, field=field):
+                    # Import READ is creator/public; export READ also admits grants.
+                    private_visible = actor == self.public_owner or (
+                        actor == self.viewer and model is UserExport
+                    )
+                    self.assertEqual(
+                        {
+                            edge["node"]["name"]
+                            for edge in result["data"]["userBySlug"][field]["edges"]
+                        },
+                        {"Public", "Private"} if private_visible else {"Public"},
+                    )
