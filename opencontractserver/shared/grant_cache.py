@@ -4,13 +4,17 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable
+from copy import copy
 from functools import wraps
 from typing import Any, NamedTuple, TypeVar, cast
 from weakref import WeakValueDictionary
 
 from django.db import DEFAULT_DB_ALIAS, transaction
 
-from opencontractserver.constants.permissioning import INSTANCE_PERMS_CACHE_ATTR
+from opencontractserver.constants.permissioning import (
+    INSTANCE_PERMS_CACHE_ATTR,
+    MODEL_PERMS_CACHE_ATTR,
+)
 
 _Collector = TypeVar("_Collector", bound=Callable[..., set[str]])
 
@@ -22,7 +26,7 @@ class _RevisionState(NamedTuple):
 
 
 class _GrantRevision:
-    """Expire row/user snapshots on writes and foreign reads again on commit."""
+    """Expire dependent snapshots on writes and foreign reads again on commit."""
 
     def __init__(self):
         self.state = _RevisionState()
@@ -47,6 +51,14 @@ _revision_lock = threading.Lock()
 _revisions: WeakValueDictionary[tuple, _GrantRevision] = WeakValueDictionary()
 
 
+def _revision(key):
+    with _revision_lock:
+        revision = _revisions.get(key)
+        if revision is None:
+            revision = _revisions[key] = _GrantRevision()
+        return revision
+
+
 def grant_revision(instance, user_id):
     """Share a revision while cached snapshots or a pending write need it."""
     if getattr(instance, "pk", None) is None:
@@ -58,11 +70,19 @@ def grant_revision(instance, user_id):
         instance.pk,
         user_id,
     )
-    with _revision_lock:
-        revision = _revisions.get(key)
-        if revision is None:
-            revision = _revisions[key] = _GrantRevision()
-        return revision
+    return _revision(key)
+
+
+def invalidate_actor_grants(user_ids, *, using):
+    """Expire actor snapshots; ``None`` targets all group-dependent DB reads.
+
+    Reverse clears and group model-grant changes use the conservative DB scope
+    because their affected actors aren't supplied by Django's m2m signal. No SQL
+    is needed to track them. Pending writes retain revisions until commit.
+    """
+    connection = transaction.get_connection(using)
+    for user_id in user_ids:
+        _revision((connection.alias, user_id)).invalidate(connection)
 
 
 class _TransactionRead:
@@ -109,19 +129,23 @@ def _read_context(connection):
 
 
 class GrantSnapshot:
-    """Connection, transaction and object/user revision observed before a read.
+    """Connection, transaction and grant revisions observed before a read.
 
     Prefetch consumers may reuse committed rows across connections. Grant-set
     caches keep their existing connection-local hit rule. Neither permits an
     uncommitted snapshot to cross connections.
     """
 
-    def __init__(self, connection, revision=None):
+    def __init__(self, connection, revision=None, *, user_id=None):
         connection.validate_no_broken_transaction()
         self.connection = connection
         self.transaction = _read_context(connection)
-        self.revision = revision
-        self.state = revision.state if revision is not None else _RevisionState()
+        revisions = [revision] if revision is not None else []
+        if user_id is not None:
+            revisions.extend(
+                _revision((connection.alias, actor)) for actor in (user_id, None)
+            )
+        self.revisions = [(item, item.state) for item in revisions]
 
     def valid(self, connection, *, allow_committed=False):
         connection.validate_no_broken_transaction()
@@ -132,15 +156,16 @@ class GrantSnapshot:
             allow_committed and (marker is None or marker.committed)
         ):
             return False
-        if self.revision is None:
-            return True
-        current = self.revision.state
         # A writer's own final reads stay warm after commit. Other connections
         # may have read the old committed rows while this write was pending.
-        return self.state.writes == current.writes and (
-            self.state.commits == current.commits
-            or current.connection is self.connection
-        )
+        for revision, state in self.revisions:
+            current = revision.state
+            if state.writes != current.writes or (
+                state.commits != current.commits
+                and current.connection is not self.connection
+            ):
+                return False
+        return True
 
 
 class PermissionGrantCache(dict):
@@ -152,7 +177,9 @@ class PermissionGrantCache(dict):
         self._contexts: dict[Any, GrantSnapshot] = {}
         self._generation = 0
 
-    def get_or_compute(self, key, compute, *, using=None, revision=None) -> set[str]:
+    def get_or_compute(
+        self, key, compute, *, using=None, revision=None, user_id=None
+    ) -> set[str]:
         connection = transaction.get_connection(using)
         with self._lock:
             value = self.get(key)
@@ -162,7 +189,7 @@ class PermissionGrantCache(dict):
             self.pop(key, None)
             self._contexts.pop(key, None)
             generation = self._generation
-        snapshot = GrantSnapshot(connection, revision)
+        snapshot = GrantSnapshot(connection, revision, user_id=user_id)
         # ORM work stays outside the cache lock. A simultaneous invalidation
         # makes this result ineligible for reuse, even if the cache was empty.
         granted = compute()
@@ -184,6 +211,24 @@ class PermissionGrantCache(dict):
 
     def clear(self):
         self.discard_where(lambda key: True)
+
+
+def model_permission_grants(user):
+    """Collect backend model grants with the same transaction/actor lifetime.
+
+    The copy drops backend caches through PermissionStateMixin. Computing on a
+    separate User avoids sharing Django's mutable caches between connections.
+    """
+    cache = getattr(user, MODEL_PERMS_CACHE_ATTR, None)
+    if cache is None:
+        cache = user.__dict__.setdefault(MODEL_PERMS_CACHE_ATTR, PermissionGrantCache())
+    user_id = getattr(user, "id", None)
+    return cache.get_or_compute(
+        (user_id, user.is_active, user.is_superuser),
+        lambda: copy(user).get_all_permissions(),
+        using=getattr(getattr(user, "_state", None), "db", None),
+        user_id=user_id,
+    )
 
 
 def cached_permission_grants(collect: _Collector) -> _Collector:
@@ -209,6 +254,7 @@ def cached_permission_grants(collect: _Collector) -> _Collector:
                 lambda: collect(user, instance, include_group_permissions),
                 using=getattr(getattr(instance, "_state", None), "db", None),
                 revision=grant_revision(instance, user_id),
+                user_id=user_id if include_group_permissions else None,
             )
         except Exception:
             if (

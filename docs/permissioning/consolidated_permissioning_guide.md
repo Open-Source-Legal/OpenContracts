@@ -2966,3 +2966,5 @@ one for the other:
 Instance and request grant caches share rollback tracking. A grant read in a rolled-back transaction/savepoint expires, and invalidation during an in-flight lookup prevents that result from repopulating the cache. Grant replacement invalidates before commit callbacks run. Existing query budgets and out-of-band invalidation requirements remain.
 
 Grant replacement also expires other in-process instances, request caches, and document permission prefetches for the same object and user. Serialized models drop permission prefetches; raw Guardian or through-table writes still require explicit invalidation.
+
+Django membership and model-permission m2m edits expire actor-dependent snapshots in this process. GraphQL metadata is keyed by actor and model, and copied or serialized users drop backend permission caches. Reverse clears and group model-permission edits conservatively expire group-dependent reads for the database without querying its members.

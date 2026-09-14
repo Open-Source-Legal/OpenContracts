@@ -12,6 +12,10 @@ from __future__ import annotations
 from django.db import transaction
 from django.db.models.query import ModelIterable
 
+from opencontractserver.constants.permissioning import (
+    INSTANCE_PERMS_CACHE_ATTR,
+    MODEL_PERMS_CACHE_ATTR,
+)
 from opencontractserver.shared.grant_cache import GrantSnapshot, grant_revision
 
 _PREFETCH_READS_ATTR = "_oc_permission_prefetch_reads"
@@ -37,6 +41,7 @@ class _PermissionPrefetchIterable(ModelIterable):
             snapshots[user_id] = GrantSnapshot(
                 transaction.get_connection(instance._state.db),
                 grant_revision(instance, user_id),
+                user_id=user_id,
             )
             yield instance
 
@@ -66,8 +71,16 @@ def permission_prefetch(instance, user_id, *, groups=False):
     return getattr(instance, attr, None)
 
 
-def discard_serialized_permission_prefetches(state):
-    state.pop(_PREFETCH_READS_ATTR, None)
+def discard_serialized_permission_state(state):
+    for attr in (
+        INSTANCE_PERMS_CACHE_ATTR,
+        MODEL_PERMS_CACHE_ATTR,
+        _PREFETCH_READS_ATTR,
+        "_perm_cache",
+        "_user_perm_cache",
+        "_group_perm_cache",
+    ):
+        state.pop(attr, None)
     prefixes = (user_perm_attr(""), user_group_perm_attr(""))
     for key in [key for key in state if key.startswith(prefixes)]:
         del state[key]

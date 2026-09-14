@@ -1,0 +1,1 @@
+- Expire held permission grants and GraphQL permission metadata after Django group-membership and model-permission edits.

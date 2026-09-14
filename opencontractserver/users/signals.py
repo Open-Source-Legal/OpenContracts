@@ -2,16 +2,36 @@ import logging
 from typing import Any
 
 from django.apps import apps
+from django.contrib.auth.models import Group
 from django.db import DatabaseError, IntegrityError, transaction
-from django.db.models.signals import post_save
+from django.db.models.signals import m2m_changed, post_save
 from django.db.utils import OperationalError, ProgrammingError
 from django.dispatch import receiver
 
 from config.telemetry import record_event
+from opencontractserver.shared.grant_cache import invalidate_actor_grants
 
 from .models import User
 
 logger = logging.getLogger(__name__)
+
+
+@receiver(m2m_changed, sender=User.groups.through)
+@receiver(m2m_changed, sender=User.user_permissions.through)
+@receiver(m2m_changed, sender=Group.permissions.through)
+def permission_membership_changed(
+    sender, instance, action, reverse, pk_set, using, **kwargs
+):
+    """Django/admin m2m writes invalidate before their transaction commits."""
+    if action not in {"post_add", "post_remove", "post_clear"} or pk_set == set():
+        return
+    if sender is Group.permissions.through or (reverse and pk_set is None):
+        user_ids = (None,)
+    elif reverse:
+        user_ids = pk_set
+    else:
+        user_ids = (instance.pk,)
+    invalidate_actor_grants(user_ids, using=using)
 
 
 def _create_personal_corpus_for_user(user: User) -> None:

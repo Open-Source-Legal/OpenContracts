@@ -32,12 +32,13 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
-from django.contrib.auth.models import AnonymousUser
+from django.contrib.auth.models import AnonymousUser, Group, Permission
 from django.db import connections, transaction
 
 # TransactionTestCase retained for Tier1CacheThreadSafetyTestCase, which
 # spawns OS threads and needs real commits visible across connections.
 from django.test import RequestFactory, TestCase, TransactionTestCase
+from guardian.shortcuts import assign_perm
 
 from config.graphql.core.permissions import resolve_my_permissions
 from opencontractserver.constants.permissioning import (
@@ -591,6 +592,104 @@ class Tier1CacheThreadSafetyTestCase(TransactionTestCase):
         ).get()
         set_permissions_for_obj_to_user(reader, Document.objects.get(pk=doc.pk), [])
         self.assertFalse(held.user_can(reader, PermissionTypes.READ))
+
+    def test_membership_changes_refresh_held_object_and_model_grants(self):
+        reader = self.readers[0]
+        group = Group.objects.create(name="Cached membership")
+        publish = Permission.objects.get(codename="publish_corpus")
+        group.permissions.add(publish)
+        set_permissions_for_obj_to_user(reader, self.corpus, [])
+        assign_perm("read_corpus", group, self.corpus)
+        for reverse in (False, True):
+            for method in ("remove", "clear", "set"):
+                with self.subTest(reverse=reverse, method=method):
+                    group.user_set.add(reader)
+                    actor = User.objects.prefetch_related("groups").get(pk=reader.pk)
+                    actor.get_all_permissions()
+                    held = Corpus.objects.get(pk=self.corpus.pk)
+                    request = SimpleNamespace(user=actor)
+                    info = SimpleNamespace(context=request)
+                    self.assertTrue(
+                        held.user_can(actor, PermissionTypes.READ, request=request)
+                    )
+                    self.assertIn("publish_corpus", resolve_my_permissions(held, info))
+                    manager = (
+                        Group.objects.get(pk=group.pk).user_set
+                        if reverse
+                        else User.objects.get(pk=reader.pk).groups
+                    )
+                    if method == "clear":
+                        manager.clear()
+                    elif method == "set":
+                        manager.set([])
+                    else:
+                        manager.remove(reader.pk if reverse else group.pk)
+                    self.assertFalse(
+                        held.user_can(actor, PermissionTypes.READ, request=request)
+                    )
+                    self.assertEqual(resolve_my_permissions(held, info), [])
+
+    def test_model_grants_and_actor_switch_expire_cached_graphql_metadata(self):
+        reader, other = self.readers[:2]
+        publish = Permission.objects.get(codename="publish_corpus")
+        info = SimpleNamespace(context=SimpleNamespace(user=reader))
+        for reverse in (False, True):
+            with self.subTest(reverse=reverse):
+                reader.get_all_permissions()
+                self.assertNotIn(
+                    "publish_corpus", resolve_my_permissions(self.corpus, info)
+                )
+                manager = publish.user_set if reverse else reader.user_permissions
+                target = reader.pk if reverse else publish.pk
+                manager.add(target)
+                self.assertIn(
+                    "publish_corpus", resolve_my_permissions(self.corpus, info)
+                )
+                recipient = User.objects.get(pk=reader.pk)
+                self.assertIn(
+                    "corpuses.publish_corpus", recipient.get_all_permissions()
+                )
+                restored = pickle.loads(pickle.dumps(recipient))
+                info.context.user = other
+                self.assertNotIn(
+                    "publish_corpus", resolve_my_permissions(self.corpus, info)
+                )
+                info.context.user = reader
+                manager.remove(target)
+                self.assertNotIn(
+                    "publish_corpus", resolve_my_permissions(self.corpus, info)
+                )
+                self.assertNotIn(
+                    "corpuses.publish_corpus", restored.get_all_permissions()
+                )
+        group = Group.objects.create(name="Model grant readers")
+        group.user_set.add(reader)
+        group.permissions.add(publish)
+        self.assertIn("publish_corpus", resolve_my_permissions(self.corpus, info))
+        publish.group_set.clear()
+        self.assertNotIn("publish_corpus", resolve_my_permissions(self.corpus, info))
+
+    def test_membership_rollback_and_prefetches_preserve_current_authority(self):
+        reader = self.readers[0]
+        group = Group.objects.create(name="Prefetched membership")
+        doc = Document.objects.create(creator=self.creator, title="Group document")
+        assign_perm("read_document", group, doc)
+        group.user_set.add(reader)
+        held = _apply_document_prefetches(
+            Document.objects.filter(pk=doc.pk), reader, lightweight=True
+        ).get()
+        request = SimpleNamespace(user=reader)
+        self.assertTrue(held.user_can(reader, PermissionTypes.READ, request=request))
+        with transaction.atomic():
+            group.user_set.remove(reader)
+            self.assertFalse(
+                held.user_can(reader, PermissionTypes.READ, request=request)
+            )
+            transaction.set_rollback(True)
+        self.assertTrue(held.user_can(reader, PermissionTypes.READ, request=request))
+        restored = pickle.loads(pickle.dumps(reader))
+        group.user_set.clear()
+        self.assertFalse(held.user_can(restored, PermissionTypes.READ, request=request))
 
     def test_instance_cache_is_thread_safe_wrapper(self):
         """Warming the cache attaches the thread-safe wrapper, not a plain dict."""
