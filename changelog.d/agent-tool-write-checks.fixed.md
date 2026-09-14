@@ -1,0 +1,1 @@
+- Agent tools marked as writers now check current CRUD permission at execution; approval retains the actor and resource context. Built-in note, annotation, and corpus-description writers carry the WRITE flag (`llms/tools/pydantic_ai_tools.py`, `llms/agents/pydantic_ai_agents.py`).

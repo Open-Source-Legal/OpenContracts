@@ -39,7 +39,7 @@ pre-commit==4.6.2  # https://github.com/pre-commit/pre-commit
 factory-boy==3.3.3  # https://github.com/FactoryBoy/factory_boy
 django-extensions==4.1  # https://github.com/django-extensions/django-extensions
 django-coverage-plugin==3.2.2  # https://github.com/nedbat/django_coverage_plugin
-pytest-django==4.13.0  # https://github.com/pytest-dev/pytest-django
+pytest-django==4.14.0  # https://github.com/pytest-dev/pytest-django
 
 # PDFs
 # ------------------------------------------------------------------------------
@@ -64,7 +64,7 @@ ipython>=9.16.1 # not directly required, pinned by Snyk to avoid a vulnerability
 requests>=2.34.2,<3 # not directly required, pinned by Snyk to avoid a vulnerability
 setuptools>=84.0.0 # not directly required, pinned by Snyk to avoid a vulnerability
 sqlparse>=0.6.0 # not directly required, pinned by Snyk to avoid a vulnerability
-tornado>=6.5.7 # not directly required, pinned by Snyk to avoid a vulnerability
+tornado>=6.5.8 # not directly required, pinned by Snyk to avoid a vulnerability
 urllib3>=2.7.0 # not directly required, pinned by Snyk to avoid a vulnerability
 zipp>=4.1.0 # not directly required, pinned by Snyk to avoid a vulnerability
 pillow>=12.3.0 # not directly required, pinned by Snyk to avoid a vulnerability

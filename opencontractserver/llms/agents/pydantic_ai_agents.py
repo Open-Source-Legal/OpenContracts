@@ -2025,18 +2025,11 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
                     logger.info(f"Found tool '{tool_name}' in config.tools: {tool}")
                     break
 
-            # Helper stub ctx carrying call-id for wrappers that expect it.
-            # _EmptyDeps must have user_id, document_id, corpus_id for _check_user_permissions
-            class _EmptyDeps:  # noqa: D401 – simple placeholder for deps
-                skip_approval_gate = True
-                user_id = None
-                document_id = None
-                corpus_id = None
-
-            class _EmptyCtx:  # noqa: D401 – simple placeholder
+            # Approval bypasses confirmation, while retaining execution authority.
+            class _ApprovalCtx:
                 tool_call_id = pending.get("tool_call_id")
                 skip_approval_gate = True
-                deps = _EmptyDeps()
+                deps = self.agent_deps.model_copy(update={"skip_approval_gate": True})
 
             import inspect
 
@@ -2063,7 +2056,7 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
                     )
                     try:
                         result = await _maybe_await(
-                            wrapper_fn(_EmptyCtx(), **tool_args)
+                            wrapper_fn(_ApprovalCtx(), **tool_args)
                         )
                         tool_executed = True
                     except TypeError as e:
@@ -2107,7 +2100,9 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
                             tool_args = {}
 
                     try:
-                        result = await _maybe_await(candidate(_EmptyCtx(), **tool_args))
+                        result = await _maybe_await(
+                            candidate(_ApprovalCtx(), **tool_args)
+                        )
                     except TypeError as e:
                         # Log full details for debugging
                         logger.error(
@@ -2900,6 +2895,7 @@ class PydanticAIDocumentAgent(PydanticAICoreAgent):
                 "content": "Full markdown content of the note",
             },
             requires_approval=True,
+            requires_write_permission=True,
             requires_corpus=True,
         )
 
@@ -2912,6 +2908,7 @@ class PydanticAIDocumentAgent(PydanticAICoreAgent):
                 "new_content": "New note content (markdown)",
             },
             requires_approval=True,
+            requires_write_permission=True,
         )
 
         # -----------------------------
@@ -3016,6 +3013,7 @@ class PydanticAIDocumentAgent(PydanticAICoreAgent):
                 "label_type": "Optional label type override",
             },
             requires_approval=True,
+            requires_write_permission=True,
             requires_corpus=True,
         )
 
@@ -3027,6 +3025,7 @@ class PydanticAIDocumentAgent(PydanticAICoreAgent):
                 "entries": "List of objects with keys 'label_text' and 'exact_string'",
             },
             requires_approval=True,
+            requires_write_permission=True,
             requires_corpus=True,
         )
 
@@ -3310,6 +3309,7 @@ class PydanticAICorpusAgent(PydanticAICoreAgent):
             },
             requires_corpus=True,
             requires_approval=True,
+            requires_write_permission=True,
         )
 
         # -----------------------------

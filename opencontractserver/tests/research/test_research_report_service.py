@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from django.test import TestCase, override_settings
 
@@ -10,7 +10,7 @@ from opencontractserver.annotations.models import (
     Annotation,
     AnnotationLabel,
 )
-from opencontractserver.corpuses.models import Corpus
+from opencontractserver.corpuses.models import Corpus, CorpusGroup
 from opencontractserver.documents.models import Document, DocumentPath
 from opencontractserver.research.constants import (
     RESEARCH_CITABLE_PASSAGE_MAX_HITS,
@@ -78,6 +78,74 @@ class ResearchReportServiceTestCase(TestCase):
         self.assertEqual(report.prompt, "Find the indemnification clauses.")
         self.assertTrue(report.slug)
         enqueued.assert_called_once_with(report.pk)
+
+    def test_start_rejects_inactive_requester_before_creating_or_enqueuing(self):
+        self.user.is_active = False
+        self.user.save(update_fields=["is_active"])
+        with patch(
+            "opencontractserver.tasks.research_tasks.run_deep_research.delay"
+        ) as enqueued, self.captureOnCommitCallbacks(execute=True):
+            with self.assertRaises(PermissionError):
+                ResearchReportService.start(
+                    user=self.user, corpus=self.public_corpus, prompt="Research"
+                )
+        self.assertFalse(ResearchReport.objects.exists())
+        enqueued.assert_not_called()
+
+    def test_queued_and_resumed_research_recheck_current_actor_and_scope(self):
+        from opencontractserver.tasks.research_tasks import run_deep_research
+
+        group = CorpusGroup.objects.create(creator=self.user, title="Research group")
+        group.corpora.add(self.corpus)
+        for status in (JobStatus.QUEUED.value, JobStatus.RUNNING.value):
+            for revoked in (None, "actor", "corpus", "group"):
+                with self.subTest(status=status, revoked=revoked):
+                    User.objects.filter(pk=self.outsider.pk).update(is_active=True)
+                    for obj in (self.corpus, group):
+                        set_permissions_for_obj_to_user(
+                            self.outsider, obj, [PermissionTypes.READ]
+                        )
+                    report = ResearchReport.objects.create(
+                        creator=self.outsider,
+                        corpus=self.corpus,
+                        corpus_group=group,
+                        prompt="Research",
+                        status=status,
+                        plan="Existing plan",
+                    )
+                    if revoked == "actor":
+                        User.objects.filter(pk=self.outsider.pk).update(is_active=False)
+                    elif revoked:
+                        set_permissions_for_obj_to_user(
+                            self.outsider,
+                            self.corpus if revoked == "corpus" else group,
+                            [],
+                        )
+                    target = "opencontractserver.tasks.research_tasks"
+                    with patch(
+                        target + "._run_deep_research_async", new_callable=AsyncMock
+                    ) as run, patch(target + "._send_completion_notification"), patch(
+                        target + "._insert_completion_chat_message"
+                    ), patch.object(
+                        ResearchReportService,
+                        "mark_started",
+                        wraps=ResearchReportService.mark_started,
+                    ) as start:
+                        result = run_deep_research(report.pk)
+                    report.refresh_from_db()
+                    self.assertEqual(report.plan, "Existing plan")
+                    if revoked:
+                        run.assert_not_awaited()
+                        start.assert_not_called()
+                        self.assertEqual(result["status"], "failed")
+                        self.assertEqual(report.status, JobStatus.FAILED.value)
+                    else:
+                        run.assert_awaited_once()
+                        self.assertEqual(
+                            run.await_args.kwargs,
+                            {"resuming": status == JobStatus.RUNNING.value},
+                        )
+                        start.assert_called_once()
 
     def test_start_denies_without_corpus_read(self):
         # outsider has no READ on the private corpus.

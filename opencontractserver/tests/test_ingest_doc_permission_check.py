@@ -14,11 +14,15 @@ a SECURITY log line rather than processing a foreign document.
 from __future__ import annotations
 
 import logging
+from unittest.mock import Mock, patch
 
+from celery import chain
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
+from opencontractserver.documents import signals
 from opencontractserver.documents.models import Document, DocumentProcessingStatus
+from opencontractserver.tasks import doc_tasks
 from opencontractserver.tasks.doc_tasks import ingest_doc, retry_document_processing
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
@@ -40,6 +44,120 @@ class IngestDocPermissionCheckTests(TestCase):
         )
         # Grant owner full perms; attacker gets nothing.
         set_permissions_for_obj_to_user(self.owner, self.doc, [PermissionTypes.CRUD])
+
+    @override_settings(CELERY_TASK_EAGER_PROPAGATES=False)
+    def test_create_and_retry_chains_stop_on_worker_denial(self):
+        for entry in ("create", "retry"):
+            for stage in ("convert", "ingest", "allowed"):
+                for inactive in (False, True):
+                    if stage == "allowed" and inactive:
+                        continue
+                    with self.subTest(entry=entry, stage=stage, inactive=inactive):
+                        User.objects.filter(pk=self.owner.pk).update(is_active=True)
+                        Document.objects.filter(pk=self.doc.pk).update(
+                            creator=self.owner,
+                            processing_started=None,
+                            processing_status=DocumentProcessingStatus.FAILED,
+                            processing_error="",
+                            backend_lock=True,
+                        )
+                        self.doc.refresh_from_db()
+                        set_permissions_for_obj_to_user(
+                            self.owner, self.doc, [PermissionTypes.CRUD]
+                        )
+                        module = signals if entry == "create" else doc_tasks
+                        with patch.object(module, "chain") as dispatch:
+                            if entry == "create":
+                                with self.captureOnCommitCallbacks(execute=True):
+                                    signals.process_doc_on_create_atomic(
+                                        Document, self.doc, True
+                                    )
+                            else:
+                                self.assertEqual(
+                                    retry_document_processing(
+                                        self.owner.pk, self.doc.pk
+                                    )["status"],
+                                    "queued",
+                                )
+                        dispatch.assert_called_once()
+                        pipeline = chain(*dispatch.call_args.args)
+                        options = dispatch.return_value.apply_async.call_args.kwargs
+
+                        def deny():
+                            if inactive:
+                                User.objects.filter(pk=self.owner.pk).update(
+                                    is_active=False
+                                )
+                            else:
+                                Document.objects.filter(pk=self.doc.pk).update(
+                                    creator=self.attacker
+                                )
+                                set_permissions_for_obj_to_user(
+                                    self.owner, self.doc, []
+                                )
+
+                        converter, parser = Mock(), Mock()
+                        if stage == "convert":
+                            deny()
+                        with patch(
+                            "opencontractserver.pipeline.utils.get_default_file_converter_instance",
+                            return_value=converter,
+                        ), patch.object(
+                            doc_tasks,
+                            "_resolve_parser_for_ingest",
+                            return_value=("test", parser, {}),
+                        ), patch.object(
+                            doc_tasks.extract_thumbnail,
+                            "run",
+                            side_effect=lambda **kw: (
+                                deny() if stage == "ingest" else None
+                            ),
+                        ) as thumbnail, patch.object(
+                            doc_tasks.remap_pending_annotations, "run", return_value={}
+                        ) as remap, patch.object(
+                            doc_tasks.set_doc_lock_state,
+                            "run",
+                            wraps=doc_tasks.set_doc_lock_state.run,
+                        ) as unlock:
+                            if stage == "allowed":
+                                pipeline.apply_async(**options).get()
+                                parser.process_document.assert_called_once()
+                                remap.assert_called_once()
+                                unlock.assert_called_once()
+                            else:
+                                with self.assertRaises(RuntimeError):
+                                    pipeline.apply_async(**options).get()
+                                parser.process_document.assert_not_called()
+                                remap.assert_not_called()
+                                unlock.assert_not_called()
+                                self.assertEqual(
+                                    thumbnail.call_count, int(stage == "ingest")
+                                )
+                        self.doc.refresh_from_db()
+                        self.assertEqual(self.doc.backend_lock, stage != "allowed")
+                        self.assertEqual(
+                            self.doc.processing_status,
+                            (
+                                DocumentProcessingStatus.COMPLETED
+                                if stage == "allowed"
+                                else DocumentProcessingStatus.FAILED
+                            ),
+                        )
+
+    def test_inactive_requester_retains_standalone_denial_result(self):
+        User.objects.filter(pk=self.owner.pk).update(is_active=False)
+        for task in (
+            doc_tasks.convert_document_to_pdf,
+            ingest_doc,
+            retry_document_processing,
+        ):
+            with self.subTest(task=task.name):
+                result = task(self.owner.pk, self.doc.pk)
+                self.assertIn(
+                    "Invalid user", result.get("error", result.get("message", ""))
+                )
+        self.doc.refresh_from_db()
+        self.assertEqual(self.doc.processing_status, DocumentProcessingStatus.PENDING)
 
     def test_ingest_doc_refuses_when_user_lacks_permission(self):
         """A task enqueued with attacker's user_id on owner's doc must refuse."""

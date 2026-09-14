@@ -77,10 +77,12 @@ from opencontractserver.types.enums import (
     LabelType,
     PermissionTypes,
 )
+from opencontractserver.users.services.exports import UserExportService
 from opencontractserver.utils.annotation_anchoring import (
     anchor_annotations,
     report_rawtext_preview,
 )
+from opencontractserver.utils.celery_tasks import raise_on_error_result
 from opencontractserver.utils.compact_pawls import expand_pawls_pages
 from opencontractserver.utils.etl import build_document_export, pawls_bbox_to_funsd_box
 from opencontractserver.utils.files import split_pdf_into_images
@@ -559,6 +561,7 @@ def _create_document_processed_notifications(
 
 
 @shared_task(bind=True, max_retries=3)
+@raise_on_error_result
 def convert_document_to_pdf(self, user_id: int, doc_id: int) -> dict[str, Any]:
     """
     Optional pre-parse conversion step: convert a document to PDF using the
@@ -573,6 +576,9 @@ def convert_document_to_pdf(self, user_id: int, doc_id: int) -> dict[str, Any]:
       with the original file so natively-parsed formats are unaffected),
     - the document is already a PDF, has no binary file, or its extension is
       not in the converter's enabled set.
+
+    Pipeline signatures pass ``raise_on_error=True`` so returned denials halt
+    the chain. Standalone calls keep their existing status dictionaries.
 
     Retry semantics mirror ``ingest_doc``'s schedule (60s base, doubling,
     capped at 300s, max 3 retries) but use manual ``self.retry`` rather than
@@ -615,7 +621,7 @@ def convert_document_to_pdf(self, user_id: int, doc_id: int) -> dict[str, Any]:
     # blindly.
     User = get_user_model()
     try:
-        user_obj = User.objects.get(pk=user_id)
+        user_obj = User.objects.get(pk=user_id, is_active=True)
     except User.DoesNotExist:
         logger.error(
             f"[SECURITY] [convert_document_to_pdf] user_id={user_id} does not "
@@ -682,6 +688,7 @@ def convert_document_to_pdf(self, user_id: int, doc_id: int) -> dict[str, Any]:
     retry_jitter=True,  # Add randomness to prevent thundering herd
     retry_kwargs={"max_retries": 3},
 )
+@raise_on_error_result
 def ingest_doc(self, user_id: int, doc_id: int) -> dict[str, Any]:
     """
     Ingests a document using the appropriate parser based on the document's MIME type.
@@ -697,6 +704,8 @@ def ingest_doc(self, user_id: int, doc_id: int) -> dict[str, Any]:
 
     When all retries are exhausted or a permanent error occurs, the document is
     marked as FAILED and remains locked (not ready for use).
+    Pipeline signatures pass ``raise_on_error=True`` so returned failures halt
+    the chain before remapping; standalone calls retain their result dictionaries.
 
     Args:
         self: Celery task instance (passed automatically when bind=True).
@@ -745,7 +754,7 @@ def ingest_doc(self, user_id: int, doc_id: int) -> dict[str, Any]:
     # is appropriate there.
     User = get_user_model()
     try:
-        user_obj = User.objects.get(pk=user_id)
+        user_obj = User.objects.get(pk=user_id, is_active=True)
     except User.DoesNotExist:
         logger.error(
             f"[SECURITY] [ingest_doc] user_id={user_id} does not exist; "
@@ -971,6 +980,8 @@ def burn_doc_annotations(
     corpus_id: int,
     analysis_ids: list[int] | None = None,
     annotation_filter_mode: str = "CORPUS_LABELSET_ONLY",
+    *,
+    export_id: int | None = None,
 ) -> tuple[
     str,
     str,
@@ -997,6 +1008,12 @@ def burn_doc_annotations(
     """
     from opencontractserver.types.enums import AnnotationFilterMode
 
+    if export_id is not None:
+        _, corpus, document = UserExportService.get_document_context(
+            export_id, corpus_id, doc_id
+        )
+        corpus_id, doc_id = corpus.pk, document.pk
+
     # Convert string to enum
     filter_mode_enum = AnnotationFilterMode(annotation_filter_mode)
 
@@ -1016,6 +1033,8 @@ def convert_doc_to_funsd(
     corpus_id: int,
     analysis_ids: list[int] | None = None,
     annotation_filter_mode: str = AnnotationFilterMode.CORPUS_LABELSET_ONLY.value,
+    *,
+    export_id: int | None = None,
 ) -> tuple[int, dict[int, list[FunsdAnnotationType]], list[tuple[int, str, str]]]:
     def pawls_token_to_funsd_token(pawls_token: PawlsTokenPythonType) -> FunsdTokenType:
         pawls_xleft = pawls_token["x"]
@@ -1030,7 +1049,14 @@ def convert_doc_to_funsd(
         }
         return funsd_token
 
-    doc = Document.objects.get(id=doc_id)
+    if export_id is None:
+        doc = Document.objects.get(id=doc_id)
+    else:
+        export, corpus, doc = UserExportService.get_document_context(
+            export_id, corpus_id, doc_id
+        )
+        user_id = cast(int, export.creator_id)  # Context requires a stored requester.
+        corpus_id, doc_id = corpus.pk, doc.pk
 
     annotation_map: dict[int, list[FunsdAnnotationType]] = {}
 
@@ -1283,6 +1309,21 @@ def extract_thumbnail(self, doc_id: int) -> None:
         raise
 
 
+def document_processing_steps(user_id: int, doc_id: int):
+    """The shared create/retry pipeline, stopping on returned errors.
+
+    Keep conversion before thumbnailing and parsing, then remap deferred
+    annotations before unlocking. Dispatch timing and the errback stay at callers.
+    """
+    return (
+        convert_document_to_pdf.si(user_id=user_id, doc_id=doc_id, raise_on_error=True),
+        extract_thumbnail.si(doc_id=doc_id),
+        ingest_doc.si(user_id=user_id, doc_id=doc_id, raise_on_error=True),
+        remap_pending_annotations.si(doc_id=doc_id),
+        set_doc_lock_state.si(locked=False, doc_id=doc_id),
+    )
+
+
 @shared_task
 def retry_document_processing(user_id: int, doc_id: int) -> dict[str, Any]:
     """
@@ -1319,7 +1360,7 @@ def retry_document_processing(user_id: int, doc_id: int) -> dict[str, Any]:
     # task that mutates state must not trust upstream callers blindly.
     User = get_user_model()
     try:
-        user_obj = User.objects.get(pk=user_id)
+        user_obj = User.objects.get(pk=user_id, is_active=True)
         document_obj = Document.objects.get(pk=doc_id)
     except User.DoesNotExist:
         logger.error(
@@ -1398,20 +1439,9 @@ def retry_document_processing(user_id: int, doc_id: int) -> dict[str, Any]:
         "triggering reprocessing pipeline"
     )
 
-    # Re-trigger the processing pipeline. link_error marks the document FAILED
-    # if any task in the chain raises (halting the chain before
-    # set_doc_lock_state finalizes status), so a failed retry can't strand the
-    # doc back in PROCESSING.
-    chain(
-        # Same optional pre-parse conversion step as the post_save chain in
-        # documents/signals.py — a retry after a conversion failure (or after
-        # the converter was configured/fixed) must re-attempt conversion.
-        convert_document_to_pdf.si(user_id=user_id, doc_id=doc_id),
-        extract_thumbnail.si(doc_id=doc_id),
-        ingest_doc.si(user_id=user_id, doc_id=doc_id),
-        remap_pending_annotations.si(doc_id=doc_id),
-        set_doc_lock_state.si(locked=False, doc_id=doc_id),
-    ).apply_async(link_error=mark_doc_failed_on_chain_error.s(doc_id=doc_id))
+    chain(*document_processing_steps(user_id=user_id, doc_id=doc_id)).apply_async(
+        link_error=mark_doc_failed_on_chain_error.s(doc_id=doc_id)
+    )
 
     return {
         "status": "queued",

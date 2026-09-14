@@ -7,6 +7,15 @@ collects Auth0 passwords or embeds the hosted page in an iframe.
 
 ## Session lifecycle
 
+Django cookie sessions are created only by the admin login view
+(`config/admin_auth/views.py`): password logins are tagged with `ModelBackend`
+and Auth0 token logins with `Auth0AdminBackend`, both of which restore sessions
+through `ModelBackend.get_user` and reject deactivated accounts. The header-only
+JWT backends never create sessions; their `get_user` shares
+`config/jwt_auth/shortcuts.py::get_active_user` so a session tagged with them
+would behave the same. Disabling an account removes its authenticated access on
+the next request; public access and other valid credentials are unaffected.
+
 1. `AuthGate` waits for the SDK's `isLoading` state to settle. In local-password
    deployments it instead reads a candidate JWT from sessionStorage.
 2. AuthGate clears the old Apollo store before publishing credentials.

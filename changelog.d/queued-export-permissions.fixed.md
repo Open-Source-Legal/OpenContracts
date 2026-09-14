@@ -1,0 +1,1 @@
+- Recheck the stored requester and corpus READ before queued export stages, and verify active corpus membership before reading queued document sources.
