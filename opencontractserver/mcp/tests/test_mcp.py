@@ -3287,8 +3287,8 @@ class MCPScopedServerTest(TransactionTestCase):
 
         # Corpus resource should have the scoped slug
         corpus_resource = next(r for r in resources if r.name == "Corpus")
-        # Compare as strings since Resource.uri is an AnyUrl type
-        self.assertEqual(str(corpus_resource.uri), f"corpus://{self.corpus.slug}")
+        # mcp 2.x types ``Resource.uri`` as a plain ``str``.
+        self.assertEqual(corpus_resource.uri, f"corpus://{self.corpus.slug}")
 
     def test_get_scoped_resource_template_definitions(self):
         """Test scoped resource template definitions."""

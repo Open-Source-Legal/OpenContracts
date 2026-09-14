@@ -936,25 +936,25 @@ def get_resource_template_definitions() -> list[ResourceTemplate]:
             uri_template="corpus://{corpus_slug}",
             name="Public Corpus",
             description="Access public corpus metadata and contents",
-            mime_type="application/json",
+            mime_type=MCP_RESOURCE_MIME_TYPE,
         ),
         ResourceTemplate(
             uri_template="document://{corpus_slug}/{document_slug}",
             name="Public Document",
             description="Access public document with extracted text",
-            mime_type="application/json",
+            mime_type=MCP_RESOURCE_MIME_TYPE,
         ),
         ResourceTemplate(
             uri_template="annotation://{corpus_slug}/{document_slug}/{annotation_id}",
             name="Document Annotation",
             description="Access specific annotation on a document",
-            mime_type="application/json",
+            mime_type=MCP_RESOURCE_MIME_TYPE,
         ),
         ResourceTemplate(
             uri_template="thread://{corpus_slug}/threads/{thread_id}",
             name="Discussion Thread",
             description="Access public discussion thread with messages",
-            mime_type="application/json",
+            mime_type=MCP_RESOURCE_MIME_TYPE,
         ),
     ]
 
@@ -1472,7 +1472,7 @@ def get_scoped_resource_definitions(
             uri=f"corpus://{corpus_slug}",
             name="Corpus",
             description=f"Access the '{corpus_slug}' corpus metadata and contents",
-            mime_type="application/json",
+            mime_type=MCP_RESOURCE_MIME_TYPE,
         )
     )
 
@@ -1486,7 +1486,7 @@ def get_scoped_resource_definitions(
                 uri=f"document://{corpus_slug}/{doc.slug}",
                 name=f"Document: {doc.title or doc.slug}",
                 description=doc.description[:100] if doc.description else "Document",
-                mime_type="application/json",
+                mime_type=MCP_RESOURCE_MIME_TYPE,
             )
         )
 
@@ -1509,7 +1509,7 @@ def get_scoped_resource_definitions(
                     if thread.description
                     else "Discussion thread"
                 ),
-                mime_type="application/json",
+                mime_type=MCP_RESOURCE_MIME_TYPE,
             )
         )
 
@@ -1533,19 +1533,19 @@ def get_scoped_resource_template_definitions(
             uri_template=f"document://{corpus_slug}/{{document_slug}}",
             name="Document",
             description="Access document with extracted text",
-            mime_type="application/json",
+            mime_type=MCP_RESOURCE_MIME_TYPE,
         ),
         ResourceTemplate(
             uri_template=f"annotation://{corpus_slug}/{{document_slug}}/{{annotation_id}}",
             name="Annotation",
             description="Access specific annotation on a document",
-            mime_type="application/json",
+            mime_type=MCP_RESOURCE_MIME_TYPE,
         ),
         ResourceTemplate(
             uri_template=f"thread://{corpus_slug}/threads/{{thread_id}}",
             name="Discussion Thread",
             description="Access discussion thread with messages",
-            mime_type="application/json",
+            mime_type=MCP_RESOURCE_MIME_TYPE,
         ),
     ]
 
