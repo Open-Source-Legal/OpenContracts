@@ -1593,7 +1593,7 @@ When creating an agent, the `_user_has_write_permission()` helper (line ~29) che
 
 Even if a tool somehow makes it to execution, the `PydanticAIToolWrapper` (line ~223) wraps every tool call with two module-level pre-execution checks:
 
-1. **`_check_user_permissions(ctx)`** (line ~20): Validates the user in `RunContext[PydanticAIDependencies]` has READ permission on the bound document/corpus. This is intentionally **not cached** — each tool call triggers fresh DB queries to detect mid-session permission revocations.
+1. **`_check_user_permissions(ctx)`**: Validates current READ on the bound document/corpus and, for tools marked `requires_write_permission`, CRUD on the bound document (or corpus for corpus agents). Approval preserves this context and reruns the checks. This is intentionally **not cached** — each tool call triggers fresh DB queries to detect mid-session permission revocations.
 2. **`_validate_resource_id_params(ctx, **kwargs)`** (line ~132): Ensures `document_id`/`corpus_id` arguments match the agent's context, preventing prompt-injection attacks that attempt cross-resource access.
 
 These checks run inside the generated `async_wrapper`/`sync_wrapper` functions, not as methods on the wrapper class.
@@ -1612,7 +1612,7 @@ Tools like `load_document_summary`, `get_summary_token_length`, and `similarity_
 
 Tools that modify data — such as `add_document_note`, `update_document_summary`, and `duplicate_annotations` — are marked with `requires_approval=True` and `requires_corpus=True`. These are automatically filtered out when no corpus is present, and pause for human approval before execution.
 
-> **Note**: The `requires_write_permission` flag exists on `CoreTool` but is not currently set on any built-in tools. It's available for custom tools that need write-permission gating at the factory level.
+> Built-in writers set `requires_write_permission=True`. The wrapper checks current permission before execution, including after approval.
 
 ### Security Guarantees
 

@@ -27,6 +27,7 @@ from django.test import TestCase, TransactionTestCase, override_settings
 
 from opencontractserver.analyzer.models import Analysis, Analyzer
 from opencontractserver.corpuses.models import (
+    Corpus,
     CorpusAction,
     CorpusActionTrigger,
 )
@@ -1057,6 +1058,10 @@ class TestApprovalGate(TransactionTestCase):
     the existing Django setUp/tearDown semantics intact.
     """
 
+    def setUp(self):
+        self.user = User.objects.create_user(username="tool-approval-owner")
+        self.corpus = Corpus.objects.create(title="Approval context", creator=self.user)
+
     @pytest.mark.asyncio
     async def test_start_extract_requires_approval(self):
         registry = ToolFunctionRegistry.get()
@@ -1070,7 +1075,10 @@ class TestApprovalGate(TransactionTestCase):
 
         ctx = MagicMock()
         ctx.deps = PydanticAIDependencies(
-            user_id=None, corpus_id=None, document_id=None, skip_approval_gate=False
+            user_id=self.user.pk,
+            corpus_id=self.corpus.pk,
+            document_id=None,
+            skip_approval_gate=False,
         )
         ctx.tool_call_id = "test-call"
 
@@ -1080,7 +1088,9 @@ class TestApprovalGate(TransactionTestCase):
         # so all required kwargs must be supplied even though the test is
         # only checking that approval fires before execution.
         with self.assertRaises(ToolConfirmationRequired) as cm:
-            await callable_fn(ctx, corpus_id=1, fieldset_id=1, user_id=1)
+            await callable_fn(
+                ctx, corpus_id=self.corpus.pk, fieldset_id=1, user_id=self.user.pk
+            )
         self.assertEqual(cm.exception.tool_name, "start_extract")
         self.assertIn("fieldset_id", cm.exception.tool_args)
 
@@ -1097,7 +1107,10 @@ class TestApprovalGate(TransactionTestCase):
 
         ctx = MagicMock()
         ctx.deps = PydanticAIDependencies(
-            user_id=None, corpus_id=None, document_id=None, skip_approval_gate=False
+            user_id=self.user.pk,
+            corpus_id=self.corpus.pk,
+            document_id=None,
+            skip_approval_gate=False,
         )
         ctx.tool_call_id = "test-call"
 
@@ -1106,7 +1119,9 @@ class TestApprovalGate(TransactionTestCase):
         # ``_maybe_raise`` and uses ``Signature.bind`` (not ``bind_partial``),
         # so all required kwargs must be supplied.
         with self.assertRaises(ToolConfirmationRequired) as cm:
-            await callable_fn(ctx, corpus_id=1, analyzer_id="x.y", user_id=1)
+            await callable_fn(
+                ctx, corpus_id=self.corpus.pk, analyzer_id="x.y", user_id=self.user.pk
+            )
         self.assertEqual(cm.exception.tool_name, "start_analysis")
 
     @pytest.mark.asyncio
