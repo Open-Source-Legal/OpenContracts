@@ -26,6 +26,11 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.test import TransactionTestCase
 
+from opencontractserver.conversations.models import (
+    ChatMessage,
+    Conversation,
+    ModerationAction,
+)
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
 from opencontractserver.llms.agents.agent_factory import UnifiedAgentFactory
@@ -37,8 +42,10 @@ from opencontractserver.llms.agents.core_agents import (
     ResumeEvent,
     UnifiedStreamEvent,
 )
+from opencontractserver.llms.agents.pydantic_ai_agents import PydanticAIDocumentAgent
 from opencontractserver.llms.exceptions import ToolConfirmationRequired
 from opencontractserver.llms.tools.tool_factory import CoreTool
+from opencontractserver.llms.tools.tool_registry import ToolFunctionRegistry
 from opencontractserver.llms.types import AgentFramework
 
 User = get_user_model()
@@ -219,6 +226,111 @@ class TestApprovalFlow(TransactionTestCase):
     # ------------------------------------------------------------------
     # Tests
     # ------------------------------------------------------------------
+
+    async def test_approval_cannot_select_a_message_outside_its_conversation(self):
+        agent = await self._create_agent()
+        response = await agent.chat("run gate")
+        pending = await ChatMessage.objects.aget(pk=response.llm_message_id)
+        other = await User.objects.acreate(username="other-approval-owner")
+        original = agent.conversation_manager.conversation
+        for owner, has_context in (
+            (self.user, True),
+            (other, True),
+            (self.user, False),
+        ):
+            conversation = await Conversation.objects.acreate(creator=owner)
+            message = await ChatMessage.objects.acreate(
+                creator=owner,
+                conversation=conversation,
+                msg_type="LLM",
+                state=MessageState.AWAITING_APPROVAL,
+                data=pending.data,
+            )
+            agent.conversation_manager.conversation = original if has_context else None
+            for approved in (False, True):
+                with self.subTest(
+                    owner=owner.pk, context=has_context, approved=approved
+                ):
+                    events = []
+                    with self.assertRaisesMessage(
+                        ValueError, f"ChatMessage {message.pk} not found"
+                    ):
+                        async for event in agent.resume_with_approval(
+                            message.pk, approved
+                        ):
+                            events.append(event)
+                    self.assertEqual(events, [])
+                    await message.arefresh_from_db()
+                    self.assertEqual(message.state, MessageState.AWAITING_APPROVAL)
+                    self.assertEqual(message.data, pending.data)
+
+    async def test_moderation_uses_the_factory_actor(self):
+        names = (
+            "lock_thread",
+            "unlock_thread",
+            "pin_thread",
+            "unpin_thread",
+            "delete_message",
+        )
+        registry = ToolFunctionRegistry.get()
+        with patch.object(
+            PydanticAIDocumentAgent, "create", wraps=PydanticAIDocumentAgent.create
+        ) as create:
+            agent = await self._create_agent(
+                extra_tools=[registry.to_core_tool(name) for name in names]
+            )
+        tools = {tool.__name__: tool for tool in create.call_args.args[3]}
+        ctx = types.SimpleNamespace(
+            deps=agent.agent_deps.model_copy(update={"skip_approval_gate": True})
+        )
+        other = await User.objects.acreate(username="other-moderator")
+        foreign_corpus = await Corpus.objects.acreate(creator=other, title="Foreign")
+        for name in names:
+            for allowed in (False, True):
+                with self.subTest(tool=name, allowed=allowed):
+                    owner = self.user if allowed else other
+                    thread = await Conversation.objects.acreate(
+                        creator=owner,
+                        chat_with_corpus=self.corpus if allowed else foreign_corpus,
+                        conversation_type="thread",
+                        is_locked=name == "unlock_thread",
+                        is_pinned=name == "unpin_thread",
+                    )
+                    resource = thread
+                    arguments = {"thread_id": thread.pk}
+                    if name == "delete_message":
+                        resource = await ChatMessage.objects.acreate(
+                            creator=owner,
+                            conversation=thread,
+                            msg_type="HUMAN",
+                            content="Target",
+                        )
+                        arguments = {"message_id": resource.pk}
+                    query = type(resource).all_objects.filter(pk=resource.pk)
+                    before = await query.values().aget()
+                    actions = await ModerationAction.objects.acount()
+                    if allowed:
+                        result = await tools[name](
+                            ctx,
+                            **arguments,
+                            moderator_id=other.pk,
+                            reason="Bound actor",
+                        )
+                        self.assertTrue(result["success"])
+                        action = await ModerationAction.objects.alatest("pk")
+                        self.assertEqual(action.moderator_id, self.user.pk)
+                    else:
+                        with self.assertRaises(PermissionError):
+                            await tools[name](
+                                ctx,
+                                **arguments,
+                                moderator_id=other.pk,
+                                reason="Supplied actor",
+                            )
+                        self.assertEqual(
+                            await ModerationAction.objects.acount(), actions
+                        )
+                        self.assertEqual(await query.values().aget(), before)
 
     async def test_event_serialisation(self):
         agent = await self._create_agent()

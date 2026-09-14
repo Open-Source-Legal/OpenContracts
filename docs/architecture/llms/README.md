@@ -777,6 +777,11 @@ When a tool requiring approval is called, the framework:
 3. **Persists state** in the database with `state=AWAITING_APPROVAL`
 4. **Waits for human decision** via `resume_with_approval()`
 
+`PydanticAICoreAgent.resume_with_approval()` resolves the pending message **inside the agent's own conversation** (`ChatMessage` filtered by `conversation_id`), so a decision can never approve or reject another conversation's message by id. Two consequences:
+
+- **Ephemeral sessions cannot resume.** `persist=False` sub-agents (`llms/tools/delegation_tools.py`) and anonymous chat build a `CoreConversationManager` with no conversation; their placeholder ids are synthetic in-memory counters, never `ChatMessage` rows. A decision for such a session raises `ValueError("... has no persisted conversation ...")` instead of matching an unrelated row by primary-key coincidence. Today this is moot in practice: every `requires_approval=True` tool in `llms/tools/tool_registry.py` also sets `requires_write_permission=True`, and write tools are filtered out for anonymous users, so only a delegated sub-agent acting for a writer can reach the gate — and that path never completed a resume before the conversation scoping either (it looked up the synthetic id against the global table). Making ephemeral sub-agents resumable (resolving the paused message from the manager's in-memory buffer) is a separate feature.
+- **Actor identity is bound, not argued.** Moderation tools name their actor `moderator_id`, one of the `TOOL_ACTOR_IDENTITY_PARAMS` (`constants/tools.py`) that `build_inject_params_for_context()` fills from the factory's `user_id` and hides from the LLM; caller arguments cannot substitute another moderator. Any new actor-identity parameter must be added to that set.
+
 Upon approval/rejection:
 
 1. **Emits `ApprovalResultEvent`** with the decision
@@ -1596,7 +1601,7 @@ Even if a tool somehow makes it to execution, the `PydanticAIToolWrapper` (line 
 1. **`_check_user_permissions(ctx)`**: Validates current READ on the bound document/corpus and, for tools marked `requires_write_permission`, CRUD on the bound document (or corpus for corpus agents). Approval preserves this context and reruns the checks. This is intentionally **not cached** — each tool call triggers fresh DB queries to detect mid-session permission revocations.
 2. **`_validate_resource_id_params(ctx, **kwargs)`** (line ~132): Ensures `document_id`/`corpus_id` arguments match the agent's context, preventing prompt-injection attacks that attempt cross-resource access.
 
-These checks run inside the generated `async_wrapper`/`sync_wrapper` functions, not as methods on the wrapper class.
+Selected resource arguments also pass `_check_target_permissions` using the same actor. This covers positional, default, and forwarded keyword arguments. Content writers require the selected target's existing CRUD permission; thread reads and posting require model READ. File management and the five moderation actions retain their service-specific write rules. `ask_document` retains its existing corpus/group selection; `get_document_references` and `find_documents_citing` retain their service-owned READ checks and structured denial results. Malformed arguments return normal tool errors; permission and approval exceptions still propagate.
 
 **Purpose**: Final safety check that catches any bypass attempts or edge cases, ensuring operations never execute without proper permissions.
 
@@ -2996,3 +3001,5 @@ Because the factory runs on every agent build, the resolved per-provider credent
 ### Validation
 
 `Corpus.save()` and `AgentConfiguration.save()` both run the resolver's `validate_model_spec()` — a malformed string or a provider with no registered `BaseLLMProvider` subclass raises `ValidationError({"preferred_llm": ...})`. The validator does not gate against `supported_models` so users aren't blocked from passing newly-released model names. Specs are normalised to canonical `"{provider}:{model}"` form on the way into the database.
+
+Structured response overrides use the same context binding as factory tools, including anonymous actors. Rewrapping preserves approval and WRITE metadata, and per-call dependencies cannot replace the bound actor or resource context.

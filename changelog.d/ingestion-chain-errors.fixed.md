@@ -1,0 +1,1 @@
+- Stop create/retry ingestion chains when conversion or parsing returns a failure, and reject inactive requesters before processing. Standalone task result dictionaries retain their existing shape.
