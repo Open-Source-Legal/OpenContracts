@@ -120,6 +120,7 @@ class PermissionQueryOptimizer:
             collect,
             using=instance._state.db,
             revision=grant_revision(instance, user_id),
+            user_id=user_id if include_group_permissions else None,
         )
 
     def invalidate(

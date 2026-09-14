@@ -139,7 +139,31 @@ class UserCanMixin:
         )
 
 
-class InstanceUserCanMixin:
+class PermissionStateMixin:
+    """Keep permission evidence local when copying or serializing models."""
+
+    def __getstate__(self) -> Any:
+        """Strip cached grant sets and permission prefetches before pickling.
+
+        Django's Model.__getstate__ copies the state, so clearing the serialized
+        data leaves the live instance untouched. Grant revisions and transaction
+        markers belong to this process; prefetched rows cannot be transported as
+        current permission evidence. Pass IDs and re-fetch in workers instead.
+        Non-dict states from object.__getstate__ remain unchanged.
+        """
+        # Lazy import avoids pulling ``constants/permissioning`` into the
+        # shared.Models ⇄ users.models startup chain.
+        from opencontractserver.shared.prefetch_attrs import (
+            discard_serialized_permission_state,
+        )
+
+        state = super().__getstate__()
+        if isinstance(state, dict):
+            discard_serialized_permission_state(state)
+        return state
+
+
+class InstanceUserCanMixin(PermissionStateMixin):
     """Ergonomic ``self.user_can(user, permission)`` delegate for model classes.
 
     Routes through ``type(self)._default_manager.user_can`` so per-model
@@ -170,30 +194,6 @@ class InstanceUserCanMixin:
     # which reads ``getattr(instance, "_skip_signals", False)`` and so IS
     # value-sensitive.) Normally absent at runtime.
     _skip_signals: bool
-
-    def __getstate__(self) -> Any:
-        """Strip cached grant sets and permission prefetches before pickling.
-
-        Django's Model.__getstate__ copies the state, so clearing the serialized
-        data leaves the live instance untouched. Grant revisions and transaction
-        markers belong to this process; prefetched rows cannot be transported as
-        current permission evidence. Pass IDs and re-fetch in workers instead.
-        Non-dict states from object.__getstate__ remain unchanged.
-        """
-        # Lazy import avoids pulling ``constants/permissioning`` into the
-        # shared.Models ⇄ users.models startup chain.
-        from opencontractserver.constants.permissioning import (
-            INSTANCE_PERMS_CACHE_ATTR,
-        )
-        from opencontractserver.shared.prefetch_attrs import (
-            discard_serialized_permission_prefetches,
-        )
-
-        state = super().__getstate__()
-        if isinstance(state, dict):
-            state.pop(INSTANCE_PERMS_CACHE_ATTR, None)
-            discard_serialized_permission_prefetches(state)
-        return state
 
     def user_can(
         self,

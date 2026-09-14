@@ -21,10 +21,12 @@ from typing import Any
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.db import transaction
 
 from config.graphql.permissioning.permission_annotator.middleware import (
     get_permissions_for_user_on_model_in_app,
 )
+from opencontractserver.shared.grant_cache import GrantSnapshot
 from opencontractserver.shared.prefetch_attrs import (
     permission_prefetch,
 )
@@ -64,7 +66,7 @@ def get_anonymous_user_id(info: Any) -> int | None:
 
 
 def _permission_annotations(info: Any) -> dict[str, Any]:
-    """The per-request {app.model: permission-map} cache.
+    """The per-request actor/model permission-metadata cache.
 
     graphene's ``PermissionAnnotatingMiddleware`` created this attribute on
     the request; the strawberry stack creates it lazily here.
@@ -81,16 +83,19 @@ def _permission_annotations(info: Any) -> dict[str, Any]:
 
 
 def _annotations_for_model(info: Any, instance: Any) -> dict[str, Any]:
-    """Memoised ``get_permissions_for_user_on_model_in_app`` per app.model."""
+    """Memoise actor/model metadata using the shared grant-snapshot lifetime."""
     model_name = instance._meta.model_name
     app_label = instance._meta.app_label
-    full_name = f"{app_label}.{model_name}"
+    user = getattr(info.context, "user", None)
+    key = f"{app_label}.{model_name}:{getattr(user, 'id', None)}"
     annotations = _permission_annotations(info)
-    if full_name not in annotations:
-        annotations[full_name] = get_permissions_for_user_on_model_in_app(
-            app_label, model_name, getattr(info.context, "user", None)
-        )
-    return annotations[full_name]
+    connection = transaction.get_connection(instance._state.db)
+    cached = annotations.get(key)
+    if cached is None or not cached[0].valid(connection):
+        snapshot = GrantSnapshot(connection, user_id=getattr(user, "id", None))
+        metadata = get_permissions_for_user_on_model_in_app(app_label, model_name, user)
+        annotations[key] = snapshot, metadata
+    return annotations[key][1]
 
 
 def resolve_my_permissions(instance: Any, info: Any) -> list[str]:

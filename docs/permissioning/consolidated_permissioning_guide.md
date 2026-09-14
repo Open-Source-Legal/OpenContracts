@@ -2929,7 +2929,7 @@ When you add a new model whose rows must be permission-filtered, work through th
 - **GraphQL resolvers and mutations** — pass `request=info.context`. This is where Tier-2 pays off (list resolvers check permissions per row).
 - **Celery tasks, agent tools, websocket consumers, import services, fixtures, tests** — omit `request=`. They have no GraphQL request in scope; they degrade gracefully to Tier-1 instance caching. Passing a non-request object is unsafe.
 
-**Cache invalidation.** `set_permissions_for_obj_to_user(user, obj, perms, request=info.context)` invalidates both tiers for that `(user, obj)` pair after the grant lands, so later `user_can` checks in the same request see the new state. Group-permission changes (`user.groups.add(...)`, `assign_perm(perm, group, obj)`) do **not** flow through that helper — a caller mutating group membership mid-request must invalidate manually (`delattr(instance, INSTANCE_PERMS_CACHE_ATTR)` and/or `get_request_optimizer(request).invalidate(user_id=user.id)`).
+**Cache invalidation.** `set_permissions_for_obj_to_user(user, obj, perms, request=info.context)` expires grant snapshots before committing. Django membership and permission-definition signals use the same mechanism. Raw Guardian/through-table writes retain explicit invalidation duties; see `opencontractserver/shared/grant_cache.py` and the snapshot-lifetime notes below.
 
 ### Service Layer: corpus services and `DocumentService`
 
@@ -2970,3 +2970,5 @@ one for the other:
 Instance and request grant caches share rollback tracking. A grant read in a rolled-back transaction/savepoint expires, and invalidation during an in-flight lookup prevents that result from repopulating the cache. Grant replacement invalidates before commit callbacks run. Existing query budgets and out-of-band invalidation requirements remain.
 
 Grant replacement also expires other in-process instances, request caches, and document permission prefetches for the same object and user. Serialized models drop permission prefetches; raw Guardian or through-table writes still require explicit invalidation.
+
+Django membership and model-permission m2m edits expire actor-dependent snapshots in this process. GraphQL metadata is keyed by actor and model, and copied or serialized users drop backend permission caches. Reverse clears, group model-permission edits, and Group/Permission cascade deletions conservatively expire permission snapshots for the database without querying its members. Direct Django `User.has_perm()`/`get_all_permissions()` calls retain Django's per-instance caches; after permission edits, use a fresh user or `shared.grant_cache.model_permission_grants()` for current model grants.
