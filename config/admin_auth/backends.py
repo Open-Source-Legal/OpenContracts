@@ -30,6 +30,10 @@ class Auth0AdminBackend(ModelBackend):
 
     For users who navigate directly to /admin/, it redirects them to
     the frontend Auth0 login flow, then back to admin.
+
+    Sessions created by the admin token login are tagged with this backend,
+    so Django restores them through the inherited ``ModelBackend.get_user``,
+    which returns ``None`` for deactivated accounts.
     """
 
     def authenticate(
@@ -85,11 +89,4 @@ class Auth0AdminBackend(ModelBackend):
                 return None
         except UserModel.DoesNotExist:
             logger.warning("Auth0 admin auth failed: user %s not found", auth0_user_id)
-            return None
-
-    def get_user(self, user_id: int) -> Optional["User"]:
-        """Retrieve user by primary key."""
-        try:
-            return UserModel.objects.get(pk=user_id, is_active=True)
-        except UserModel.DoesNotExist:
             return None

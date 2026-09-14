@@ -1,8 +1,6 @@
 """Django authentication backend for locally signed JWTs."""
 
-from django.contrib.auth import get_user_model
-
-from .shortcuts import get_user_by_token
+from .shortcuts import get_active_user, get_user_by_token
 from .utils import get_credentials
 
 
@@ -14,8 +12,4 @@ class JSONWebTokenBackend:
         return get_user_by_token(token, request) if token is not None else None
 
     def get_user(self, user_id):
-        model = get_user_model()
-        try:
-            return model._default_manager.get(pk=user_id, is_active=True)
-        except model.DoesNotExist:
-            return None
+        return get_active_user(user_id)
