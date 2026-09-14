@@ -1,14 +1,23 @@
 import inspect
 from typing import Optional
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from asgiref.sync import async_to_sync
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.contrib.auth.models import Group
+from django.test import TestCase, TransactionTestCase
+from guardian.shortcuts import assign_perm
+from pydantic_ai.models.test import TestModel
 
+from opencontractserver.agents.models import AgentConfiguration
+from opencontractserver.annotations.models import Annotation, Note
 from opencontractserver.constants.tools import TOOL_ACTOR_IDENTITY_PARAMS
+from opencontractserver.conversations.models import ChatMessage, Conversation
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
+from opencontractserver.llms import agents
+from opencontractserver.llms.agents.pydantic_ai_agents import _get_function_tools
 from opencontractserver.llms.tools.pydantic_ai_tools import (
     PydanticAIDependencies,
     PydanticAIToolFactory,
@@ -22,6 +31,9 @@ from opencontractserver.llms.tools.tool_factory import (
     CoreTool,
     build_inject_params_for_context,
 )
+from opencontractserver.llms.tools.tool_registry import ToolFunctionRegistry
+from opencontractserver.types.enums import PermissionTypes
+from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
 User = get_user_model()
 
@@ -244,6 +256,363 @@ class TestPydanticAIToolsAsync(TestCase):
         self.assertIsNone(result_fail)
 
 
+class TestToolTargetRead(TransactionTestCase):
+    """Real tool bodies run in worker threads and need committed fixtures."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="target-owner")
+        self.corpus = Corpus.objects.create(creator=self.user, title="Private corpus")
+        self.doc = Document.objects.create(
+            creator=self.user, title="Private document", description="Private content"
+        )
+
+    def _target_tool(self, name, actor, corpus, document=None):
+        core = ToolFunctionRegistry.get().to_core_tool(name)
+        assert core is not None
+        context = {"user_id": actor.pk if actor else None, "corpus_id": corpus.pk}
+        if document is not None:
+            context["document_id"] = document.pk
+        tool = PydanticAIToolFactory.create_tool(
+            core, inject_params=build_inject_params_for_context(core, **context)
+        )
+        return tool, MagicMock(
+            deps=PydanticAIDependencies(**context, skip_approval_gate=True)
+        )
+
+    def test_readable_context_does_not_admit_private_tool_targets(self):
+        reader = User.objects.create_user(username="target-reader")
+        origin = Corpus.objects.create(creator=reader, title="Origin", is_public=True)
+        thread = Conversation.objects.create(
+            creator=self.user, chat_with_corpus=self.corpus, conversation_type="thread"
+        )
+        message = ChatMessage.objects.create(
+            creator=self.user,
+            conversation=thread,
+            msg_type="HUMAN",
+            content="Private message",
+        )
+        annotation = Annotation.objects.create(
+            creator=self.user,
+            document=self.doc,
+            corpus=self.corpus,
+            raw_text="Private",
+            json={"tokensJsons": []},
+        )
+        note = Note.objects.create(
+            creator=self.user,
+            document=self.doc,
+            corpus=self.corpus,
+            title="Private",
+            content="Original",
+        )
+        cases = {
+            "get_document_description": {"document_id": self.doc.pk},
+            "get_thread_context": {"thread_id": thread.pk},
+            "get_thread_messages": {"thread_id": thread.pk},
+            "get_message_content": {"message_id": message.pk},
+            "get_annotation_images": {"annotation_id": annotation.pk},
+        }
+        for actor in (reader, None, self.user):
+            for name, arguments in cases.items():
+                with self.subTest(actor=actor, tool=name):
+                    tool, ctx = self._target_tool(name, actor, origin)
+                    if actor == self.user:
+                        result = async_to_sync(tool)(ctx, **arguments)
+                        self.assertNotIn("[Tool error]", str(result))
+                    else:
+                        with self.assertRaisesRegex(PermissionError, "READ"):
+                            async_to_sync(tool)(ctx, **arguments)
+        for name, arguments in (
+            ("update_document_note", {"note_id": note.pk, "new_content": "Changed"}),
+            (
+                "duplicate_annotations_with_label",
+                {"annotation_ids": [annotation.pk], "new_label_text": "Copied"},
+            ),
+        ):
+            with self.subTest(writer=name):
+                tool, ctx = self._target_tool(name, reader, origin)
+                count = Annotation.objects.count()
+                with self.assertRaisesRegex(PermissionError, "READ"):
+                    async_to_sync(tool)(ctx, **arguments)
+                self.assertEqual(Annotation.objects.count(), count)
+                note.refresh_from_db()
+                self.assertEqual(note.content, "Original")
+
+    def test_selected_document_read_tracks_group_revocation_and_public_access(self):
+        reader = User.objects.create_user(username="target-group-reader")
+        group = Group.objects.create(name="Target readers")
+        group.user_set.add(reader)
+        assign_perm("read_document", group, self.doc)
+        origin = Corpus.objects.create(creator=reader, title="Origin", is_public=True)
+        tool, ctx = self._target_tool("get_document_description", reader, origin)
+        self.assertEqual(
+            async_to_sync(tool)(ctx, document_id=self.doc.pk),
+            self.doc.description or "",
+        )
+        group.user_set.remove(reader)
+        with self.assertRaisesRegex(PermissionError, "READ"):
+            async_to_sync(tool)(ctx, document_id=self.doc.pk)
+        Document.objects.filter(pk=self.doc.pk).update(is_public=True)
+        tool, ctx = self._target_tool("get_document_description", None, origin)
+        self.assertEqual(
+            async_to_sync(tool)(ctx, document_id=self.doc.pk),
+            self.doc.description or "",
+        )
+
+    def test_selected_writers_require_current_target_write(self):
+        writer = User.objects.create_user(username="target-writer")
+        origin = Corpus.objects.create(creator=writer, title="Writable origin")
+        annotation = Annotation.objects.create(
+            creator=self.user, document=self.doc, corpus=self.corpus, raw_text="Source"
+        )
+        note = Note.objects.create(
+            creator=self.user, document=self.doc, corpus=self.corpus, content="Original"
+        )
+        for doc_write, corpus_write in (
+            (False, False),
+            (True, False),
+            (False, True),
+            (True, True),
+            (True, False),
+        ):
+            for obj, writable in ((self.doc, doc_write), (self.corpus, corpus_write)):
+                set_permissions_for_obj_to_user(
+                    writer,
+                    obj,
+                    [PermissionTypes.CRUD if writable else PermissionTypes.READ],
+                )
+            for name, arguments in (
+                (
+                    "update_document_note",
+                    {"note_id": note.pk, "new_content": "Changed"},
+                ),
+                (
+                    "duplicate_annotations_with_label",
+                    {"annotation_ids": [annotation.pk], "new_label_text": "Copied"},
+                ),
+            ):
+                with self.subTest(
+                    tool=name, doc_write=doc_write, corpus_write=corpus_write
+                ):
+                    tool, ctx = self._target_tool(name, writer, origin)
+                    if doc_write and corpus_write:
+                        self.assertNotIn(
+                            "[Tool error]", str(async_to_sync(tool)(ctx, **arguments))
+                        )
+                        continue
+                    annotation_count = Annotation.objects.count()
+                    content = Note.objects.get(pk=note.pk).content
+                    for approved in (False, True):
+                        ctx.deps.skip_approval_gate = approved
+                        with self.assertRaisesRegex(PermissionError, "WRITE"):
+                            async_to_sync(tool)(ctx, **arguments)
+                    self.assertEqual(Annotation.objects.count(), annotation_count)
+                    self.assertEqual(Note.objects.get(pk=note.pk).content, content)
+        self.assertEqual(Annotation.objects.count(), 2)
+        self.assertEqual(Note.objects.get(pk=note.pk).content, "Changed")
+
+    def test_thread_posting_requires_current_target_visibility(self):
+        writer = User.objects.create_user(username="thread-writer")
+        origin = Corpus.objects.create(creator=writer, title="Writable origin")
+        thread = Conversation.objects.create(
+            creator=self.user, chat_with_corpus=self.corpus, conversation_type="thread"
+        )
+        agent = AgentConfiguration.objects.create(
+            creator=writer, name="Posting agent", slug="posting-agent"
+        )
+        tool, ctx = self._target_tool("add_thread_message", writer, origin)
+        arguments = {
+            "thread_id": thread.pk,
+            "content": "Reply",
+            "agent_config_id": agent.pk,
+        }
+        for visible in (False, True, False):
+            set_permissions_for_obj_to_user(
+                writer, self.corpus, [PermissionTypes.READ] if visible else []
+            )
+            if visible:
+                self.assertTrue(async_to_sync(tool)(ctx, **arguments)["success"])
+            else:
+                count = ChatMessage.objects.filter(conversation=thread).count()
+                with self.assertRaisesRegex(PermissionError, "READ"):
+                    async_to_sync(tool)(ctx, **arguments)
+                self.assertEqual(
+                    ChatMessage.objects.filter(conversation=thread).count(), count
+                )
+        message = ChatMessage.objects.get(conversation=thread)
+        self.assertEqual(message.creator_id, writer.pk)
+        self.assertEqual(message.content, "Reply")
+
+    def test_selected_document_writes_require_current_crud(self):
+        writer = User.objects.create_user(username="selected-document-writer")
+        origin = Corpus.objects.create(creator=writer, title="Writable origin")
+        tool, ctx = self._target_tool("update_document_description", writer, origin)
+        for writable in (False, True, False):
+            set_permissions_for_obj_to_user(
+                writer,
+                self.doc,
+                [PermissionTypes.CRUD if writable else PermissionTypes.READ],
+            )
+            if writable:
+                self.assertTrue(
+                    async_to_sync(tool)(
+                        ctx, document_id=self.doc.pk, new_description="Updated"
+                    )["updated"]
+                )
+            else:
+                previous = Document.objects.get(pk=self.doc.pk).description
+                for approved in (False, True):
+                    ctx.deps.skip_approval_gate = approved
+                    with self.assertRaisesRegex(PermissionError, "WRITE"):
+                        async_to_sync(tool)(
+                            ctx, document_id=self.doc.pk, new_description="Unauthorized"
+                        )
+                self.assertEqual(
+                    Document.objects.get(pk=self.doc.pk).description, previous
+                )
+
+    def test_bound_document_summary_retains_document_write_and_corpus_read(self):
+        writer = User.objects.create_user(username="bound-summary-writer")
+        document, _, _ = self.corpus.add_document(document=self.doc, user=self.user)
+        set_permissions_for_obj_to_user(writer, document, [PermissionTypes.CRUD])
+        set_permissions_for_obj_to_user(writer, self.corpus, [PermissionTypes.READ])
+        tool, ctx = self._target_tool(
+            "update_document_summary", writer, self.corpus, document=document
+        )
+        result = async_to_sync(tool)(ctx, new_content="Updated summary")
+        self.assertTrue(result["created"])
+        revision = document.summary_revisions.get(pk=result["revision_id"])
+        self.assertEqual(revision.snapshot, "Updated summary")
+        self.assertEqual(revision.author_id, writer.pk)
+        set_permissions_for_obj_to_user(writer, self.corpus, [])
+        with self.assertRaisesRegex(PermissionError, "READ"):
+            async_to_sync(tool)(ctx, new_content="Denied")
+        self.assertEqual(document.summary_revisions.count(), 1)
+
+    def test_ask_document_preserves_service_owned_corpus_selection(self):
+        reader = User.objects.create_user(username="corpus-only-reader")
+        document, _, _ = self.corpus.add_document(document=self.doc, user=self.user)
+        set_permissions_for_obj_to_user(reader, self.corpus, [PermissionTypes.READ])
+        self.assertFalse(document.user_can(reader, PermissionTypes.READ))
+
+        async def no_events(question):
+            for event in ():
+                yield event
+
+        nested_agent = MagicMock(stream=no_events)
+        with patch(
+            "opencontractserver.llms.agents.pydantic_ai_agents.abuild_agent_model",
+            return_value=TestModel(call_tools=[]),
+        ), patch.object(
+            agents, "for_document", new_callable=AsyncMock, return_value=nested_agent
+        ) as delegate:
+            agent = async_to_sync(agents.for_corpus)(
+                corpus=self.corpus,
+                user_id=reader.pk,
+                persist=False,
+                model="openai:gpt-4o",
+                embedder="target.read.no_embedding",
+            )
+            tool = _get_function_tools(agent.pydantic_ai_agent)["ask_document"].function
+            ctx = MagicMock(deps=agent.agent_deps)
+            result = async_to_sync(tool)(
+                ctx, document_id=document.pk, question="Question"
+            )
+            self.assertEqual(result["sources"], [])
+            self.assertEqual(delegate.await_args.kwargs["document"], document.pk)
+            delegate.reset_mock()
+            foreign = Document.objects.create(creator=self.user, title="Foreign")
+            result = async_to_sync(tool)(
+                ctx, document_id=foreign.pk, question="Question"
+            )
+            self.assertIn("does not belong", result["answer"])
+            delegate.assert_not_awaited()
+            set_permissions_for_obj_to_user(reader, self.corpus, [])
+            with self.assertRaisesRegex(PermissionError, "READ"):
+                async_to_sync(tool)(ctx, document_id=document.pk, question="Question")
+            delegate.assert_not_awaited()
+
+    def test_file_rename_retains_corpus_service_write_rule(self):
+        writer = User.objects.create_user(username="corpus-file-writer")
+        document, _, _ = self.corpus.add_document(document=self.doc, user=self.user)
+        set_permissions_for_obj_to_user(writer, self.corpus, [PermissionTypes.CRUD])
+        set_permissions_for_obj_to_user(writer, document, [PermissionTypes.READ])
+        tool, ctx = self._target_tool("rename_document", writer, self.corpus)
+        result = async_to_sync(tool)(ctx, document_id=document.pk, new_name="Renamed")
+        self.assertEqual(result["status"], "renamed")
+        set_permissions_for_obj_to_user(writer, self.corpus, [PermissionTypes.READ])
+        with self.assertRaisesRegex(PermissionError, "WRITE"):
+            async_to_sync(tool)(ctx, document_id=document.pk, new_name="Denied")
+
+    def test_navigation_tools_preserve_visibility_scoped_error_results(self):
+        reader = User.objects.create_user(username="navigation-reader")
+        origin = Corpus.objects.create(creator=reader, title="Navigation context")
+        for name, empty_fields in (
+            ("get_document_references", ("outbound", "inbound")),
+            ("find_documents_citing", ("citing_documents",)),
+        ):
+            tool, ctx = self._target_tool(name, reader, origin)
+            for document_id in (self.doc.pk, -1):
+                with self.subTest(tool=name, document_id=document_id):
+                    result = async_to_sync(tool)(ctx, document_id=document_id)
+                    self.assertIn("not found (or is not visible", result["error"])
+                    for field in empty_fields:
+                        self.assertEqual(result[field], [])
+
+    def test_malformed_targets_return_tool_errors_before_approval_or_execution(self):
+        effects = []
+
+        async def select(annotation_ids: list[int]) -> None:
+            effects.append(annotation_ids)
+
+        tool = PydanticAIToolFactory.from_function(select, requires_approval=True)
+        ctx = MagicMock(
+            deps=PydanticAIDependencies(user_id=self.user.pk, corpus_id=self.corpus.pk)
+        )
+        for target in ("invalid", None, {}):
+            with self.subTest(target=target):
+                result = async_to_sync(tool)(ctx, annotation_ids=[target])
+                self.assertIn("[Tool error]", result)
+        self.assertEqual(effects, [])
+
+    def test_target_read_covers_positional_defaults_forwarding_and_zero_ids(self):
+        reader = User.objects.create_user(username="target-argument-reader")
+        origin = Corpus.objects.create(creator=reader, title="Origin", is_public=True)
+        ctx = MagicMock(
+            deps=PydanticAIDependencies(user_id=reader.pk, corpus_id=origin.pk)
+        )
+        effects = []
+
+        async def select(document_id: int = self.doc.pk) -> None:
+            effects.append(document_id)
+
+        async def forward(**kwargs) -> None:
+            effects.append(kwargs)
+
+        selected = PydanticAIToolFactory.from_function(select)
+        forwarded = PydanticAIToolFactory.from_function(forward)
+        for tool, args, kwargs in (
+            (selected, (), {}),
+            (selected, (self.doc.pk,), {}),
+            (forwarded, (), {"document_id": self.doc.pk}),
+        ):
+            with self.subTest(args=args, kwargs=kwargs), self.assertRaisesRegex(
+                PermissionError, "READ"
+            ):
+                async_to_sync(tool)(ctx, *args, **kwargs)
+        ctx.deps = PydanticAIDependencies(user_id=self.user.pk, document_id=self.doc.pk)
+        with self.assertRaisesRegex(PermissionError, "does not match"):
+            async_to_sync(selected)(ctx, -1)
+        Document.objects.create(pk=0, creator=self.user, title="Zero", is_public=False)
+        ctx.deps = PydanticAIDependencies(user_id=reader.pk, document_id=0)
+        with self.assertRaisesRegex(PermissionError, "READ"):
+            async_to_sync(selected)(ctx, 0)
+        self.assertEqual(effects, [])
+        ctx.deps.user_id = self.user.pk
+        async_to_sync(selected)(ctx, 0)
+        self.assertEqual(effects, [0])
+
+
 @pytest.mark.django_db
 @pytest.mark.asyncio
 class TestCheckUserPermissions(TestCase):
@@ -427,6 +796,10 @@ class TestInjectParams(TestCase):
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
+@patch(
+    "opencontractserver.llms.tools.pydantic_ai_tools._check_target_permissions",
+    new=AsyncMock(),
+)
 class TestInjectParamsExecution(TestCase):
     """Async tests for inject_params execution behavior."""
 
@@ -821,7 +1194,7 @@ class TestContextInjectionIntegration(TestCase):
 
         wrapped = PydanticAIToolFactory.create_tool(tool, inject_params=inject_params)
 
-        ctx = MagicMock(deps=None)
+        ctx = MagicMock(deps=PydanticAIDependencies(user_id=self.user.pk))
         result = await wrapped(ctx, query="test query")
 
         # Document ID should have been injected
@@ -835,7 +1208,7 @@ class TestContextInjectionIntegration(TestCase):
 
         wrapped = PydanticAIToolFactory.create_tool(tool, inject_params=inject_params)
 
-        ctx = MagicMock(deps=None)
+        ctx = MagicMock(deps=PydanticAIDependencies(user_id=self.user.pk))
         result = await wrapped(ctx, limit=20)
 
         self.assertEqual(result["corpus_id"], self.corpus.id)
@@ -854,6 +1227,10 @@ class TestContextInjectionIntegration(TestCase):
         self.assertEqual(result["author_id"], self.user.id)
         self.assertEqual(result["content"], "test content")
 
+    @patch(
+        "opencontractserver.llms.tools.pydantic_ai_tools._check_target_permissions",
+        new=AsyncMock(),
+    )
     async def test_unified_tool_factory_passes_inject_params(self):
         """Test that UnifiedToolFactory.create_tool passes inject_params correctly."""
         from opencontractserver.llms.tools.tool_factory import UnifiedToolFactory
