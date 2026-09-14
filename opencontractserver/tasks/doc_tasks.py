@@ -77,6 +77,7 @@ from opencontractserver.types.enums import (
     LabelType,
     PermissionTypes,
 )
+from opencontractserver.users.services.exports import UserExportService
 from opencontractserver.utils.annotation_anchoring import (
     anchor_annotations,
     report_rawtext_preview,
@@ -971,6 +972,8 @@ def burn_doc_annotations(
     corpus_id: int,
     analysis_ids: list[int] | None = None,
     annotation_filter_mode: str = "CORPUS_LABELSET_ONLY",
+    *,
+    export_id: int | None = None,
 ) -> tuple[
     str,
     str,
@@ -997,6 +1000,12 @@ def burn_doc_annotations(
     """
     from opencontractserver.types.enums import AnnotationFilterMode
 
+    if export_id is not None:
+        _, corpus, document = UserExportService.get_document_context(
+            export_id, corpus_id, doc_id
+        )
+        corpus_id, doc_id = corpus.pk, document.pk
+
     # Convert string to enum
     filter_mode_enum = AnnotationFilterMode(annotation_filter_mode)
 
@@ -1016,6 +1025,8 @@ def convert_doc_to_funsd(
     corpus_id: int,
     analysis_ids: list[int] | None = None,
     annotation_filter_mode: str = AnnotationFilterMode.CORPUS_LABELSET_ONLY.value,
+    *,
+    export_id: int | None = None,
 ) -> tuple[int, dict[int, list[FunsdAnnotationType]], list[tuple[int, str, str]]]:
     def pawls_token_to_funsd_token(pawls_token: PawlsTokenPythonType) -> FunsdTokenType:
         pawls_xleft = pawls_token["x"]
@@ -1030,7 +1041,14 @@ def convert_doc_to_funsd(
         }
         return funsd_token
 
-    doc = Document.objects.get(id=doc_id)
+    if export_id is None:
+        doc = Document.objects.get(id=doc_id)
+    else:
+        export, corpus, doc = UserExportService.get_document_context(
+            export_id, corpus_id, doc_id
+        )
+        user_id = cast(int, export.creator_id)  # Context requires a stored requester.
+        corpus_id, doc_id = corpus.pk, doc.pk
 
     annotation_map: dict[int, list[FunsdAnnotationType]] = {}
 
