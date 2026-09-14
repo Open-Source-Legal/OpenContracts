@@ -1,6 +1,6 @@
 -r base.txt
 
-psycopg2-binary==2.9.12  # https://github.com/psycopg/psycopg2
+psycopg2-binary==2.9.13  # https://github.com/psycopg/psycopg2
 watchfiles==1.2.0  # https://github.com/samuelcolvin/watchfiles
 
 # Testing
