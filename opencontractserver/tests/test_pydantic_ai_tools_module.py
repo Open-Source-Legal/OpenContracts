@@ -8,6 +8,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.test import TestCase, TransactionTestCase
 from guardian.shortcuts import assign_perm
+from pydantic_ai.models.test import TestModel
 
 from opencontractserver.agents.models import AgentConfiguration
 from opencontractserver.annotations.models import Annotation, Note
@@ -15,6 +16,8 @@ from opencontractserver.constants.tools import TOOL_ACTOR_IDENTITY_PARAMS
 from opencontractserver.conversations.models import ChatMessage, Conversation
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
+from opencontractserver.llms import agents
+from opencontractserver.llms.agents.pydantic_ai_agents import _get_function_tools
 from opencontractserver.llms.tools.pydantic_ai_tools import (
     PydanticAIDependencies,
     PydanticAIToolFactory,
@@ -437,6 +440,89 @@ class TestToolTargetRead(TransactionTestCase):
         message = ChatMessage.objects.get(conversation=thread)
         self.assertEqual(message.creator_id, writer.pk)
         self.assertEqual(message.content, "Reply")
+
+    def test_selected_document_writes_require_current_crud(self):
+        writer = User.objects.create_user(username="selected-document-writer")
+        origin = Corpus.objects.create(creator=writer, title="Writable origin")
+        tool, ctx = self._target_tool("update_document_description", writer, origin)
+        for writable in (False, True, False):
+            set_permissions_for_obj_to_user(
+                writer,
+                self.doc,
+                [PermissionTypes.CRUD if writable else PermissionTypes.READ],
+            )
+            if writable:
+                self.assertTrue(
+                    async_to_sync(tool)(
+                        ctx, document_id=self.doc.pk, new_description="Updated"
+                    )["updated"]
+                )
+            else:
+                previous = Document.objects.get(pk=self.doc.pk).description
+                for approved in (False, True):
+                    ctx.deps.skip_approval_gate = approved
+                    with self.assertRaisesRegex(PermissionError, "WRITE"):
+                        async_to_sync(tool)(
+                            ctx, document_id=self.doc.pk, new_description="Unauthorized"
+                        )
+                self.assertEqual(
+                    Document.objects.get(pk=self.doc.pk).description, previous
+                )
+
+    def test_ask_document_preserves_service_owned_corpus_selection(self):
+        reader = User.objects.create_user(username="corpus-only-reader")
+        document, _, _ = self.corpus.add_document(document=self.doc, user=self.user)
+        set_permissions_for_obj_to_user(reader, self.corpus, [PermissionTypes.READ])
+        self.assertFalse(document.user_can(reader, PermissionTypes.READ))
+
+        async def no_events(question):
+            for event in ():
+                yield event
+
+        nested_agent = MagicMock(stream=no_events)
+        with patch(
+            "opencontractserver.llms.agents.pydantic_ai_agents.abuild_agent_model",
+            return_value=TestModel(call_tools=[]),
+        ), patch.object(
+            agents, "for_document", new_callable=AsyncMock, return_value=nested_agent
+        ) as delegate:
+            agent = async_to_sync(agents.for_corpus)(
+                corpus=self.corpus,
+                user_id=reader.pk,
+                persist=False,
+                model="openai:gpt-4o",
+                embedder="target.read.no_embedding",
+            )
+            tool = _get_function_tools(agent.pydantic_ai_agent)["ask_document"].function
+            ctx = MagicMock(deps=agent.agent_deps)
+            result = async_to_sync(tool)(
+                ctx, document_id=document.pk, question="Question"
+            )
+            self.assertEqual(result["sources"], [])
+            self.assertEqual(delegate.await_args.kwargs["document"], document.pk)
+            delegate.reset_mock()
+            foreign = Document.objects.create(creator=self.user, title="Foreign")
+            result = async_to_sync(tool)(
+                ctx, document_id=foreign.pk, question="Question"
+            )
+            self.assertIn("does not belong", result["answer"])
+            delegate.assert_not_awaited()
+            set_permissions_for_obj_to_user(reader, self.corpus, [])
+            with self.assertRaisesRegex(PermissionError, "READ"):
+                async_to_sync(tool)(ctx, document_id=document.pk, question="Question")
+            delegate.assert_not_awaited()
+
+    def test_file_rename_retains_corpus_service_write_rule(self):
+        writer = User.objects.create_user(username="corpus-file-writer")
+        document, _, _ = self.corpus.add_document(document=self.doc, user=self.user)
+        set_permissions_for_obj_to_user(writer, self.corpus, [PermissionTypes.CRUD])
+        set_permissions_for_obj_to_user(writer, document, [PermissionTypes.READ])
+        tool, ctx = self._target_tool("rename_document", writer, self.corpus)
+        result = async_to_sync(tool)(ctx, document_id=document.pk, new_name="Renamed")
+        self.assertEqual(result["status"], "renamed")
+        set_permissions_for_obj_to_user(writer, self.corpus, [PermissionTypes.READ])
+        with self.assertRaisesRegex(PermissionError, "WRITE"):
+            async_to_sync(tool)(ctx, document_id=document.pk, new_name="Denied")
 
     def test_malformed_targets_return_tool_errors_before_approval_or_execution(self):
         effects = []

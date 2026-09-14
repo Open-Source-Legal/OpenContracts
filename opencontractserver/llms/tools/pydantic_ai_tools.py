@@ -201,16 +201,14 @@ async def _check_target_permissions(
     user: "User | None",
     parameters: dict[str, Any],
     *,
-    require_write: bool,
-    read_conversations: bool,
+    tool: CoreTool,
 ) -> None:
     """Check selected targets using this invocation's actor and model rules.
 
-    Bound documents/corpuses were already checked. Writers also require CRUD on
-    selected annotations/notes. Thread reads and posting use model READ;
-    moderation actions retain their service's distinct role gate.
-    Graph-navigation aliases and analysis/extract selectors retain their existing
-    service-owned target selection.
+    Writers require target CRUD; file management and moderation retain their
+    service-owned write gates. ask_document retains its corpus/group selection.
+    Graph-navigation aliases and analysis/extract selectors also remain
+    service-owned. Thread reads and posting use model READ.
     """
     from asgiref.sync import sync_to_async
 
@@ -219,13 +217,21 @@ async def _check_target_permissions(
     from opencontractserver.corpuses.models import Corpus
     from opencontractserver.documents.models import Document
 
+    # These change a corpus path, not document content. Their service owns
+    # the corpus UPDATE/DELETE rule; do not require document CRUD as well.
+    require_write = tool.requires_write_permission and tool.name not in (
+        "move_document",
+        "rename_document",
+        "delete_document",
+    )
+
     def require_targets(model, ids):
         visible = BaseService.filter_visible(model, user).filter(pk__in=ids)
-        rows = (
-            list(visible.select_related("document", "corpus"))
-            if require_write and model in (Annotation, Note)
-            else None
-        )
+        rows = None
+        if require_write and model in (Document, Corpus, Annotation, Note):
+            if model in (Annotation, Note):
+                visible = visible.select_related("document", "corpus")
+            rows = list(visible)
         if (len(rows) if rows is not None else visible.count()) != len(ids):
             raise PermissionError(f"READ denied for selected {model.__name__} target")
         if rows and any(
@@ -239,7 +245,13 @@ async def _check_target_permissions(
         (Annotation, ("annotation_id", "annotation_ids"), None),
         (Note, ("note_id",), None),
     ]
-    if read_conversations:
+    if tool.name not in (
+        "delete_message",
+        "lock_thread",
+        "unlock_thread",
+        "pin_thread",
+        "unpin_thread",
+    ):
         targets.extend(
             [
                 (Conversation, ("thread_id",), None),
@@ -247,6 +259,8 @@ async def _check_target_permissions(
             ]
         )
     for model, names, admitted_id in targets:
+        if model is Document and tool.name == "ask_document" and not require_write:
+            continue  # The tool resolves documents through its corpus/group scope.
         ids: set[int] = set()
         for name in names:
             value = parameters.get(name)
@@ -255,7 +269,11 @@ async def _check_target_permissions(
                     int(pk)
                     for pk in (value if isinstance(value, (list, tuple)) else [value])
                 )
-        if admitted_id is not None:
+        if admitted_id is not None and (
+            not require_write
+            or model is Document
+            or getattr(ctx.deps, "document_id", None) is None
+        ):
             ids.discard(admitted_id)
         if ids:
             await sync_to_async(require_targets)(model, ids)
@@ -707,15 +725,7 @@ class PydanticAIToolWrapper:
                     ctx,
                     user,
                     parameters,
-                    require_write=self.core_tool.requires_write_permission,
-                    read_conversations=self.core_tool.name
-                    not in (
-                        "delete_message",
-                        "lock_thread",
-                        "unlock_thread",
-                        "pin_thread",
-                        "unpin_thread",
-                    ),
+                    tool=self.core_tool,
                 )
 
                 _maybe_raise(ctx, *args, **kwargs)
