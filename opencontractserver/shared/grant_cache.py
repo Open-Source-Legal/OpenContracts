@@ -5,13 +5,64 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable
 from functools import wraps
-from typing import Any, TypeVar, cast
+from typing import Any, NamedTuple, TypeVar, cast
+from weakref import WeakValueDictionary
 
-from django.db import transaction
+from django.db import DEFAULT_DB_ALIAS, transaction
 
 from opencontractserver.constants.permissioning import INSTANCE_PERMS_CACHE_ATTR
 
 _Collector = TypeVar("_Collector", bound=Callable[..., set[str]])
+
+
+class _RevisionState(NamedTuple):
+    writes: int = 0
+    commits: int = 0
+    connection: Any = None
+
+
+class _GrantRevision:
+    """Expire row/user snapshots on writes and foreign reads again on commit."""
+
+    def __init__(self):
+        self.state = _RevisionState()
+
+    def invalidate(self, connection):
+        with _revision_lock:
+            self.state = self.state._replace(writes=self.state.writes + 1)
+
+        def committed():
+            with _revision_lock:
+                self.state = self.state._replace(
+                    commits=self.state.commits + 1, connection=connection
+                )
+
+        if connection.in_atomic_block:
+            transaction.on_commit(committed, using=connection.alias)
+        else:
+            committed()
+
+
+_revision_lock = threading.Lock()
+_revisions: WeakValueDictionary[tuple, _GrantRevision] = WeakValueDictionary()
+
+
+def grant_revision(instance, user_id):
+    """Share a revision while cached snapshots or a pending write need it."""
+    if getattr(instance, "pk", None) is None:
+        return None
+    key = (
+        getattr(getattr(instance, "_state", None), "db", None) or DEFAULT_DB_ALIAS,
+        instance._meta.app_label,
+        instance._meta.model_name,
+        instance.pk,
+        user_id,
+    )
+    with _revision_lock:
+        revision = _revisions.get(key)
+        if revision is None:
+            revision = _revisions[key] = _GrantRevision()
+        return revision
 
 
 class _TransactionRead:
@@ -57,41 +108,68 @@ def _read_context(connection):
     return marker
 
 
+class GrantSnapshot:
+    """Connection, transaction and object/user revision observed before a read.
+
+    Prefetch consumers may reuse committed rows across connections. Grant-set
+    caches keep their existing connection-local hit rule. Neither permits an
+    uncommitted snapshot to cross connections.
+    """
+
+    def __init__(self, connection, revision=None):
+        connection.validate_no_broken_transaction()
+        self.connection = connection
+        self.transaction = _read_context(connection)
+        self.revision = revision
+        self.state = revision.state if revision is not None else _RevisionState()
+
+    def valid(self, connection, *, allow_committed=False):
+        connection.validate_no_broken_transaction()
+        marker = self.transaction
+        if marker is not None and not marker.valid():
+            return False
+        if self.connection is not connection and not (
+            allow_committed and (marker is None or marker.committed)
+        ):
+            return False
+        if self.revision is None:
+            return True
+        current = self.revision.state
+        # A writer's own final reads stay warm after commit. Other connections
+        # may have read the old committed rows while this write was pending.
+        return self.state.writes == current.writes and (
+            self.state.commits == current.commits
+            or current.connection is self.connection
+        )
+
+
 class PermissionGrantCache(dict):
     """Shared instance/request storage; values remain immutable granted sets."""
 
     def __init__(self):
         super().__init__()
         self._lock = threading.Lock()
-        self._contexts: dict[Any, tuple[Any, _TransactionRead | None]] = {}
+        self._contexts: dict[Any, GrantSnapshot] = {}
         self._generation = 0
 
-    def get_or_compute(self, key, compute, *, using=None) -> set[str]:
+    def get_or_compute(self, key, compute, *, using=None, revision=None) -> set[str]:
         connection = transaction.get_connection(using)
-        connection.validate_no_broken_transaction()
         with self._lock:
             value = self.get(key)
             context = self._contexts.get(key)
-            if (
-                value is not None
-                and context is not None
-                and (
-                    context[0] is connection
-                    and (context[1] is None or context[1].valid())
-                )
-            ):
+            if value is not None and context is not None and context.valid(connection):
                 return set(value)
             self.pop(key, None)
             self._contexts.pop(key, None)
             generation = self._generation
-        marker = _read_context(connection)
+        snapshot = GrantSnapshot(connection, revision)
         # ORM work stays outside the cache lock. A simultaneous invalidation
         # makes this result ineligible for reuse, even if the cache was empty.
         granted = compute()
         with self._lock:
-            if generation == self._generation and (marker is None or marker.valid()):
+            if generation == self._generation and snapshot.valid(connection):
                 self[key] = frozenset(granted)
-                self._contexts[key] = (connection, marker)
+                self._contexts[key] = snapshot
         return granted
 
     def discard_where(self, matches):
@@ -130,6 +208,7 @@ def cached_permission_grants(collect: _Collector) -> _Collector:
                 (user_id, bool(include_group_permissions)),
                 lambda: collect(user, instance, include_group_permissions),
                 using=getattr(getattr(instance, "_state", None), "db", None),
+                revision=grant_revision(instance, user_id),
             )
         except Exception:
             if (
@@ -140,3 +219,23 @@ def cached_permission_grants(collect: _Collector) -> _Collector:
             raise
 
     return cast(_Collector, cached)
+
+
+def invalidate_permission_grants(instance, user_id, *, request=None):
+    """Expire held snapshots now and foreign connection reads again on commit."""
+    from opencontractserver.shared.prefetch_attrs import discard_permission_prefetch
+
+    revision = grant_revision(instance, user_id)
+    if revision is not None:
+        revision.invalidate(transaction.get_connection(instance._state.db))
+    discard_permission_prefetch(instance, user_id)
+    cache = getattr(instance, INSTANCE_PERMS_CACHE_ATTR, None)
+    if isinstance(cache, PermissionGrantCache):
+        cache.drop_for_user(user_id)
+    elif cache is not None:
+        for key in [key for key in cache if key[0] == user_id]:
+            cache.pop(key, None)
+    if request is not None:
+        from opencontractserver.utils.permission_optimizer import get_request_optimizer
+
+        get_request_optimizer(request).invalidate(user_id=user_id, instance=instance)

@@ -26,8 +26,7 @@ from config.graphql.permissioning.permission_annotator.middleware import (
     get_permissions_for_user_on_model_in_app,
 )
 from opencontractserver.shared.prefetch_attrs import (
-    user_group_perm_attr,
-    user_perm_attr,
+    permission_prefetch,
 )
 from opencontractserver.utils.permissioning import get_users_permissions_for_obj
 
@@ -162,45 +161,34 @@ def resolve_my_permissions(instance: Any, info: Any) -> list[str]:
 
                 # Prefer per-user prefetch (set by _apply_document_prefetches);
                 # ``.filter()`` on the related manager bypasses the cache.
-                prefetched_user_perms_attr = user_perm_attr(user.id)
-                if hasattr(instance, prefetched_user_perms_attr):
-                    this_user_perms = getattr(instance, prefetched_user_perms_attr)
-                else:
+                this_user_perms = permission_prefetch(instance, user.id)
+                if this_user_perms is None:
                     this_user_perms = getattr(
                         instance, f"{model_name}userobjectpermission_set"
                     ).filter(user_id=user.id)
 
-                prefetched_group_perms_attr = user_group_perm_attr(user.id)
-                if hasattr(instance, prefetched_group_perms_attr):
-                    this_users_group_perms = getattr(
-                        instance, prefetched_group_perms_attr
-                    )
-                else:
+                this_users_group_perms = permission_prefetch(
+                    instance, user.id, groups=True
+                )
+                if this_users_group_perms is None:
                     this_users_group_perms = getattr(
                         instance, f"{model_name}groupobjectpermission_set"
                     ).filter(group_id__in=this_user_group_ids)
 
-                for perm in this_user_perms:
-                    try:
-                        permissions.add(
-                            this_model_permission_id_map[perm.permission_id]
-                        )
-                    except Exception as e:
-                        logger.warning(
-                            f"resolve_my_permissions() - Error trying to add "
-                            f"this_user_perm to model_permission_id_map: {e}"
-                        )
-
-                for perm in this_users_group_perms:
-                    try:
-                        permissions.add(
-                            this_model_permission_id_map[perm.permission_id]
-                        )
-                    except Exception as e:
-                        logger.warning(
-                            f"resolve_my_permissions() - Error trying to add "
-                            f"this_users_group_perms to model_permission_id_map: {e}"
-                        )
+                for rows, source in (
+                    (this_user_perms, "this_user_perm"),
+                    (this_users_group_perms, "this_users_group_perms"),
+                ):
+                    for perm in rows:
+                        try:
+                            permissions.add(
+                                this_model_permission_id_map[perm.permission_id]
+                            )
+                        except Exception as e:
+                            logger.warning(
+                                f"resolve_my_permissions() - Error trying to add "
+                                f"{source} to model_permission_id_map: {e}"
+                            )
 
                 if can_publish_model_type:
                     permissions.add(f"publish_{model_name}")

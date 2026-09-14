@@ -28,7 +28,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.db.models import Model
 
 from opencontractserver.constants.permissioning import REQUEST_OPTIMIZER_ATTR
-from opencontractserver.shared.grant_cache import PermissionGrantCache
+from opencontractserver.shared.grant_cache import PermissionGrantCache, grant_revision
 
 
 class PermissionQueryOptimizer:
@@ -115,7 +115,12 @@ class PermissionQueryOptimizer:
             instance.pk,
             bool(include_group_permissions),
         )
-        return self._cache.get_or_compute(key, collect, using=instance._state.db)
+        return self._cache.get_or_compute(
+            key,
+            collect,
+            using=instance._state.db,
+            revision=grant_revision(instance, user_id),
+        )
 
     def invalidate(
         self,

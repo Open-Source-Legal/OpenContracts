@@ -1,0 +1,1 @@
+- Expire held object, request, and document-prefetch permission snapshots after grant replacement, including reads made while another connection was committing.
