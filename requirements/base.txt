@@ -92,7 +92,7 @@ mcp>=1.28.1,<2  # https://github.com/modelcontextprotocol/python-sdk
 # Not directly required, pinned by Snyk to avoid a vulnerability
 # ------------------------------------------------------------------------------
 twisted>=24.7.0rc1 # not directly required, pinned by Snyk to avoid a vulnerability
-ipython>=9.16.1 # not directly required, pinned by Snyk to avoid a vulnerability
+ipython>=9.17.1 # not directly required, pinned by Snyk to avoid a vulnerability
 setuptools>=84.0.0 # not directly required, pinned by Snyk to avoid a vulnerability
 sqlparse>=0.6.0 # not directly required, pinned by Snyk to avoid a vulnerability
 tornado>=6.5.8 # not directly required, pinned by Snyk to avoid a vulnerability
