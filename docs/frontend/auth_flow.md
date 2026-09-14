@@ -7,6 +7,12 @@ collects Auth0 passwords or embeds the hosted page in an iframe.
 
 ## Session lifecycle
 
+Django cookie sessions reload account activity on each request, including the JWT,
+Auth0, and admin backends (`config/*auth*/backends.py::get_user`). Disabling an
+account removes its authenticated access on the next request; ordinary public
+access and alternative valid credentials retain their existing behavior.
+
+
 1. `AuthGate` waits for the SDK's `isLoading` state to settle. In local-password
    deployments it instead reads a candidate JWT from sessionStorage.
 2. AuthGate clears the old Apollo store before publishing credentials.

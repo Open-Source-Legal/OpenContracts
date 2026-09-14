@@ -1,0 +1,1 @@
+- Reject inactive users when reloading JWT, Auth0, and admin login sessions (`config/jwt_auth/backends.py`, `config/graphql_auth0_auth/backends.py`, `config/admin_auth/backends.py`). Existing cookies no longer retain private access after account deactivation.

@@ -16,6 +16,6 @@ class JSONWebTokenBackend:
     def get_user(self, user_id):
         model = get_user_model()
         try:
-            return model._default_manager.get(pk=user_id)
+            return model._default_manager.get(pk=user_id, is_active=True)
         except model.DoesNotExist:
             return None

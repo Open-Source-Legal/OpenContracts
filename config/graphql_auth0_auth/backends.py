@@ -24,9 +24,9 @@ class Auth0RemoteUserJSONWebTokenBackend:
     - This allows the frontend to distinguish between "token expired" (refresh needed)
       vs "token invalid" (re-authentication needed)
 
-    Important: This backend is only called in JWT validation contexts (GraphQL requests
-    with Authorization headers), NOT by Django's standard AuthenticationMiddleware
-    which reads users from sessions.
+    ``authenticate`` validates header credentials. Django also calls ``get_user``
+    for sessions created with this backend; it reloads active accounts while
+    Django validates the session hash.
     """
 
     def authenticate(self, request=None, **kwargs):
@@ -77,7 +77,7 @@ class Auth0RemoteUserJSONWebTokenBackend:
             f"Auth0RemoteUserJSONWebTokenBackend.get_user() - Looking up user_id: {user_id}"
         )
         try:
-            user = UserModel._default_manager.get(pk=user_id)
+            user = UserModel._default_manager.get(pk=user_id, is_active=True)
             logger.debug(
                 f"Auth0RemoteUserJSONWebTokenBackend.get_user() - Found user: {user}, is_active: {user.is_active}"
             )

@@ -90,6 +90,6 @@ class Auth0AdminBackend(ModelBackend):
     def get_user(self, user_id: int) -> Optional["User"]:
         """Retrieve user by primary key."""
         try:
-            return UserModel.objects.get(pk=user_id)
+            return UserModel.objects.get(pk=user_id, is_active=True)
         except UserModel.DoesNotExist:
             return None
