@@ -36,8 +36,7 @@ from django.core.exceptions import (
     PermissionDenied,
     ValidationError,
 )
-from mcp.server import Server
-from mcp.server.lowlevel.server import ServerRequestContext
+from mcp.server import Server, ServerRequestContext
 from mcp.server.sse import SseServerTransport
 from mcp.server.stdio import stdio_server
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
@@ -867,7 +866,17 @@ def _build_on_call_tool(
                     )
             content = await dispatch(params.name, arguments)
         except Exception as e:
+            # Client-facing shape is the isError result; keep a server-side
+            # trace too so a failure is visible in logs, not only to the
+            # caller (rate limits and unknown tools land here as well).
+            logger.warning(
+                "MCP tool %s failed: %s: %s", params.name, type(e).__name__, e
+            )
             return _tool_error_result(str(e))
+        # ``list(...)`` is not redundant: ``list`` is invariant, so a
+        # ``list[TextContent]`` does not type-check against the SDK's
+        # ``list[ContentBlock]`` union; the copy lets mypy infer the wider
+        # element type from context.
         return CallToolResult(content=list(content))
 
     return on_call_tool
