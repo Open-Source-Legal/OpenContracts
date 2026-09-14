@@ -14,6 +14,7 @@ See issue: runtime LLM credential/endpoint configuration.
 
 from __future__ import annotations
 
+import os
 from unittest import mock
 
 from asgiref.sync import async_to_sync
@@ -119,6 +120,72 @@ class TestBuildAgentModelEnvFallback(TestCase):
         self.assertEqual(
             build_agent_model("totally-unknown:foo"), "totally-unknown:foo"
         )
+
+
+class TestOrcaRouterProvider(TestCase):
+    """OrcaRouter is an OpenAI-compatible gateway pydantic-ai has no native
+    prefix for, so the model factory must ALWAYS build a concrete model (never
+    the bare ``orcarouter:`` string, which would raise "Unknown model")."""
+
+    def setUp(self):
+        reset_registry()
+        self.addCleanup(reset_registry)
+        PipelineSettings.clear_cache()
+        self.addCleanup(PipelineSettings.clear_cache)
+        # Isolate from the environment: the env fallback reads ORCAROUTER_API_KEY.
+        self._env = mock.patch.dict(
+            os.environ, {"ORCAROUTER_API_KEY": "sk-orca-test"}, clear=False
+        )
+        self._env.start()
+        self.addCleanup(self._env.stop)
+
+    def test_no_db_creds_still_builds_concrete_model(self):
+        """With no DB creds, build_agent_model must NOT return the bare spec."""
+        result = build_agent_model("orcarouter:orcarouter/auto")
+        self.assertIsInstance(result, Model)
+        # It is an OpenAI-compatible chat model pointed at the OrcaRouter base.
+        from pydantic_ai.models.openai import OpenAIChatModel
+
+        self.assertIsInstance(result, OpenAIChatModel)
+        self.assertEqual(result.provider.base_url, "https://api.orcarouter.ai/v1/")
+        self.assertEqual(result.provider.client.api_key, "sk-orca-test")
+
+    def test_db_base_url_wins_over_default(self):
+        """A DB-configured base_url overrides the OrcaRouter default."""
+        orcarouter_defn = get_llm_provider_by_key_cached("orcarouter")
+        assert orcarouter_defn is not None
+        instance = PipelineSettings.get_instance()
+        instance.component_settings = {
+            orcarouter_defn.class_name: {"base_url": "http://gateway.local/v1"}
+        }
+        instance.save()
+        result = build_agent_model("orcarouter:orcarouter/auto")
+        self.assertIsInstance(result, Model)
+        self.assertEqual(result.provider.base_url, "http://gateway.local/v1/")
+
+    def test_db_api_key_wins_over_env(self):
+        """A DB-configured api_key overrides the ORCAROUTER_API_KEY env var."""
+        orcarouter_defn = get_llm_provider_by_key_cached("orcarouter")
+        assert orcarouter_defn is not None
+        instance = PipelineSettings.get_instance()
+        instance.set_secrets({orcarouter_defn.class_name: {"api_key": "sk-orca-db"}})
+        instance.save()
+        result = build_agent_model("orcarouter:orcarouter/auto")
+        self.assertIsInstance(result, Model)
+        self.assertEqual(result.provider.client.api_key, "sk-orca-db")
+
+    def test_invalid_db_base_url_falls_back_to_default(self):
+        """A malformed DB base_url degrades to the OrcaRouter default endpoint."""
+        orcarouter_defn = get_llm_provider_by_key_cached("orcarouter")
+        assert orcarouter_defn is not None
+        instance = PipelineSettings.get_instance()
+        instance.component_settings = {
+            orcarouter_defn.class_name: {"base_url": "not-a-url"}
+        }
+        instance.save()
+        result = build_agent_model("orcarouter:orcarouter/auto")
+        self.assertIsInstance(result, Model)
+        self.assertEqual(result.provider.base_url, "https://api.orcarouter.ai/v1/")
 
 
 class TestBuildAgentModelDbWins(TestCase):
