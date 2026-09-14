@@ -18,7 +18,7 @@
 
 > **🟡 ANONYMOUS USER SUPPORT**: Anonymous users can access public resources with read-only permissions. Document AND corpus must both be `is_public=True` for access. Documents in public corpora **automatically inherit `is_public=True`** at creation time (see [Public Corpus Document Propagation](#public-corpus-document-propagation)). Applies to documents, corpuses, conversations, analyses (public only), and annotations.
 
-> **🟣 USER PROFILE PRIVACY**: User profiles have privacy controls via `is_profile_public`. Private profiles are visible only to users who share corpus membership with > READ permission. See `UserService` in `opencontractserver/users/services/user_service.py`.
+> **🟣 USER PROFILE PRIVACY**: User profiles have privacy controls via `is_profile_public`. Private profiles are visible only to users who share corpus membership with > READ permission. Profile import/export connections also apply each transfer model's existing READ rule (`config/graphql/user_types.py::_filter_visible_transfers`); profile visibility alone does not grant access to private transfers. The two transfer models differ: `UserExport` has guardian object-permission tables, so an explicit READ grant admits a viewer; `UserImport` has none, so only the creator and `is_public=True` rows are visible and a guardian grant on an import is a no-op. See `UserService` in `opencontractserver/users/services/user_service.py`.
 
 > **🟣 BADGE VISIBILITY**: Badge awards follow the recipient's profile privacy rules. Badges are visible if the recipient's profile is visible, or for corpus-specific badges, if the user has access to that corpus. See `BadgeService` in `opencontractserver/badges/services/badge_service.py`.
 
@@ -417,6 +417,8 @@ The two are pinned to agree for READ by the invariant suite (`test_authorization
 | **CorpusAction** | Direct (generic) | Creator / `is_public` / guardian | — | Generic `visible_to_user`; listed per-corpus by `DocumentActionsService` |
 | **CorpusGroup** | Direct (`BaseOCModel`) | Creator / `is_public` / guardian | Member corpora + bound agent re-gated per viewer | Membership resolved at **call time**, never snapshotted; `Effective member set = MIN(group READ, corpus READ)` |
 | **Notification** | Recipient-only | `recipient == user` | — | Simple ownership — no guardian tables, does NOT use `AnnotatePermissionsForReadMixin` |
+| **UserExport** | Direct (`BaseOCModel`) | Creator / `is_public` / guardian | — | Bare `BaseVisibilityManager`; profile connections intersect by `pk` (`_filter_visible_transfers`) because the manager's plain `QuerySet` has no `visible_to_user` |
+| **UserImport** | Direct (`BaseOCModel`), creator/public only | Creator / `is_public` | — | Same manager, but **no guardian object-permission tables** — an explicit READ grant is a silent no-op |
 
 ### Detailed Permission Formulas
 

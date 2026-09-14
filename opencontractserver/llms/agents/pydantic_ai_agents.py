@@ -1889,9 +1889,25 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
 
         from opencontractserver.conversations.models import ChatMessage
 
+        # The paused message is resolved INSIDE this agent's conversation so
+        # a caller can never approve or reject another conversation's message
+        # by id. Ephemeral sessions (``persist=False`` sub-agents, anonymous
+        # chat) have no conversation: their placeholder ids are synthetic
+        # in-memory counters, never ``ChatMessage`` rows, so there is nothing
+        # to resume against and the lookup fails closed instead of matching
+        # an unrelated row by primary-key coincidence.
+        conversation_id = self.get_conversation_id()
+        if conversation_id is None:
+            raise ValueError(
+                f"ChatMessage {llm_message_id} not found: this agent has no "
+                "persisted conversation, so approval-gated tool calls cannot "
+                "be resumed for it"
+            )
         try:
-            paused_msg = await ChatMessage.objects.aget(id=llm_message_id)
-        except ObjectDoesNotExist:  # pragma: no cover – defensive guard
+            paused_msg = await ChatMessage.objects.aget(
+                id=llm_message_id, conversation_id=conversation_id
+            )
+        except ObjectDoesNotExist:
             raise ValueError(f"ChatMessage {llm_message_id} not found")
 
         current_state = paused_msg.data.get("state")

@@ -672,7 +672,8 @@ def _convert_tools_for_framework(
         framework: Target framework
         document_id: Document ID to inject into tools that accept it
         corpus_id: Corpus ID to inject into tools that accept it
-        user_id: User ID to inject for author_id/creator_id params
+        user_id: User ID to inject for every actor-identity param named in
+            ``TOOL_ACTOR_IDENTITY_PARAMS`` (``constants/tools.py``)
         corpus_action_id: CorpusAction ID to inject into tools that accept it
         conversation_id: Conversation ID to inject into tools that accept it
 

@@ -777,6 +777,11 @@ When a tool requiring approval is called, the framework:
 3. **Persists state** in the database with `state=AWAITING_APPROVAL`
 4. **Waits for human decision** via `resume_with_approval()`
 
+`PydanticAICoreAgent.resume_with_approval()` resolves the pending message **inside the agent's own conversation** (`ChatMessage` filtered by `conversation_id`), so a decision can never approve or reject another conversation's message by id. Two consequences:
+
+- **Ephemeral sessions cannot resume.** `persist=False` sub-agents (`llms/tools/delegation_tools.py`) and anonymous chat build a `CoreConversationManager` with no conversation; their placeholder ids are synthetic in-memory counters, never `ChatMessage` rows. A decision for such a session raises `ValueError("... has no persisted conversation ...")` instead of matching an unrelated row by primary-key coincidence. Today this is moot in practice: every `requires_approval=True` tool in `llms/tools/tool_registry.py` also sets `requires_write_permission=True`, and write tools are filtered out for anonymous users, so only a delegated sub-agent acting for a writer can reach the gate — and that path never completed a resume before the conversation scoping either (it looked up the synthetic id against the global table). Making ephemeral sub-agents resumable (resolving the paused message from the manager's in-memory buffer) is a separate feature.
+- **Actor identity is bound, not argued.** Moderation tools name their actor `moderator_id`, one of the `TOOL_ACTOR_IDENTITY_PARAMS` (`constants/tools.py`) that `build_inject_params_for_context()` fills from the factory's `user_id` and hides from the LLM; caller arguments cannot substitute another moderator. Any new actor-identity parameter must be added to that set.
+
 Upon approval/rejection:
 
 1. **Emits `ApprovalResultEvent`** with the decision

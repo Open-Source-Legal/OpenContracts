@@ -6,6 +6,7 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 
+from opencontractserver.constants.tools import TOOL_ACTOR_IDENTITY_PARAMS
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
 from opencontractserver.llms.tools.pydantic_ai_tools import (
@@ -656,6 +657,11 @@ async def tool_needing_no_ids(query: str, limit: int = 5) -> dict:
     return {"query": query, "limit": limit}
 
 
+async def tool_needing_moderator_id(moderator_id: int, thread_id: int) -> dict:
+    """Tool that names its actor ``moderator_id`` (moderation tools)."""
+    return {"moderator_id": moderator_id, "thread_id": thread_id}
+
+
 class TestBuildInjectParamsForContext(TestCase):
     """Tests for build_inject_params_for_context helper function."""
 
@@ -693,6 +699,53 @@ class TestBuildInjectParamsForContext(TestCase):
         inject = build_inject_params_for_context(tool, user_id=789)
 
         self.assertEqual(inject, {"user_id": 789})
+
+    def test_injects_moderator_id_from_user_id(self):
+        """``moderator_id`` is bound to the factory actor, never LLM-supplied."""
+        tool = CoreTool.from_function(tool_needing_moderator_id)
+        inject = build_inject_params_for_context(tool, user_id=789)
+
+        self.assertEqual(inject, {"moderator_id": 789})
+
+    def test_every_actor_identity_param_is_bound(self):
+        """Every name in ``TOOL_ACTOR_IDENTITY_PARAMS`` is filled from user_id.
+
+        The injection allowlist is the named constant, not a literal in the
+        factory: a tool that names its actor from the set is bound to the
+        factory's user, and a name outside the set is left for the LLM. Both
+        halves are pinned so extending the convention means editing the
+        constant, and only the constant.
+        """
+        self.assertEqual(
+            TOOL_ACTOR_IDENTITY_PARAMS,
+            frozenset({"author_id", "creator_id", "user_id", "moderator_id"}),
+        )
+        for name in sorted(TOOL_ACTOR_IDENTITY_PARAMS) + ["reviewer_id"]:
+            with self.subTest(param=name):
+
+                async def _tool(**kwargs):
+                    """Dynamically-signed stub."""
+                    return kwargs
+
+                _tool.__signature__ = inspect.Signature(
+                    [
+                        inspect.Parameter(
+                            name,
+                            inspect.Parameter.KEYWORD_ONLY,
+                            annotation=int,
+                        ),
+                        inspect.Parameter(
+                            "query",
+                            inspect.Parameter.KEYWORD_ONLY,
+                            annotation=str,
+                        ),
+                    ]
+                )
+                tool = CoreTool.from_function(_tool, name=f"tool_{name}")
+                inject = build_inject_params_for_context(tool, user_id=789)
+
+                expected = {name: 789} if name in TOOL_ACTOR_IDENTITY_PARAMS else {}
+                self.assertEqual(inject, expected)
 
     def test_injects_multiple_params(self):
         """Test that multiple context params are injected correctly."""
