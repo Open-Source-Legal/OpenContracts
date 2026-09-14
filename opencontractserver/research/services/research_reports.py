@@ -95,7 +95,9 @@ class ResearchReportService(BaseService):
     def require_scope(
         cls, user: Any, corpus: Any, *, corpus_group: Any = None, request: Any = None
     ) -> None:
-        """Require the anchor corpus and any requested group for the same actor."""
+        """Require an active actor with access to the anchor corpus and group."""
+        if user is None or not user.is_active:
+            raise PermissionError("Research requester is inactive or missing")
         error = cls.require_permission(
             corpus, user, PermissionTypes.READ, request=request
         )
@@ -138,8 +140,8 @@ class ResearchReportService(BaseService):
         is not.
 
         Raises:
-            PermissionError: when ``user`` lacks READ on ``corpus``, or the
-                requested group is not visible to them.
+            PermissionError: when ``user`` is inactive, lacks READ on ``corpus``,
+                or the requested group is not visible to them.
             ConcurrentResearchInProgress: when a non-terminal report for
                 the same ``(user, corpus)`` exists inside the configured
                 concurrency-guard window.

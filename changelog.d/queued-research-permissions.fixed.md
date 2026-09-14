@@ -1,1 +1,1 @@
-- Queued and resumed research rechecks the requester's active account, corpus READ, and optional corpus-group scope before entering the research loop (`tasks/research_tasks.py`, `research/services/research_reports.py`).
+- Research kickoff and worker execution share the active-account, corpus READ, and optional corpus-group checks. Queued and resumed jobs recheck the stored requester before entering the research loop (`tasks/research_tasks.py`, `research/services/research_reports.py`).

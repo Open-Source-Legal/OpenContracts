@@ -79,6 +79,19 @@ class ResearchReportServiceTestCase(TestCase):
         self.assertTrue(report.slug)
         enqueued.assert_called_once_with(report.pk)
 
+    def test_start_rejects_inactive_requester_before_creating_or_enqueuing(self):
+        self.user.is_active = False
+        self.user.save(update_fields=["is_active"])
+        with patch(
+            "opencontractserver.tasks.research_tasks.run_deep_research.delay"
+        ) as enqueued, self.captureOnCommitCallbacks(execute=True):
+            with self.assertRaises(PermissionError):
+                ResearchReportService.start(
+                    user=self.user, corpus=self.public_corpus, prompt="Research"
+                )
+        self.assertFalse(ResearchReport.objects.exists())
+        enqueued.assert_not_called()
+
     def test_queued_and_resumed_research_recheck_current_actor_and_scope(self):
         from opencontractserver.tasks.research_tasks import run_deep_research
 
