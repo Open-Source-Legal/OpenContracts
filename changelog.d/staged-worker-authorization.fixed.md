@@ -1,0 +1,1 @@
+- Revalidate token activity, expiry, worker activity, and corpus binding when staged document uploads and authority-section batches drain (`worker_uploads/tasks.py`). Linked worker-user deactivation is included in token validity.

@@ -94,28 +94,40 @@ class BaseService:
         whole filter as a single ``WHERE`` expression tree (no correlated
         subquery over the full model table).
 
-        Fail-closed on input: a queryset/manager that lacks
+        Fail-closed on input: a queryset/manager whose *queryset* lacks
         ``visible_to_user`` raises ``TypeError`` rather than passing the
-        rows through unfiltered. The OpenContracts model layer always
-        exposes ``visible_to_user`` on both the manager and the queryset
-        (via ``PermissionManager.from_queryset`` or
-        ``PermissionedTreeQuerySet.as_manager``) so real callers always hit
-        the chained-filter path; anything else is a wiring bug, and a
+        rows through unfiltered. Models built on ``PermissionManager`` /
+        ``PermissionedTreeQuerySet`` (and the per-app managers that wrap a
+        ``visible_to_user``-aware QuerySet) hit the chained-filter path.
+        Models that keep the bare ``BaseVisibilityManager`` (``UserExport``,
+        ``UserImport``, ``CorpusAction``, ...) do NOT — their manager has the
+        method but its plain ``QuerySet`` does not — so their related
+        managers must go through ``filter_visible(Model, ...).filter(
+        pk__in=...)`` instead. Anything else is a wiring bug, and a
         permission gate must surface that loudly instead of leaking every
         row.
 
         ``request`` is accepted for API parity with ``filter_visible`` (see
         that method for the threading rationale — same caveat applies).
         """
-        if not hasattr(queryset, "visible_to_user"):
-            # SECURITY (fail-closed): this can only fire for an input that is
-            # not a permissioned QuerySet/manager (a plain list, a prefetched
-            # cache, a custom proxy). Real QuerySets and M2M RelatedManagers
-            # in this codebase always inherit ``visible_to_user`` from
-            # PermissionManager / PermissionedTreeQuerySet. Returning the
-            # input unchanged here would silently emit unfiltered rows — a
-            # latent IDOR — so we raise instead. Audit the caller: pass a
-            # real model queryset/manager, or use ``filter_visible(Model, ...)``.
+        # ``.all()`` normalises a RelatedManager to a QuerySet while
+        # preserving the parent FK filter; on an already-resolved
+        # QuerySet it returns a cheap clone. The guard runs on the
+        # normalised queryset, not the manager: a ``BaseVisibilityManager``
+        # related manager has ``visible_to_user`` itself but hands back a
+        # plain ``QuerySet`` that does not, and checking the manager would
+        # let that case through to an ``AttributeError`` instead of the
+        # documented fail-closed ``TypeError``.
+        normalised = getattr(queryset, "all", None)
+        resolved = normalised() if callable(normalised) else queryset
+        if not hasattr(resolved, "visible_to_user"):
+            # SECURITY (fail-closed): this fires for an input that is not a
+            # permissioned QuerySet (a plain list, a prefetched cache, a
+            # custom proxy, or a bare ``BaseVisibilityManager`` model's
+            # related manager). Returning the input unchanged here would
+            # silently emit unfiltered rows — a latent IDOR — so we raise
+            # instead. Audit the caller: pass a ``visible_to_user``-aware
+            # queryset/manager, or use ``filter_visible(Model, ...)``.
             raise TypeError(
                 "filter_visible_qs received an object without a "
                 f"`visible_to_user` method ({type(queryset).__name__!r}); "
@@ -128,11 +140,7 @@ class BaseService:
         # ``request`` is keyed by (user, instance, perm) for single-object
         # checks (``user_has`` / ``require_permission``), not queryset
         # filters. Same silent-drop semantics as ``filter_visible`` above.
-        #
-        # ``.all()`` normalises a RelatedManager to a QuerySet while
-        # preserving the parent FK filter; on an already-resolved
-        # QuerySet it returns a cheap clone.
-        return queryset.all().visible_to_user(user, **kwargs)
+        return resolved.visible_to_user(user, **kwargs)
 
     @staticmethod
     def user_has(

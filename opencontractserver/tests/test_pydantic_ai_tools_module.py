@@ -9,7 +9,9 @@ from django.contrib.auth.models import Group
 from django.test import TestCase, TransactionTestCase
 from guardian.shortcuts import assign_perm
 
+from opencontractserver.agents.models import AgentConfiguration
 from opencontractserver.annotations.models import Annotation, Note
+from opencontractserver.constants.tools import TOOL_ACTOR_IDENTITY_PARAMS
 from opencontractserver.conversations.models import ChatMessage, Conversation
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
@@ -27,6 +29,8 @@ from opencontractserver.llms.tools.tool_factory import (
     build_inject_params_for_context,
 )
 from opencontractserver.llms.tools.tool_registry import ToolFunctionRegistry
+from opencontractserver.types.enums import PermissionTypes
+from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
 User = get_user_model()
 
@@ -350,6 +354,106 @@ class TestToolTargetRead(TransactionTestCase):
             self.doc.description or "",
         )
 
+    def test_selected_writers_require_current_target_write(self):
+        writer = User.objects.create_user(username="target-writer")
+        origin = Corpus.objects.create(creator=writer, title="Writable origin")
+        annotation = Annotation.objects.create(
+            creator=self.user, document=self.doc, corpus=self.corpus, raw_text="Source"
+        )
+        note = Note.objects.create(
+            creator=self.user, document=self.doc, corpus=self.corpus, content="Original"
+        )
+        for doc_write, corpus_write in (
+            (False, False),
+            (True, False),
+            (False, True),
+            (True, True),
+            (True, False),
+        ):
+            for obj, writable in ((self.doc, doc_write), (self.corpus, corpus_write)):
+                set_permissions_for_obj_to_user(
+                    writer,
+                    obj,
+                    [PermissionTypes.CRUD if writable else PermissionTypes.READ],
+                )
+            for name, arguments in (
+                (
+                    "update_document_note",
+                    {"note_id": note.pk, "new_content": "Changed"},
+                ),
+                (
+                    "duplicate_annotations_with_label",
+                    {"annotation_ids": [annotation.pk], "new_label_text": "Copied"},
+                ),
+            ):
+                with self.subTest(
+                    tool=name, doc_write=doc_write, corpus_write=corpus_write
+                ):
+                    tool, ctx = self._target_tool(name, writer, origin)
+                    if doc_write and corpus_write:
+                        self.assertNotIn(
+                            "[Tool error]", str(async_to_sync(tool)(ctx, **arguments))
+                        )
+                        continue
+                    annotation_count = Annotation.objects.count()
+                    content = Note.objects.get(pk=note.pk).content
+                    for approved in (False, True):
+                        ctx.deps.skip_approval_gate = approved
+                        with self.assertRaisesRegex(PermissionError, "WRITE"):
+                            async_to_sync(tool)(ctx, **arguments)
+                    self.assertEqual(Annotation.objects.count(), annotation_count)
+                    self.assertEqual(Note.objects.get(pk=note.pk).content, content)
+        self.assertEqual(Annotation.objects.count(), 2)
+        self.assertEqual(Note.objects.get(pk=note.pk).content, "Changed")
+
+    def test_thread_posting_requires_current_target_visibility(self):
+        writer = User.objects.create_user(username="thread-writer")
+        origin = Corpus.objects.create(creator=writer, title="Writable origin")
+        thread = Conversation.objects.create(
+            creator=self.user, chat_with_corpus=self.corpus, conversation_type="thread"
+        )
+        agent = AgentConfiguration.objects.create(
+            creator=writer, name="Posting agent", slug="posting-agent"
+        )
+        tool, ctx = self._target_tool("add_thread_message", writer, origin)
+        arguments = {
+            "thread_id": thread.pk,
+            "content": "Reply",
+            "agent_config_id": agent.pk,
+        }
+        for visible in (False, True, False):
+            set_permissions_for_obj_to_user(
+                writer, self.corpus, [PermissionTypes.READ] if visible else []
+            )
+            if visible:
+                self.assertTrue(async_to_sync(tool)(ctx, **arguments)["success"])
+            else:
+                count = ChatMessage.objects.filter(conversation=thread).count()
+                with self.assertRaisesRegex(PermissionError, "READ"):
+                    async_to_sync(tool)(ctx, **arguments)
+                self.assertEqual(
+                    ChatMessage.objects.filter(conversation=thread).count(), count
+                )
+        message = ChatMessage.objects.get(conversation=thread)
+        self.assertEqual(message.creator_id, writer.pk)
+        self.assertEqual(message.content, "Reply")
+
+    def test_malformed_targets_return_tool_errors_before_approval_or_execution(self):
+        effects = []
+
+        async def select(annotation_ids: list[int]) -> None:
+            effects.append(annotation_ids)
+
+        tool = PydanticAIToolFactory.from_function(select, requires_approval=True)
+        ctx = MagicMock(
+            deps=PydanticAIDependencies(user_id=self.user.pk, corpus_id=self.corpus.pk)
+        )
+        for target in ("invalid", None, {}):
+            with self.subTest(target=target):
+                result = async_to_sync(tool)(ctx, annotation_ids=[target])
+                self.assertIn("[Tool error]", result)
+        self.assertEqual(effects, [])
+
     def test_target_read_covers_positional_defaults_forwarding_and_zero_ids(self):
         reader = User.objects.create_user(username="target-argument-reader")
         origin = Corpus.objects.create(creator=reader, title="Origin", is_public=True)
@@ -572,7 +676,7 @@ class TestInjectParams(TestCase):
 @pytest.mark.django_db
 @pytest.mark.asyncio
 @patch(
-    "opencontractserver.llms.tools.pydantic_ai_tools._check_target_read_permissions",
+    "opencontractserver.llms.tools.pydantic_ai_tools._check_target_permissions",
     new=AsyncMock(),
 )
 class TestInjectParamsExecution(TestCase):
@@ -805,6 +909,11 @@ async def tool_needing_no_ids(query: str, limit: int = 5) -> dict:
     return {"query": query, "limit": limit}
 
 
+async def tool_needing_moderator_id(moderator_id: int, thread_id: int) -> dict:
+    """Tool that names its actor ``moderator_id`` (moderation tools)."""
+    return {"moderator_id": moderator_id, "thread_id": thread_id}
+
+
 class TestBuildInjectParamsForContext(TestCase):
     """Tests for build_inject_params_for_context helper function."""
 
@@ -842,6 +951,53 @@ class TestBuildInjectParamsForContext(TestCase):
         inject = build_inject_params_for_context(tool, user_id=789)
 
         self.assertEqual(inject, {"user_id": 789})
+
+    def test_injects_moderator_id_from_user_id(self):
+        """``moderator_id`` is bound to the factory actor, never LLM-supplied."""
+        tool = CoreTool.from_function(tool_needing_moderator_id)
+        inject = build_inject_params_for_context(tool, user_id=789)
+
+        self.assertEqual(inject, {"moderator_id": 789})
+
+    def test_every_actor_identity_param_is_bound(self):
+        """Every name in ``TOOL_ACTOR_IDENTITY_PARAMS`` is filled from user_id.
+
+        The injection allowlist is the named constant, not a literal in the
+        factory: a tool that names its actor from the set is bound to the
+        factory's user, and a name outside the set is left for the LLM. Both
+        halves are pinned so extending the convention means editing the
+        constant, and only the constant.
+        """
+        self.assertEqual(
+            TOOL_ACTOR_IDENTITY_PARAMS,
+            frozenset({"author_id", "creator_id", "user_id", "moderator_id"}),
+        )
+        for name in sorted(TOOL_ACTOR_IDENTITY_PARAMS) + ["reviewer_id"]:
+            with self.subTest(param=name):
+
+                async def _tool(**kwargs):
+                    """Dynamically-signed stub."""
+                    return kwargs
+
+                _tool.__signature__ = inspect.Signature(
+                    [
+                        inspect.Parameter(
+                            name,
+                            inspect.Parameter.KEYWORD_ONLY,
+                            annotation=int,
+                        ),
+                        inspect.Parameter(
+                            "query",
+                            inspect.Parameter.KEYWORD_ONLY,
+                            annotation=str,
+                        ),
+                    ]
+                )
+                tool = CoreTool.from_function(_tool, name=f"tool_{name}")
+                inject = build_inject_params_for_context(tool, user_id=789)
+
+                expected = {name: 789} if name in TOOL_ACTOR_IDENTITY_PARAMS else {}
+                self.assertEqual(inject, expected)
 
     def test_injects_multiple_params(self):
         """Test that multiple context params are injected correctly."""
@@ -951,7 +1107,7 @@ class TestContextInjectionIntegration(TestCase):
         self.assertEqual(result["content"], "test content")
 
     @patch(
-        "opencontractserver.llms.tools.pydantic_ai_tools._check_target_read_permissions",
+        "opencontractserver.llms.tools.pydantic_ai_tools._check_target_permissions",
         new=AsyncMock(),
     )
     async def test_unified_tool_factory_passes_inject_params(self):

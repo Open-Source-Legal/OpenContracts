@@ -196,17 +196,19 @@ async def _check_user_permissions(
     return user
 
 
-async def _check_target_read_permissions(
+async def _check_target_permissions(
     ctx: "RunContext[PydanticAIDependencies]",
     user: "User | None",
     parameters: dict[str, Any],
     *,
+    require_write: bool,
     read_conversations: bool,
 ) -> None:
-    """Admit selected targets through shared READ using this invocation's actor.
+    """Check selected targets using this invocation's actor and model rules.
 
-    Bound documents/corpuses were already checked. Read-only conversation tools
-    use model READ; moderation actions retain their service's distinct role gate.
+    Bound documents/corpuses were already checked. Writers also require CRUD on
+    selected annotations/notes. Thread reads and posting use model READ;
+    moderation actions retain their service's distinct role gate.
     Graph-navigation aliases and analysis/extract selectors retain their existing
     service-owned target selection.
     """
@@ -216,6 +218,20 @@ async def _check_target_read_permissions(
     from opencontractserver.conversations.models import ChatMessage, Conversation
     from opencontractserver.corpuses.models import Corpus
     from opencontractserver.documents.models import Document
+
+    def require_targets(model, ids):
+        visible = BaseService.filter_visible(model, user).filter(pk__in=ids)
+        rows = (
+            list(visible.select_related("document", "corpus"))
+            if require_write and model in (Annotation, Note)
+            else None
+        )
+        if (len(rows) if rows is not None else visible.count()) != len(ids):
+            raise PermissionError(f"READ denied for selected {model.__name__} target")
+        if rows and any(
+            not BaseService.user_has(row, user, PermissionTypes.CRUD) for row in rows
+        ):
+            raise PermissionError(f"WRITE denied for selected {model.__name__} target")
 
     targets: list[tuple[Any, tuple[str, ...], int | None]] = [
         (Document, ("document_id",), getattr(ctx.deps, "document_id", None)),
@@ -241,10 +257,8 @@ async def _check_target_read_permissions(
                 )
         if admitted_id is not None:
             ids.discard(admitted_id)
-        if ids and await sync_to_async(
-            lambda: BaseService.filter_visible(model, user).filter(pk__in=ids).count()
-        )() != len(ids):
-            raise PermissionError(f"READ denied for selected {model.__name__} target")
+        if ids:
+            await sync_to_async(require_targets)(model, ids)
 
 
 def _validate_resource_id_params(
@@ -676,38 +690,36 @@ class PydanticAIToolWrapper:
             for param_name, value in self.inject_params.items():
                 kwargs[param_name] = value
 
-            # Defense-in-depth: validate user permissions BEFORE any tool execution
-            # This prevents permission escalation via agents
-            if self.core_tool.requires_write_permission:
-                user = await _check_user_permissions(ctx, require_write=True)
-            else:
-                user = await _check_user_permissions(ctx)
-
-            # Defense-in-depth: validate resource ID params match context
-            # This prevents prompt injection attacks that try to access other resources
-            # (Also validates injected params match deps as additional safety check)
-            parameters = kwargs
             try:
-                bound = sig.bind_partial(*args, **kwargs)
+                # Context and selected-target authorization precede approval/body.
+                if self.core_tool.requires_write_permission:
+                    user = await _check_user_permissions(ctx, require_write=True)
+                else:
+                    user = await _check_user_permissions(ctx)
+
+                bound = sig.bind(*args, **kwargs)
                 bound.apply_defaults()
                 # BoundArguments nests forwarded **kwargs; retain their flat
                 # resource keys alongside explicit positional/default values.
                 parameters = {**kwargs, **bound.arguments}
-            except TypeError:
-                # Keep the existing operational error handling for invalid calls.
-                pass
-            _validate_resource_id_params(ctx, **parameters)
-            await _check_target_read_permissions(
-                ctx,
-                user,
-                parameters,
-                read_conversations=not self.core_tool.requires_write_permission,
-            )
+                _validate_resource_id_params(ctx, **parameters)
+                await _check_target_permissions(
+                    ctx,
+                    user,
+                    parameters,
+                    require_write=self.core_tool.requires_write_permission,
+                    read_conversations=self.core_tool.name
+                    not in (
+                        "delete_message",
+                        "lock_thread",
+                        "unlock_thread",
+                        "pin_thread",
+                        "unpin_thread",
+                    ),
+                )
 
-            # Trigger approval gate *before* attempting execution.
-            _maybe_raise(ctx, *args, **kwargs)
+                _maybe_raise(ctx, *args, **kwargs)
 
-            try:
                 result = await original_func(*args, **kwargs)
                 # Apply tool output truncation to prevent oversized
                 # returns from bloating the conversation context.

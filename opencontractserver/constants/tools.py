@@ -15,6 +15,21 @@ TOOL_SETTINGS_PREFIX = "tool:"
 
 
 # ---------------------------------------------------------------------------
+# Actor-identity parameters bound from the agent factory
+# ---------------------------------------------------------------------------
+# ``build_inject_params_for_context`` (``llms/tools/tool_factory.py``) fills
+# every tool parameter named here from the factory's ``user_id`` and hides it
+# from the LLM. The convention is name-based: a tool declares who acts by
+# naming its parameter from this set, and the caller can never substitute a
+# different actor. A new identity parameter (``reviewer_id``, ``actor_id``,
+# ...) MUST be added here — an unlisted name is exposed to the LLM as an
+# ordinary argument and reopens the actor-substitution gap this set closes.
+TOOL_ACTOR_IDENTITY_PARAMS = frozenset(
+    {"author_id", "creator_id", "user_id", "moderator_id"}
+)
+
+
+# ---------------------------------------------------------------------------
 # Pagination limits for extract/analyzer discovery tools
 # ---------------------------------------------------------------------------
 # Hard cap that callers cannot exceed regardless of requested ``limit``.

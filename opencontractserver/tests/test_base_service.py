@@ -17,6 +17,7 @@ from opencontractserver.shared.services.conventions import (
     get_for_user_or_none,
 )
 from opencontractserver.types.enums import PermissionTypes
+from opencontractserver.users.models import UserExport
 
 User = get_user_model()
 
@@ -237,6 +238,29 @@ class TestBaseServiceLookup(TestCase):
 
         with self.assertRaises(TypeError):
             BaseService.filter_visible_qs(_Exotic(), self.owner)
+
+    def test_filter_visible_qs_rejects_bare_visibility_manager_related_manager(
+        self,
+    ):
+        """A bare-``BaseVisibilityManager`` related manager fails CLOSED too.
+
+        ``UserExport`` keeps ``BaseOCModel``'s default manager, a plain
+        ``Manager`` whose ``visible_to_user`` builds from ``Model.objects``
+        and whose ``.all()`` hands back a ``QuerySet`` *without*
+        ``visible_to_user``. The manager itself has the method, so a guard
+        that only inspects the manager would pass it through to an
+        ``AttributeError`` on the chained call. The guard must inspect the
+        normalised queryset and raise the documented ``TypeError`` so the
+        caller is pointed at ``filter_visible(Model, ...)`` (the shape
+        ``config/graphql/user_types.py::_filter_visible_transfers`` uses).
+        """
+        UserExport.objects.create(name="Owned", creator=self.owner)
+        related = self.owner.userexport_set
+        self.assertTrue(hasattr(related, "visible_to_user"))
+        self.assertFalse(hasattr(related.all(), "visible_to_user"))
+
+        with self.assertRaises(TypeError):
+            BaseService.filter_visible_qs(related, self.owner)
 
 
 class TestBaseServiceRequirePermission(TestCase):
