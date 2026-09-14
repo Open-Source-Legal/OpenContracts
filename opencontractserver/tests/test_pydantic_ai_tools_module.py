@@ -544,6 +544,21 @@ class TestToolTargetRead(TransactionTestCase):
         with self.assertRaisesRegex(PermissionError, "WRITE"):
             async_to_sync(tool)(ctx, document_id=document.pk, new_name="Denied")
 
+    def test_navigation_tools_preserve_visibility_scoped_error_results(self):
+        reader = User.objects.create_user(username="navigation-reader")
+        origin = Corpus.objects.create(creator=reader, title="Navigation context")
+        for name, empty_fields in (
+            ("get_document_references", ("outbound", "inbound")),
+            ("find_documents_citing", ("citing_documents",)),
+        ):
+            tool, ctx = self._target_tool(name, reader, origin)
+            for document_id in (self.doc.pk, -1):
+                with self.subTest(tool=name, document_id=document_id):
+                    result = async_to_sync(tool)(ctx, document_id=document_id)
+                    self.assertIn("not found (or is not visible", result["error"])
+                    for field in empty_fields:
+                        self.assertEqual(result[field], [])
+
     def test_malformed_targets_return_tool_errors_before_approval_or_execution(self):
         effects = []
 

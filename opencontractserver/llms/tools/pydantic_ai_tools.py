@@ -231,6 +231,10 @@ async def _check_target_permissions(
         if require_write and model in (Document, Corpus, Annotation, Note):
             if model in (Annotation, Note):
                 visible = visible.select_related("document", "corpus")
+            if model is Annotation:
+                visible = visible.select_related(
+                    "created_by_analysis", "created_by_extract"
+                )
             rows = list(visible)
         if (len(rows) if rows is not None else visible.count()) != len(ids):
             raise PermissionError(f"READ denied for selected {model.__name__} target")
@@ -259,8 +263,17 @@ async def _check_target_permissions(
             ]
         )
     for model, names, admitted_id in targets:
-        if model is Document and tool.name == "ask_document" and not require_write:
-            continue  # The tool resolves documents through its corpus/group scope.
+        if (
+            model is Document
+            and not require_write
+            and tool.name
+            in (
+                "ask_document",
+                "get_document_references",
+                "find_documents_citing",
+            )
+        ):
+            continue  # These tools own scoped selection and denial results.
         ids: set[int] = set()
         for name in names:
             value = parameters.get(name)
