@@ -87,7 +87,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout Code Repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
 
       - name: Set up Python
         uses: actions/setup-python@v7
@@ -131,7 +131,7 @@ jobs:
 
     steps:
       - name: Checkout Code Repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
 
       - name: Store Codecov Env Flags
         continue-on-error: true
@@ -314,7 +314,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout Code Repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
 
       - name: Self-test the gate logic
         # Runs first, and on every invocation: a gate whose own decision
