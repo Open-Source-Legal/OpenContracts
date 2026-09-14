@@ -87,6 +87,7 @@ nav:
       - Annotation Side Effects: upload_methods/annotation_side_effects.md
       - Worker Uploads Walkthrough: worker_uploads/walkthrough.md
   - Guides:
+      - Scoped Automation Credentials: guides/automation-credentials.md
       - Building Document Imports with CAML: guides/building-document-imports-with-caml.md
       - Ingesting Authorities & Adding Providers: guides/ingesting-authorities.md
       - Authoring an Authority Pack: guides/authoring-authority-packs.md

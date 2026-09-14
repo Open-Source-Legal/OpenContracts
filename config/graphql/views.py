@@ -36,6 +36,14 @@ def authenticate_request(request: HttpRequest) -> None:
     session-authenticated users untouched. Token errors (expired/invalid
     signature) propagate to the caller for GraphQL-error formatting.
     """
+    # An explicit automation credential must never inherit a browser session's
+    # broader permissions (or bypass revocation through its session cookie).
+    from config.automation_auth import AutomationAuthentication
+
+    automation = AutomationAuthentication().authenticate(request)
+    if automation is not None:
+        request.user = automation[0]
+        return
     has_user = hasattr(request, "user")
     if has_user and request.user.is_authenticated:
         return

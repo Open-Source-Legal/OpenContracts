@@ -26,6 +26,8 @@ from opencontractserver.llms.exceptions import ToolConfirmationRequired
 # there is no circular import to defer behind ``TYPE_CHECKING``.
 from opencontractserver.llms.history_processors import InRunShrinkEvent
 from opencontractserver.llms.tools.tool_factory import CoreTool
+from opencontractserver.shared.services import BaseService
+from opencontractserver.types.enums import PermissionTypes
 
 logger = logging.getLogger(__name__)
 
@@ -50,9 +52,11 @@ class _AgentVectorStoreProto(Protocol):
 
 async def _check_user_permissions(
     ctx: "RunContext[PydanticAIDependencies]",
+    *,
+    require_write: bool = False,
 ) -> None:
     """
-    Validate that the user in context has permission to access the resources.
+    Validate current context READ and, for writer tools, its CRUD capability.
 
     This is a defense-in-depth check that runs BEFORE any tool execution to
     ensure an agent cannot escalate beyond the calling user's permissions.
@@ -63,7 +67,7 @@ async def _check_user_permissions(
         call triggers fresh DB queries to ensure we catch permission revocations
         that occur mid-session (e.g., admin removes user's access while they're
         chatting). The security benefit of detecting revoked permissions in
-        real-time outweighs the ~2-4 DB queries per tool call overhead.
+        real-time requires fresh queries on each invocation.
 
         Tests verify this behavior:
         - test_pe4_4_permission_revoked_mid_session_blocks_next_call
@@ -71,13 +75,20 @@ async def _check_user_permissions(
 
     Args:
         ctx: The RunContext containing PydanticAIDependencies with user/resource IDs
+        require_write: Require the same CRUD capability used by factory filtering.
 
     Raises:
-        PermissionError: If user lacks READ permission on document or corpus
+        PermissionError: If current READ or the requested CRUD capability is missing
     """
     from asgiref.sync import sync_to_async
 
     deps = ctx.deps
+    if require_write and (
+        deps is None
+        or deps.user_id is None
+        or (deps.document_id is None and deps.corpus_id is None)
+    ):
+        raise PermissionError("Write tools require an actor and resource context")
     if deps is None:
         return  # No context = no check (shouldn't happen in practice)
 
@@ -156,6 +167,19 @@ async def _check_user_permissions(
             )
             raise PermissionError(
                 f"User {user_id} lacks READ permission on corpus {corpus_id}"
+            )
+
+    if require_write:
+        # Use the same CRUD capability as factory filtering, with current grants.
+        # Approval confirms this call; it does not authorize it.
+        model = Document if document_id is not None else Corpus
+        resource_id = document_id if document_id is not None else corpus_id
+        resource = await sync_to_async(BaseService.get_or_none)(
+            model, resource_id, user, PermissionTypes.CRUD
+        )
+        if resource is None:
+            raise PermissionError(
+                f"User {user_id} lacks WRITE permission on {model.__name__} {resource_id}"
             )
 
 
@@ -590,7 +614,10 @@ class PydanticAIToolWrapper:
 
             # Defense-in-depth: validate user permissions BEFORE any tool execution
             # This prevents permission escalation via agents
-            await _check_user_permissions(ctx)
+            if self.core_tool.requires_write_permission:
+                await _check_user_permissions(ctx, require_write=True)
+            else:
+                await _check_user_permissions(ctx)
 
             # Defense-in-depth: validate resource ID params match context
             # This prevents prompt injection attacks that try to access other resources

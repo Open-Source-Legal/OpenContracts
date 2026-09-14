@@ -83,6 +83,7 @@ from config.graphql import voting_mutations as _voting_mutations
 from config.graphql import worker_mutations as _worker_mutations
 from config.graphql import worker_queries as _worker_queries
 from config.graphql import worker_types as _worker_types
+from config.graphql.automation import AutomationScopeExtension
 from config.graphql.security import DepthLimitValidationRule, DisableIntrospection
 
 _query_ns: dict[str, Any] = {}
@@ -203,7 +204,10 @@ if not settings.DEBUG:
 
 # Strawberry binds execution_context on each extension. Construct it per
 # request so overlapping operations never share validation state.
-_extensions: list = [lambda: AddValidationRules(_custom_rules)]
+_extensions: list = [
+    lambda: AddValidationRules(_custom_rules),
+    AutomationScopeExtension,
+]
 if getattr(settings, "FILE_URL_SHARED_CACHE_TTL", 0):
     from config.graphql.file_url_prewarm import FileUrlPrewarmExtension
 

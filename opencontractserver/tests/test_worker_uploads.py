@@ -31,6 +31,7 @@ from opencontractserver.annotations.models import (
     StructuralAnnotationSet,
 )
 from opencontractserver.corpuses.models import Corpus
+from opencontractserver.documents.models import Document, DocumentPath
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 from opencontractserver.worker_uploads.auth import WORKER_AUTH_PREFIX
@@ -761,6 +762,48 @@ class TestBatchProcessor(TestCase):
             metadata=_make_metadata(**metadata_overrides),
             status=UploadStatus.PENDING,
         )
+
+    def test_drain_rechecks_credentials_and_scope_after_staging(self):
+        from opencontractserver.worker_uploads.tasks import process_pending_uploads
+
+        other = Corpus.objects.create(title="Other corpus", creator=self.admin)
+        for change in ("revoked", "expired", "account", "user", "corpus", "deleted"):
+            with self.subTest(change=change):
+                WorkerAccount.objects.filter(pk=self.account.pk).update(is_active=True)
+                User.objects.filter(pk=self.account.user_id).update(is_active=True)
+                self.token, _ = CorpusAccessToken.create_token(
+                    worker_account=self.account, corpus=self.corpus
+                )
+                upload = self._create_staged_upload()
+                staged_file = upload.file.name
+                if change == "account":
+                    WorkerAccount.objects.filter(pk=self.account.pk).update(
+                        is_active=False
+                    )
+                elif change == "user":
+                    User.objects.filter(pk=self.account.user_id).update(is_active=False)
+                elif change == "deleted":
+                    self.token.delete()
+                else:
+                    updates = {
+                        "revoked": {"is_active": False},
+                        "expired": {
+                            "expires_at": timezone.now() - timedelta(seconds=1)
+                        },
+                        "corpus": {"corpus": other},
+                    }
+                    CorpusAccessToken.objects.filter(pk=self.token.pk).update(
+                        **updates[change]
+                    )
+                models = (Document, DocumentPath, Annotation, Embedding)
+                before = [model.objects.count() for model in models]
+                result = process_pending_uploads.apply().get()
+                upload.refresh_from_db()
+                self.assertEqual(result["failed"], 1)
+                self.assertEqual(upload.status, UploadStatus.FAILED)
+                self.assertIn("token", upload.error_message.lower())
+                self.assertEqual([model.objects.count() for model in models], before)
+                self.assertFalse(upload.file.storage.exists(staged_file))
 
     def test_processes_pending_upload(self):
         """A PENDING upload is claimed and processed to COMPLETED."""
