@@ -269,11 +269,8 @@ async def _check_target_permissions(
                     int(pk)
                     for pk in (value if isinstance(value, (list, tuple)) else [value])
                 )
-        if admitted_id is not None and (
-            not require_write
-            or model is Document
-            or getattr(ctx.deps, "document_id", None) is None
-        ):
+        # Bound context already passed its existing READ/WRITE rules.
+        if admitted_id is not None:
             ids.discard(admitted_id)
         if ids:
             await sync_to_async(require_targets)(model, ids)

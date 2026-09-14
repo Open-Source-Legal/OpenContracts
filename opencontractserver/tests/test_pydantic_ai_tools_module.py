@@ -266,10 +266,12 @@ class TestToolTargetRead(TransactionTestCase):
             creator=self.user, title="Private document", description="Private content"
         )
 
-    def _target_tool(self, name, actor, corpus):
+    def _target_tool(self, name, actor, corpus, document=None):
         core = ToolFunctionRegistry.get().to_core_tool(name)
         assert core is not None
         context = {"user_id": actor.pk if actor else None, "corpus_id": corpus.pk}
+        if document is not None:
+            context["document_id"] = document.pk
         tool = PydanticAIToolFactory.create_tool(
             core, inject_params=build_inject_params_for_context(core, **context)
         )
@@ -468,6 +470,24 @@ class TestToolTargetRead(TransactionTestCase):
                 self.assertEqual(
                     Document.objects.get(pk=self.doc.pk).description, previous
                 )
+
+    def test_bound_document_summary_retains_document_write_and_corpus_read(self):
+        writer = User.objects.create_user(username="bound-summary-writer")
+        document, _, _ = self.corpus.add_document(document=self.doc, user=self.user)
+        set_permissions_for_obj_to_user(writer, document, [PermissionTypes.CRUD])
+        set_permissions_for_obj_to_user(writer, self.corpus, [PermissionTypes.READ])
+        tool, ctx = self._target_tool(
+            "update_document_summary", writer, self.corpus, document=document
+        )
+        result = async_to_sync(tool)(ctx, new_content="Updated summary")
+        self.assertTrue(result["created"])
+        revision = document.summary_revisions.get(pk=result["revision_id"])
+        self.assertEqual(revision.snapshot, "Updated summary")
+        self.assertEqual(revision.author_id, writer.pk)
+        set_permissions_for_obj_to_user(writer, self.corpus, [])
+        with self.assertRaisesRegex(PermissionError, "READ"):
+            async_to_sync(tool)(ctx, new_content="Denied")
+        self.assertEqual(document.summary_revisions.count(), 1)
 
     def test_ask_document_preserves_service_owned_corpus_selection(self):
         reader = User.objects.create_user(username="corpus-only-reader")
