@@ -1,5 +1,6 @@
 """Tests for PydanticAI agent implementations following modern patterns."""
 
+import inspect
 import os
 import random
 from dataclasses import dataclass
@@ -25,6 +26,7 @@ from opencontractserver.llms.agents.agent_factory import UnifiedAgentFactory
 from opencontractserver.llms.agents.core_agents import AgentConfig, UnifiedChatResponse
 from opencontractserver.llms.agents.pydantic_ai_agents import PydanticAIDocumentAgent
 from opencontractserver.llms.tools.pydantic_ai_tools import (
+    PydanticAIDependencies,
     PydanticAIToolFactory,
     PydanticAIToolWrapper,
 )
@@ -1457,6 +1459,119 @@ class TestPydanticAIAgentsCoverage(TransactionTestCase):
             return_value=_HistoryResult(messages=None)
         )
         return agent, structured_agent_mock
+
+    @patch("opencontractserver.llms.agents.pydantic_ai_factory.PydanticAIAgent")
+    async def test_structured_tools_keep_bound_context_and_capabilities(self, factory):
+        from opencontractserver.llms.api import _resolve_tools
+        from opencontractserver.llms.exceptions import ToolConfirmationRequired
+
+        agent, run_agent = await self._build_core_agent_for_structured_test(factory)
+        other = await User.objects.acreate(username="structured-other")
+
+        async def witness(
+            document_id=None,
+            corpus_id=None,
+            user_id=None,
+            author_id=None,
+            creator_id=None,
+            moderator_id=None,
+            conversation_id=None,
+            corpus_action_id=None,
+            author=None,
+        ):
+            return (
+                document_id,
+                corpus_id,
+                user_id,
+                author_id,
+                creator_id,
+                moderator_id,
+                conversation_id,
+                corpus_action_id,
+                author,
+            )
+
+        core = CoreTool.from_function(witness)
+        wrapped = PydanticAIToolFactory.create_tool(
+            core, inject_params={"user_id": other.pk}
+        )
+        for actor in (self.user.pk, None):
+            agent.agent_deps = PydanticAIDependencies(
+                user_id=actor, document_id=self.doc1.pk, corpus_id=self.corpus.pk
+            )
+            for configured in (False, True):
+                for spec in (core, witness, wrapped):
+                    with self.subTest(
+                        actor=actor, configured=configured, form=type(spec)
+                    ):
+                        agent.config.tools = [spec] if configured else []
+                        await agent._structured_response_raw(
+                            "Read",
+                            str,
+                            tools=None if configured else [spec],
+                            deps=PydanticAIDependencies(user_id=other.pk),
+                        )
+                        call = self._structured_agent_call(factory)
+                        self.assertIsNotNone(call)
+                        bound = call.kwargs["tools"][0]
+                        deps = run_agent.run.call_args.kwargs["deps"]
+                        self.assertIs(deps, agent.agent_deps)
+                        self.assertEqual(
+                            set(inspect.signature(bound).parameters), {"ctx"}
+                        )
+                        result = await bound(
+                            MagicMock(deps=deps),
+                            **{
+                                name: other.pk
+                                for name in inspect.signature(witness).parameters
+                            },
+                        )
+                        self.assertEqual(
+                            result,
+                            (
+                                self.doc1.pk,
+                                self.corpus.pk,
+                                actor,
+                                actor,
+                                actor,
+                                actor,
+                                None,
+                                None,
+                                None,
+                            ),
+                        )
+                        factory.reset_mock()
+        agent.agent_deps.user_id = self.user.pk
+        core.requires_approval = core.requires_write_permission = True
+        self.assertIs(_resolve_tools([wrapped])[0], core)
+        wrapper = PydanticAIToolWrapper(core)
+        self.assertIs(_resolve_tools([wrapper])[0], core)
+        agent.config.tools = []
+        await agent._structured_response_raw("Write", str, tools=[wrapped])
+        bound = self._structured_agent_call(factory).kwargs["tools"][0]
+        with self.assertRaises(ToolConfirmationRequired):
+            await bound(MagicMock(deps=agent.agent_deps))
+
+    @patch("opencontractserver.llms.agents.pydantic_ai_factory.PydanticAIAgent")
+    async def test_structured_description_uses_bound_author(self, factory):
+        agent, _ = await self._build_core_agent_for_structured_test(factory)
+        other = await User.objects.acreate(username="structured-description-other")
+        agent.agent_deps = PydanticAIDependencies(
+            user_id=self.user.pk, corpus_id=self.corpus.pk, skip_approval_gate=True
+        )
+        await agent._structured_response_raw(
+            "Describe", str, tools=["update_corpus_description"]
+        )
+        tool = self._structured_agent_call(factory).kwargs["tools"][0]
+        document = await tool(
+            MagicMock(deps=agent.agent_deps),
+            new_content="Description",
+            author=other.pk,
+            author_id=other.pk,
+        )
+        self.assertIsInstance(document, Document)
+        stored = await Document.objects.aget(pk=document.pk)
+        self.assertEqual(stored.creator_id, self.user.pk)
 
     @staticmethod
     def _structured_agent_call(mock_pyd_ai_cls: MagicMock):

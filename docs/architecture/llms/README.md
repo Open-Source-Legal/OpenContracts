@@ -3001,3 +3001,5 @@ Because the factory runs on every agent build, the resolved per-provider credent
 ### Validation
 
 `Corpus.save()` and `AgentConfiguration.save()` both run the resolver's `validate_model_spec()` — a malformed string or a provider with no registered `BaseLLMProvider` subclass raises `ValidationError({"preferred_llm": ...})`. The validator does not gate against `supported_models` so users aren't blocked from passing newly-released model names. Specs are normalised to canonical `"{provider}:{model}"` form on the way into the database.
+
+Structured response overrides use the same context binding as factory tools, including anonymous actors. Rewrapping preserves approval and WRITE metadata, and per-call dependencies cannot replace the bound actor or resource context.

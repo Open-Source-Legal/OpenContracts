@@ -39,8 +39,7 @@ def build_inject_params_for_context(
         tool: The CoreTool to inspect
         document_id: Document ID to inject if the tool accepts it
         corpus_id: Corpus ID to inject if the tool accepts it
-        user_id: User ID to inject for every actor-identity param named in
-            ``TOOL_ACTOR_IDENTITY_PARAMS`` (``constants/tools.py``)
+        user_id: Actor ID (including anonymous None) for all actor parameters
         corpus_action_id: CorpusAction ID to inject if the tool accepts it
         conversation_id: Conversation ID to inject if the tool accepts it
 
@@ -48,19 +47,24 @@ def build_inject_params_for_context(
         Dictionary mapping parameter names to values to inject
     """
     sig = inspect.signature(tool.function)
-    inject: dict[str, Any] = {}
-
-    for param_name in sig.parameters:
-        if param_name == "document_id" and document_id is not None:
-            inject["document_id"] = document_id
-        elif param_name == "corpus_id" and corpus_id is not None:
-            inject["corpus_id"] = corpus_id
-        elif param_name in TOOL_ACTOR_IDENTITY_PARAMS and user_id is not None:
-            inject[param_name] = user_id
-        elif param_name == "corpus_action_id" and corpus_action_id is not None:
-            inject["corpus_action_id"] = corpus_action_id
-        elif param_name == "conversation_id" and conversation_id is not None:
-            inject["conversation_id"] = conversation_id
+    context = {
+        "document_id": document_id,
+        "corpus_id": corpus_id,
+        **dict.fromkeys(TOOL_ACTOR_IDENTITY_PARAMS, user_id),
+        "corpus_action_id": corpus_action_id,
+        "conversation_id": conversation_id,
+    }
+    if "author_id" in sig.parameters:
+        # The legacy object-form author must not supersede the bound actor ID.
+        context["author"] = None
+    # Unbound resources remain selectable; an absent actor or attribution
+    # context is still authoritative and must not become model-supplied.
+    inject = {
+        name: value
+        for name, value in context.items()
+        if name in sig.parameters
+        and (value is not None or name not in ("document_id", "corpus_id"))
+    }
 
     if inject:
         logger.debug(

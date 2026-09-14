@@ -1141,12 +1141,12 @@ class TestBuildInjectParamsForContext(TestCase):
         self.assertEqual(inject, {})
 
     def test_skips_none_values(self):
-        """Test that None context values are not injected."""
+        """An absent actor is bound; an unbound corpus remains selectable."""
         tool = CoreTool.from_function(tool_needing_multiple_ids)
         # Only provide document_id, others are None
         inject = build_inject_params_for_context(tool, document_id=100)
 
-        self.assertEqual(inject, {"document_id": 100})
+        self.assertEqual(inject, {"document_id": 100, "author_id": None})
 
     def test_partial_context_injection(self):
         """Test injection with only some context values provided."""

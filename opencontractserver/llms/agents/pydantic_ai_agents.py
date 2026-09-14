@@ -1753,14 +1753,23 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
             # If a per-call tool has the same name as a seeded tool, replace it.
             override_tools: list[Callable] = []
 
-            if tools:
+            override_specs = tools or self.config.tools
+            if override_specs:
+                from opencontractserver.llms.agents.agent_factory import (
+                    _convert_tools_for_framework,
+                )
                 from opencontractserver.llms.api import _resolve_tools
+                from opencontractserver.llms.types import AgentFramework
 
-                resolved_core_tools = _resolve_tools(tools)
-                override_tools = PydanticAIToolFactory.create_tools(resolved_core_tools)
-            elif self.config.tools:
-                # If caller did not pass tools but config has additional wrappers
-                override_tools = list(self.config.tools)
+                override_tools = _convert_tools_for_framework(
+                    _resolve_tools(override_specs),
+                    AgentFramework.PYDANTIC_AI,
+                    document_id=self.agent_deps.document_id,
+                    corpus_id=self.agent_deps.corpus_id,
+                    user_id=self.agent_deps.user_id,
+                    corpus_action_id=self.config.corpus_action_id,
+                    conversation_id=self.agent_deps.conversation_id,
+                )
 
             # Build the final tool list, preferring override tools over seeded
             final_tools = deduplicate_tools(
@@ -1795,8 +1804,8 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
             self._refresh_context_budget(history_result)
             # Only pass kwargs that Agent.run() accepts; ignore extras like
             # similarity_top_k that callers may pass for their own bookkeeping.
+            # Keep execution authority aligned with the tool bindings above.
             _run_accepted = {
-                "deps",
                 "model",
                 "model_settings",
                 "usage_limits",

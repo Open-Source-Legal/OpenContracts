@@ -1,0 +1,1 @@
+- Bind structured-response tools to the agent context, retaining approval and WRITE metadata and preventing alternate author or dependency arguments from replacing the actor.
