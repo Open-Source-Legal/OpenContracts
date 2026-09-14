@@ -119,7 +119,7 @@ jobs:
         with open('release-digests/' + os.environ['IMAGE'] + '.json', 'w') as f:
             json.dump({'commit': os.environ['GITHUB_SHA'], 'image': os.environ['IMAGE'], 'digest': digest}, f)
         PY
-    - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+    - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
       if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.PRODUCTION_RELEASES_ENABLED ==
         'true'
       with:
