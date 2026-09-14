@@ -1,0 +1,1 @@
+- Expire cached grants read in rolled-back transactions and prevent invalidated in-flight reads from repopulating instance or request permission caches.

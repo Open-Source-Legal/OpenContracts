@@ -22,13 +22,13 @@ into the wider visibility / permission stack.
 
 from __future__ import annotations
 
-import threading
 from typing import Any
 
 from django.contrib.contenttypes.models import ContentType
 from django.db.models import Model
 
 from opencontractserver.constants.permissioning import REQUEST_OPTIMIZER_ATTR
+from opencontractserver.shared.grant_cache import PermissionGrantCache
 
 
 class PermissionQueryOptimizer:
@@ -47,20 +47,7 @@ class PermissionQueryOptimizer:
     """
 
     def __init__(self) -> None:
-        # instance_pk slot is ``Any`` because models may use int / UUID / str PKs.
-        self._cache: dict[tuple[int, int, Any, bool], frozenset[str]] = {}
-        # Django's WSGI/ASGI workers handle one request per thread/coroutine,
-        # so the optimizer attached to ``request`` is *effectively* single-
-        # threaded today. The lock is cheap insurance against future shapes
-        # that violate that assumption (a multi-user delegation context, a
-        # background thread spun off mid-request, a service account sharing
-        # the optimizer across coroutines). Without it, a compound op like
-        # the invalidate-loop below would race with a concurrent ``get`` and
-        # raise ``RuntimeError: dictionary changed size during iteration``.
-        # An uncontended ``threading.Lock`` acquire/release on CPython is a
-        # few-hundred-nanosecond no-op, well below the cost of the guardian
-        # lookups this class exists to elide.
-        self._lock = threading.Lock()
+        self._cache = PermissionGrantCache()
 
     @staticmethod
     def _resolve_content_type_id(instance: Model) -> int:
@@ -108,11 +95,7 @@ class PermissionQueryOptimizer:
         when no request is in scope to populate Tier 2.
         """
 
-        user_id = getattr(user, "id", None)
-        if user_id is None or not getattr(user, "is_authenticated", False):
-            # Lazy import to avoid pulling permissioning (which touches
-            # ``get_user_model()`` at import time via the GraphQL middleware)
-            # into the early startup chain.
+        def collect():
             from opencontractserver.utils.permissioning import (
                 get_users_permissions_for_obj,
             )
@@ -123,44 +106,16 @@ class PermissionQueryOptimizer:
                 include_group_permissions=include_group_permissions,
             )
 
+        user_id = getattr(user, "id", None)
+        if user_id is None or not getattr(user, "is_authenticated", False):
+            return collect()
         key = (
             user_id,
             self._resolve_content_type_id(instance),
             instance.pk,
             bool(include_group_permissions),
         )
-        with self._lock:
-            cached = self._cache.get(key)
-        if cached is not None:
-            return set(cached)
-
-        # Lazy import (deferred past the cache hit path so warm requests
-        # skip even the sys.modules lookup) for the same startup-ordering
-        # reason as the anonymous branch above.
-        from opencontractserver.utils.permissioning import (
-            get_users_permissions_for_obj,
-        )
-
-        # Compute outside the lock — ``get_users_permissions_for_obj`` may
-        # run guardian queries, and we never want to serialise DB work on
-        # the optimizer's lock. The worst race is two threads computing the
-        # same granted set in parallel before either populates the cache;
-        # the second write just overwrites an identical frozenset.
-        #
-        # DESIGN NOTE — do not "fix" this by widening the lock to cover the
-        # DB call. Putting ``get_users_permissions_for_obj`` inside ``with
-        # self._lock`` would serialise every guardian lookup on the
-        # request-scoped optimizer (the very N+1 bottleneck this class
-        # exists to elide). The duplicate-computation window is the
-        # intentional trade-off: cheap, idempotent, benign.
-        granted = get_users_permissions_for_obj(
-            user=user,
-            instance=instance,
-            include_group_permissions=include_group_permissions,
-        )
-        with self._lock:
-            self._cache[key] = frozenset(granted)
-        return granted
+        return self._cache.get_or_compute(key, collect, using=instance._state.db)
 
     def invalidate(
         self,
@@ -205,20 +160,11 @@ class PermissionQueryOptimizer:
                 "whose PK collides with instance_pk."
             )
 
-        with self._lock:
-            if user_id is None and content_type_id is None and instance_pk is None:
-                self._cache.clear()
-                return
-
-            keys_to_drop = [
-                key
-                for key in self._cache
-                if (user_id is None or key[0] == user_id)
-                and (content_type_id is None or key[1] == content_type_id)
-                and (instance_pk is None or key[2] == instance_pk)
-            ]
-            for key in keys_to_drop:
-                del self._cache[key]
+        self._cache.discard_where(
+            lambda key: (user_id is None or key[0] == user_id)
+            and (content_type_id is None or key[1] == content_type_id)
+            and (instance_pk is None or key[2] == instance_pk)
+        )
 
     def invalidate_caches(self) -> None:
         """Clear the entire cache.
@@ -228,9 +174,7 @@ class PermissionQueryOptimizer:
         on :meth:`invalidate` doesn't loop back on itself — the explicit
         method is the one that nukes the cache, full stop.
         """
-
-        with self._lock:
-            self._cache.clear()
+        self._cache.clear()
 
 
 def get_request_optimizer(request: Any) -> PermissionQueryOptimizer:
