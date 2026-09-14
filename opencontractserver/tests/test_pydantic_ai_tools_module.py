@@ -1,11 +1,16 @@
 import inspect
 from typing import Optional
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from asgiref.sync import async_to_sync
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.contrib.auth.models import Group
+from django.test import TestCase, TransactionTestCase
+from guardian.shortcuts import assign_perm
 
+from opencontractserver.annotations.models import Annotation, Note
+from opencontractserver.conversations.models import ChatMessage, Conversation
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
 from opencontractserver.llms.tools.pydantic_ai_tools import (
@@ -21,6 +26,7 @@ from opencontractserver.llms.tools.tool_factory import (
     CoreTool,
     build_inject_params_for_context,
 )
+from opencontractserver.llms.tools.tool_registry import ToolFunctionRegistry
 
 User = get_user_model()
 
@@ -243,6 +249,145 @@ class TestPydanticAIToolsAsync(TestCase):
         self.assertIsNone(result_fail)
 
 
+class TestToolTargetRead(TransactionTestCase):
+    """Real tool bodies run in worker threads and need committed fixtures."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="target-owner")
+        self.corpus = Corpus.objects.create(creator=self.user, title="Private corpus")
+        self.doc = Document.objects.create(
+            creator=self.user, title="Private document", description="Private content"
+        )
+
+    def _target_tool(self, name, actor, corpus):
+        core = ToolFunctionRegistry.get().to_core_tool(name)
+        assert core is not None
+        context = {"user_id": actor.pk if actor else None, "corpus_id": corpus.pk}
+        tool = PydanticAIToolFactory.create_tool(
+            core, inject_params=build_inject_params_for_context(core, **context)
+        )
+        return tool, MagicMock(
+            deps=PydanticAIDependencies(**context, skip_approval_gate=True)
+        )
+
+    def test_readable_context_does_not_admit_private_tool_targets(self):
+        reader = User.objects.create_user(username="target-reader")
+        origin = Corpus.objects.create(creator=reader, title="Origin", is_public=True)
+        thread = Conversation.objects.create(
+            creator=self.user, chat_with_corpus=self.corpus, conversation_type="thread"
+        )
+        message = ChatMessage.objects.create(
+            creator=self.user,
+            conversation=thread,
+            msg_type="HUMAN",
+            content="Private message",
+        )
+        annotation = Annotation.objects.create(
+            creator=self.user,
+            document=self.doc,
+            corpus=self.corpus,
+            raw_text="Private",
+            json={"tokensJsons": []},
+        )
+        note = Note.objects.create(
+            creator=self.user,
+            document=self.doc,
+            corpus=self.corpus,
+            title="Private",
+            content="Original",
+        )
+        cases = {
+            "get_document_description": {"document_id": self.doc.pk},
+            "get_thread_context": {"thread_id": thread.pk},
+            "get_thread_messages": {"thread_id": thread.pk},
+            "get_message_content": {"message_id": message.pk},
+            "get_annotation_images": {"annotation_id": annotation.pk},
+        }
+        for actor in (reader, None, self.user):
+            for name, arguments in cases.items():
+                with self.subTest(actor=actor, tool=name):
+                    tool, ctx = self._target_tool(name, actor, origin)
+                    if actor == self.user:
+                        result = async_to_sync(tool)(ctx, **arguments)
+                        self.assertNotIn("[Tool error]", str(result))
+                    else:
+                        with self.assertRaisesRegex(PermissionError, "READ"):
+                            async_to_sync(tool)(ctx, **arguments)
+        for name, arguments in (
+            ("update_document_note", {"note_id": note.pk, "new_content": "Changed"}),
+            (
+                "duplicate_annotations_with_label",
+                {"annotation_ids": [annotation.pk], "new_label_text": "Copied"},
+            ),
+        ):
+            with self.subTest(writer=name):
+                tool, ctx = self._target_tool(name, reader, origin)
+                count = Annotation.objects.count()
+                with self.assertRaisesRegex(PermissionError, "READ"):
+                    async_to_sync(tool)(ctx, **arguments)
+                self.assertEqual(Annotation.objects.count(), count)
+                note.refresh_from_db()
+                self.assertEqual(note.content, "Original")
+
+    def test_selected_document_read_tracks_group_revocation_and_public_access(self):
+        reader = User.objects.create_user(username="target-group-reader")
+        group = Group.objects.create(name="Target readers")
+        group.user_set.add(reader)
+        assign_perm("read_document", group, self.doc)
+        origin = Corpus.objects.create(creator=reader, title="Origin", is_public=True)
+        tool, ctx = self._target_tool("get_document_description", reader, origin)
+        self.assertEqual(
+            async_to_sync(tool)(ctx, document_id=self.doc.pk),
+            self.doc.description or "",
+        )
+        group.user_set.remove(reader)
+        with self.assertRaisesRegex(PermissionError, "READ"):
+            async_to_sync(tool)(ctx, document_id=self.doc.pk)
+        Document.objects.filter(pk=self.doc.pk).update(is_public=True)
+        tool, ctx = self._target_tool("get_document_description", None, origin)
+        self.assertEqual(
+            async_to_sync(tool)(ctx, document_id=self.doc.pk),
+            self.doc.description or "",
+        )
+
+    def test_target_read_covers_positional_defaults_forwarding_and_zero_ids(self):
+        reader = User.objects.create_user(username="target-argument-reader")
+        origin = Corpus.objects.create(creator=reader, title="Origin", is_public=True)
+        ctx = MagicMock(
+            deps=PydanticAIDependencies(user_id=reader.pk, corpus_id=origin.pk)
+        )
+        effects = []
+
+        async def select(document_id: int = self.doc.pk) -> None:
+            effects.append(document_id)
+
+        async def forward(**kwargs) -> None:
+            effects.append(kwargs)
+
+        selected = PydanticAIToolFactory.from_function(select)
+        forwarded = PydanticAIToolFactory.from_function(forward)
+        for tool, args, kwargs in (
+            (selected, (), {}),
+            (selected, (self.doc.pk,), {}),
+            (forwarded, (), {"document_id": self.doc.pk}),
+        ):
+            with self.subTest(args=args, kwargs=kwargs), self.assertRaisesRegex(
+                PermissionError, "READ"
+            ):
+                async_to_sync(tool)(ctx, *args, **kwargs)
+        ctx.deps = PydanticAIDependencies(user_id=self.user.pk, document_id=self.doc.pk)
+        with self.assertRaisesRegex(PermissionError, "does not match"):
+            async_to_sync(selected)(ctx, -1)
+        Document.objects.create(pk=0, creator=self.user, title="Zero", is_public=False)
+        ctx.deps = PydanticAIDependencies(user_id=reader.pk, document_id=0)
+        with self.assertRaisesRegex(PermissionError, "READ"):
+            async_to_sync(selected)(ctx, 0)
+        self.assertEqual(effects, [])
+        ctx.deps.user_id = self.user.pk
+        async_to_sync(selected)(ctx, 0)
+        self.assertEqual(effects, [0])
+
+
 @pytest.mark.django_db
 @pytest.mark.asyncio
 class TestCheckUserPermissions(TestCase):
@@ -426,6 +571,10 @@ class TestInjectParams(TestCase):
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
+@patch(
+    "opencontractserver.llms.tools.pydantic_ai_tools._check_target_read_permissions",
+    new=AsyncMock(),
+)
 class TestInjectParamsExecution(TestCase):
     """Async tests for inject_params execution behavior."""
 
@@ -768,7 +917,7 @@ class TestContextInjectionIntegration(TestCase):
 
         wrapped = PydanticAIToolFactory.create_tool(tool, inject_params=inject_params)
 
-        ctx = MagicMock(deps=None)
+        ctx = MagicMock(deps=PydanticAIDependencies(user_id=self.user.pk))
         result = await wrapped(ctx, query="test query")
 
         # Document ID should have been injected
@@ -782,7 +931,7 @@ class TestContextInjectionIntegration(TestCase):
 
         wrapped = PydanticAIToolFactory.create_tool(tool, inject_params=inject_params)
 
-        ctx = MagicMock(deps=None)
+        ctx = MagicMock(deps=PydanticAIDependencies(user_id=self.user.pk))
         result = await wrapped(ctx, limit=20)
 
         self.assertEqual(result["corpus_id"], self.corpus.id)
@@ -801,6 +950,10 @@ class TestContextInjectionIntegration(TestCase):
         self.assertEqual(result["author_id"], self.user.id)
         self.assertEqual(result["content"], "test content")
 
+    @patch(
+        "opencontractserver.llms.tools.pydantic_ai_tools._check_target_read_permissions",
+        new=AsyncMock(),
+    )
     async def test_unified_tool_factory_passes_inject_params(self):
         """Test that UnifiedToolFactory.create_tool passes inject_params correctly."""
         from opencontractserver.llms.tools.tool_factory import UnifiedToolFactory

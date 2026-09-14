@@ -1,0 +1,1 @@
+- Check READ on separately selected document, corpus, annotation, note, thread, and message targets before invoking agent tools (`llms/tools/pydantic_ai_tools.py`). Reuse the current actor and avoid repeating READ for the bound document/corpus.

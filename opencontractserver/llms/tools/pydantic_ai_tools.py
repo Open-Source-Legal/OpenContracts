@@ -3,7 +3,15 @@
 import inspect
 import logging
 from collections.abc import Awaitable
-from typing import Any, Callable, Optional, Protocol, get_type_hints, runtime_checkable
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Optional,
+    Protocol,
+    get_type_hints,
+    runtime_checkable,
+)
 
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic_ai.tools import RunContext
@@ -28,6 +36,9 @@ from opencontractserver.llms.history_processors import InRunShrinkEvent
 from opencontractserver.llms.tools.tool_factory import CoreTool
 from opencontractserver.shared.services import BaseService
 from opencontractserver.types.enums import PermissionTypes
+
+if TYPE_CHECKING:
+    from opencontractserver.users.models import User
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +65,7 @@ async def _check_user_permissions(
     ctx: "RunContext[PydanticAIDependencies]",
     *,
     require_write: bool = False,
-) -> None:
+) -> "User | None":
     """
     Validate current context READ and, for writer tools, its CRUD capability.
 
@@ -90,7 +101,7 @@ async def _check_user_permissions(
     ):
         raise PermissionError("Write tools require an actor and resource context")
     if deps is None:
-        return  # No context = no check (shouldn't happen in practice)
+        return None  # No context = no check (shouldn't happen in practice)
 
     user_id = deps.user_id
     document_id = deps.document_id
@@ -107,7 +118,7 @@ async def _check_user_permissions(
     if user_id is None:
         # Anonymous user - only allow if resources are public
         # (Should already be validated at consumer layer, but double-check)
-        if document_id:
+        if document_id is not None:
             try:
                 doc = await Document.objects.aget(pk=document_id)
                 if not doc.is_public:
@@ -118,7 +129,7 @@ async def _check_user_permissions(
             except Document.DoesNotExist:
                 raise PermissionError(f"Document {document_id} not found")
 
-        if corpus_id:
+        if corpus_id is not None:
             try:
                 corpus = await Corpus.objects.aget(pk=corpus_id)
                 if not corpus.is_public:
@@ -128,7 +139,7 @@ async def _check_user_permissions(
                     raise PermissionError("Anonymous access denied to private corpus")
             except Corpus.DoesNotExist:
                 raise PermissionError(f"Corpus {corpus_id} not found")
-        return
+        return None
 
     # Authenticated user - check actual permissions
     try:
@@ -139,7 +150,7 @@ async def _check_user_permissions(
     if not user.is_active:
         raise PermissionError("User is inactive")
 
-    if document_id:
+    if document_id is not None:
         # Use visible_to_user() queryset which properly handles creator
         # access, public status, and guardian permissions.
         # Use Django's native aexists() to avoid thread-hopping via
@@ -157,7 +168,7 @@ async def _check_user_permissions(
                 f"User {user_id} lacks READ permission on document {document_id}"
             )
 
-    if corpus_id:
+    if corpus_id is not None:
         has_perm = await sync_to_async(
             lambda: Corpus.objects.visible_to_user(user).filter(pk=corpus_id).exists()
         )()
@@ -181,6 +192,59 @@ async def _check_user_permissions(
             raise PermissionError(
                 f"User {user_id} lacks WRITE permission on {model.__name__} {resource_id}"
             )
+
+    return user
+
+
+async def _check_target_read_permissions(
+    ctx: "RunContext[PydanticAIDependencies]",
+    user: "User | None",
+    parameters: dict[str, Any],
+    *,
+    read_conversations: bool,
+) -> None:
+    """Admit selected targets through shared READ using this invocation's actor.
+
+    Bound documents/corpuses were already checked. Read-only conversation tools
+    use model READ; moderation actions retain their service's distinct role gate.
+    Graph-navigation aliases and analysis/extract selectors retain their existing
+    service-owned target selection.
+    """
+    from asgiref.sync import sync_to_async
+
+    from opencontractserver.annotations.models import Annotation, Note
+    from opencontractserver.conversations.models import ChatMessage, Conversation
+    from opencontractserver.corpuses.models import Corpus
+    from opencontractserver.documents.models import Document
+
+    targets: list[tuple[Any, tuple[str, ...], int | None]] = [
+        (Document, ("document_id",), getattr(ctx.deps, "document_id", None)),
+        (Corpus, ("corpus_id",), getattr(ctx.deps, "corpus_id", None)),
+        (Annotation, ("annotation_id", "annotation_ids"), None),
+        (Note, ("note_id",), None),
+    ]
+    if read_conversations:
+        targets.extend(
+            [
+                (Conversation, ("thread_id",), None),
+                (ChatMessage, ("message_id",), None),
+            ]
+        )
+    for model, names, admitted_id in targets:
+        ids: set[int] = set()
+        for name in names:
+            value = parameters.get(name)
+            if value is not None:
+                ids.update(
+                    int(pk)
+                    for pk in (value if isinstance(value, (list, tuple)) else [value])
+                )
+        if admitted_id is not None:
+            ids.discard(admitted_id)
+        if ids and await sync_to_async(
+            lambda: BaseService.filter_visible(model, user).filter(pk__in=ids).count()
+        )() != len(ids):
+            raise PermissionError(f"READ denied for selected {model.__name__} target")
 
 
 def _validate_resource_id_params(
@@ -615,14 +679,30 @@ class PydanticAIToolWrapper:
             # Defense-in-depth: validate user permissions BEFORE any tool execution
             # This prevents permission escalation via agents
             if self.core_tool.requires_write_permission:
-                await _check_user_permissions(ctx, require_write=True)
+                user = await _check_user_permissions(ctx, require_write=True)
             else:
-                await _check_user_permissions(ctx)
+                user = await _check_user_permissions(ctx)
 
             # Defense-in-depth: validate resource ID params match context
             # This prevents prompt injection attacks that try to access other resources
             # (Also validates injected params match deps as additional safety check)
-            _validate_resource_id_params(ctx, **kwargs)
+            parameters = kwargs
+            try:
+                bound = sig.bind_partial(*args, **kwargs)
+                bound.apply_defaults()
+                # BoundArguments nests forwarded **kwargs; retain their flat
+                # resource keys alongside explicit positional/default values.
+                parameters = {**kwargs, **bound.arguments}
+            except TypeError:
+                # Keep the existing operational error handling for invalid calls.
+                pass
+            _validate_resource_id_params(ctx, **parameters)
+            await _check_target_read_permissions(
+                ctx,
+                user,
+                parameters,
+                read_conversations=not self.core_tool.requires_write_permission,
+            )
 
             # Trigger approval gate *before* attempting execution.
             _maybe_raise(ctx, *args, **kwargs)

@@ -1596,7 +1596,7 @@ Even if a tool somehow makes it to execution, the `PydanticAIToolWrapper` (line 
 1. **`_check_user_permissions(ctx)`**: Validates current READ on the bound document/corpus and, for tools marked `requires_write_permission`, CRUD on the bound document (or corpus for corpus agents). Approval preserves this context and reruns the checks. This is intentionally **not cached** — each tool call triggers fresh DB queries to detect mid-session permission revocations.
 2. **`_validate_resource_id_params(ctx, **kwargs)`** (line ~132): Ensures `document_id`/`corpus_id` arguments match the agent's context, preventing prompt-injection attacks that attempt cross-resource access.
 
-These checks run inside the generated `async_wrapper`/`sync_wrapper` functions, not as methods on the wrapper class.
+Selected resource arguments also pass `_check_target_read_permissions` using the same actor. This covers positional, default, and forwarded keyword arguments. Moderation actions retain their service-specific role checks; read-only thread/message tools use model READ.
 
 **Purpose**: Final safety check that catches any bypass attempts or edge cases, ensuring operations never execute without proper permissions.
 
