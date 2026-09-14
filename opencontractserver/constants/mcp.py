@@ -22,3 +22,8 @@ MCP_DOCUMENT_TEXT_MAX_CHARS: int = 200_000  # hard cap for get_document_text max
 # over-fetching a small ``limit`` could be consumed entirely by duplicates.
 MCP_SEARCH_CANDIDATE_MULTIPLIER: int = 3  # candidate fetch = limit * this
 MCP_SEARCH_CANDIDATE_MAX: int = 150  # absolute cap on candidate fetch per half
+
+# MIME type stamped on every ``resources/read`` payload. All MCP resources
+# (corpus, document, annotation, thread) serialise to JSON, matching the
+# ``mime_type`` advertised on their ``ResourceTemplate`` entries.
+MCP_RESOURCE_MIME_TYPE: str = "application/json"
