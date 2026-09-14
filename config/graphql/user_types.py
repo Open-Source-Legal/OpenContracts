@@ -673,6 +673,10 @@ class UserType(Node):
             }
         )
         resolved = getattr(self, "userexport_set", None)
+        if resolved is not None:
+            resolved = BaseService.filter_visible(
+                UserExport, info.context.user, request=info.context
+            ).filter(pk__in=resolved.values("pk"))
         return resolve_django_connection(
             resolved=resolved,
             info=info,
@@ -710,6 +714,10 @@ class UserType(Node):
             }
         )
         resolved = getattr(self, "locked_userexport_objects", None)
+        if resolved is not None:
+            resolved = BaseService.filter_visible(
+                UserExport, info.context.user, request=info.context
+            ).filter(pk__in=resolved.values("pk"))
         return resolve_django_connection(
             resolved=resolved,
             info=info,
@@ -747,6 +755,10 @@ class UserType(Node):
             }
         )
         resolved = getattr(self, "userimport_set", None)
+        if resolved is not None:
+            resolved = BaseService.filter_visible(
+                UserImport, info.context.user, request=info.context
+            ).filter(pk__in=resolved.values("pk"))
         return resolve_django_connection(
             resolved=resolved,
             info=info,
@@ -784,6 +796,10 @@ class UserType(Node):
             }
         )
         resolved = getattr(self, "locked_userimport_objects", None)
+        if resolved is not None:
+            resolved = BaseService.filter_visible(
+                UserImport, info.context.user, request=info.context
+            ).filter(pk__in=resolved.values("pk"))
         return resolve_django_connection(
             resolved=resolved,
             info=info,

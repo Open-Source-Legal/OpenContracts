@@ -1,0 +1,1 @@
+- Apply transfer READ rules to public-profile import/export lists (`config/graphql/user_types.py`), bind moderation tools to their factory actor (`llms/tools/tool_factory.py`), and restrict approval/rejection to messages in the agent's conversation (`llms/agents/pydantic_ai_agents.py`).

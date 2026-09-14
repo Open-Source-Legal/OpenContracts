@@ -1889,8 +1889,13 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
 
         from opencontractserver.conversations.models import ChatMessage
 
+        conversation_id = self.get_conversation_id()
+        if conversation_id is None:
+            raise ValueError(f"ChatMessage {llm_message_id} not found")
         try:
-            paused_msg = await ChatMessage.objects.aget(id=llm_message_id)
+            paused_msg = await ChatMessage.objects.aget(
+                id=llm_message_id, conversation_id=conversation_id
+            )
         except ObjectDoesNotExist:  # pragma: no cover – defensive guard
             raise ValueError(f"ChatMessage {llm_message_id} not found")
 

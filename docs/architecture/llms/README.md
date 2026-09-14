@@ -777,6 +777,8 @@ When a tool requiring approval is called, the framework:
 3. **Persists state** in the database with `state=AWAITING_APPROVAL`
 4. **Waits for human decision** via `resume_with_approval()`
 
+`PydanticAICoreAgent.resume_with_approval()` first looks up the pending message within the agent's conversation. Moderation tools likewise bind `moderator_id` to the factory actor via `build_inject_params_for_context()`; caller arguments cannot substitute another moderator.
+
 Upon approval/rejection:
 
 1. **Emits `ApprovalResultEvent`** with the decision

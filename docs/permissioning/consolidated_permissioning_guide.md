@@ -18,7 +18,7 @@
 
 > **🟡 ANONYMOUS USER SUPPORT**: Anonymous users can access public resources with read-only permissions. Document AND corpus must both be `is_public=True` for access. Documents in public corpora **automatically inherit `is_public=True`** at creation time (see [Public Corpus Document Propagation](#public-corpus-document-propagation)). Applies to documents, corpuses, conversations, analyses (public only), and annotations.
 
-> **🟣 USER PROFILE PRIVACY**: User profiles have privacy controls via `is_profile_public`. Private profiles are visible only to users who share corpus membership with > READ permission. See `UserService` in `opencontractserver/users/services/user_service.py`.
+> **🟣 USER PROFILE PRIVACY**: User profiles have privacy controls via `is_profile_public`. Private profiles are visible only to users who share corpus membership with > READ permission. Profile import/export connections also apply each transfer model's existing READ rule (`config/graphql/user_types.py::UserType`); profile visibility alone does not grant access to private transfers. See `UserService` in `opencontractserver/users/services/user_service.py`.
 
 > **🟣 BADGE VISIBILITY**: Badge awards follow the recipient's profile privacy rules. Badges are visible if the recipient's profile is visible, or for corpus-specific badges, if the user has access to that corpus. See `BadgeService` in `opencontractserver/badges/services/badge_service.py`.
 
