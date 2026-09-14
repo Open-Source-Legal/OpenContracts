@@ -566,3 +566,36 @@ class UserBySlugMarkdownProfileFieldVisibilityTestCase(TestCase):
                         },
                         {"Public", "Private"} if private_visible else {"Public"},
                     )
+
+    def test_profile_transfer_pages_use_stable_primary_key_order(self):
+        for model in (UserExport, UserImport):
+            for pk in (10003, 10001, 10002):
+                model.objects.create(
+                    pk=pk,
+                    name=str(pk),
+                    creator=self.public_owner,
+                    user_lock=self.public_owner,
+                    is_public=True,
+                )
+        for field in (
+            "userexportSet",
+            "lockedUserexportObjects",
+            "userimportSet",
+            "lockedUserimportObjects",
+        ):
+            with self.subTest(field=field):
+                names, after = [], None
+                for _ in range(3):
+                    result = self._client_as(self.viewer).execute(
+                        "query($slug: String!, $after: String) { "
+                        "userBySlug(slug: $slug) { "
+                        + field
+                        + "(first: 1, after: $after) { "
+                        "edges { node { name } } pageInfo { endCursor } } } }",
+                        variables={"slug": self.public_owner.slug, "after": after},
+                    )
+                    self.assertIsNone(result.get("errors"))
+                    page = result["data"]["userBySlug"][field]
+                    names.extend(edge["node"]["name"] for edge in page["edges"])
+                    after = page["pageInfo"]["endCursor"]
+                self.assertEqual(names, ["10001", "10002", "10003"])

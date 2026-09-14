@@ -448,9 +448,11 @@ def _filter_visible_transfers(
     """
     if related is None:
         return None
-    return BaseService.filter_visible(
-        model, info.context.user, request=info.context
-    ).filter(pk__in=related.values("pk"))
+    return (
+        BaseService.filter_visible(model, info.context.user, request=info.context)
+        .filter(pk__in=related.values("pk"))
+        .order_by("pk")
+    )
 
 
 @strawberry.type(name="UserType")
