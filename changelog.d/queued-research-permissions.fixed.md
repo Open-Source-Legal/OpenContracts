@@ -1,0 +1,1 @@
+- Queued and resumed research rechecks the requester's active account, corpus READ, and optional corpus-group scope before entering the research loop (`tasks/research_tasks.py`, `research/services/research_reports.py`).

@@ -787,9 +787,15 @@ def run_deep_research(self, research_report_id: int) -> dict:
             "plan/findings/memory",
             research_report_id,
         )
-    ResearchReportService.mark_started(report, resuming=resuming)
-
     try:
+        # The queued report and its actor were freshly loaded above. Recheck the
+        # same scope as kickoff before starting or resuming the research loop.
+        if report.creator is None or not report.creator.is_active:
+            raise PermissionError("Research requester is inactive or missing")
+        ResearchReportService.require_scope(
+            report.creator, report.corpus, corpus_group=report.corpus_group
+        )
+        ResearchReportService.mark_started(report, resuming=resuming)
         result = asyncio.run(_run_deep_research_async(report, resuming=resuming))
     except ResearchCancelled:
         ResearchReportService.mark_cancelled(report)

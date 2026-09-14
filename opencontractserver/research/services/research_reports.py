@@ -92,6 +92,30 @@ class ResearchReportService(BaseService):
     # Kickoff
     # ------------------------------------------------------------------
     @classmethod
+    def require_scope(
+        cls, user: Any, corpus: Any, *, corpus_group: Any = None, request: Any = None
+    ) -> None:
+        """Require the anchor corpus and any requested group for the same actor."""
+        error = cls.require_permission(
+            corpus, user, PermissionTypes.READ, request=request
+        )
+        if error:
+            raise PermissionError(error)
+
+        if corpus_group is not None:
+            from opencontractserver.corpuses.services import CorpusGroupService
+
+            visible = (
+                CorpusGroupService.list_visible_groups(user)
+                .filter(pk=corpus_group.pk)
+                .exists()
+            )
+            if not visible:
+                raise PermissionError(
+                    "Corpus group not found or not visible to this user."
+                )
+
+    @classmethod
     def start(
         cls,
         *,
@@ -120,24 +144,7 @@ class ResearchReportService(BaseService):
                 the same ``(user, corpus)`` exists inside the configured
                 concurrency-guard window.
         """
-        error = cls.require_permission(
-            corpus, user, PermissionTypes.READ, request=request
-        )
-        if error:
-            raise PermissionError(error)
-
-        if corpus_group is not None:
-            from opencontractserver.corpuses.services import CorpusGroupService
-
-            visible = (
-                CorpusGroupService.list_visible_groups(user)
-                .filter(pk=corpus_group.pk)
-                .exists()
-            )
-            if not visible:
-                raise PermissionError(
-                    "Corpus group not found or not visible to this user."
-                )
+        cls.require_scope(user, corpus, corpus_group=corpus_group, request=request)
 
         default_max_steps: int = getattr(
             settings, "DEEP_RESEARCH_DEFAULT_MAX_STEPS", DEFAULT_MAX_STEPS_FALLBACK
