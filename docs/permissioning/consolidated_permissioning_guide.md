@@ -2966,3 +2966,5 @@ one for the other:
 ## resolve_oc_model_queryset Deprecation
 
 > The old `resolve_oc_model_queryset` function was duplicative and not uniformly implemented. Applicable logic was moved to custom base manager with a visible_to_user(user) function.
+
+Instance and request grant caches share rollback tracking. A grant read in a rolled-back transaction/savepoint expires, and invalidation during an in-flight lookup prevents that result from repopulating the cache. Grant replacement invalidates before commit callbacks run. Existing query budgets and out-of-band invalidation requirements remain.
