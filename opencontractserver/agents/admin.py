@@ -2,9 +2,9 @@ from django.contrib import admin
 from django.db.models import QuerySet
 from django.http import HttpRequest
 from django.utils.html import format_html
-from guardian.admin import GuardedModelAdmin
 
 from opencontractserver.agents.models import AgentActionResult, AgentConfiguration
+from opencontractserver.shared.admin import GuardedModelAdmin
 
 
 @admin.register(AgentConfiguration)

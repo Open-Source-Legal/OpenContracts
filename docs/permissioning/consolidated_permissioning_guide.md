@@ -2968,3 +2968,5 @@ Instance and request grant caches share rollback tracking. A grant read in a rol
 Grant replacement also expires other in-process instances, request caches, and document permission prefetches for the same object and user. Serialized models drop permission prefetches; raw Guardian or through-table writes still require explicit invalidation.
 
 Django membership and model-permission m2m edits expire actor-dependent snapshots in this process. GraphQL metadata is keyed by actor and model, and copied or serialized users drop backend permission caches. Reverse clears and group model-permission edits conservatively expire group-dependent reads for the database without querying its members.
+
+Guardian admin user/group permission forms use the same atomic grant-write and invalidation scope as the standard writer. Their admission checks, permission choices, and grant differences remain Guardian-owned. Group edits expire group-dependent snapshots for this database without enumerating members; raw Guardian and through-table writes still require explicit invalidation.

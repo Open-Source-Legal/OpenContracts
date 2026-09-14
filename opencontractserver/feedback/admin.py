@@ -1,7 +1,7 @@
 from django.contrib import admin
-from guardian.admin import GuardedModelAdmin
 
 from opencontractserver.feedback.models import UserFeedback
+from opencontractserver.shared.admin import GuardedModelAdmin
 
 
 @admin.register(UserFeedback)

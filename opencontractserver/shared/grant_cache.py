@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable
+from contextlib import contextmanager
 from copy import copy
 from functools import wraps
 from typing import Any, NamedTuple, TypeVar, cast
@@ -285,3 +286,19 @@ def invalidate_permission_grants(instance, user_id, *, request=None):
         from opencontractserver.utils.permission_optimizer import get_request_optimizer
 
         get_request_optimizer(request).invalidate(user_id=user_id, instance=instance)
+
+
+@contextmanager
+def permission_grant_change(instance, user_id=None, *, groups=False, request=None):
+    """Commit a caller-authorized grant change and its invalidation together.
+
+    Group edits expire group-dependent snapshots for this database without
+    enumerating members. Actor/public/creator policy stays with the caller.
+    """
+    using = getattr(getattr(instance, "_state", None), "db", None)
+    with transaction.atomic(using):
+        yield
+        if groups:
+            invalidate_actor_grants((None,), using=using)
+        else:
+            invalidate_permission_grants(instance, user_id, request=request)

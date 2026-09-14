@@ -1,6 +1,5 @@
 from django.contrib import admin
 from django.db.models import Count
-from guardian.admin import GuardedModelAdmin
 
 from opencontractserver.annotations.models import Embedding
 from opencontractserver.documents.models import (
@@ -10,6 +9,7 @@ from opencontractserver.documents.models import (
     PendingCorpusImport,
     PendingDocumentAnnotations,
 )
+from opencontractserver.shared.admin import GuardedModelAdmin
 
 
 class DocumentEmbeddingInline(admin.TabularInline):

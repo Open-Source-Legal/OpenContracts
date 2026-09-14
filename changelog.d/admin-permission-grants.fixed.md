@@ -1,0 +1,1 @@
+- Expire held permission snapshots after Guardian admin user/group grant edits and commit each edit together with its cache invalidation.

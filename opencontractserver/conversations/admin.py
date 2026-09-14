@@ -1,8 +1,8 @@
 # Register your models here.
 from django.contrib import admin
-from guardian.admin import GuardedModelAdmin
 
 from opencontractserver.conversations.models import ChatMessage, Conversation
+from opencontractserver.shared.admin import GuardedModelAdmin
 
 
 @admin.register(Conversation)
