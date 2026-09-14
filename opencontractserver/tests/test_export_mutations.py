@@ -3,14 +3,19 @@ Comprehensive test suite for corpus export mutations.
 Tests the StartCorpusExport mutation functionality including analysis filtering.
 """
 
+from contextlib import ExitStack
+from unittest.mock import patch
+
 from django.contrib.auth import get_user_model
 from django.test import override_settings
 
 from config.graphql.schema import schema
 from config.graphql.testing import Client
 from opencontractserver.annotations.models import AnnotationLabel, LabelSet
+from opencontractserver.tasks import doc_tasks, lookup_tasks
 from opencontractserver.tests.base import BaseFixtureTestCase
 from opencontractserver.types.enums import ExportType, PermissionTypes
+from opencontractserver.users.models import UserExport
 from opencontractserver.utils.ids import to_global_id
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
@@ -72,6 +77,55 @@ class TestExportMutations(BaseFixtureTestCase):
         for doc in self.docs[:2]:  # Add first 2 docs
             doc.corpus = self.corpus
             doc.save()
+
+    def test_export_canvas_binds_source_tasks_to_stored_requester(self):
+        client = Client(schema, context_value=TestContext(self.user))
+        mutation = """mutation Export($corpus: String!, $format: ExportType!) {
+            exportCorpus(corpusId: $corpus, exportFormat: $format) { ok message }
+        }"""
+        for format_name, tasks in (
+            (
+                "OPEN_CONTRACTS",
+                (lookup_tasks.build_label_lookups_task, doc_tasks.burn_doc_annotations),
+            ),
+            ("FUNSD", (doc_tasks.convert_doc_to_funsd,)),
+        ):
+            with self.subTest(format=format_name), ExitStack() as stack:
+                enqueue = stack.enter_context(patch("celery.canvas._chain.apply_async"))
+                producers = [
+                    stack.enter_context(
+                        patch.object(
+                            task,
+                            (
+                                "si"
+                                if task is lookup_tasks.build_label_lookups_task
+                                else "s"
+                            ),
+                            wraps=(
+                                task.si
+                                if task is lookup_tasks.build_label_lookups_task
+                                else task.s
+                            ),
+                        )
+                    )
+                    for task in tasks
+                ]
+                response = client.execute(
+                    mutation,
+                    variables={
+                        "corpus": to_global_id("CorpusType", self.corpus.pk),
+                        "format": format_name,
+                    },
+                )
+                self.assertNotIn("errors", response)
+                self.assertTrue(response["data"]["exportCorpus"]["ok"], response)
+                enqueue.assert_called_once()
+                export = UserExport.objects.latest("pk")
+                self.assertEqual(export.creator, self.user)
+                for producer in producers:
+                    self.assertTrue(producer.called)
+                    for call in producer.call_args_list:
+                        self.assertEqual(call.kwargs, {"export_id": export.pk})
 
     def test_basic_export_without_parameters(self):
         """

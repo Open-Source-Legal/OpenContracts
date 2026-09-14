@@ -1,6 +1,7 @@
 """Unified agent factory that can create agents for different frameworks."""
 
 import logging
+from collections.abc import Sequence
 from typing import Any, Callable, Optional, Union
 
 from channels.db import database_sync_to_async
@@ -23,6 +24,7 @@ from opencontractserver.llms.tools.tool_factory import (
 from opencontractserver.llms.types import AgentFramework
 from opencontractserver.pipeline.utils import get_default_llm_spec
 from opencontractserver.types.enums import PermissionTypes
+from opencontractserver.utils.tools import as_core_tool
 
 logger = logging.getLogger(__name__)
 
@@ -656,7 +658,7 @@ class UnifiedAgentFactory:
 
 
 def _convert_tools_for_framework(
-    tools: list[Union[CoreTool, Callable, str]],
+    tools: Sequence[Union[CoreTool, Callable, str]],
     framework: AgentFramework,
     *,
     document_id: int | None = None,
@@ -672,7 +674,8 @@ def _convert_tools_for_framework(
         framework: Target framework
         document_id: Document ID to inject into tools that accept it
         corpus_id: Corpus ID to inject into tools that accept it
-        user_id: User ID to inject for author_id/creator_id params
+        user_id: User ID to inject for every actor-identity param named in
+            ``TOOL_ACTOR_IDENTITY_PARAMS`` (``constants/tools.py``)
         corpus_action_id: CorpusAction ID to inject into tools that accept it
         conversation_id: Conversation ID to inject into tools that accept it
 
@@ -682,43 +685,25 @@ def _convert_tools_for_framework(
     framework_tools = []
 
     for tool in tools:
-        if isinstance(tool, CoreTool):
-            inject_params = build_inject_params_for_context(
-                tool,
-                document_id,
-                corpus_id,
-                user_id,
-                corpus_action_id,
-                conversation_id,
-            )
-            framework_tools.append(
-                UnifiedToolFactory.create_tool(
-                    tool, framework, inject_params=inject_params
-                )
-            )
-        elif callable(tool):
-            # Convert function to CoreTool
-            ct = CoreTool.from_function(tool)
-            inject_params = build_inject_params_for_context(
-                ct,
-                document_id,
-                corpus_id,
-                user_id,
-                corpus_action_id,
-                conversation_id,
-            )
-            framework_tools.append(
-                UnifiedToolFactory.create_tool(
-                    ct, framework, inject_params=inject_params
-                )
-            )
+        if isinstance(tool, CoreTool) or callable(tool):
+            tool = as_core_tool(tool)
         elif isinstance(tool, str):
-            # Handle tool names - these will be resolved by the tool factory
-            # For now, we'll pass them through and let the framework handle them
             logger.debug(f"Tool name '{tool}' will be resolved by framework")
             continue
         else:
             logger.warning(f"Ignoring invalid tool: {tool}")
+            continue
+        inject_params = build_inject_params_for_context(
+            tool,
+            document_id,
+            corpus_id,
+            user_id,
+            corpus_action_id,
+            conversation_id,
+        )
+        framework_tools.append(
+            UnifiedToolFactory.create_tool(tool, framework, inject_params=inject_params)
+        )
 
     return framework_tools
 

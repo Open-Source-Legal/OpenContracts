@@ -18,13 +18,21 @@ import tempfile
 import zipfile
 from unittest.mock import MagicMock, patch
 
+from celery.app.task import Task
 from django.contrib.auth import get_user_model
+from django.core.files.base import ContentFile
 from django.test import TestCase
+from guardian.shortcuts import assign_perm, remove_perm
 
+from opencontractserver.annotations.models import LabelSet
 from opencontractserver.corpuses.models import Corpus
+from opencontractserver.documents.models import Document, DocumentPath
+from opencontractserver.notifications.models import Notification
+from opencontractserver.tasks import doc_tasks, lookup_tasks
 from opencontractserver.tasks.export_tasks import (
     finalize_export,
     on_demand_post_processors,
+    package_annotated_docs,
     package_funsd_exports,
 )
 from opencontractserver.tasks.export_tasks_v2 import package_corpus_export_v2
@@ -56,6 +64,105 @@ class FinalizeExportTestCase(TestCase):
             creator=self.user,
             backend_lock=True,
         )
+
+    def test_disabled_requester_cannot_finalize_an_archive(self):
+        User.objects.filter(pk=self.user.pk).update(is_active=False)
+        before = Notification.objects.count()
+        with self.assertRaises(PermissionError):
+            finalize_export(self.export.pk, "denied.zip", _make_tiny_zip(), "Corpus")
+        self.export.refresh_from_db()
+        self.assertFalse(self.export.file)
+        self.assertIsNone(self.export.finished)
+        self.assertEqual(Notification.objects.count(), before)
+
+    def test_queued_packagers_recheck_requester_and_corpus_read(self):
+        self.corpus.label_set = LabelSet.objects.create(creator=self.user)
+        self.corpus.save()
+        reader = User.objects.create_user(username="queued-export-reader")
+        self.export.creator = reader
+        self.export.save()
+        for inactive in (True, False):
+            User.objects.filter(pk=reader.pk).update(is_active=not inactive)
+            error = PermissionError if inactive else Corpus.DoesNotExist
+            for task, args in (
+                (package_annotated_docs, ((), self.export.pk, self.corpus.pk)),
+                (package_funsd_exports, ((), self.export.pk, self.corpus.pk)),
+                (package_corpus_export_v2, (self.export.pk, self.corpus.pk)),
+                (on_demand_post_processors, (self.export.pk, self.corpus.pk)),
+            ):
+                with self.subTest(inactive=inactive, stage=task.name):
+                    assign_perm("read_corpus", reader, self.corpus)
+                    queued = task.s(*args)
+                    remove_perm("read_corpus", reader, self.corpus)
+                    before = Notification.objects.count()
+                    with self.assertRaises(error):
+                        queued.apply(throw=True)
+                    self.export.refresh_from_db()
+                    self.assertFalse(self.export.file)
+                    self.assertIsNone(self.export.finished)
+                    self.assertEqual(Notification.objects.count(), before)
+
+    def test_queued_sources_recheck_scope_before_reading_files(self):
+        doc = Document.objects.create(creator=self.user, title="Source")
+        path = DocumentPath.objects.create(
+            creator=self.user,
+            corpus=self.corpus,
+            document=doc,
+            path="/source.pdf",
+            version_number=1,
+        )
+        producers: tuple[tuple[Task, tuple], ...] = (
+            (lookup_tasks.build_label_lookups_task, (self.corpus.pk,)),
+            (
+                doc_tasks.burn_doc_annotations,
+                ({"text_labels": {}, "doc_labels": {}}, doc.pk, self.corpus.pk),
+            ),
+            (doc_tasks.convert_doc_to_funsd, (self.user.pk, doc.pk, self.corpus.pk)),
+        )
+        for change in ("account", "path"):
+            User.objects.filter(pk=self.user.pk).update(is_active=change != "account")
+            DocumentPath.objects.filter(pk=path.pk).update(is_current=change != "path")
+            for task, args in producers:
+                if change == "path" and task is lookup_tasks.build_label_lookups_task:
+                    continue
+                with self.subTest(change=change, stage=task.name), patch.object(
+                    doc_tasks, "build_document_export"
+                ) as build, patch.object(doc_tasks.default_storage, "open") as source:
+                    with self.assertRaises(
+                        PermissionError
+                        if change == "account"
+                        else Document.DoesNotExist
+                    ):
+                        task(*args, export_id=self.export.pk)
+                    build.assert_not_called()
+                    source.assert_not_called()
+
+    def test_corpus_reader_still_exports_full_private_source(self):
+        reader = User.objects.create_user(username="full-source-reader")
+        assign_perm("read_corpus", reader, self.corpus)
+        self.export.creator = reader
+        self.export.save()
+        doc = Document.objects.create(
+            creator=self.user,
+            title="Private source",
+            file_type="text/plain",
+            txt_extract_file=ContentFile(b"Private source text", name="source.txt"),
+        )
+        DocumentPath.objects.create(
+            creator=self.user,
+            corpus=self.corpus,
+            document=doc,
+            path="/source.txt",
+            version_number=1,
+        )
+        package_corpus_export_v2(self.export.pk, self.corpus.pk)
+        self.export.refresh_from_db()
+        with self.export.file.open("rb") as source, zipfile.ZipFile(source) as archive:
+            data = json.loads(archive.read("data.json"))
+        exported = next(iter(data["annotated_docs"].values()))
+        self.assertEqual(exported["content"], "Private source text")
+        self.assertFalse(self.export.backend_lock)
+        self.assertIsNotNone(self.export.finished)
 
     def test_finalize_export_saves_file_and_clears_lock(self):
         """finalize_export saves the zip, clears backend_lock, and sets finished."""

@@ -319,6 +319,30 @@ class TestSectionBatchDrain(SectionBatchTestBase):
         self._drain()
         mock_reenqueue.assert_not_called()
 
+    def test_drain_rechecks_linked_user_and_corpus_after_staging(self):
+        other = Corpus.objects.create(title="Other corpus", creator=self.owner)
+        for change in ("user", "corpus"):
+            with self.subTest(change=change):
+                User.objects.filter(pk=self.account.user_id).update(is_active=True)
+                self.token, _ = CorpusAccessToken.create_token(
+                    worker_account=self.account,
+                    corpus=self.corpus,
+                    can_push_authority_sections=True,
+                )
+                batch = self._stage()
+                if change == "user":
+                    User.objects.filter(pk=self.account.user_id).update(is_active=False)
+                else:
+                    CorpusAccessToken.objects.filter(pk=self.token.pk).update(
+                        corpus=other
+                    )
+                result = self._drain()
+                batch.refresh_from_db()
+                self.assertEqual(result["failed"], 1)
+                self.assertEqual(batch.status, UploadStatus.FAILED)
+                self.assertFalse(Document.objects.exists())
+                self.assertFalse(AuthorityKeyEquivalence.objects.exists())
+
     def test_drain_fails_batch_when_token_revoked_after_push(self):
         """Revoking a token must stop batches staged before the revocation."""
         batch = self._stage()

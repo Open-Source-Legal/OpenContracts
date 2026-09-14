@@ -18,11 +18,13 @@
 
 > **🟡 ANONYMOUS USER SUPPORT**: Anonymous users can access public resources with read-only permissions. Document AND corpus must both be `is_public=True` for access. Documents in public corpora **automatically inherit `is_public=True`** at creation time (see [Public Corpus Document Propagation](#public-corpus-document-propagation)). Applies to documents, corpuses, conversations, analyses (public only), and annotations.
 
-> **🟣 USER PROFILE PRIVACY**: User profiles have privacy controls via `is_profile_public`. Private profiles are visible only to users who share corpus membership with > READ permission. See `UserService` in `opencontractserver/users/services/user_service.py`.
+> **🟣 USER PROFILE PRIVACY**: User profiles have privacy controls via `is_profile_public`. Private profiles are visible only to users who share corpus membership with > READ permission. Profile import/export connections also apply each transfer model's existing READ rule (`config/graphql/user_types.py::_filter_visible_transfers`); profile visibility alone does not grant access to private transfers. The two transfer models differ: `UserExport` has guardian object-permission tables, so an explicit READ grant admits a viewer; `UserImport` has none, so only the creator and `is_public=True` rows are visible and a guardian grant on an import is a no-op. See `UserService` in `opencontractserver/users/services/user_service.py`.
 
 > **🟣 BADGE VISIBILITY**: Badge awards follow the recipient's profile privacy rules. Badges are visible if the recipient's profile is visible, or for corpus-specific badges, if the user has access to that corpus. See `BadgeService` in `opencontractserver/badges/services/badge_service.py`.
 
 > **🟢 SERVICE-LAYER ENTRY (Phase 6 — issue #1720)**: Every consumer of permission-filtered data (GraphQL resolvers, MCP tools, REST views, user-context Celery tasks) reaches models through `opencontractserver/<app>/services/`. The shared base `opencontractserver.shared.services.base.BaseService` exposes `get_or_none`, `filter_visible`, `filter_visible_qs` (chains `visible_to_user` onto an existing queryset/related manager in one SQL pass and **fails closed** — raises `TypeError` rather than passing unfiltered rows through), `require_permission`, and `user_has` for cases where a dedicated per-app method is overkill. Direct inline use of the Tier-0 tokens `visible_to_user` / `user_can` / `user_has_permission_for_obj` is forbidden in `config/graphql/` and enforced **twice**: by `opencontractserver/tests/architecture/test_graphql_service_layer.py` AND by a Django system check (`opencontractserver/shared/checks.py`, `opencontracts.E001`) that fails `manage.py` startup on any violation. (The legacy `user_has_permission_for_obj` helper itself has been deleted; the token remains scanned so it cannot be reintroduced.) **Scope nuance:** both enforcers scan `config/graphql/` only, and only for those three tokens — e.g. the mention-autocomplete resolvers in `config/graphql/search_queries.py` still inline guardian `get_objects_for_user` legally. Treat a green E001 as "no inline Tier-0 in `config/graphql/`", not "everything is service-routed". See `docs/architecture/query_permission_patterns.md` for the full per-app service catalogue.
+
+Research kickoff and worker execution share the active-requester, corpus READ, and optional corpus-group checks (`ResearchReportService.require_scope`). Queued and resumed jobs recheck the stored requester before starting the loop (`tasks/research_tasks.py::run_deep_research`).
 
 ## Key Changes in Current Implementation
 
@@ -417,6 +419,8 @@ The two are pinned to agree for READ by the invariant suite (`test_authorization
 | **CorpusAction** | Direct (generic) | Creator / `is_public` / guardian | — | Generic `visible_to_user`; listed per-corpus by `DocumentActionsService` |
 | **CorpusGroup** | Direct (`BaseOCModel`) | Creator / `is_public` / guardian | Member corpora + bound agent re-gated per viewer | Membership resolved at **call time**, never snapshotted; `Effective member set = MIN(group READ, corpus READ)` |
 | **Notification** | Recipient-only | `recipient == user` | — | Simple ownership — no guardian tables, does NOT use `AnnotatePermissionsForReadMixin` |
+| **UserExport** | Direct (`BaseOCModel`) | Creator / `is_public` / guardian | — | Bare `BaseVisibilityManager`; profile connections intersect by `pk` (`_filter_visible_transfers`) because the manager's plain `QuerySet` has no `visible_to_user` |
+| **UserImport** | Direct (`BaseOCModel`), creator/public only | Creator / `is_public` | — | Same manager, but **no guardian object-permission tables** — an explicit READ grant is a silent no-op |
 
 ### Detailed Permission Formulas
 
@@ -2925,7 +2929,7 @@ When you add a new model whose rows must be permission-filtered, work through th
 - **GraphQL resolvers and mutations** — pass `request=info.context`. This is where Tier-2 pays off (list resolvers check permissions per row).
 - **Celery tasks, agent tools, websocket consumers, import services, fixtures, tests** — omit `request=`. They have no GraphQL request in scope; they degrade gracefully to Tier-1 instance caching. Passing a non-request object is unsafe.
 
-**Cache invalidation.** `set_permissions_for_obj_to_user(user, obj, perms, request=info.context)` invalidates both tiers for that `(user, obj)` pair after the grant lands, so later `user_can` checks in the same request see the new state. Group-permission changes (`user.groups.add(...)`, `assign_perm(perm, group, obj)`) do **not** flow through that helper — a caller mutating group membership mid-request must invalidate manually (`delattr(instance, INSTANCE_PERMS_CACHE_ATTR)` and/or `get_request_optimizer(request).invalidate(user_id=user.id)`).
+**Cache invalidation.** `set_permissions_for_obj_to_user(user, obj, perms, request=info.context)` expires grant snapshots before committing. Django membership and permission-definition signals use the same mechanism. Raw Guardian/through-table writes retain explicit invalidation duties; see `opencontractserver/shared/grant_cache.py` and the snapshot-lifetime notes below.
 
 ### Service Layer: corpus services and `DocumentService`
 
@@ -2967,6 +2971,6 @@ Instance and request grant caches share rollback tracking. A grant read in a rol
 
 Grant replacement also expires other in-process instances, request caches, and document permission prefetches for the same object and user. Serialized models drop permission prefetches; raw Guardian or through-table writes still require explicit invalidation.
 
-Django membership and model-permission m2m edits expire actor-dependent snapshots in this process. GraphQL metadata is keyed by actor and model, and copied or serialized users drop backend permission caches. Reverse clears and group model-permission edits conservatively expire group-dependent reads for the database without querying its members.
+Django membership and model-permission m2m edits expire actor-dependent snapshots in this process. GraphQL metadata is keyed by actor and model, and copied or serialized users drop backend permission caches. Reverse clears, group model-permission edits, and Group/Permission cascade deletions conservatively expire permission snapshots for the database without querying its members. Direct Django `User.has_perm()`/`get_all_permissions()` calls retain Django's per-instance caches; after permission edits, use a fresh user or `shared.grant_cache.model_permission_grants()` for current model grants.
 
-Guardian admin user/group permission forms use the same atomic grant-write and invalidation scope as the standard writer. Their admission checks, permission choices, and grant differences remain Guardian-owned. Group edits expire group-dependent snapshots for this database without enumerating members; raw Guardian and through-table writes still require explicit invalidation.
+Guardian admin user/group permission forms use the same atomic grant-write and invalidation scope as the standard writer. Their admission checks, permission choices, and grant differences remain Guardian-owned. Group edits expire permission snapshots for this database without enumerating members; raw Guardian and through-table writes still require explicit invalidation.

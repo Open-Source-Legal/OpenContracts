@@ -13,9 +13,11 @@ All moderation actions use existing model methods which handle:
 
 ## Permission Model for Automated Actions
 
-When tools are called by agents (automated corpus actions), the `moderator_id`
-should be a user with moderation rights on the thread's corpus. The model
-methods enforce permission checks via `can_moderate()` which grants access to:
+`moderator_id` is an actor-identity parameter (`TOOL_ACTOR_IDENTITY_PARAMS` in
+`constants/tools.py`): the agent factory binds it to the factory's `user_id`
+and hides it from the LLM, so neither the model nor a caller-supplied argument
+can substitute another moderator. The model methods then enforce permission
+checks via `can_moderate()` which grants access to:
 - Superusers
 - Thread creator
 - Corpus owner

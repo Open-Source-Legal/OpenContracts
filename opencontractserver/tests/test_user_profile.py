@@ -10,9 +10,11 @@ Tests the User.visible_to_user() manager method and profile privacy settings.
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
 from django.test import TestCase
+from guardian.shortcuts import assign_perm
 
 from config.graphql.testing import Client
 from opencontractserver.conversations.models import ChatMessage, Conversation
+from opencontractserver.users.models import UserExport, UserImport
 
 User = get_user_model()
 
@@ -510,3 +512,90 @@ class UserBySlugMarkdownProfileFieldVisibilityTestCase(TestCase):
         self.assertEqual(
             data["profileLinksMarkdown"], "- [hidden](https://example.com)"
         )
+
+    def test_profile_transfers_require_their_own_read_permission(self):
+        fields = {
+            "userexportSet": UserExport,
+            "lockedUserexportObjects": UserExport,
+            "userimportSet": UserImport,
+            "lockedUserimportObjects": UserImport,
+        }
+        for model in (UserExport, UserImport):
+            private = model.objects.create(
+                name="Private", creator=self.public_owner, user_lock=self.public_owner
+            )
+            model.objects.create(
+                name="Public",
+                creator=self.public_owner,
+                user_lock=self.public_owner,
+                is_public=True,
+            )
+            model.objects.create(
+                name="Other profile", creator=self.viewer, is_public=True
+            )
+            assign_perm(f"read_{model._meta.model_name}", self.viewer, private)
+        selections = " ".join(
+            f"{field} {{ edges {{ node {{ name }} }} }}" for field in fields
+        )
+        for actor in (
+            self.public_owner,
+            self.viewer,
+            self.private_owner,
+            AnonymousUser(),
+        ):
+            result = self._client_as(actor).execute(
+                "query($slug: String!) { userBySlug(slug: $slug) { "
+                + selections
+                + " } }",
+                variables={"slug": self.public_owner.slug},
+            )
+            self.assertIsNone(result.get("errors"))
+            for field, model in fields.items():
+                with self.subTest(actor=actor, field=field):
+                    # UserExport has guardian object-permission tables, so the
+                    # viewer's READ grant admits the private export. UserImport
+                    # has none (creator/public only); the same grant is a no-op.
+                    # See docs/permissioning/consolidated_permissioning_guide.md.
+                    private_visible = actor == self.public_owner or (
+                        actor == self.viewer and model is UserExport
+                    )
+                    self.assertEqual(
+                        {
+                            edge["node"]["name"]
+                            for edge in result["data"]["userBySlug"][field]["edges"]
+                        },
+                        {"Public", "Private"} if private_visible else {"Public"},
+                    )
+
+    def test_profile_transfer_pages_use_stable_primary_key_order(self):
+        for model in (UserExport, UserImport):
+            for pk in (10003, 10001, 10002):
+                model.objects.create(
+                    pk=pk,
+                    name=str(pk),
+                    creator=self.public_owner,
+                    user_lock=self.public_owner,
+                    is_public=True,
+                )
+        for field in (
+            "userexportSet",
+            "lockedUserexportObjects",
+            "userimportSet",
+            "lockedUserimportObjects",
+        ):
+            with self.subTest(field=field):
+                names, after = [], None
+                for _ in range(3):
+                    result = self._client_as(self.viewer).execute(
+                        "query($slug: String!, $after: String) { "
+                        "userBySlug(slug: $slug) { "
+                        + field
+                        + "(first: 1, after: $after) { "
+                        "edges { node { name } } pageInfo { endCursor } } } }",
+                        variables={"slug": self.public_owner.slug, "after": after},
+                    )
+                    self.assertIsNone(result.get("errors"))
+                    page = result["data"]["userBySlug"][field]
+                    names.extend(edge["node"]["name"] for edge in page["edges"])
+                    after = page["pageInfo"]["endCursor"]
+                self.assertEqual(names, ["10001", "10002", "10003"])

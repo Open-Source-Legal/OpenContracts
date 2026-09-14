@@ -75,11 +75,11 @@ def grant_revision(instance, user_id):
 
 
 def invalidate_actor_grants(user_ids, *, using):
-    """Expire actor snapshots; ``None`` targets all group-dependent DB reads.
+    """Expire actor snapshots; ``None`` targets all permission reads for the DB.
 
-    Reverse clears and group model-grant changes use the conservative DB scope
-    because their affected actors aren't supplied by Django's m2m signal. No SQL
-    is needed to track them. Pending writes retain revisions until commit.
+    Reverse clears, group model-grant changes and cascade deletes use the
+    conservative DB scope without querying affected actors. Pending writes
+    retain revisions until commit.
     """
     connection = transaction.get_connection(using)
     for user_id in user_ids:
@@ -141,11 +141,12 @@ class GrantSnapshot:
         connection.validate_no_broken_transaction()
         self.connection = connection
         self.transaction = _read_context(connection)
-        revisions = [revision] if revision is not None else []
+        # Permission deletion also revokes direct grants that exclude groups.
+        revisions = [_revision((connection.alias, None))]
+        if revision is not None:
+            revisions.append(revision)
         if user_id is not None:
-            revisions.extend(
-                _revision((connection.alias, actor)) for actor in (user_id, None)
-            )
+            revisions.append(_revision((connection.alias, user_id)))
         self.revisions = [(item, item.state) for item in revisions]
 
     def valid(self, connection, *, allow_committed=False):
@@ -292,7 +293,7 @@ def invalidate_permission_grants(instance, user_id, *, request=None):
 def permission_grant_change(instance, user_id=None, *, groups=False, request=None):
     """Commit a caller-authorized grant change and its invalidation together.
 
-    Group edits expire group-dependent snapshots for this database without
+    Group edits expire permission snapshots for this database without
     enumerating members. Actor/public/creator policy stays with the caller.
     """
     using = getattr(getattr(instance, "_state", None), "db", None)

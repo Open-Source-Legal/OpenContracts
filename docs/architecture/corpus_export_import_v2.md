@@ -1,5 +1,7 @@
 # Corpus Export/Import V2.0
 
+Queued export stages reload the stored requester and recheck corpus READ before processing. V1 document producers also recheck active corpus membership; archive contents retain the existing full-source export policy.
+
 ## Overview
 
 This document describes the V2 corpus export/import format, which captures the full state of an OpenContracts corpus — including features that were added after the original V1 export was designed.
