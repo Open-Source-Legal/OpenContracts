@@ -9,12 +9,10 @@ from typing import IO
 
 from celery import shared_task
 from django.conf import settings
-from django.contrib.auth import get_user_model
 from django.core.files import File as DjangoFile
 from django.core.files.storage import default_storage
 from django.utils import timezone
 
-from opencontractserver.corpuses.models import Corpus
 from opencontractserver.notifications.models import (
     Notification,
     NotificationTypeChoices,
@@ -30,6 +28,7 @@ from opencontractserver.types.dicts import (
     OpenContractsExportDataJsonPythonType,
 )
 from opencontractserver.users.models import UserExport
+from opencontractserver.users.services.exports import UserExportService
 from opencontractserver.utils.packaging import (
     package_corpus_for_export,
     package_label_set_for_export,
@@ -95,16 +94,13 @@ def finalize_export(
             (``io.BytesIO``, ``SpooledTemporaryFile``, or any ``IO[bytes]``).
         corpus_title: The corpus title (used for the notification).
     """
+    export = UserExportService.get_for_processing(export_id)
     output_bytes.seek(io.SEEK_SET)
-    export = UserExport.objects.get(pk=export_id)
     export.file.save(filename, DjangoFile(output_bytes, name=filename))
     export.finished = timezone.now()
     export.backend_lock = False
     export.save()
     _create_export_notification(export, corpus_title)
-
-
-User = get_user_model()
 
 
 @shared_task
@@ -120,8 +116,7 @@ def on_demand_post_processors(
     as-is.
     """
     try:
-        export = UserExport.objects.get(pk=export_id)
-        corpus = Corpus.objects.get(pk=corpus_pk)
+        export, corpus = UserExportService.get_corpus_context(export_id, corpus_pk)
 
         if export.post_processors:
 
@@ -147,7 +142,7 @@ def on_demand_post_processors(
             # Create new zip file with modified data
             output_buffer = io.BytesIO(modified_zip_bytes)
             finalize_export(
-                export_id,
+                export.pk,
                 f"{corpus.title} EXPORT.zip",
                 output_buffer,
                 corpus.title,
@@ -185,13 +180,12 @@ def package_annotated_docs(
 
     Because burned_docs is already filtered, we mostly just package what's provided.
     """
+    export, corpus = UserExportService.get_corpus_context(export_id, corpus_pk)
     logger.info(f"Package corpus for export {export_id}...")
 
     annotated_docs: dict[str, OpenContractDocExport] = {}
     doc_labels: dict[str, AnnotationLabelPythonType] | None = None
     text_labels: dict[str, AnnotationLabelPythonType] | None = None
-
-    corpus = Corpus.objects.get(id=corpus_pk)
 
     output_bytes = io.BytesIO()
     zip_file = zipfile.ZipFile(output_bytes, mode="w", compression=zipfile.ZIP_DEFLATED)
@@ -225,7 +219,11 @@ def package_annotated_docs(
         annotated_docs[doc_name] = doc_export
 
     corpus_pkg = package_corpus_for_export(corpus)
-    label_set_pkg = package_label_set_for_export(corpus.label_set)
+    label_set_pkg = (
+        package_label_set_for_export(corpus.label_set)
+        if corpus.label_set is not None
+        else None
+    )
     if corpus_pkg is None or label_set_pkg is None:
         raise RuntimeError(
             f"Failed to package corpus or label set for export of corpus {corpus_pk}"
@@ -269,7 +267,7 @@ def package_annotated_docs(
     zip_file.writestr("data.json", json_bytes)
     zip_file.close()
 
-    finalize_export(export_id, f"{corpus.title} EXPORT.zip", output_bytes, corpus.title)
+    finalize_export(export.pk, f"{corpus.title} EXPORT.zip", output_bytes, corpus.title)
     logger.info(f"Export {export_id} is completed.")
 
 
@@ -292,11 +290,10 @@ def package_funsd_exports(
     annotation_filter_mode logic should already be applied upstream, so we just
     need to handle the final packaging.
     """
+    export, corpus = UserExportService.get_corpus_context(export_id, corpus_pk)
     logger.info(f"package_funsd_exports() - data:\n{json.dumps(funsd_data, indent=4)}")
 
     s3 = None
-
-    corpus = Corpus.objects.get(id=corpus_pk)
 
     output_bytes = io.BytesIO()
     zip_file = zipfile.ZipFile(output_bytes, mode="w", compression=zipfile.ZIP_DEFLATED)
@@ -364,7 +361,7 @@ def package_funsd_exports(
     zip_file.close()
 
     finalize_export(
-        export_id,
+        export.pk,
         f"{only_alphanumeric_chars(corpus.title)} FUNSD EXPORT.zip",
         output_bytes,
         corpus.title,

@@ -1,6 +1,26 @@
+from functools import wraps
 from typing import Callable, Optional
 
 from config.celery_app import app as celery_app
+
+
+def raise_on_error_result(func):
+    """Let pipeline callers turn returned task errors into chain failures.
+
+    Keep the user/document task signature so Celery still rejects malformed
+    calls before dispatch. Standalone calls retain their result dictionaries.
+    Exceptions (including
+    Celery retry/replacement control flow) pass through without interception.
+    """
+
+    @wraps(func)
+    def run(self, user_id, doc_id, *, raise_on_error=False):
+        result = func(self, user_id, doc_id)
+        if raise_on_error and "error" in result:
+            raise RuntimeError(result.get("error") or "Document processing failed")
+        return result
+
+    return run
 
 
 def get_task_by_name(task_name) -> Optional[Callable]:

@@ -5,7 +5,23 @@ Utility functions for LLM tool management.
 import logging
 from typing import Callable
 
+from opencontractserver.llms.tools.tool_factory import CoreTool
+
 logger = logging.getLogger(__name__)
+
+
+def as_core_tool(tool: CoreTool | Callable) -> CoreTool:
+    """Retain a wrapped tool's capabilities when binding it to another context."""
+    if isinstance(tool, CoreTool):
+        return tool
+    from opencontractserver.llms.tools.pydantic_ai_tools import PydanticAIToolWrapper
+
+    if isinstance(tool, PydanticAIToolWrapper):
+        return tool.core_tool
+    wrapper = getattr(tool, "_pydantic_ai_wrapper", None)
+    if isinstance(wrapper, PydanticAIToolWrapper) and wrapper.callable_function is tool:
+        return wrapper.core_tool
+    return CoreTool.from_function(tool)
 
 
 def get_tool_name(tool: Callable) -> str | None:

@@ -254,14 +254,14 @@ class CorpusAccessToken(models.Model):
         """
         Check if token is currently valid (active, not expired, account active).
 
-        Note: accesses self.worker_account.is_active. The auth backend
-        (WorkerTokenAuthentication) uses select_related("worker_account") so
+        Note: accesses worker_account and its linked user. The auth backend
+        (WorkerTokenAuthentication) uses select_related("worker_account__user") so
         this is already cached on the request path. If calling is_valid outside
         the auth flow, ensure worker_account is prefetched to avoid an extra query.
         """
         if not self.is_active:
             return False
-        if not self.worker_account.is_active:
+        if not self.worker_account.is_active or not self.worker_account.user.is_active:
             return False
         if self.expires_at and timezone.now() >= self.expires_at:
             return False

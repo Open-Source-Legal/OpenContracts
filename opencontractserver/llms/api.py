@@ -20,6 +20,7 @@ from opencontractserver.llms.vector_stores.vector_store_factory import (
     UnifiedVectorStoreFactory,
 )
 from opencontractserver.utils.embeddings import generate_embeddings_from_text
+from opencontractserver.utils.tools import as_core_tool
 
 logger = logging.getLogger(__name__)
 
@@ -722,10 +723,8 @@ def _resolve_tools(tools: list[ToolType]) -> list[CoreTool]:
                 resolved.append(core_tool)
             else:
                 logger.warning("Unknown tool: %s", tool)
-        elif isinstance(tool, CoreTool):
-            resolved.append(tool)
-        elif callable(tool):
-            resolved.append(CoreTool.from_function(tool))
+        elif isinstance(tool, CoreTool) or callable(tool):
+            resolved.append(as_core_tool(tool))
         else:
             logger.warning("Invalid tool specification: %s", tool)
 
