@@ -1,13 +1,20 @@
 import logging
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from django.contrib.auth import get_user_model
-from django.contrib.auth.models import Group
+from django.contrib.auth.models import Group, Permission
 from django.test import Client, TestCase
 from django.urls import reverse
+from guardian import forms as guardian_forms
+from guardian.shortcuts import assign_perm
 
+from config.graphql.core.permissions import resolve_my_permissions
 from opencontractserver.corpuses.admin import CorpusAdmin
 from opencontractserver.corpuses.models import Corpus
+from opencontractserver.documents.models import Document
+from opencontractserver.shared.Managers import _apply_document_prefetches
+from opencontractserver.types.enums import PermissionTypes
 
 User = get_user_model()
 
@@ -160,3 +167,138 @@ class TestAnalyzerAdmin(TestCase):
         self.corpus_admin.message_user.assert_called_once_with(
             request, "Started making 2 corpus(es) public."
         )
+
+    def test_admin_permission_edits_expire_held_grants(self):
+        reader = User.objects.create_user(username="admin-grant-reader")
+        group = Group.objects.create(name="Admin grant readers")
+        group.user_set.add(reader)
+        for model in (Corpus, Document):
+            read = f"read_{model._meta.model_name}"
+            for target, kind in ((reader, "user"), (group, "group")):
+                for allowed in (False, True):
+                    with self.subTest(model=model, kind=kind, allowed=allowed):
+                        row = model.objects.create(
+                            creator=self.user, title="Admin grant"
+                        )
+                        if allowed:
+                            assign_perm(read, target, row)
+                        rows = model.objects.filter(pk=row.pk)
+                        if model is Document:
+                            rows = _apply_document_prefetches(
+                                rows, reader, lightweight=True
+                            )
+                        held, cold = rows.get(), rows.get()
+                        request = SimpleNamespace(user=reader)
+                        self.assertEqual(
+                            held.user_can(
+                                reader, PermissionTypes.READ, request=request
+                            ),
+                            allowed,
+                        )
+                        url = reverse(
+                            f"admin:{row._meta.app_label}_{row._meta.model_name}_permissions_manage_{kind}",
+                            args=(row.pk, target.pk),
+                        )
+                        response = self.admin_client.post(
+                            url,
+                            {"permissions": [] if allowed else [read], "_save": "Save"},
+                        )
+                        self.assertRedirects(
+                            response, url, fetch_redirect_response=False
+                        )
+                        for instance in (held, cold):
+                            self.assertEqual(
+                                instance.user_can(
+                                    reader, PermissionTypes.READ, request=request
+                                ),
+                                not allowed,
+                            )
+                            self.assertEqual(
+                                read
+                                in resolve_my_permissions(
+                                    instance, SimpleNamespace(context=request)
+                                ),
+                                not allowed,
+                            )
+                        with self.assertNumQueries(0):
+                            self.assertEqual(
+                                held.user_can(reader, PermissionTypes.READ), not allowed
+                            )
+
+    def test_admin_grant_failures_restore_previous_permissions(self):
+        reader = User.objects.create_user(username="admin-grant-failure-reader")
+        group = Group.objects.create(name="Admin grant failure readers")
+        real_assign = guardian_forms.assign_perm
+        for target, kind in ((reader, "user"), (group, "group")):
+            with self.subTest(kind=kind):
+                row = Corpus.objects.create(
+                    creator=self.user, title="Failed admin grant"
+                )
+                assign_perm("read_corpus", target, row)
+                url = reverse(
+                    f"admin:corpuses_corpus_permissions_manage_{kind}",
+                    args=(row.pk, target.pk),
+                )
+
+                def fail_after_assignment(*args, **kwargs):
+                    real_assign(*args, **kwargs)
+                    raise RuntimeError("assignment failed afterward")
+
+                for patch_target, failure in (
+                    ("guardian.forms.assign_perm", fail_after_assignment),
+                    (
+                        "opencontractserver.shared.grant_cache._GrantRevision.invalidate",
+                        RuntimeError("invalidation failed"),
+                    ),
+                ):
+                    with self.subTest(failure=patch_target):
+                        with patch(
+                            patch_target, side_effect=failure
+                        ), self.assertRaises(RuntimeError):
+                            self.admin_client.post(
+                                url, {"permissions": ["update_corpus"]}
+                            )
+                        rows = getattr(row, f"corpus{kind}objectpermission_set")
+                        self.assertEqual(
+                            set(
+                                rows.filter(**{kind: target}).values_list(
+                                    "permission__codename", flat=True
+                                )
+                            ),
+                            {"read_corpus"},
+                        )
+
+    def test_admin_grant_forms_keep_existing_change_authority_and_choices(self):
+        staff = User.objects.create_user(username="grant-staff", is_staff=True)
+        staff.user_permissions.add(Permission.objects.get(codename="change_document"))
+        reader = User.objects.create_user(
+            username="admin-grant-recipient", is_active=False
+        )
+        group = Group.objects.create(name="Admin grant recipients")
+        self.admin_client.force_login(staff)
+        row = Document.objects.create(creator=self.user, title="Admin grant authority")
+        self.assertFalse(row.user_can(staff, PermissionTypes.READ))
+        for target, kind in ((reader, "user"), (group, "group")):
+            with self.subTest(kind=kind):
+                url = reverse(
+                    f"admin:documents_document_permissions_manage_{kind}",
+                    args=(row.pk, target.pk),
+                )
+                response = self.admin_client.post(
+                    url, {"permissions": ["view_document"]}
+                )
+                self.assertRedirects(response, url, fetch_redirect_response=False)
+                response = self.admin_client.post(
+                    url, {"permissions": ["not_a_permission"]}
+                )
+                self.assertEqual(response.status_code, 200)
+                self.assertTrue(response.context["form"].errors)
+                rows = getattr(row, f"document{kind}objectpermission_set")
+                self.assertEqual(
+                    set(
+                        rows.filter(**{kind: target}).values_list(
+                            "permission__codename", flat=True
+                        )
+                    ),
+                    {"view_document"},
+                )

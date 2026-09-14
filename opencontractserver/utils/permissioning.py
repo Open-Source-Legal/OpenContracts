@@ -8,7 +8,7 @@ import django
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser, Permission
 from django.contrib.contenttypes.models import ContentType
-from django.db import transaction
+from django.db import transaction  # noqa: F401 - preserve the existing module alias
 from guardian.shortcuts import assign_perm, remove_perm
 
 from config.graphql.permissioning.permission_annotator.middleware import combine
@@ -17,7 +17,7 @@ from opencontractserver.shared.grant_cache import (  # noqa: F401 - legacy impor
 )
 from opencontractserver.shared.grant_cache import (
     cached_permission_grants,
-    invalidate_permission_grants,
+    permission_grant_change,
 )
 from opencontractserver.shared.prefetch_attrs import (
     permission_prefetch,
@@ -62,20 +62,15 @@ def set_permissions_for_obj_to_user(
             depend on prior perms being cleared (e.g. CRUD → READ-only).
             Ingest paths (``import_annotations``, ``corpus.add_document``,
             label-creation, etc.) should pass ``is_new=True``.
-        request: When supplied (typically ``info.context`` from a GraphQL
-            mutation), invalidate the two-tier permission cache for this
-            ``(user, instance)`` pair before commit callbacks run. Without a
-            request, the supplied instance cache is still invalidated.
+        request: Also invalidate entries on the supplied request. Shared revisions
+            expire other held instance/request snapshots for this object and user
+            in this process, even without a request. Both tiers discard reads
+            from rolled-back transactions and savepoints.
 
-    Cache invalidation does NOT cover group-permission changes: calls
-    such as ``user.groups.add(group)`` or ``assign_perm(perm, group, obj)``
-    do not flow through this helper and therefore leave both tiers
-    untouched. Any cached entry computed with
-    ``include_group_permissions=True`` becomes stale until the instance
-    or request goes out of scope. Callers performing those operations
-    mid-request must invalidate manually (``delattr(instance,
-    INSTANCE_PERMS_CACHE_ATTR)`` and/or
-    ``get_request_optimizer(request).invalidate(user_id=user.id)``).
+    Django membership/model-permission edits and Guardian admin forms share
+    this cache lifetime. Raw Guardian or through-table writes, caller-supplied
+    prefetch attributes, and creator/public fields retain explicit invalidation
+    duties; see the permission guide.
     """
 
     # Provides some flexibility to use ids where passing object is not practical
@@ -109,7 +104,7 @@ def set_permissions_for_obj_to_user(
         requested.update(crud)
 
     # Replacement and invalidation must finish before commit callbacks run.
-    with transaction.atomic():
+    with permission_grant_change(instance, user.id, request=request):
         if not is_new:
             # Preserve the existing removal order and missing-permission behavior.
             for action in (
@@ -128,8 +123,6 @@ def set_permissions_for_obj_to_user(
         for permission, action in grants.items():
             if permission in requested:
                 assign_perm(f"{app_name}.{action}_{model_name}", user, instance)
-
-        invalidate_permission_grants(instance, user.id, request=request)
 
 
 def get_users_group_ids(user_instance: UserModel) -> list[str | int]:

@@ -1,9 +1,9 @@
 from django.contrib import admin
 from django.urls import URLPattern, path
-from guardian.admin import GuardedModelAdmin
 
 from opencontractserver.analyzer.admin_views import AnalyzerSyncView
 from opencontractserver.analyzer.models import Analysis, Analyzer, GremlinEngine
+from opencontractserver.shared.admin import GuardedModelAdmin
 
 
 @admin.register(GremlinEngine)

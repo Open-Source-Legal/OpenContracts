@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING, Any
 
 from django.contrib import admin
 from django.db.models import Count, QuerySet
-from guardian.admin import GuardedModelAdmin
 
 from opencontractserver.annotations.models import (
     Annotation,
@@ -14,6 +13,7 @@ from opencontractserver.annotations.models import (
     Note,
     Relationship,
 )
+from opencontractserver.shared.admin import GuardedModelAdmin
 
 if TYPE_CHECKING:
     from django.http import HttpRequest
