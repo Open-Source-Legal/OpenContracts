@@ -51,6 +51,7 @@ from opencontractserver.utils.permissioning import set_permissions_for_obj_to_us
 from opencontractserver.utils.structural_sets import create_structural_annotation_set
 from opencontractserver.utils.subtree_groups import build_subtree_groups_for_document
 from opencontractserver.worker_uploads.models import (
+    CorpusAccessToken,
     UploadStatus,
     WorkerAuthoritySectionBatch,
     WorkerDocumentUpload,
@@ -214,6 +215,41 @@ def recover_stalled_uploads() -> dict[str, int]:
     return {"recovered": count, "recovered_section_batches": batch_count}
 
 
+def _require_staged_worker_token(
+    token: CorpusAccessToken | None,
+    corpus_id: int,
+    *,
+    authority_sections: bool = False,
+) -> CorpusAccessToken:
+    """Return a live token for the staged corpus and requested capability.
+
+    Callers load the token, worker account and linked user afresh. This check
+    performs no writes and promises no cancellation after execution begins.
+    Corpus-creator attribution is a separate caller responsibility.
+    """
+    if token is None:
+        raise ValueError(
+            "Corpus access token was deleted before this batch drained; "
+            "re-push under a live token."
+        )
+    if not token.is_valid:
+        raise ValueError(
+            "Corpus access token was revoked or expired before this "
+            "batch drained; re-push under a live token."
+        )
+    if token.corpus_id != corpus_id:
+        raise ValueError(
+            "Corpus access token no longer grants access to the staged corpus."
+        )
+    if authority_sections and not token.can_push_authority_sections:
+        raise ValueError(
+            "Corpus access token no longer carries the "
+            "authority-section push capability; re-push under a token "
+            "minted with --allow-authority-sections."
+        )
+    return token
+
+
 def _process_single_upload(upload_id: UUID) -> None:
     """
     Process one WorkerDocumentUpload: create Document, annotations,
@@ -226,8 +262,9 @@ def _process_single_upload(upload_id: UUID) -> None:
         "corpus",
         "corpus__creator",
         "corpus_access_token",
-        "corpus_access_token__worker_account",
+        "corpus_access_token__worker_account__user",
     ).get(id=upload_id)
+    _require_staged_worker_token(upload.corpus_access_token, upload.corpus_id)
 
     metadata = upload.metadata
     corpus = upload.corpus
@@ -725,7 +762,7 @@ def process_pending_section_batches(self: Any) -> dict[str, int]:
                     skip_locked=True, of=("self",)
                 )
                 .select_related(
-                    "corpus_access_token__worker_account", "corpus__creator"
+                    "corpus_access_token__worker_account__user", "corpus__creator"
                 )
                 .filter(status=UploadStatus.PENDING)
                 .order_by("created")
@@ -738,34 +775,9 @@ def process_pending_section_batches(self: Any) -> dict[str, int]:
             batch.save(update_fields=["status", "processing_started"])
         claimed += 1
         try:
-            token = batch.corpus_access_token
-            if token is None:
-                raise ValueError(
-                    "Corpus access token was deleted before this batch drained; "
-                    "re-push under a live token."
-                )
-            # Re-validate the token AT DRAIN TIME, not only at push time.
-            # Revoking a token (the normal soft-deactivate path) is how an
-            # operator stops a misbehaving harvester, and authority-section
-            # push has a strictly larger blast radius than document upload —
-            # it creates/versions documents and relinks every citing corpus.
-            # Letting already-staged batches execute past revocation would
-            # make the revocation ineffective for exactly the operation that
-            # most needs it. ``is_valid`` is the same predicate
-            # WorkerTokenAuthentication enforces on the push path (token
-            # active, account active, not expired); worker_account is
-            # select_related above, so this costs no extra query.
-            if not token.is_valid:
-                raise ValueError(
-                    "Corpus access token was revoked or expired before this "
-                    "batch drained; re-push under a live token."
-                )
-            if not token.can_push_authority_sections:
-                raise ValueError(
-                    "Corpus access token no longer carries the "
-                    "authority-section push capability; re-push under a token "
-                    "minted with --allow-authority-sections."
-                )
+            token = _require_staged_worker_token(
+                batch.corpus_access_token, batch.corpus_id, authority_sections=True
+            )
             creator = batch.corpus.creator
             if creator is None or not creator.is_active:
                 raise ValueError(
