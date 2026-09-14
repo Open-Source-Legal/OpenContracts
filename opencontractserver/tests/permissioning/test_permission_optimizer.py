@@ -691,6 +691,90 @@ class Tier1CacheThreadSafetyTestCase(TransactionTestCase):
         group.user_set.clear()
         self.assertFalse(held.user_can(restored, PermissionTypes.READ, request=request))
 
+    def test_group_deletion_expires_held_grants_and_prefetches(self):
+        reader = self.readers[0]
+        publish = Permission.objects.get(codename="publish_corpus")
+        set_permissions_for_obj_to_user(reader, self.corpus, [])
+        for bulk in (False, True):
+            with self.subTest(bulk=bulk), transaction.atomic():
+                group = Group.objects.create(name=f"Deleted group {bulk}")
+                group.user_set.add(reader)
+                group.permissions.add(publish)
+                assign_perm("read_corpus", group, self.corpus)
+                doc = Document.objects.create(creator=self.creator, title="Group read")
+                assign_perm("read_document", group, doc)
+                held = Corpus.objects.get(pk=self.corpus.pk)
+                prefetched = _apply_document_prefetches(
+                    Document.objects.filter(pk=doc.pk), reader, lightweight=True
+                ).get()
+                request = SimpleNamespace(user=reader)
+                info = SimpleNamespace(context=request)
+
+                def assert_current(allowed):
+                    for instance in (held, prefetched):
+                        for scope in (None, request):
+                            self.assertEqual(
+                                instance.user_can(
+                                    reader, PermissionTypes.READ, request=scope
+                                ),
+                                allowed,
+                            )
+                    self.assertEqual(
+                        "publish_corpus" in resolve_my_permissions(held, info), allowed
+                    )
+
+                assert_current(True)
+                with transaction.atomic():
+                    target = Group.objects.filter(pk=group.pk)
+                    (target if bulk else target.get()).delete()
+                    assert_current(False)
+                    transaction.set_rollback(True)
+                assert_current(True)
+                transaction.set_rollback(True)
+
+    def test_permission_deletion_expires_model_and_direct_object_grants(self):
+        reader = self.readers[0]
+        for bulk in (False, True):
+            for grouped in (False, True):
+                with self.subTest(bulk=bulk, grouped=grouped), transaction.atomic():
+                    publish = Permission.objects.get(codename="publish_corpus")
+                    if grouped:
+                        group = Group.objects.create(name="Deleted permission")
+                        group.user_set.add(reader)
+                        group.permissions.add(publish)
+                    else:
+                        reader.user_permissions.add(publish)
+                    assign_perm("publish_corpus", reader, self.corpus)
+                    held = Corpus.objects.get(pk=self.corpus.pk)
+                    request = SimpleNamespace(user=reader)
+                    info = SimpleNamespace(context=request)
+
+                    def assert_current(allowed):
+                        for groups in (False, True):
+                            for scope in (None, request):
+                                self.assertEqual(
+                                    held.user_can(
+                                        reader,
+                                        PermissionTypes.PUBLISH,
+                                        include_group_permissions=groups,
+                                        request=scope,
+                                    ),
+                                    allowed,
+                                )
+                        self.assertEqual(
+                            "publish_corpus" in resolve_my_permissions(held, info),
+                            allowed,
+                        )
+
+                    assert_current(True)
+                    with transaction.atomic():
+                        target = Permission.objects.filter(pk=publish.pk)
+                        (target if bulk else target.get()).delete()
+                        assert_current(False)
+                        transaction.set_rollback(True)
+                    assert_current(True)
+                    transaction.set_rollback(True)
+
     def test_instance_cache_is_thread_safe_wrapper(self):
         """Warming the cache attaches the thread-safe wrapper, not a plain dict."""
 

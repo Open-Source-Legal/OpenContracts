@@ -2,9 +2,9 @@ import logging
 from typing import Any
 
 from django.apps import apps
-from django.contrib.auth.models import Group
+from django.contrib.auth.models import Group, Permission
 from django.db import DatabaseError, IntegrityError, transaction
-from django.db.models.signals import m2m_changed, post_save
+from django.db.models.signals import m2m_changed, post_delete, post_save
 from django.db.utils import OperationalError, ProgrammingError
 from django.dispatch import receiver
 
@@ -32,6 +32,13 @@ def permission_membership_changed(
     else:
         user_ids = (instance.pk,)
     invalidate_actor_grants(user_ids, using=using)
+
+
+@receiver(post_delete, sender=Group)
+@receiver(post_delete, sender=Permission)
+def permission_definition_deleted(sender, using, **kwargs):
+    """Cascade deletes bypass m2m_changed, including bulk/admin deletions."""
+    invalidate_actor_grants((None,), using=using)
 
 
 def _create_personal_corpus_for_user(user: User) -> None:
