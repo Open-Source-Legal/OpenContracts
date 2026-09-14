@@ -422,6 +422,32 @@ def _resolve_UserType_can_import_corpus(root, info, **kwargs):
     return True
 
 
+def _filter_visible_transfers(
+    info: strawberry.Info,
+    model: type[UserExport] | type[UserImport],
+    related: Any,
+) -> Any:
+    """Apply ``model``'s own READ rule to a profile's transfer connection.
+
+    ``related`` is the reverse ``RelatedManager`` (``userexport_set``,
+    ``locked_userimport_objects``, ...) already scoped to the profile owner;
+    ``None`` (no instance) passes through so ``resolve_django_connection``
+    returns an empty connection.
+
+    ``BaseService.filter_visible_qs`` cannot be used here: ``UserExport`` /
+    ``UserImport`` keep the plain ``BaseVisibilityManager`` (a bare
+    ``Manager`` with no ``visible_to_user``-aware QuerySet), so the related
+    manager's ``.all()`` yields a queryset without ``visible_to_user`` and
+    the chained form fails closed. Intersecting the model-level visible set
+    by ``pk`` is the supported shape for these two models.
+    """
+    if related is None:
+        return None
+    return BaseService.filter_visible(
+        model, info.context.user, request=info.context
+    ).filter(pk__in=related.values("pk"))
+
+
 @strawberry.type(name="UserType")
 class UserType(Node):
     is_superuser: bool = strawberry.field(
@@ -672,11 +698,9 @@ class UserType(Node):
                 "last": last,
             }
         )
-        resolved = getattr(self, "userexport_set", None)
-        if resolved is not None:
-            resolved = BaseService.filter_visible(
-                UserExport, info.context.user, request=info.context
-            ).filter(pk__in=resolved.values("pk"))
+        resolved = _filter_visible_transfers(
+            info, UserExport, getattr(self, "userexport_set", None)
+        )
         return resolve_django_connection(
             resolved=resolved,
             info=info,
@@ -713,11 +737,9 @@ class UserType(Node):
                 "last": last,
             }
         )
-        resolved = getattr(self, "locked_userexport_objects", None)
-        if resolved is not None:
-            resolved = BaseService.filter_visible(
-                UserExport, info.context.user, request=info.context
-            ).filter(pk__in=resolved.values("pk"))
+        resolved = _filter_visible_transfers(
+            info, UserExport, getattr(self, "locked_userexport_objects", None)
+        )
         return resolve_django_connection(
             resolved=resolved,
             info=info,
@@ -754,11 +776,9 @@ class UserType(Node):
                 "last": last,
             }
         )
-        resolved = getattr(self, "userimport_set", None)
-        if resolved is not None:
-            resolved = BaseService.filter_visible(
-                UserImport, info.context.user, request=info.context
-            ).filter(pk__in=resolved.values("pk"))
+        resolved = _filter_visible_transfers(
+            info, UserImport, getattr(self, "userimport_set", None)
+        )
         return resolve_django_connection(
             resolved=resolved,
             info=info,
@@ -795,11 +815,9 @@ class UserType(Node):
                 "last": last,
             }
         )
-        resolved = getattr(self, "locked_userimport_objects", None)
-        if resolved is not None:
-            resolved = BaseService.filter_visible(
-                UserImport, info.context.user, request=info.context
-            ).filter(pk__in=resolved.values("pk"))
+        resolved = _filter_visible_transfers(
+            info, UserImport, getattr(self, "locked_userimport_objects", None)
+        )
         return resolve_django_connection(
             resolved=resolved,
             info=info,

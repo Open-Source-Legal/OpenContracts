@@ -5,6 +5,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
+from opencontractserver.constants.tools import TOOL_ACTOR_IDENTITY_PARAMS
 from opencontractserver.llms.types import AgentFramework
 
 # Re-exported so framework adapters can accept any ``ToolProtocol`` rather
@@ -38,8 +39,10 @@ def build_inject_params_for_context(
         tool: The CoreTool to inspect
         document_id: Document ID to inject if the tool accepts it
         corpus_id: Corpus ID to inject if the tool accepts it
-        user_id: User ID to inject for author_id/creator_id params
+        user_id: User ID to inject for every actor-identity param named in
+            ``TOOL_ACTOR_IDENTITY_PARAMS`` (``constants/tools.py``)
         corpus_action_id: CorpusAction ID to inject if the tool accepts it
+        conversation_id: Conversation ID to inject if the tool accepts it
 
     Returns:
         Dictionary mapping parameter names to values to inject
@@ -52,10 +55,7 @@ def build_inject_params_for_context(
             inject["document_id"] = document_id
         elif param_name == "corpus_id" and corpus_id is not None:
             inject["corpus_id"] = corpus_id
-        elif (
-            param_name in ("author_id", "creator_id", "user_id", "moderator_id")
-            and user_id is not None
-        ):
+        elif param_name in TOOL_ACTOR_IDENTITY_PARAMS and user_id is not None:
             inject[param_name] = user_id
         elif param_name == "corpus_action_id" and corpus_action_id is not None:
             inject["corpus_action_id"] = corpus_action_id

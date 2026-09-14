@@ -552,7 +552,10 @@ class UserBySlugMarkdownProfileFieldVisibilityTestCase(TestCase):
             self.assertIsNone(result.get("errors"))
             for field, model in fields.items():
                 with self.subTest(actor=actor, field=field):
-                    # Import READ is creator/public; export READ also admits grants.
+                    # UserExport has guardian object-permission tables, so the
+                    # viewer's READ grant admits the private export. UserImport
+                    # has none (creator/public only); the same grant is a no-op.
+                    # See docs/permissioning/consolidated_permissioning_guide.md.
                     private_visible = actor == self.public_owner or (
                         actor == self.viewer and model is UserExport
                     )
