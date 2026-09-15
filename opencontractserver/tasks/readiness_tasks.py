@@ -59,12 +59,12 @@ def repair_document_embeddings(job_id):
                 before["coverage"]["documents"]["eligible"]
                 > before["coverage"]["documents"]["valid"]
             )
+            annotations = document_annotations(document, job.corpus)
             annotation_ids = list(
-                document_annotations(document, job.corpus)
-                .exclude(
-                    pk__in=valid.filter(annotation_id__isnull=False).values(
-                        "annotation_id"
-                    )
+                annotations.exclude(
+                    pk__in=valid.filter(
+                        annotation_id__in=annotations.values("pk")
+                    ).values("annotation_id")
                 )
                 .order_by("pk")
                 .values_list("pk", flat=True)[: REPAIR_BATCH_SIZE - int(needs_doc)]

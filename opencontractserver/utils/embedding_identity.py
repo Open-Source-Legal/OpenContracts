@@ -3,8 +3,11 @@
 import dataclasses
 import hashlib
 import json
+import logging
 
 from django.conf import settings
+
+logger = logging.getLogger(__name__)
 
 
 def embedding_configuration(embedder) -> str:
@@ -34,7 +37,12 @@ def embedding_configuration(embedder) -> str:
         config,
         getattr(settings, "EMBEDDING_MODEL_REVISIONS", {}).get(path, ""),
     ]
-    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+    try:
+        encoded = json.dumps(payload, sort_keys=True).encode()
+    except (TypeError, ValueError):
+        logger.warning("Cannot fingerprint settings for embedder %s", path)
+        return ""
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def valid_embeddings(path, dimension, configuration):

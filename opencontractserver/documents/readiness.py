@@ -68,7 +68,10 @@ def effective_embedder(corpus=None, *, path=None):
         raise ReadinessUnavailable("embedder_configuration_unavailable") from None
     if embedder.vector_size not in DIM_TO_FIELD_MAP:
         raise ReadinessUnavailable("unsupported_dimension")
-    return path, embedder.vector_size, embedding_configuration(embedder)
+    configuration = embedding_configuration(embedder)
+    if not configuration:
+        raise ReadinessUnavailable("embedder_configuration_unavailable")
+    return path, embedder.vector_size, configuration
 
 
 def generation(document, configuration):
@@ -288,6 +291,13 @@ def repair_authorized(document, corpus, user, token=None):
 def request_repair(document, corpus=None, *, user, token=None):
     from opencontractserver.tasks.readiness_tasks import repair_document_embeddings
 
+    # A running batch holds the document lock during inference. Repeated
+    # requests can observe its progress without waiting for that lock.
+    progress = repair_progress(document)
+    if progress and progress["status"] in ("queued", "running"):
+        if not repair_authorized(document, corpus, user, token):
+            raise PermissionError("Repair is not authorized")
+        return assess_document(document, corpus)
     with transaction.atomic():
         locked = Document.objects.select_for_update().filter(pk=document.pk).first()
         if locked is None:

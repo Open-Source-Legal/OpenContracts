@@ -1,8 +1,9 @@
 """Readiness checks stored artifacts; repair reuses inference without parsing."""
 
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from tempfile import TemporaryDirectory
-from threading import Barrier
+from threading import Barrier, Event
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
@@ -105,6 +106,38 @@ class ReadinessFixtures(SimpleTestCase):
 
 
 class ReadinessTests(ReadinessFixtures, TestCase):
+    def test_nonserializable_settings_allow_unverified_embeddings(self):
+        from opencontractserver.tasks.embeddings_task import (
+            calculate_embedding_for_doc_text,
+            calculate_embeddings_for_annotation_batch,
+        )
+
+        client = APIClient()
+        client.force_authenticate(self.user)
+        with patch.object(
+            TestEmbedder,
+            "get_component_settings",
+            return_value={"model_path": Path("/models/custom")},
+        ):
+            calculate_embedding_for_doc_text(self.doc.pk, embedder_path=EMBEDDER)
+            batch = calculate_embeddings_for_annotation_batch(
+                [self.annotation.pk], embedder_path=EMBEDDER
+            )
+            response = client.get(f"/api/readiness/documents/{self.doc.pk}/")
+        self.assertEqual(batch["succeeded"], 1)
+        self.assertEqual(Embedding.objects.filter(configuration="").count(), 2)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["state"], "unavailable")
+        self.assertEqual(
+            response.data["reasons"], ["embedder_configuration_unavailable"]
+        )
+
+    def test_active_repair_still_requires_authorization(self):
+        request_repair(self.doc, self.corpus, user=self.user)
+        stranger = get_user_model().objects.create_user(username="repair-stranger")
+        with self.assertRaises(PermissionError):
+            request_repair(self.doc, self.corpus, user=stranger)
+
     def test_deleted_document_is_unavailable_during_status_and_repair(self):
         client = APIClient()
         client.force_authenticate(self.user)
@@ -703,6 +736,22 @@ class ReadinessTests(ReadinessFixtures, TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["state"], "unavailable")
 
+    def test_repair_selection_scopes_vector_validity_to_document_annotations(self):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        with CaptureQueriesContext(connection) as queries:
+            result = self.repair()
+        self.assertEqual(result["state"], "ready")
+        selection = [
+            q["sql"]
+            for q in queries.captured_queries
+            if q["sql"].startswith('SELECT DISTINCT "annotations_annotation"."id"')
+            and "vector_norm" in q["sql"]
+        ]
+        self.assertEqual(len(selection), 1)
+        self.assertIn('"annotation_id" IN (SELECT', selection[0])
+
     def test_corpus_page_isolates_a_failing_document_and_resolves_once(self):
         from opencontractserver.documents import readiness
 
@@ -760,6 +809,51 @@ class ReadinessTests(ReadinessFixtures, TestCase):
 
 
 class ConcurrentRepairTests(ReadinessFixtures, TransactionTestCase):
+    def test_repeat_post_returns_progress_while_inference_holds_document_lock(self):
+        started, release = Event(), Event()
+
+        def embed(*args, **kwargs):
+            started.set()
+            if not release.wait(timeout=10):
+                raise TimeoutError("Test did not release embedding inference")
+            return [0.1] * 384
+
+        def run_repair(job_id):
+            close_old_connections()
+            try:
+                repair_document_embeddings(job_id)
+            finally:
+                close_old_connections()
+
+        def post():
+            close_old_connections()
+            try:
+                client = APIClient()
+                client.force_authenticate(self.user)
+                return client.post(f"/api/readiness/documents/{self.doc.pk}/")
+            finally:
+                close_old_connections()
+
+        with patch(DISPATCH) as dispatch:
+            initial = request_repair(self.doc, self.corpus, user=self.user)
+            with patch.object(
+                TestEmbedder, "_embed_text_impl", side_effect=embed
+            ), ThreadPoolExecutor(max_workers=2) as pool:
+                worker = pool.submit(run_repair, initial["repair"]["id"])
+                try:
+                    self.assertTrue(started.wait(timeout=10))
+                    response = pool.submit(post).result(timeout=5)
+                    self.assertEqual(response.status_code, 202)
+                    self.assertEqual(response.data["repair"]["status"], "running")
+                    self.assertEqual(
+                        response.data["repair"]["id"], initial["repair"]["id"]
+                    )
+                finally:
+                    release.set()
+                worker.result(timeout=10)
+        dispatch.assert_called_once()
+        self.assertEqual(assess_document(self.doc, self.corpus)["state"], "ready")
+
     def test_concurrent_requests_claim_one_batch(self):
         barrier = Barrier(2)
 
