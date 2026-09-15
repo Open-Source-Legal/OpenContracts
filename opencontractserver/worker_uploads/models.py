@@ -287,6 +287,13 @@ class WorkerDocumentUpload(models.Model):
     concurrent processing without conflicts.
     """
 
+    ingestion_run = models.ForeignKey(
+        "worker_uploads.IngestionRun",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="uploads",
+    )
     id = models.UUIDField(
         primary_key=True,
         default=uuid.uuid4,
@@ -417,3 +424,11 @@ class WorkerAuthoritySectionBatch(models.Model):
 
     def __str__(self) -> str:
         return f"WorkerAuthoritySectionBatch({self.id}, {self.status})"
+
+
+from .run_models import (  # noqa: E402,F401
+    IngestionOperation,
+    IngestionReservation,
+    IngestionRun,
+    IngestionRunEvent,
+)

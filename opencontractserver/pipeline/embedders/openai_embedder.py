@@ -163,6 +163,25 @@ class OpenAIEmbedder(BaseEmbedder):
             max_retries=self.OPENAI_CLIENT_MAX_RETRIES,
         )
 
+    def embed_text_accounted(self, text: str) -> tuple[list[float], int]:
+        """One request with usage for a reserved ingestion operation.
+
+        No SDK retry or compatible endpoint can spend outside the reservation.
+        The caller owns retries and persists each attempt before calling here.
+        """
+        s = self._effective_settings
+        kwargs: dict = {
+            "input": text[:OPENAI_EMBEDDER_MAX_INPUT_CHARS],
+            "model": s.openai_embedding_model,
+        }
+        if s.openai_embedding_model.startswith("text-embedding-3"):
+            kwargs["dimensions"] = int(s.openai_embedding_dimensions)
+        with self._build_client(
+            openai_api_base_url="https://api.openai.com/v1"
+        ).with_options(max_retries=0) as client:
+            response = client.embeddings.create(**kwargs)
+        return list(response.data[0].embedding), response.usage.prompt_tokens
+
     def _embed_text_impl(self, text: str, **all_kwargs) -> Optional[list[float]]:
         """
         Generate embeddings from text using the OpenAI Embeddings API.

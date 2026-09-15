@@ -130,6 +130,9 @@ class WorkerDocumentUploadStatusSerializer(serializers.ModelSerializer):
     document_id = serializers.IntegerField(
         source="result_document_id", read_only=True, allow_null=True
     )
+    run_status = serializers.CharField(
+        source="ingestion_run.status", read_only=True, default=None
+    )
 
     class Meta:
         model = WorkerDocumentUpload
@@ -146,6 +149,8 @@ class WorkerDocumentUploadStatusSerializer(serializers.ModelSerializer):
             "payload_digest",
             "processing_attempts",
             "error_history",
+            "ingestion_run",
+            "run_status",
         ]
         read_only_fields = fields
 

@@ -978,6 +978,7 @@ class Corpus(InstanceUserCanMixin, TreeNode):
                 original_file_type=document.original_file_type,
                 page_count=document.page_count,
                 custom_meta=document.custom_meta,  # Inherit custom metadata
+                ingestion_run_id=document.ingestion_run_id,
                 is_public=self.is_public
                 or document.is_public,  # Public corpus → public doc
                 version_tree_id=tree_id,  # NEW isolated version tree
@@ -1006,6 +1007,8 @@ class Corpus(InstanceUserCanMixin, TreeNode):
                         "file_type",
                         "is_public",
                         "structural_annotation_set",
+                        "ingestion_run",
+                        "ingestion_run_id",
                     ]
                 },
             )

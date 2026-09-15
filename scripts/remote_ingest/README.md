@@ -75,6 +75,11 @@ service version. Keep credentials in environment variables, outside config files
 
 ## Setup
 
+For immutable processing policy, monetary reservations, and resumable budget
+pauses, see [Ingestion run policy and budget](../../docs/upload_methods/ingestion_run_policy.md).
+Run-bound uploads suppress thumbnails and automatic corpus actions; server
+embedding requires the explicitly priced adapter described there.
+
 > **Target prerequisite (easy to miss):** worker uploads are ingested
 > asynchronously — the endpoint only stages each upload (HTTP 202) and a Celery
 > task creates the Document. The target instance **must** run a Celery worker on

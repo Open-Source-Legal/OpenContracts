@@ -163,6 +163,10 @@ def _resolve_parser_for_ingest(document: Document) -> tuple[str, BaseParser, dic
             if :func:`get_component_by_name` fails to load the class.
     """
     from opencontractserver.documents.models import PipelineSettings
+    from opencontractserver.worker_uploads.run_policy import RunPolicyError
+
+    if document.ingestion_run_id:
+        raise RunPolicyError("prohibited_parse")
     from opencontractserver.utils.logging import redact_sensitive_kwargs
 
     pipeline_settings = PipelineSettings.get_instance()
@@ -608,6 +612,10 @@ def convert_document_to_pdf(self, user_id: int, doc_id: int) -> dict[str, Any]:
             ingest chain.
     """
     from opencontractserver.pipeline.utils import get_default_file_converter_instance
+    from opencontractserver.worker_uploads.run_services import suppress_stage
+
+    if suppress_stage(doc_id, "convert"):
+        return {"status": "skipped", "doc_id": doc_id, "reason": "run_policy"}
 
     try:
         document: Document = Document.objects.get(pk=doc_id)
@@ -722,6 +730,10 @@ def ingest_doc(self, user_id: int, doc_id: int) -> dict[str, Any]:
         DocumentParsingError: Re-raised for transient errors to trigger Celery retry.
     """
     from opencontractserver.documents.models import DocumentPath
+    from opencontractserver.worker_uploads.run_services import suppress_stage
+
+    if suppress_stage(doc_id, "parse"):
+        return {"status": "skipped", "doc_id": doc_id, "reason": "run_policy"}
     from opencontractserver.types.enums import PermissionTypes
 
     logger.info(
@@ -1227,6 +1239,11 @@ def extract_thumbnail(self, doc_id: int) -> None:
         None
     """
     logger.info(f"[extract_thumbnail] Extracting thumbnail for doc {doc_id}")
+
+    from opencontractserver.worker_uploads.run_services import suppress_stage
+
+    if suppress_stage(doc_id, "thumbnail"):
+        return
 
     # Fetch the document
     try:

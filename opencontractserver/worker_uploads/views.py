@@ -31,6 +31,7 @@ from opencontractserver.worker_uploads.models import (
     WorkerAuthoritySectionBatch,
     WorkerDocumentUpload,
 )
+from opencontractserver.worker_uploads.run_policy import RunPolicyError
 from opencontractserver.worker_uploads.serializers import (
     WorkerAuthoritySectionBatchSerializer,
     WorkerAuthoritySectionBatchStatusSerializer,
@@ -167,6 +168,8 @@ class WorkerDocumentUploadView(APIView):
                 serializer.validated_data["metadata"],
                 client_key,
             )
+        except RunPolicyError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_409_CONFLICT)
         except UploadConflict as exc:
             return Response({"error": str(exc)}, status=status.HTTP_409_CONFLICT)
         except ValueError:

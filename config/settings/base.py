@@ -873,7 +873,15 @@ CELERY_TASK_ROUTES = {
 # -----------------------------------------------------------------------
 # Periodic drain of pending worker document uploads. Ensures uploads are
 # processed even if the per-request nudge was missed during task-worker downtime.
+# Operator-maintained, versioned rates. Missing prices fail closed for bounded
+# runs; no remote/microservice price is silently assumed to be zero.
+INGESTION_RUN_PRICING = env.json("INGESTION_RUN_PRICING", default={})
+
 CELERY_BEAT_SCHEDULE = {
+    "drain-ingestion-run-reservations": {
+        "task": "opencontractserver.worker_uploads.run_tasks.process_pending_ingestion_operations",
+        "schedule": 30.0,
+    },
     "worker-uploads-drain-pending": {
         "task": "opencontractserver.worker_uploads.tasks.process_pending_uploads",
         "schedule": 60.0,

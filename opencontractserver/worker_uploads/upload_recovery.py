@@ -2,6 +2,7 @@
 
 import hashlib
 import re
+from uuid import UUID
 
 from django.db import transaction
 from django.db.models import Q
@@ -13,6 +14,12 @@ from opencontractserver.worker_uploads.models import (
     WorkerAccount,
     WorkerDocumentUpload,
 )
+from opencontractserver.worker_uploads.run_models import IngestionRun
+from opencontractserver.worker_uploads.run_policy import (
+    RunPolicyError,
+    validate_preparation,
+)
+from opencontractserver.worker_uploads.run_services import runs_for_token
 
 MAX_PROCESSING_ATTEMPTS = 3
 
@@ -53,7 +60,23 @@ def stage_upload(token, file, metadata, client_key=None):
                 if existing.payload_digest != identity:
                     raise UploadConflict("idempotency_conflict")
                 return existing, False
+        run = None
+        if metadata.get("ingestion_run_id"):
+            if not client_key:
+                raise RunPolicyError("run_requires_idempotency_key")
+            try:
+                run = (
+                    runs_for_token(token)
+                    .select_for_update()
+                    .get(pk=UUID(str(metadata["ingestion_run_id"])))
+                )
+            except (IngestionRun.DoesNotExist, ValueError, TypeError):
+                raise RunPolicyError("run_not_found") from None
+            if run.status != IngestionRun.Status.ACTIVE:
+                raise RunPolicyError("run_not_active")
+            validate_preparation(run, metadata)
         upload = WorkerDocumentUpload.objects.create(
+            ingestion_run=run,
             corpus_access_token=token,
             worker_account=token.worker_account,
             corpus=token.corpus,

@@ -489,6 +489,7 @@ def import_document(
             # the permissioning guide rule (both flags must be True) is
             # naturally satisfied without queryset-level overrides.
             new_doc = Document.objects.create(
+                ingestion_run_id=old_doc.ingestion_run_id,
                 title=doc_kwargs.get("title", old_doc.title),
                 description=doc_kwargs.get("description", old_doc.description),
                 file_type=file_type,
@@ -506,7 +507,15 @@ def import_document(
                 **{
                     k: v
                     for k, v in doc_kwargs.items()
-                    if k not in ["title", "description", "file_type", "is_public"]
+                    if k
+                    not in [
+                        "title",
+                        "description",
+                        "file_type",
+                        "is_public",
+                        "ingestion_run",
+                        "ingestion_run_id",
+                    ]
                 },
             )
 
