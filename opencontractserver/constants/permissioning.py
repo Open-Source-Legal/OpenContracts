@@ -9,46 +9,27 @@ hard-coding the strings.
 
 from __future__ import annotations
 
+MODEL_PERMS_CACHE_ATTR = "_oc_model_permissions_cache"
+"""Backend model-grant cache on a User, governed by shared grant snapshots."""
+
 INSTANCE_PERMS_CACHE_ATTR = "_oc_granted_perms_cache"
 """Attribute on a model instance that stores the per-instance memoization
 of ``get_users_permissions_for_obj`` results, keyed by
 ``(user_id, include_group_permissions_bool)`` → ``frozenset[str]``.
 
-Backed by ``opencontractserver.utils.permissioning._InstancePermsCache``,
-a thread-safe ``dict`` subclass: individual reads/writes ride CPython's
-GIL but the per-user invalidate sweep
-(``_InstancePermsCache.drop_for_user``) holds an internal ``Lock`` so
-the compound iterate-then-delete operation cannot race a concurrent
-reader on the same instance under async views or any future code path
-that crosses thread / coroutine boundaries.
+Backed by ``shared.grant_cache.PermissionGrantCache``. Both cache tiers use
+the same connection/savepoint tracking and invalidation protocol. Rolled-back
+reads and fills that finish after invalidation cannot become reusable answers.
+``set_permissions_for_obj_to_user`` invalidates the supplied instance and request
+before committing; row/user revisions expire other held instance/request snapshots
+in this process and the document manager's permission prefetches. Django's
+membership/model-permission m2m APIs invalidate actor/group-dependent snapshots.
+Raw Guardian grants, creator/public fields and caller-supplied private prefetch
+attributes retain explicit invalidation duties; see the permission guide.
 
-Tier 1 of the two-tier mitigation. Transparent to all callers: any code
-that goes through ``get_users_permissions_for_obj`` benefits
-automatically. Cache lifetime equals the instance lifetime; the only
-path that mutates underlying state mid-request is
-``set_permissions_for_obj_to_user``, which clears the relevant entries
-when given the active request.
-
-Known staleness boundaries (callers must scrub manually):
-
-- ``refresh_from_db()`` reloads model fields but does NOT touch this
-  attribute. If guardian rows are mutated out-of-band (raw
-  ``remove_perm``/``assign_perm``, migrations) and the same Python
-  instance is reused, call ``delattr(instance, INSTANCE_PERMS_CACHE_ATTR)``
-  (or use ``hasattr`` + ``del``) to drop the stale entry.
-- Group-membership changes (``user.groups.add/remove`` or
-  ``assign_perm(perm, group)``) are not observed by
-  ``set_permissions_for_obj_to_user`` either, so any cached entry
-  computed with ``include_group_permissions=True`` becomes stale until
-  the instance is discarded. Same manual ``delattr`` remedy applies.
-- Pickling: ``InstanceUserCanMixin.__getstate__`` strips this attribute
-  before serialisation, so models passed as Celery task arguments
-  (which inherit from ``BaseOCModel`` or otherwise mix in
-  ``InstanceUserCanMixin`` — see ``shared/user_can_mixin.py``) never
-  carry stale Tier 1 entries across the wire. Pass primary keys to
-  tasks and re-fetch inside the task body anyway — that's the
-  standard pattern and avoids the broader N+1 / staleness pitfalls
-  that the ``__getstate__`` strip only narrowly addresses.
+``refresh_from_db()`` does not clear this attribute. Model serialization via
+``PermissionStateMixin.__getstate__`` strips it and permission prefetch data; pass
+task IDs and re-fetch rows inside workers.
 """
 
 REQUEST_OPTIMIZER_ATTR = "_permission_query_optimizer"

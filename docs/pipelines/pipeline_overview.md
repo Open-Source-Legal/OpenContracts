@@ -417,3 +417,5 @@ When contributing new pipeline components:
 4. Submit a pull request with a clear description
 
 For questions or support, please open an issue on the GitHub repository.
+
+Create and retry share the conversion, thumbnail, ingestion, remap, and unlock sequence. Conversion and ingestion recheck active requester access; their returned failures halt the chain through its existing error callback. Standalone calls retain status dictionaries.

@@ -25,18 +25,29 @@ Coverage:
 
 from __future__ import annotations
 
+import pickle
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event
+from types import SimpleNamespace
+from unittest.mock import patch
+
 from django.contrib.auth import get_user_model
-from django.contrib.auth.models import AnonymousUser
+from django.contrib.auth.models import AnonymousUser, Group, Permission
+from django.db import connections, transaction
 
 # TransactionTestCase retained for Tier1CacheThreadSafetyTestCase, which
 # spawns OS threads and needs real commits visible across connections.
 from django.test import RequestFactory, TestCase, TransactionTestCase
+from guardian.shortcuts import assign_perm
 
+from config.graphql.core.permissions import resolve_my_permissions
 from opencontractserver.constants.permissioning import (
     INSTANCE_PERMS_CACHE_ATTR,
     REQUEST_OPTIMIZER_ATTR,
 )
 from opencontractserver.corpuses.models import Corpus
+from opencontractserver.documents.models import Document
+from opencontractserver.shared.Managers import _apply_document_prefetches
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.permission_optimizer import (
     PermissionQueryOptimizer,
@@ -316,6 +327,453 @@ class Tier1CacheThreadSafetyTestCase(TransactionTestCase):
         ]
         for reader in self.readers:
             set_permissions_for_obj_to_user(reader, self.corpus, [PermissionTypes.READ])
+
+    def test_rollback_expires_grants_in_both_cache_tiers(self):
+        reader = self.readers[0]
+        for requested in (False, True):
+            for allowed in (False, True):
+                for nested in (False, True):
+                    with self.subTest(
+                        request=requested, allowed=allowed, nested=nested
+                    ):
+                        request = SimpleNamespace() if requested else None
+                        set_permissions_for_obj_to_user(
+                            reader,
+                            self.corpus,
+                            [PermissionTypes.READ] if allowed else [],
+                            request=request,
+                        )
+                        atomic = transaction.atomic()
+                        for _ in range(
+                            2
+                        ):  # Reusing Atomic must not resurrect a rolled-back read.
+                            with atomic:
+                                with transaction.atomic():
+                                    set_permissions_for_obj_to_user(
+                                        reader,
+                                        self.corpus,
+                                        [] if allowed else [PermissionTypes.READ],
+                                        request=request,
+                                    )
+                                    self.assertEqual(
+                                        self.corpus.user_can(
+                                            reader,
+                                            PermissionTypes.READ,
+                                            request=request,
+                                        ),
+                                        not allowed,
+                                    )
+                                    with self.assertNumQueries(0):
+                                        self.assertEqual(
+                                            self.corpus.user_can(
+                                                reader,
+                                                PermissionTypes.READ,
+                                                request=request,
+                                            ),
+                                            not allowed,
+                                        )
+                                    transaction.set_rollback(nested)
+                                if nested:
+                                    self.assertEqual(
+                                        self.corpus.user_can(
+                                            reader,
+                                            PermissionTypes.READ,
+                                            request=request,
+                                        ),
+                                        allowed,
+                                    )
+                                transaction.set_rollback(True)
+                            self.assertEqual(
+                                self.corpus.user_can(
+                                    reader, PermissionTypes.READ, request=request
+                                ),
+                                allowed,
+                            )
+
+    def test_uncommitted_cache_grants_do_not_cross_connections(self):
+        reader = self.readers[0]
+        request = SimpleNamespace()
+        set_permissions_for_obj_to_user(reader, self.corpus, [], request=request)
+
+        def read_elsewhere():
+            try:
+                return self.corpus.user_can(
+                    reader, PermissionTypes.READ, request=request
+                )
+            finally:
+                connections.close_all()
+
+        with transaction.atomic():
+            set_permissions_for_obj_to_user(
+                reader, self.corpus, [PermissionTypes.READ], request=request
+            )
+            self.assertTrue(
+                self.corpus.user_can(reader, PermissionTypes.READ, request=request)
+            )
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                self.assertFalse(pool.submit(read_elsewhere).result(timeout=20))
+        self.assertTrue(
+            self.corpus.user_can(reader, PermissionTypes.READ, request=request)
+        )
+        with self.assertNumQueries(0):
+            self.assertTrue(
+                self.corpus.user_can(reader, PermissionTypes.READ, request=request)
+            )
+
+    def test_invalidation_during_lookup_does_not_repopulate_stale_request_grants(self):
+        reader = self.readers[0]
+        optimizer = PermissionQueryOptimizer()
+
+        def revoke_during_read(**kwargs):
+            old = get_users_permissions_for_obj(**kwargs)
+            set_permissions_for_obj_to_user(reader, self.corpus, [])
+            optimizer.invalidate(user_id=reader.pk, instance=self.corpus)
+            return old
+
+        with patch(
+            "opencontractserver.utils.permissioning.get_users_permissions_for_obj",
+            side_effect=revoke_during_read,
+        ):
+            self.assertIn("read_corpus", optimizer.get_granted(reader, self.corpus))
+        self.assertNotIn("read_corpus", optimizer.get_granted(reader, self.corpus))
+
+    def test_commit_callbacks_observe_revocation_and_failed_invalidation_rolls_back(
+        self,
+    ):
+        from opencontractserver.utils import permissioning
+
+        reader = self.readers[0]
+        request = SimpleNamespace()
+        self.assertTrue(
+            self.corpus.user_can(reader, PermissionTypes.READ, request=request)
+        )
+        observed = []
+        remove = permissioning.remove_perm
+
+        def remove_and_observe(*args, **kwargs):
+            result = remove(*args, **kwargs)
+            transaction.on_commit(
+                lambda: observed.append(
+                    self.corpus.user_can(reader, PermissionTypes.READ, request=request)
+                )
+            )
+            return result
+
+        with patch.object(permissioning, "remove_perm", remove_and_observe):
+            set_permissions_for_obj_to_user(reader, self.corpus, [], request=request)
+        self.assertTrue(observed)
+        self.assertFalse(any(observed))
+        with patch.object(
+            get_request_optimizer(request), "invalidate", side_effect=RuntimeError
+        ), self.assertRaises(RuntimeError):
+            set_permissions_for_obj_to_user(
+                reader, self.corpus, [PermissionTypes.READ], request=request
+            )
+        self.assertFalse(
+            Corpus.objects.get(pk=self.corpus.pk).user_can(reader, PermissionTypes.READ)
+        )
+
+    def test_grant_replacement_expires_held_instances_and_permission_prefetches(self):
+        reader = self.readers[0]
+        doc = Document.objects.create(creator=self.creator, title="Held document")
+        for row, prefetched in ((self.corpus, False), (doc, False), (doc, True)):
+            for allowed in (False, True):
+                with self.subTest(
+                    model=type(row), prefetched=prefetched, allowed=allowed
+                ):
+                    set_permissions_for_obj_to_user(
+                        reader, row, [PermissionTypes.READ] if allowed else []
+                    )
+                    held = (
+                        _apply_document_prefetches(
+                            Document.objects.filter(pk=row.pk), reader, lightweight=True
+                        ).get()
+                        if prefetched
+                        else type(row).objects.get(pk=row.pk)
+                    )
+                    request = SimpleNamespace(user=reader)
+                    codename = f"read_{row._meta.model_name}"
+                    self.assertEqual(
+                        held.user_can(reader, PermissionTypes.READ, request=request),
+                        allowed,
+                    )
+                    self.assertEqual(
+                        codename
+                        in resolve_my_permissions(
+                            held, SimpleNamespace(context=request)
+                        ),
+                        allowed,
+                    )
+                    set_permissions_for_obj_to_user(
+                        reader,
+                        type(row).objects.get(pk=row.pk),
+                        [] if allowed else [PermissionTypes.READ],
+                    )
+                    self.assertEqual(
+                        held.user_can(reader, PermissionTypes.READ, request=request),
+                        not allowed,
+                    )
+                    self.assertEqual(
+                        codename
+                        in resolve_my_permissions(
+                            held, SimpleNamespace(context=request)
+                        ),
+                        not allowed,
+                    )
+                    with self.assertNumQueries(0):
+                        self.assertEqual(
+                            held.user_can(reader, PermissionTypes.READ), not allowed
+                        )
+
+    def test_prefetched_rollback_and_serialization_cannot_restore_a_grant(self):
+        reader = self.readers[0]
+        doc = Document.objects.create(creator=self.creator, title="Prefetched grant")
+        with transaction.atomic():
+            set_permissions_for_obj_to_user(reader, doc, [PermissionTypes.READ])
+            held = _apply_document_prefetches(
+                Document.objects.filter(pk=doc.pk), reader, lightweight=True
+            ).get()
+            restored = pickle.loads(pickle.dumps(held))
+            self.assertTrue(held.user_can(reader, PermissionTypes.READ))
+            transaction.set_rollback(True)
+        for instance in (held, restored):
+            self.assertFalse(instance.user_can(reader, PermissionTypes.READ))
+            self.assertNotIn(
+                "read_document",
+                resolve_my_permissions(
+                    instance, SimpleNamespace(context=SimpleNamespace(user=reader))
+                ),
+            )
+        set_permissions_for_obj_to_user(reader, doc, [PermissionTypes.READ])
+        rows = _apply_document_prefetches(
+            Document.objects.filter(pk=doc.pk), reader, lightweight=True
+        )
+        for instance in rows.iterator(chunk_size=1):
+            with self.assertNumQueries(0):
+                self.assertEqual(
+                    get_users_permissions_for_obj(reader, instance), {"read_document"}
+                )
+
+    def test_commit_expires_foreign_cache_reads_made_during_revocation(self):
+        reader = self.readers[0]
+        captured, resume = Event(), Event()
+
+        def read_before_and_after_commit():
+            try:
+                held = Corpus.objects.get(pk=self.corpus.pk)
+                request = SimpleNamespace(user=reader)
+                before = held.user_can(reader, PermissionTypes.READ, request=request)
+                captured.set()
+                self.assertTrue(resume.wait(15))
+                return before, held.user_can(
+                    reader, PermissionTypes.READ, request=request
+                )
+            finally:
+                connections.close_all()
+
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            try:
+                with transaction.atomic():
+                    set_permissions_for_obj_to_user(reader, self.corpus, [])
+                    pending = pool.submit(read_before_and_after_commit)
+                    self.assertTrue(captured.wait(15))
+            finally:
+                resume.set()
+            self.assertEqual(pending.result(timeout=20), (True, False))
+
+    def test_revocation_invalidates_a_prefetch_before_its_first_permission_check(self):
+        reader = self.readers[0]
+        doc = Document.objects.create(
+            creator=self.creator, title="Cold permission prefetch"
+        )
+        set_permissions_for_obj_to_user(reader, doc, [PermissionTypes.READ])
+        held = _apply_document_prefetches(
+            Document.objects.filter(pk=doc.pk), reader, lightweight=True
+        ).get()
+        set_permissions_for_obj_to_user(reader, Document.objects.get(pk=doc.pk), [])
+        self.assertFalse(held.user_can(reader, PermissionTypes.READ))
+
+    def test_membership_changes_refresh_held_object_and_model_grants(self):
+        reader = self.readers[0]
+        group = Group.objects.create(name="Cached membership")
+        publish = Permission.objects.get(codename="publish_corpus")
+        group.permissions.add(publish)
+        set_permissions_for_obj_to_user(reader, self.corpus, [])
+        assign_perm("read_corpus", group, self.corpus)
+        for reverse in (False, True):
+            for method in ("remove", "clear", "set"):
+                with self.subTest(reverse=reverse, method=method):
+                    group.user_set.add(reader)
+                    actor = User.objects.prefetch_related("groups").get(pk=reader.pk)
+                    actor.get_all_permissions()
+                    held = Corpus.objects.get(pk=self.corpus.pk)
+                    request = SimpleNamespace(user=actor)
+                    info = SimpleNamespace(context=request)
+                    self.assertTrue(
+                        held.user_can(actor, PermissionTypes.READ, request=request)
+                    )
+                    self.assertIn("publish_corpus", resolve_my_permissions(held, info))
+                    manager = (
+                        Group.objects.get(pk=group.pk).user_set
+                        if reverse
+                        else User.objects.get(pk=reader.pk).groups
+                    )
+                    if method == "clear":
+                        manager.clear()
+                    elif method == "set":
+                        manager.set([])
+                    else:
+                        manager.remove(reader.pk if reverse else group.pk)
+                    self.assertFalse(
+                        held.user_can(actor, PermissionTypes.READ, request=request)
+                    )
+                    self.assertEqual(resolve_my_permissions(held, info), [])
+
+    def test_model_grants_and_actor_switch_expire_cached_graphql_metadata(self):
+        reader, other = self.readers[:2]
+        publish = Permission.objects.get(codename="publish_corpus")
+        info = SimpleNamespace(context=SimpleNamespace(user=reader))
+        for reverse in (False, True):
+            with self.subTest(reverse=reverse):
+                reader.get_all_permissions()
+                self.assertNotIn(
+                    "publish_corpus", resolve_my_permissions(self.corpus, info)
+                )
+                manager = publish.user_set if reverse else reader.user_permissions
+                target = reader.pk if reverse else publish.pk
+                manager.add(target)
+                self.assertIn(
+                    "publish_corpus", resolve_my_permissions(self.corpus, info)
+                )
+                recipient = User.objects.get(pk=reader.pk)
+                self.assertIn(
+                    "corpuses.publish_corpus", recipient.get_all_permissions()
+                )
+                restored = pickle.loads(pickle.dumps(recipient))
+                info.context.user = other
+                self.assertNotIn(
+                    "publish_corpus", resolve_my_permissions(self.corpus, info)
+                )
+                info.context.user = reader
+                manager.remove(target)
+                self.assertNotIn(
+                    "publish_corpus", resolve_my_permissions(self.corpus, info)
+                )
+                self.assertNotIn(
+                    "corpuses.publish_corpus", restored.get_all_permissions()
+                )
+        group = Group.objects.create(name="Model grant readers")
+        group.user_set.add(reader)
+        group.permissions.add(publish)
+        self.assertIn("publish_corpus", resolve_my_permissions(self.corpus, info))
+        publish.group_set.clear()
+        self.assertNotIn("publish_corpus", resolve_my_permissions(self.corpus, info))
+
+    def test_membership_rollback_and_prefetches_preserve_current_authority(self):
+        reader = self.readers[0]
+        group = Group.objects.create(name="Prefetched membership")
+        doc = Document.objects.create(creator=self.creator, title="Group document")
+        assign_perm("read_document", group, doc)
+        group.user_set.add(reader)
+        held = _apply_document_prefetches(
+            Document.objects.filter(pk=doc.pk), reader, lightweight=True
+        ).get()
+        request = SimpleNamespace(user=reader)
+        self.assertTrue(held.user_can(reader, PermissionTypes.READ, request=request))
+        with transaction.atomic():
+            group.user_set.remove(reader)
+            self.assertFalse(
+                held.user_can(reader, PermissionTypes.READ, request=request)
+            )
+            transaction.set_rollback(True)
+        self.assertTrue(held.user_can(reader, PermissionTypes.READ, request=request))
+        restored = pickle.loads(pickle.dumps(reader))
+        group.user_set.clear()
+        self.assertFalse(held.user_can(restored, PermissionTypes.READ, request=request))
+
+    def test_group_deletion_expires_held_grants_and_prefetches(self):
+        reader = self.readers[0]
+        publish = Permission.objects.get(codename="publish_corpus")
+        set_permissions_for_obj_to_user(reader, self.corpus, [])
+        for bulk in (False, True):
+            with self.subTest(bulk=bulk), transaction.atomic():
+                group = Group.objects.create(name=f"Deleted group {bulk}")
+                group.user_set.add(reader)
+                group.permissions.add(publish)
+                assign_perm("read_corpus", group, self.corpus)
+                doc = Document.objects.create(creator=self.creator, title="Group read")
+                assign_perm("read_document", group, doc)
+                held = Corpus.objects.get(pk=self.corpus.pk)
+                prefetched = _apply_document_prefetches(
+                    Document.objects.filter(pk=doc.pk), reader, lightweight=True
+                ).get()
+                request = SimpleNamespace(user=reader)
+                info = SimpleNamespace(context=request)
+
+                def assert_current(allowed):
+                    for instance in (held, prefetched):
+                        for scope in (None, request):
+                            self.assertEqual(
+                                instance.user_can(
+                                    reader, PermissionTypes.READ, request=scope
+                                ),
+                                allowed,
+                            )
+                    self.assertEqual(
+                        "publish_corpus" in resolve_my_permissions(held, info), allowed
+                    )
+
+                assert_current(True)
+                with transaction.atomic():
+                    target = Group.objects.filter(pk=group.pk)
+                    (target if bulk else target.get()).delete()
+                    assert_current(False)
+                    transaction.set_rollback(True)
+                assert_current(True)
+                transaction.set_rollback(True)
+
+    def test_permission_deletion_expires_model_and_direct_object_grants(self):
+        reader = self.readers[0]
+        for bulk in (False, True):
+            for grouped in (False, True):
+                with self.subTest(bulk=bulk, grouped=grouped), transaction.atomic():
+                    publish = Permission.objects.get(codename="publish_corpus")
+                    if grouped:
+                        group = Group.objects.create(name="Deleted permission")
+                        group.user_set.add(reader)
+                        group.permissions.add(publish)
+                    else:
+                        reader.user_permissions.add(publish)
+                    assign_perm("publish_corpus", reader, self.corpus)
+                    held = Corpus.objects.get(pk=self.corpus.pk)
+                    request = SimpleNamespace(user=reader)
+                    info = SimpleNamespace(context=request)
+
+                    def assert_current(allowed):
+                        for groups in (False, True):
+                            for scope in (None, request):
+                                self.assertEqual(
+                                    held.user_can(
+                                        reader,
+                                        PermissionTypes.PUBLISH,
+                                        include_group_permissions=groups,
+                                        request=scope,
+                                    ),
+                                    allowed,
+                                )
+                        self.assertEqual(
+                            "publish_corpus" in resolve_my_permissions(held, info),
+                            allowed,
+                        )
+
+                    assert_current(True)
+                    with transaction.atomic():
+                        target = Permission.objects.filter(pk=publish.pk)
+                        (target if bulk else target.get()).delete()
+                        assert_current(False)
+                        transaction.set_rollback(True)
+                    assert_current(True)
+                    transaction.set_rollback(True)
 
     def test_instance_cache_is_thread_safe_wrapper(self):
         """Warming the cache attaches the thread-safe wrapper, not a plain dict."""

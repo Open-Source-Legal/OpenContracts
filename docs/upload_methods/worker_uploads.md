@@ -6,6 +6,10 @@ already attached -- directly into a corpus. Unlike the other upload methods,
 worker uploads bypass OpenContracts' built-in parsing pipeline entirely because
 the documents have already been processed externally.
 
+Staged uploads and authority-section batches recheck the token, linked worker user,
+and corpus binding at drain time (`worker_uploads/tasks.py::_require_staged_worker_token`).
+Revocation stops work that has not started; it does not cancel an operation already running.
+
 ## When to Use Worker Uploads
 
 - **External processing pipelines** -- your organization has a custom NLP or

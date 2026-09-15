@@ -92,6 +92,32 @@ class ResearchReportService(BaseService):
     # Kickoff
     # ------------------------------------------------------------------
     @classmethod
+    def require_scope(
+        cls, user: Any, corpus: Any, *, corpus_group: Any = None, request: Any = None
+    ) -> None:
+        """Require an active actor with access to the anchor corpus and group."""
+        if user is None or not user.is_active:
+            raise PermissionError("Research requester is inactive or missing")
+        error = cls.require_permission(
+            corpus, user, PermissionTypes.READ, request=request
+        )
+        if error:
+            raise PermissionError(error)
+
+        if corpus_group is not None:
+            from opencontractserver.corpuses.services import CorpusGroupService
+
+            visible = (
+                CorpusGroupService.list_visible_groups(user)
+                .filter(pk=corpus_group.pk)
+                .exists()
+            )
+            if not visible:
+                raise PermissionError(
+                    "Corpus group not found or not visible to this user."
+                )
+
+    @classmethod
     def start(
         cls,
         *,
@@ -114,30 +140,13 @@ class ResearchReportService(BaseService):
         is not.
 
         Raises:
-            PermissionError: when ``user`` lacks READ on ``corpus``, or the
-                requested group is not visible to them.
+            PermissionError: when ``user`` is inactive, lacks READ on ``corpus``,
+                or the requested group is not visible to them.
             ConcurrentResearchInProgress: when a non-terminal report for
                 the same ``(user, corpus)`` exists inside the configured
                 concurrency-guard window.
         """
-        error = cls.require_permission(
-            corpus, user, PermissionTypes.READ, request=request
-        )
-        if error:
-            raise PermissionError(error)
-
-        if corpus_group is not None:
-            from opencontractserver.corpuses.services import CorpusGroupService
-
-            visible = (
-                CorpusGroupService.list_visible_groups(user)
-                .filter(pk=corpus_group.pk)
-                .exists()
-            )
-            if not visible:
-                raise PermissionError(
-                    "Corpus group not found or not visible to this user."
-                )
+        cls.require_scope(user, corpus, corpus_group=corpus_group, request=request)
 
         default_max_steps: int = getattr(
             settings, "DEEP_RESEARCH_DEFAULT_MAX_STEPS", DEFAULT_MAX_STEPS_FALLBACK

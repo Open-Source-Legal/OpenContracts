@@ -1606,6 +1606,7 @@ def _mutate_StartCorpusExport(payload_cls, root, info, **kwargs):
                         corpus_pk,
                         analysis_pk_list if analysis_pk_list else None,
                         annotation_filter_mode,
+                        export_id=export.pk,
                     ),
                     chain(
                         chord(
@@ -1615,6 +1616,7 @@ def _mutate_StartCorpusExport(payload_cls, root, info, **kwargs):
                                     corpus_pk,
                                     analysis_pk_list if analysis_pk_list else None,
                                     annotation_filter_mode,
+                                    export_id=export.pk,
                                 )
                                 for doc_id in doc_ids
                             ),
@@ -1656,6 +1658,7 @@ def _mutate_StartCorpusExport(payload_cls, root, info, **kwargs):
                                 doc_id,
                                 corpus_pk,
                                 analysis_pk_list if analysis_pk_list else None,
+                                export_id=export.pk,
                             )
                             for doc_id in doc_ids
                         ),

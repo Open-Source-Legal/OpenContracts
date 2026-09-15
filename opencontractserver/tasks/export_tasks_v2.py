@@ -31,7 +31,6 @@ from tempfile import SpooledTemporaryFile
 from typing import IO, TYPE_CHECKING, cast
 
 from celery import shared_task
-from django.contrib.auth import get_user_model
 
 from opencontractserver.annotations.models import StructuralAnnotationSet
 from opencontractserver.constants.zip_export import get_export_spool_max_size_bytes
@@ -49,6 +48,7 @@ from opencontractserver.types.dicts import (
 )
 from opencontractserver.types.enums import AnnotationFilterMode
 from opencontractserver.users.models import UserExport
+from opencontractserver.users.services.exports import UserExportService
 from opencontractserver.utils.etl import build_document_export, build_label_lookups
 from opencontractserver.utils.export_v2 import (
     package_action_trail,
@@ -72,8 +72,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
-
-User = get_user_model()
 
 _PUBLISHER_SOURCE_FIELDS = frozenset(
     {
@@ -473,11 +471,10 @@ def package_corpus_export_v2(
     try:
         logger.info("Starting V2 export for corpus %s", corpus_pk)
 
-        corpus = Corpus.objects.get(pk=corpus_pk)
-        export = UserExport.objects.get(pk=export_id)
+        export, corpus = UserExportService.get_corpus_context(export_id, corpus_pk)
 
         with build_corpus_v2_zip(
-            corpus_pk=corpus_pk,
+            corpus_pk=corpus.pk,
             user_for_visibility=export.creator,
             include_conversations=include_conversations,
             include_action_trail=include_action_trail,
@@ -486,7 +483,7 @@ def package_corpus_export_v2(
             annotation_filter_mode=annotation_filter_mode,
         ) as output_bytes:
             finalize_export(
-                export_id,
+                export.pk,
                 f"{only_alphanumeric_chars(corpus.title)}_EXPORT_V2.zip",
                 output_bytes,
                 corpus.title,

@@ -1,7 +1,6 @@
 from django.contrib import admin
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
-from guardian.admin import GuardedModelAdmin
 
 from opencontractserver.corpuses.models import (
     Corpus,
@@ -10,6 +9,7 @@ from opencontractserver.corpuses.models import (
     CorpusActionTemplate,
     CorpusCategory,
 )
+from opencontractserver.shared.admin import GuardedModelAdmin
 from opencontractserver.tasks.permissioning_tasks import make_corpus_public_task
 
 

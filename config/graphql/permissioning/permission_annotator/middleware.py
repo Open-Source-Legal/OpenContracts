@@ -7,6 +7,8 @@ from typing import Any, Callable
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AbstractUser
 
+from opencontractserver.shared.grant_cache import model_permission_grants
+
 logger = logging.getLogger(__name__)
 
 User = get_user_model()
@@ -40,7 +42,7 @@ def get_permissions_for_user_on_model_in_app(
 
             # logger.info(f"get_user_model_permissions_from_info_and_model - user exists.")
 
-            model_permissions = user.get_all_permissions()
+            model_permissions = model_permission_grants(user)
             # logger.info(f"get_user_model_permissions_from_info_and_model - model_permissions: {model_permissions}")
 
             if f"{app_name}.publish_{model_name}" in model_permissions:

@@ -32,6 +32,7 @@ from opencontractserver.shared.slug_utils import (
     sanitize_slug,
     validate_user_slug_or_raise,
 )
+from opencontractserver.shared.user_can_mixin import PermissionStateMixin
 from opencontractserver.shared.utils import calc_oc_file_path
 from opencontractserver.types.enums import ExportType
 from opencontractserver.users.handle_generator import generate_handle
@@ -109,7 +110,7 @@ class UserProfileManager(DjangoUserManager["User"]):
         return self.filter(Q(id=user.pk) | Q(is_profile_public=True), is_active=True)
 
 
-class User(AbstractUser):
+class User(PermissionStateMixin, AbstractUser):
     """Default user for OpenContractServer."""
 
     # Request-local capability context; never persisted or copied into tasks.

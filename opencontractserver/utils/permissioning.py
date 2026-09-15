@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import threading
 from functools import reduce
 from typing import TYPE_CHECKING, Any, TypeVar
 
@@ -9,14 +8,19 @@ import django
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser, Permission
 from django.contrib.contenttypes.models import ContentType
-from django.db import transaction
+from django.db import transaction  # noqa: F401 - preserve the existing module alias
 from guardian.shortcuts import assign_perm, remove_perm
 
 from config.graphql.permissioning.permission_annotator.middleware import combine
-from opencontractserver.constants.permissioning import INSTANCE_PERMS_CACHE_ATTR
+from opencontractserver.shared.grant_cache import (  # noqa: F401 - legacy import alias
+    PermissionGrantCache as _InstancePermsCache,
+)
+from opencontractserver.shared.grant_cache import (
+    cached_permission_grants,
+    permission_grant_change,
+)
 from opencontractserver.shared.prefetch_attrs import (
-    user_group_perm_attr,
-    user_perm_attr,
+    permission_prefetch,
 )
 from opencontractserver.types.enums import PermissionTypes
 
@@ -31,65 +35,6 @@ logger = logging.getLogger(__name__)
 # the abstract ``Model | None``). Without this, mypy can't see ``.name`` /
 # ``.fieldset`` etc. on the helper's return value.
 _T_Model = TypeVar("_T_Model", bound=django.db.models.Model)
-
-
-class _InstancePermsCache(dict):
-    """Thread-safe Tier 1 cache for granted permission sets.
-
-    A ``dict`` subclass keyed by ``(user_id, include_group_permissions)``
-    → ``frozenset[str]``. Subclassing ``dict`` keeps the cache transparent
-    to direct callers and tests that perform membership checks, indexing,
-    or ``dict(cache)`` snapshots.
-
-    The ``_lock`` exists for *compound* operations only — namely the
-    invalidate-by-user sweep in
-    :func:`set_permissions_for_obj_to_user`, which iterates keys then
-    deletes them and would otherwise risk ``RuntimeError: dictionary
-    changed size during iteration`` under async views or any future
-    code path that crosses thread or coroutine boundaries on the same
-    instance. Individual ``cache[key]`` reads/writes are already atomic
-    under CPython's GIL; the lock-acquire/release cost on an uncontended
-    Lock is a few hundred nanoseconds on CPython — well below the cost
-    of the guardian queries this layer exists to elide. The matching
-    Tier 2 rationale lives in
-    ``opencontractserver/utils/permission_optimizer.py``.
-    """
-
-    def __init__(self) -> None:
-        super().__init__()
-        self._lock = threading.Lock()
-
-    def drop_for_user(self, user_id: int) -> None:
-        """Atomically drop every entry keyed by ``user_id``.
-
-        Holds ``_lock`` for the iterate-then-delete sweep so a concurrent
-        writer cannot trigger ``RuntimeError`` mid-iteration and so a
-        concurrent reader either sees the entry fully present or fully
-        gone, never a half-removed state.
-        """
-
-        with self._lock:
-            for key in [k for k in self if k[0] == user_id]:
-                del self[key]
-
-
-def _get_or_create_instance_perms_cache(
-    instance: django.db.models.Model,
-) -> _InstancePermsCache:
-    """Return ``instance``'s Tier 1 cache, creating one atomically if needed.
-
-    Uses ``instance.__dict__.setdefault`` so concurrent first-touches on
-    the same Python instance converge on a single cache object instead
-    of stomping each other via ``getattr`` + ``setattr``. On CPython
-    ``dict.setdefault`` is a single atomic operation under the GIL.
-    """
-
-    cache = getattr(instance, INSTANCE_PERMS_CACHE_ATTR, None)
-    if cache is None:
-        cache = instance.__dict__.setdefault(
-            INSTANCE_PERMS_CACHE_ATTR, _InstancePermsCache()
-        )
-    return cache
 
 
 def set_permissions_for_obj_to_user(
@@ -117,23 +62,15 @@ def set_permissions_for_obj_to_user(
             depend on prior perms being cleared (e.g. CRUD → READ-only).
             Ingest paths (``import_annotations``, ``corpus.add_document``,
             label-creation, etc.) should pass ``is_new=True``.
-        request: When supplied (typically ``info.context`` from a GraphQL
-            mutation), invalidate the two-tier permission cache for this
-            ``(user, instance)`` pair after the grant lands so any
-            subsequent ``user_can`` checks in the same request reflect
-            the new state. ``None`` is safe — Celery tasks and fixtures
-            never reuse the instance after mutating perms, so the cache
-            won't go stale.
+        request: Also invalidate entries on the supplied request. Shared revisions
+            expire other held instance/request snapshots for this object and user
+            in this process, even without a request. Both tiers discard reads
+            from rolled-back transactions and savepoints.
 
-    Cache invalidation does NOT cover group-permission changes: calls
-    such as ``user.groups.add(group)`` or ``assign_perm(perm, group, obj)``
-    do not flow through this helper and therefore leave both tiers
-    untouched. Any cached entry computed with
-    ``include_group_permissions=True`` becomes stale until the instance
-    or request goes out of scope. Callers performing those operations
-    mid-request must invalidate manually (``delattr(instance,
-    INSTANCE_PERMS_CACHE_ATTR)`` and/or
-    ``get_request_optimizer(request).invalidate(user_id=user.id)``).
+    Django membership/model-permission edits and Guardian admin forms share
+    this cache lifetime. Raw Guardian or through-table writes, caller-supplied
+    prefetch attributes, and creator/public fields retain explicit invalidation
+    duties; see the permission guide.
     """
 
     # Provides some flexibility to use ids where passing object is not practical
@@ -145,137 +82,47 @@ def set_permissions_for_obj_to_user(
     model_name = instance._meta.model_name
     app_name = instance._meta.app_label
 
-    # First, remove ALL existing permissions for this user on this object ############################################
-    # ``is_new`` callers (ingest paths granting perms on freshly-created
-    # objects) skip the upfront sweep — there's nothing to clear and
-    # each ``remove_perm`` is a DB op that adds up across N annotations.
-    # Sharing flows / downgrade flows leave ``is_new`` at the default
-    # so that a CRUD → READ-only downgrade still clears UPDATE/DELETE.
-    if not is_new:
-        # List all possible permissions for this model type
-        all_perms = [
-            f"{app_name}.create_{model_name}",
-            f"{app_name}.read_{model_name}",
-            f"{app_name}.update_{model_name}",
-            f"{app_name}.remove_{model_name}",
-            f"{app_name}.comment_{model_name}",
-            f"{app_name}.permission_{model_name}",
-            f"{app_name}.publish_{model_name}",
-        ]
+    requested = set(permissions)
+    crud = {
+        PermissionTypes.CREATE,
+        PermissionTypes.READ,
+        PermissionTypes.UPDATE,
+        PermissionTypes.DELETE,
+    }
+    grants = {
+        PermissionTypes.CREATE: "create",
+        PermissionTypes.READ: "read",
+        PermissionTypes.UPDATE: "update",
+        PermissionTypes.DELETE: "remove",
+        PermissionTypes.PERMISSION: "permission",
+        PermissionTypes.COMMENT: "comment",
+        PermissionTypes.PUBLISH: "publish",
+    }
+    if PermissionTypes.ALL in requested:
+        requested.update(grants)
+    elif PermissionTypes.CRUD in requested:
+        requested.update(crud)
 
-        # Remove all existing permissions
-        for perm in all_perms:
-            try:
-                remove_perm(perm, user, instance)
-            except Exception:
-                # Permission might not exist for this model type
-                pass
-
-    # Now, add specified permissions ###################################################################################
-    requested_permission_set = set(permissions)
-
-    with transaction.atomic():
-        if (
-            len(
-                {
-                    PermissionTypes.CREATE,
-                    PermissionTypes.CRUD,
-                    PermissionTypes.ALL,
-                }.intersection(requested_permission_set)
-            )
-            > 0
-        ):
-            assign_perm(f"{app_name}.create_{model_name}", user, instance)
-
-        if (
-            len(
-                {
-                    PermissionTypes.READ,
-                    PermissionTypes.CRUD,
-                    PermissionTypes.ALL,
-                }.intersection(requested_permission_set)
-            )
-            > 0
-        ):
-            assign_perm(f"{app_name}.read_{model_name}", user, instance)
-
-        if (
-            len(
-                {
-                    PermissionTypes.UPDATE,
-                    PermissionTypes.CRUD,
-                    PermissionTypes.ALL,
-                }.intersection(requested_permission_set)
-            )
-            > 0
-        ):
-            assign_perm(f"{app_name}.update_{model_name}", user, instance)
-
-        if (
-            len(
-                {
-                    PermissionTypes.DELETE,
-                    PermissionTypes.CRUD,
-                    PermissionTypes.ALL,
-                }.intersection(requested_permission_set)
-            )
-            > 0
-        ):
-            assign_perm(f"{app_name}.remove_{model_name}", user, instance)
-
-        if (
-            len(
-                {PermissionTypes.PERMISSION, PermissionTypes.ALL}.intersection(
-                    requested_permission_set
-                )
-            )
-            > 0
-        ):
-            assign_perm(f"{app_name}.permission_{model_name}", user, instance)
-
-        if (
-            len(
-                {PermissionTypes.COMMENT, PermissionTypes.ALL}.intersection(
-                    requested_permission_set
-                )
-            )
-            > 0
-        ):
-            assign_perm(f"{app_name}.comment_{model_name}", user, instance)
-
-        if (
-            len(
-                {PermissionTypes.PUBLISH, PermissionTypes.ALL}.intersection(
-                    requested_permission_set
-                )
-            )
-            > 0
-        ):
-            assign_perm(f"{app_name}.publish_{model_name}", user, instance)
-
-    # Drop both Tier 1 (instance) and Tier 2 (request) cache entries for this
-    # ``(user, instance)`` so later ``user_can`` checks in the same request
-    # see the new grants. See ``constants/permissioning.py`` for caveats.
-    #
-    # ``_InstancePermsCache.drop_for_user`` holds the per-cache lock for the
-    # iterate-then-delete sweep so the invalidation is safe under ASGI /
-    # async-view code paths that may race a concurrent reader on the same
-    # Python instance. Legacy plain-``dict`` caches (instances pickled out
-    # by an older worker and loaded back in mid-rollout, or hand-attached
-    # test fixtures) still iterate via the same shape — we fall back to a
-    # snapshot pattern so ``RuntimeError`` cannot escape this helper.
-    instance_cache = getattr(instance, INSTANCE_PERMS_CACHE_ATTR, None)
-    if isinstance(instance_cache, _InstancePermsCache):
-        instance_cache.drop_for_user(user.id)
-    elif instance_cache is not None:
-        for key in [k for k in instance_cache if k[0] == user.id]:
-            instance_cache.pop(key, None)
-    if request is not None:
-        from opencontractserver.utils.permission_optimizer import (
-            get_request_optimizer,
-        )
-
-        get_request_optimizer(request).invalidate(user_id=user.id, instance=instance)
+    # Replacement and invalidation must finish before commit callbacks run.
+    with permission_grant_change(instance, user.id, request=request):
+        if not is_new:
+            # Preserve the existing removal order and missing-permission behavior.
+            for action in (
+                "create",
+                "read",
+                "update",
+                "remove",
+                "comment",
+                "permission",
+                "publish",
+            ):
+                try:
+                    remove_perm(f"{app_name}.{action}_{model_name}", user, instance)
+                except Exception:
+                    pass
+        for permission, action in grants.items():
+            if permission in requested:
+                assign_perm(f"{app_name}.{action}_{model_name}", user, instance)
 
 
 def get_users_group_ids(user_instance: UserModel) -> list[str | int]:
@@ -310,42 +157,7 @@ def get_permission_id_to_name_map_for_model(
     return this_model_permission_id_map
 
 
-def _perm_cache_key(
-    user: UserModel, include_group_permissions: bool
-) -> tuple[int, bool] | None:
-    """Build the per-instance Tier 1 cache key, or ``None`` to skip caching.
-
-    Anonymous / unauthenticated users have no stable ``id`` to key on and
-    their state isn't reusable across calls — return ``None`` so callers
-    bypass the cache entirely for them.
-    """
-
-    user_id = getattr(user, "id", None)
-    if user_id is None or not getattr(user, "is_authenticated", False):
-        return None
-    return (user_id, bool(include_group_permissions))
-
-
-def _store_granted_on_instance(
-    instance: django.db.models.Model,
-    cache_key: tuple[int, bool] | None,
-    granted: set[str],
-) -> set[str]:
-    """Cache ``granted`` on ``instance`` under ``cache_key`` and return it.
-
-    Stores as ``frozenset`` (immutable) and returns the original ``set``
-    so callers can mutate the result locally — ``_default_user_can``
-    folds ``read_<model>`` into the granted set for compound CRUD/ALL
-    checks.
-    """
-
-    if cache_key is None:
-        return granted
-    cache = _get_or_create_instance_perms_cache(instance)
-    cache[cache_key] = frozenset(granted)
-    return granted
-
-
+@cached_permission_grants
 def get_users_permissions_for_obj(
     user: UserModel,
     instance: django.db.models.Model,
@@ -376,15 +188,6 @@ def get_users_permissions_for_obj(
 
     app_label = instance._meta.app_label
     logger.debug(f"get_users_permissions_for_obj - App name: {app_label}")
-
-    # Tier 1 lookup. Returns a defensive copy so the caller can mutate
-    # without poisoning the cache (the compound-perm fold-in in
-    # ``_default_user_can`` mutates the returned set locally).
-    cache_key = _perm_cache_key(user, include_group_permissions)
-    if cache_key is not None:
-        cache = getattr(instance, INSTANCE_PERMS_CACHE_ATTR, None)
-        if cache is not None and cache_key in cache:
-            return set(cache[cache_key])
 
     # Check if the model has django-guardian permission tables
     # Some models (like AnnotationLabel) use creator-based permissions instead.
@@ -421,9 +224,7 @@ def get_users_permissions_for_obj(
             model_permissions_for_user.add(f"read_{model_name}")
 
         logger.debug(f"Creator-based permissions: {model_permissions_for_user}")
-        return _store_granted_on_instance(
-            instance, cache_key, model_permissions_for_user
-        )
+        return model_permissions_for_user
 
     # Superusers are computed like any other user on guardian-enabled models
     # too (scoped admin access, 2026-05) — no blanket grant of the full
@@ -432,7 +233,7 @@ def get_users_permissions_for_obj(
 
     # Fast path: consume per-user guardian prefetches if attached. Missing attr
     # (different user, or no prefetch) falls through to the guardian path below.
-    prefetched_user_perms = getattr(instance, user_perm_attr(user.id), None)
+    prefetched_user_perms = permission_prefetch(instance, user.id)
     if prefetched_user_perms is not None:
         model_permissions_for_user = {
             perm.permission.codename for perm in prefetched_user_perms
@@ -441,9 +242,7 @@ def get_users_permissions_for_obj(
             model_permissions_for_user.add(f"read_{model_name}")
 
         if include_group_permissions:
-            prefetched_group_perms = getattr(
-                instance, user_group_perm_attr(user.id), None
-            )
+            prefetched_group_perms = permission_prefetch(instance, user.id, groups=True)
             if prefetched_group_perms is not None:
                 for perm in prefetched_group_perms:
                     model_permissions_for_user.add(perm.permission.codename)
@@ -459,9 +258,7 @@ def get_users_permissions_for_obj(
                     model_permissions_for_user.add(
                         permission_id_to_name_map[perm.permission_id]
                     )
-        return _store_granted_on_instance(
-            instance, cache_key, model_permissions_for_user
-        )
+        return model_permissions_for_user
 
     this_user_perms = getattr(instance, f"{model_name}userobjectpermission_set")
 
@@ -498,7 +295,7 @@ def get_users_permissions_for_obj(
 
     logger.debug(f"Final permissions: {model_permissions_for_user}")
 
-    return _store_granted_on_instance(instance, cache_key, model_permissions_for_user)
+    return model_permissions_for_user
 
 
 def _default_user_can(

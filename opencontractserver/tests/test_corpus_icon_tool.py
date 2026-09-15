@@ -278,6 +278,10 @@ class RegenerateCorpusIconRegistryTests(TransactionTestCase):
     harness), so the marker is what grants it DB access.
     """
 
+    def setUp(self):
+        self.user = User.objects.create_user(username="tool-approval-owner")
+        self.corpus = Corpus.objects.create(title="Approval context", creator=self.user)
+
     def test_resolves_with_expected_flags(self):
         registry = ToolFunctionRegistry.get()
         core_tool = registry.to_core_tool("regenerate_corpus_icon")
@@ -307,10 +311,13 @@ class RegenerateCorpusIconRegistryTests(TransactionTestCase):
 
         ctx = MagicMock()
         ctx.deps = PydanticAIDependencies(
-            user_id=None, corpus_id=None, document_id=None, skip_approval_gate=False
+            user_id=self.user.pk,
+            corpus_id=self.corpus.pk,
+            document_id=None,
+            skip_approval_gate=False,
         )
         ctx.tool_call_id = "test-call"
 
         with self.assertRaises(ToolConfirmationRequired) as cm:
-            await callable_fn(ctx, corpus_id=1, user_id=1)
+            await callable_fn(ctx, corpus_id=self.corpus.pk, user_id=self.user.pk)
         self.assertEqual(cm.exception.tool_name, "regenerate_corpus_icon")

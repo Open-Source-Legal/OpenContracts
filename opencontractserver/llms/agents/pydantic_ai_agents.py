@@ -1753,14 +1753,23 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
             # If a per-call tool has the same name as a seeded tool, replace it.
             override_tools: list[Callable] = []
 
-            if tools:
+            override_specs = tools or self.config.tools
+            if override_specs:
+                from opencontractserver.llms.agents.agent_factory import (
+                    _convert_tools_for_framework,
+                )
                 from opencontractserver.llms.api import _resolve_tools
+                from opencontractserver.llms.types import AgentFramework
 
-                resolved_core_tools = _resolve_tools(tools)
-                override_tools = PydanticAIToolFactory.create_tools(resolved_core_tools)
-            elif self.config.tools:
-                # If caller did not pass tools but config has additional wrappers
-                override_tools = list(self.config.tools)
+                override_tools = _convert_tools_for_framework(
+                    _resolve_tools(override_specs),
+                    AgentFramework.PYDANTIC_AI,
+                    document_id=self.agent_deps.document_id,
+                    corpus_id=self.agent_deps.corpus_id,
+                    user_id=self.agent_deps.user_id,
+                    corpus_action_id=self.config.corpus_action_id,
+                    conversation_id=self.agent_deps.conversation_id,
+                )
 
             # Build the final tool list, preferring override tools over seeded
             final_tools = deduplicate_tools(
@@ -1795,8 +1804,8 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
             self._refresh_context_budget(history_result)
             # Only pass kwargs that Agent.run() accepts; ignore extras like
             # similarity_top_k that callers may pass for their own bookkeeping.
+            # Keep execution authority aligned with the tool bindings above.
             _run_accepted = {
-                "deps",
                 "model",
                 "model_settings",
                 "usage_limits",
@@ -1889,9 +1898,25 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
 
         from opencontractserver.conversations.models import ChatMessage
 
+        # The paused message is resolved INSIDE this agent's conversation so
+        # a caller can never approve or reject another conversation's message
+        # by id. Ephemeral sessions (``persist=False`` sub-agents, anonymous
+        # chat) have no conversation: their placeholder ids are synthetic
+        # in-memory counters, never ``ChatMessage`` rows, so there is nothing
+        # to resume against and the lookup fails closed instead of matching
+        # an unrelated row by primary-key coincidence.
+        conversation_id = self.get_conversation_id()
+        if conversation_id is None:
+            raise ValueError(
+                f"ChatMessage {llm_message_id} not found: this agent has no "
+                "persisted conversation, so approval-gated tool calls cannot "
+                "be resumed for it"
+            )
         try:
-            paused_msg = await ChatMessage.objects.aget(id=llm_message_id)
-        except ObjectDoesNotExist:  # pragma: no cover – defensive guard
+            paused_msg = await ChatMessage.objects.aget(
+                id=llm_message_id, conversation_id=conversation_id
+            )
+        except ObjectDoesNotExist:
             raise ValueError(f"ChatMessage {llm_message_id} not found")
 
         current_state = paused_msg.data.get("state")
@@ -2000,18 +2025,11 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
                     logger.info(f"Found tool '{tool_name}' in config.tools: {tool}")
                     break
 
-            # Helper stub ctx carrying call-id for wrappers that expect it.
-            # _EmptyDeps must have user_id, document_id, corpus_id for _check_user_permissions
-            class _EmptyDeps:  # noqa: D401 – simple placeholder for deps
-                skip_approval_gate = True
-                user_id = None
-                document_id = None
-                corpus_id = None
-
-            class _EmptyCtx:  # noqa: D401 – simple placeholder
+            # Approval bypasses confirmation, while retaining execution authority.
+            class _ApprovalCtx:
                 tool_call_id = pending.get("tool_call_id")
                 skip_approval_gate = True
-                deps = _EmptyDeps()
+                deps = self.agent_deps.model_copy(update={"skip_approval_gate": True})
 
             import inspect
 
@@ -2038,7 +2056,7 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
                     )
                     try:
                         result = await _maybe_await(
-                            wrapper_fn(_EmptyCtx(), **tool_args)
+                            wrapper_fn(_ApprovalCtx(), **tool_args)
                         )
                         tool_executed = True
                     except TypeError as e:
@@ -2082,7 +2100,9 @@ class PydanticAICoreAgent(CoreAgentBase, TimelineStreamMixin):
                             tool_args = {}
 
                     try:
-                        result = await _maybe_await(candidate(_EmptyCtx(), **tool_args))
+                        result = await _maybe_await(
+                            candidate(_ApprovalCtx(), **tool_args)
+                        )
                     except TypeError as e:
                         # Log full details for debugging
                         logger.error(
@@ -2875,6 +2895,7 @@ class PydanticAIDocumentAgent(PydanticAICoreAgent):
                 "content": "Full markdown content of the note",
             },
             requires_approval=True,
+            requires_write_permission=True,
             requires_corpus=True,
         )
 
@@ -2887,6 +2908,7 @@ class PydanticAIDocumentAgent(PydanticAICoreAgent):
                 "new_content": "New note content (markdown)",
             },
             requires_approval=True,
+            requires_write_permission=True,
         )
 
         # -----------------------------
@@ -2991,6 +3013,7 @@ class PydanticAIDocumentAgent(PydanticAICoreAgent):
                 "label_type": "Optional label type override",
             },
             requires_approval=True,
+            requires_write_permission=True,
             requires_corpus=True,
         )
 
@@ -3002,6 +3025,7 @@ class PydanticAIDocumentAgent(PydanticAICoreAgent):
                 "entries": "List of objects with keys 'label_text' and 'exact_string'",
             },
             requires_approval=True,
+            requires_write_permission=True,
             requires_corpus=True,
         )
 
@@ -3285,6 +3309,7 @@ class PydanticAICorpusAgent(PydanticAICoreAgent):
             },
             requires_corpus=True,
             requires_approval=True,
+            requires_write_permission=True,
         )
 
         # -----------------------------

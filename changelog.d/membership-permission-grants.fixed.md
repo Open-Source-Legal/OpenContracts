@@ -1,0 +1,1 @@
+- Expire held permission grants and GraphQL metadata after membership changes, model-grant edits, and Group/Permission deletion (`opencontractserver/users/signals.py`, `opencontractserver/shared/grant_cache.py`).
