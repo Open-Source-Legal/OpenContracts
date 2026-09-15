@@ -7,9 +7,13 @@ from django.db import transaction
 from django.utils import timezone
 
 from opencontractserver.annotations.models import StructuralAnnotationSet
+from opencontractserver.constants.readiness import (
+    REPAIR_BATCH_SIZE,
+    REPAIR_SOFT_TIME_LIMIT,
+    REPAIR_TIME_LIMIT,
+)
 from opencontractserver.documents.models import Document, EmbeddingRepair
 from opencontractserver.documents.readiness import (
-    REPAIR_BATCH_SIZE,
     assess_document,
     document_annotations,
     repair_authorized,
@@ -23,7 +27,7 @@ from opencontractserver.utils.embedding_identity import valid_embeddings
 logger = logging.getLogger(__name__)
 
 
-@shared_task(soft_time_limit=540, time_limit=600)
+@shared_task(soft_time_limit=REPAIR_SOFT_TIME_LIMIT, time_limit=REPAIR_TIME_LIMIT)
 def repair_document_embeddings(job_id):
     if not EmbeddingRepair.objects.filter(pk=job_id, status="queued").update(
         status="running"

@@ -7,13 +7,17 @@ materializes one bounded batch. No readiness or repair path invokes a parser.
 import hashlib
 import json
 import logging
-from datetime import timedelta
 
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
 from opencontractserver.annotations.models import Annotation
+from opencontractserver.constants.readiness import (
+    MAX_ERROR_LENGTH,
+    MAX_TEXT_BYTES,
+    REPAIR_TIMEOUT,
+)
 from opencontractserver.constants.search import DIM_TO_FIELD_MAP
 from opencontractserver.corpuses.services.corpus_service import CorpusService
 from opencontractserver.documents.models import (
@@ -33,9 +37,6 @@ from opencontractserver.utils.embedding_identity import (
     valid_embeddings,
 )
 
-REPAIR_BATCH_SIZE = 100
-MAX_TEXT_BYTES = 16 * 1024 * 1024
-REPAIR_TIMEOUT = timedelta(minutes=15)
 logger = logging.getLogger(__name__)
 
 
@@ -176,7 +177,9 @@ def assess_document(document, corpus=None, *, embedder=None):
         "generation": None,
         "reasons": [],
         "processing_status": document.processing_status,
-        "processing_error": " ".join(document.processing_error.split())[:1000],
+        "processing_error": " ".join(document.processing_error.split())[
+            :MAX_ERROR_LENGTH
+        ],
         "required_stages": [
             "parsing",
             "annotations",
@@ -217,8 +220,12 @@ def assess_document(document, corpus=None, *, embedder=None):
         reasons = result["reasons"]
         if document.processing_status != DocumentProcessingStatus.COMPLETED:
             reasons.append(f"parsing_{document.processing_status}")
-        pending = document.pending_annotations.exclude(status="done")
-        if pending.exists():
+        pending = set(
+            document.pending_annotations.exclude(status="done")
+            .values_list("status", flat=True)
+            .distinct()
+        )
+        if pending:
             reasons.append("annotations_outstanding")
         if has_text and not doc_valid:
             reasons.append("document_embedding_missing_or_invalid")
@@ -226,7 +233,7 @@ def assess_document(document, corpus=None, *, embedder=None):
             reasons.append("annotation_embeddings_missing_or_invalid")
         if (
             document.processing_status == DocumentProcessingStatus.FAILED
-            or pending.filter(status="failed").exists()
+            or "failed" in pending
         ):
             result["state"] = "failed"
         elif not reasons:

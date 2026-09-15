@@ -5,6 +5,7 @@ from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from opencontractserver.constants.readiness import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.corpuses.services.corpus_documents import CorpusDocumentService
 from opencontractserver.documents.models import Document, DocumentPath
@@ -28,12 +29,12 @@ def require_access(request, obj, permission):
 def corpus_page(request, documents, corpus):
     try:
         after = int(request.query_params.get("after", 0))
-        limit = int(request.query_params.get("limit", 20))
-        if after < 0 or not 1 <= limit <= 100:
+        limit = int(request.query_params.get("limit", DEFAULT_PAGE_SIZE))
+        if after < 0 or not 1 <= limit <= MAX_PAGE_SIZE:
             raise ValueError()
     except (ValueError, TypeError):
         raise ValidationError(
-            "after must be nonnegative; limit must be between 1 and 100"
+            f"after must be nonnegative; limit must be between 1 and {MAX_PAGE_SIZE}"
         )
     page = list(documents.filter(pk__gt=after).order_by("pk")[: limit + 1])
     return Response(
@@ -69,16 +70,12 @@ class DocumentReadinessView(APIView):
         path = paths.order_by("-created", "-pk").first()
         return path.corpus if path else None
 
-    def _context(self, request, document_id, *, repair=False):
+    def _context(self, request, document_id):
         document = get_object_or_404(Document, pk=document_id)
         require_access(request, document, PermissionTypes.READ)
         corpus = self._corpus(request, document)
         if corpus:
             require_access(request, corpus, PermissionTypes.READ)
-        if repair:
-            require_access(request, document, PermissionTypes.UPDATE)
-            if corpus:
-                require_access(request, corpus, PermissionTypes.UPDATE)
         return document, corpus
 
     def get(self, request, document_id):
@@ -86,8 +83,12 @@ class DocumentReadinessView(APIView):
         return Response(assess_document(document, corpus))
 
     def post(self, request, document_id):
-        document, corpus = self._context(request, document_id, repair=True)
-        return Response(request_repair(document, corpus, user=request.user), status=202)
+        document, corpus = self._context(request, document_id)
+        try:
+            result = request_repair(document, corpus, user=request.user)
+        except PermissionError:
+            raise NotFound() from None
+        return Response(result, status=202)
 
 
 class CorpusReadinessView(APIView):
