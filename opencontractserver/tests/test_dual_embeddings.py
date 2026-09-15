@@ -13,6 +13,7 @@ from django.test import TestCase
 from opencontractserver.annotations.models import Annotation
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document
+from opencontractserver.pipeline.base.embedder import BaseEmbedder
 from opencontractserver.pipeline.utils import get_default_embedder_path
 from opencontractserver.tasks.embeddings_task import (
     _apply_dual_embedding_strategy,
@@ -23,26 +24,20 @@ from opencontractserver.tests.fixtures import SAMPLE_PDF_FILE_ONE_PATH
 from opencontractserver.users.models import User
 
 
-class MockEmbedder:
+class MockEmbedder(BaseEmbedder):
     """Mock embedder for testing."""
 
     vector_size = 768
-    is_multimodal = False
-    supports_images = False
 
-    def embed_text(self, text: str) -> list[float]:
+    def _embed_text_impl(self, text: str, **all_kwargs) -> list[float]:
         """Return a mock embedding vector."""
         return [0.1] * 768
 
 
-class MockCorpusEmbedder:
+class MockCorpusEmbedder(MockEmbedder):
     """Mock corpus-specific embedder for testing."""
 
-    vector_size = 768
-    is_multimodal = False
-    supports_images = False
-
-    def embed_text(self, text: str) -> list[float]:
+    def _embed_text_impl(self, text: str, **all_kwargs) -> list[float]:
         """Return a different mock embedding vector."""
         return [0.2] * 768
 

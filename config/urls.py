@@ -49,6 +49,7 @@ urlpatterns = [
     # Discovery endpoints (robots.txt, llms.txt, sitemap.xml, .well-known/mcp.json)
     path("", include("opencontractserver.discovery.urls")),
     path("api/health/", lambda request: JsonResponse({"status": "ok"})),
+    path("api/readiness/", include("opencontractserver.documents.readiness_urls")),
     path("", home_redirect, name="home_redirect"),  # Root URL redirect to port 3000
     # Custom admin login/logout views (must be before admin.site.urls to override defaults)
     path("admin/login/", Auth0AdminLoginView.as_view(), name="admin_auth0_login"),
