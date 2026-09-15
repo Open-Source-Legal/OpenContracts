@@ -21,6 +21,7 @@ from django.core.management.base import CommandError
 from django.db import IntegrityError, transaction
 from django.utils.text import slugify
 
+from opencontractserver.constants.authority_packs import MAX_AUTHORITY_PACK_ERROR_LENGTH
 from opencontractserver.enrichment.authorities import (
     bootstrap_authority_corpus,
     read_section_spec,
@@ -119,6 +120,10 @@ class AuthorityPackPlan:
     )
     relationships: tuple[dict, ...] = field(default=(), repr=False, compare=False)
     origin: str = field(default="", repr=False, compare=False)
+    activation_status: str = "filesystem"
+    active_version: str | None = None
+    active_fingerprint: str | None = None
+    activation_error: str | None = None
 
     @property
     def total_corpora(self) -> int:
@@ -176,11 +181,44 @@ class AuthorityPackInstallResult:
             "relationships": dict(self.relationship_summary),
             "relink": self.relink_summary,
             "warnings": list(self.post_commit_warnings),
+            "activation": {
+                "status": self.pack.activation_status,
+                "version": self.pack.active_version,
+                "fingerprint": self.pack.active_fingerprint,
+                "error": self.pack.activation_error,
+            },
         }
 
 
 class AuthorityPackService:
     """Catalog and install trusted packs through one reusable service."""
+
+    @classmethod
+    def activation_status(cls, user) -> list[dict]:
+        if not is_authority_admin(user):
+            return []
+        from opencontractserver.annotations.models import AuthorityPackActivation
+
+        return [
+            {
+                "pack_id": row.pack_id,
+                "status": (
+                    "failed"
+                    if row.last_error
+                    else "active" if row.active_artifact_id else "inactive"
+                ),
+                "version": row.active_artifact.version if row.active_artifact else None,
+                "fingerprint": (
+                    row.active_artifact.fingerprint if row.active_artifact else None
+                ),
+                "attempted_fingerprint": row.attempted_fingerprint,
+                "error": row.last_error or None,
+                "corpus_ids": row.corpus_ids,
+            }
+            for row in AuthorityPackActivation.objects.select_related(
+                "active_artifact"
+            ).order_by("pack_id")
+        ]
 
     @classmethod
     def catalog(cls, user) -> list[AuthorityPackPlan]:
@@ -193,7 +231,7 @@ class AuthorityPackService:
         if not is_authority_admin(user):
             return []
 
-        directories = [path.resolve() for path in authority_pack_dirs()]
+        directories = [path.resolve() for path in authority_pack_dirs(for_catalog=True)]
         identities = [cls._best_effort_pack_id(path) for path in directories]
         duplicates = {
             pack_id for pack_id in identities if identities.count(pack_id) > 1
@@ -310,6 +348,8 @@ class AuthorityPackService:
         expected_fingerprint: str | None = None,
     ) -> AuthorityPackInstallResult:
         """Operator-facing path adapter retained for the management command."""
+        if not is_authority_admin(creator):
+            raise CommandError(DENIED)
         plan = cls.preflight_path(Path(pack_dir).resolve(), creator=creator)
         if (
             expected_fingerprint is not None
@@ -318,9 +358,12 @@ class AuthorityPackService:
             raise CommandError(
                 "Authority pack changed after preflight; validate it again."
             )
-        return cls._install_plan(
-            plan, creator=creator, make_public=make_public, relink=relink
-        )
+        try:
+            return cls._install_plan(
+                plan, creator=creator, make_public=make_public, relink=relink
+            )
+        except IntegrityError as exc:
+            raise CommandError(CONCURRENT_INSTALL_MESSAGE) from exc
 
     @classmethod
     def preflight_path(cls, pack_dir: Path, *, creator) -> AuthorityPackPlan:
@@ -398,6 +441,13 @@ class AuthorityPackService:
         can_publish = bool(corpus_plans) and all(
             corpus.approval_status.lower() == "approved" for corpus in corpus_plans
         )
+        from opencontractserver.annotations.models import AuthorityPackActivation
+
+        activation = (
+            AuthorityPackActivation.objects.filter(pack_id=origin)
+            .select_related("active_artifact")
+            .first()
+        )
         return AuthorityPackPlan(
             pack_id=origin,
             name=origin,
@@ -420,6 +470,26 @@ class AuthorityPackService:
             existing_corpus_ids=existing_corpus_ids,
             relationships=tuple(relationships),
             origin=origin,
+            activation_status=(
+                (
+                    "failed"
+                    if activation.last_error
+                    else "active" if activation.active_artifact_id else "inactive"
+                )
+                if activation
+                else "filesystem"
+            ),
+            active_version=(
+                activation.active_artifact.version
+                if activation and activation.active_artifact
+                else None
+            ),
+            active_fingerprint=(
+                activation.active_artifact.fingerprint
+                if activation and activation.active_artifact
+                else None
+            ),
+            activation_error=activation.last_error if activation else None,
         )
 
     @classmethod
@@ -431,8 +501,91 @@ class AuthorityPackService:
         make_public: bool,
         relink: bool,
     ) -> AuthorityPackInstallResult:
+        if not is_authority_admin(creator):
+            raise CommandError(DENIED)
+        if (make_public or plan.public_count) and not plan.can_publish:
+            raise CommandError(
+                "This authority pack is not approved for public installation."
+            )
         if not plan.valid or plan.pack_dir is None:
             raise CommandError(plan.validation_error or "Authority pack is invalid.")
+
+        from opencontractserver.annotations.models import AuthorityPackActivation
+        from opencontractserver.enrichment.services.authority_pack_artifacts import (
+            persist_artifact,
+            snapshot_pack,
+        )
+
+        activation, _ = AuthorityPackActivation.objects.get_or_create(
+            pack_id=plan.pack_id, defaults={"creator": creator}
+        )
+        observed_active_id = activation.active_artifact_id
+        try:
+            with snapshot_pack(plan) as snapshot:
+                frozen = cls.preflight_path(snapshot, creator=creator)
+                if frozen.fingerprint != plan.fingerprint:
+                    raise CommandError(
+                        "Authority pack changed after preflight; validate it again."
+                    )
+                artifact = persist_artifact(frozen, creator)
+                with transaction.atomic():
+                    activation = (
+                        AuthorityPackActivation.objects.select_for_update(of=("self",))
+                        .select_related("active_artifact")
+                        .get(pk=activation.pk)
+                    )
+                    observed_active_id = activation.active_artifact_id
+                    if activation.creator_id != creator.pk:
+                        raise CommandError(
+                            "This pack is managed by another authority administrator; use its existing owner."
+                        )
+                    if activation.active_artifact and not set(
+                        activation.active_artifact.declarations
+                    ).issubset(artifact.declarations):
+                        raise CommandError(
+                            "Removing declared pack identities requires an explicit "
+                            "content migration; the prior version remains active."
+                        )
+                    # Refresh database identities after acquiring the pack lock.
+                    frozen = cls.preflight_path(snapshot, creator=creator)
+                    if (make_public or frozen.public_count) and not frozen.can_publish:
+                        raise CommandError(
+                            "This authority pack is not approved for public installation."
+                        )
+                    installed = cls._install_content(
+                        frozen, creator=creator, make_public=make_public, relink=False
+                    )
+                    activation.active_artifact = artifact
+                    activation.corpus_ids = [
+                        c["corpus_id"] for c in installed.corpus_summaries
+                    ]
+                    activation.last_error = ""
+                    activation.attempted_fingerprint = artifact.fingerprint
+                    activation.save()
+                    installed = replace(
+                        installed,
+                        pack=replace(
+                            frozen,
+                            activation_status="active",
+                            active_version=artifact.version,
+                            active_fingerprint=artifact.fingerprint,
+                            activation_error=None,
+                        ),
+                    )
+        except Exception as exc:
+            # A later successful activation owns its status. A failed attempt
+            # may report against only the active version it actually observed.
+            AuthorityPackActivation.objects.filter(
+                pk=activation.pk, active_artifact_id=observed_active_id
+            ).update(
+                last_error=str(exc)[:MAX_AUTHORITY_PACK_ERROR_LENGTH],
+                attempted_fingerprint=plan.fingerprint,
+            )
+            raise
+        return cls._relink_installed(installed, relink=relink)
+
+    @classmethod
+    def _install_content(cls, plan, *, creator, make_public, relink):
 
         all_keys: list[str] = []
         corpus_summaries: list[dict] = []
@@ -490,6 +643,18 @@ class AuthorityPackService:
                 list(plan.relationships), origin=plan.origin
             )
 
+        return AuthorityPackInstallResult(
+            pack=plan,
+            taxonomy_summary=taxonomy_summary,
+            corpus_summaries=tuple(corpus_summaries),
+            relationship_summary=relationship_summary,
+            relink_summary=None,
+        )
+
+    @classmethod
+    def _relink_installed(cls, installed, *, relink):
+        plan = installed.pack
+        all_keys = [s.key for c in plan.validated_corpora for s in c.sections]
         # --- post-commit ----------------------------------------------------
         # The transaction above has committed: the pack IS installed.  The
         # reactive relink is a convergence pass over OTHER corpora, so letting
@@ -514,11 +679,8 @@ class AuthorityPackService:
                     f"authorities failed ({exc}). Re-run the install (it is "
                     "idempotent) or relink from the Enrichment runner."
                 )
-        return AuthorityPackInstallResult(
-            pack=plan,
-            taxonomy_summary=taxonomy_summary,
-            corpus_summaries=tuple(corpus_summaries),
-            relationship_summary=relationship_summary,
+        return replace(
+            installed,
             relink_summary=relink_summary,
             post_commit_warnings=tuple(warnings),
         )
@@ -542,7 +704,7 @@ class AuthorityPackService:
             raise CommandError(DENIED)
         matches = [
             path.resolve()
-            for path in authority_pack_dirs()
+            for path in authority_pack_dirs(for_catalog=True)
             if cls._best_effort_pack_id(path.resolve()) == pack_id
         ]
         if len(matches) != 1:
@@ -657,7 +819,9 @@ class AuthorityPackService:
         return "mixed"
 
     @classmethod
-    def _fingerprint(cls, manifest: dict, pack_dir: Path) -> str:
+    def _fingerprint(
+        cls, manifest: dict, pack_dir: Path, *, include_resources: bool = True
+    ) -> str:
         files = [pack_dir / "pack.yaml"]
         for key in ("mappings", "relationships", "metadata_schema", "sources"):
             if manifest.get(key):
@@ -676,6 +840,14 @@ class AuthorityPackService:
                             label=f"corpora[{index}] {key!r}",
                         )
                     )
+        from opencontractserver.enrichment.services.authority_pack_artifacts import (
+            artifact_files,
+        )
+
+        # Executable provider helpers and resources are part of the reviewed
+        # version too, while loading them remains a separate registry decision.
+        if include_resources:
+            files.extend(artifact_files(pack_dir))
         return cls._hash_files(pack_dir, files)
 
     @classmethod
@@ -683,7 +855,9 @@ class AuthorityPackService:
         """Fingerprint trusted declarative pack inputs without installing them."""
 
         pack_dir = Path(pack_dir).resolve()
-        return cls._fingerprint(cls._read_manifest(pack_dir), pack_dir)
+        return cls._fingerprint(
+            cls._read_manifest(pack_dir), pack_dir, include_resources=False
+        )
 
     @staticmethod
     def _hash_files(pack_dir: Path, files: list[Path]) -> str:

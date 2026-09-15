@@ -30,6 +30,9 @@ from pathlib import Path
 import yaml
 
 from opencontractserver.constants.safe_http import PUBLIC_DOMAIN_SOURCE_HOSTS
+from opencontractserver.enrichment.services.authority_pack_artifacts import (
+    versioned_pack_cache,
+)
 from opencontractserver.pipeline.registry import authority_pack_dirs
 
 logger = logging.getLogger(__name__)
@@ -102,7 +105,7 @@ def source_hosts_for_pack_component(component_class: type) -> tuple[str, ...]:
     return ()
 
 
-@lru_cache(maxsize=1)
+@versioned_pack_cache
 def pack_declared_source_hosts() -> frozenset[str]:
     """Union of every installed pack's ``pack.yaml`` ``source_hosts`` (validated).
 

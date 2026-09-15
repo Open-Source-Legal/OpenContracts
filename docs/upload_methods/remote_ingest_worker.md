@@ -65,10 +65,11 @@ is a resumable, per-document CLI:
 
 Discovery streams in filesystem order; ledger reads use bounded keyset pages,
 and submitted unfinished work is capped at twice `--max-workers`. The worker
-paces itself against outstanding uploads visible to its exact worker token.
+paces itself against outstanding uploads for its worker account and corpus,
+including receipts submitted before token rotation.
 Unavailable status pauses admission; permanent HTTP errors stop the run. See the
 [admission policy](../../scripts/remote_ingest/README.md#admission) for watermarks,
-retry/cancellation behavior and token-scope limits. Re-running `run` skips
+retry/cancellation behavior and receipt-scope limits. Re-running `run` skips
 uploaded documents and retries unfinished work. Ctrl-C cancels queued work and
 drains already-started calls; use one invocation per ledger at a time. See
 [bounded traversal and resume](../../scripts/remote_ingest/README.md#bounded-traversal-and-resume)
@@ -175,13 +176,19 @@ The expected vector dimension is `OC_EMBEDDING_DIMENSION` / `--embedding-dimensi
 (default 384). Partial or invalid embedding responses fail before checkpointing
 or upload. Only `--no-embeddings` requests server annotation fallback.
 
-Replanning changed, unaccepted bytes resets retry exhaustion and stale receipts.
-Changes after `UPLOADED`/`COMPLETED`, or an uncertain POST, produce `CONFLICT` and
-retain the old receipt. Lost responses, 5xx and unusable receipts produce
-`AMBIGUOUS`; these rows are never automatically replayed. An operator must
-reconcile acceptance/replacement with the server. Checkpoints provide local
-recovery, not upload idempotency. Receipt access still requires the exact token
-that created the receipt, even after rotating tokens for the same corpus.
+Replanning changed, unaccepted bytes resets preparation retry exhaustion.
+Changes after submission produce `CONFLICT` and retain the original receipt or
+client key. Before uploading, the CLI persists an idempotency key and payload
+digest. Lost responses become `AMBIGUOUS`; `run` resolves the key with the server
+before replaying the same payload. Lookup unavailability never proves rejection.
+`verify` can recover a receipt without submitting anything.
+
+Identical keyed submissions share one receipt. Failed server processing can be
+retried at most three times using the retained source and metadata, without
+repeating local preparation; once the attempts are exhausted the server deletes
+the retained source. Receipt lookup and retry work with replacement
+tokens for the same worker account and corpus. Legacy ambiguous rows without a
+key require manual reconciliation; requests without keys retain legacy behavior.
 
 Existing ledgers migrate in place; legacy rows start uncached. `worker cleanup`
 removes unreferenced artifacts older than 24 hours using bounded traversal and

@@ -139,6 +139,9 @@ class CheckpointTests(SimpleTestCase):
         self.embed_hook = lambda: None
         self.upload_hook = lambda: None
         self.upload_error = None
+        self.lookup_result: dict | Exception | None = cli.StatusPollError(
+            "Lookup unavailable"
+        )
 
     def plan(self):
         self.ledger.upsert_doc(
@@ -176,7 +179,10 @@ class CheckpointTests(SimpleTestCase):
             self.counts["embed"] += 1
             return Mock(json=lambda: {"embeddings": [vector]})
 
-        def upload_post(url, *, files, data, **kwargs):
+        def upload_post(url, *, files=None, data=None, **kwargs):
+            if url.endswith("/retry/"):
+                self.counts["retry"] += 1
+                return Mock(status_code=202, json=lambda: {"upload_id": "receipt-1"})
             self.counts["upload"] += 1
             self.payloads.append(
                 (files["file"][1].read(), json.loads(data["metadata"]))
@@ -186,6 +192,11 @@ class CheckpointTests(SimpleTestCase):
                 raise self.upload_error
             return Mock(status_code=202, json=lambda: {"upload_id": "receipt-1"})
 
+        def lookup(key):
+            if isinstance(self.lookup_result, Exception):
+                raise self.lookup_result
+            return self.lookup_result
+
         with (
             patch.object(cli, "_Parser", return_value=self.parser),
             patch("enrichers.load_enrichers", return_value=self.enrichers),
@@ -193,12 +204,21 @@ class CheckpointTests(SimpleTestCase):
             patch.object(cli, "TargetClient", return_value=client),
             patch.object(embedder.session, "post", side_effect=embed_post),
             patch.object(client.session, "post", side_effect=upload_post),
+            patch.object(
+                client,
+                "lookup_upload",
+                side_effect=lookup,
+            ),
             patch.object(cli, "_print_status"),
         ):
             return cli.cmd_run(self.cfg)
 
-    def retry_server_failure(self):
-        self.ledger.mark_failed("folder/source.txt", "server: rolled back", 100)
+    def start_independent_preparation_trial(self):
+        # These tests inspect cache invalidation across independent preparation
+        # trials. Discard the fixture receipt so server retry does not bypass it.
+        self.ledger._conn().execute(
+            "UPDATE docs SET status='PENDING', upload_id=NULL, client_key=NULL, upload_digest=NULL"
+        )
 
     def assert_payload(self):
         source, payload = self.payloads[-1]
@@ -262,7 +282,7 @@ class CheckpointTests(SimpleTestCase):
                 self.assert_payload()
                 self.assertEqual(self.payloads[-1], uninterrupted)
                 first = deepcopy(self.payloads[-1])
-                self.retry_server_failure()
+                self.start_independent_preparation_trial()
                 self.assertEqual(self.run_worker(), 0)
                 self.assertEqual(first, self.payloads[-1])
                 self.assertEqual([self.counts[s] for s in cp.STAGES], [1, 1, 1])
@@ -294,7 +314,7 @@ class CheckpointTests(SimpleTestCase):
             ),
             (lambda: self.parser.settings.update(model="parser-v2"), [2, 3, 5]),
         ]:
-            self.retry_server_failure()
+            self.start_independent_preparation_trial()
             change()
             self.assertEqual(self.run_worker(), 0)
             self.assertEqual([self.counts[s] for s in cp.STAGES], expected)
@@ -313,7 +333,7 @@ class CheckpointTests(SimpleTestCase):
 
         self.enrichers.append(("fixture:other", other))
         self.assertEqual(self.run_worker(), 0)
-        self.retry_server_failure()
+        self.start_independent_preparation_trial()
         self.enrichers.reverse()
         self.assertEqual(self.run_worker(), 0)
         self.assertEqual([self.counts[s] for s in cp.STAGES], [1, 2, 2])
@@ -323,7 +343,7 @@ class CheckpointTests(SimpleTestCase):
             for damage in ("missing", "truncated", "modified", "key"):
                 with self.subTest(stage=stage, damage=damage):
                     if self.row()["status"] == cli.UPLOADED:
-                        self.retry_server_failure()
+                        self.start_independent_preparation_trial()
                     self.assertEqual(self.run_worker(), 0)
                     before = self.counts.copy()
                     cache = self.cache()
@@ -338,7 +358,7 @@ class CheckpointTests(SimpleTestCase):
                     else:
                         cache.manifest["stages"][stage]["key"] = "0" * 64
                         cache._publish()
-                    self.retry_server_failure()
+                    self.start_independent_preparation_trial()
                     self.assertEqual(self.run_worker(), 0)
                     for name in cp.STAGES:
                         self.assertEqual(
@@ -363,8 +383,10 @@ class CheckpointTests(SimpleTestCase):
         self.assertEqual(self.counts["enrich"], 0)
         self.assertEqual(self.counts["embed"], 0)
 
-    def test_changed_source_resets_retries_and_stale_receipts(self):
-        self.assertEqual(self.run_worker(), 0)
+    def test_changed_unaccepted_source_resets_preparation_retries(self):
+        self.upload_error = cli.PermanentUploadError("HTTP 400")
+        self.assertEqual(self.run_worker(), 1)
+        self.upload_error = None
         self.ledger.mark_failed("folder/source.txt", "server failed", 1)
         self.assertEqual(self.row()["status"], cli.PARKED)
         self.source.write_text("Changed source")
@@ -433,7 +455,7 @@ class CheckpointTests(SimpleTestCase):
 
         # Change the path after a cache hit, before POST. The read snapshot still wins.
         self.source.write_text("Hello checkpoint")
-        self.retry_server_failure()
+        self.start_independent_preparation_trial()
         before = self.counts.copy()
         stage = cp.Checkpoints.stage
 
@@ -460,11 +482,129 @@ class CheckpointTests(SimpleTestCase):
         self.assertEqual(self.counts["upload"], 1)
         self.assertEqual(set(self.cache().manifest["stages"]), set(cp.STAGES))
         with patch.object(cli, "_print_status"), patch.object(cli, "TargetClient"):
-            self.assertEqual(cli.cmd_verify(self.cfg), cli.VERIFY_FAILED)
+            self.assertEqual(cli.cmd_verify(self.cfg), cli.VERIFY_UNAVAILABLE)
+
+    def test_lost_response_is_recovered_on_restart_without_repeating_successful_preparation(
+        self,
+    ):
+        self.upload_error = requests.ReadTimeout("response lost")
+        self.assertEqual(self.run_worker(), 1)
+        original = dict(self.row())
+        self.assertTrue(original["client_key"])
+        self.assertEqual(len(original["upload_digest"]), 64)
+        self.lookup_result = {
+            "upload_id": "receipt-1",
+            "status": "COMPLETED",
+            "payload_digest": original["upload_digest"],
+        }
+        self.source.unlink()  # Reconciliation does not need local preparation.
+        self.assertEqual(self.run_worker(), 0)
+        self.assertEqual(self.row()["status"], cli.COMPLETED)
+        self.assertEqual(self.row()["client_key"], original["client_key"])
+        self.assertEqual([self.counts[s] for s in (*cp.STAGES, "upload")], [1, 1, 1, 1])
+
+    def test_explicit_lookup_absence_reuses_key_and_cached_preparation_after_crash_before_post(
+        self,
+    ):
+        mark = cli.Ledger.mark_upload_started
+
+        def crash(ledger, rel, *args):
+            mark(ledger, rel, *args)
+            raise RuntimeError("crash before POST")
+
+        with patch.object(cli.Ledger, "mark_upload_started", crash):
+            self.assertEqual(self.run_worker(), 1)
+        original_key = self.row()["client_key"]
+        self.lookup_result = None
+        self.assertEqual(self.run_worker(), 0)
+        self.assertEqual(self.row()["client_key"], original_key)
+        self.assertEqual([self.counts[s] for s in (*cp.STAGES, "upload")], [1, 1, 1, 1])
+
+    def test_server_failure_retries_original_receipt_without_local_source_or_preparation(
+        self,
+    ):
+        self.assertEqual(self.run_worker(), 0)
+        self.ledger.mark_failed("folder/source.txt", "server rolled back", 5)
+        self.source.unlink()
+        self.assertEqual(self.run_worker(), 0)
+        self.assertEqual(self.counts["retry"], 1)
+        self.assertEqual(self.row()["upload_id"], "receipt-1")
+        self.assertEqual([self.counts[s] for s in (*cp.STAGES, "upload")], [1, 1, 1, 1])
+
+    def test_rejected_replay_cannot_discard_identity_of_an_earlier_in_flight_post(self):
+        self.upload_error = requests.ReadTimeout("original POST still in flight")
+        self.assertEqual(self.run_worker(), 1)
+        original = dict(self.row())
+        self.lookup_result = None
+        self.upload_error = cli.PermanentUploadError("HTTP 401 on replay")
+        self.assertEqual(self.run_worker(), 1)
+        self.assertEqual(self.row()["status"], cli.AMBIGUOUS)
+        for field in ("client_key", "upload_digest"):
+            self.assertEqual(self.row()[field], original[field])
+
+        # The original transaction commits after the replay's rejection.
+        self.lookup_result = {
+            "upload_id": "receipt-1",
+            "status": "COMPLETED",
+            "payload_digest": original["upload_digest"],
+        }
+        self.source.unlink()
+        self.assertEqual(self.run_worker(), 0)
+        self.assertEqual(self.row()["status"], cli.COMPLETED)
+        self.assertEqual([self.counts[s] for s in (*cp.STAGES, "upload")], [1, 1, 1, 2])
+
+    def test_lookup_payload_mismatch_keeps_receipt_ambiguous_and_never_reposts(self):
+        self.upload_error = requests.ReadTimeout("response lost")
+        self.assertEqual(self.run_worker(), 1)
+        self.lookup_result = {
+            "upload_id": "other",
+            "status": "COMPLETED",
+            "payload_digest": "wrong",
+        }
+        self.assertEqual(self.run_worker(), 1)
+        self.assertEqual(self.row()["status"], cli.AMBIGUOUS)
+        self.assertEqual(self.counts["upload"], 1)
+
+    def test_lost_response_followed_by_failed_processing_recovers_and_retries_the_receipt(
+        self,
+    ):
+        self.upload_error = requests.ReadTimeout("response lost")
+        self.assertEqual(self.run_worker(), 1)
+        self.lookup_result = {
+            "upload_id": "receipt-1",
+            "status": "FAILED",
+            "error_message": "temporary dependency",
+            "payload_digest": self.row()["upload_digest"],
+        }
+        self.source.unlink()
+        self.assertEqual(self.run_worker(), 0)
+        self.assertEqual(self.row()["status"], cli.UPLOADED)
+        self.assertEqual(self.row()["upload_id"], "receipt-1")
+        self.assertEqual(self.counts["retry"], 1)
+        self.assertEqual([self.counts[s] for s in (*cp.STAGES, "upload")], [1, 1, 1, 1])
+
+    def test_lookup_404_is_unavailable_not_proof_that_submission_was_rejected(self):
+        client = cli.TargetClient(self.cfg)
+        with patch.object(client.session, "get", return_value=Mock(status_code=404)):
+            with self.assertRaises(cli.StatusPollError):
+                client.lookup_upload("durable-key")
+
+    def test_changed_source_stays_conflicted_after_lookup_absence_while_old_post_might_be_in_flight(
+        self,
+    ):
+        self.upload_error = requests.ReadTimeout("response lost")
+        self.assertEqual(self.run_worker(), 1)
+        original_key = self.row()["client_key"]
+        self.lookup_result = None
+        self.source.write_text("New bytes while original request could still commit")
+        self.assertEqual(self.run_worker(), 1)
+        self.assertEqual(self.row()["status"], cli.CONFLICT)
+        self.assertEqual(self.row()["client_key"], original_key)
+        self.assertEqual(self.counts["upload"], 1)
 
     def test_missing_source_is_retryable_and_never_uploads_cached_payload(self):
         self.assertEqual(self.run_worker(), 0)
-        self.retry_server_failure()
+        self.start_independent_preparation_trial()
         self.source.unlink()
         self.assertEqual(self.run_worker(), 1)
         self.assertEqual(self.row()["status"], cli.FAILED)
@@ -479,8 +619,8 @@ class CheckpointTests(SimpleTestCase):
     def test_crash_after_upload_intent_before_post_is_conservatively_ambiguous(self):
         mark = cli.Ledger.mark_upload_started
 
-        def crash(ledger, rel):
-            mark(ledger, rel)
+        def crash(ledger, rel, *args):
+            mark(ledger, rel, *args)
             raise RuntimeError("process stopped before HTTP")
 
         with patch.object(cli.Ledger, "mark_upload_started", crash):
@@ -507,7 +647,7 @@ class CheckpointTests(SimpleTestCase):
             (cache.path / (entry["digest"] + ".json")).write_bytes(data)
             cache._publish()
             before = self.counts.copy()
-            self.retry_server_failure()
+            self.start_independent_preparation_trial()
             self.assertEqual(self.run_worker(), 0)
             for name in cp.STAGES:
                 self.assertEqual(

@@ -59,7 +59,6 @@ from opencontractserver.corpuses.management.commands.install_authority_pack impo
     _download_tarball,
     _tarball_url,
     _top_prefix,
-    materialise_pack,
 )
 from opencontractserver.enrichment.data.mappings import is_valid_canonical_key
 
@@ -245,7 +244,7 @@ class Command(BaseCommand):
                 # Same reasoning as the `name` check above, and the same class
                 # of bug: this value becomes a path component, and one of its
                 # uses is an rmtree. Validated here as well as in
-                # `materialise_pack` so the refusal names the manifest field.
+                # the installer so the refusal names the manifest field.
                 if not PACK_NAME_RE.match(name_):
                     raise CommandError(
                         f"requires[].pack {name_!r} must be a plain slug — it is "
@@ -265,10 +264,9 @@ class Command(BaseCommand):
                     f"C1: required base pack(s) not in registry: {', '.join(missing)}"
                 )
 
-            # Where each pack's files live. Rebound to the install dir once the
-            # packs are materialised, because materialising MOVES them out of the
-            # extraction tree and every later read would otherwise hit a path
-            # that no longer exists.
+            # Where each pack's files live for validation and domain wiring.
+            # Durable activation no longer depends on these files surviving
+            # after the temporary extraction directory is cleaned up.
             pack_dirs = {name: staged / name for name in required}
 
             self.stdout.write(f"\nDomain: {manifest.get('title') or domain}")
@@ -305,18 +303,14 @@ class Command(BaseCommand):
 
             # --- base packs first ---------------------------------------- #
             #
-            # Each is MATERIALISED into the install dir and then loaded from
-            # there, exactly as `install_authority_pack` does — never loaded
-            # straight from the extraction temp dir. The database gets the
-            # sections and the taxonomy either way, but the pack's source_hosts,
-            # shape_rules, abbreviations and in-pack providers are read from the
-            # directory at runtime, and the temp dir is gone by then. Loading a
-            # pack is not installing it.
+            # Each pack persists its own trusted snapshot and activates it with
+            # its database content. The extraction directory stays private to
+            # this install and can disappear when the command finishes.
             for position, pack_name in enumerate(required, start=1):
                 self.stdout.write(f"\n--- base pack: {pack_name}")
                 dest = None
                 try:
-                    dest = materialise_pack(staged / pack_name, pack_name, self.stdout)
+                    dest = staged / pack_name
                     pack_dirs[pack_name] = dest
                     call_command(
                         "load_authority_pack",
@@ -332,13 +326,8 @@ class Command(BaseCommand):
                     # to tell a partial install from a no-op, and the install is
                     # idempotent (C6) so a re-run recovers.
                     #
-                    # This pack's own directory is removed rather than left
-                    # materialised: pipeline discovery unions `source_hosts`
-                    # from every directory it finds in the install root into
-                    # the SSRF allowlist regardless of DB-load state, so a pack
-                    # that materialised but never loaded would otherwise leave
-                    # its hosts live in the trust boundary until the next
-                    # re-run overwrites it.
+                    # Remove only this attempt's temporary extraction. A prior
+                    # active artifact remains available through shared storage.
                     if dest is not None:
                         shutil.rmtree(dest, ignore_errors=True)
                     done = ", ".join(required[: position - 1]) or "none"
@@ -354,9 +343,8 @@ class Command(BaseCommand):
 
             self.stdout.write(
                 self.style.WARNING(
-                    "\nRestart web/worker processes to pick up the base packs' "
-                    "grammar-tier taxonomy extensions and in-pack providers "
-                    "(pack config is cached per process)."
+                    "\nBase pack artifacts are active; web and worker processes "
+                    "refresh automatically."
                 )
             )
 
@@ -472,6 +460,7 @@ class Command(BaseCommand):
                     path=str(pack_dir),
                     creator=options["creator"],
                     check=True,
+                    public=options["public"],
                     stdout=sink,
                 )
             except CommandError as exc:

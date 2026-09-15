@@ -38,12 +38,14 @@ from __future__ import annotations
 
 import logging
 import re
-from functools import lru_cache
 from pathlib import Path
 
 import yaml
 
 from opencontractserver.enrichment.constants import ALL_AUTHORITY_TYPES
+from opencontractserver.enrichment.services.authority_pack_artifacts import (
+    versioned_pack_cache,
+)
 from opencontractserver.pipeline.registry import authority_pack_dirs
 
 logger = logging.getLogger(__name__)
@@ -214,7 +216,7 @@ def validate_pack_taxonomy_extensions(mappings_path: Path) -> None:
     iter_abbreviations(data, label=str(mappings_path))
 
 
-@lru_cache(maxsize=1)
+@versioned_pack_cache
 def pack_declared_shape_rules() -> tuple[ShapeRule, ...]:
     """Compiled shape rules contributed by every installed pack (cached)."""
     rules: list[ShapeRule] = []
@@ -239,7 +241,7 @@ def pack_declared_shape_rules() -> tuple[ShapeRule, ...]:
     return tuple(rules)
 
 
-@lru_cache(maxsize=1)
+@versioned_pack_cache
 def pack_declared_abbreviations() -> (
     tuple[dict[str, AbbrevEntry], dict[str, AbbrevEntry]]
 ):

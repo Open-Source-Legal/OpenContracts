@@ -5,6 +5,8 @@ from opencontractserver.worker_uploads.views import (
     WorkerAuthoritySectionBatchStatusView,
     WorkerAuthoritySectionBatchView,
     WorkerDocumentUploadListView,
+    WorkerDocumentUploadLookupView,
+    WorkerDocumentUploadRetryView,
     WorkerDocumentUploadStatusView,
     WorkerDocumentUploadView,
 )
@@ -15,6 +17,16 @@ app_name = "worker_uploads"
 # because Django resolves URLs top-down and would otherwise try to parse
 # the literal string "list" as a UUID.
 urlpatterns = [
+    path(
+        "documents/by-key/<str:client_key>/",
+        WorkerDocumentUploadLookupView.as_view(),
+        name="lookup",
+    ),
+    path(
+        "documents/<uuid:upload_id>/retry/",
+        WorkerDocumentUploadRetryView.as_view(),
+        name="retry",
+    ),
     path(
         "documents/",
         WorkerDocumentUploadView.as_view(),

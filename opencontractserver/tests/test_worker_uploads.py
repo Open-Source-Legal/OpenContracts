@@ -14,7 +14,7 @@ Covers:
 import json
 from datetime import timedelta
 from io import BytesIO
-from unittest.mock import patch
+from unittest.mock import PropertyMock, patch
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -397,14 +397,15 @@ class TestWorkerUploadEndpoint(TestCase):
     )
     def test_upload_stages_document(self, mock_task):
         metadata = _make_metadata()
-        response = self.client.post(
-            "/api/worker-uploads/documents/",
-            {
-                "file": _make_fake_pdf_upload(),
-                "metadata": json.dumps(metadata),
-            },
-            format="multipart",
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                "/api/worker-uploads/documents/",
+                {
+                    "file": _make_fake_pdf_upload(),
+                    "metadata": json.dumps(metadata),
+                },
+                format="multipart",
+            )
         self.assertEqual(response.status_code, 202)
         data = response.json()
         self.assertEqual(data["status"], "PENDING")
@@ -416,7 +417,7 @@ class TestWorkerUploadEndpoint(TestCase):
         self.assertEqual(upload.status, UploadStatus.PENDING)
         self.assertEqual(upload.metadata["title"], "Test Document")
 
-        # Verify the task nudge was sent
+        # Verify the task nudge was sent after commit.
         mock_task.assert_called_once()
 
     @patch(
@@ -822,6 +823,41 @@ class TestBatchProcessor(TestCase):
         self.assertIsNotNone(upload.result_document)
         self.assertIsNotNone(upload.processing_finished)
 
+        corpus_doc = upload.result_document
+        source = corpus_doc.source_document
+        self.assertEqual(corpus_doc.processing_status, "completed")
+        self.assertEqual(source.processing_status, corpus_doc.processing_status)
+        self.assertEqual(source.processing_finished, corpus_doc.processing_finished)
+        self.assertIsNotNone(corpus_doc.processing_finished)
+
+    def test_unavailable_embedding_provenance_does_not_fail_the_upload_receipt(self):
+        from opencontractserver.documents.models import PipelineSettings
+        from opencontractserver.documents.readiness import assess_document
+        from opencontractserver.worker_uploads.tasks import process_pending_uploads
+
+        path = "opencontractserver.pipeline.embedders.test_embedder.TestEmbedder"
+        pipeline = PipelineSettings.get_instance(use_cache=False)
+        pipeline.default_embedder = path
+        pipeline.enabled_components = ["another.component"]
+        pipeline.save()
+        upload = self._create_staged_upload(
+            embeddings={
+                "embedder_path": path,
+                "model_identity": "deployed-v2",
+                "document_embedding": [0.1] * 384,
+            }
+        )
+        with override_settings(EMBEDDING_MODEL_REVISIONS={path: "deployed-v2"}):
+            result = process_pending_uploads.apply().get()
+            upload.refresh_from_db()
+            self.assertEqual(result["succeeded"], 1)
+            self.assertEqual(upload.status, UploadStatus.COMPLETED)
+            embedding = Embedding.objects.get(document=upload.result_document)
+            self.assertEqual(embedding.configuration, "")
+            readiness = assess_document(upload.result_document, self.corpus)
+            self.assertEqual(readiness["state"], "unavailable")
+            self.assertIn("embedder_unavailable", readiness["reasons"])
+
     def test_created_document_owned_by_corpus_creator(self):
         """Documents created by worker uploads are owned by the corpus creator."""
         from opencontractserver.worker_uploads.tasks import process_pending_uploads
@@ -866,26 +902,12 @@ class TestBatchProcessor(TestCase):
         """Processing fails gracefully when corpus.creator is None."""
         from opencontractserver.worker_uploads.tasks import process_pending_uploads
 
-        # Force creator to None in the DB (bypassing NOT NULL for test purposes).
-        # Corpus.creator has null=False, but we test the defensive guard in
-        # _process_single_upload in case schema changes in the future.
         upload = self._create_staged_upload()
-
-        # Fetch the real upload BEFORE mocking select_related
-        real_upload = WorkerDocumentUpload.objects.select_related(
-            "corpus",
-            "corpus__creator",
-            "corpus_access_token",
-            "corpus_access_token__worker_account",
-        ).get(id=upload.id)
-        real_upload.corpus.creator = None
-
-        with patch(
-            "opencontractserver.worker_uploads.tasks.WorkerDocumentUpload"
-            ".objects.select_related"
-        ) as mock_qs:
-            mock_qs.return_value.get.return_value = real_upload
-
+        # The schema forbids NULL; substitute only the relation to exercise
+        # the defensive guard while retaining real receipt claims and writes.
+        with patch.object(
+            Corpus, "creator", new_callable=PropertyMock, return_value=None
+        ):
             result = process_pending_uploads.apply().get()
 
         self.assertEqual(result["failed"], 1)
@@ -1035,21 +1057,8 @@ class TestBatchProcessor(TestCase):
 
         upload = self._create_staged_upload()
 
-        real_upload = WorkerDocumentUpload.objects.select_related(
-            "corpus",
-            "corpus__creator",
-            "corpus_access_token",
-            "corpus_access_token__worker_account",
-        ).get(id=upload.id)
-        real_upload.corpus.creator.is_active = False
-
-        with patch(
-            "opencontractserver.worker_uploads.tasks.WorkerDocumentUpload"
-            ".objects.select_related"
-        ) as mock_qs:
-            mock_qs.return_value.get.return_value = real_upload
-
-            result = process_pending_uploads.apply().get()
+        User.objects.filter(pk=self.admin.pk).update(is_active=False)
+        result = process_pending_uploads.apply().get()
 
         self.assertEqual(result["failed"], 1)
         upload.refresh_from_db()
@@ -1783,7 +1792,7 @@ class TestWorkerUploadFidelity(TestCase):
         # real PDF + thumbnailer that the fake test PDF can't satisfy).
         with patch(
             "opencontractserver.tasks.doc_tasks.extract_thumbnail.apply_async"
-        ) as mock_thumb:
+        ) as mock_thumb, self.captureOnCommitCallbacks(execute=True):
             process_pending_uploads.apply().get()
         upload.refresh_from_db()
         return upload, mock_thumb

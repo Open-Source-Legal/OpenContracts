@@ -146,9 +146,17 @@ class Ledger:
                 PRAGMA synchronous=FULL;
                 """)
             columns = {r["name"] for r in conn.execute("PRAGMA table_info(docs)")}
-            for name in ("prior_status", "conflict_sha256"):
+            for name in (
+                "prior_status",
+                "conflict_sha256",
+                "client_key",
+                "upload_digest",
+            ):
                 if name not in columns:
                     conn.execute(f"ALTER TABLE docs ADD COLUMN {name} TEXT")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_docs_ambiguous_path ON docs(rel_path) WHERE status='AMBIGUOUS'"
+            )
 
     def _conn(self) -> sqlite3.Connection:
         # One connection per thread (sqlite connections are not thread-safe).
@@ -201,7 +209,17 @@ class Ledger:
                 "conflict_sha256=NULL WHERE rel_path=?",
                 (abs_path, size, rel_path),
             )
-        elif row["status"] in (UPLOADED, COMPLETED, AMBIGUOUS, CONFLICT):
+        elif (
+            row["upload_id"]
+            or row["upload_digest"]
+            or row["status"]
+            in (
+                UPLOADED,
+                COMPLETED,
+                AMBIGUOUS,
+                CONFLICT,
+            )
+        ):
             self._conn().execute(
                 "UPDATE docs SET prior_status=COALESCE(prior_status, status), "
                 "status='CONFLICT', conflict_sha256=?, abs_path=? WHERE rel_path=?",
@@ -217,7 +235,7 @@ class Ledger:
                 "UPDATE docs SET abs_path=?, size=?, sha256=?, status='PENDING', "
                 "upload_id=NULL, attempts=0, page_count=NULL, last_error=NULL, "
                 "uploaded_at=NULL, completed_at=NULL, prior_status=NULL, "
-                "conflict_sha256=NULL WHERE rel_path=?",
+                "conflict_sha256=NULL, client_key=NULL, upload_digest=NULL WHERE rel_path=?",
                 (abs_path, size, sha256, rel_path),
             )
         return False
@@ -229,18 +247,46 @@ class Ledger:
             .fetchone()
         )
 
-    def mark_upload_started(self, rel_path: str) -> None:
+    def mark_upload_started(
+        self,
+        rel_path: str,
+        payload_digest: str | None = None,
+        page_count: int | None = None,
+    ) -> str | None:
+        from uuid import uuid4
+
+        row = self.get_doc(rel_path)
+        if row["upload_digest"] and row["upload_digest"] != payload_digest:
+            self._conn().execute(
+                "UPDATE docs SET status='CONFLICT', "
+                "last_error='Prepared payload changed after submission' WHERE rel_path=?",
+                (rel_path,),
+            )
+            raise ValueError(
+                "Prepared payload changed after submission; resolve the existing receipt"
+            )
+        client_key = (row["client_key"] or str(uuid4())) if payload_digest else None
         self._conn().execute(
             "UPDATE docs SET status='AMBIGUOUS', upload_id=NULL, "
-            "uploaded_at=NULL, completed_at=NULL, "
+            "uploaded_at=NULL, completed_at=NULL, client_key=?, upload_digest=?, "
+            "page_count=COALESCE(?, page_count), "
             "last_error='Upload started; outcome unknown. Reconcile with the server before replay.' "
             "WHERE rel_path=?",
-            (rel_path,),
+            (client_key, payload_digest, page_count, rel_path),
         )
+        return client_key
 
     def mark_rejected(self, rel_path: str) -> None:
         self._conn().execute(
-            "UPDATE docs SET status='FAILED' WHERE rel_path=? AND status='AMBIGUOUS'",
+            "UPDATE docs SET status='FAILED', client_key=NULL, upload_digest=NULL "
+            "WHERE rel_path=? AND status='AMBIGUOUS'",
+            (rel_path,),
+        )
+
+    def mark_absent(self, rel_path: str) -> None:
+        self._conn().execute(
+            "UPDATE docs SET status='PENDING', last_error=NULL "
+            "WHERE rel_path=? AND status='AMBIGUOUS'",
             (rel_path,),
         )
 
@@ -290,6 +336,13 @@ class Ledger:
 
     def claimable_count(self) -> int:
         return self._count(_CLAIMABLE_WHERE)
+
+    def ambiguous(
+        self, page_size: int = DEFAULT_LEDGER_PAGE_SIZE
+    ) -> Generator[sqlite3.Row]:
+        where = "status='AMBIGUOUS' AND client_key IS NOT NULL"
+        if self._count(where):
+            yield from self._iter_rows(where, "idx_docs_ambiguous_path", page_size)
 
     def claimable(
         self, page_size: int = DEFAULT_LEDGER_PAGE_SIZE
@@ -387,6 +440,7 @@ class Config:
     embedding_dimension: int = 384
     parser_identity: str | None = None
     json_output: bool = False
+    readiness: bool = False
 
 
 class TargetClient:
@@ -406,7 +460,14 @@ class TargetClient:
             _HTTP_MAX_BACKOFF_SECONDS,
         ) * random.uniform(_JITTER_MIN, 1.0)
 
-    def upload(self, source_bytes: bytes, metadata: dict, *, filename: str) -> str:
+    def upload(
+        self,
+        source_bytes: bytes,
+        metadata: dict,
+        *,
+        filename: str,
+        idempotency_key: str | None = None,
+    ) -> str:
         """Send the immutable preparation snapshot; never replay an uncertain POST.
 
         Only explicit 429 rejections are retried. A transport error, 5xx, redirect
@@ -421,6 +482,11 @@ class TargetClient:
                         url,
                         files={"file": (filename, fh, metadata["file_type"])},
                         data={"metadata": meta_json},
+                        headers=(
+                            {"Idempotency-Key": idempotency_key}
+                            if idempotency_key
+                            else {}
+                        ),
                         timeout=_HTTP_UPLOAD_TIMEOUT_SECONDS,
                         verify=self._verify,
                         allow_redirects=False,
@@ -453,6 +519,10 @@ class TargetClient:
                         delay = self._backoff(attempt)
                     time.sleep(min(delay, _HTTP_MAX_RETRY_AFTER_SECONDS))
                 continue
+            if resp.status_code == 409:
+                raise AmbiguousUploadError(
+                    "Idempotency conflict; reconcile the existing key before changing the payload"
+                )
             if 400 <= resp.status_code < 500:
                 raise PermanentUploadError(f"Upload rejected: HTTP {resp.status_code}")
             raise AmbiguousUploadError(
@@ -533,8 +603,69 @@ class TargetClient:
             raise StatusPollError("Invalid status response: receipt identity or state")
         return body
 
+    def lookup_upload(self, client_key: str) -> dict | None:
+        from urllib.parse import quote
+
+        body = self._status_json(
+            f"{self.base}/api/worker-uploads/documents/by-key/{quote(client_key, safe='')}/",
+            _HTTP_STATUS_TIMEOUT_SECONDS,
+        )
+        if (
+            body.get("schema_version") != 1
+            or body.get("client_key") != client_key
+            or type(body.get("found")) is not bool
+        ):
+            raise StatusPollError("Invalid upload lookup response")
+        if not body["found"]:
+            return None  # Only this explicit, authenticated envelope proves absence.
+        if (
+            not isinstance(body.get("upload_id"), str)
+            or not body["upload_id"]
+            or body.get("status") not in (PENDING, "PROCESSING", COMPLETED, FAILED)
+        ):
+            raise StatusPollError("Invalid upload lookup receipt")
+        return body
+
+    def retry_upload(self, upload_id: str) -> str:
+        try:
+            response = self.session.post(
+                f"{self.base}/api/worker-uploads/documents/{upload_id}/retry/",
+                timeout=_HTTP_STATUS_TIMEOUT_SECONDS,
+                verify=self._verify,
+                allow_redirects=False,
+            )
+            if response.status_code != 202:
+                raise StatusPollError(
+                    f"Receipt retry unavailable (HTTP {response.status_code})"
+                )
+            body = response.json()
+        except (requests.RequestException, ValueError):
+            raise StatusPollError(
+                "Receipt retry response unavailable; retained original receipt"
+            ) from None
+        if not isinstance(body, dict) or body.get("upload_id") != upload_id:
+            raise StatusPollError("Invalid retry receipt")
+        return upload_id
+
+    def readiness_status(self, upload_id: str) -> dict:
+        body = self._status_json(
+            f"{self.base}/api/readiness/worker/{upload_id}/",
+            _HTTP_STATUS_TIMEOUT_SECONDS,
+        )
+        if (
+            body.get("schema_version") != 1
+            or body.get("upload_id") != upload_id
+            or body.get("state")
+            not in ("ready", "outstanding", "failed", "unavailable")
+            or (body.get("state") == "ready" and not body.get("generation"))
+        ):
+            raise StatusPollError(
+                "Invalid readiness response: identity, generation or state"
+            )
+        return body
+
     def backlog_count(self) -> int:
-        """Complete token-scoped PENDING + PROCESSING count, or StatusPollError.
+        """Worker/corpus PENDING + PROCESSING count, or StatusPollError.
 
         The two requests are not an atomic snapshot or a server-wide queue metric.
         Neither a partial aggregate nor an unavailable count is usable capacity.
@@ -808,6 +939,7 @@ def _compute_embeddings(
         )
     payload = {
         "embedder_path": embedder_path,
+        "model_identity": embedder.identity,
         "document_embedding": doc_vec,
         "annotation_embeddings": dict(zip(ann_ids, vecs)),
     }
@@ -938,6 +1070,12 @@ def _process_one(
     ledger = ledger or Ledger(cfg.ledger_path)
     try:
         current = ledger.get_doc(rel_path)
+        if current["upload_id"] and current["status"] == FAILED:
+            upload_id = client.retry_upload(current["upload_id"])
+            ledger.mark_uploaded(
+                rel_path, upload_id, current["page_count"], time.time()
+            )
+            return (rel_path, True, upload_id)
         abs_path = current["abs_path"]
         # Immutable snapshot: neither parser nor uploader reopens the mutable path.
         source_bytes = Path(abs_path).read_bytes()
@@ -1064,21 +1202,72 @@ def _process_one(
             parser_name=identity["parser_name"],
             parser_version=identity["parser_version"],
         )
-        # Validate JSON before entering the uncertain network boundary.
-        json.dumps(metadata, allow_nan=False)
-        ledger.mark_upload_started(rel_path)
-        upload_id = client.upload(source_bytes, metadata, filename=filename)
+        # Bind the receipt to source, semantic output, and effective preparation
+        # settings. Only hashes cross the network; settings can contain secrets.
+        from opencontractserver.utils.upload_identity import upload_payload_digest
+        from scripts.remote_ingest.checkpoints import fingerprint
+
+        metadata["preparation_identity"] = fingerprint(
+            [
+                identity,
+                cfg.enricher_identity,
+                cfg.embedding_identity,
+                embedder.base if embedder else None,
+                embedder.dimension if embedder else None,
+            ]
+        )
+        payload_digest = upload_payload_digest(source_digest, metadata)
+        client_key = ledger.mark_upload_started(
+            rel_path, payload_digest, metadata["page_count"]
+        )
+        upload_id = client.upload(
+            source_bytes, metadata, filename=filename, idempotency_key=client_key
+        )
         page_count = metadata["page_count"]
         ledger.mark_uploaded(rel_path, upload_id, page_count, time.time())
         return (rel_path, True, upload_id)
     except (PermanentUploadError, TransientUploadError) as e:
-        ledger.mark_rejected(rel_path)
+        # Rejecting a replay says nothing about an earlier POST still in flight.
+        if not current["client_key"]:
+            ledger.mark_rejected(rel_path)
         return (rel_path, False, str(e))
     except Exception as e:  # noqa: BLE001 — ambiguous rows stay unclaimable
         return (rel_path, False, str(e))
     finally:
         if owns_ledger:
             ledger._conn().close()
+
+
+def _reconcile_ambiguous(
+    ledger: Ledger,
+    client: TargetClient,
+    row,
+    *,
+    replay_absent: bool = False,
+    max_attempts: int = DEFAULT_MAX_ATTEMPTS,
+) -> None:
+    if row["status"] != AMBIGUOUS or not row["client_key"]:
+        return
+    receipt = client.lookup_upload(row["client_key"])
+    if receipt is None:
+        if replay_absent:
+            ledger.mark_absent(row["rel_path"])
+        return
+    if receipt.get("payload_digest") != row["upload_digest"]:
+        raise StatusPollError(
+            "Upload lookup payload does not match the durable local digest"
+        )
+    ledger.mark_uploaded(
+        row["rel_path"], receipt["upload_id"], row["page_count"], time.time()
+    )
+    if receipt["status"] == COMPLETED:
+        ledger.mark_completed(row["rel_path"], time.time())
+    elif receipt["status"] == FAILED:
+        ledger.mark_failed(
+            row["rel_path"],
+            f"server: {receipt.get('error_message') or 'failed'}",
+            max_attempts,
+        )
 
 
 def cmd_run(cfg: Config) -> int:
@@ -1088,6 +1277,26 @@ def cmd_run(cfg: Config) -> int:
         logger.error("%s", watermark_error)
         return 2
     ledger = Ledger(cfg.ledger_path)
+    client = TargetClient(cfg)
+    for ambiguous_row in ledger.ambiguous(cfg.ledger_page_size):
+        try:
+            _reconcile_ambiguous(
+                ledger,
+                client,
+                ambiguous_row,
+                replay_absent=True,
+                max_attempts=cfg.max_attempts,
+            )
+        except StatusPollError as lookup_error:
+            logger.error(
+                "%s: %s; upload remains ambiguous",
+                ambiguous_row["rel_path"],
+                lookup_error,
+            )
+    if not ledger.claimable_count():
+        if _print_status(ledger, client if cfg.queue_high > 0 else None) == 2:
+            return 2
+        return 1 if ledger.blocked_count() else 0
     parser = _Parser(cfg.parser_config, cfg.parser_identity)
     # Set up Django + the parser eagerly so config errors (missing service URL,
     # broken enricher import) surface before we start churning documents.
@@ -1126,8 +1335,6 @@ def cmd_run(cfg: Config) -> int:
             dimension=cfg.embedding_dimension,
             identity=cfg.embedding_identity,
         )
-    client = TargetClient(cfg)
-
     total = ledger.claimable_count()
     if not total:
         logger.info("nothing to do — run `plan` first or everything is done.")
@@ -1247,9 +1454,15 @@ def cmd_verify(cfg: Config) -> int:
     client = TargetClient(cfg)
     reasons: Counter[str] = Counter()
     unavailable = 0
+    readiness_code = VERIFY_COMPLETE
     for row in ledger.all_docs(cfg.ledger_page_size):
         receipt_status = None
         poll_error = None
+        try:
+            _reconcile_ambiguous(ledger, client, row, max_attempts=cfg.max_attempts)
+            row = ledger.get_doc(row["rel_path"])
+        except StatusPollError as exc:
+            poll_error = exc
         if row["status"] == UPLOADED:
             try:
                 if not row["upload_id"]:
@@ -1278,6 +1491,26 @@ def cmd_verify(cfg: Config) -> int:
             detail = str(poll_error)
         elif receipt_status in ("PENDING", "PROCESSING"):
             reason = f"receipt_{receipt_status.lower()}"
+        readiness = None
+        if cfg.readiness and code == VERIFY_COMPLETE:
+            try:
+                if not row["upload_id"]:
+                    raise StatusPollError(
+                        "Completed row has no receipt", reason="missing_receipt"
+                    )
+                readiness = client.readiness_status(row["upload_id"])
+                code = {
+                    "ready": VERIFY_COMPLETE,
+                    "outstanding": VERIFY_OUTSTANDING,
+                    "failed": VERIFY_FAILED,
+                    "unavailable": VERIFY_UNAVAILABLE,
+                }[readiness["state"]]
+                reason = f"readiness_{readiness['state']}"
+                detail = readiness.get("reasons", [])
+            except StatusPollError as exc:
+                poll_error = exc
+                code, reason, detail = VERIFY_UNAVAILABLE, exc.reason, str(exc)
+            readiness_code = max(readiness_code, code)
         unavailable += int(code == VERIFY_UNAVAILABLE)
         reasons[reason] += 1
         record = {
@@ -1291,6 +1524,8 @@ def cmd_verify(cfg: Config) -> int:
             "detail": detail,
             "http_status": poll_error.http_status if poll_error else None,
         }
+        if cfg.readiness:
+            record["readiness"] = readiness
         if cfg.json_output:
             print(json.dumps(record, ensure_ascii=True))
         elif code != VERIFY_COMPLETE:
@@ -1303,6 +1538,7 @@ def cmd_verify(cfg: Config) -> int:
         (_verification_state(status)[0] for status in counts),
         default=VERIFY_COMPLETE,
     )
+    code = max(code, readiness_code)
     if unavailable:
         code = VERIFY_UNAVAILABLE
     total = sum(counts.values())
@@ -1316,7 +1552,9 @@ def cmd_verify(cfg: Config) -> int:
         "type": "summary",
         "schema_version": VERIFY_SCHEMA_VERSION,
         "scope": "whole_ledger",
-        "completion_boundary": "worker_upload_transaction",
+        "completion_boundary": (
+            "search_readiness" if cfg.readiness else "worker_upload_transaction"
+        ),
         "outcome": outcome,
         "exit_code": code,
         "total": total,
@@ -1419,6 +1657,7 @@ def _build_config(args: argparse.Namespace) -> Config:
         embedding_dimension=args.embedding_dimension,
         parser_identity=args.parser_identity or os.environ.get("OC_PARSER_IDENTITY"),
         json_output=args.json,
+        readiness=args.readiness,
     )
 
 
@@ -1531,6 +1770,11 @@ def main(argv: list[str] | None = None) -> int:
         help="Stream verify document results and a final summary as JSON Lines",
     )
     p.add_argument("-v", "--verbose", action="store_true")
+    p.add_argument(
+        "--readiness",
+        action="store_true",
+        help="Verify current server search readiness in addition to upload receipts",
+    )
     p.add_argument("command", choices=["plan", "run", "verify", "status", "cleanup"])
     args = p.parse_args(argv)
 
@@ -1539,6 +1783,8 @@ def main(argv: list[str] | None = None) -> int:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
 
+    if args.readiness and args.command != "verify":
+        p.error("--readiness is supported only by verify")
     if args.json and args.command != "verify":
         p.error("--json is supported only by verify")
     cfg = _build_config(args)

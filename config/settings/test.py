@@ -225,3 +225,7 @@ AUTH0_M2M_MANAGEMENT_GRANT_TYPE = env(
 # warning is emitted under USE_AUTH0=True with an empty allowlist. The
 # silencing here only suppresses the warning during normal test startup.
 SILENCED_SYSTEM_CHECKS = ["users.W001", "users.E001"]
+
+# Pure registry/grammar tests use filesystem fixtures without database access.
+# Managed activation tests enable shared version discovery explicitly.
+AUTHORITY_PACK_MANAGED_DISCOVERY = False
