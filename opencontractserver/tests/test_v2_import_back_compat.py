@@ -15,6 +15,35 @@ from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document, DocumentPath
 
 
+def v2_description_fixture(author_email):
+    """Legacy description fields shared by shim and HTTP import regressions."""
+    return {
+        "md_description": "v3 body",
+        "md_description_revisions": [
+            {
+                "version": 1,
+                "author_email": author_email,
+                "snapshot": "v1 body",
+                "diff": "",
+                "checksum_base": "",
+                "checksum_full": "",
+                "created": "2025-01-01T00:00:00Z",
+                "modified": "2025-01-01T00:00:00Z",
+            },
+            {
+                "version": 2,
+                "author_email": author_email,
+                "snapshot": "v2 body",
+                "diff": "",
+                "checksum_base": "",
+                "checksum_full": "",
+                "created": "2025-01-02T00:00:00Z",
+                "modified": "2025-01-02T00:00:00Z",
+            },
+        ],
+    }
+
+
 class V2ImportBackCompatTest(TestCase):
     @classmethod
     def setUpTestData(cls):
@@ -53,31 +82,11 @@ class V2ImportBackCompatTest(TestCase):
         )
 
         corpus = Corpus.objects.create(title="C", creator=self.user)
+        fields = v2_description_fixture(self.user.email)
         with self.captureOnCommitCallbacks(execute=True):
             import_md_description_revisions(
-                md_description="v3 body",
-                revisions_data=[
-                    {
-                        "version": 1,
-                        "author_email": self.user.email,
-                        "snapshot": "v1 body",
-                        "diff": "",
-                        "checksum_base": "",
-                        "checksum_full": "",
-                        "created": "2025-01-01T00:00:00Z",
-                        "modified": "2025-01-01T00:00:00Z",
-                    },
-                    {
-                        "version": 2,
-                        "author_email": self.user.email,
-                        "snapshot": "v2 body",
-                        "diff": "",
-                        "checksum_base": "",
-                        "checksum_full": "",
-                        "created": "2025-01-02T00:00:00Z",
-                        "modified": "2025-01-02T00:00:00Z",
-                    },
-                ],
+                md_description=fields["md_description"],
+                revisions_data=fields["md_description_revisions"],
                 corpus=corpus,
                 user_obj=self.user,
                 doc_filename_to_doc={},

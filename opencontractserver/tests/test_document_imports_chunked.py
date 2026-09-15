@@ -467,7 +467,7 @@ class ChunkedUploadTests(TestCase):
             filename="corpus.zip",
             total_size=len(zip_bytes),
             chunk_size=1024,
-            metadata={"corpus_id": str(foreign.id)},
+            metadata={"corpus_id": str(foreign.id), "reingest_and_remap": False},
         )
 
         self.assertEqual(start.status_code, 403, start.content)
@@ -514,6 +514,121 @@ class ChunkedUploadTests(TestCase):
             str(self.corpus.id),
         )
         self.assertEqual(import_service.call_args.kwargs["user"], self.user)
+
+    def _assert_corpus_export_mode(self, expected, *, metadata=None, legacy=False):
+        from unittest.mock import patch
+
+        zip_bytes = _make_zip({"data.json": b"{}"})
+        self._login()
+        start = self._start(
+            kind="corpus_export",
+            filename="corpus.zip",
+            total_size=len(zip_bytes),
+            chunk_size=64,
+            metadata=metadata,
+        )
+        self.assertEqual(start.status_code, 201, start.content)
+        upload_id = start.json()["upload_id"]
+        session = ChunkedUploadSession.objects.get(id=upload_id)
+        self.assertIs(session.metadata["reingest_and_remap"], expected)
+        if legacy:
+            # Sessions created before this option was exposed still complete.
+            session.metadata = metadata or {}
+            session.save(update_fields=["metadata"])
+
+        self.assertEqual(self._put_part(upload_id, 0, zip_bytes[:64]).status_code, 200)
+        # Resume in a fresh client; completion receives no repeated metadata.
+        self.client = APIClient()
+        self._login()
+        status = self.client.get(_status_url(upload_id))
+        self.assertEqual(status.status_code, 200, status.content)
+        self.assertEqual(status.json()["received_chunks"], 1)
+        self.assertEqual(status.json()["received_size"], 64)
+        for index, offset in enumerate(range(64, len(zip_bytes), 64), start=1):
+            response = self._put_part(upload_id, index, zip_bytes[offset : offset + 64])
+            self.assertEqual(response.status_code, 200, response.content)
+
+        with patch(
+            "opencontractserver.document_imports.services.import_corpus"
+        ) as task:
+            complete = self.client.post(_complete_url(upload_id))
+        self.assertEqual(complete.status_code, 202, complete.content)
+        task.s.assert_called_once_with(
+            TemporaryFileHandle.objects.get().id,
+            self.user.id,
+            complete.json()["corpus_id"],
+            reingest_and_remap=expected,
+        )
+        session.refresh_from_db()
+        self.assertEqual(session.status, ChunkedUploadStatus.COMPLETED)
+
+    def test_corpus_export_omitted_mode_defaults_to_reingest(self):
+        self._assert_corpus_export_mode(True)
+
+    def test_corpus_export_true_survives_resume(self):
+        self._assert_corpus_export_mode(True, metadata={"reingest_and_remap": True})
+
+    def test_corpus_export_false_survives_resume(self):
+        self._assert_corpus_export_mode(False, metadata={"reingest_and_remap": False})
+
+    def test_corpus_export_string_false_is_normalized_before_resume(self):
+        self._assert_corpus_export_mode(False, metadata={"reingest_and_remap": "false"})
+
+    def test_legacy_corpus_export_session_defaults_to_reingest(self):
+        self._assert_corpus_export_mode(True, legacy=True)
+
+    def test_legacy_corpus_export_string_false_is_normalized_on_completion(self):
+        self._assert_corpus_export_mode(
+            False, metadata={"reingest_and_remap": "false"}, legacy=True
+        )
+
+    def test_corpus_export_malformed_modes_create_no_sessions(self):
+        self._login()
+        invalid_modes: list[object] = [None, "sometimes", 2, [], {}]
+        for value in invalid_modes:
+            with self.subTest(value=value):
+                response = self._start(
+                    kind="corpus_export",
+                    filename="corpus.zip",
+                    total_size=100,
+                    chunk_size=100,
+                    metadata={"reingest_and_remap": value},
+                )
+                self.assertEqual(response.status_code, 400, response.content)
+                self.assertIn("reingest_and_remap", response.json()["error"])
+        self.assertFalse(ChunkedUploadSession.objects.exists())
+
+    def test_legacy_malformed_mode_is_rejected_before_assembly(self):
+        from unittest.mock import patch
+
+        self._login()
+        zip_bytes = _make_zip({"data.json": b"{}"})
+        start = self._start(
+            kind="corpus_export",
+            filename="corpus.zip",
+            total_size=len(zip_bytes),
+            chunk_size=1024,
+        )
+        self.assertEqual(start.status_code, 201, start.content)
+        upload_id = start.json()["upload_id"]
+        self._upload_all_parts(upload_id, zip_bytes, 1024)
+        session = ChunkedUploadSession.objects.get(id=upload_id)
+        session.metadata = {"reingest_and_remap": "sometimes"}
+        session.save(update_fields=["metadata"])
+
+        with patch(
+            "opencontractserver.document_imports.services.tempfile.NamedTemporaryFile"
+        ) as assemble:
+            complete = self.client.post(_complete_url(upload_id))
+        self.assertEqual(complete.status_code, 400, complete.content)
+        self.assertEqual(
+            complete.json()["error"], "reingest_and_remap must be a boolean"
+        )
+        assemble.assert_not_called()
+        self.assertFalse(TemporaryFileHandle.objects.exists())
+        session.refresh_from_db()
+        self.assertEqual(session.status, ChunkedUploadStatus.PENDING)
+        self.assertEqual(session.parts.count(), 1)
 
 
 class ChunkedUploadServiceUnitTests(TestCase):

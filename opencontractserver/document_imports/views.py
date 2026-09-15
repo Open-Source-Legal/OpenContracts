@@ -386,6 +386,7 @@ class CorpusExportImportView(APIView):
                 user=request.user,
                 zip_source=uploaded,
                 corpus_id=normalise_optional(data.get("corpus_id")),
+                reingest_and_remap=data["reingest_and_remap"],
             )
         except DocumentImportPermissionError as e:
             logger.info("Corpus-export import denied", extra={"code": e.code})
