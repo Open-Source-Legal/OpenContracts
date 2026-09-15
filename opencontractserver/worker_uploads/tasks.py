@@ -22,7 +22,7 @@ from celery import shared_task
 from django.conf import settings
 from django.core.files.base import ContentFile, File
 from django.db import transaction
-from django.db.models import F
+from django.db.models import F, Q
 from django.utils import timezone
 
 from opencontractserver.annotations.models import Annotation, AnnotationLabel, Embedding
@@ -88,8 +88,11 @@ def process_pending_uploads(self: Any) -> dict[str, int]:
     # Claim a batch of PENDING uploads atomically
     with transaction.atomic():
         pending_ids = list(
-            WorkerDocumentUpload.objects.select_for_update(skip_locked=True)
+            WorkerDocumentUpload.objects.select_for_update(
+                skip_locked=True, of=("self",)
+            )
             .filter(status=UploadStatus.PENDING)
+            .filter(Q(ingestion_run__isnull=True) | Q(ingestion_run__status="ACTIVE"))
             .order_by("created")
             .values_list("id", flat=True)[: settings.WORKER_UPLOAD_BATCH_SIZE]
         )
@@ -125,9 +128,11 @@ def process_pending_uploads(self: Any) -> dict[str, int]:
             result["failed"] += 1
 
     # Re-enqueue if there are more pending uploads
-    remaining = WorkerDocumentUpload.objects.filter(
-        status=UploadStatus.PENDING
-    ).exists()
+    remaining = (
+        WorkerDocumentUpload.objects.filter(status=UploadStatus.PENDING)
+        .filter(Q(ingestion_run__isnull=True) | Q(ingestion_run__status="ACTIVE"))
+        .exists()
+    )
     if remaining:
         process_pending_uploads.apply_async(
             queue="worker_uploads",
@@ -294,6 +299,36 @@ def _process_single_upload(
         return False
     _require_staged_worker_token(upload.corpus_access_token, upload.corpus_id)
 
+    if upload.ingestion_run_id:
+        from opencontractserver.worker_uploads.run_models import IngestionRun
+        from opencontractserver.worker_uploads.run_policy import (
+            RunPolicyError,
+            validate_preparation,
+        )
+        from opencontractserver.worker_uploads.run_services import _violate_locked
+
+        run = IngestionRun.objects.select_for_update().get(pk=upload.ingestion_run_id)
+        try:
+            if run.status != IngestionRun.Status.ACTIVE:
+                raise RunPolicyError("run_not_active")
+            validate_preparation(run, upload.metadata)
+        except RunPolicyError as exc:
+            if str(exc) != "run_not_active":
+                _violate_locked(run, str(exc))
+            upload.status = UploadStatus.PENDING
+            upload.processing_token = None
+            upload.processing_started = None
+            upload.processing_attempts = max(0, upload.processing_attempts - 1)
+            upload.save(
+                update_fields=[
+                    "status",
+                    "processing_token",
+                    "processing_started",
+                    "processing_attempts",
+                ]
+            )
+            return False
+
     metadata = upload.metadata
     corpus = upload.corpus
 
@@ -360,6 +395,7 @@ def _process_single_upload(
         custom_meta = metadata.get("custom_meta")
 
         create_kwargs: dict[str, Any] = {
+            "ingestion_run_id": upload.ingestion_run_id,
             "title": safe_title,
             "description": metadata.get("description", ""),
             "pdf_file": File(upload.file, doc_filename),
@@ -436,7 +472,8 @@ def _process_single_upload(
             label_type=settings.ANNOTATION_LABELS.get(
                 corpus_doc.file_type, "SPAN_LABEL"
             ),
-            dispatch_embeddings=not bool(embeddings_data),
+            dispatch_embeddings=not bool(embeddings_data)
+            and not upload.ingestion_run_id,
         )
 
         # 6. Import relationships
@@ -516,6 +553,15 @@ def _process_single_upload(
             ]
         )
 
+    if upload.ingestion_run_id:
+        from opencontractserver.worker_uploads.run_services import (
+            queue_document_operations,
+        )
+
+        # Persist downstream operations in the upload transaction. A process
+        # crash after commit must not lose admission; only broker nudges defer.
+        queue_document_operations(corpus_doc.pk)
+
     # Generate the document thumbnail after commit. The worker-upload metadata
     # carries no thumbnail, but the source file IS stored, so the server can
     # regenerate Document.icon the same way the parser pipeline does. This is a
@@ -535,6 +581,10 @@ def _process_single_upload(
 
 
 def _dispatch_thumbnail(upload_id, document_id):
+    from opencontractserver.worker_uploads.run_services import suppress_stage
+
+    if suppress_stage(document_id, "thumbnail"):
+        return
     try:
         from opencontractserver.tasks.doc_tasks import extract_thumbnail
 
@@ -900,3 +950,10 @@ def process_pending_section_batches(self: Any) -> dict[str, int]:
             ignore_result=True,
         )
     return processed
+
+
+# Register the reservation tasks with Celery's standard app autodiscovery.
+from .run_tasks import (  # noqa: E402,F401
+    process_ingestion_operation,
+    process_pending_ingestion_operations,
+)

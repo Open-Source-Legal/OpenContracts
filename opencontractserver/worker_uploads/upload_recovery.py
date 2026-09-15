@@ -3,6 +3,7 @@
 import hashlib
 import re
 from datetime import timedelta
+from uuid import UUID
 
 from django.db import connection, transaction
 from django.db.models import Q
@@ -14,6 +15,12 @@ from opencontractserver.constants.document_processing import (
 )
 from opencontractserver.utils.upload_identity import upload_payload_digest
 from opencontractserver.worker_uploads.models import UploadStatus, WorkerDocumentUpload
+from opencontractserver.worker_uploads.run_models import IngestionRun
+from opencontractserver.worker_uploads.run_policy import (
+    RunPolicyError,
+    validate_preparation,
+)
+from opencontractserver.worker_uploads.run_services import runs_for_token
 
 
 class UploadConflict(ValueError):
@@ -74,6 +81,21 @@ def stage_upload(token, file, metadata, client_key=None):
                 if existing.payload_digest != identity:
                     raise UploadConflict("idempotency_conflict")
                 return existing, False
+        run = None
+        if metadata.get("ingestion_run_id"):
+            if not client_key:
+                raise RunPolicyError("run_requires_idempotency_key")
+            try:
+                run = (
+                    runs_for_token(token)
+                    .select_for_update()
+                    .get(pk=UUID(str(metadata["ingestion_run_id"])))
+                )
+            except (IngestionRun.DoesNotExist, ValueError, TypeError):
+                raise RunPolicyError("run_not_found") from None
+            if run.status != IngestionRun.Status.ACTIVE:
+                raise RunPolicyError("run_not_active")
+            validate_preparation(run, metadata)
         # Replays resolve under the key lock before spending any new-upload
         # budget. Distinct keys retain the best-effort count-then-create limit;
         # strict request/throughput limits belong at the reverse proxy.
@@ -85,6 +107,7 @@ def stage_upload(token, file, metadata, client_key=None):
             if recent_count >= token.rate_limit_per_minute:
                 raise UploadRateLimited()
         upload = WorkerDocumentUpload.objects.create(
+            ingestion_run=run,
             corpus_access_token=token,
             worker_account=token.worker_account,
             corpus=token.corpus,

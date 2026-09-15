@@ -199,6 +199,13 @@ def process_corpus_action(
         trigger: Optional trigger type to filter actions by (e.g., "add_document", "edit_document").
                  If None, all non-disabled actions for the corpus will run.
     """
+    from opencontractserver.worker_uploads.run_services import suppress_stage
+
+    document_ids = [
+        pk for pk in document_ids if not suppress_stage(pk, "corpus_action")
+    ]
+    if not document_ids:
+        return
     logger.info(
         f"process_corpus_action() - corpus_id={corpus_id}, "
         f"document_ids={document_ids}, trigger={trigger}"

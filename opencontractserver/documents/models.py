@@ -49,6 +49,14 @@ class Document(TreeNode, BaseOCModel, HasEmbeddingMixin):
 
     objects = DocumentManager()  # type: ignore[misc]
 
+    ingestion_run = models.ForeignKey(
+        "worker_uploads.IngestionRun",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="documents",
+    )
+
     # Key fields
     title = django.db.models.CharField(max_length=1024, null=True, blank=True)
     description = django.db.models.TextField(null=True, blank=True)

@@ -23,6 +23,7 @@ import sqlite3
 import sys
 import threading
 import time
+import uuid
 from collections import Counter
 from collections.abc import Generator, Mapping
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
@@ -440,6 +441,11 @@ class Config:
     embedding_dimension: int = 384
     parser_identity: str | None = None
     json_output: bool = False
+    ingestion_run_id: str | None = None
+    run_ceiling_usd: str | None = None
+    run_embedding_mode: str = "prepared"
+    run_operation_id: str | None = None
+    run_offset: int = 0
     readiness: bool = False
 
 
@@ -459,6 +465,48 @@ class TargetClient:
             _HTTP_INITIAL_BACKOFF_SECONDS * (2 ** (attempt - 1)),
             _HTTP_MAX_BACKOFF_SECONDS,
         ) * random.uniform(_JITTER_MIN, 1.0)
+
+    def ingestion_run_status(self, *, offset=0) -> dict:
+        run_id = str(uuid.UUID(str(self.cfg.ingestion_run_id)))
+        report = self._status_json(
+            f"{self.base}/api/worker-uploads/runs/{run_id}/?offset={int(offset)}", 30
+        )
+        required = {
+            "id",
+            "status",
+            "policy",
+            "accounted_usd",
+            "reserved_usd",
+            "remaining_usd",
+        }
+        if not required.issubset(report) or report["id"] != run_id:
+            raise StatusPollError("Invalid ingestion run status", permanent=True)
+        return report
+
+    def ingestion_run_request(self, payload: dict, *, create=False) -> dict:
+        suffix = "" if create else f"{uuid.UUID(str(self.cfg.ingestion_run_id))}/"
+        try:
+            response = self.session.post(
+                f"{self.base}/api/worker-uploads/runs/{suffix}",
+                json=payload,
+                timeout=30,
+                verify=self._verify,
+                allow_redirects=False,
+            )
+        except requests.RequestException:
+            raise StatusPollError(
+                "Run control outcome unknown; fetch status before retrying"
+            ) from None
+        if response.status_code not in (200, 201):
+            raise StatusPollError(
+                f"Run request rejected: HTTP {response.status_code}", permanent=True
+            )
+        try:
+            return response.json()
+        except ValueError:
+            raise StatusPollError(
+                "Invalid run control response", permanent=True
+            ) from None
 
     def upload(
         self,
@@ -1216,6 +1264,8 @@ def _process_one(
                 embedder.dimension if embedder else None,
             ]
         )
+        if cfg.ingestion_run_id:
+            metadata["ingestion_run_id"] = cfg.ingestion_run_id
         payload_digest = upload_payload_digest(source_digest, metadata)
         client_key = ledger.mark_upload_started(
             rel_path, payload_digest, metadata["page_count"]
@@ -1277,7 +1327,25 @@ def cmd_run(cfg: Config) -> int:
         logger.error("%s", watermark_error)
         return 2
     ledger = Ledger(cfg.ledger_path)
+    stored_run = ledger.get_meta("ingestion_run_id")
+    if stored_run and cfg.ingestion_run_id and stored_run != cfg.ingestion_run_id:
+        logger.error(
+            "Ledger belongs to a different ingestion run; use its original run ID"
+        )
+        return 2
+    cfg.ingestion_run_id = cfg.ingestion_run_id or stored_run
+    if cfg.ingestion_run_id:
+        ledger.set_meta("ingestion_run_id", cfg.ingestion_run_id)
     client = TargetClient(cfg)
+    if cfg.ingestion_run_id:
+        try:
+            report = client.ingestion_run_status()
+        except (StatusPollError, ValueError):
+            logger.error("Ingestion run status unavailable; preparation is paused")
+            return 2
+        if report["status"] != "ACTIVE":
+            print(json.dumps(report, indent=2))
+            return 2
     for ambiguous_row in ledger.ambiguous(cfg.ledger_page_size):
         try:
             _reconcile_ambiguous(
@@ -1301,6 +1369,8 @@ def cmd_run(cfg: Config) -> int:
     # Set up Django + the parser eagerly so config errors (missing service URL,
     # broken enricher import) surface before we start churning documents.
     parser.ensure_ready()
+    if cfg.ingestion_run_id:
+        _validate_run_preparations(cfg, parser, report["policy"])
 
     enrichers: list = []
     if cfg.enrichers:
@@ -1354,12 +1424,23 @@ def cmd_run(cfg: Config) -> int:
     stop_event = governor.stopped
 
     done = {"ok": 0, "fail": 0}
+    run_stopped = threading.Event()
     done_lock = threading.Lock()
 
     def worker(row: sqlite3.Row) -> None:
         # A grant is atomic with polling/pausing; only admitted work uses attempts.
         if not governor.admit() or stop_event.is_set():
             return
+        if cfg.ingestion_run_id:
+            try:
+                if client.ingestion_run_status()["status"] != "ACTIVE":
+                    run_stopped.set()
+                    governor.stop()
+                    return
+            except StatusPollError:
+                run_stopped.set()
+                governor.stop()
+                return
         rel, ok, msg = _process_one(
             cfg, parser, embedder, client, row, enrichers, ledger
         )
@@ -1423,6 +1504,12 @@ def cmd_run(cfg: Config) -> int:
     if governor.fatal_error is not None:
         logger.error("Admission stopped: %s", governor.fatal_error)
         _print_status(ledger, None)
+        return 2
+
+    if run_stopped.is_set():
+        logger.info(
+            "Run admission paused; receipts and preparation checkpoints retained"
+        )
         return 2
 
     logger.info(f"run complete: uploaded={done['ok']}, failed={done['fail']}")
@@ -1593,6 +1680,88 @@ def cmd_status(cfg: Config) -> int:
     return _print_status(ledger, client)
 
 
+def _run_preparations(cfg, parser):
+    from scripts.remote_ingest.checkpoints import fingerprint
+
+    local = parser.ensure_ready()
+    base = (
+        os.environ.get(
+            "EMBEDDINGS_MICROSERVICE_URL", "http://vector-embedder:8000"
+        ).rstrip("/")
+        if cfg.embeddings
+        else None
+    )
+    dimension = cfg.embedding_dimension if cfg.embeddings else None
+    return [
+        {
+            "fingerprint": fingerprint(
+                [
+                    identity,
+                    cfg.enricher_identity,
+                    cfg.embedding_identity,
+                    base,
+                    dimension,
+                ]
+            ),
+            "parser_name": identity["parser_name"],
+            "parser_version": identity["parser_version"],
+            "embedder_path": parser.default_embedder_path if cfg.embeddings else "",
+            "embedding_dimension": dimension or 0,
+            "embedding_model_fingerprint": fingerprint(cfg.embedding_identity),
+        }
+        for identity in local.identities.values()
+    ]
+
+
+def _validate_run_preparations(cfg, parser, policy):
+    expected = {entry["fingerprint"] for entry in policy["preparations"]}
+    actual = {entry["fingerprint"] for entry in _run_preparations(cfg, parser)}
+    if not actual.issubset(expected):
+        raise ValueError(
+            "Local preparation settings do not match the immutable run policy"
+        )
+
+
+def cmd_ingestion_run(cfg: Config, action: str) -> int:
+    ledger = Ledger(cfg.ledger_path)
+    stored_run = ledger.get_meta("ingestion_run_id")
+    if stored_run and cfg.ingestion_run_id and stored_run != cfg.ingestion_run_id:
+        raise ValueError(
+            "Ledger belongs to a different ingestion run; use its original run ID"
+        )
+    cfg.ingestion_run_id = cfg.ingestion_run_id or stored_run
+    if action == "create":
+        if cfg.run_ceiling_usd is None:
+            raise ValueError("run-create requires --run-budget-usd")
+        # Persist identity before POST so a lost response can be reconciled by
+        # run-status or by replaying creation with this same ID and policy.
+        cfg.ingestion_run_id = cfg.ingestion_run_id or str(uuid.uuid4())
+        ledger.set_meta("ingestion_run_id", cfg.ingestion_run_id)
+        parser = _Parser(cfg.parser_config, cfg.parser_identity)
+        payload = {
+            "id": cfg.ingestion_run_id,
+            "ceiling_usd": cfg.run_ceiling_usd,
+            "preparations": _run_preparations(cfg, parser),
+            "embedding_mode": cfg.run_embedding_mode,
+        }
+        report = TargetClient(cfg).ingestion_run_request(payload, create=True)
+    else:
+        if not cfg.ingestion_run_id:
+            raise ValueError("Supply --ingestion-run or use a ledger with a saved run")
+        client = TargetClient(cfg)
+        if action == "status":
+            report = client.ingestion_run_status(offset=cfg.run_offset)
+        else:
+            payload = {"action": action}
+            if cfg.run_ceiling_usd is not None:
+                payload["ceiling_usd"] = cfg.run_ceiling_usd
+            if cfg.run_operation_id:
+                payload["operation_id"] = cfg.run_operation_id
+            report = client.ingestion_run_request(payload)
+    print(json.dumps(report, indent=2))
+    return 0
+
+
 def _print_status(ledger: Ledger, client: TargetClient | None) -> int:
     """Print an informational snapshot; return 2 for fatal status configuration."""
     result = 0
@@ -1657,8 +1826,20 @@ def _build_config(args: argparse.Namespace) -> Config:
         embedding_dimension=args.embedding_dimension,
         parser_identity=args.parser_identity or os.environ.get("OC_PARSER_IDENTITY"),
         json_output=args.json,
+        ingestion_run_id=args.ingestion_run or os.environ.get("OC_INGESTION_RUN"),
+        run_ceiling_usd=args.run_budget_usd,
+        run_embedding_mode=args.run_embedding_mode,
+        run_operation_id=args.run_operation,
+        run_offset=args.run_offset,
         readiness=args.readiness,
     )
+
+
+def _nonnegative_int(value: str) -> int:
+    result = int(value)
+    if result < 0:
+        raise argparse.ArgumentTypeError("must be zero or greater")
+    return result
 
 
 def _positive_int(value: str) -> int:
@@ -1771,11 +1952,46 @@ def main(argv: list[str] | None = None) -> int:
     )
     p.add_argument("-v", "--verbose", action="store_true")
     p.add_argument(
+        "--ingestion-run", help="Durable server run ID (also saved in the ledger)"
+    )
+    p.add_argument(
+        "--run-budget-usd",
+        help="Monetary ceiling for run-create or an audited increase on run-resume",
+    )
+    p.add_argument(
+        "--run-embedding-mode", choices=["prepared", "server"], default="prepared"
+    )
+    p.add_argument(
+        "--run-operation", help="Operation ID for run-retry or run-cancel-operation"
+    )
+    p.add_argument(
+        "--run-offset",
+        type=_nonnegative_int,
+        default=0,
+        help="Operation page offset for run-status",
+    )
+    p.add_argument(
         "--readiness",
         action="store_true",
         help="Verify current server search readiness in addition to upload receipts",
     )
-    p.add_argument("command", choices=["plan", "run", "verify", "status", "cleanup"])
+    p.add_argument(
+        "command",
+        choices=[
+            "plan",
+            "run",
+            "verify",
+            "status",
+            "cleanup",
+            "run-create",
+            "run-status",
+            "run-pause",
+            "run-resume",
+            "run-cancel",
+            "run-retry",
+            "run-cancel-operation",
+        ],
+    )
     args = p.parse_args(argv)
 
     logging.basicConfig(
@@ -1795,7 +2011,7 @@ def main(argv: list[str] | None = None) -> int:
         except ValueError as exc:
             p.error(str(exc))
 
-    if args.command in ("run", "verify") and (
+    if (args.command in ("run", "verify") or args.command.startswith("run-")) and (
         not cfg.target_url or not cfg.worker_token
     ):
         p.error(
@@ -1810,6 +2026,13 @@ def main(argv: list[str] | None = None) -> int:
         "verify": cmd_verify,
         "status": cmd_status,
         "cleanup": cmd_cleanup,
+        "run-create": lambda c: cmd_ingestion_run(c, "create"),
+        "run-status": lambda c: cmd_ingestion_run(c, "status"),
+        "run-pause": lambda c: cmd_ingestion_run(c, "pause"),
+        "run-resume": lambda c: cmd_ingestion_run(c, "resume"),
+        "run-cancel": lambda c: cmd_ingestion_run(c, "cancel"),
+        "run-retry": lambda c: cmd_ingestion_run(c, "retry_operation"),
+        "run-cancel-operation": lambda c: cmd_ingestion_run(c, "cancel_operation"),
     }[args.command](cfg)
 
 

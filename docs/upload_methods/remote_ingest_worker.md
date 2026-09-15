@@ -12,6 +12,10 @@ hardware, and the target instance just ingests the finished artifacts.
 
 ## When to Use It
 
+Optional [ingestion run policies and budgets](ingestion_run_policy.md) bind
+receipts to immutable provider settings and expose reserved/accounted costs.
+Their scope and suppressed stages differ from the ordinary pipeline below.
+
 - You want to **offload parsing and embedding** to your own machines instead of
   paying for it on the OpenContracts server.
 - You have a **very large** local document tree (hundreds of thousands of files)

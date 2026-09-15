@@ -22,6 +22,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from django.db import transaction
+from django.db.models.deletion import ProtectedError
 
 from opencontractserver.shared.services.base import BaseService
 from opencontractserver.shared.services.conventions import ServiceResult
@@ -270,8 +271,13 @@ class CorpusService(BaseService):
         if error:
             return ServiceResult.failure(error)
 
-        cls.log_action("Deleted", corpus, user)
-        corpus.delete()
+        cls.log_action("Deleting", corpus, user)
+        try:
+            corpus.delete()
+        except ProtectedError:
+            return ServiceResult.failure(
+                "Corpus cannot be deleted while retained records reference it."
+            )
         return ServiceResult.success(None)
 
     @classmethod

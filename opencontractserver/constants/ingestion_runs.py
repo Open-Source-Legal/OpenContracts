@@ -1,0 +1,12 @@
+"""Admission, accounting and bounded report limits for ingestion runs."""
+
+from decimal import Decimal
+
+USD_QUANTUM = Decimal("0.000000001")
+MAX_ALLOWANCE_USD = Decimal("1000000000")
+TOKENS_PER_PRICING_UNIT = 1_000_000
+MAX_PREPARATIONS = 64
+MAX_OPERATION_ATTEMPTS = 3
+REPORT_PAGE_SIZE = 100
+REPORT_EVENT_LIMIT = 100
+OPERATION_DRAIN_BATCH_SIZE = 100

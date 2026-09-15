@@ -80,6 +80,10 @@ def create_structural_annotation_set(
 
     # Stable content hash so re-ingesting the same source PDF reuses the set.
     content_hash = document.pdf_file_hash or f"doc_{document.pk}"
+    if document.ingestion_run_id:
+        # Run policy and accounting must not inherit another run's structural
+        # tasks when identical source bytes are uploaded more than once.
+        content_hash = f"{content_hash}_run_{document.ingestion_run_id}"
 
     struct_set, created = StructuralAnnotationSet.objects.get_or_create(
         content_hash=content_hash,
