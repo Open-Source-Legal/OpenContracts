@@ -23,10 +23,13 @@ from opencontractserver.documents.models import (
     Document,
     DocumentPath,
     EmbeddingRepair,
+    PendingDocumentAnnotations,
     PipelineSettings,
 )
 from opencontractserver.documents.readiness import (
+    ReadinessUnavailable,
     assess_document,
+    assess_documents,
     effective_embedder,
     request_repair,
 )
@@ -99,6 +102,94 @@ class ReadinessFixtures(SimpleTestCase):
 
 
 class ReadinessTests(ReadinessFixtures, TestCase):
+    def test_deferred_annotations_gate_readiness_even_with_complete_vectors(self):
+        self.embed(self.doc)
+        self.embed(self.annotation)
+        pending = PendingDocumentAnnotations.objects.create(
+            document=self.doc, corpus=self.corpus, creator=self.user
+        )
+        for status, state in (
+            ("pending", "outstanding"),
+            ("failed", "failed"),
+            ("done", "ready"),
+        ):
+            with self.subTest(status=status):
+                pending.status = status
+                pending.save(update_fields=["status"])
+                result = assess_document(self.doc, self.corpus)
+                self.assertEqual(result["state"], state)
+                self.assertEqual(
+                    "annotations_outstanding" in result["reasons"], status != "done"
+                )
+                request_repair(self.doc, self.corpus, user=self.user)
+                self.assertFalse(EmbeddingRepair.objects.exists())
+
+    def test_unavailable_corpus_configuration_is_resolved_once(self):
+        other = Document.objects.create(creator=self.user)
+        with patch(
+            "opencontractserver.documents.readiness.effective_embedder",
+            side_effect=ReadinessUnavailable("embedder_unavailable"),
+        ) as resolve:
+            results = assess_documents([self.doc, other], self.corpus)
+        resolve.assert_called_once_with(self.corpus)
+        self.assertEqual(
+            [result["document_id"] for result in results], [self.doc.pk, other.pk]
+        )
+        for result in results:
+            self.assertEqual(result["state"], "unavailable")
+            self.assertEqual(result["reasons"], ["embedder_unavailable"])
+
+    def test_document_repair_reports_dispatch_failure_and_can_be_retried(self):
+        client = APIClient()
+        client.force_authenticate(self.user)
+        url = f"/api/readiness/documents/{self.doc.pk}/"
+        with patch(DISPATCH, side_effect=OSError), self.captureOnCommitCallbacks(
+            execute=True
+        ):
+            self.assertEqual(client.post(url).status_code, 202)
+        failed = client.get(url).data
+        self.assertEqual(failed["state"], "failed")
+        self.assertEqual(failed["repair"]["errors"], ["dispatch_failed"])
+        with patch(DISPATCH) as dispatch, self.captureOnCommitCallbacks(execute=True):
+            self.assertEqual(client.post(url).data["repair"]["status"], "queued")
+        dispatch.assert_called_once()
+
+    def test_worker_repair_rechecks_revoked_token_and_observes_missing_result(self):
+        account = WorkerAccount.create_with_user(
+            name="repair-worker", creator=self.user
+        )
+        token, key = CorpusAccessToken.create_token(
+            worker_account=account, corpus=self.corpus
+        )
+        receipt = WorkerDocumentUpload.objects.create(
+            corpus=self.corpus, corpus_access_token=token
+        )
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"WorkerKey {key}")
+        url = f"/api/readiness/worker/{receipt.pk}/"
+        self.assertEqual(
+            client.get(url).data["reasons"], ["result_document_unavailable"]
+        )
+        self.assertEqual(client.post(url).status_code, 400)
+        receipt.result_document = self.doc
+        receipt.save(update_fields=["result_document"])
+        with patch(DISPATCH), self.captureOnCommitCallbacks(execute=True):
+            queued = client.post(url)
+        self.assertEqual(queued.status_code, 202)
+        self.assertEqual(
+            client.get("/api/readiness/worker/").data["documents"][0]["document_id"],
+            self.doc.pk,
+        )
+        token.is_active = False
+        token.save(update_fields=["is_active"])
+        with patch.object(TestEmbedder, "embed_texts_batch") as inference:
+            repair_document_embeddings(queued.data["repair"]["id"])
+        inference.assert_not_called()
+        self.assertEqual(
+            EmbeddingRepair.objects.get(document=self.doc).status, "failed"
+        )
+        self.assertFalse(Embedding.objects.exists())
+
     def test_completed_parse_and_unlocked_document_still_need_both_embedding_stages(
         self,
     ):

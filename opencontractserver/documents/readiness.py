@@ -152,8 +152,8 @@ def assess_documents(documents, corpus):
     """
     try:
         embedder = effective_embedder(corpus)
-    except ReadinessUnavailable:
-        embedder = None
+    except ReadinessUnavailable as exc:
+        return [unavailable(document, corpus, str(exc)) for document in documents]
     results = []
     for document in documents:
         try:
