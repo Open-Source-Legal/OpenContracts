@@ -614,9 +614,6 @@ def convert_document_to_pdf(self, user_id: int, doc_id: int) -> dict[str, Any]:
     from opencontractserver.pipeline.utils import get_default_file_converter_instance
     from opencontractserver.worker_uploads.run_services import suppress_stage
 
-    if suppress_stage(doc_id, "convert"):
-        return {"status": "skipped", "doc_id": doc_id, "reason": "run_policy"}
-
     try:
         document: Document = Document.objects.get(pk=doc_id)
     except Document.DoesNotExist:
@@ -650,6 +647,9 @@ def convert_document_to_pdf(self, user_id: int, doc_id: int) -> dict[str, Any]:
             "doc_id": doc_id,
             "error": "User lacks permission for this document",
         }
+
+    if suppress_stage(doc_id, "convert"):
+        return {"status": "skipped", "doc_id": doc_id, "reason": "run_policy"}
 
     converter = get_default_file_converter_instance()
     if converter is None:
@@ -730,11 +730,8 @@ def ingest_doc(self, user_id: int, doc_id: int) -> dict[str, Any]:
         DocumentParsingError: Re-raised for transient errors to trigger Celery retry.
     """
     from opencontractserver.documents.models import DocumentPath
-    from opencontractserver.worker_uploads.run_services import suppress_stage
-
-    if suppress_stage(doc_id, "parse"):
-        return {"status": "skipped", "doc_id": doc_id, "reason": "run_policy"}
     from opencontractserver.types.enums import PermissionTypes
+    from opencontractserver.worker_uploads.run_services import suppress_stage
 
     logger.info(
         f"[ingest_doc] Ingesting doc {doc_id} for user {user_id} "
@@ -788,6 +785,9 @@ def ingest_doc(self, user_id: int, doc_id: int) -> dict[str, Any]:
             "doc_id": doc_id,
             "error": "User lacks permission for this document",
         }
+
+    if suppress_stage(doc_id, "parse"):
+        return {"status": "skipped", "doc_id": doc_id, "reason": "run_policy"}
 
     # CAML/markdown files are rendered client-side and never parsed.
     # Mark as complete immediately so the pipeline doesn't touch them.
@@ -1416,6 +1416,13 @@ def retry_document_processing(user_id: int, doc_id: int) -> dict[str, Any]:
             "status": "error",
             "doc_id": doc_id,
             "message": "User lacks permission to retry this document",
+        }
+
+    if document_obj.ingestion_run_id:
+        return {
+            "status": "error",
+            "doc_id": doc_id,
+            "message": "The ingestion run policy forbids server parsing.",
         }
 
     # Atomic update: only reset if document is in FAILED state

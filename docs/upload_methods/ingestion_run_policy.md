@@ -14,24 +14,39 @@ raw component settings are excluded. Upload receipts and resulting documents
 retain their run binding, including corpus copies and subsequent versions.
 Structural annotation sets use a run-specific namespace so identical source
 content uploaded into separate runs cannot share or redirect charged operations.
+Cross-corpus copies keep the binding; requests for a destination corpus's provider
+are suppressed without pausing the original run. Accounting records are retained,
+so a referenced corpus cannot be deleted, including after run cancellation.
 
 Two modes are available:
 
 | Mode | Server processing |
 | --- | --- |
-| `prepared` (default) | Store prepared artifacts and supplied vectors; no server provider calls. |
+| `prepared` (default) | Store prepared artifacts and any supplied vectors; no server provider calls. |
 | `server` | Store prepared artifacts and generate missing text embeddings through the priced, first-party OpenAI adapter. |
 
 Both modes suppress server parsing, conversion, thumbnails, multimodal fallback,
 and automatic corpus actions. Custom endpoints, unknown providers, and unknown
 prices cannot be admitted. The effective corpus/default provider, model,
-dimension, non-secret configuration fingerprint, implementation, and configured
-pricing are checked at admission and
+dimension, non-secret configuration fingerprint, adapter contract version, and
+configured pricing are checked at admission and
 again before each request. Changed configuration pauses execution; restoring the
 approved configuration permits resume. The fingerprint includes operator-supplied
 `EMBEDDING_MODEL_REVISIONS`; bump that revision when a model changes in place.
 Changing the policy requires a new run. Generated vectors retain this fingerprint
 for readiness checks; unverified or stale vectors do not skip budgeted generation.
+The adapter version is `OpenAIEmbedder.accounting_version`; changes to its request
+or accounting contract must bump that version. Formatting and comment edits do
+not invalidate an approved run.
+
+Runs generate only their approved provider's vectors. Global search using a
+different default embedder may therefore omit run-bound content. Prepared mode
+permits missing vectors and may remain outstanding in readiness; choose `server`
+mode when server-generated text embeddings are required. Routing to a run means
+the policy owns the work, not that embedding has completed: readiness and
+`run-status` expose missing output, queued work, suppression, and violations.
+Manual document parsing retries are rejected without clearing failure state;
+embedding attempts use the run's explicit retry controls.
 
 **The ceiling covers server provider usage at the recorded pricing basis.**
 External worker parsing, enrichment and embedding, infrastructure, and later

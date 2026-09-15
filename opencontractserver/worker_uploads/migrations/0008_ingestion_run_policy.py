@@ -231,6 +231,20 @@ class Migration(migrations.Migration):
                 fields=("run", "key"), name="ingest_operation_once"
             ),
         ),
+        migrations.AddIndex(
+            model_name="ingestionoperation",
+            index=models.Index(
+                fields=["run", "status"], name="ingestion_run_op_status"
+            ),
+        ),
+        migrations.AddIndex(
+            model_name="ingestionreservation",
+            index=models.Index(
+                fields=["created"],
+                condition=models.Q(status="RESERVED"),
+                name="ingestion_reserved_created",
+            ),
+        ),
         migrations.RunSQL(
             """
             CREATE FUNCTION protect_ingestion_run_policy() RETURNS trigger AS $$

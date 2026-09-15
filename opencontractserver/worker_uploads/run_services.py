@@ -191,17 +191,28 @@ def suppress_stage(doc_id, stage):
 
 
 def route_embedding(obj, corpus_id=None):
-    """Take policy-bound objects out of legacy batch/dual/fallback processing."""
+    """Return whether the run owns this work, not whether a vector was stored.
+
+    This includes queued, suppressed and violated work: none may fall through to
+    legacy providers. Run status and readiness report the actual outcome.
+    """
     if not isinstance(obj, (Document, Annotation, Relationship, Note)):
         return False
     run_ids = target_runs(obj)
     if not run_ids:
         return False
     for run in IngestionRun.objects.filter(pk__in=run_ids):
-        if len(run_ids) != 1 or (
-            corpus_id is not None and int(corpus_id) != run.corpus_id
-        ):
+        if len(run_ids) != 1:
             policy_violation(run.pk, "ambiguous_run_context")
+            continue
+        if corpus_id is not None and int(corpus_id) != run.corpus_id:
+            # Copies retain their binding. A destination corpus cannot select
+            # another provider or pause the source run's approved work.
+            IngestionRunEvent.objects.get_or_create(
+                run=run,
+                code="suppressed_corpus_embedding",
+                detail={"corpus_id": int(corpus_id)},
+            )
             continue
         if run.policy["embedding_mode"] == "prepared":
             continue
@@ -455,9 +466,12 @@ def execute_reservation(reservation_id):
             run.reserved_usd -= reservation.amount_usd
             run.accounted_usd += actual
             run.save(update_fields=["reserved_usd", "accounted_usd"])
-    except Exception:
+    except Exception as exc:
         # Never log a provider exception: SDK errors can contain credentials,
         # endpoints or source content. The outstanding bound remains reserved.
+        code = (
+            str(exc) if isinstance(exc, RunPolicyError) else "provider_outcome_unknown"
+        )
         with transaction.atomic():
             run = IngestionRun.objects.select_for_update().get(pk=run.pk)
             reservation = IngestionReservation.objects.select_for_update().get(
@@ -473,13 +487,13 @@ def execute_reservation(reservation_id):
                 and operation.status != IngestionOperation.Status.CANCELLED
             ):
                 operation.status = IngestionOperation.Status.UNCERTAIN
-                operation.error_code = "provider_outcome_unknown"
+                operation.error_code = code
                 operation.save(update_fields=["status", "error_code"])
             if run.status != IngestionRun.Status.CANCELLED:
                 run.status = IngestionRun.Status.PAUSED
-                run.last_error = "provider_outcome_unknown"
+                run.last_error = code
                 run.save(update_fields=["status", "last_error"])
-            event(run, "provider_outcome_unknown", reservation_id=str(reservation.pk))
+            event(run, code, reservation_id=str(reservation.pk))
 
 
 def _cancel_locked(run, operation):

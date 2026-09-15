@@ -1,8 +1,11 @@
 """Budget admission at real database and provider-call boundaries."""
 
+import inspect
 import json
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from threading import Barrier
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -225,6 +228,155 @@ class IngestionRunBudgetTests(TransactionTestCase):
         self.assertEqual(run.operations.count(), 1)
         self.assertEqual(IngestionReservation.objects.get().pk, reservation.pk)
         self.assert_totals(run, accounted="0", reserved="0.000004")
+
+    def test_cosmetic_provider_source_changes_allow_resume(self):
+        run = self.new_run()
+        _, reservation = self.reserve(run)
+        control_run(run.pk, "pause")
+        with TemporaryDirectory() as directory:
+            source = Path(directory) / "openai_embedder.py"
+            source.write_text(
+                Path(inspect.getfile(OpenAIEmbedder)).read_text()
+                + "\n# Deployment annotation; no behavior change.\n"
+            )
+            with patch("inspect.getfile", return_value=str(source)), patch.object(
+                OpenAIEmbedder, "embed_text_accounted", return_value=([0.25] * 384, 2)
+            ) as provider:
+                control_run(run.pk, "resume")
+                execute_reservation(reservation.pk)
+        provider.assert_called_once()
+        self.assert_totals(run, accounted="0.000002", reserved="0")
+
+    def test_accounting_adapter_revision_change_blocks_reserved_work(self):
+        run = self.new_run()
+        _, reservation = self.reserve(run)
+        with patch.object(
+            OpenAIEmbedder, "accounting_version", "next-version", create=True
+        ), patch.object(OpenAIEmbedder, "embed_text_accounted") as provider:
+            execute_reservation(reservation.pk)
+        provider.assert_not_called()
+        self.assert_totals(run, accounted="0", reserved="0.000004")
+        self.assertEqual(run.last_error, "provider_configuration_changed")
+
+    def test_invalid_usage_is_reported_separately_and_keeps_the_reservation(self):
+        for tokens in (None, -1, True, 5):
+            with self.subTest(tokens=tokens):
+                run = self.new_run()
+                doc, reservation = self.reserve(run)
+                with patch.object(
+                    OpenAIEmbedder,
+                    "embed_text_accounted",
+                    return_value=([0.25] * 384, tokens),
+                ):
+                    execute_reservation(reservation.pk)
+                self.assert_totals(run, accounted="0", reserved="0.000004")
+                self.assertEqual(run.last_error, "invalid_usage_receipt")
+                self.assertEqual(
+                    run.operations.get().error_code, "invalid_usage_receipt"
+                )
+                reservation.refresh_from_db()
+                self.assertEqual(
+                    reservation.status, IngestionReservation.Status.UNCERTAIN
+                )
+                self.assertFalse(Embedding.objects.filter(document=doc).exists())
+
+    def test_cross_corpus_copy_does_not_pause_or_redirect_the_original_run(self):
+        from opencontractserver.tasks.corpus_tasks import ensure_embeddings_for_corpus
+        from opencontractserver.tasks.embeddings_task import (
+            calculate_embeddings_for_annotation_batch,
+        )
+        from opencontractserver.utils.structural_sets import (
+            create_structural_annotation_set,
+        )
+
+        run = self.new_run()
+        doc, reservation = self.reserve(run)
+        label = AnnotationLabel.objects.create(text="Span", creator=self.user)
+        Annotation.objects.create(
+            document=doc,
+            corpus=self.corpus,
+            annotation_label=label,
+            raw_text="Shared text",
+            structural=True,
+            creator=self.user,
+        )
+        create_structural_annotation_set(doc, self.user, parser_name="TextParser")
+        other = Corpus.objects.create(
+            title="Copy destination",
+            creator=self.user,
+            preferred_embedder="unapproved.Provider",
+        )
+        with patch.object(
+            ensure_embeddings_for_corpus,
+            "delay",
+            side_effect=ensure_embeddings_for_corpus.run,
+        ), patch.object(
+            calculate_embeddings_for_annotation_batch,
+            "delay",
+            side_effect=calculate_embeddings_for_annotation_batch.run,
+        ), patch(
+            "opencontractserver.tasks.embeddings_task.get_component_by_name"
+        ) as legacy_provider:
+            copied, _, _ = other.add_document(document=doc, user=self.user)
+        legacy_provider.assert_not_called()
+        self.assertEqual(copied.ingestion_run_id, run.pk)
+        self.assertEqual(
+            copied.structural_annotation_set_id, doc.structural_annotation_set_id
+        )
+        self.assert_totals(run, accounted="0", reserved="0.000004")
+        self.assertEqual(run.status, IngestionRun.Status.ACTIVE)
+        self.assertEqual(run.operations.count(), 1)
+        self.assertTrue(run.events.filter(code="suppressed_corpus_embedding").exists())
+        with patch.object(
+            OpenAIEmbedder, "embed_text_accounted", return_value=([0.25] * 384, 2)
+        ) as provider:
+            execute_reservation(reservation.pk)
+        provider.assert_called_once()
+        self.assert_totals(run, accounted="0.000002", reserved="0")
+
+    def test_corpus_deletion_reports_retained_run_records_without_deleting_them(self):
+        from opencontractserver.corpuses.services.corpus_service import CorpusService
+
+        run = self.new_run()
+        control_run(run.pk, "cancel")
+        result = CorpusService.delete_corpus(self.user, self.corpus)
+        self.assertFalse(result.ok)
+        self.assertIn("retained records", result.error)
+        self.assertTrue(Corpus.objects.filter(pk=self.corpus.pk).exists())
+        self.assertTrue(IngestionRun.objects.filter(pk=run.pk).exists())
+
+    def test_run_suppression_preserves_worker_task_permission_checks(self):
+        from opencontractserver.tasks.doc_tasks import (
+            convert_document_to_pdf,
+            ingest_doc,
+        )
+
+        run = self.new_run()
+        doc = self.document(run)
+        outsider = get_user_model().objects.create_user("outsider")
+        for task in (convert_document_to_pdf, ingest_doc):
+            with self.subTest(task=task.name):
+                result = task(user_id=outsider.pk, doc_id=doc.pk)
+                self.assertEqual(
+                    result.get("error"), "User lacks permission for this document"
+                )
+        self.assertFalse(run.events.filter(code__startswith="suppressed_").exists())
+
+    def test_run_policy_rejects_parse_retry_without_clearing_failed_state(self):
+        from opencontractserver.tasks.doc_tasks import retry_document_processing
+
+        doc = self.document(self.new_run())
+        doc.processing_status = DocumentProcessingStatus.FAILED
+        doc.processing_error = "Original failure"
+        doc.save(update_fields=["processing_status", "processing_error"])
+        with patch("opencontractserver.tasks.doc_tasks.chain") as pipeline:
+            result = retry_document_processing(user_id=self.user.pk, doc_id=doc.pk)
+        self.assertEqual(result["status"], "error")
+        self.assertIn("run policy", result["message"])
+        pipeline.assert_not_called()
+        doc.refresh_from_db()
+        self.assertEqual(doc.processing_status, DocumentProcessingStatus.FAILED)
+        self.assertEqual(doc.processing_error, "Original failure")
 
     def test_late_attempt_accounts_usage_but_cannot_overwrite_retry_result(self):
         run = self.new_run("0.000008")

@@ -7,11 +7,9 @@ External worker preparation and infrastructure costs are explicitly excluded.
 """
 
 import hashlib
-import inspect
 import json
 import re
 from decimal import ROUND_CEILING, Decimal, InvalidOperation
-from pathlib import Path
 
 from django.conf import settings
 
@@ -100,9 +98,7 @@ def resolve_provider(corpus):
             "dimension": provider.vector_size,
             "configuration": configuration,
             "endpoint": OPENAI_API_BASE_URL,
-            "implementation": hashlib.sha256(
-                Path(inspect.getfile(cls)).read_bytes()
-            ).hexdigest(),
+            "implementation": provider.accounting_version,
         }
         return descriptor, provider
     except RunPolicyError:

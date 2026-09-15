@@ -59,7 +59,7 @@ def _create_text_embedding(
         obj_id: Object ID for logging
 
     Returns:
-        True if embedding was created successfully, False otherwise
+        True if a vector was created or run policy took ownership, False otherwise.
     """
     from opencontractserver.worker_uploads.run_services import route_embedding
 
@@ -115,7 +115,7 @@ def _create_embedding_for_annotation(
         embedder_path: Path identifier for the embedder
 
     Returns:
-        True if embedding was created successfully, False otherwise
+        True if a vector was created or run policy took ownership, False otherwise.
     """
     from opencontractserver.worker_uploads.run_services import route_embedding
 

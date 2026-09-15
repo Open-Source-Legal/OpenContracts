@@ -73,6 +73,9 @@ class IngestionOperation(models.Model):
     created = models.DateTimeField(default=timezone.now)
 
     class Meta:
+        indexes = [
+            models.Index(fields=["run", "status"], name="ingestion_run_op_status")
+        ]
         constraints = [
             models.UniqueConstraint(fields=["run", "key"], name="ingest_operation_once")
         ]
@@ -101,6 +104,13 @@ class IngestionReservation(models.Model):
     started = models.DateTimeField(null=True)
 
     class Meta:
+        indexes = [
+            models.Index(
+                fields=["created"],
+                condition=models.Q(status="RESERVED"),
+                name="ingestion_reserved_created",
+            )
+        ]
         constraints = [
             models.UniqueConstraint(
                 fields=["operation", "attempt"], name="ingest_attempt_once"

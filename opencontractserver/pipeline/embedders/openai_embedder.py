@@ -10,6 +10,7 @@ from opencontractserver.constants.document_processing import (
 from opencontractserver.constants.embeddings import (
     DEFAULT_OPENAI_EMBEDDING_DIMENSIONS,
     DEFAULT_OPENAI_EMBEDDING_MODEL,
+    OPENAI_ACCOUNTED_EMBEDDING_VERSION,
     OPENAI_API_BASE_URL,
     OPENAI_MODEL_DIMENSIONS,
 )
@@ -40,6 +41,7 @@ class OpenAIEmbedder(BaseEmbedder):
     description = "Generates text embeddings using the OpenAI Embeddings API."
     author = "OpenContracts Team"
     dependencies = ["openai"]
+    accounting_version = OPENAI_ACCOUNTED_EMBEDDING_VERSION
     supported_file_types = [
         FileTypeEnum.PDF,
         FileTypeEnum.TXT,
