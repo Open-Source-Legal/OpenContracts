@@ -8,7 +8,7 @@ collectfasta==3.3.4  # https://github.com/jasongi/collectfasta (maintained fork 
 
 # GCP Stuff
 # ------------------------------------------------------------------------------
-google-auth==2.57.1
+google-auth==2.58.0
 
 # Not directly required, pinned by Snyk to avoid a vulnerability
 # Duplicated accross requirements files due to Snyk not understanding requirements inheritance
