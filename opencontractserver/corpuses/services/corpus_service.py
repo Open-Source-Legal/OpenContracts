@@ -386,7 +386,13 @@ class CorpusService(BaseService):
 
     @classmethod
     def count_annotations_missing_embeddings(
-        cls, corpus: Corpus, embedder_path: str
+        cls,
+        corpus: Corpus,
+        embedder_path: str,
+        *,
+        dimension=None,
+        configuration=None,
+        annotations=None,
     ) -> int:
         """How many of ``corpus``'s annotations lack ``embedder_path`` vectors.
 
@@ -413,13 +419,20 @@ class CorpusService(BaseService):
 
         from opencontractserver.annotations.models import Embedding
 
-        embeddable = cls.annotations_in_corpus(corpus).exclude(
-            Q(raw_text__isnull=True) | Q(raw_text__regex=r"^\s*$")
-        )
-        embedded = Embedding.objects.filter(
+        embeddable = (
+            cls.annotations_in_corpus(corpus) if annotations is None else annotations
+        ).exclude(Q(raw_text__isnull=True) | Q(raw_text__regex=r"^\s*$"))
+        embeddings = Embedding.objects.filter(
             annotation_id__in=embeddable.values_list("id", flat=True),
             embedder_path=embedder_path,
-        ).values_list("annotation_id", flat=True)
+        )
+        if dimension is not None:
+            from opencontractserver.utils.embedding_identity import valid_embeddings
+
+            embeddings = valid_embeddings(embedder_path, dimension, configuration)
+        embedded = embeddings.filter(annotation_id__isnull=False).values_list(
+            "annotation_id", flat=True
+        )
         return embeddable.exclude(id__in=embedded).count()
 
     @classmethod

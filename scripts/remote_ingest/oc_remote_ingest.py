@@ -387,6 +387,7 @@ class Config:
     embedding_dimension: int = 384
     parser_identity: str | None = None
     json_output: bool = False
+    readiness: bool = False
 
 
 class TargetClient:
@@ -531,6 +532,23 @@ class TargetClient:
             or not isinstance(body.get("error_message", ""), str)
         ):
             raise StatusPollError("Invalid status response: receipt identity or state")
+        return body
+
+    def readiness_status(self, upload_id: str) -> dict:
+        body = self._status_json(
+            f"{self.base}/api/readiness/worker/{upload_id}/",
+            _HTTP_STATUS_TIMEOUT_SECONDS,
+        )
+        if (
+            body.get("schema_version") != 1
+            or body.get("upload_id") != upload_id
+            or body.get("state")
+            not in ("ready", "outstanding", "failed", "unavailable")
+            or (body.get("state") == "ready" and not body.get("generation"))
+        ):
+            raise StatusPollError(
+                "Invalid readiness response: identity, generation or state"
+            )
         return body
 
     def backlog_count(self) -> int:
@@ -808,6 +826,7 @@ def _compute_embeddings(
         )
     payload = {
         "embedder_path": embedder_path,
+        "model_identity": embedder.identity,
         "document_embedding": doc_vec,
         "annotation_embeddings": dict(zip(ann_ids, vecs)),
     }
@@ -1247,6 +1266,7 @@ def cmd_verify(cfg: Config) -> int:
     client = TargetClient(cfg)
     reasons: Counter[str] = Counter()
     unavailable = 0
+    readiness_code = VERIFY_COMPLETE
     for row in ledger.all_docs(cfg.ledger_page_size):
         receipt_status = None
         poll_error = None
@@ -1278,6 +1298,26 @@ def cmd_verify(cfg: Config) -> int:
             detail = str(poll_error)
         elif receipt_status in ("PENDING", "PROCESSING"):
             reason = f"receipt_{receipt_status.lower()}"
+        readiness = None
+        if cfg.readiness and code == VERIFY_COMPLETE:
+            try:
+                if not row["upload_id"]:
+                    raise StatusPollError(
+                        "Completed row has no receipt", reason="missing_receipt"
+                    )
+                readiness = client.readiness_status(row["upload_id"])
+                code = {
+                    "ready": VERIFY_COMPLETE,
+                    "outstanding": VERIFY_OUTSTANDING,
+                    "failed": VERIFY_FAILED,
+                    "unavailable": VERIFY_UNAVAILABLE,
+                }[readiness["state"]]
+                reason = f"readiness_{readiness['state']}"
+                detail = readiness.get("reasons", [])
+            except StatusPollError as exc:
+                poll_error = exc
+                code, reason, detail = VERIFY_UNAVAILABLE, exc.reason, str(exc)
+            readiness_code = max(readiness_code, code)
         unavailable += int(code == VERIFY_UNAVAILABLE)
         reasons[reason] += 1
         record = {
@@ -1291,6 +1331,8 @@ def cmd_verify(cfg: Config) -> int:
             "detail": detail,
             "http_status": poll_error.http_status if poll_error else None,
         }
+        if cfg.readiness:
+            record["readiness"] = readiness
         if cfg.json_output:
             print(json.dumps(record, ensure_ascii=True))
         elif code != VERIFY_COMPLETE:
@@ -1303,6 +1345,7 @@ def cmd_verify(cfg: Config) -> int:
         (_verification_state(status)[0] for status in counts),
         default=VERIFY_COMPLETE,
     )
+    code = max(code, readiness_code)
     if unavailable:
         code = VERIFY_UNAVAILABLE
     total = sum(counts.values())
@@ -1316,7 +1359,9 @@ def cmd_verify(cfg: Config) -> int:
         "type": "summary",
         "schema_version": VERIFY_SCHEMA_VERSION,
         "scope": "whole_ledger",
-        "completion_boundary": "worker_upload_transaction",
+        "completion_boundary": (
+            "search_readiness" if cfg.readiness else "worker_upload_transaction"
+        ),
         "outcome": outcome,
         "exit_code": code,
         "total": total,
@@ -1419,6 +1464,7 @@ def _build_config(args: argparse.Namespace) -> Config:
         embedding_dimension=args.embedding_dimension,
         parser_identity=args.parser_identity or os.environ.get("OC_PARSER_IDENTITY"),
         json_output=args.json,
+        readiness=args.readiness,
     )
 
 
@@ -1531,6 +1577,11 @@ def main(argv: list[str] | None = None) -> int:
         help="Stream verify document results and a final summary as JSON Lines",
     )
     p.add_argument("-v", "--verbose", action="store_true")
+    p.add_argument(
+        "--readiness",
+        action="store_true",
+        help="Verify current server search readiness in addition to upload receipts",
+    )
     p.add_argument("command", choices=["plan", "run", "verify", "status", "cleanup"])
     args = p.parse_args(argv)
 
@@ -1539,6 +1590,8 @@ def main(argv: list[str] | None = None) -> int:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
 
+    if args.readiness and args.command != "verify":
+        p.error("--readiness is supported only by verify")
     if args.json and args.command != "verify":
         p.error("--json is supported only by verify")
     cfg = _build_config(args)

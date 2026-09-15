@@ -79,6 +79,68 @@ class VerificationTests(unittest.TestCase):
         self.assertEqual(summary["scope"], "whole_ledger")
         self.get.assert_not_called()
 
+    def test_readiness_mode_rechecks_completed_receipts_without_rewriting_ledger(self):
+        self.cfg.readiness = True
+        self.add("old.txt", cli.COMPLETED, "receipt")
+        before = dict(self.ledger.get_doc("old.txt"))
+        for state, expected in (("outstanding", 1), ("failed", 2), ("ready", 0)):
+            with self.subTest(state=state):
+                self.get.return_value = Mock(
+                    status_code=200,
+                    json=Mock(
+                        return_value={
+                            "schema_version": 1,
+                            "upload_id": "receipt",
+                            "state": state,
+                            "generation": "a" * 64,
+                            "reasons": [],
+                        }
+                    ),
+                )
+                code, records, summary = self.verify()
+                self.assertEqual(code, expected)
+                self.assertEqual(records[0]["readiness"]["state"], state)
+                self.assertEqual(summary["completion_boundary"], "search_readiness")
+                self.assertEqual(dict(self.ledger.get_doc("old.txt")), before)
+        self.assertEqual(self.get.call_count, 3)
+        self.assertTrue(
+            self.get.call_args.args[0].endswith("/api/readiness/worker/receipt/")
+        )
+
+    def test_readiness_unavailable_does_not_turn_completed_receipt_into_failure(self):
+        self.cfg.readiness = True
+        self.add("old.txt", cli.COMPLETED, "receipt")
+        before = dict(self.ledger.get_doc("old.txt"))
+        self.get.return_value = Mock(status_code=404)
+        code, records, summary = self.verify()
+        self.assertEqual(code, cli.VERIFY_UNAVAILABLE)
+        self.assertEqual(summary["unavailable"], 1)
+        self.assertIsNone(records[0]["readiness"])
+        self.assertEqual(dict(self.ledger.get_doc("old.txt")), before)
+
+    def test_readiness_response_requires_matching_receipt_and_generation(self):
+        self.cfg.readiness = True
+        self.add("old.txt", cli.COMPLETED, "receipt")
+        for fields in (
+            {"upload_id": "other"},
+            {"generation": None},
+            {"state": "completed"},
+        ):
+            with self.subTest(fields=fields):
+                self.get.return_value = Mock(
+                    status_code=200,
+                    json=Mock(
+                        return_value={
+                            "schema_version": 1,
+                            "upload_id": "receipt",
+                            "state": "ready",
+                            "generation": "a" * 64,
+                            **fields,
+                        }
+                    ),
+                )
+                self.assertEqual(self.verify()[0], cli.VERIFY_UNAVAILABLE)
+
     def test_completed_receipt_establishes_only_worker_transaction_completion(self):
         self.add("new.txt", cli.UPLOADED, "receipt")
         self.add("old.txt", cli.COMPLETED, "old-receipt")

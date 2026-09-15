@@ -182,7 +182,7 @@ class HasEmbeddingMixin:
         )
 
     def add_embedding(
-        self, embedder_path: str, vector: list[float] | None
+        self, embedder_path: str, vector: list[float] | None, *, configuration: str = ""
     ) -> Optional[Any]:
         """
         Creates or updates an Embedding for this object (Document, Annotation, Note, etc.)
@@ -210,6 +210,7 @@ class HasEmbeddingMixin:
             dimension=dimension,
             vector=vector,
             embedder_path=embedder_path,
+            configuration=configuration,
             **kwargs,
         )
 

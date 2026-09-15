@@ -344,6 +344,7 @@ def _process_single_upload(upload_id: UUID) -> None:
             # Mark as already processed — worker did the processing
             "processing_started": timezone.now(),
             "processing_status": DocumentProcessingStatus.COMPLETED,
+            "processing_finished": timezone.now(),
         }
         if custom_meta is not None:
             create_kwargs["custom_meta"] = custom_meta
@@ -568,6 +569,23 @@ def _store_embeddings(
         logger.warning("embeddings.embedder_path is empty, skipping embedding storage.")
         return
 
+    # A worker's model revision must match an operator-configured revision.
+    # Legacy/unidentified vectors remain usable by existing search, but cannot
+    # establish readiness until their provenance is verified or repaired.
+    configuration = ""
+    revision = getattr(settings, "EMBEDDING_MODEL_REVISIONS", {}).get(embedder_path)
+    if revision and embeddings_data.get("model_identity") == revision:
+        from opencontractserver.documents.readiness import effective_embedder
+
+        try:
+            path, _dimension, fingerprint = effective_embedder(path=embedder_path)
+            if path == embedder_path:
+                configuration = fingerprint
+        except Exception:
+            # Provenance is optional for receipt completion. Keep the vectors
+            # unverified when the server cannot assess their configuration.
+            logger.warning("Worker embedding provenance unavailable", exc_info=True)
+
     # Document embedding
     doc_embedding = embeddings_data.get("document_embedding")
     if doc_embedding:
@@ -576,6 +594,7 @@ def _store_embeddings(
             embedder_path=embedder_path,
             document=corpus_doc,
             creator=user,
+            configuration=configuration,
         )
 
     # Annotation embeddings
@@ -604,6 +623,7 @@ def _store_embeddings(
         emb = Embedding(
             annotation_id=new_pk,
             embedder_path=embedder_path,
+            configuration=configuration,
             creator_id=user.id,
         )
         setattr(emb, field_name, vector)
@@ -623,6 +643,7 @@ def _store_single_embedding(
     document: Any = None,
     annotation: Any = None,
     creator: Any = None,
+    configuration: str = "",
 ) -> Embedding | None:
     """Store a single embedding, determining the correct vector field by dimension."""
     field_name = _get_vector_field(len(vector))
@@ -630,7 +651,7 @@ def _store_single_embedding(
         logger.warning(f"Unsupported embedding dimension {len(vector)}, skipping.")
         return None
 
-    defaults = {field_name: vector}
+    defaults = {field_name: vector, "configuration": configuration}
     if creator is not None:
         defaults["creator"] = creator
 

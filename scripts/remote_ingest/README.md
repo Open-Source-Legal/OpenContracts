@@ -246,6 +246,46 @@ relationships, supplied embeddings, structural set and metadata writes. Thumbnai
 generation, independently queued document embedding, indexing and search readiness
 are asynchronous and are **not** established by the receipt or its `document_id`.
 
+### Search readiness and targeted repair
+
+Use `verify --readiness --json` to additionally assess each completed receipt's
+current parsing, annotation remapping and embedding coverage. It rechecks earlier
+completed receipts on every invocation. Exit codes remain 0 (ready), 1 (outstanding),
+2 (failed), and 3 (unavailable); the summary boundary is `search_readiness`.
+Readiness observations never rewrite a completed receipt's ledger state.
+
+The server exposes these authenticated endpoints:
+
+| Endpoint under `/api/readiness/` | Authorization | Methods |
+| --- | --- | --- |
+| `documents/<id>/` | Document READ and, when linked, corpus READ | GET status; POST repair additionally requires UPDATE on both |
+| `corpuses/<id>/` | Corpus READ; only readable documents are returned | GET document page |
+| `worker/<upload-uuid>/` | The WorkerKey that owns the receipt | GET status; POST repair |
+| `worker/` | WorkerKey | GET document page for that token's receipts |
+
+Status includes `state`, diagnostic `reasons`, required stages, eligible/valid
+document and annotation counts, the active embedder path/dimension/configuration,
+and a processing/configuration `generation`. Thumbnails are optional. Corpus
+responses cover a **document page**, not a whole-corpus snapshot: follow `next_after`
+with `?after=<id>`. `limit` defaults to 20 and cannot exceed 100. Text inspection is
+capped at 16 MiB per document; inaccessible or larger artifacts are unavailable.
+
+POST queues at most 100 missing/invalid vectors, including the document vector.
+Poll GET for the persisted repair `status`, `attempted`, `succeeded`, `failed`, and
+`errors`; after a completed batch, POST again if coverage is still outstanding.
+Queued/running requests reuse the same batch. Repairs serialize shared structural
+sets and recheck coverage, preserving valid vectors and parsed files. Failed or
+stalled batches (15 minutes without completion) can be requested again. A completed
+batch alone does not establish readiness; every required check must pass.
+
+New server-generated vectors record their model/settings fingerprint. Legacy
+vectors without provenance remain available to existing search but require repair
+to establish readiness. For remote precomputed vectors, configure the server's
+`EMBEDDING_MODEL_REVISIONS` JSON map from embedder class path to deployed model
+revision, and pass the same revision as the worker's `--embedding-identity`.
+Bump that revision whenever a service changes its model in place. Unknown or
+mismatched identities and wrong dimensions cannot establish readiness.
+
 ### Bounded traversal and resume
 
 `plan` walks depth-first in filesystem order, yielding files without collecting

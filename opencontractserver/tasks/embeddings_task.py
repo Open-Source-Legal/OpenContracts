@@ -25,6 +25,7 @@ from opencontractserver.pipeline.utils import (
 )
 from opencontractserver.shared.mixins import HasEmbeddingMixin
 from opencontractserver.types.enums import ContentModality
+from opencontractserver.utils.embedding_identity import embedding_configuration
 from opencontractserver.utils.embeddings import (
     RELATIONSHIP_SOURCE_TEXT_PREFETCH_ATTR,
     RELATIONSHIP_TARGET_TEXT_PREFETCH_ATTR,
@@ -79,7 +80,9 @@ def _create_text_embedding(
         return False
 
     # Store the embedding - add_embedding handles duplicates via store_embedding
-    embedding = obj.add_embedding(embedder_path, vector)
+    embedding = obj.add_embedding(
+        embedder_path, vector, configuration=embedding_configuration(embedder)
+    )
 
     if embedding:
         logger.info(
@@ -140,7 +143,9 @@ def _create_embedding_for_annotation(
             )
 
             # Store the embedding - add_embedding handles duplicates via store_embedding
-            embedding = annotation.add_embedding(embedder_path, vector)
+            embedding = annotation.add_embedding(
+                embedder_path, vector, configuration=embedding_configuration(embedder)
+            )
 
             if embedding:
                 logger.info(
@@ -309,7 +314,10 @@ def _apply_dual_embedding_strategy(
     retry_kwargs={"max_retries": 3, "countdown": 60},
 )
 def calculate_embedding_for_doc_text(
-    self, doc_id: Union[str, int], corpus_id: Optional[Union[str, int]] = None
+    self,
+    doc_id: Union[str, int],
+    corpus_id: Optional[Union[str, int]] = None,
+    embedder_path: Optional[str] = None,
 ) -> None:
     """
     Calculate embeddings for the text extracted from a document.
@@ -338,6 +346,12 @@ def calculate_embedding_for_doc_text(
             return _create_text_embedding(
                 obj, embedder, embedder_path, text, "document", doc.id
             )
+
+        if embedder_path:
+            embedder = get_component_by_name(embedder_path)()
+            if not doc_embed_func(doc, embedder, embedder_path):
+                raise EmbeddingGenerationError("Document embedding failed")
+            return
 
         _apply_dual_embedding_strategy(
             obj=doc,
@@ -691,7 +705,11 @@ def _batch_embed_items(
                     )
                     continue
                 try:
-                    embedding = obj.add_embedding(embedder_path, vector)
+                    embedding = obj.add_embedding(
+                        embedder_path,
+                        vector,
+                        configuration=embedding_configuration(embedder),
+                    )
                     if embedding:
                         result["succeeded"] += 1
                     else:

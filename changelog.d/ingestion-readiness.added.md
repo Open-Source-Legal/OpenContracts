@@ -1,0 +1,1 @@
+- Add authorized document and corpus-page search readiness, configuration-aware embedding coverage, bounded targeted repair with persisted results, and remote-worker `verify --readiness`. Corpus copies now inherit completed processing state.

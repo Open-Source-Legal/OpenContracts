@@ -994,8 +994,11 @@ class Corpus(InstanceUserCanMixin, TreeNode):
                 creator=user,  # type: ignore[misc]
                 # CRITICAL: Set processing_started to prevent ingest signal from firing
                 # Corpus copies share parsing artifacts - they don't need re-parsing
-                processing_started=timezone.now(),
-                backend_lock=False,  # Already processed, not locked
+                processing_started=document.processing_started or timezone.now(),
+                processing_finished=document.processing_finished,
+                processing_status=document.processing_status,
+                processing_error=document.processing_error,
+                backend_lock=False,  # Parsing artifacts are shared
                 **{
                     k: v
                     for k, v in doc_kwargs.items()

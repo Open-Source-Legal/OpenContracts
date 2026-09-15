@@ -926,6 +926,10 @@ CELERY_BEAT_SCHEDULE = {
 # Documents per batch when draining the staging table
 WORKER_UPLOAD_BATCH_SIZE = int(env("WORKER_UPLOAD_BATCH_SIZE", default="50"))
 
+# Deployed model revisions for services whose URL/class can stay unchanged.
+# Included in readiness provenance; remote workers supply the matching identity.
+EMBEDDING_MODEL_REVISIONS = env.json("EMBEDDING_MODEL_REVISIONS", default={})
+
 # Authority-section batches drained per process_pending_section_batches run.
 # Deliberately far smaller than WORKER_UPLOAD_BATCH_SIZE because the unit of
 # work is much coarser — one batch can carry hundreds of sections. The task

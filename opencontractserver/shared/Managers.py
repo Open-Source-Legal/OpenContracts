@@ -1363,6 +1363,7 @@ class EmbeddingManager(BaseVisibilityManager):
         dimension: int,
         vector: list[float],
         embedder_path: str,
+        configuration: str = "",
         document_id: int | None = None,
         annotation_id: int | None = None,
         note_id: int | None = None,
@@ -1407,6 +1408,17 @@ class EmbeddingManager(BaseVisibilityManager):
             )
 
         field_name = self._get_vector_field_name(dimension)
+        vector_values: dict[str, Any] = {field_name: vector}
+        if configuration:
+            from opencontractserver.constants.search import DIM_TO_FIELD_MAP
+
+            # A fingerprint identifies ONE dimension/model. Do not relabel an
+            # older dimension's vector with the provenance of a new result.
+            vector_values = {
+                field: vector if field == field_name else None
+                for field in DIM_TO_FIELD_MAP.values()
+            }
+        updates = {**vector_values, "configuration": configuration}
 
         # Build lookup kwargs for the unique constraint
         lookup = {
@@ -1424,8 +1436,9 @@ class EmbeddingManager(BaseVisibilityManager):
         embedding = self.filter(**lookup).first()
 
         if embedding:
-            setattr(embedding, field_name, vector)
-            embedding.save(update_fields=[field_name, "modified"])
+            for field, value in updates.items():
+                setattr(embedding, field, value)
+            embedding.save(update_fields=[*updates, "modified"])
             return embedding
 
         # Try to create a new embedding. If a race condition causes a constraint
@@ -1435,7 +1448,7 @@ class EmbeddingManager(BaseVisibilityManager):
             return self.create(
                 creator=creator,
                 **lookup,
-                **{field_name: vector},
+                **updates,
             )
         except IntegrityError:
             # Race condition: another worker created the embedding first.
@@ -1445,6 +1458,7 @@ class EmbeddingManager(BaseVisibilityManager):
                 f"by another worker. Fetching and updating instead."
             )
             embedding = self.get(**lookup)
-            setattr(embedding, field_name, vector)
-            embedding.save(update_fields=[field_name, "modified"])
+            for field, value in updates.items():
+                setattr(embedding, field, value)
+            embedding.save(update_fields=[*updates, "modified"])
             return embedding
