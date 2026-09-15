@@ -28,6 +28,7 @@ from opencontractserver.pipeline.utils import get_component_by_name
 from opencontractserver.shared.services.base import BaseService
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.utils.embedding_identity import (
+    embeddable_annotations,
     embedding_configuration,
     valid_embeddings,
 )
@@ -95,9 +96,7 @@ def document_annotations(document, corpus=None):
         if corpus
         else Annotation.objects.all()
     )
-    return annotations.filter(scope).exclude(
-        Q(raw_text__isnull=True) | Q(raw_text__regex=r"^\s*$")
-    )
+    return embeddable_annotations(annotations.filter(scope))
 
 
 def document_has_text(document):
@@ -240,7 +239,9 @@ def assess_document(document, corpus=None, *, embedder=None):
         # changes are not re-checked here: the generation already carries the
         # configuration, so the next observation reports a new generation and
         # a queued repair refuses to run against the old one.
-        fresh = Document.objects.get(pk=document.pk)
+        fresh = Document.objects.filter(pk=document.pk).first()
+        if fresh is None:
+            raise ReadinessUnavailable("document_deleted")
         if generation(fresh, configuration) != result["generation"]:
             result["state"] = "unavailable"
             reasons.append("generation_changed")
@@ -288,7 +289,10 @@ def request_repair(document, corpus=None, *, user, token=None):
     from opencontractserver.tasks.readiness_tasks import repair_document_embeddings
 
     with transaction.atomic():
-        document = Document.objects.select_for_update().get(pk=document.pk)
+        locked = Document.objects.select_for_update().filter(pk=document.pk).first()
+        if locked is None:
+            return unavailable(document, corpus, "document_deleted")
+        document = locked
         if not repair_authorized(document, corpus, user, token):
             raise PermissionError("Repair is not authorized")
         assessment = assess_document(document, corpus)

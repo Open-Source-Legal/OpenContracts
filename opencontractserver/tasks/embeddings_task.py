@@ -564,6 +564,7 @@ def _batch_embed_items(
     if not items:
         return
 
+    configuration = embedding_configuration(embedder)
     # Carve into sub-batches up front so we can fan them out concurrently.
     chunks: list[list[tuple[Any, str]]] = [
         items[i : i + api_batch_size] for i in range(0, len(items), api_batch_size)
@@ -708,7 +709,7 @@ def _batch_embed_items(
                     embedding = obj.add_embedding(
                         embedder_path,
                         vector,
-                        configuration=embedding_configuration(embedder),
+                        configuration=configuration,
                     )
                     if embedding:
                         result["succeeded"] += 1

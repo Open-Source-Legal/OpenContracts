@@ -271,7 +271,7 @@ with `?after=<id>`. `limit` defaults to 20 and cannot exceed 100. The embedder i
 resolved once per page, and a document whose assessment fails is reported
 `unavailable` with reason `assessment_failed` without failing the page. Text
 inspection is capped at 16 MiB per document; inaccessible or larger artifacts are
-unavailable.
+unavailable. A document deleted during assessment reports `document_deleted`.
 
 POST queues at most 100 missing/invalid vectors, including the document vector.
 Poll GET for the persisted repair `status`, `attempted`, `succeeded`, `failed`, and

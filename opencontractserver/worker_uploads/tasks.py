@@ -24,15 +24,11 @@ from django.core.files.base import ContentFile, File
 from django.db import transaction
 from django.utils import timezone
 
-from opencontractserver.annotations.models import (
-    EMBEDDING_DIMENSIONS,
-    Annotation,
-    AnnotationLabel,
-    Embedding,
-)
+from opencontractserver.annotations.models import Annotation, AnnotationLabel, Embedding
 from opencontractserver.constants.document_processing import (
     MAX_UPLOAD_ERROR_MESSAGE_LENGTH,
 )
+from opencontractserver.constants.search import DIM_TO_FIELD_MAP
 from opencontractserver.corpuses.models import CorpusFolder
 from opencontractserver.documents.models import (
     Document,
@@ -61,17 +57,6 @@ logger = logging.getLogger(__name__)
 
 # Maximum length for sanitized filenames
 _MAX_FILENAME_LENGTH = 200
-
-# Dimension -> field name mapping, derived from the Embedding model's
-# authoritative EMBEDDING_DIMENSIONS list so new dimensions propagate automatically.
-_VECTOR_FIELD_MAP = {dim: f"vector_{dim}" for dim, _ in EMBEDDING_DIMENSIONS}
-
-# Validate that every entry in _VECTOR_FIELD_MAP corresponds to an actual
-# Embedding model field. Catches dimension/field mismatches at import time
-# rather than silently dropping embeddings at runtime.
-assert all(
-    hasattr(Embedding, f) for f in _VECTOR_FIELD_MAP.values()
-), "EMBEDDING_DIMENSIONS has entries without matching Embedding model fields"
 
 
 @shared_task(
@@ -591,7 +576,7 @@ def _store_embeddings(
     # vectors labelled with one configuration.
     doc_embedding = embeddings_data.get("document_embedding")
     if doc_embedding:
-        if _get_vector_field(len(doc_embedding)):
+        if len(doc_embedding) in DIM_TO_FIELD_MAP:
             Embedding.objects.store_embedding(
                 creator=user,
                 dimension=len(doc_embedding),
@@ -620,7 +605,7 @@ def _store_embeddings(
             )
             continue
 
-        field_name = _get_vector_field(len(vector))
+        field_name = DIM_TO_FIELD_MAP.get(len(vector))
         if not field_name:
             logger.warning(
                 f"Unsupported embedding dimension {len(vector)} for annotation "
@@ -643,11 +628,6 @@ def _store_embeddings(
             f"Stored {len(embeddings_to_create)} annotation embeddings "
             f"(embedder={embedder_path})"
         )
-
-
-def _get_vector_field(dimension: int) -> str | None:
-    """Map an embedding dimension to the corresponding Embedding model field."""
-    return _VECTOR_FIELD_MAP.get(dimension)
 
 
 def _fail_upload(upload_id: UUID, error_message: str) -> None:

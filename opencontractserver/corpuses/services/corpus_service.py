@@ -415,13 +415,12 @@ class CorpusService(BaseService):
         The match is a whitespace regex rather than ``Trim``: SQL ``TRIM``
         strips spaces only, which would leave the form-feed rows counted.
         """
-        from django.db.models import Q
-
         from opencontractserver.annotations.models import Embedding
+        from opencontractserver.utils.embedding_identity import embeddable_annotations
 
-        embeddable = (
+        embeddable = embeddable_annotations(
             cls.annotations_in_corpus(corpus) if annotations is None else annotations
-        ).exclude(Q(raw_text__isnull=True) | Q(raw_text__regex=r"^\s*$"))
+        )
         embeddings = Embedding.objects.filter(
             annotation_id__in=embeddable.values_list("id", flat=True),
             embedder_path=embedder_path,

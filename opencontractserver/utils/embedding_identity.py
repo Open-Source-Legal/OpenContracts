@@ -44,9 +44,8 @@ def valid_embeddings(path, dimension, configuration):
     from opencontractserver.annotations.models import Embedding
     from opencontractserver.constants.search import DIM_TO_FIELD_MAP
 
-    if configuration is None:
-        # The column is non-null with "" for unverified vectors; a None filter
-        # would become IS NULL and silently match nothing.
+    if not configuration:
+        # Empty fingerprints represent unverified vectors, never readiness.
         raise ValueError("valid_embeddings requires a configuration fingerprint")
     field = DIM_TO_FIELD_MAP[dimension]
     return (
@@ -60,3 +59,10 @@ def valid_embeddings(path, dimension, configuration):
         )
         .filter(_norm__gt=0)
     )
+
+
+def embeddable_annotations(annotations):
+    """Exclude empty text, including tabs and form feeds that SQL TRIM leaves."""
+    from django.db.models import Q
+
+    return annotations.exclude(Q(raw_text__isnull=True) | Q(raw_text__regex=r"^\s*$"))

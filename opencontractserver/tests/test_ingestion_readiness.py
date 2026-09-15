@@ -35,7 +35,10 @@ from opencontractserver.documents.readiness import (
 )
 from opencontractserver.pipeline.embedders.test_embedder import TestEmbedder
 from opencontractserver.tasks.readiness_tasks import repair_document_embeddings
-from opencontractserver.utils.embedding_identity import valid_embeddings
+from opencontractserver.utils.embedding_identity import (
+    embedding_configuration,
+    valid_embeddings,
+)
 from opencontractserver.worker_uploads.models import (
     CorpusAccessToken,
     WorkerAccount,
@@ -102,6 +105,86 @@ class ReadinessFixtures(SimpleTestCase):
 
 
 class ReadinessTests(ReadinessFixtures, TestCase):
+    def test_deleted_document_is_unavailable_during_status_and_repair(self):
+        client = APIClient()
+        client.force_authenticate(self.user)
+
+        def delete_during_observation(document):
+            DocumentPath.objects.filter(document=document).delete()
+            Document.objects.filter(pk=document.pk).delete()
+            return True
+
+        with patch(
+            "opencontractserver.documents.readiness.document_has_text",
+            side_effect=delete_during_observation,
+        ):
+            response = client.get(f"/api/readiness/documents/{self.doc.pk}/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["state"], "unavailable")
+        self.assertIn("document_deleted", response.data["reasons"])
+        result = request_repair(self.doc, self.corpus, user=self.user)
+        self.assertEqual(result["reasons"], ["document_deleted"])
+        self.assertFalse(EmbeddingRepair.objects.exists())
+
+    def test_settings_save_invalidates_cached_embedder_before_repair(self):
+        self.embed(self.doc)
+        self.embed(self.annotation)
+        Annotation.objects.create(
+            document=self.doc,
+            corpus=self.corpus,
+            creator=self.user,
+            raw_text="Second clause",
+        )
+        # Warm the cache used by the embedding tasks, then edit settings through
+        # the normal write path while that cached snapshot is still live.
+        pipeline = PipelineSettings.get_instance()
+        pipeline.component_settings = {EMBEDDER: {"model": "new-model"}}
+        pipeline.save()
+        with patch(
+            "opencontractserver.tasks.embeddings_task.embedding_configuration",
+            wraps=embedding_configuration,
+        ) as fingerprint:
+            result = self.repair()
+        self.assertEqual(result["state"], "ready")
+        self.assertEqual(result["repair"]["succeeded"], 3)
+        # One fingerprint for the document and one for the annotation batch.
+        self.assertEqual(fingerprint.call_count, 2)
+
+    def test_unverified_update_invalidates_siblings_and_preserves_creator(self):
+        original = self.embed(self.doc)
+        updater = get_user_model().objects.create_user(username="embedding-updater")
+        updated = Embedding.objects.store_embedding(
+            creator=updater,
+            document_id=self.doc.pk,
+            embedder_path=EMBEDDER,
+            dimension=768,
+            vector=[0.2] * 768,
+        )
+        self.assertEqual(updated.pk, original.pk)
+        self.assertEqual(updated.creator_id, self.user.pk)
+        self.assertEqual(updated.configuration, "")
+        # Legacy multi-dimension storage remains supported, but no dimension
+        # with an unverified fingerprint can establish readiness.
+        self.assertIsNotNone(updated.vector_384)
+        self.assertIsNotNone(updated.vector_768)
+        result = assess_document(self.doc, self.corpus)
+        self.assertEqual(result["coverage"]["documents"]["valid"], 0)
+        self.assertEqual(result["state"], "outstanding")
+
+    def test_copy_preserves_failed_terminal_processing_state(self):
+        self.doc.processing_status = "failed"
+        self.doc.processing_error = "Parser failed"
+        self.doc.save(update_fields=["processing_status", "processing_error"])
+        copy, _, _ = self.corpus.add_document(document=self.doc, user=self.user)
+        for field in (
+            "processing_started",
+            "processing_finished",
+            "processing_status",
+            "processing_error",
+        ):
+            self.assertEqual(getattr(copy, field), getattr(self.doc, field))
+        self.assertEqual(assess_document(copy, self.corpus)["state"], "failed")
+
     def test_deferred_annotations_gate_readiness_even_with_complete_vectors(self):
         self.embed(self.doc)
         self.embed(self.annotation)
@@ -636,17 +719,17 @@ class ReadinessTests(ReadinessFixtures, TestCase):
             path="/copy",
             version_number=1,
         )
-        real = readiness.assess_document
+        real = readiness.document_has_text
 
-        def explode(document, corpus, *, embedder=None):
+        def explode(document):
             if document.pk == copy.pk:
                 raise RuntimeError("boom")
-            return real(document, corpus, embedder=embedder)
+            return real(document)
 
         client = APIClient()
         client.force_authenticate(self.user)
         with patch.object(
-            readiness, "assess_document", side_effect=explode
+            readiness, "document_has_text", side_effect=explode
         ), patch.object(
             readiness, "effective_embedder", wraps=effective_embedder
         ) as resolve:
@@ -669,8 +752,11 @@ class ReadinessTests(ReadinessFixtures, TestCase):
         )
 
     def test_validity_filter_requires_a_configuration_fingerprint(self):
-        with self.assertRaises(ValueError):
-            valid_embeddings(EMBEDDER, 384, None)
+        for configuration in (None, ""):
+            with self.subTest(configuration=configuration), self.assertRaises(
+                ValueError
+            ):
+                valid_embeddings(EMBEDDER, 384, configuration)
 
 
 class ConcurrentRepairTests(ReadinessFixtures, TransactionTestCase):
