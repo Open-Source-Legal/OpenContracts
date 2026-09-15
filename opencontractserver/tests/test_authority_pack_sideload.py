@@ -166,6 +166,7 @@ class AuthorityPackPreflightCommandTests(TestCase):
     def setUp(self):
         self.operator = User.objects.create_user(
             username="sideload-operator",
+            is_superuser=True,
             is_usage_capped=False,
         )
 

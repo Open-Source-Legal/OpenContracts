@@ -25,11 +25,17 @@ from django.core.management.base import CommandError
 from django.test import TestCase, override_settings
 
 from opencontractserver.agents.models import AgentConfiguration
-from opencontractserver.annotations.models import AuthorityKeyEquivalence
+from opencontractserver.annotations.models import (
+    AuthorityKeyEquivalence,
+    AuthorityPackActivation,
+)
 from opencontractserver.corpuses.management.commands.install_domain_pack import (
     Command as DomainPackCommand,
 )
 from opencontractserver.corpuses.models import Corpus, CorpusGroup
+from opencontractserver.enrichment.services.authority_pack_artifacts import (
+    materialize_artifact,
+)
 
 User = get_user_model()
 
@@ -42,7 +48,10 @@ class DomainPackInstallTests(TestCase):
         # group member, and the default per-user document cap (10) would trip
         # first — a fixture artefact unrelated to any assertion under test.
         self.owner = User.objects.create_user(
-            username="domainowner", password="p", is_usage_capped=False
+            username="domainowner",
+            password="p",
+            is_usage_capped=False,
+            is_superuser=True,
         )
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
@@ -373,28 +382,12 @@ class DomainPackInstallTests(TestCase):
         )
 
     # ---- installing a base pack is more than loading it ----------------- #
-    def test_base_packs_are_materialised_into_the_install_dir(self):
-        """A domain install must INSTALL its base packs, not merely load them.
-
-        Loading writes the sections and the taxonomy to the database. But three
-        things are read from the pack DIRECTORY at runtime, not from the
-        database — ``source_hosts`` (unioned into the SSRF allowlist),
-        ``shape_rules``/``abbreviations`` (the pack's citation vocabulary), and
-        in-pack provider modules. The install dir is an implicit discovery root
-        (``pipeline.registry.authority_pack_dirs``).
-
-        Loading straight from the extraction temp dir therefore produced a pack
-        that looked fully installed and had silently lost all three, with
-        nothing failing at install time. Asserting on the database alone cannot
-        see it, so this asserts on the filesystem.
-        """
+    def test_base_packs_remain_discoverable_through_persisted_artifacts(self):
         self._run(self._standard_registry())
-        landed = self.install_dir / "alpha"
-        self.assertTrue(
-            (landed / "pack.yaml").is_file(),
-            "required base pack must be discoverable after install, not left "
-            "in a temporary directory that is deleted on exit",
-        )
+        artifact = AuthorityPackActivation.objects.get(pack_id="alpha").active_artifact
+        assert artifact is not None
+        landed = materialize_artifact(artifact)
+        self.assertTrue((landed / "pack.yaml").is_file())
         self.assertTrue((landed / "specs" / "alpha-one.json").is_file())
 
     def test_wiring_still_reads_pack_files_after_they_are_moved(self):
@@ -983,8 +976,10 @@ class DomainPackInstallTests(TestCase):
         self.assertIn("installs converge", message)
         self.assertFalse(CorpusGroup.objects.filter(slug="test-group").exists())
         self.assertTrue(
-            (self.install_dir / "alpha").exists(),
-            "the pack that actually installed must stay in place",
+            AuthorityPackActivation.objects.filter(
+                pack_id="alpha", active_artifact__isnull=False
+            ).exists(),
+            "the pack that actually installed must remain active",
         )
         self.assertFalse(
             (self.install_dir / "beta").exists(),

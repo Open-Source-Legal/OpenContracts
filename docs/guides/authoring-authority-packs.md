@@ -440,15 +440,56 @@ docker compose -f local.yml run --rm django python manage.py \
 ```
 
 It downloads the registry tarball (`--repo`/`--ref` override
-`AUTHORITY_PACK_REGISTRY_URL` and the default `main`; `--tarball` skips the
-network entirely for air-gapped installs), extracts the one pack into
-`AUTHORITY_PACK_INSTALL_DIR` (an implicit bundle root, auto-discovered — no
-env-var wiring needed), and delegates validation + install to
-`load_authority_pack`. The install dir is a managed fetch cache: re-installing
-a pack replaces its directory, and deployments that recreate containers should
-volume-mount it (pack *content* persists in the database, but the grammar tier
-re-reads taxonomy extensions from disk at process start). The usual restart
-rule applies after install.
+`AUTHORITY_PACK_REGISTRY_URL`; `--tarball` supports air-gapped installs), validates
+it through `load_authority_pack`, and persists an immutable artifact using the
+application's default storage backend. The database records the active version,
+its fingerprint and the installed corpus IDs in the same transaction as content.
+
+`--fetch-only` keeps an inactive candidate under `AUTHORITY_PACK_INSTALL_DIR/.staged`.
+It can be reviewed in the catalog but does not activate providers or taxonomy.
+`--check` validates the temporary extraction without publishing anything.
+
+### Durable activation and migration from filesystem packs
+
+Web and worker processes observe the database's active version and automatically
+refresh provider discovery, grammar taxonomy and source hosts on subsequent use.
+`AUTHORITY_PACK_CACHE_DIR` holds expendable local extractions. It can be empty on
+restart: immutable archives are restored from shared application storage and
+checked against their digest. All processes must use the same database and
+storage backend. Existing provider instances and extractors finish their current
+operation; newly acquired instances use the active version.
+
+Existing `AUTHORITY_PACK_PATHS`, `AUTHORITY_PACK_ROOTS`, and legacy install-root
+packs remain supported. Migrate each by running `load_authority_pack --path ...
+--creator <authority-admin>` once. Thereafter the stored active artifact governs
+runtime discovery even if the original directory disappears or changes. A changed
+configured directory remains a candidate in the catalog for preflight and install.
+
+Each activation retains its prior artifacts. Content updates and the active pointer
+commit together; concurrent installs serialize per pack, and interrupted installs
+leave the prior version usable. The catalog exposes `activationStatus`,
+`activeVersion`, `activeFingerprint` and `activationError`.
+`authorityPackActivationStatus` also reports failed attempts whose original files
+are unavailable. Re-run a corrected install to clear its error. The original
+installing administrator remains the content owner across upgrades.
+
+Updates preserve curator-owned state. Removing previously declared corpus, seed,
+prefix or relationship identities requires an explicit content migration; the
+installer rejects such changes instead of presenting mixed versions as successful.
+Deleting a source directory does not deactivate a managed version. Deactivation
+and content removal require an explicit coordinated database/content migration.
+
+Only trusted server catalog entries and privileged command paths create artifacts;
+there is no arbitrary artifact-upload endpoint. Fingerprints include provider code
+and resources. `AUTHORITY_PACK_LOAD_PROVIDERS=False` still prevents importing pack
+Python, including restored artifacts; declarative sections and taxonomy work with
+that setting disabled.
+
+Both API and command installs require an authority administrator (`--creator`).
+Public installation, and changes to already-public pack content, require every
+charter to declare `approval_status: approved`. Private installation preserves
+unreviewed charters verbatim in the artifact. There is no publication override and
+installation never changes review status to approved.
 
 ### Installing several packs as one assembly (domain packs)
 
@@ -475,7 +516,7 @@ docker compose -f local.yml run --rm django python manage.py \
 ```
 
 It installs every required base pack exactly as `install_authority_pack` would
-— including materialising each into `AUTHORITY_PACK_INSTALL_DIR`, which the
+— including persisting and activating each artifact, which the
 runtime needs — then creates the group, the orchestrator and the cross-pack
 rows in one transaction.
 
@@ -490,7 +531,7 @@ drop the most recently added corpora.
 ## Installing a sideloaded pack
 
 This is the normal path. The pack lives in its own repository; the install
-points at it and restarts.
+points at it and installs it through the pack service.
 
 **One repository of packs → one variable.** `AUTHORITY_PACK_ROOTS` takes
 directories *of* packs, the same shape as the in-tree root, so a pack repo
@@ -544,9 +585,8 @@ It prints the manifest fingerprint, declared source hosts, approval state, and
 per-corpus plan, and exits non-zero if the pack is invalid.
 
 **Install.** Drop `--check` to converge taxonomy, corpora, seed content,
-personas, metadata schemas, and relationships in one transaction. Then restart
-so the registry and SSRF allowlist pick up the pack's `providers/` module and
-`source_hosts` — discovery happens at registry build.
+personas, metadata schemas, relationships and the active artifact in one transaction.
+Running processes refresh automatically; no restart or manual cache reset is needed.
 
 An administrator can do the same thing without a shell. **Review & install** on
 a catalog card runs the identical validation and shows what the install would do
@@ -585,9 +625,8 @@ docker compose -f local.yml run --rm django python manage.py load_authority_pack
 
 `load_authority_pack` is idempotent and re-runnable. Add `--public` only when
 the corpus material and the installation's review policy permit publication;
-the flag controls corpus visibility, not copyright or legal approval. Restart
-so the registry/SSRF allowlist pick up any `providers/` module and
-`source_hosts`.
+the flag controls corpus visibility, not copyright or legal approval. A successful
+install refreshes provider discovery and the host allowlist in running processes.
 
 Authority source syncs compare the SHA-256 hash of the original source bytes
 while holding the existing active-path versioning lock. Changed bytes create a
@@ -603,10 +642,18 @@ not silently clobbered.
 [Installing a sideloaded pack](#installing-a-sideloaded-pack) above. The pack's
 provider and hosts travel with the directory — nothing in core needs editing.
 
-**Remove.** Delete the pack directory (or drop it from `AUTHORITY_PACK_ROOTS` /
+**Remove (legacy filesystem discovery only).** Delete the pack directory (or drop it from `AUTHORITY_PACK_ROOTS` /
 `AUTHORITY_PACK_PATHS`) and restart — its provider and `source_hosts` stop being discovered immediately. The
-already-loaded taxonomy/content rows persist (the loader upserts, it does not
-delete prefixes dropped from a YAML); remove them deliberately via the Authority
+already-loaded taxonomy/content rows persist.
+
+**Revoke managed runtime trust.** Install a reviewed version with the retired
+provider files removed and their `source_hosts` removed from the manifest. Running
+processes drop those providers and hosts automatically; deleting the original
+directory alone does not revoke a durable installation. Retain declared corpus,
+prefix, seed and relationship identities so installed content remains intact.
+Removing those identities requires the coordinated content migration described
+above. The legacy loader upserts; it does not
+delete prefixes dropped from a YAML; remove them deliberately via the Authority
 Console if you want them gone.
 
 ## Prefix ownership (what a re-load can and cannot clobber)

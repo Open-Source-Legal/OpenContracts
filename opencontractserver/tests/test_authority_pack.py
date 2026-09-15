@@ -130,7 +130,9 @@ class LoadAuthorityPackCommandTests(TestCase):
     """The generic loader, exercised against the reference Bolivia pack."""
 
     def setUp(self):
-        self.owner = User.objects.create_user(username="packowner", password="p")
+        self.owner = User.objects.create_user(
+            username="packowner", password="p", is_superuser=True
+        )
 
     def _run(self) -> str:
         out = StringIO()
@@ -185,7 +187,9 @@ class LoadAuthorityPackEdgeCaseTests(TestCase):
     """Synthetic packs that exercise the loader's branches and error paths."""
 
     def setUp(self):
-        self.owner = User.objects.create_user(username="edgeowner", password="p")
+        self.owner = User.objects.create_user(
+            username="edgeowner", password="p", is_superuser=True
+        )
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.pack_dir = Path(self._tmp.name)
@@ -237,8 +241,21 @@ class LoadAuthorityPackEdgeCaseTests(TestCase):
     # ---- happy-path branches --------------------------------------------
     def test_public_flag_publishes_corpus(self):
         self._write_pack(
-            {"name": "p", "corpora": [{"title": "Pack Area A", "spec": "a.json"}]},
+            {
+                "name": "p",
+                "corpora": [
+                    {
+                        "title": "Pack Area A",
+                        "spec": "a.json",
+                        "charter": "charter.yaml",
+                    }
+                ],
+            },
             specs={"a.json": self._one_section_spec()},
+        )
+        self._write(
+            "charter.yaml",
+            "purpose: Publication regression fixture\napproval_status: approved\n",
         )
         self._run(public=True)
         corpus = Corpus.objects.get(title="Pack Area A")

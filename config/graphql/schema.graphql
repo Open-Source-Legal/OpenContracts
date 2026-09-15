@@ -1856,6 +1856,10 @@ type AuthorityPack {
   jurisdiction: String!
   schemaVersion: Int!
   fingerprint: String!
+  activationStatus: String!
+  activeVersion: String
+  activeFingerprint: String
+  activationError: String
   sourceHosts: [String!]!
   valid: Boolean!
   validationError: String
@@ -7619,6 +7623,8 @@ type Query {
   The registry of bodies of law (AuthorityNamespace): one row per canonical-key prefix (e.g. 'usc-15', 'dgcl') whose aliases drive Tier-1 citation extraction. SUPERUSER-ONLY (empty otherwise) — gating + default order live on the node's get_queryset.
   """
   authorityNamespaces(offset: Int, before: String, after: String, first: Int, last: Int, jurisdiction: String, authorityType: String, scope: String, search: String): AuthorityNamespaceNodeConnection
+
+  authorityPackActivationStatus: GenericScalar!
 
   """Trusted authority packs configured on this server."""
   authorityPacks: [AuthorityPack!]!
