@@ -540,6 +540,8 @@ class Embedding(BaseOCModel):
     )
 
     # Multiple dimension-specific embeddings
+    configuration = django.db.models.CharField(max_length=64, blank=True, default="")
+
     vector_384 = VectorField(dimensions=EMBEDDING_DIM_384, null=True, blank=True)
     vector_768 = VectorField(dimensions=EMBEDDING_DIM_768, null=True, blank=True)
     vector_1024 = VectorField(dimensions=EMBEDDING_DIM_1024, null=True, blank=True)

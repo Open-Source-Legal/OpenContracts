@@ -8,12 +8,11 @@ from django.db.models import Q
 from django.utils import timezone
 
 from opencontractserver.constants.document_processing import (
+    MAX_PROCESSING_ATTEMPTS,
     MAX_UPLOAD_ERROR_MESSAGE_LENGTH,
 )
 from opencontractserver.utils.upload_identity import upload_payload_digest
 from opencontractserver.worker_uploads.models import UploadStatus, WorkerDocumentUpload
-
-MAX_PROCESSING_ATTEMPTS = 3
 
 
 class UploadConflict(ValueError):

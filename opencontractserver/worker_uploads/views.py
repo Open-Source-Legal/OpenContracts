@@ -218,7 +218,7 @@ class WorkerUploadPagination(PageNumberPagination):
 
 
 class WorkerDocumentUploadListView(ListAPIView):
-    """List uploads for the authenticated token (paginated)."""
+    """List uploads for the authenticated worker and corpus (paginated)."""
 
     authentication_classes = [WorkerTokenAuthentication]
     permission_classes = [IsValidWorkerToken]

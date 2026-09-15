@@ -531,6 +531,28 @@ class CheckpointTests(SimpleTestCase):
         self.assertEqual(self.row()["upload_id"], "receipt-1")
         self.assertEqual([self.counts[s] for s in (*cp.STAGES, "upload")], [1, 1, 1, 1])
 
+    def test_rejected_replay_cannot_discard_identity_of_an_earlier_in_flight_post(self):
+        self.upload_error = requests.ReadTimeout("original POST still in flight")
+        self.assertEqual(self.run_worker(), 1)
+        original = dict(self.row())
+        self.lookup_result = None
+        self.upload_error = cli.PermanentUploadError("HTTP 401 on replay")
+        self.assertEqual(self.run_worker(), 1)
+        self.assertEqual(self.row()["status"], cli.AMBIGUOUS)
+        for field in ("client_key", "upload_digest"):
+            self.assertEqual(self.row()[field], original[field])
+
+        # The original transaction commits after the replay's rejection.
+        self.lookup_result = {
+            "upload_id": "receipt-1",
+            "status": "COMPLETED",
+            "payload_digest": original["upload_digest"],
+        }
+        self.source.unlink()
+        self.assertEqual(self.run_worker(), 0)
+        self.assertEqual(self.row()["status"], cli.COMPLETED)
+        self.assertEqual([self.counts[s] for s in (*cp.STAGES, "upload")], [1, 1, 1, 2])
+
     def test_lookup_payload_mismatch_keeps_receipt_ambiguous_and_never_reposts(self):
         self.upload_error = requests.ReadTimeout("response lost")
         self.assertEqual(self.run_worker(), 1)

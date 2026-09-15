@@ -18,11 +18,32 @@ function isContained(root: string, candidate: string): boolean {
   );
 }
 
-/** Serve only packaged WASM assets; custom middleware bypasses Vite's fs guard. */
+/** Package the runtime for production and serve it safely in development. */
 export function docxodusWasmPlugin(assetRoot: string): Plugin {
   const prefix = "/node_modules/docxodus/dist/wasm/";
   return {
     name: "docxodus-wasm-server",
+    generateBundle() {
+      // Docxodus imports the runtime dynamically, so Vite cannot discover it.
+      // Keep its relative file layout intact for the .NET runtime loader.
+      const emitDirectory = (directory: string) => {
+        for (const entry of fs.readdirSync(directory, {
+          withFileTypes: true,
+        })) {
+          const sourcePath = path.join(directory, entry.name);
+          if (entry.isDirectory()) emitDirectory(sourcePath);
+          else if (entry.isFile()) {
+            const relative = path.relative(assetRoot, sourcePath);
+            this.emitFile({
+              type: "asset",
+              fileName: `docxodus-wasm/${relative.split(path.sep).join("/")}`,
+              source: fs.readFileSync(sourcePath),
+            });
+          }
+        }
+      };
+      emitDirectory(assetRoot);
+    },
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
         const pathname = (req.url || "").split("?")[0];

@@ -25,15 +25,12 @@ from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
 
-from opencontractserver.annotations.models import (
-    EMBEDDING_DIMENSIONS,
-    Annotation,
-    AnnotationLabel,
-    Embedding,
-)
+from opencontractserver.annotations.models import Annotation, AnnotationLabel, Embedding
 from opencontractserver.constants.document_processing import (
+    MAX_PROCESSING_ATTEMPTS,
     MAX_UPLOAD_ERROR_MESSAGE_LENGTH,
 )
+from opencontractserver.constants.search import DIM_TO_FIELD_MAP
 from opencontractserver.corpuses.models import CorpusFolder
 from opencontractserver.documents.models import (
     Document,
@@ -57,26 +54,12 @@ from opencontractserver.worker_uploads.models import (
     WorkerAuthoritySectionBatch,
     WorkerDocumentUpload,
 )
-from opencontractserver.worker_uploads.upload_recovery import (
-    MAX_PROCESSING_ATTEMPTS,
-    record_failure,
-)
+from opencontractserver.worker_uploads.upload_recovery import record_failure
 
 logger = logging.getLogger(__name__)
 
 # Maximum length for sanitized filenames
 _MAX_FILENAME_LENGTH = 200
-
-# Dimension -> field name mapping, derived from the Embedding model's
-# authoritative EMBEDDING_DIMENSIONS list so new dimensions propagate automatically.
-_VECTOR_FIELD_MAP = {dim: f"vector_{dim}" for dim, _ in EMBEDDING_DIMENSIONS}
-
-# Validate that every entry in _VECTOR_FIELD_MAP corresponds to an actual
-# Embedding model field. Catches dimension/field mismatches at import time
-# rather than silently dropping embeddings at runtime.
-assert all(
-    hasattr(Embedding, f) for f in _VECTOR_FIELD_MAP.values()
-), "EMBEDDING_DIMENSIONS has entries without matching Embedding model fields"
 
 
 @shared_task(
@@ -389,6 +372,7 @@ def _process_single_upload(
             # Mark as already processed — worker did the processing
             "processing_started": timezone.now(),
             "processing_status": DocumentProcessingStatus.COMPLETED,
+            "processing_finished": timezone.now(),
         }
         if custom_meta is not None:
             create_kwargs["custom_meta"] = custom_meta
@@ -619,15 +603,41 @@ def _store_embeddings(
         logger.warning("embeddings.embedder_path is empty, skipping embedding storage.")
         return
 
-    # Document embedding
+    # A worker's model revision must match an operator-configured revision.
+    # Legacy/unidentified vectors remain usable by existing search, but cannot
+    # establish readiness until their provenance is verified or repaired.
+    configuration = ""
+    revision = getattr(settings, "EMBEDDING_MODEL_REVISIONS", {}).get(embedder_path)
+    if revision and embeddings_data.get("model_identity") == revision:
+        from opencontractserver.documents.readiness import effective_embedder
+
+        try:
+            path, _dimension, fingerprint = effective_embedder(path=embedder_path)
+            if path == embedder_path:
+                configuration = fingerprint
+        except Exception:
+            # Provenance is optional for receipt completion. Keep the vectors
+            # unverified when the server cannot assess their configuration.
+            logger.warning("Worker embedding provenance unavailable", exc_info=True)
+
+    # Document embedding. Go through the manager so a re-upload at a new
+    # dimension clears the stale sibling vector instead of leaving two
+    # vectors labelled with one configuration.
     doc_embedding = embeddings_data.get("document_embedding")
     if doc_embedding:
-        _store_single_embedding(
-            vector=doc_embedding,
-            embedder_path=embedder_path,
-            document=corpus_doc,
-            creator=user,
-        )
+        if len(doc_embedding) in DIM_TO_FIELD_MAP:
+            Embedding.objects.store_embedding(
+                creator=user,
+                dimension=len(doc_embedding),
+                vector=doc_embedding,
+                embedder_path=embedder_path,
+                configuration=configuration,
+                document_id=corpus_doc.pk,
+            )
+        else:
+            logger.warning(
+                f"Unsupported embedding dimension {len(doc_embedding)}, skipping."
+            )
 
     # Annotation embeddings
     annot_embeddings = embeddings_data.get("annotation_embeddings", {})
@@ -644,7 +654,7 @@ def _store_embeddings(
             )
             continue
 
-        field_name = _get_vector_field(len(vector))
+        field_name = DIM_TO_FIELD_MAP.get(len(vector))
         if not field_name:
             logger.warning(
                 f"Unsupported embedding dimension {len(vector)} for annotation "
@@ -655,6 +665,7 @@ def _store_embeddings(
         emb = Embedding(
             annotation_id=new_pk,
             embedder_path=embedder_path,
+            configuration=configuration,
             creator_id=user.id,
         )
         setattr(emb, field_name, vector)
@@ -666,38 +677,6 @@ def _store_embeddings(
             f"Stored {len(embeddings_to_create)} annotation embeddings "
             f"(embedder={embedder_path})"
         )
-
-
-def _store_single_embedding(
-    vector: list[float],
-    embedder_path: str,
-    document: Any = None,
-    annotation: Any = None,
-    creator: Any = None,
-) -> Embedding | None:
-    """Store a single embedding, determining the correct vector field by dimension."""
-    field_name = _get_vector_field(len(vector))
-    if not field_name:
-        logger.warning(f"Unsupported embedding dimension {len(vector)}, skipping.")
-        return None
-
-    defaults = {field_name: vector}
-    if creator is not None:
-        defaults["creator"] = creator
-
-    # Use update_or_create to handle duplicates gracefully
-    emb, created = Embedding.objects.update_or_create(
-        embedder_path=embedder_path,
-        document=document,
-        annotation=annotation,
-        defaults=defaults,
-    )
-    return emb
-
-
-def _get_vector_field(dimension: int) -> str | None:
-    """Map an embedding dimension to the corresponding Embedding model field."""
-    return _VECTOR_FIELD_MAP.get(dimension)
 
 
 @transaction.atomic
