@@ -407,7 +407,8 @@ token is deleted. Other workers cannot access them; revoked tokens are rejected.
 using its retained file and metadata, for at most three server processing
 attempts. `run` uses this endpoint for failed rows with receipts. It does not
 repeat parsing, enrichment or embedding, and needs no local source for this
-server retry. Missing staging files and exhausted retries return HTTP 409.
+server retry. Missing staging files and exhausted retries return HTTP 409; the
+server deletes the retained file once the attempts are exhausted.
 Stale attempts are recovered in bounded batches; a live import holds a row lock,
 and fenced ownership prevents an abandoned worker from committing later.
 Attempt errors remain in the receipt's bounded `error_history`.

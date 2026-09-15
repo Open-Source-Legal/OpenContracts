@@ -184,7 +184,8 @@ before replaying the same payload. Lookup unavailability never proves rejection.
 
 Identical keyed submissions share one receipt. Failed server processing can be
 retried at most three times using the retained source and metadata, without
-repeating local preparation. Receipt lookup and retry work with replacement
+repeating local preparation; once the attempts are exhausted the server deletes
+the retained source. Receipt lookup and retry work with replacement
 tokens for the same worker account and corpus. Legacy ambiguous rows without a
 key require manual reconciliation; requests without keys retain legacy behavior.
 
