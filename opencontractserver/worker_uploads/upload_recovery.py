@@ -2,6 +2,7 @@
 
 import hashlib
 import re
+from datetime import timedelta
 
 from django.db import connection, transaction
 from django.db.models import Q
@@ -17,6 +18,10 @@ from opencontractserver.worker_uploads.models import UploadStatus, WorkerDocumen
 
 class UploadConflict(ValueError):
     """A stable, safe conflict code for an upload operation."""
+
+
+class UploadRateLimited(Exception):
+    """The token's budget for new upload receipts is exhausted."""
 
 
 def receipts_for_token(token):
@@ -69,6 +74,16 @@ def stage_upload(token, file, metadata, client_key=None):
                 if existing.payload_digest != identity:
                     raise UploadConflict("idempotency_conflict")
                 return existing, False
+        # Replays resolve under the key lock before spending any new-upload
+        # budget. Distinct keys retain the best-effort count-then-create limit;
+        # strict request/throughput limits belong at the reverse proxy.
+        if token.rate_limit_per_minute > 0:
+            recent_count = WorkerDocumentUpload.objects.filter(
+                corpus_access_token=token,
+                created__gte=timezone.now() - timedelta(minutes=1),
+            ).count()
+            if recent_count >= token.rate_limit_per_minute:
+                raise UploadRateLimited()
         upload = WorkerDocumentUpload.objects.create(
             corpus_access_token=token,
             worker_account=token.worker_account,

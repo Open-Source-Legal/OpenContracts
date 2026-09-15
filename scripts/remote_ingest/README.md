@@ -422,7 +422,9 @@ and parsed, even if the original path changes during preparation or cache reuse.
 The ledger hash therefore describes the uploaded snapshot; replan to detect later
 filesystem changes. A missing source fails before upload, even with cached work.
 
-A change to an `UPLOADED`, `COMPLETED` or `AMBIGUOUS` source produces `CONFLICT`.
+Rows with a receipt or stored upload digest produce `CONFLICT` when their source
+changes, including `FAILED`/`PARKED` rows. Legacy `UPLOADED`, `COMPLETED`, and
+`AMBIGUOUS` rows do the same.
 The old source hash, receipt/timestamps, and prior status are retained alongside
 the observed conflict hash. The row is excluded from `run`; restoring the old
 bytes and replanning restores its prior status. Otherwise an operator must
@@ -454,6 +456,9 @@ attempts. `run` uses this endpoint for failed rows with receipts. It does not
 repeat parsing, enrichment or embedding, and needs no local source for this
 server retry. Missing staging files and exhausted retries return HTTP 409; the
 server deletes the retained file once the attempts are exhausted.
+Legacy failed uploads release their staging file immediately, so retry returns
+`retry_artifact_unavailable`. The server budget includes abandoned claims;
+`--max-attempts` separately caps combined local preparation and receipt-retry failures.
 Stale attempts are recovered in bounded batches; a live import holds a row lock,
 and fenced ownership prevents an abandoned worker from committing later.
 Attempt errors remain in the receipt's bounded `error_history`.

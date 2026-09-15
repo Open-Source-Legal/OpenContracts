@@ -28,7 +28,10 @@ from opencontractserver.worker_uploads.tasks import (
     process_pending_uploads,
     recover_stalled_uploads,
 )
-from opencontractserver.worker_uploads.upload_recovery import stage_upload
+from opencontractserver.worker_uploads.upload_recovery import (
+    _admission_lock,
+    stage_upload,
+)
 
 
 @override_settings(WORKER_UPLOAD_BATCH_SIZE=10, WORKER_UPLOAD_STALE_MINUTES=1)
@@ -138,6 +141,19 @@ class UploadRecoveryTests(TransactionTestCase):
             self.post(key=None).json()["upload_id"],
             self.post(key=None).json()["upload_id"],
         )
+
+    def test_failed_legacy_receipt_reports_unavailable_retry_artifact(self):
+        upload = WorkerDocumentUpload.objects.get(
+            pk=self.post(key=None).json()["upload_id"]
+        )
+        _fail_upload(upload.pk, "legacy failure", self.claim(upload))
+        response = self.client.post(f"/api/worker-uploads/documents/{upload.pk}/retry/")
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["error"], "retry_artifact_unavailable")
+        upload.refresh_from_db()
+        self.assertEqual(upload.processing_attempts, 1)
+        assert upload.file.name is not None
+        self.assertFalse(upload.file.storage.exists(upload.file.name))
 
     def test_replacement_token_can_lookup_status_and_retry_after_original_is_deleted(
         self,
@@ -349,3 +365,50 @@ class UploadRecoveryTests(TransactionTestCase):
         first = self.post()
         self.assertEqual(self.post().json()["upload_id"], first.json()["upload_id"])
         self.assertEqual(self.post(key="different-source").status_code, 429)
+
+    def test_replay_waits_for_uncommitted_receipt_before_checking_rate_limit(self):
+        self.token.rate_limit_per_minute = 1
+        self.token.save(update_fields=["rate_limit_per_minute"])
+        staged, release = Event(), Event()
+
+        def submit_uncommitted():
+            close_old_connections()
+            try:
+                with transaction.atomic():
+                    response = self.post(client=self.client_for(self.secret))
+                    self.assertEqual(response.status_code, 202)
+                    staged.set()
+                    if not release.wait(timeout=10):
+                        raise RuntimeError("test did not release original upload")
+                return response
+            finally:
+                close_old_connections()
+
+        def release_at_replay_lock(*args):
+            release.set()
+            return _admission_lock(*args)
+
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            original = pool.submit(submit_uncommitted)
+            try:
+                self.assertTrue(staged.wait(timeout=10))
+                # A different concurrent upload consumes the remaining budget
+                # while the original keyed receipt is still invisible.
+                WorkerDocumentUpload.objects.create(
+                    corpus_access_token=self.token, corpus=self.corpus
+                )
+                with patch(
+                    "opencontractserver.worker_uploads.upload_recovery._admission_lock",
+                    side_effect=release_at_replay_lock,
+                ):
+                    replay = self.post()
+                self.assertEqual(replay.status_code, 202, replay.json())
+            finally:
+                release.set()
+            self.assertEqual(
+                replay.json()["upload_id"],
+                original.result(timeout=10).json()["upload_id"],
+            )
+        self.assertEqual(
+            WorkerDocumentUpload.objects.filter(client_key="source-1").count(), 1
+        )

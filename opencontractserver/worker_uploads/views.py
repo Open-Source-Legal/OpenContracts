@@ -43,6 +43,7 @@ from opencontractserver.worker_uploads.tasks import (
 )
 from opencontractserver.worker_uploads.upload_recovery import (
     UploadConflict,
+    UploadRateLimited,
     receipts_for_token,
     retry_upload,
     stage_upload,
@@ -129,40 +130,6 @@ class WorkerDocumentUploadView(APIView):
                     status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                 )
 
-        # Best-effort rate limit: the count-then-create is intentionally
-        # non-atomic. Under concurrent burst traffic a caller can marginally
-        # exceed the limit. This is acceptable for trusted internal workers;
-        # for strict enforcement use a reverse proxy (e.g. nginx limit_req).
-        #
-        # Keyed replays are exempt: they create no rows, and a client
-        # reconciling a lost response must not be refused because its
-        # original request already spent the budget. Each replay still hashes
-        # the payload to detect a changed submission; bounding that work per
-        # request is the reverse proxy's job, not this counter's.
-        client_key = request.headers.get("Idempotency-Key")
-        replay = (
-            client_key
-            and receipts_for_token(token).filter(client_key=client_key).exists()
-        )
-        if token.rate_limit_per_minute > 0 and not replay:
-            window_start = timezone.now() - timedelta(minutes=1)
-            recent_count = WorkerDocumentUpload.objects.filter(
-                corpus_access_token=token,
-                created__gte=window_start,
-            ).count()
-            if recent_count >= token.rate_limit_per_minute:
-                return Response(
-                    {
-                        "error": "Rate limit exceeded.",
-                        "detail": (
-                            f"Token allows {token.rate_limit_per_minute} "
-                            f"uploads per minute."
-                        ),
-                    },
-                    status=status.HTTP_429_TOO_MANY_REQUESTS,
-                    headers={"Retry-After": "60"},
-                )
-
         serializer = WorkerDocumentUploadSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -171,7 +138,19 @@ class WorkerDocumentUploadView(APIView):
                 token,
                 serializer.validated_data["file"],
                 serializer.validated_data["metadata"],
-                client_key,
+                request.headers.get("Idempotency-Key"),
+            )
+        except UploadRateLimited:
+            return Response(
+                {
+                    "error": "Rate limit exceeded.",
+                    "detail": (
+                        f"Token allows {token.rate_limit_per_minute} "
+                        f"uploads per minute."
+                    ),
+                },
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+                headers={"Retry-After": "60"},
             )
         except UploadConflict as exc:
             return Response({"error": str(exc)}, status=status.HTTP_409_CONFLICT)
