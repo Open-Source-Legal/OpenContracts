@@ -68,6 +68,7 @@ from opencontractserver.utils.importing import (
     create_document_from_export_data,
     import_doc_annotations,
     prepare_import_labels,
+    recover_annotation_id_map,
 )
 from opencontractserver.utils.packaging import (
     unpack_corpus_from_export,
@@ -694,19 +695,16 @@ def _import_document_with_annotations(
                     # annotations on the same Document.
                     corpus_doc.backend_lock = False
                     corpus_doc.save(update_fields=["backend_lock", "modified"])
-                    # Still record the run's terminal row before returning.
-                    # ``_reingest_document_with_deferred_remap`` does this for
-                    # the converged documents it handles; this sibling branch —
-                    # reached when reingest was requested but the source is not
-                    # reingestable (e.g. a markdown/text pack member) and the
-                    # document matched an existing one by canonical_key — used
-                    # to return early without one. That left the document
-                    # invisible to ``finalize_corpus_import_relationships``:
-                    # the corpus-level coordination row could not reach DONE on
-                    # its account and ``expected_doc_count`` undercounted.
-                    # (The id_map is empty here for the same reason it is in
-                    # the converged path — see issue #2220, which tracks
-                    # relationship endpoints landing on unchanged documents.)
+                    annot_id_map = recover_annotation_id_map(
+                        doc_data=doc_data,
+                        corpus_doc=corpus_doc,
+                        corpus_obj=corpus_obj,
+                        user=user_obj,
+                        label_lookup=label_lookup,
+                        include_structural=True,
+                    )
+                    # Include the unchanged member in relationship fan-in
+                    # without dispatching a parser chain.
                     if import_run_id is not None:
                         PendingDocumentAnnotations.objects.create(
                             document=corpus_doc,
@@ -714,10 +712,10 @@ def _import_document_with_annotations(
                             creator=user_obj,
                             ingestion_run_id=import_run_id,
                             payload={},
-                            id_map={},
+                            id_map={str(k): v for k, v in annot_id_map.items()},
                             status=PendingDocumentAnnotations.Status.DONE,
                         )
-                    return corpus_doc, {}
+                    return corpus_doc, annot_id_map
                 doc_obj = corpus_doc
             else:
                 # Create standalone document using shared helper
@@ -912,13 +910,21 @@ def _reingest_document_with_deferred_remap(
                 # enumerated document.  Recording DONE here lets the corpus-level
                 # coordination row reach DONE even when every source byte and
                 # every annotation payload is unchanged.
+                annot_id_map = recover_annotation_id_map(
+                    doc_data=doc_data,
+                    corpus_doc=corpus_doc,
+                    corpus_obj=corpus_obj,
+                    user=user_obj,
+                    label_lookup=label_lookup,
+                    include_structural=False,
+                )
                 PendingDocumentAnnotations.objects.create(
                     document=corpus_doc,
                     corpus=corpus_obj,
                     creator=user_obj,
                     ingestion_run_id=import_run_id,
                     payload={},
-                    id_map={},
+                    id_map={str(k): v for k, v in annot_id_map.items()},
                     status=PendingDocumentAnnotations.Status.DONE,
                 )
 
@@ -1475,6 +1481,22 @@ def _import_v2_relationships(
             for old_id in rel_data.get("target_annotation_ids", [])
             if (new_id := annot_id_map.get(str(old_id))) is not None
         ]
+
+        missing_sources = len(rel_data.get("source_annotation_ids", [])) - len(
+            source_ids
+        )
+        missing_targets = len(rel_data.get("target_annotation_ids", [])) - len(
+            target_ids
+        )
+        if missing_sources or missing_targets:
+            logger.warning(
+                "Relationship '%s' in corpus %s lost %s source and %s target "
+                "endpoint(s): no imported annotation mapping",
+                label_text,
+                corpus_obj.pk,
+                missing_sources,
+                missing_targets,
+            )
 
         if source_ids and target_ids:
             # Get document from first source annotation

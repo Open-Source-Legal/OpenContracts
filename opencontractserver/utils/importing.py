@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from opencontractserver.documents.models import Document
 
 from config.graphql.annotation_serializers import AnnotationLabelSerializer
+from opencontractserver.annotations.compact_json import compact_annotation_json
 from opencontractserver.annotations.models import (
     DOC_TYPE_LABEL,
     RELATIONSHIP_LABEL,
@@ -26,7 +27,10 @@ from opencontractserver.types.dicts import (
     OpenContractsRelationshipPythonType,
 )
 from opencontractserver.types.enums import PermissionTypes
-from opencontractserver.utils.compact_pawls import compact_pawls_pages
+from opencontractserver.utils.compact_pawls import (
+    compact_pawls_pages,
+    expand_pawls_pages,
+)
 from opencontractserver.utils.permissioning import set_permissions_for_obj_to_user
 
 logger = logging.getLogger(__name__)
@@ -558,6 +562,110 @@ def create_document_from_export_data(
         user_obj, doc_obj, [PermissionTypes.ALL], is_new=True
     )
     return doc_obj
+
+
+def recover_annotation_id_map(
+    *,
+    doc_data: Mapping[str, Any],
+    corpus_doc,
+    corpus_obj,
+    user,
+    label_lookup: dict[str, AnnotationLabel],
+    include_structural: bool,
+) -> dict[str | int, int]:
+    """Match an unchanged document's incoming anchors to its existing annotations.
+
+    Export IDs are archive-local, so replaying an older run's map can bind an
+    endpoint to the wrong annotation. Match both exported locations and anchors
+    rebuilt from retained layers: an earlier import may have used a different
+    mode. Never create or guess an annotation when a match is missing or ambiguous.
+    """
+    from opencontractserver.annotations.services import AnnotationService
+    from opencontractserver.utils.annotation_anchoring import anchor_annotations
+
+    annotations = [
+        annotation
+        for annotation in doc_data.get("labelled_text", [])
+        if include_structural or not annotation.get("structural")
+    ]
+    if not annotations:
+        return {}
+    pawls = []
+    content = ""
+    try:
+        if corpus_doc.pawls_parse_file:
+            with corpus_doc.pawls_parse_file.open("rb") as source:
+                pawls = expand_pawls_pages(json.load(source))
+        if corpus_doc.txt_extract_file:
+            with corpus_doc.txt_extract_file.open("rb") as source:
+                content = source.read().decode("utf-8")
+    except (OSError, ValueError):
+        logger.warning(
+            "Cannot read stored annotation layers for unchanged document %s; "
+            "only exact exported locations can be recovered",
+            corpus_doc.pk,
+            exc_info=True,
+        )
+    else:
+        anchored, _report = anchor_annotations(
+            annotations,
+            is_pdf=(corpus_doc.file_type or "").lower() == "application/pdf",
+            pawls=pawls,
+            content=content,
+        )
+        # Switching import modes must not discard the prior layer's endpoints.
+        annotations = annotations + anchored
+
+    candidates: dict[tuple[Any, ...], list[Annotation]] = {}
+    for existing in AnnotationService.get_corpus_annotations(
+        corpus_obj.pk, user
+    ).filter(document=corpus_doc):
+        key = (
+            existing.annotation_label_id,
+            existing.raw_text,
+            existing.page,
+            existing.structural,
+        )
+        candidates.setdefault(key, []).append(existing)
+
+    matches_by_id: dict[str | int, set[int]] = {}
+    for annotation in annotations:
+        label = label_lookup.get(str(annotation.get("annotationLabel")))
+        old_id = annotation.get("id")
+        if label is None or old_id is None:
+            continue
+        key = (
+            label.pk,
+            annotation.get("rawText"),
+            annotation.get("page", 1),
+            annotation.get("structural", False),
+        )
+        location = compact_annotation_json(annotation.get("annotation_json"))
+        matches_by_id.setdefault(old_id, set()).update(
+            item.pk
+            for item in candidates.get(key, [])
+            if compact_annotation_json(item.json) == location
+            and item.annotation_type
+            == (annotation.get("annotation_type") or TOKEN_LABEL)
+            and item.long_description == annotation.get("long_description")
+            and item.content_modalities == annotation.get("content_modalities", [])
+            and item.link_url == (annotation.get("link_url") or None)
+            # V2/V3 exports omit data; absent sidecars cannot identify a mismatch.
+            and ("data" not in annotation or item.data == (annotation["data"] or None))
+        )
+    recovered: dict[str | int, int] = {}
+    for old_id, matches in matches_by_id.items():
+        if len(matches) == 1:
+            recovered[old_id] = next(iter(matches))
+        else:
+            logger.warning(
+                "Cannot recover annotation %s on unchanged document %s: "
+                "%s matching annotations",
+                old_id,
+                corpus_doc.pk,
+                len(matches),
+            )
+    return recovered
 
 
 def import_doc_annotations(
