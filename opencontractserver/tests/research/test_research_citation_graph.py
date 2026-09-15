@@ -20,9 +20,14 @@ import asyncio
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from asgiref.sync import sync_to_async
 from django.test import TransactionTestCase
 
-from opencontractserver.annotations.models import Annotation, AnnotationLabel
+from opencontractserver.annotations.models import (
+    Annotation,
+    AnnotationLabel,
+    StructuralAnnotationSet,
+)
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.documents.models import Document, DocumentPath
 from opencontractserver.llms import api as llms_api
@@ -188,3 +193,178 @@ class CitationGraphContractTestCase(TransactionTestCase):
         self.assertIsInstance(outcome["miss"], str)
         self.assertIn("No corpus passage contains", outcome["miss"])
         self.assertEqual(captured["agent"].agent_deps.retrieved_annotation_ids, [])
+
+    async def _record_and_crash(self, tools):
+        rows = await tools["find_citable_passages"](PHRASE)
+        result = await tools["record_finding"](
+            f"The tenant shall {PHRASE} throughout the term.",
+            [rows[0]["annotation_id"]],
+            obligation=PHRASE,
+            responsible_party="tenant",
+            applicability="GENERALLY_APPLICABLE",
+            confidence="HIGH",
+            unresolved_qualifications=["No unresolved qualifications."],
+        )
+        self.assertIn("Recorded finding card", result)
+        raise RuntimeError("worker interrupted")
+
+    def _record_before_worker_crash(self):
+        with self.assertRaisesRegex(RuntimeError, "worker interrupted"):
+            self._drive(self._record_and_crash)
+        self.report.refresh_from_db()
+        self.assertEqual(self.report.status, JobStatus.RUNNING.value)
+        self.assertEqual(len(self.report.findings), 1)
+        self.assertTrue(self.report.findings[0]["card"]["material"])
+        return self.report.findings
+
+    async def _finalize_without_retrieving(self, tools):
+        await tools["finalize_report"](
+            "",
+            f"The tenant shall {PHRASE} throughout the term "
+            f'<cite ids="{self.annotation.pk}"/>.',
+        )
+
+    def test_resume_keeps_material_finding_without_retrieving_it_again(self):
+        findings = self._record_before_worker_crash()
+
+        captured = self._drive(self._finalize_without_retrieving)
+
+        self.report.refresh_from_db()
+        self.assertEqual(captured["agent"].agent_deps.retrieved_annotation_ids, [])
+        self.assertEqual(self.report.findings, findings)
+        self.assertEqual(self.report.status, JobStatus.COMPLETED.value)
+        self.assertEqual(
+            [c["annotation_id"] for c in self.report.citations], [self.annotation.pk]
+        )
+        self.assertEqual(list(self.report.source_annotations.all()), [self.annotation])
+        self.assertIn("component:research-findings", self.report.content)
+        self.assertFalse(any("withheld" in w for w in self.report.warnings))
+
+    def test_resume_salvage_keeps_material_finding_and_its_citation(self):
+        findings = self._record_before_worker_crash()
+
+        async def stop_without_finalizing(tools):
+            pass
+
+        captured = self._drive(stop_without_finalizing)
+
+        self.report.refresh_from_db()
+        self.assertEqual(captured["agent"].agent_deps.retrieved_annotation_ids, [])
+        self.assertEqual(self.report.findings, findings)
+        self.assertEqual(self.report.status, JobStatus.COMPLETED.value)
+        self.assertEqual(
+            [c["annotation_id"] for c in self.report.citations], [self.annotation.pk]
+        )
+        self.assertIn("[^1]", self.report.content)
+
+    def test_resume_withholds_finding_after_document_access_is_revoked(self):
+        self._record_before_worker_crash()
+        owner = User.objects.create_user(username="document-owner")
+        self.doc.creator = owner
+        self.doc.save(update_fields=["creator"])
+        set_permissions_for_obj_to_user(self.user, self.doc, [])
+
+        self._drive(self._finalize_without_retrieving)
+
+        self.report.refresh_from_db()
+        self.assertEqual(self.report.findings, [])
+        self.assertEqual(self.report.citations, [])
+        self.assertFalse(self.report.source_annotations.exists())
+        self.assertNotIn("[^1]", self.report.content)
+        self.assertTrue(any("withheld" in w for w in self.report.warnings))
+
+    def test_resume_still_rejects_readable_citation_never_retrieved(self):
+        self._record_before_worker_crash()
+        other = Annotation.objects.create(
+            document=self.doc,
+            corpus=self.corpus,
+            creator=self.user,
+            raw_text="The landlord must insure the building.",
+            page=1,
+            json={},
+        )
+
+        async def invent_citation(tools):
+            result = await tools["record_finding"]("Insurance", [other.pk])
+            self.assertIn("Error: source ids", result)
+            await tools["finalize_report"](
+                "", f'The landlord must insure the building <cite ids="{other.pk}"/>.'
+            )
+
+        self._drive(invent_citation)
+
+        self.report.refresh_from_db()
+        self.assertEqual(len(self.report.findings), 1)
+        self.assertEqual(self.report.citations, [])
+        self.assertNotIn("[^1]", self.report.content)
+        self.assertNotIn(other, self.report.source_annotations.all())
+
+    def test_resume_rechecks_structural_citation_access_at_finalization(self):
+        structural_set = StructuralAnnotationSet.objects.create(
+            content_hash="lease-structure", creator=self.user
+        )
+        self.doc.structural_annotation_set = structural_set
+        self.doc.save(update_fields=["structural_annotation_set"])
+        self.annotation.document = None
+        self.annotation.corpus = None
+        self.annotation.structural = True
+        self.annotation.structural_set = structural_set
+        self.annotation.save()
+        self._record_before_worker_crash()
+        owner = User.objects.create_user(username="corpus-owner")
+
+        def revoke_corpus_access():
+            self.corpus.creator = owner
+            self.corpus.save(update_fields=["creator"])
+            set_permissions_for_obj_to_user(self.user, self.corpus, [])
+
+        async def revoke_then_finalize(tools):
+            # The worker has already loaded its recovery state. Document READ
+            # remains, but the shared structural source needs corpus READ too.
+            await sync_to_async(revoke_corpus_access)()
+            await self._finalize_without_retrieving(tools)
+
+        self._drive(revoke_then_finalize)
+
+        self.report.refresh_from_db()
+        self.assertEqual(self.report.findings, [])
+        self.assertEqual(self.report.citations, [])
+        self.assertFalse(self.report.source_annotations.exists())
+        self.assertNotIn("[^1]", self.report.content)
+        self.assertTrue(any("no longer readable" in w for w in self.report.warnings))
+
+    def test_finalizing_worker_keeps_finding_saved_by_an_overlapping_worker(self):
+        async def other_worker_factory(**kwargs):
+            return _StubAgent(kwargs["tools"], self._record_and_crash)
+
+        async def script(tools):
+            # This worker is already running when the other worker records
+            # its finding. Neither its initial state nor its accumulator sees it.
+            other_report = await sync_to_async(
+                ResearchReport.objects.select_related(
+                    "corpus", "creator", "conversation"
+                ).get
+            )(pk=self.report.pk)
+            with patch.object(
+                llms_api.agents, "for_corpus", side_effect=other_worker_factory
+            ), self.assertRaisesRegex(RuntimeError, "worker interrupted"):
+                await _run_deep_research_async(other_report)
+
+            # Appending reloads the shared scratchpad, including the other
+            # worker's card, but does not populate this worker's retrieval IDs.
+            result = await tools["record_finding"]("Review limited to this lease.", [])
+            self.assertIn("Recorded finding", result)
+            await self._finalize_without_retrieving(tools)
+
+        captured = self._drive(script)
+
+        self.report.refresh_from_db()
+        self.assertEqual(captured["agent"].agent_deps.retrieved_annotation_ids, [])
+        self.assertEqual(self.report.status, JobStatus.COMPLETED.value)
+        self.assertEqual(len(self.report.findings), 2)
+        self.assertTrue(self.report.findings[0]["card"]["material"])
+        self.assertEqual(
+            [c["annotation_id"] for c in self.report.citations], [self.annotation.pk]
+        )
+        self.assertIn("component:research-findings", self.report.content)
+        self.assertFalse(any("withheld" in w for w in self.report.warnings))
