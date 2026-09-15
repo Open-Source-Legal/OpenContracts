@@ -9,14 +9,17 @@ from __future__ import annotations
 
 import errno
 import hashlib
+import logging
 import os
 import shutil
 import tempfile
 import threading
 import zipfile
 from contextlib import contextmanager
+from contextvars import ContextVar
 from functools import lru_cache, wraps
-from pathlib import Path, PurePosixPath
+from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 from django.apps import apps
@@ -26,9 +29,22 @@ from django.core.management.base import CommandError
 from django.db import connection
 from django.db.utils import ProgrammingError
 
-MAX_FILES = 10000
-MAX_BYTES = 512 * 1024 * 1024
+from opencontractserver.constants.authority_packs import (
+    AUTHORITY_PACK_READ_CHUNK_BYTES,
+    MAX_AUTHORITY_PACK_BYTES,
+    MAX_AUTHORITY_PACK_FILES,
+)
+from opencontractserver.utils.zip_security import (
+    is_zip_entry_symlink,
+    read_zip_member_bounded,
+    sanitize_zip_path,
+)
+
+logger = logging.getLogger(__name__)
 _cache_lock = threading.RLock()
+_active_snapshot: ContextVar[list[Any] | None] = ContextVar(
+    "authority_pack_snapshot", default=None
+)
 
 
 def artifact_files(root: Path) -> list[Path]:
@@ -43,7 +59,7 @@ def artifact_files(root: Path) -> list[Path]:
         if path.is_file():
             files.append(path)
             size += path.stat().st_size
-            if len(files) > MAX_FILES or size > MAX_BYTES:
+            if len(files) > MAX_AUTHORITY_PACK_FILES or size > MAX_AUTHORITY_PACK_BYTES:
                 raise CommandError(
                     "Authority pack artifact exceeds its file or size limit"
                 )
@@ -105,8 +121,15 @@ def persist_artifact(plan, creator):
         archive.seek(0)
         artifact.archive.save(f"{uuid4()}.zip", File(archive), save=False)
     # Verify storage before the activation transaction can publish this version.
-    materialize_artifact(artifact, verify_storage=True)
-    artifact.save()
+    try:
+        materialize_artifact(artifact, verify_storage=True)
+        artifact.save()
+    except Exception:
+        try:
+            artifact.archive.delete(save=False)
+        except Exception:
+            logger.exception("Could not remove rejected authority pack archive")
+        raise
     return artifact
 
 
@@ -120,13 +143,7 @@ def materialize_artifact(artifact, *, verify_storage=False) -> Path:
         or any(c not in "0123456789abcdef" for c in artifact.digest)
     ):
         raise CommandError("Invalid authority pack artifact identity")
-    root = Path(
-        getattr(
-            settings,
-            "AUTHORITY_PACK_CACHE_DIR",
-            Path(tempfile.gettempdir()) / "oc-authority-packs",
-        )
-    )
+    root = Path(settings.AUTHORITY_PACK_CACHE_DIR)
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
     cache_key = hashlib.sha256(
         f"{artifact.digest}:{artifact.directory_name}".encode()
@@ -148,7 +165,9 @@ def materialize_artifact(artifact, *, verify_storage=False) -> Path:
                 "Incomplete authority pack extraction cache; remove the cache and retry"
             )
         if (
-            AuthorityPackService.declarative_fingerprint(destination)
+            AuthorityPackService._fingerprint(
+                AuthorityPackService._read_manifest(destination), destination
+            )
             != artifact.fingerprint
         ):
             raise CommandError(
@@ -164,9 +183,9 @@ def materialize_artifact(artifact, *, verify_storage=False) -> Path:
             with tempfile.TemporaryFile() as local:
                 with artifact.archive.open("rb") as source:
                     count = 0
-                    while chunk := source.read(1024 * 1024):
+                    while chunk := source.read(AUTHORITY_PACK_READ_CHUNK_BYTES):
                         count += len(chunk)
-                        if count > MAX_BYTES:
+                        if count > MAX_AUTHORITY_PACK_BYTES:
                             raise CommandError(
                                 "Stored authority pack archive exceeds its size limit"
                             )
@@ -180,32 +199,39 @@ def materialize_artifact(artifact, *, verify_storage=False) -> Path:
                 with zipfile.ZipFile(local) as zipped:
                     members = zipped.infolist()
                     if (
-                        len(members) > MAX_FILES
-                        or sum(m.file_size for m in members) > MAX_BYTES
+                        len(members) > MAX_AUTHORITY_PACK_FILES
+                        or sum(m.file_size for m in members) > MAX_AUTHORITY_PACK_BYTES
                     ):
                         raise CommandError(
                             "Stored authority pack archive exceeds extraction limits"
                         )
                     seen = set()
+                    remaining = MAX_AUTHORITY_PACK_BYTES
                     for member in members:
-                        path = PurePosixPath(member.filename)
+                        path, error = sanitize_zip_path(member.filename)
                         if (
-                            path.is_absolute()
-                            or ".." in path.parts
-                            or "\\" in member.filename
-                            or member.filename in seen
+                            error
+                            or path != member.filename
+                            or path in seen
                             or member.is_dir()
+                            or is_zip_entry_symlink(member)
                             or (member.external_attr >> 16) & 0o170000
                             not in (0, 0o100000)
                         ):
                             raise CommandError(
                                 "Unsafe member in stored authority pack archive"
                             )
-                        seen.add(member.filename)
+                        assert path is not None
+                        seen.add(path)
+                        content = read_zip_member_bounded(zipped, member, remaining)
+                        if content is None:
+                            raise CommandError(
+                                "Unsafe member in stored authority pack archive"
+                            )
+                        remaining -= len(content)
                         target = staging / artifact.directory_name / path
                         target.parent.mkdir(parents=True, exist_ok=True)
-                        with zipped.open(member) as source, target.open("wb") as output:
-                            shutil.copyfileobj(source, output)
+                        target.write_bytes(content)
                         target.chmod(0o444)
             if not (staging / artifact.directory_name / "pack.yaml").is_file():
                 raise CommandError("Stored authority pack has no manifest")
@@ -223,7 +249,14 @@ def materialize_artifact(artifact, *, verify_storage=False) -> Path:
     return destination
 
 
-def active_artifacts():
+def active_artifacts(*, revision_only=False):
+    snapshot = _active_snapshot.get()
+    if snapshot is not None:
+        return (
+            [(row.pack_id, row.active_artifact_id) for row in snapshot]
+            if revision_only
+            else snapshot
+        )
     if not apps.ready or not getattr(
         settings, "AUTHORITY_PACK_MANAGED_DISCOVERY", True
     ):
@@ -231,10 +264,13 @@ def active_artifacts():
     from opencontractserver.annotations.models import AuthorityPackActivation
 
     try:
+        rows = AuthorityPackActivation.objects.filter(
+            active_artifact__isnull=False
+        ).order_by("pack_id")
         return list(
-            AuthorityPackActivation.objects.filter(active_artifact__isnull=False)
-            .select_related("active_artifact")
-            .order_by("pack_id")
+            rows.values_list("pack_id", "active_artifact_id")
+            if revision_only
+            else rows.select_related("active_artifact")
         )
     except ProgrammingError as exc:
         if (
@@ -249,8 +285,18 @@ def active_artifacts():
 def active_revision():
     return (
         bool(getattr(settings, "AUTHORITY_PACK_LOAD_PROVIDERS", True)),
-        tuple((row.pack_id, row.active_artifact_id) for row in active_artifacts()),
+        tuple(active_artifacts(revision_only=True)),
     )
+
+
+@contextmanager
+def active_pack_snapshot():
+    """Keep one committed version set across nested discovery calls."""
+    token = _active_snapshot.set(active_artifacts())
+    try:
+        yield active_revision()
+    finally:
+        _active_snapshot.reset(token)
 
 
 def managed_paths():
@@ -265,7 +311,8 @@ def versioned_pack_cache(function):
 
     @lru_cache(maxsize=1)
     def cached(revision):
-        return function()
+        with active_pack_snapshot():
+            return function()
 
     @wraps(function)
     def wrapped():

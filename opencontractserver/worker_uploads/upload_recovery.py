@@ -1,0 +1,137 @@
+"""Stable receipt ownership, idempotent admission, and bounded retry."""
+
+import hashlib
+import re
+from datetime import timedelta
+
+from django.db import connection, transaction
+from django.db.models import Q
+from django.utils import timezone
+
+from opencontractserver.constants.document_processing import (
+    MAX_PROCESSING_ATTEMPTS,
+    MAX_UPLOAD_ERROR_MESSAGE_LENGTH,
+)
+from opencontractserver.utils.upload_identity import upload_payload_digest
+from opencontractserver.worker_uploads.models import UploadStatus, WorkerDocumentUpload
+
+
+class UploadConflict(ValueError):
+    """A stable, safe conflict code for an upload operation."""
+
+
+class UploadRateLimited(Exception):
+    """The token's budget for new upload receipts is exhausted."""
+
+
+def receipts_for_token(token):
+    return WorkerDocumentUpload.objects.filter(corpus_id=token.corpus_id).filter(
+        Q(worker_account_id=token.worker_account_id)
+        | Q(
+            worker_account__isnull=True,
+            corpus_access_token__worker_account_id=token.worker_account_id,
+        )
+    )
+
+
+def _admission_lock(token, client_key):
+    """Serialize identical keyed submissions for the current transaction.
+
+    The lock is per (account, corpus, key) rather than a row lock on the
+    account: the remote CLI submits distinct keys in parallel, and with
+    ``ATOMIC_REQUESTS`` an account-wide lock would be held until the whole
+    request commits, serializing every upload behind one blob write.
+    """
+    digest = hashlib.sha256(
+        f"{token.worker_account_id}:{token.corpus_id}:{client_key}".encode()
+    ).digest()
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT pg_advisory_xact_lock(%s)",
+            [int.from_bytes(digest[:8], "big", signed=True)],
+        )
+
+
+def stage_upload(token, file, metadata, client_key=None):
+    if client_key is not None and not re.fullmatch(
+        r"[A-Za-z0-9._:-]{1,128}", client_key
+    ):
+        raise ValueError("invalid_idempotency_key")
+    identity = ""
+    if client_key:
+        sha = hashlib.sha256()
+        for chunk in file.chunks():
+            sha.update(chunk)
+        file.seek(0)
+        identity = upload_payload_digest(sha.hexdigest(), metadata)
+    with transaction.atomic():
+        if client_key:
+            # Serialize replays of this key before FileField.save writes a
+            # blob. The unique constraint is the final database guarantee.
+            _admission_lock(token, client_key)
+            existing = receipts_for_token(token).filter(client_key=client_key).first()
+            if existing:
+                if existing.payload_digest != identity:
+                    raise UploadConflict("idempotency_conflict")
+                return existing, False
+        # Replays resolve under the key lock before spending any new-upload
+        # budget. Distinct keys retain the best-effort count-then-create limit;
+        # strict request/throughput limits belong at the reverse proxy.
+        if token.rate_limit_per_minute > 0:
+            recent_count = WorkerDocumentUpload.objects.filter(
+                corpus_access_token=token,
+                created__gte=timezone.now() - timedelta(minutes=1),
+            ).count()
+            if recent_count >= token.rate_limit_per_minute:
+                raise UploadRateLimited()
+        upload = WorkerDocumentUpload.objects.create(
+            corpus_access_token=token,
+            worker_account=token.worker_account,
+            corpus=token.corpus,
+            file=file,
+            metadata=metadata,
+            client_key=client_key,
+            payload_digest=identity,
+        )
+        return upload, True
+
+
+def record_failure(upload, message):
+    message = message[:MAX_UPLOAD_ERROR_MESSAGE_LENGTH]
+    upload.error_message = message
+    upload.error_history = [
+        *upload.error_history,
+        {
+            "attempt": upload.processing_attempts,
+            "message": message,
+            "at": timezone.now().isoformat(),
+        },
+    ][-MAX_PROCESSING_ATTEMPTS:]
+
+
+def retry_upload(token, upload_id):
+    with transaction.atomic():
+        upload = (
+            receipts_for_token(token).select_for_update(of=("self",)).get(pk=upload_id)
+        )
+        if upload.status != UploadStatus.FAILED:
+            return upload, False
+        if upload.processing_attempts >= MAX_PROCESSING_ATTEMPTS:
+            raise UploadConflict("retry_exhausted")
+        if not upload.file or not upload.file.storage.exists(upload.file.name):
+            raise UploadConflict("retry_artifact_unavailable")
+        upload.corpus_access_token = token
+        upload.status = UploadStatus.PENDING
+        upload.processing_started = None
+        upload.processing_finished = None
+        upload.processing_token = None
+        upload.save(
+            update_fields=[
+                "corpus_access_token",
+                "status",
+                "processing_started",
+                "processing_finished",
+                "processing_token",
+            ]
+        )
+        return upload, True

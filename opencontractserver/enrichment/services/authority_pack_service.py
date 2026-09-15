@@ -21,6 +21,7 @@ from django.core.management.base import CommandError
 from django.db import IntegrityError, transaction
 from django.utils.text import slugify
 
+from opencontractserver.constants.authority_packs import MAX_AUTHORITY_PACK_ERROR_LENGTH
 from opencontractserver.enrichment.authorities import (
     bootstrap_authority_corpus,
     read_section_spec,
@@ -357,9 +358,12 @@ class AuthorityPackService:
             raise CommandError(
                 "Authority pack changed after preflight; validate it again."
             )
-        return cls._install_plan(
-            plan, creator=creator, make_public=make_public, relink=relink
-        )
+        try:
+            return cls._install_plan(
+                plan, creator=creator, make_public=make_public, relink=relink
+            )
+        except IntegrityError as exc:
+            raise CommandError(CONCURRENT_INSTALL_MESSAGE) from exc
 
     @classmethod
     def preflight_path(cls, pack_dir: Path, *, creator) -> AuthorityPackPlan:
@@ -558,22 +562,25 @@ class AuthorityPackService:
                     activation.last_error = ""
                     activation.attempted_fingerprint = artifact.fingerprint
                     activation.save()
-                installed = replace(
-                    installed,
-                    pack=replace(
-                        frozen,
-                        activation_status="active",
-                        active_version=artifact.version,
-                        active_fingerprint=artifact.fingerprint,
-                        activation_error=None,
-                    ),
-                )
+                    installed = replace(
+                        installed,
+                        pack=replace(
+                            frozen,
+                            activation_status="active",
+                            active_version=artifact.version,
+                            active_fingerprint=artifact.fingerprint,
+                            activation_error=None,
+                        ),
+                    )
         except Exception as exc:
             # A later successful activation owns its status. A failed attempt
             # may report against only the active version it actually observed.
             AuthorityPackActivation.objects.filter(
                 pk=activation.pk, active_artifact_id=observed_active_id
-            ).update(last_error=str(exc)[:1000], attempted_fingerprint=plan.fingerprint)
+            ).update(
+                last_error=str(exc)[:MAX_AUTHORITY_PACK_ERROR_LENGTH],
+                attempted_fingerprint=plan.fingerprint,
+            )
             raise
         return cls._relink_installed(installed, relink=relink)
 
@@ -812,7 +819,9 @@ class AuthorityPackService:
         return "mixed"
 
     @classmethod
-    def _fingerprint(cls, manifest: dict, pack_dir: Path) -> str:
+    def _fingerprint(
+        cls, manifest: dict, pack_dir: Path, *, include_resources: bool = True
+    ) -> str:
         files = [pack_dir / "pack.yaml"]
         for key in ("mappings", "relationships", "metadata_schema", "sources"):
             if manifest.get(key):
@@ -837,16 +846,18 @@ class AuthorityPackService:
 
         # Executable provider helpers and resources are part of the reviewed
         # version too, while loading them remains a separate registry decision.
-        return cls._hash_files(
-            pack_dir, list(set(files) | set(artifact_files(pack_dir)))
-        )
+        if include_resources:
+            files.extend(artifact_files(pack_dir))
+        return cls._hash_files(pack_dir, files)
 
     @classmethod
     def declarative_fingerprint(cls, pack_dir: Path) -> str:
         """Fingerprint trusted declarative pack inputs without installing them."""
 
         pack_dir = Path(pack_dir).resolve()
-        return cls._fingerprint(cls._read_manifest(pack_dir), pack_dir)
+        return cls._fingerprint(
+            cls._read_manifest(pack_dir), pack_dir, include_resources=False
+        )
 
     @staticmethod
     def _hash_files(pack_dir: Path, files: list[Path]) -> str:

@@ -12,9 +12,11 @@ from datetime import timedelta
 from typing import Any, cast
 
 from django.conf import settings
+from django.db import transaction
 from django.db.models import QuerySet
 from django.utils import timezone
 from rest_framework import permissions, status
+from rest_framework.exceptions import NotFound
 from rest_framework.generics import ListAPIView, RetrieveAPIView
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.parsers import JSONParser, MultiPartParser
@@ -38,6 +40,13 @@ from opencontractserver.worker_uploads.serializers import (
 from opencontractserver.worker_uploads.tasks import (
     process_pending_section_batches,
     process_pending_uploads,
+)
+from opencontractserver.worker_uploads.upload_recovery import (
+    UploadConflict,
+    UploadRateLimited,
+    receipts_for_token,
+    retry_upload,
+    stage_upload,
 )
 
 logger = logging.getLogger(__name__)
@@ -121,39 +130,34 @@ class WorkerDocumentUploadView(APIView):
                     status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                 )
 
-        # Best-effort rate limit: the count-then-create is intentionally
-        # non-atomic. Under concurrent burst traffic a caller can marginally
-        # exceed the limit. This is acceptable for trusted internal workers;
-        # for strict enforcement use a reverse proxy (e.g. nginx limit_req).
-        if token.rate_limit_per_minute > 0:
-            window_start = timezone.now() - timedelta(minutes=1)
-            recent_count = WorkerDocumentUpload.objects.filter(
-                corpus_access_token=token,
-                created__gte=window_start,
-            ).count()
-            if recent_count >= token.rate_limit_per_minute:
-                return Response(
-                    {
-                        "error": "Rate limit exceeded.",
-                        "detail": (
-                            f"Token allows {token.rate_limit_per_minute} "
-                            f"uploads per minute."
-                        ),
-                    },
-                    status=status.HTTP_429_TOO_MANY_REQUESTS,
-                    headers={"Retry-After": "60"},
-                )
-
         serializer = WorkerDocumentUploadSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        upload = WorkerDocumentUpload.objects.create(
-            corpus_access_token=token,
-            corpus=token.corpus,
-            file=serializer.validated_data["file"],
-            metadata=serializer.validated_data["metadata"],
-            status=UploadStatus.PENDING,
-        )
+        try:
+            upload, created = stage_upload(
+                token,
+                serializer.validated_data["file"],
+                serializer.validated_data["metadata"],
+                request.headers.get("Idempotency-Key"),
+            )
+        except UploadRateLimited:
+            return Response(
+                {
+                    "error": "Rate limit exceeded.",
+                    "detail": (
+                        f"Token allows {token.rate_limit_per_minute} "
+                        f"uploads per minute."
+                    ),
+                },
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+                headers={"Retry-After": "60"},
+            )
+        except UploadConflict as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_409_CONFLICT)
+        except ValueError:
+            return Response(
+                {"error": "invalid_upload_identity"}, status=status.HTTP_400_BAD_REQUEST
+            )
 
         logger.info(
             f"Worker upload staged: {upload.id} for corpus {token.corpus_id} "
@@ -163,10 +167,8 @@ class WorkerDocumentUploadView(APIView):
         # Trigger the batch processor if not already running.
         # This is a lightweight nudge — Beat also schedules periodic drains
         # to catch uploads that arrive during task-worker downtime.
-        process_pending_uploads.apply_async(
-            queue="worker_uploads",
-            ignore_result=True,
-        )
+        if created:
+            transaction.on_commit(_nudge_upload_processor)
 
         response_serializer = WorkerDocumentUploadStatusSerializer(upload)
         return Response(response_serializer.data, status=status.HTTP_202_ACCEPTED)
@@ -183,9 +185,9 @@ class WorkerDocumentUploadStatusView(RetrieveAPIView):
 
     def get_queryset(self) -> "QuerySet[WorkerDocumentUpload]":
         token = cast(CorpusAccessToken, self.request.auth)
-        return WorkerDocumentUpload.objects.select_related(
+        return receipts_for_token(token).select_related(
             "result_document", "corpus_access_token"
-        ).filter(corpus_access_token=token)
+        )
 
 
 class WorkerUploadPagination(PageNumberPagination):
@@ -195,7 +197,7 @@ class WorkerUploadPagination(PageNumberPagination):
 
 
 class WorkerDocumentUploadListView(ListAPIView):
-    """List uploads for the authenticated token (paginated)."""
+    """List uploads for the authenticated worker and corpus (paginated)."""
 
     authentication_classes = [WorkerTokenAuthentication]
     permission_classes = [IsValidWorkerToken]
@@ -204,9 +206,9 @@ class WorkerDocumentUploadListView(ListAPIView):
 
     def get_queryset(self) -> "QuerySet[WorkerDocumentUpload]":
         token = cast(CorpusAccessToken, self.request.auth)
-        qs = WorkerDocumentUpload.objects.select_related(
+        qs = receipts_for_token(token).select_related(
             "result_document", "corpus_access_token"
-        ).filter(corpus_access_token=token)
+        )
 
         # Optional status filter
         status_filter = self.request.query_params.get("status")
@@ -214,6 +216,55 @@ class WorkerDocumentUploadListView(ListAPIView):
             qs = qs.filter(status=status_filter)
 
         return qs.order_by("-created")
+
+
+def _nudge_upload_processor():
+    # A broker outage must not turn an already durable receipt into a failed
+    # HTTP response. Beat will drain the persisted PENDING row.
+    try:
+        process_pending_uploads.apply_async(queue="worker_uploads", ignore_result=True)
+    except Exception:
+        logger.exception(
+            "Could not dispatch worker upload drain; awaiting periodic drain"
+        )
+
+
+class WorkerDocumentUploadLookupView(APIView):
+    authentication_classes = [WorkerTokenAuthentication]
+    permission_classes = [IsValidWorkerToken]
+
+    def get(self, request, client_key):
+        upload = receipts_for_token(request.auth).filter(client_key=client_key).first()
+        payload = (
+            dict(WorkerDocumentUploadStatusSerializer(upload).data) if upload else {}
+        )
+        return Response(
+            {
+                **payload,
+                "schema_version": 1,
+                "client_key": client_key,
+                "found": upload is not None,
+            }
+        )
+
+
+class WorkerDocumentUploadRetryView(APIView):
+    authentication_classes = [WorkerTokenAuthentication]
+    permission_classes = [IsValidWorkerToken]
+
+    def post(self, request, upload_id):
+        try:
+            upload, queued = retry_upload(request.auth, upload_id)
+        except WorkerDocumentUpload.DoesNotExist:
+            raise NotFound()
+        except UploadConflict as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_409_CONFLICT)
+        if queued:
+            transaction.on_commit(_nudge_upload_processor)
+        return Response(
+            WorkerDocumentUploadStatusSerializer(upload).data,
+            status=status.HTTP_202_ACCEPTED,
+        )
 
 
 class WorkerAuthoritySectionBatchView(APIView):

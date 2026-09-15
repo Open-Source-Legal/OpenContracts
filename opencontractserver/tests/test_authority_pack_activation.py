@@ -168,7 +168,7 @@ class PackActivationTests(TransactionTestCase):
         ]
         return plan.active_version, providers, grammar
 
-    def child(self, cache_name):
+    def child(self, cache_name, *, include_hosts=False):
         # This process has independent module caches and local extraction files.
         script = """import json, sys, django
 django.setup()
@@ -185,6 +185,7 @@ settings.MEDIA_ROOT = sys.argv[3]
 from opencontractserver.users.models import User
 from opencontractserver.enrichment.services.authority_pack_service import AuthorityPackService
 from opencontractserver.enrichment.services.authority_pack_config import pack_declared_shape_rules
+from opencontractserver.enrichment.services.authority_source_hosts import pack_declared_source_hosts
 from opencontractserver.pipeline.registry import get_all_authority_source_providers_cached
 for line in sys.stdin:
     plans = AuthorityPackService.catalog(User.objects.get(pk=int(sys.argv[4])))
@@ -192,7 +193,10 @@ for line in sys.stdin:
     providers = [p.title for p in get_all_authority_source_providers_cached()
                  if p.class_name.endswith(".ManagedPackProvider")]
     grammar = [j for pattern, j, _ in pack_declared_shape_rules() if pattern.pattern == "^managed-grammar$"]
-    print(json.dumps([plan.active_version, providers, grammar]), flush=True)
+    result = [plan.active_version, providers, grammar]
+    if sys.argv[5] == "True":
+        result.append("retired-pack-source.example.org" in pack_declared_source_hosts())
+    print(json.dumps(result), flush=True)
 """
         process = subprocess.Popen(
             [
@@ -204,6 +208,7 @@ for line in sys.stdin:
                 str(self.root / cache_name),
                 str(self.root / "storage"),
                 str(self.admin.pk),
+                str(include_hosts),
             ],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
@@ -245,6 +250,31 @@ for line in sys.stdin:
         restarted = self.child("new-web-cache")
         self.assertEqual(self.read_child(restarted), ["v2", ["Managed v2"], ["v2"]])
         self.assertEqual(AuthorityPackArtifact.objects.count(), 2)
+
+    def test_versioned_update_revokes_provider_and_host_trust_in_running_processes(
+        self,
+    ):
+        from opencontractserver.enrichment.services.authority_source_hosts import (
+            effective_source_allowlist,
+        )
+
+        manifest_path = self.source / "pack.yaml"
+        manifest = yaml.safe_load(manifest_path.read_text())
+        host = "retired-pack-source.example.org"
+        manifest["source_hosts"] = [host]
+        manifest_path.write_text(yaml.safe_dump(manifest))
+        self.install()
+        running = self.child("revocation-cache", include_hosts=True)
+        self.assertTrue(self.read_child(running)[3])
+        self.assertIn(host, effective_source_allowlist())
+
+        self.write_pack("v2")
+        (self.source / "providers" / "managed.py").unlink()
+        self.install()
+        shutil.rmtree(self.source)
+        self.assertNotIn(host, effective_source_allowlist())
+        self.assertEqual(self.read_child(running), ["v2", [], ["v2"], False])
+        self.assertEqual(Corpus.objects.filter(slug="managed-pack-corpus").count(), 1)
 
     def test_interrupted_activation_rolls_back_content_and_keeps_prior_artifact_with_visible_error(
         self,
@@ -314,6 +344,7 @@ for line in sys.stdin:
     ):
         self.install()
         original = AuthorityPackActivation.objects.get().active_artifact_id
+        archives = set((self.root / "storage").rglob("*.zip"))
         self.write_pack("v2")
         with patch(
             "opencontractserver.enrichment.services.authority_pack_artifacts.materialize_artifact",
@@ -324,6 +355,7 @@ for line in sys.stdin:
         self.assertEqual(
             AuthorityPackActivation.objects.get().active_artifact_id, original
         )
+        self.assertEqual(set((self.root / "storage").rglob("*.zip")), archives)
         for member in ("../escape", "/absolute", "folder\\escape"):
             with self.subTest(member=member):
                 archive = io.BytesIO()
@@ -386,6 +418,14 @@ for line in sys.stdin:
         self.write_pack("v3")
         with self.assertRaisesRegex(CommandError, "not approved"):
             self.install()  # Updating public content must satisfy the same policy.
+        with self.assertRaisesRegex(CommandError, "not approved"):
+            call_command(
+                "load_authority_pack",
+                path=str(self.source),
+                creator=self.admin.username,
+                check=True,
+                stdout=io.StringIO(),
+            )
         artifact = AuthorityPackActivation.objects.get().active_artifact
         assert artifact is not None
         self.assertEqual(artifact.version, "v2")
@@ -395,6 +435,42 @@ for line in sys.stdin:
         shutil.rmtree(self.source)
         with override_settings(AUTHORITY_PACK_LOAD_PROVIDERS=False):
             self.assertEqual(self.snapshot(), ("v1", [], ["v1"]))
+
+    def test_activation_during_reentrant_discovery_keeps_one_registry_snapshot(self):
+        from opencontractserver.enrichment.services.authority_pack_artifacts import (
+            persist_artifact,
+        )
+        from opencontractserver.pipeline.registry import (
+            PipelineComponentRegistry,
+            get_registry,
+            reset_registry,
+        )
+
+        self.install()
+        self.write_pack("v2")
+        artifact = persist_artifact(
+            AuthorityPackService.preflight_path(self.source, creator=self.admin),
+            self.admin,
+        )
+        initialize = PipelineComponentRegistry._initialize
+        switched = False
+
+        def activate_during_discovery(registry):
+            nonlocal switched
+            initialize(registry)
+            if not switched:
+                switched = True
+                AuthorityPackActivation.objects.update(active_artifact=artifact)
+                self.assertIs(get_registry(), registry)
+
+        reset_registry()
+        with patch.object(
+            PipelineComponentRegistry, "_initialize", activate_during_discovery
+        ):
+            first = get_registry()
+        self.assertIs(first, PipelineComponentRegistry._instance)
+        self.assertIsNot(get_registry(), first)
+        self.assertEqual(self.snapshot(), ("v2", ["Managed v2"], ["v2"]))
 
     def test_identical_archive_bytes_in_differently_named_packs_get_independent_complete_caches(
         self,

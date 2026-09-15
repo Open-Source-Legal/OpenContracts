@@ -9,6 +9,7 @@ from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
 
 from opencontractserver.enrichment.services.authority_pack_service import (
+    AuthorityPackPlan,
     AuthorityPackService,
     _ValidatedCorpus,
 )
@@ -73,14 +74,14 @@ class Command(AuthorityPackService, BaseCommand):
             raise CommandError(DENIED)
 
         if options["check"]:
-            self._report_preflight(Path(options["path"]), creator=creator)
             plan = AuthorityPackService.preflight_path(
                 Path(options["path"]), creator=creator
             )
-            if options["public"] and not plan.can_publish:
+            if (options["public"] or plan.public_count) and not plan.can_publish:
                 raise CommandError(
                     "This authority pack is not approved for public installation."
                 )
+            self._report_preflight(plan)
             return
 
         result = AuthorityPackService.install_path(
@@ -158,14 +159,13 @@ class Command(AuthorityPackService, BaseCommand):
             f"fingerprint: {result.pack.active_fingerprint}"
         )
 
-    def _report_preflight(self, pack_dir: Path, *, creator: Any) -> None:
+    def _report_preflight(self, plan: AuthorityPackPlan) -> None:
         """Print the same validation the GUI preflight runs, and write nothing.
 
         The Authority Console exposes this to an authority admin with a browser
         session; a headless deployment installing a sideloaded pack has no such
         session, so the check has to be reachable from the command line too.
         """
-        plan = AuthorityPackService.preflight_path(pack_dir, creator=creator)
         self.stdout.write(
             f"pack {plan.pack_id} (schema v{plan.schema_version}) — "
             f"{plan.display_name}"

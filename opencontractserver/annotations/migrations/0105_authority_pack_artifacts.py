@@ -8,7 +8,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("annotations", "0103_alter_authorityfrontier_authority_type_and_more"),
+        ("annotations", "0104_embedding_configuration"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

@@ -102,6 +102,12 @@ export default defineConfig(async () => {
     // the real node_modules path (needed for WASM file auto-detection).
     optimizeDeps: {
       exclude: ["docxodus"],
+      // Vite does not scan an excluded package, so its nested CommonJS
+      // dependencies are never pre-bundled and reach the browser as raw CJS
+      // ("does not provide an export named 'bind'"), which crashes the whole
+      // dev-server app at boot. List them explicitly, as Vite's docs require
+      // for excluded ESM packages with CJS dependencies.
+      include: ["docxodus > bind-event-listener"],
     },
     // Better handling of assets in all environments
     resolve: {
@@ -139,7 +145,15 @@ export default defineConfig(async () => {
           // styled-components CJS interop resolves correctly. (vitest 4 removed
           // the top-level `test.deps.inline` option in favour of
           // `test.server.deps.inline`.)
-          inline: ["@os-legal/caml-react"],
+          //
+          // docxodus 12.x imports `@atlaskit/pragmatic-drag-and-drop/element/
+          // adapter` and friends. That package publishes per-directory
+          // `package.json` entry points with no top-level `exports` map, so
+          // Node's ESM loader rejects the subpath with
+          // ERR_UNSUPPORTED_DIR_IMPORT when vitest externalizes docxodus.
+          // Inlining routes docxodus through Vite's resolver, which handles
+          // directory entry points, matching what the browser build does.
+          inline: ["@os-legal/caml-react", "docxodus"],
         },
       },
       // More specific include pattern

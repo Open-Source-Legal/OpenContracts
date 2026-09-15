@@ -625,9 +625,8 @@ docker compose -f local.yml run --rm django python manage.py load_authority_pack
 
 `load_authority_pack` is idempotent and re-runnable. Add `--public` only when
 the corpus material and the installation's review policy permit publication;
-the flag controls corpus visibility, not copyright or legal approval. Restart
-so the registry/SSRF allowlist pick up any `providers/` module and
-`source_hosts`.
+the flag controls corpus visibility, not copyright or legal approval. A successful
+install refreshes provider discovery and the host allowlist in running processes.
 
 Authority source syncs compare the SHA-256 hash of the original source bytes
 while holding the existing active-path versioning lock. Changed bytes create a
@@ -645,8 +644,15 @@ provider and hosts travel with the directory — nothing in core needs editing.
 
 **Remove (legacy filesystem discovery only).** Delete the pack directory (or drop it from `AUTHORITY_PACK_ROOTS` /
 `AUTHORITY_PACK_PATHS`) and restart — its provider and `source_hosts` stop being discovered immediately. The
-already-loaded taxonomy/content rows persist. Managed artifacts require the coordinated
-migration described above. The legacy loader upserts; it does not
+already-loaded taxonomy/content rows persist.
+
+**Revoke managed runtime trust.** Install a reviewed version with the retired
+provider files removed and their `source_hosts` removed from the manifest. Running
+processes drop those providers and hosts automatically; deleting the original
+directory alone does not revoke a durable installation. Retain declared corpus,
+prefix, seed and relationship identities so installed content remains intact.
+Removing those identities requires the coordinated content migration described
+above. The legacy loader upserts; it does not
 delete prefixes dropped from a YAML; remove them deliberately via the Authority
 Console if you want them gone.
 

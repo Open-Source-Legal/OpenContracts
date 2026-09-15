@@ -4,12 +4,12 @@ Central registry of all pipeline components with lazy initialization.
 This module provides an efficient, cached registry of pipeline components
 (parsers, embedders, thumbnailers, post-processors) that:
 1. Auto-discovers components on first access (no manual registration needed)
-2. Caches the registry at module level for zero-overhead subsequent access
+2. Caches component tables while observing shared pack activation versions
 3. Exposes fast lookup functions similar to the tool_registry pattern
 
 Performance:
 - First access: ~50-100ms (module scanning)
-- Subsequent accesses: ~0ms (cached dict lookup)
+- Subsequent accesses: one version-id query; rediscovery only after activation changes
 """
 
 import hashlib
@@ -404,6 +404,7 @@ class PipelineComponentRegistry:
 
     _instance: Optional["PipelineComponentRegistry"] = None
     _initialized: bool = False
+    _initializing: bool = False
     # Serialises construction across threads. Discovery walks the filesystem and
     # ``exec_module``s every in-pack provider, and ``_ensure_synthetic_package``
     # mutates the process-global ``sys.modules`` while it does — none of which is
@@ -426,12 +427,23 @@ class PipelineComponentRegistry:
             return cls._instance
 
     def __init__(self):
+        from opencontractserver.enrichment.services.authority_pack_artifacts import (
+            active_pack_snapshot,
+        )
+
+        global _registry_pack_revision
         with PipelineComponentRegistry._lock:
             # Only initialize once (singleton pattern)
             if PipelineComponentRegistry._initialized:
                 return
-            PipelineComponentRegistry._initialized = True
-            self._initialize()
+            with active_pack_snapshot() as revision:
+                PipelineComponentRegistry._initialized = True
+                PipelineComponentRegistry._initializing = True
+                _registry_pack_revision = revision
+                try:
+                    self._initialize()
+                finally:
+                    PipelineComponentRegistry._initializing = False
 
     def _initialize(self) -> None:
         """Build every lookup table. Called once, under ``_lock``."""
@@ -1056,15 +1068,19 @@ def get_registry() -> PipelineComponentRegistry:
     """
     Get the singleton pipeline component registry.
 
-    The registry is initialized on first access and cached permanently.
+    Component tables are cached; one version-id query detects shared activation.
     """
     from opencontractserver.enrichment.services.authority_pack_artifacts import (
         active_revision,
     )
 
     global _registry_pack_revision
-    revision = active_revision()
     with PipelineComponentRegistry._lock:
+        if PipelineComponentRegistry._initializing:
+            instance = PipelineComponentRegistry._instance
+            assert instance is not None
+            return instance
+        revision = active_revision()
         previous = (
             PipelineComponentRegistry._instance,
             PipelineComponentRegistry._initialized,

@@ -53,6 +53,32 @@
     "@csstools/css-tokenizer" "^3.0.3"
     lru-cache "^10.4.3"
 
+"@atlaskit/pragmatic-drag-and-drop-auto-scroll@^3.0.0":
+  version "3.2.0"
+  resolved "https://registry.yarnpkg.com/@atlaskit/pragmatic-drag-and-drop-auto-scroll/-/pragmatic-drag-and-drop-auto-scroll-3.2.0.tgz#89cf48a9ff486143a4d6d3a6b9dfe60bf17b21ad"
+  integrity sha512-vuL+AJae6c6lkmFd63v7c/7J7seyi7ZA8uMLNe9GvvApySToun3Zlv8SfyZU0d+wcNG4+Ix6qpRb8jOobZgNNg==
+  dependencies:
+    "@atlaskit/pragmatic-drag-and-drop" "^3.1.0"
+    "@babel/runtime" "^7.0.0"
+
+"@atlaskit/pragmatic-drag-and-drop@^2.0.2":
+  version "2.0.2"
+  resolved "https://registry.yarnpkg.com/@atlaskit/pragmatic-drag-and-drop/-/pragmatic-drag-and-drop-2.0.2.tgz#3ab79e5b9f9f6b0c77754912f6173ecb8f5cfa3d"
+  integrity sha512-ou1j+lBqutK7p2S80lMresJeKu9qAL1zr1K+N0OyCTzbMpD6pXRHray8VkRoHgJICI7Wp1fk5ScJh6EctyAuPw==
+  dependencies:
+    "@babel/runtime" "^7.0.0"
+    bind-event-listener "^3.0.0"
+    raf-schd "^4.0.3"
+
+"@atlaskit/pragmatic-drag-and-drop@^3.1.0":
+  version "3.1.0"
+  resolved "https://registry.yarnpkg.com/@atlaskit/pragmatic-drag-and-drop/-/pragmatic-drag-and-drop-3.1.0.tgz#dcfe6c552e1bf83f80095ad39acbee384d6d1dfd"
+  integrity sha512-VU+2Oh6OgvC6D1xiX3lfm1gZJsaSPD+ZKjAHodOQ9IO6RfOvAyReLlK5ut9gIUpPmbD8d09wlCs7y4A6/I8c5Q==
+  dependencies:
+    "@babel/runtime" "^7.0.0"
+    bind-event-listener "^3.0.0"
+    raf-schd "^4.0.3"
+
 "@auth0/auth0-react@^2.3.0":
   version "2.8.0"
   resolved "https://registry.yarnpkg.com/@auth0/auth0-react/-/auth0-react-2.8.0.tgz#170b3cb3701bed19fadbd7fe6a51dbd555e7d0f7"
@@ -3181,6 +3207,11 @@ baseline-browser-mapping@^2.11.20:
   resolved "https://registry.yarnpkg.com/baseline-browser-mapping/-/baseline-browser-mapping-2.11.21.tgz#99af73cb8e54007e4f5345e132278e26c2662f2c"
   integrity sha512-uh8vpY/1/YyFkunIDFH/12p7/7VdPKA1hejMVEbdkEaWnUz0Hesvx5EbiU6XxjyHZIOju+ZMbQJkRh+es3/spQ==
 
+bind-event-listener@^3.0.0:
+  version "3.0.0"
+  resolved "https://registry.yarnpkg.com/bind-event-listener/-/bind-event-listener-3.0.0.tgz#c90f9a7fcb65cac21045f810c20ef7e647a74921"
+  integrity sha512-PJvH288AWQhKs2v9zyfYdPzlPqf5bXbGMmhmUIY9x4dAUGIWgomO771oBQNwJnMQSnUIXhKu6sgzpBRXTlvb8Q==
+
 bl@^4.1.0:
   version "4.1.0"
   resolved "https://registry.yarnpkg.com/bl/-/bl-4.1.0.tgz#451535264182bec2fbbc83a62ab98cf11d9f7b3a"
@@ -4064,10 +4095,13 @@ dir-glob@^3.0.1:
   dependencies:
     path-type "^4.0.0"
 
-docxodus@5.5.3:
-  version "5.5.3"
-  resolved "https://registry.yarnpkg.com/docxodus/-/docxodus-5.5.3.tgz#76fb42cc3221e63f70f5ec7e71d59d91e9853717"
-  integrity sha512-llgB2xKH6OPcf6KRXQNSg7MibNAneNlFcaWJUNYrMorpo3wnEqbnptV+b8qgYjcPTseWMeCri57h0+K5gHutSA==
+docxodus@12.4.1:
+  version "12.4.1"
+  resolved "https://registry.yarnpkg.com/docxodus/-/docxodus-12.4.1.tgz#8a994ec683ce9d22d07cbbda5aeb1d4d0fd86abf"
+  integrity sha512-QKBGr1jix/EyIhz6wBJa8fGi0n4u2uUE3mDXjLv1PFE4rouktkgXz5CiQmwEEQ1n1zV7g5tTw0bqOUFh4LJe4g==
+  dependencies:
+    "@atlaskit/pragmatic-drag-and-drop" "^2.0.2"
+    "@atlaskit/pragmatic-drag-and-drop-auto-scroll" "^3.0.0"
 
 dom-accessibility-api@^0.5.9:
   version "0.5.16"

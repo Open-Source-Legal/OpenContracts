@@ -376,7 +376,6 @@ class AuthorityPackAPITests(TestCase):
                     expected_fingerprint=preflight.fingerprint,
                     relink=False,
                 )
-
         self.assertTrue(result.ok, result.error)
         self.assertTrue(
             Corpus.objects.filter(
@@ -412,6 +411,11 @@ class AuthorityPackAPITests(TestCase):
                     expected_fingerprint=preflight.fingerprint,
                     relink=False,
                 )
+                assert preflight.pack_dir is not None
+                with self.assertRaisesMessage(CommandError, CONCURRENT_INSTALL_MESSAGE):
+                    AuthorityPackService.install_path(
+                        preflight.pack_dir, creator=self.admin, relink=False
+                    )
 
         self.assertFalse(result.ok)
         self.assertEqual(result.error, CONCURRENT_INSTALL_MESSAGE)

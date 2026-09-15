@@ -386,39 +386,37 @@ class CorpusService(BaseService):
 
     @classmethod
     def count_annotations_missing_embeddings(
-        cls, corpus: Corpus, embedder_path: str
+        cls,
+        corpus: Corpus,
+        embedder_path: str,
+        *,
+        dimension=None,
+        configuration=None,
+        annotations=None,
     ) -> int:
-        """How many of ``corpus``'s annotations lack ``embedder_path`` vectors.
+        """Count nonempty annotations without a matching embedding.
 
-        This is what makes "is this corpus migrated?" answerable. Comparing
-        ``preferred_embedder`` alone cannot answer it: ``reembed_corpus`` writes
-        the new path *before* queueing and caps each dispatch at
-        ``MAX_REEMBED_TASKS_PER_RUN``, so a large corpus routinely ends a run
-        with the new embedder recorded and most of its annotations still on the
-        old one.
-
-        Counts only annotations that *can* be embedded. Embedders skip any text
-        that is blank once stripped (``BaseEmbedder`` returns early on
-        ``not text.strip()``), and real corpora carry a steady tail of such
-        rows — parser artefacts that are a lone space or a form feed, ~44k of
-        them in one 77k-annotation revision-history corpus here. Counting them
-        would hold the number permanently above zero, so a fully-migrated corpus
-        would re-dispatch on every call and never report itself done, trading
-        the old silent lie for a loud one.
-
-        The match is a whitespace regex rather than ``Trim``: SQL ``TRIM``
-        strips spaces only, which would leave the form-feed rows counted.
+        Corpus migration matches the embedder path. Readiness additionally
+        supplies dimension and configuration to reject unverified vectors.
+        An optional queryset limits the check to a document's annotations.
         """
-        from django.db.models import Q
-
         from opencontractserver.annotations.models import Embedding
-
-        embeddable = cls.annotations_in_corpus(corpus).exclude(
-            Q(raw_text__isnull=True) | Q(raw_text__regex=r"^\s*$")
+        from opencontractserver.utils.embedding_identity import (
+            embeddable_annotations,
+            valid_embeddings,
         )
-        embedded = Embedding.objects.filter(
-            annotation_id__in=embeddable.values_list("id", flat=True),
-            embedder_path=embedder_path,
+
+        embeddable = embeddable_annotations(
+            cls.annotations_in_corpus(corpus) if annotations is None else annotations
+        )
+        embeddings = (
+            Embedding.objects.filter(embedder_path=embedder_path)
+            if dimension is None
+            else valid_embeddings(embedder_path, dimension, configuration)
+        )
+        # Scope vector_norm to these annotations, not the whole installation.
+        embedded = embeddings.filter(
+            annotation_id__in=embeddable.values_list("id", flat=True)
         ).values_list("annotation_id", flat=True)
         return embeddable.exclude(id__in=embedded).count()
 
