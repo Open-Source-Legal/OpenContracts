@@ -640,7 +640,10 @@ class ReadinessTests(ReadinessFixtures, TestCase):
             worker_account=account, corpus=self.corpus
         )
         other_token, _ = CorpusAccessToken.create_token(
-            worker_account=account, corpus=self.corpus
+            worker_account=WorkerAccount.create_with_user(
+                name="other-readiness-worker", creator=self.user
+            ),
+            corpus=self.corpus,
         )
         receipt = WorkerDocumentUpload.objects.create(
             corpus=self.corpus,
@@ -665,6 +668,48 @@ class ReadinessTests(ReadinessFixtures, TestCase):
         self.assertEqual(
             client.get("/api/readiness/worker/?limit=101").status_code, 400
         )
+
+    def test_worker_readiness_and_repair_survive_token_rotation(self):
+        account = WorkerAccount.create_with_user(
+            name="rotating-readiness-worker", creator=self.user
+        )
+        original, original_key = CorpusAccessToken.create_token(
+            worker_account=account, corpus=self.corpus
+        )
+        replacement, replacement_key = CorpusAccessToken.create_token(
+            worker_account=account, corpus=self.corpus
+        )
+        receipt = WorkerDocumentUpload.objects.create(
+            corpus=self.corpus,
+            corpus_access_token=original,
+            worker_account=account,
+            result_document=self.doc,
+            status="COMPLETED",
+        )
+        url = f"/api/readiness/worker/{receipt.pk}/"
+        original.is_active = False
+        original.save(update_fields=["is_active"])
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"WorkerKey {original_key}")
+        self.assertIn(client.get(url).status_code, (401, 403))
+        original.delete()
+
+        client.credentials(HTTP_AUTHORIZATION=f"WorkerKey {replacement_key}")
+        self.assertEqual(client.get(url).data["state"], "outstanding")
+        self.assertEqual(
+            [
+                d["document_id"]
+                for d in client.get("/api/readiness/worker/").data["documents"]
+            ],
+            [self.doc.pk],
+        )
+        with patch(DISPATCH), self.captureOnCommitCallbacks(execute=True):
+            queued = client.post(url)
+        self.assertEqual(queued.status_code, 202)
+        job = EmbeddingRepair.objects.get(pk=queued.data["repair"]["id"])
+        self.assertEqual(job.worker_token_id, replacement.pk)
+        repair_document_embeddings(job.pk)
+        self.assertEqual(client.get(url).data["state"], "ready")
 
     def test_document_status_picks_the_newest_corpus_and_accepts_an_explicit_one(
         self,

@@ -278,14 +278,12 @@ def repair_authorized(document, corpus, user, token=None):
     if not user.is_active:
         return False
     if token:
-        from opencontractserver.worker_uploads.models import WorkerDocumentUpload
+        from opencontractserver.worker_uploads.upload_recovery import receipts_for_token
 
         return (
             token.is_valid
             and token.corpus_id == getattr(corpus, "pk", None)
-            and WorkerDocumentUpload.objects.filter(
-                result_document=document, corpus_access_token=token
-            ).exists()
+            and receipts_for_token(token).filter(result_document=document).exists()
         )
     return all(
         BaseService.user_has(obj, user, permission)

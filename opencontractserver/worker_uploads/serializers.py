@@ -142,6 +142,10 @@ class WorkerDocumentUploadStatusSerializer(serializers.ModelSerializer):
             "created",
             "processing_started",
             "processing_finished",
+            "client_key",
+            "payload_digest",
+            "processing_attempts",
+            "error_history",
         ]
         read_only_fields = fields
 

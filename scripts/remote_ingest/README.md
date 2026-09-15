@@ -180,7 +180,7 @@ with `compose/accelerated/bench_parse.py`; its speedup is hardware-specific.
 | `plan` | Scan `OC_DATA_DIR` and record every PDF in the SQLite ledger. No network, no parsing. |
 | `run` | Parse + embed + upload all `PENDING`/`FAILED` docs. Resumable, concurrent, back-pressure-aware. |
 | `verify` | Verify the whole ledger; poll uploaded receipts and return a completion, outstanding, failure or unavailable result. |
-| `status` | Print ledger counts + token-scoped outstanding uploads (or `unknown`). |
+| `status` | Print ledger counts + worker/corpus outstanding uploads (or `unknown`). |
 
 Useful flags (append after the subcommand):
 
@@ -197,7 +197,7 @@ Useful flags (append after the subcommand):
 - `--limit N` — (on `plan`) stop after recording N **new** documents; existing
   ledger paths do not consume the limit. Zero means no cap.
 - `--flat` — do not mirror the directory tree into corpus folders.
-- `--queue-high / --queue-low` — token-scoped outstanding upload thresholds:
+- `--queue-high / --queue-low` — worker/corpus outstanding upload thresholds:
   pause above high, resume at/below low. See [Admission](#admission).
 - `--enricher MODULE:CALLABLE` — run a pre-processing enricher (repeatable; also
   `OC_ENRICHERS`, comma-separated). See below.
@@ -222,7 +222,7 @@ any unavailable observations. It does not poll the unrelated token backlog.
 For mixed results, `3` takes precedence over `2`, then `1`. Codes `0`/`1`/`2`
 follow the bulk-import convention where applicable. Repeating verification keeps
 reporting unresolved failures and preserves their receipt/error. HTTP 401/403,
-404 (missing or inaccessible under this exact token), 429, 5xx, transport errors,
+404 (missing or inaccessible under this worker and corpus), 429, 5xx, transport errors,
 and malformed responses have distinct reasons; none changes the receipt's ledger
 state, attempts or diagnostic history. Correct the cause and rerun verification.
 
@@ -260,8 +260,8 @@ The server exposes these authenticated endpoints:
 | --- | --- | --- |
 | `documents/<id>/` | Document READ and, when linked, corpus READ | GET status; POST repair additionally requires UPDATE on both. A document with current paths in several corpora is observed in its newest one unless `?corpus=<id>` selects another |
 | `corpuses/<id>/` | Corpus READ; only readable documents are returned | GET document page |
-| `worker/<upload-uuid>/` | The WorkerKey that owns the receipt | GET status; POST repair |
-| `worker/` | WorkerKey | GET document page for that token's receipts |
+| `worker/<upload-uuid>/` | Valid WorkerKey for the receipt's worker account and corpus | GET status; POST repair |
+| `worker/` | WorkerKey | GET document page for that worker account and corpus |
 
 Status includes `state`, the observed `corpus_id`, diagnostic `reasons`, required stages, eligible/valid
 document and annotation counts, the active embedder path/dimension/configuration,
@@ -316,9 +316,8 @@ command again to resume unfinished rows.
 
 Use one CLI invocation per ledger at a time, including `plan` and `verify`.
 These cursors do not coordinate ownership across processes. Preparation checkpoints
-recover local work; uncertain uploads stop in `AMBIGUOUS` and are never replayed
-automatically. The broader verification exit contract remains separate work in
-#2320.
+recover local work; uncertain uploads stop in `AMBIGUOUS` until server lookup
+establishes their receipt or absence. See the verification exit codes above.
 
 ### Admission
 
@@ -341,11 +340,11 @@ If a poll itself aborts (for example, `SystemExit` in its worker), admission sto
 and wakes all waiters before propagating the exception; `run` reports a safe
 diagnostic and exits **2**.
 
-These counts cover only the **exact authenticated token's** outstanding staged
-uploads, including other producers using that token. They are two separate reads,
+These counts cover the authenticated **worker account and corpus**, including
+uploads submitted with earlier tokens for that identity. They are two separate reads,
 not an atomic snapshot, corpus-wide count or install-wide Celery capacity metric.
 Already-admitted local workers (up to `--max-workers`) can still parse/upload after
-a high reading, and other tokens are invisible: this is not a hard queue ceiling.
+a high reading, and other workers are invisible: this is not a hard queue ceiling.
 The server retains batch draining, row claims and stalled-upload recovery.
 Upload status does not establish thumbnail, embedding or search readiness.
 
@@ -423,7 +422,9 @@ and parsed, even if the original path changes during preparation or cache reuse.
 The ledger hash therefore describes the uploaded snapshot; replan to detect later
 filesystem changes. A missing source fails before upload, even with cached work.
 
-A change to an `UPLOADED`, `COMPLETED` or `AMBIGUOUS` source produces `CONFLICT`.
+Rows with a receipt or stored upload digest produce `CONFLICT` when their source
+changes, including `FAILED`/`PARKED` rows. Legacy `UPLOADED`, `COMPLETED`, and
+`AMBIGUOUS` rows do the same.
 The old source hash, receipt/timestamps, and prior status are retained alongside
 the observed conflict hash. The row is excluded from `run`; restoring the old
 bytes and replanning restores its prior status. Otherwise an operator must
@@ -431,20 +432,45 @@ resolve an explicit server replace/new-document policy. There is no automatic
 replacement or creation of another document for a conflicted path.
 
 Upload state is separate from these checkpoints. Before POST, the worker durably
-records `AMBIGUOUS`; a valid 202 receipt changes it to `UPLOADED`. Only explicit
-429 rejections are retried within the HTTP call. Transport errors, redirects,
-5xx and missing/malformed success receipts remain ambiguous, as does a crash
-between recording intent and receiving the receipt. `run` will not replay them.
-`plan`, `run`, and `verify` return nonzero while any conflict/ambiguous row remains;
-`status` displays the counts. Inspect SQLite `docs` for the path, `prior_status`,
-`sha256`, `conflict_sha256`, receipt and error. Reconcile with the server before
-an operator records a recovered receipt or authorizes another attempt. Local
-artifacts do **not** make POST replay idempotent; server-backed idempotency is a
-separate API change. Receipts also belong to the exact original `CorpusAccessToken`:
-rotating to another token for the same corpus does not grant access to old receipts.
+records a random `client_key`, a digest of source bytes plus semantic metadata and
+preparation configuration, and `AMBIGUOUS`. It sends the key as `Idempotency-Key`.
+Identical replays return the same receipt; changed bytes or metadata return HTTP
+409. Requests without a key retain the legacy create-on-every-POST behavior.
+
+On restart, `run` looks up ambiguous keys before doing preparation. A matching
+receipt restores `UPLOADED`/`COMPLETED`; an explicit authenticated absence permits
+replay with the same key and cached preparation. A timeout, malformed response,
+404 (including an older server without lookup), or authorization failure leaves
+the row ambiguous. Rejection of a replay also preserves the original key and
+ambiguity: the earlier request may still commit. `verify` can recover receipts
+but never replays uploads.
+Legacy ambiguous rows without a client key still require manual reconciliation.
+
+Receipts belong to a worker account and corpus. A replacement token for that
+same pair can list, look up and retry old receipts, including after the original
+token is deleted. Other workers cannot access them; revoked tokens are rejected.
+
+`POST /api/worker-uploads/documents/<receipt>/retry/` retries a failed receipt
+using its retained file and metadata, for at most three server processing
+attempts. `run` uses this endpoint for failed rows with receipts. It does not
+repeat parsing, enrichment or embedding, and needs no local source for this
+server retry. Missing staging files and exhausted retries return HTTP 409; the
+server deletes the retained file once the attempts are exhausted.
+Legacy failed uploads release their staging file immediately, so retry returns
+`retry_artifact_unavailable`. The server budget includes abandoned claims;
+`--max-attempts` separately caps combined local preparation and receipt-retry failures.
+Stale attempts are recovered in bounded batches; a live import holds a row lock,
+and fenced ownership prevents an abandoned worker from committing later.
+Attempt errors remain in the receipt's bounded `error_history`.
+
+`GET /api/worker-uploads/documents/by-key/<client_key>/` returns a versioned
+`found` envelope. Only `schema_version: 1, found: false` proves scoped absence.
+Keys use 1–128 ASCII letters, digits, dots, underscores, colons or hyphens.
+Use one ledger with one target, worker account and corpus. Token rotation is
+supported; switching worker accounts changes the key namespace.
 `COMPLETED` means worker-upload transaction completion, not thumbnail/search readiness.
 
-Existing SQLite ledgers gain two nullable conflict columns in place; no export or
+Existing SQLite ledgers gain nullable conflict and identity columns in place; no export or
 one-time migration is needed. Rows without a manifest run as uncached work after
 the identities above are configured. Back up SQLite and its artifacts together.
 The ledger and its SQLite recovery files are restricted to owner read/write

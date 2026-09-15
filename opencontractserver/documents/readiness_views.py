@@ -17,7 +17,7 @@ from opencontractserver.documents.readiness import (
 from opencontractserver.shared.services.base import BaseService
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.worker_uploads.auth import WorkerTokenAuthentication
-from opencontractserver.worker_uploads.models import WorkerDocumentUpload
+from opencontractserver.worker_uploads.upload_recovery import receipts_for_token
 from opencontractserver.worker_uploads.views import IsValidWorkerToken
 
 
@@ -107,9 +107,10 @@ class WorkerReadinessView(APIView):
 
     def _document(self, request, upload_id):
         upload = get_object_or_404(
-            WorkerDocumentUpload.objects.select_related("result_document", "corpus"),
+            receipts_for_token(request.auth).select_related(
+                "result_document", "corpus"
+            ),
             pk=upload_id,
-            corpus_access_token=request.auth,
         )
         return upload
 
@@ -145,10 +146,8 @@ class WorkerCorpusReadinessView(APIView):
     permission_classes = [IsValidWorkerToken]
 
     def get(self, request):
-        # The token's receipts define its authority, matching the status endpoint.
+        # Match receipt status/lookup ownership across token rotation.
         documents = Document.objects.filter(
-            pk__in=WorkerDocumentUpload.objects.filter(
-                corpus_access_token=request.auth
-            ).values("result_document_id")
+            pk__in=receipts_for_token(request.auth).values("result_document_id")
         )
         return corpus_page(request, documents, request.auth.corpus)
