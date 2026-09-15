@@ -44,15 +44,31 @@ def corpus_page(request, documents, corpus):
 
 
 class DocumentReadinessView(APIView):
+    def _corpus(self, request, document):
+        paths = DocumentPath.objects.select_related("corpus").filter(
+            document=document, is_current=True, is_deleted=False
+        )
+        requested = request.query_params.get("corpus")
+        if requested is not None:
+            try:
+                paths = paths.filter(corpus_id=int(requested))
+            except (TypeError, ValueError):
+                raise ValidationError("corpus must be an integer id")
+            path = paths.first()
+            if path is None:
+                raise NotFound()
+            return path.corpus
+        # A document may hold a current path in several corpora at once.
+        # Without an explicit choice, observe the newest path so repeated
+        # calls report the same corpus instead of whichever row Postgres
+        # happens to return first.
+        path = paths.order_by("-created", "-pk").first()
+        return path.corpus if path else None
+
     def _context(self, request, document_id, *, repair=False):
         document = get_object_or_404(Document, pk=document_id)
         require_access(request, document, PermissionTypes.READ)
-        path = (
-            DocumentPath.objects.select_related("corpus")
-            .filter(document=document, is_current=True, is_deleted=False)
-            .first()
-        )
-        corpus = path.corpus if path else None
+        corpus = self._corpus(request, document)
         if corpus:
             require_access(request, corpus, PermissionTypes.READ)
         if repair:

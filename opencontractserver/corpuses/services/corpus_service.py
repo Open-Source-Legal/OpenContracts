@@ -429,7 +429,12 @@ class CorpusService(BaseService):
         if dimension is not None:
             from opencontractserver.utils.embedding_identity import valid_embeddings
 
-            embeddings = valid_embeddings(embedder_path, dimension, configuration)
+            # Keep the validity filter scoped to the annotations under
+            # assessment. Unscoped, the vector_norm() scan would sweep every
+            # Embedding row in the installation once per assessed document.
+            embeddings = valid_embeddings(
+                embedder_path, dimension, configuration
+            ).filter(annotation_id__in=embeddable.values_list("id", flat=True))
         embedded = embeddings.filter(annotation_id__isnull=False).values_list(
             "annotation_id", flat=True
         )

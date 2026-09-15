@@ -258,12 +258,12 @@ The server exposes these authenticated endpoints:
 
 | Endpoint under `/api/readiness/` | Authorization | Methods |
 | --- | --- | --- |
-| `documents/<id>/` | Document READ and, when linked, corpus READ | GET status; POST repair additionally requires UPDATE on both |
+| `documents/<id>/` | Document READ and, when linked, corpus READ | GET status; POST repair additionally requires UPDATE on both. A document with current paths in several corpora is observed in its newest one unless `?corpus=<id>` selects another |
 | `corpuses/<id>/` | Corpus READ; only readable documents are returned | GET document page |
 | `worker/<upload-uuid>/` | The WorkerKey that owns the receipt | GET status; POST repair |
 | `worker/` | WorkerKey | GET document page for that token's receipts |
 
-Status includes `state`, diagnostic `reasons`, required stages, eligible/valid
+Status includes `state`, the observed `corpus_id`, diagnostic `reasons`, required stages, eligible/valid
 document and annotation counts, the active embedder path/dimension/configuration,
 and a processing/configuration `generation`. Thumbnails are optional. Corpus
 responses cover a **document page**, not a whole-corpus snapshot: follow `next_after`

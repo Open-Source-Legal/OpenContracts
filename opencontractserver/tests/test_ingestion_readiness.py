@@ -18,6 +18,7 @@ from opencontractserver.annotations.models import (
     StructuralAnnotationSet,
 )
 from opencontractserver.corpuses.models import Corpus
+from opencontractserver.corpuses.services.corpus_service import CorpusService
 from opencontractserver.documents.models import (
     Document,
     DocumentPath,
@@ -273,6 +274,7 @@ class ReadinessTests(ReadinessFixtures, TestCase):
         self.assertEqual(inference.call_args.args[0], [sibling.raw_text])
         good.refresh_from_db()
         first_vector.refresh_from_db()
+        assert first_vector.vector_384 is not None
         self.assertAlmostEqual(float(good.vector_384[0]), 0.1)
         self.assertAlmostEqual(float(first_vector.vector_384[0]), 0.2)
         self.doc.refresh_from_db()
@@ -348,6 +350,29 @@ class ReadinessTests(ReadinessFixtures, TestCase):
                 payload, self.doc, {"clause": self.annotation.pk}, self.user
             )
             self.assertEqual(assess_document(self.doc, self.corpus)["state"], "ready")
+
+    def test_remote_reupload_at_a_new_dimension_clears_the_stale_sibling_vector(
+        self,
+    ):
+        from opencontractserver.worker_uploads.tasks import _store_embeddings
+
+        payload = {
+            "embedder_path": EMBEDDER,
+            "model_identity": "model-v2",
+            "document_embedding": [0.1] * 384,
+            "annotation_embeddings": {},
+        }
+        with override_settings(EMBEDDING_MODEL_REVISIONS={EMBEDDER: "model-v2"}):
+            _store_embeddings(payload, self.doc, {}, self.user)
+            # The service behind the same path now emits 768-wide vectors.
+            payload["document_embedding"] = [0.2] * 768
+            with patch.object(TestEmbedder, "vector_size", 768):
+                _store_embeddings(payload, self.doc, {}, self.user)
+                configuration = effective_embedder(self.corpus)[2]
+        embedding = Embedding.objects.get(document=self.doc, embedder_path=EMBEDDER)
+        self.assertIsNone(embedding.vector_384)
+        self.assertEqual(len(embedding.vector_768), 768)
+        self.assertEqual(embedding.configuration, configuration)
 
     def test_migration_repairs_historical_completed_worker_copies_only(self):
         import importlib
@@ -431,6 +456,57 @@ class ReadinessTests(ReadinessFixtures, TestCase):
         self.assertEqual(
             client.get("/api/readiness/worker/?limit=101").status_code, 400
         )
+
+    def test_document_status_picks_the_newest_corpus_and_accepts_an_explicit_one(
+        self,
+    ):
+        later = Corpus.objects.create(title="Later corpus", creator=self.user)
+        DocumentPath.objects.create(
+            document=self.doc,
+            corpus=later,
+            creator=self.user,
+            path="/agreement",
+            version_number=1,
+        )
+        client = APIClient()
+        client.force_authenticate(self.user)
+        url = f"/api/readiness/documents/{self.doc.pk}/"
+        # Without a hint the newest current path wins, on every call.
+        for _ in range(2):
+            self.assertEqual(client.get(url).data["corpus_id"], later.pk)
+        explicit = client.get(url, {"corpus": self.corpus.pk})
+        self.assertEqual(explicit.data["corpus_id"], self.corpus.pk)
+        unrelated = Corpus.objects.create(title="Unrelated", creator=self.user)
+        self.assertEqual(client.get(url, {"corpus": unrelated.pk}).status_code, 404)
+        self.assertEqual(client.get(url, {"corpus": "agreement"}).status_code, 400)
+        # A reader of only the older corpus needs the hint to observe it.
+        reader = get_user_model().objects.create_user(username="readiness-reader")
+        for obj in (self.doc, self.corpus):
+            obj.is_public = True
+            obj.save(update_fields=["is_public"])
+        client.force_authenticate(reader)
+        self.assertEqual(client.get(url).status_code, 404)
+        self.assertEqual(client.get(url, {"corpus": self.corpus.pk}).status_code, 200)
+
+    def test_dimension_scoped_coverage_query_stays_scoped_to_assessed_annotations(
+        self,
+    ):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        path, dimension, configuration = effective_embedder(self.corpus)
+        with CaptureQueriesContext(connection) as queries:
+            missing = CorpusService.count_annotations_missing_embeddings(
+                self.corpus, path, dimension=dimension, configuration=configuration
+            )
+        self.assertEqual(missing, 1)
+        validity = [
+            q["sql"] for q in queries.captured_queries if "vector_norm" in q["sql"]
+        ]
+        self.assertEqual(len(validity), 1)
+        # The vector_norm scan must be restricted to the assessed annotations
+        # rather than sweeping every Embedding row in the installation.
+        self.assertIn('"annotation_id" IN (SELECT', validity[0])
 
 
 class ConcurrentRepairTests(ReadinessFixtures, TransactionTestCase):

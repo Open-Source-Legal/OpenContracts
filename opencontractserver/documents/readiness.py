@@ -128,6 +128,7 @@ def assess_document(document, corpus=None):
     result = {
         "schema_version": 1,
         "document_id": document.pk,
+        "corpus_id": corpus.pk if corpus else None,
         "state": "outstanding",
         "generation": None,
         "reasons": [],
@@ -195,6 +196,10 @@ def assess_document(document, corpus=None):
             result["state"] = "failed"
             reasons.append("embedding_repair_failed")
         # A concurrent parse/configuration change invalidates this observation.
+        # effective_embedder is deliberately evaluated again rather than
+        # reused: it re-reads the uncached pipeline settings, so an embedder
+        # or revision change that landed while this observation was being
+        # built is caught along with a concurrent re-parse.
         fresh = Document.objects.get(pk=document.pk)
         if generation(fresh, effective_embedder(corpus)[2]) != result["generation"]:
             result["state"] = "unavailable"

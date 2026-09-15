@@ -586,16 +586,24 @@ def _store_embeddings(
             # unverified when the server cannot assess their configuration.
             logger.warning("Worker embedding provenance unavailable", exc_info=True)
 
-    # Document embedding
+    # Document embedding. Go through the manager so a re-upload at a new
+    # dimension clears the stale sibling vector instead of leaving two
+    # vectors labelled with one configuration.
     doc_embedding = embeddings_data.get("document_embedding")
     if doc_embedding:
-        _store_single_embedding(
-            vector=doc_embedding,
-            embedder_path=embedder_path,
-            document=corpus_doc,
-            creator=user,
-            configuration=configuration,
-        )
+        if _get_vector_field(len(doc_embedding)):
+            Embedding.objects.store_embedding(
+                creator=user,
+                dimension=len(doc_embedding),
+                vector=doc_embedding,
+                embedder_path=embedder_path,
+                configuration=configuration,
+                document_id=corpus_doc.pk,
+            )
+        else:
+            logger.warning(
+                f"Unsupported embedding dimension {len(doc_embedding)}, skipping."
+            )
 
     # Annotation embeddings
     annot_embeddings = embeddings_data.get("annotation_embeddings", {})
@@ -635,34 +643,6 @@ def _store_embeddings(
             f"Stored {len(embeddings_to_create)} annotation embeddings "
             f"(embedder={embedder_path})"
         )
-
-
-def _store_single_embedding(
-    vector: list[float],
-    embedder_path: str,
-    document: Any = None,
-    annotation: Any = None,
-    creator: Any = None,
-    configuration: str = "",
-) -> Embedding | None:
-    """Store a single embedding, determining the correct vector field by dimension."""
-    field_name = _get_vector_field(len(vector))
-    if not field_name:
-        logger.warning(f"Unsupported embedding dimension {len(vector)}, skipping.")
-        return None
-
-    defaults = {field_name: vector, "configuration": configuration}
-    if creator is not None:
-        defaults["creator"] = creator
-
-    # Use update_or_create to handle duplicates gracefully
-    emb, created = Embedding.objects.update_or_create(
-        embedder_path=embedder_path,
-        document=document,
-        annotation=annotation,
-        defaults=defaults,
-    )
-    return emb
 
 
 def _get_vector_field(dimension: int) -> str | None:

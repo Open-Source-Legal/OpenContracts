@@ -1077,7 +1077,9 @@ def _embed_relationship(
         )
         return False
 
-    embedding = relationship.add_embedding(embedder_path, vector)
+    embedding = relationship.add_embedding(
+        embedder_path, vector, configuration=embedding_configuration(embedder)
+    )
     if embedding is None:
         logger.error(
             "store_embedding returned None for relationship %s using %s",
