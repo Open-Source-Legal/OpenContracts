@@ -44,6 +44,10 @@ def valid_embeddings(path, dimension, configuration):
     from opencontractserver.annotations.models import Embedding
     from opencontractserver.constants.search import DIM_TO_FIELD_MAP
 
+    if configuration is None:
+        # The column is non-null with "" for unverified vectors; a None filter
+        # would become IS NULL and silently match nothing.
+        raise ValueError("valid_embeddings requires a configuration fingerprint")
     field = DIM_TO_FIELD_MAP[dimension]
     return (
         Embedding.objects.filter(

@@ -215,7 +215,11 @@ class HasEmbeddingMixin:
         )
 
     def add_embeddings(
-        self, embedder_path: str, vectors: list[list[float]]
+        self,
+        embedder_path: str,
+        vectors: list[list[float]],
+        *,
+        configuration: str = "",
     ) -> list[Any]:
         """
         Creates or updates multiple Embedding records for this object, given a collection of
@@ -224,6 +228,7 @@ class HasEmbeddingMixin:
         Args:
             embedder_path (str): Name/identifier for the embedding model used.
             vectors (List[List[float]]): A list of lists of floats, each representing one embedding.
+            configuration (str): The embedder's settings fingerprint, as for ``add_embedding``.
 
         Returns:
             List[Embedding]: A list of created/updated Embedding objects.
@@ -239,6 +244,7 @@ class HasEmbeddingMixin:
                 dimension=dimension,
                 vector=vec,
                 embedder_path=embedder_path,
+                configuration=configuration,
                 **kwargs,
             )
             embedding_objects.append(emb)

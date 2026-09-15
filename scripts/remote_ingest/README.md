@@ -267,8 +267,11 @@ Status includes `state`, the observed `corpus_id`, diagnostic `reasons`, require
 document and annotation counts, the active embedder path/dimension/configuration,
 and a processing/configuration `generation`. Thumbnails are optional. Corpus
 responses cover a **document page**, not a whole-corpus snapshot: follow `next_after`
-with `?after=<id>`. `limit` defaults to 20 and cannot exceed 100. Text inspection is
-capped at 16 MiB per document; inaccessible or larger artifacts are unavailable.
+with `?after=<id>`. `limit` defaults to 20 and cannot exceed 100. The embedder is
+resolved once per page, and a document whose assessment fails is reported
+`unavailable` with reason `assessment_failed` without failing the page. Text
+inspection is capped at 16 MiB per document; inaccessible or larger artifacts are
+unavailable.
 
 POST queues at most 100 missing/invalid vectors, including the document vector.
 Poll GET for the persisted repair `status`, `attempted`, `succeeded`, `failed`, and

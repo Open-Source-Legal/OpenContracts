@@ -8,7 +8,11 @@ from rest_framework.views import APIView
 from opencontractserver.corpuses.models import Corpus
 from opencontractserver.corpuses.services.corpus_documents import CorpusDocumentService
 from opencontractserver.documents.models import Document, DocumentPath
-from opencontractserver.documents.readiness import assess_document, request_repair
+from opencontractserver.documents.readiness import (
+    assess_document,
+    assess_documents,
+    request_repair,
+)
 from opencontractserver.shared.services.base import BaseService
 from opencontractserver.types.enums import PermissionTypes
 from opencontractserver.worker_uploads.auth import WorkerTokenAuthentication
@@ -37,7 +41,7 @@ def corpus_page(request, documents, corpus):
             "schema_version": 1,
             "scope": "document_page",
             "corpus_id": corpus.pk,
-            "documents": [assess_document(doc, corpus) for doc in page[:limit]],
+            "documents": assess_documents(page[:limit], corpus),
             "next_after": page[limit - 1].pk if len(page) > limit else None,
         }
     )

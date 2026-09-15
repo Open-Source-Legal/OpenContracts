@@ -32,6 +32,7 @@ from opencontractserver.documents.readiness import (
 )
 from opencontractserver.pipeline.embedders.test_embedder import TestEmbedder
 from opencontractserver.tasks.readiness_tasks import repair_document_embeddings
+from opencontractserver.utils.embedding_identity import valid_embeddings
 from opencontractserver.worker_uploads.models import (
     CorpusAccessToken,
     WorkerAccount,
@@ -371,6 +372,7 @@ class ReadinessTests(ReadinessFixtures, TestCase):
                 configuration = effective_embedder(self.corpus)[2]
         embedding = Embedding.objects.get(document=self.doc, embedder_path=EMBEDDER)
         self.assertIsNone(embedding.vector_384)
+        assert embedding.vector_768 is not None
         self.assertEqual(len(embedding.vector_768), 768)
         self.assertEqual(embedding.configuration, configuration)
 
@@ -507,6 +509,77 @@ class ReadinessTests(ReadinessFixtures, TestCase):
         # The vector_norm scan must be restricted to the assessed annotations
         # rather than sweeping every Embedding row in the installation.
         self.assertIn('"annotation_id" IN (SELECT', validity[0])
+
+    def test_embedder_missing_required_settings_is_reported_unavailable(self):
+        from opencontractserver.pipeline.base.settings_schema import (
+            ConfigurationError,
+        )
+
+        client = APIClient()
+        client.force_authenticate(self.user)
+        with patch.object(
+            TestEmbedder,
+            "__init__",
+            side_effect=ConfigurationError(EMBEDDER, ["base_url"]),
+        ):
+            result = assess_document(self.doc, self.corpus)
+            response = client.get(f"/api/readiness/documents/{self.doc.pk}/")
+        self.assertEqual(result["state"], "unavailable")
+        self.assertEqual(result["reasons"], ["embedder_configuration_unavailable"])
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["state"], "unavailable")
+
+    def test_corpus_page_isolates_a_failing_document_and_resolves_once(self):
+        from opencontractserver.documents import readiness
+
+        copy = Document.objects.create(
+            title="Copy",
+            creator=self.user,
+            processing_status="completed",
+            txt_extract_file=self.doc.txt_extract_file,
+        )
+        DocumentPath.objects.create(
+            document=copy,
+            corpus=self.corpus,
+            creator=self.user,
+            path="/copy",
+            version_number=1,
+        )
+        real = readiness.assess_document
+
+        def explode(document, corpus, *, embedder=None):
+            if document.pk == copy.pk:
+                raise RuntimeError("boom")
+            return real(document, corpus, embedder=embedder)
+
+        client = APIClient()
+        client.force_authenticate(self.user)
+        with patch.object(
+            readiness, "assess_document", side_effect=explode
+        ), patch.object(
+            readiness, "effective_embedder", wraps=effective_embedder
+        ) as resolve:
+            response = client.get(f"/api/readiness/corpuses/{self.corpus.pk}/")
+        self.assertEqual(response.status_code, 200)
+        observed = {d["document_id"]: d for d in response.data["documents"]}
+        self.assertEqual(observed[self.doc.pk]["state"], "outstanding")
+        self.assertEqual(observed[copy.pk]["state"], "unavailable")
+        self.assertEqual(observed[copy.pk]["reasons"], ["assessment_failed"])
+        self.assertEqual(resolve.call_count, 1)
+
+    def test_bulk_add_embeddings_records_the_configuration(self):
+        configuration = effective_embedder(self.corpus)[2]
+        self.annotation.add_embeddings(
+            EMBEDDER, [[0.1] * 384], configuration=configuration
+        )
+        self.assertEqual(
+            Embedding.objects.get(annotation=self.annotation).configuration,
+            configuration,
+        )
+
+    def test_validity_filter_requires_a_configuration_fingerprint(self):
+        with self.assertRaises(ValueError):
+            valid_embeddings(EMBEDDER, 384, None)
 
 
 class ConcurrentRepairTests(ReadinessFixtures, TransactionTestCase):

@@ -23,6 +23,7 @@ from opencontractserver.documents.models import (
     PipelineSettings,
 )
 from opencontractserver.pipeline.base.embedder import BaseEmbedder
+from opencontractserver.pipeline.base.settings_schema import ConfigurationError
 from opencontractserver.pipeline.utils import get_component_by_name
 from opencontractserver.shared.services.base import BaseService
 from opencontractserver.types.enums import PermissionTypes
@@ -56,7 +57,14 @@ def effective_embedder(corpus=None, *, path=None):
         raise ReadinessUnavailable("embedder_configuration_unavailable") from None
     if not issubclass(component, BaseEmbedder):
         raise ReadinessUnavailable("invalid_embedder")
-    embedder = component(component_settings=pipeline.get_full_component_settings(path))
+    try:
+        # Passing settings makes construction strict: a required setting that
+        # is unset raises rather than producing a half-configured embedder.
+        embedder = component(
+            component_settings=pipeline.get_full_component_settings(path)
+        )
+    except ConfigurationError:
+        raise ReadinessUnavailable("embedder_configuration_unavailable") from None
     if embedder.vector_size not in DIM_TO_FIELD_MAP:
         raise ReadinessUnavailable("unsupported_dimension")
     return path, embedder.vector_size, embedding_configuration(embedder)
@@ -124,7 +132,40 @@ def repair_progress(document):
     }
 
 
-def assess_document(document, corpus=None):
+def unavailable(document, corpus, reason):
+    """The minimal observation for a document whose assessment did not run."""
+    return {
+        "schema_version": 1,
+        "document_id": document.pk,
+        "corpus_id": corpus.pk if corpus else None,
+        "state": "unavailable",
+        "generation": None,
+        "reasons": [reason],
+    }
+
+
+def assess_documents(documents, corpus):
+    """Assess a page of documents without letting one of them fail the page.
+
+    The corpus embedder is resolved once for the whole page; if that fails,
+    every document reports the reason through its own assessment.
+    """
+    try:
+        embedder = effective_embedder(corpus)
+    except ReadinessUnavailable:
+        embedder = None
+    results = []
+    for document in documents:
+        try:
+            results.append(assess_document(document, corpus, embedder=embedder))
+        except Exception:
+            logger.exception("Readiness assessment failed for document %s", document.pk)
+            results.append(unavailable(document, corpus, "assessment_failed"))
+    return results
+
+
+def assess_document(document, corpus=None, *, embedder=None):
+    """Observe one document; ``embedder`` is an ``effective_embedder`` result."""
     result = {
         "schema_version": 1,
         "document_id": document.pk,
@@ -144,7 +185,7 @@ def assess_document(document, corpus=None):
         "repair": repair_progress(document),
     }
     try:
-        path, dimension, configuration = effective_embedder(corpus)
+        path, dimension, configuration = embedder or effective_embedder(corpus)
         result["embedding"] = {
             "path": path,
             "dimension": dimension,
@@ -195,13 +236,12 @@ def assess_document(document, corpus=None):
         ):
             result["state"] = "failed"
             reasons.append("embedding_repair_failed")
-        # A concurrent parse/configuration change invalidates this observation.
-        # effective_embedder is deliberately evaluated again rather than
-        # reused: it re-reads the uncached pipeline settings, so an embedder
-        # or revision change that landed while this observation was being
-        # built is caught along with a concurrent re-parse.
+        # A concurrent re-parse invalidates this observation. Configuration
+        # changes are not re-checked here: the generation already carries the
+        # configuration, so the next observation reports a new generation and
+        # a queued repair refuses to run against the old one.
         fresh = Document.objects.get(pk=document.pk)
-        if generation(fresh, effective_embedder(corpus)[2]) != result["generation"]:
+        if generation(fresh, configuration) != result["generation"]:
             result["state"] = "unavailable"
             reasons.append("generation_changed")
     except (OSError, ValueError, LookupError, UnicodeError) as exc:
