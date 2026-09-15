@@ -47,6 +47,10 @@ from opencontractserver.shared.mixins import HasEmbeddingMixin
 from opencontractserver.shared.Models import BaseOCModel
 from opencontractserver.shared.utils import calc_oc_file_path
 
+from .authority_pack_models import (  # noqa: F401
+    AuthorityPackActivation,
+    AuthorityPackArtifact,
+)
 from .compact_json import (
     compact_annotation_json,
     is_compact_format,

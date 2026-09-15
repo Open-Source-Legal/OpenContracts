@@ -71,13 +71,14 @@ class AuthorityPackLoaderTests(TestCase):
     def setUp(self):
         self.owner = User.objects.create_user(
             username="pack-owner",
+            is_superuser=True,
             # Authority packs are installed by an operator/service account.
             # The default end-user quota is intentionally enforced by the
             # shared import path and is not bypassed by this command.
             is_usage_capped=False,
         )
 
-    def _load_pack(self, *, public: bool = True) -> str:
+    def _load_pack(self, *, public: bool = False) -> str:
         stdout = StringIO()
         call_command(
             "load_authority_pack",
@@ -108,7 +109,7 @@ class AuthorityPackLoaderTests(TestCase):
         for slug, (title, section_count) in expected_corpora.items():
             corpus = actual[slug]
             self.assertEqual(corpus.title, title)
-            self.assertTrue(corpus.is_public)
+            self.assertFalse(corpus.is_public)
             self.assertFalse(corpus.auto_branding_enabled)
             self.assertEqual(
                 DocumentPath.objects.filter(

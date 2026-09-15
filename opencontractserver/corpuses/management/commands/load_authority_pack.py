@@ -12,6 +12,10 @@ from opencontractserver.enrichment.services.authority_pack_service import (
     AuthorityPackService,
     _ValidatedCorpus,
 )
+from opencontractserver.enrichment.services.authority_permissions import (
+    DENIED,
+    is_authority_admin,
+)
 
 User = get_user_model()
 
@@ -65,9 +69,18 @@ class Command(AuthorityPackService, BaseCommand):
             creator = User.objects.get(username=options["creator"])
         except User.DoesNotExist as exc:
             raise CommandError(f"No user named {options['creator']!r}") from exc
+        if not is_authority_admin(creator):
+            raise CommandError(DENIED)
 
         if options["check"]:
             self._report_preflight(Path(options["path"]), creator=creator)
+            plan = AuthorityPackService.preflight_path(
+                Path(options["path"]), creator=creator
+            )
+            if options["public"] and not plan.can_publish:
+                raise CommandError(
+                    "This authority pack is not approved for public installation."
+                )
             return
 
         result = AuthorityPackService.install_path(
@@ -139,6 +152,11 @@ class Command(AuthorityPackService, BaseCommand):
         # they are printed here.
         for warning in result.post_commit_warnings:
             self.stdout.write(self.style.WARNING(warning))
+        self.stdout.write(
+            f"Activation: {result.pack.activation_status}; "
+            f"version: {result.pack.active_version}; "
+            f"fingerprint: {result.pack.active_fingerprint}"
+        )
 
     def _report_preflight(self, pack_dir: Path, *, creator: Any) -> None:
         """Print the same validation the GUI preflight runs, and write nothing.

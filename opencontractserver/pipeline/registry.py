@@ -173,7 +173,7 @@ def _packs_under(root: Path) -> list[Path]:
     ]
 
 
-def authority_pack_dirs() -> list[Path]:
+def authority_pack_dirs(*, for_catalog: bool = False) -> list[Path]:
     """Return every authority-pack directory to scan for in-pack providers.
 
     Union of (a) every immediate subdirectory of the in-tree
@@ -202,6 +202,8 @@ def authority_pack_dirs() -> list[Path]:
             root = Path(install_dir).expanduser()
             if root.is_dir():
                 dirs.extend(p.resolve() for p in _packs_under(root))
+                if for_catalog and (root / ".staged").is_dir():
+                    dirs.extend(p.resolve() for p in _packs_under(root / ".staged"))
         for raw in getattr(settings, "AUTHORITY_PACK_ROOTS", []) or []:
             root = Path(raw).expanduser()
             if root.is_dir():
@@ -225,7 +227,36 @@ def authority_pack_dirs() -> list[Path]:
             continue
         seen.add(resolved)
         unique.append(path)
-    return unique
+    from opencontractserver.enrichment.services.authority_pack_artifacts import (
+        managed_paths,
+    )
+
+    managed = managed_paths()
+    if not managed:
+        return unique
+    # A persisted active version overrides mutable filesystem copies of that id.
+    # Existing configured packs remain available until explicitly migrated.
+    import yaml
+
+    legacy = []
+    candidate_ids = set()
+    for path in unique:
+        try:
+            manifest = yaml.safe_load((path / "pack.yaml").read_text()) or {}
+            pack_id = str(manifest.get("name") or path.name)
+        except (OSError, ValueError, yaml.YAMLError, AttributeError):
+            pack_id = path.name
+        candidate_ids.add(pack_id)
+        if for_catalog or pack_id not in managed:
+            legacy.append(path)
+    return [
+        *legacy,
+        *(
+            path
+            for pack_id, path in managed.items()
+            if not for_catalog or pack_id not in candidate_ids
+        ),
+    ]
 
 
 def pack_component_modules(pack_dir: Path, subdir_name: str) -> list[Path]:
@@ -1021,14 +1052,36 @@ class PipelineComponentRegistry:
 
 
 # Lazy singleton access
-@lru_cache(maxsize=1)
 def get_registry() -> PipelineComponentRegistry:
     """
     Get the singleton pipeline component registry.
 
     The registry is initialized on first access and cached permanently.
     """
-    return PipelineComponentRegistry()
+    from opencontractserver.enrichment.services.authority_pack_artifacts import (
+        active_revision,
+    )
+
+    global _registry_pack_revision
+    revision = active_revision()
+    with PipelineComponentRegistry._lock:
+        previous = (
+            PipelineComponentRegistry._instance,
+            PipelineComponentRegistry._initialized,
+            _registry_pack_revision,
+        )
+        if revision != _registry_pack_revision:
+            reset_registry()
+            _registry_pack_revision = revision
+        try:
+            return PipelineComponentRegistry()
+        except Exception:
+            (
+                PipelineComponentRegistry._instance,
+                PipelineComponentRegistry._initialized,
+                _registry_pack_revision,
+            ) = previous
+            raise
 
 
 def get_all_parsers_cached() -> tuple[PipelineComponentDefinition, ...]:
@@ -1341,7 +1394,6 @@ def reset_registry() -> None:
     with PipelineComponentRegistry._lock:
         PipelineComponentRegistry._instance = None
         PipelineComponentRegistry._initialized = False
-        get_registry.cache_clear()
         get_supported_mime_types.cache_clear()
         get_allowed_mime_types.cache_clear()
     # Installed pack paths determine both component discovery and each in-pack
@@ -1351,3 +1403,6 @@ def reset_registry() -> None:
     )
 
     reset_source_hosts_cache()
+
+
+_registry_pack_revision = None
