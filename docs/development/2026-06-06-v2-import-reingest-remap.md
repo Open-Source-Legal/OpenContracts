@@ -326,6 +326,15 @@ chunked across rows keyed by `import_run_id` without changing the fan-in contrac
 
 ### 6.4 Lifecycle & exactly-once finalization
 
+Unchanged targeted imports also contribute a populated `DONE` id-map.
+`utils.importing.recover_annotation_id_map` matches the incoming annotation's
+label, text, location, and metadata against readable annotations on the same
+document and corpus. It also runs the existing anchorer against
+the stored PAWLs/text layer; it does not parse source bytes or create annotations.
+This works when a new archive renumbers export-local IDs or changes import mode.
+Missing or ambiguous
+matches remain unmapped, and `_import_v2_relationships` logs any lost endpoints.
+
 1. **Enumerate (in `_import_corpus`, reingest mode):**
    - Mint `import_run_id = uuid4()` once for the import.
    - If `relationships_data` is non-empty, create
