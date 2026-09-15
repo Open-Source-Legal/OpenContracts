@@ -14,9 +14,9 @@ from typing import Any, cast
 from django.conf import settings
 from django.db import transaction
 from django.db.models import QuerySet
-from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import permissions, status
+from rest_framework.exceptions import NotFound
 from rest_framework.generics import ListAPIView, RetrieveAPIView
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.parsers import JSONParser, MultiPartParser
@@ -134,6 +134,12 @@ class WorkerDocumentUploadView(APIView):
         # non-atomic. Under concurrent burst traffic a caller can marginally
         # exceed the limit. This is acceptable for trusted internal workers;
         # for strict enforcement use a reverse proxy (e.g. nginx limit_req).
+        #
+        # Keyed replays are exempt: they create no rows, and a client
+        # reconciling a lost response must not be refused because its
+        # original request already spent the budget. Each replay still hashes
+        # the payload to detect a changed submission; bounding that work per
+        # request is the reverse proxy's job, not this counter's.
         client_key = request.headers.get("Idempotency-Key")
         replay = (
             client_key
@@ -271,9 +277,10 @@ class WorkerDocumentUploadRetryView(APIView):
     permission_classes = [IsValidWorkerToken]
 
     def post(self, request, upload_id):
-        get_object_or_404(receipts_for_token(request.auth), pk=upload_id)
         try:
             upload, queued = retry_upload(request.auth, upload_id)
+        except WorkerDocumentUpload.DoesNotExist:
+            raise NotFound()
         except UploadConflict as exc:
             return Response({"error": str(exc)}, status=status.HTTP_409_CONFLICT)
         if queued:

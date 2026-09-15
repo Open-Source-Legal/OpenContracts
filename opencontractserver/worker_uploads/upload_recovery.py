@@ -4,16 +4,15 @@ import hashlib
 import re
 from uuid import UUID
 
-from django.db import transaction
+from django.db import connection, transaction
 from django.db.models import Q
 from django.utils import timezone
 
-from opencontractserver.utils.upload_identity import upload_payload_digest
-from opencontractserver.worker_uploads.models import (
-    UploadStatus,
-    WorkerAccount,
-    WorkerDocumentUpload,
+from opencontractserver.constants.document_processing import (
+    MAX_UPLOAD_ERROR_MESSAGE_LENGTH,
 )
+from opencontractserver.utils.upload_identity import upload_payload_digest
+from opencontractserver.worker_uploads.models import UploadStatus, WorkerDocumentUpload
 from opencontractserver.worker_uploads.run_models import IngestionRun
 from opencontractserver.worker_uploads.run_policy import (
     RunPolicyError,
@@ -38,6 +37,24 @@ def receipts_for_token(token):
     )
 
 
+def _admission_lock(token, client_key):
+    """Serialize identical keyed submissions for the current transaction.
+
+    The lock is per (account, corpus, key) rather than a row lock on the
+    account: the remote CLI submits distinct keys in parallel, and with
+    ``ATOMIC_REQUESTS`` an account-wide lock would be held until the whole
+    request commits, serializing every upload behind one blob write.
+    """
+    digest = hashlib.sha256(
+        f"{token.worker_account_id}:{token.corpus_id}:{client_key}".encode()
+    ).digest()
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT pg_advisory_xact_lock(%s)",
+            [int.from_bytes(digest[:8], "big", signed=True)],
+        )
+
+
 def stage_upload(token, file, metadata, client_key=None):
     if client_key is not None and not re.fullmatch(
         r"[A-Za-z0-9._:-]{1,128}", client_key
@@ -52,9 +69,9 @@ def stage_upload(token, file, metadata, client_key=None):
         identity = upload_payload_digest(sha.hexdigest(), metadata)
     with transaction.atomic():
         if client_key:
-            # Serialize admission for this account before FileField.save writes
-            # a blob. The unique constraint is the final database guarantee.
-            WorkerAccount.objects.select_for_update().get(pk=token.worker_account_id)
+            # Serialize replays of this key before FileField.save writes a
+            # blob. The unique constraint is the final database guarantee.
+            _admission_lock(token, client_key)
             existing = receipts_for_token(token).filter(client_key=client_key).first()
             if existing:
                 if existing.payload_digest != identity:
@@ -89,7 +106,7 @@ def stage_upload(token, file, metadata, client_key=None):
 
 
 def record_failure(upload, message):
-    message = message[:1000]
+    message = message[:MAX_UPLOAD_ERROR_MESSAGE_LENGTH]
     upload.error_message = message
     upload.error_history = [
         *upload.error_history,

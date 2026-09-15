@@ -282,7 +282,9 @@ class UploadRecoveryTests(TransactionTestCase):
                 self.assertEqual(upload.status, "FAILED")
                 self.assertEqual(upload.file.name, original_name)
                 self.assertEqual(upload.metadata, original_metadata)
-                self.assertTrue(upload.file.storage.exists(original_name))
+                # The source is retained for retries and released once the
+                # receipt can never be retried again.
+                self.assertEqual(upload.file.storage.exists(original_name), attempt < 3)
                 response = self.client.post(
                     f"/api/worker-uploads/documents/{upload.pk}/retry/"
                 )
@@ -330,6 +332,7 @@ class UploadRecoveryTests(TransactionTestCase):
         recover_stalled_uploads()
         first.refresh_from_db()
         self.assertIsNotNone(first.processing_finished)
+        self.assertFalse(first.file.storage.exists(first.file.name))
         self.assertEqual(
             self.client.post(f"/api/worker-uploads/documents/{first.pk}/retry/").json()[
                 "error"

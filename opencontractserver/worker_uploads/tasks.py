@@ -217,6 +217,9 @@ def recover_stalled_uploads() -> dict[str, int]:
                         "processing_finished",
                     ]
                 )
+                if upload.status == UploadStatus.FAILED:
+                    # Terminal: nothing will read the staged source again.
+                    _delete_staging_file(upload)
                 count += 1
 
     # Same sweep for authority-section batches, same compare-and-swap.
@@ -775,9 +778,10 @@ def _fail_upload(
         ]
     )
 
-    # Keyed receipts can be retried with the same prepared source. Preserve the
-    # legacy cleanup contract for requests that did not opt into idempotency.
-    if not upload.client_key:
+    # Keyed receipts can be retried with the same prepared source, so keep it
+    # until the attempts are exhausted and the receipt is terminal. Requests
+    # that did not opt into idempotency keep the legacy cleanup contract.
+    if not upload.client_key or upload.processing_attempts >= MAX_PROCESSING_ATTEMPTS:
         _delete_staging_file(upload)
 
 
