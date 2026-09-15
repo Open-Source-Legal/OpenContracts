@@ -222,7 +222,7 @@ any unavailable observations. It does not poll the unrelated token backlog.
 For mixed results, `3` takes precedence over `2`, then `1`. Codes `0`/`1`/`2`
 follow the bulk-import convention where applicable. Repeating verification keeps
 reporting unresolved failures and preserves their receipt/error. HTTP 401/403,
-404 (missing or inaccessible under this exact token), 429, 5xx, transport errors,
+404 (missing or inaccessible under this worker and corpus), 429, 5xx, transport errors,
 and malformed responses have distinct reasons; none changes the receipt's ledger
 state, attempts or diagnostic history. Correct the cause and rerun verification.
 
@@ -273,9 +273,8 @@ command again to resume unfinished rows.
 
 Use one CLI invocation per ledger at a time, including `plan` and `verify`.
 These cursors do not coordinate ownership across processes. Preparation checkpoints
-recover local work; uncertain uploads stop in `AMBIGUOUS` and are never replayed
-automatically. The broader verification exit contract remains separate work in
-#2320.
+recover local work; uncertain uploads stop in `AMBIGUOUS` until server lookup
+establishes their receipt or absence. See the verification exit codes above.
 
 ### Admission
 
@@ -388,20 +387,39 @@ resolve an explicit server replace/new-document policy. There is no automatic
 replacement or creation of another document for a conflicted path.
 
 Upload state is separate from these checkpoints. Before POST, the worker durably
-records `AMBIGUOUS`; a valid 202 receipt changes it to `UPLOADED`. Only explicit
-429 rejections are retried within the HTTP call. Transport errors, redirects,
-5xx and missing/malformed success receipts remain ambiguous, as does a crash
-between recording intent and receiving the receipt. `run` will not replay them.
-`plan`, `run`, and `verify` return nonzero while any conflict/ambiguous row remains;
-`status` displays the counts. Inspect SQLite `docs` for the path, `prior_status`,
-`sha256`, `conflict_sha256`, receipt and error. Reconcile with the server before
-an operator records a recovered receipt or authorizes another attempt. Local
-artifacts do **not** make POST replay idempotent; server-backed idempotency is a
-separate API change. Receipts also belong to the exact original `CorpusAccessToken`:
-rotating to another token for the same corpus does not grant access to old receipts.
+records a random `client_key`, a digest of source bytes plus semantic metadata and
+preparation configuration, and `AMBIGUOUS`. It sends the key as `Idempotency-Key`.
+Identical replays return the same receipt; changed bytes or metadata return HTTP
+409. Requests without a key retain the legacy create-on-every-POST behavior.
+
+On restart, `run` looks up ambiguous keys before doing preparation. A matching
+receipt restores `UPLOADED`/`COMPLETED`; an explicit authenticated absence permits
+replay with the same key and cached preparation. A timeout, malformed response,
+404 (including an older server without lookup), or authorization failure leaves
+the row ambiguous. `verify` can recover receipts but never replays uploads.
+Legacy ambiguous rows without a client key still require manual reconciliation.
+
+Receipts belong to a worker account and corpus. A replacement token for that
+same pair can list, look up and retry old receipts, including after the original
+token is deleted. Other workers cannot access them; revoked tokens are rejected.
+
+`POST /api/worker-uploads/documents/<receipt>/retry/` retries a failed receipt
+using its retained file and metadata, for at most three server processing
+attempts. `run` uses this endpoint for failed rows with receipts. It does not
+repeat parsing, enrichment or embedding, and needs no local source for this
+server retry. Missing staging files and exhausted retries return HTTP 409.
+Stale attempts are recovered in bounded batches; a live import holds a row lock,
+and fenced ownership prevents an abandoned worker from committing later.
+Attempt errors remain in the receipt's bounded `error_history`.
+
+`GET /api/worker-uploads/documents/by-key/<client_key>/` returns a versioned
+`found` envelope. Only `schema_version: 1, found: false` proves scoped absence.
+Keys use 1–128 ASCII letters, digits, dots, underscores, colons or hyphens.
+Use one ledger with one target, worker account and corpus. Token rotation is
+supported; switching worker accounts changes the key namespace.
 `COMPLETED` means worker-upload transaction completion, not thumbnail/search readiness.
 
-Existing SQLite ledgers gain two nullable conflict columns in place; no export or
+Existing SQLite ledgers gain nullable conflict and identity columns in place; no export or
 one-time migration is needed. Rows without a manifest run as uncached work after
 the identities above are configured. Back up SQLite and its artifacts together.
 The ledger and its SQLite recovery files are restricted to owner read/write

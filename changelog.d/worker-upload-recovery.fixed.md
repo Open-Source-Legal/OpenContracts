@@ -1,0 +1,1 @@
+Worker uploads accept durable client keys, return the same receipt for identical replays, and support receipt lookup across token rotation. Processing uses fenced transactions and bounded retries; the remote CLI reconciles lost responses and retries existing receipts without repeating preparation.

@@ -299,6 +299,17 @@ class WorkerDocumentUpload(models.Model):
         related_name="uploads",
         help_text="Token used for this upload.",
     )
+    worker_account = models.ForeignKey(
+        WorkerAccount,
+        on_delete=models.CASCADE,
+        null=True,
+        help_text="Stable receipt owner across token rotation.",
+    )
+    client_key = models.CharField(max_length=128, null=True, blank=True)
+    payload_digest = models.CharField(max_length=64, blank=True, default="")
+    processing_token = models.UUIDField(null=True)
+    processing_attempts = models.PositiveIntegerField(default=0)
+    error_history = models.JSONField(default=list)
     corpus = models.ForeignKey(
         "corpuses.Corpus",
         on_delete=models.CASCADE,
@@ -338,6 +349,13 @@ class WorkerDocumentUpload(models.Model):
 
     class Meta:
         ordering = ["created"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["worker_account", "corpus", "client_key"],
+                condition=models.Q(client_key__isnull=False),
+                name="unique_worker_upload_client_key",
+            )
+        ]
         indexes = [
             models.Index(fields=["status", "created"]),
             models.Index(fields=["corpus", "status"]),
